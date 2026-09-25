@@ -438,7 +438,6 @@ import {
   shouldRetargetThreadPullRequestPanel,
   shouldOpenProactiveTurnDiff,
   shouldRenderPreviewMiniPlayer,
-  getStartedThreadModelChangeBlockReason,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
   type LocalDispatchSnapshot,
@@ -2595,12 +2594,16 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.modelSelection.instanceId ??
     activeProjectDefaultModelSelection?.instanceId ??
     null;
-  const lockedProvider = deriveLockedProvider({
+  // ViewCode never locks a started thread to its provider: picking another
+  // provider hands the conversation off on the next turn. `boundProvider` is
+  // the driver the thread's native session belongs to, used to flag handoffs.
+  const boundProvider = deriveLockedProvider({
     thread: activeThread,
     selectedProvider: selectedProviderByThreadId,
     threadProvider,
     providers: providerStatuses,
   });
+  const lockedProvider: ProviderDriverKind | null = null;
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;
@@ -9314,14 +9317,9 @@ export default function ChatView(props: ChatViewProps) {
       if (!activeThread) {
         return null;
       }
-      const reason = getStartedThreadModelChangeBlockReason({
-        providers: providerStatuses,
-        hasStartedSession: activeThread.session !== null,
-        currentModelSelection: activeThread.modelSelection,
-        currentProviderInstanceId: activeThread.session?.providerInstanceId ?? null,
-        nextModelSelection: { instanceId, model },
-      });
-      return reason ? `${reason.description} Start a new thread to use this model.` : null;
+      void instanceId;
+      void model;
+      return null;
     },
     [activeThread, providerStatuses],
   );
@@ -9334,27 +9332,18 @@ export default function ChatView(props: ChatViewProps) {
       // are rejected by returning early; the server remains authoritative too.
       const entry = providerStatuses.find((snapshot) => snapshot.instanceId === instanceId);
       const resolvedDriverKind = entry?.driver ?? null;
-      if (
-        lockedProvider !== null &&
-        resolvedDriverKind !== null &&
-        resolvedDriverKind !== lockedProvider
-      ) {
-        if (options?.focusComposer !== false) scheduleComposerFocus();
-        return;
-      }
-      if (lockedProvider !== null && activeThread.session?.providerInstanceId) {
-        const currentEntry = providerStatuses.find(
-          (snapshot) => snapshot.instanceId === activeThread.session?.providerInstanceId,
-        );
-        if (
-          currentEntry?.continuation?.groupKey &&
-          entry?.continuation?.groupKey &&
-          currentEntry.continuation.groupKey !== entry.continuation.groupKey
-        ) {
-          if (options?.focusComposer !== false) scheduleComposerFocus();
-          return;
-        }
-      }
+      const boundEntry = providerStatuses.find(
+        (snapshot) =>
+          snapshot.instanceId ===
+          (activeThread.session?.providerInstanceId ?? activeThread.modelSelection.instanceId),
+      );
+      const crossesSession =
+        boundProvider !== null &&
+        entry !== undefined &&
+        (entry.driver !== boundProvider ||
+          (boundEntry?.continuation?.groupKey !== undefined &&
+            entry.continuation?.groupKey !== undefined &&
+            boundEntry.continuation.groupKey !== entry.continuation.groupKey));
       const resolvedModel = resolveAppModelSelectionForInstance(
         instanceId,
         settings,
@@ -9369,21 +9358,12 @@ export default function ChatView(props: ChatViewProps) {
         instanceId,
         model: resolvedModel,
       };
-      const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
-        providers: providerStatuses,
-        hasStartedSession: activeThread.session !== null,
-        currentModelSelection: activeThread.modelSelection,
-        currentProviderInstanceId: activeThread.session?.providerInstanceId ?? null,
-        nextModelSelection,
-      });
-      if (modelChangeBlockReason) {
+      if (crossesSession) {
         toastManager.add({
-          type: "warning",
-          title: modelChangeBlockReason.title,
-          description: modelChangeBlockReason.description,
+          type: "info",
+          title: "Context will be handed off",
+          description: `Your next message continues this chat on ${entry?.displayName ?? "the new provider"} with a recap of the conversation so far.`,
         });
-        if (options?.focusComposer !== false) scheduleComposerFocus();
-        return;
       }
       setComposerDraftModelSelection(
         scopeThreadRef(activeThread.environmentId, activeThread.id),

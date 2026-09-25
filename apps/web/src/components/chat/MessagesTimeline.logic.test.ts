@@ -1353,6 +1353,40 @@ describe("deriveMessagesTimelineRows", () => {
         id: "compaction-entry",
         createdAt: "2026-01-01T00:00:00Z",
         label: "Compacted context 899K → 19K tokens",
+        variant: "compaction",
+      },
+    ]);
+  });
+
+  it("renders a cross-provider handoff as a divider card", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "handoff-entry",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:00Z",
+          entry: {
+            id: "handoff",
+            createdAt: "2026-01-01T00:00:00Z",
+            label: "Context handed off from claude-opus-4-6 (claudeAgent) to gpt-5-codex (codex)",
+            tone: "info",
+            sourceActivityKind: "viewcode.handoff",
+          },
+        },
+      ],
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+
+    expect(rows).toEqual([
+      {
+        kind: "context-compaction",
+        id: "handoff-entry",
+        createdAt: "2026-01-01T00:00:00Z",
+        label: "Context handed off from claude-opus-4-6 (claudeAgent) to gpt-5-codex (codex)",
+        variant: "handoff",
       },
     ]);
   });

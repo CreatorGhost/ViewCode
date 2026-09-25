@@ -1,4 +1,5 @@
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
+
 export { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
@@ -38,6 +39,13 @@ import {
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+
+export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
+
+/** Activities that render as a full-width divider instead of a work row. */
+export function isTimelineDividerActivityKind(kind: string | undefined): boolean {
+  return kind === "context-compaction" || kind === HANDOFF_ACTIVITY_KIND;
+}
 
 const TIMELINE_MINIMAP_ITEM_SPACING = 8;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
@@ -322,7 +330,7 @@ function isActivityEntry(entry: TimelineEntry): entry is ActivityEntry {
     : entry.kind === "work" &&
         entry.entry.agentSpawn === undefined &&
         entry.entry.questionAnswer === undefined &&
-        entry.entry.sourceActivityKind !== "context-compaction" &&
+        !isTimelineDividerActivityKind(entry.entry.sourceActivityKind) &&
         entry.entry.tone !== "error";
 }
 
@@ -383,6 +391,8 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       label: string;
+      /** Compaction divider, or a ViewCode cross-provider handoff card. */
+      variant: "compaction" | "handoff";
     }
   | {
       kind: "message";
@@ -718,7 +728,7 @@ function deriveTurnFolds(input: {
         continue;
       }
       const isCompaction =
-        entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction";
+        entry.kind === "work" && isTimelineDividerActivityKind(entry.entry.sourceActivityKind);
       const isSingleTrailingActivity =
         trailingEntryCount === 1 &&
         entry.kind === "work" &&
@@ -753,7 +763,7 @@ function deriveTurnFolds(input: {
     const hidesFoldableWork = group.entries.some(
       (entry) =>
         hiddenEntryIds.has(entry.id) &&
-        !(entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction") &&
+        !(entry.kind === "work" && isTimelineDividerActivityKind(entry.entry.sourceActivityKind)) &&
         !(entry.kind === "message" && entry.message.role === "reasoning"),
     );
     if (!hidesFoldableWork) {
@@ -1019,7 +1029,7 @@ export function deriveMessagesTimelineRows(input: {
       !entryBelongsToActiveTurn(entry, index) ||
       entry.kind !== "work" ||
       entry.entry.questionAnswer !== undefined ||
-      entry.entry.sourceActivityKind === "context-compaction" ||
+      isTimelineDividerActivityKind(entry.entry.sourceActivityKind) ||
       entry.entry.tone === "error"
     ) {
       break;
@@ -1185,13 +1195,17 @@ export function deriveMessagesTimelineRows(input: {
 
     if (
       timelineEntry.kind === "work" &&
-      timelineEntry.entry.sourceActivityKind === "context-compaction"
+      isTimelineDividerActivityKind(timelineEntry.entry.sourceActivityKind)
     ) {
       nextRows.push({
         kind: "context-compaction",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         label: timelineEntry.entry.label,
+        variant:
+          timelineEntry.entry.sourceActivityKind === HANDOFF_ACTIVITY_KIND
+            ? "handoff"
+            : "compaction",
       });
       continue;
     }
@@ -1226,7 +1240,7 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.kind !== "work" ||
           nextEntry.entry.agentSpawn !== undefined ||
           nextEntry.entry.questionAnswer !== undefined ||
-          nextEntry.entry.sourceActivityKind === "context-compaction" ||
+          isTimelineDividerActivityKind(nextEntry.entry.sourceActivityKind) ||
           nextEntry.entry.tone === "error" ||
           activeWorkEntryIds.has(nextEntry.id) ||
           collapsedEntryIds.has(nextEntry.id) ||
@@ -1611,7 +1625,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "context-compaction": {
       const bc = b as typeof a;
-      return a.createdAt === bc.createdAt && a.label === bc.label;
+      return a.createdAt === bc.createdAt && a.label === bc.label && a.variant === bc.variant;
     }
 
     case "proposed-plan":

@@ -119,6 +119,7 @@ import {
   GlobeIcon,
   HammerIcon,
   MessageCircleIcon,
+  ArrowRightLeftIcon,
   Minimize2Icon,
   MousePointerClickIcon,
   PaintbrushIcon,
@@ -1858,6 +1859,23 @@ function ContextCompactionTimelineRow({
 }: {
   row: Extract<TimelineRow, { kind: "context-compaction" }>;
 }) {
+  if (row.variant === "handoff") {
+    return (
+      <div
+        role="separator"
+        aria-label={row.label}
+        data-timeline-handoff=""
+        className="mx-auto flex w-full max-w-3xl items-center gap-3 py-2 text-xs"
+      >
+        <span className="h-px flex-1 bg-violet-400/30" />
+        <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-violet-200">
+          <ArrowRightLeftIcon aria-hidden="true" className="size-3" />
+          {row.label}
+        </span>
+        <span className="h-px flex-1 bg-violet-400/30" />
+      </div>
+    );
+  }
   return (
     <div
       role="separator"
