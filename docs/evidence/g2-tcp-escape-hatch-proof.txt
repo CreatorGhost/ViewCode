@@ -1,0 +1,22 @@
+== process tree under 14056 (pid: cmd)
+14056: /home/user/ViewCode/.claude/worktrees/agent-af5f339faa111df74/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --no-sandbox --di
+14063: /home/user/ViewCode/.claude/worktrees/agent-af5f339faa111df74/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=zygote --n
+14066: /home/user/ViewCode/.claude/worktrees/agent-af5f339faa111df74/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=zygote --n
+14110: /home/user/ViewCode/.claude/worktrees/agent-af5f339faa111df74/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=gpu-proces
+14120: /home/user/ViewCode/.claude/worktrees/agent-af5f339faa111df74/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=utility --
+14218: /home/user/ViewCode/.claude/worktrees/agent-af5f339faa111df74/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=renderer -
+14228: /home/user/ViewCode/.claude/worktrees/agent-af5f339faa111df74/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron /home/user/ViewCo
+== sockets held by the tree: 51
+== TCP LISTEN (state 0A) entries in /proc/net/tcp and /proc/net/tcp6
+OURS  /proc/net/tcp port=3773 inode=390952 pid=14228
+other /proc/net/tcp port=44511 inode=1123
+other /proc/net/tcp port=35205 inode=1092
+other /proc/net/tcp port=5733 inode=377717
+other /proc/net/tcp port=13773 inode=376493
+other /proc/net/tcp port=2025 inode=1068
+other /proc/net/tcp port=2024 inode=858
+(/proc/net/tcp6 not present on this kernel)
+== LISTEN total=7 owned_by_app_tree=1
+== unix sockets the tree is listening on (from /proc/net/unix, flags 00010000 = listening)
+unix LISTEN inode=390919 pid=14056 path=/tmp/t3code-0/7d730ca99b19.tmp
+unix LISTEN inode=390818 pid=14056 path=/tmp/scoped_dirjAIXPU/SingletonSocket
