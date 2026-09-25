@@ -1894,12 +1894,12 @@ function ContextCompactionTimelineRow({
         data-timeline-handoff=""
         className="mx-auto flex w-full max-w-3xl items-center gap-3 py-2 text-xs"
       >
-        <span className="h-px flex-1 bg-violet-400/30" />
-        <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-violet-200">
+        <span className="h-px flex-1 bg-update/30" />
+        <span className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-update/30 bg-update-surface px-3 py-1 text-center text-update-foreground">
           <ArrowRightLeftIcon aria-hidden="true" className="size-3" />
           {row.label}
         </span>
-        <span className="h-px flex-1 bg-violet-400/30" />
+        <span className="h-px flex-1 bg-update/30" />
       </div>
     );
   }
