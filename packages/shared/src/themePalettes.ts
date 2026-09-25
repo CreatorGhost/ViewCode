@@ -1,5 +1,8 @@
 export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"] as const;
 
+/** ViewCode's own default theme. Web and desktop only; mobile keeps its Uniwind set. */
+export const VIEWCODE_THEME_ID = "viewcode";
+
 /** The standard T3 Code palette, kept separate from the optional built-in theme library. */
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
 
@@ -20,6 +23,7 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "system",
   "light",
   "dark",
+  VIEWCODE_THEME_ID,
   ...BUILT_IN_THEME_IDS,
   "t3-chat-dark",
   "t3-grove",
@@ -883,12 +887,90 @@ export const IRIS_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
+/**
+ * ViewCode's default: near-black glass with a violet accent, after Droppy
+ * Code. Dark first; the light variant borrows Iris.
+ */
+export const VIEWCODE_THEME: ThemeDefinition = {
+  id: VIEWCODE_THEME_ID,
+  label: "ViewCode",
+  appearance: "dark",
+  colors: {
+    canvas: "oklch(0.17 0.006 285)",
+    chrome: "oklch(0.17 0.006 285)",
+    toolbar: "oklch(0.17 0.006 285)",
+    toolbarForeground: "oklch(0.93 0.004 285)",
+    toolbarBorder: "oklch(0.27 0.008 285)",
+    toolbarControl: "oklch(0.225 0.008 285)",
+    toolbarControlForeground: "oklch(0.93 0.004 285)",
+    toolbarControlHover: "oklch(0.27 0.01 285)",
+    surface: "oklch(0.17 0.006 285)",
+    surfaceRaised: "oklch(0.215 0.008 285)",
+    surfaceOverlay: "oklch(0.245 0.009 285)",
+    text: "oklch(0.94 0.004 285)",
+    textMuted: "oklch(0.68 0.01 285)",
+    border: "oklch(0.28 0.008 285)",
+    input: "oklch(0.31 0.009 285)",
+    focus: "oklch(0.72 0.15 300)",
+    accent: "oklch(0.72 0.15 300)",
+    accentForeground: "oklch(0.16 0.03 300)",
+    secondary: "oklch(0.24 0.009 285)",
+    secondaryForeground: "oklch(0.94 0.004 285)",
+    muted: "oklch(0.22 0.008 285)",
+    mutedForeground: "oklch(0.66 0.01 285)",
+    placeholder: "oklch(0.58 0.01 285)",
+    secondaryLabel: "oklch(0.66 0.01 285)",
+    iconMuted: "oklch(0.62 0.01 285)",
+    error: "oklch(0.66 0.2 25)",
+    errorForeground: "oklch(0.78 0.14 25)",
+    errorSurface: "oklch(0.25 0.06 25)",
+    warning: "oklch(0.8 0.15 75)",
+    warningForeground: "oklch(0.85 0.12 80)",
+    warningSurface: "oklch(0.26 0.05 75)",
+    update: "oklch(0.72 0.15 300)",
+    updateForeground: "oklch(0.82 0.1 300)",
+    updateSurface: "oklch(0.26 0.06 300)",
+    accentSurface: "oklch(0.27 0.06 300)",
+    accentSurfaceForeground: "oklch(0.94 0.02 300)",
+    messageSurface: "oklch(0.3 0.07 300)",
+    messageForeground: "oklch(0.96 0.01 300)",
+    messageAction: "oklch(0.72 0.15 300)",
+    messageActionForeground: "oklch(0.16 0.03 300)",
+    messageActionHover: "oklch(0.78 0.13 300)",
+    codeBackground: "oklch(0.2 0.007 285)",
+    codeForeground: "oklch(0.93 0.004 285)",
+    sidebar: "oklch(0.145 0.006 285)",
+    sidebarForeground: "oklch(0.9 0.005 285)",
+    sidebarMutedForeground: "oklch(0.62 0.01 285)",
+    sidebarControlSurface: "oklch(0.21 0.008 285)",
+    sidebarRowHover: "oklch(0.2 0.008 285)",
+    sidebarRowActive: "oklch(0.23 0.012 290)",
+    sidebarRowSelected: "oklch(0.25 0.03 300)",
+    sidebarBorder: "oklch(0.22 0.007 285)",
+    terminalBackground: "oklch(0.16 0.006 285)",
+    terminalForeground: "oklch(0.93 0.004 285)",
+    terminalCursor: "oklch(0.72 0.15 300)",
+    terminalSelection: "oklch(0.32 0.06 300)",
+    terminalScrollbar: "oklch(0.3 0.008 285)",
+    terminalScrollbarHover: "oklch(0.38 0.01 285)",
+  },
+  variants: {
+    light: IRIS_THEME.colors,
+  },
+};
+
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   T3_CHAT_THEME,
   GROVE_THEME,
   OCEAN_THEME,
   EMBER_THEME,
   IRIS_THEME,
+];
+
+/** Built-ins offered on web and desktop, ViewCode's own theme first. */
+export const WEB_BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
+  VIEWCODE_THEME,
+  ...BUILT_IN_THEMES,
 ];
 
 export function getThemeColorsForAppearance(

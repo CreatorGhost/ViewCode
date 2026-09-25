@@ -37,12 +37,13 @@ type DesktopThemeBridge = Pick<DesktopBridge, "setTheme">;
 
 const STORAGE_KEY = "t3code:theme";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
+// ViewCode opens in its own dark glass theme until the user picks another.
 const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
-  theme: "system",
-  resolvedTheme: "light",
+  theme: "viewcode",
+  resolvedTheme: "dark",
   systemDark: false,
-  followSystem: true,
-  appearanceMode: "system",
+  followSystem: false,
+  appearanceMode: "dark",
   themeHalves: null,
 };
 
