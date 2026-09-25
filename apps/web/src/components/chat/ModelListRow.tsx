@@ -36,6 +36,8 @@ export const ModelListRow = memo(function ModelListRow(props: {
   preferShortName?: boolean;
   useTriggerLabel?: boolean;
   showNewBadge?: boolean;
+  /** Picking this model continues the thread on another provider via a handoff. */
+  showHandoffBadge?: boolean;
   unavailable?: boolean;
   jumpLabel?: string | null;
   disabledReason?: string | null;
@@ -75,6 +77,11 @@ export const ModelListRow = memo(function ModelListRow(props: {
             >
               New
             </span>
+          ) : null}
+          {props.showHandoffBadge ? (
+            <Badge variant="outline" size="sm" aria-label="Switches with a context handoff">
+              Handoff
+            </Badge>
           ) : null}
           {props.unavailable ? (
             <Badge variant="outline" size="sm">

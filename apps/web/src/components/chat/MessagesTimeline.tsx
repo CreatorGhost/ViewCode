@@ -4535,8 +4535,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
   const { workEntry } = props;
-  const { agentPanelModel, expandedSpawnEntryIds, onToggleSpawnRow, onOpenAgents } =
-    use(TimelineRowCtx);
+  const { agentPanelModel, expandedSpawnEntryIds, onToggleSpawnRow } = use(TimelineRowCtx);
   const spawn = workEntry.agentSpawn;
   if (!spawn) {
     return null;
@@ -4588,13 +4587,6 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
           {agents.map((agent) => (
             <AgentSpawnMemberRow key={agent.id} agent={agent} onToggleEntry={props.onToggleEntry} />
           ))}
-          <button
-            type="button"
-            onClick={onOpenAgents}
-            className="mt-1 self-start rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            Open Agents panel ›
-          </button>
         </div>
       ) : null}
     </div>

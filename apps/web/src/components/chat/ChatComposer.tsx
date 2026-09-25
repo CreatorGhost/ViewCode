@@ -1900,6 +1900,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       providerInstanceEntries,
     ],
   );
+  // Models outside the bound session's continuation group switch via handoff.
+  const boundSessionInstanceId = activeThread?.session?.providerInstanceId ?? null;
+  const handoffFromContinuationGroupKey =
+    boundSessionInstanceId === null
+      ? null
+      : (providerInstanceEntries.find((entry) => entry.instanceId === boundSessionInstanceId)
+          ?.continuationGroupKey ?? String(boundSessionInstanceId));
   const selectedInstanceId =
     selectedProviderEntry?.instanceId ?? NO_PROVIDER_MODEL_SELECTION.instanceId;
   const noProviderAvailable =
@@ -5068,6 +5075,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
         lockedProvider={lockedProvider}
         lockedContinuationGroupKey={lockedContinuationGroupKey}
+        handoffFromContinuationGroupKey={handoffFromContinuationGroupKey}
         instanceEntries={providerInstanceEntries}
         keybindings={keybindings}
         modelOptionsByInstance={modelOptionsByInstance}

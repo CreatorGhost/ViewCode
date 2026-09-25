@@ -36,6 +36,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
   lockedProvider: ProviderDriverKind | null;
   lockedContinuationGroupKey?: string | null;
+  /** Continuation group of the thread's bound session; other groups hand context off. */
+  handoffFromContinuationGroupKey?: string | null;
   /** Instance entries rendered in the sidebar + used to resolve display name. */
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
   keybindings?: ResolvedKeybindingsConfig;
@@ -297,6 +299,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             : {})}
           lockedProvider={props.lockedProvider}
           lockedContinuationGroupKey={props.lockedContinuationGroupKey ?? null}
+          handoffFromContinuationGroupKey={props.handoffFromContinuationGroupKey ?? null}
           instanceEntries={props.instanceEntries}
           {...(props.keybindings ? { keybindings: props.keybindings } : {})}
           modelOptionsByInstance={props.modelOptionsByInstance}

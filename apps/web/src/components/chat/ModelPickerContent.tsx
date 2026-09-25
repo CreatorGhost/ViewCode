@@ -163,6 +163,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   lockedProvider: ProviderDriverKind | null;
   lockedContinuationGroupKey?: string | null;
   /**
+   * ViewCode: continuation group of the started thread's session. Models in
+   * another group are still selectable but switch via a context handoff.
+   */
+  handoffFromContinuationGroupKey?: string | null;
+  /**
    * All configured provider instances in display order. Used to render
    * the sidebar (one button per instance) and to resolve display names
    * for the locked-mode header.
@@ -1000,6 +1005,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                         preferShortName={!isLocked}
                         useTriggerLabel={false}
                         showNewBadge={model.badge === "new"}
+                        showHandoffBadge={
+                          props.handoffFromContinuationGroupKey != null &&
+                          (model.continuationGroupKey ?? model.instanceId) !==
+                            props.handoffFromContinuationGroupKey
+                        }
                         unavailable={model.isUnavailable === true}
                         jumpLabel={modelJumpLabelByKey.get(modelKey) ?? null}
                         disabledReason={disabledReason}
