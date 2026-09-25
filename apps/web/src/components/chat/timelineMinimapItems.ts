@@ -14,14 +14,20 @@ export function deriveTimelineMinimapItems(
   const items: TimelineMinimapItem[] = [];
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
-    if (row?.kind !== "message" || row.message.role !== "user") {
+    const userText =
+      row?.kind === "agent-message-in"
+        ? row.envelope.body
+        : row?.kind === "message" && row.message.role === "user"
+          ? row.message.text
+          : null;
+    if (row === undefined || userText === null) {
       continue;
     }
 
     items.push({
       id: row.id,
       rowIndex: index,
-      userText: row.message.text,
+      userText,
       assistantText: resolveFinalAssistantTextForTurn(rows, index),
     });
   }
@@ -35,6 +41,9 @@ function resolveFinalAssistantTextForTurn(
   let finalAssistantText: string | null = null;
   for (let index = userRowIndex + 1; index < rows.length; index += 1) {
     const row = rows[index];
+    if (row?.kind === "agent-message-in") {
+      break;
+    }
     if (row?.kind !== "message") {
       continue;
     }

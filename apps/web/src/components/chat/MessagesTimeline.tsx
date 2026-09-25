@@ -153,6 +153,8 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
+import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useAtomValue } from "@effect/atom-react";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
@@ -1712,6 +1714,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
+      {row.kind === "agent-message-in" || row.kind === "agent-message-out" ? (
+        <AgentMessageTimelineRow row={row} />
+      ) : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
@@ -1851,6 +1856,28 @@ function QueuedMessageTimelineRow({
         </div>
       </div>
     </div>
+  );
+}
+
+function AgentMessageTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "agent-message-in" | "agent-message-out" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const context = useMemo(
+    () => ({
+      environmentId: ctx.activeThreadEnvironmentId,
+      markdownCwd: ctx.markdownCwd,
+      threadRef: ctx.threadRef,
+      skills: ctx.skills,
+    }),
+    [ctx.activeThreadEnvironmentId, ctx.markdownCwd, ctx.threadRef, ctx.skills],
+  );
+  return row.kind === "agent-message-in" ? (
+    <IncomingAgentMessageCard envelope={row.envelope} context={context} />
+  ) : (
+    <OutgoingAgentMessageCard sent={row.sent} context={context} />
   );
 }
 
@@ -4464,6 +4491,7 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
     return "message-circle";
   }
   if (workEntry.toolSurface) return workEntry.toolSurface;
+  if (resolveAgentToolkitToolName(workEntry)) return "bot";
   const toolPresentation = resolveWorkEntryToolPresentation(workEntry);
   if (toolPresentation) return toolPresentation.icon;
   const action = toolGroupAction(workEntry);

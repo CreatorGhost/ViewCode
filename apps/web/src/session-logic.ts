@@ -21,6 +21,10 @@ import {
 } from "@t3tools/client-runtime/work-log/presentation";
 import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-log/tool-presentation";
 import {
+  AGENT_MESSAGE_SENT_ACTIVITY_KIND,
+  type AgentMessageSentPayload,
+} from "@t3tools/shared/agentMessages";
+import {
   isToolLifecycleItemType,
   type AssetResource,
   type OrchestrationLatestTurn,
@@ -92,6 +96,10 @@ export interface WorkLogEntry {
     workflowId: string | null;
     agentTaskIds: ReadonlyArray<string>;
   };
+  /** ViewCode: a message this thread's agent sent to another agent. */
+  agentMessageSent?: AgentMessageSentPayload;
+  /** ViewCode: models on either side of a cross-provider handoff. */
+  handoff?: { fromModel: string; toModel: string };
 }
 
 const workLogCollapseKey = Symbol();
@@ -594,6 +602,15 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     const answer = decodeQuestionAttachmentAnswer(payload);
     if (Option.isSome(answer)) entry.questionAnswer = answer.value;
   }
+  if (activity.kind === AGENT_MESSAGE_SENT_ACTIVITY_KIND) {
+    const sent = readAgentMessageSentPayload(payload);
+    if (sent) entry.agentMessageSent = sent;
+  }
+  if (activity.kind === "viewcode.handoff") {
+    const fromModel = asTrimmedString(asRecord(payload?.from)?.model);
+    const toModel = asTrimmedString(asRecord(payload?.to)?.model);
+    if (fromModel && toModel) entry.handoff = { fromModel, toModel };
+  }
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
   const viewedImagePath = asTrimmedString(asRecord(payload?.data)?.imagePath);
@@ -677,6 +694,31 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   derivedWorkLogEntryByActivity.set(activity, entry);
   return entry;
+}
+
+function readAgentMessageSentPayload(
+  payload: Record<string, unknown> | null,
+): AgentMessageSentPayload | null {
+  if (!payload) return null;
+  const { messageId, toThreadId, toName, body, replyExpected, inReplyTo, kind, delivery } = payload;
+  if (
+    typeof messageId !== "string" ||
+    typeof toThreadId !== "string" ||
+    typeof toName !== "string" ||
+    typeof body !== "string"
+  ) {
+    return null;
+  }
+  return {
+    messageId,
+    toThreadId,
+    toName,
+    body,
+    replyExpected: replyExpected === true,
+    inReplyTo: typeof inReplyTo === "string" ? inReplyTo : null,
+    kind: kind === "spawn" ? "spawn" : "message",
+    delivery: delivery === "queued" ? "queued" : "started",
+  };
 }
 
 /**

@@ -43,6 +43,7 @@ import {
   type TimelineEntriesProjection,
 } from "../../session-logic";
 import { isImageAttachment, type ChatMessage, type TurnDiffSummary } from "../../types";
+import { formatAgentMessage } from "@t3tools/shared/agentMessages";
 
 describe("streaming row projection", () => {
   function fixture(text = "") {
@@ -1385,10 +1386,168 @@ describe("deriveMessagesTimelineRows", () => {
         kind: "context-compaction",
         id: "handoff-entry",
         createdAt: "2026-01-01T00:00:00Z",
-        label: "Context handed off from claude-opus-4-6 (claudeAgent) to gpt-5-codex (codex)",
+        label: "Context handed off · claude-opus-4-6 → gpt-5-codex",
         variant: "handoff",
       },
     ]);
+  });
+
+  describe("agent-to-agent messages", () => {
+    const turnId = TurnId.make("turn-1");
+    const sent = {
+      messageId: "m-1",
+      toThreadId: "thread-reviewer",
+      toName: "Reviewer",
+      body: "Please review the diff.",
+      replyExpected: true,
+      inReplyTo: null,
+      kind: "message" as const,
+      delivery: "started" as const,
+    };
+    const assistant = (id: string, second: number): ChatMessage => ({
+      id: MessageId.make(id),
+      role: "assistant",
+      text: id,
+      turnId,
+      createdAt: `2026-01-01T00:00:0${second}Z`,
+      updatedAt: `2026-01-01T00:00:0${second}Z`,
+      streaming: false,
+    });
+    const work = (id: string, second: number, entry: Partial<WorkLogEntry>): WorkLogEntry => ({
+      id,
+      createdAt: `2026-01-01T00:00:0${second}Z`,
+      turnId,
+      label: id,
+      tone: "tool",
+      ...entry,
+    });
+    const derive = (timelineEntries: ReturnType<typeof deriveTimelineEntries>) =>
+      deriveMessagesTimelineRows({
+        timelineEntries,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+      });
+
+    it("keeps a sent message card visible outside a folded turn", () => {
+      const rows = derive(
+        deriveTimelineEntries(
+          [assistant("assistant-first", 1), assistant("assistant-final", 5)],
+          [],
+          [
+            work("read-1", 2, {
+              command: "cat a.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            }),
+            work("sent-entry", 3, {
+              tone: "info",
+              label: "Message to Reviewer",
+              sourceActivityKind: "viewcode.agent-message.sent",
+              agentMessageSent: sent,
+            }),
+            work("read-2", 4, {
+              command: "cat b.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            }),
+          ],
+        ),
+      );
+
+      expect(rows.map((row) => row.id)).toEqual([
+        "turn-fold:turn-1",
+        "sent-entry",
+        "assistant-final",
+      ]);
+      expect(rows.find((row) => row.kind === "agent-message-out")).toEqual({
+        kind: "agent-message-out",
+        id: "sent-entry",
+        createdAt: "2026-01-01T00:00:03Z",
+        sent,
+      });
+      expect(rows.some((row) => row.id === "read-1" || row.id === "read-2")).toBe(false);
+    });
+
+    it("never groups a sent message with neighbouring tool calls", () => {
+      const rows = derive(
+        deriveTimelineEntries(
+          [],
+          [],
+          [
+            work("read-1", 1, {
+              command: "cat a.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+              turnId: null,
+            }),
+            work("sent-entry", 2, {
+              tone: "info",
+              sourceActivityKind: "viewcode.agent-message.sent",
+              agentMessageSent: { ...sent, kind: "spawn", delivery: "queued" },
+              turnId: null,
+            }),
+            work("read-2", 3, {
+              command: "cat b.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+              turnId: null,
+            }),
+          ],
+        ),
+      );
+      expect(rows.map((row) => row.kind)).toEqual(["work", "agent-message-out", "work"]);
+    });
+
+    it("renders a delivered agent message as an incoming card, not a user bubble", () => {
+      const text = formatAgentMessage({
+        messageId: "m-2",
+        fromThreadId: "thread-lead",
+        fromName: "Lead",
+        replyExpected: true,
+        inReplyTo: null,
+        body: "Find the flaky test.",
+      });
+      const rows = derive(
+        deriveTimelineEntries(
+          [
+            {
+              id: MessageId.make("user-plain"),
+              role: "user",
+              text: "Hello",
+              turnId: null,
+              createdAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+              streaming: false,
+            },
+            {
+              id: MessageId.make("user-agent"),
+              role: "user",
+              text,
+              turnId: null,
+              createdAt: "2026-01-01T00:00:01Z",
+              updatedAt: "2026-01-01T00:00:01Z",
+              streaming: false,
+            },
+          ],
+          [],
+          [],
+        ),
+      );
+      expect(rows.map((row) => row.kind)).toEqual(["message", "agent-message-in"]);
+      expect(rows[1]).toMatchObject({
+        kind: "agent-message-in",
+        id: "user-agent",
+        envelope: {
+          fromName: "Lead",
+          fromThreadId: "thread-lead",
+          replyExpected: true,
+          inReplyTo: null,
+          body: "Find the flaky test.",
+        },
+      });
+    });
   });
 
   it("keeps subagent spawn rows outside turn folds even after they settle", () => {

@@ -39,12 +39,39 @@ import {
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import {
+  parseAgentMessage,
+  type AgentMessageEnvelope,
+  type AgentMessageSentPayload,
+} from "@t3tools/shared/agentMessages";
+import { agentToolkitLabel, handoffDividerLabel } from "./agentTimeline.logic";
 
 export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
 
 /** Activities that render as a full-width divider instead of a work row. */
 export function isTimelineDividerActivityKind(kind: string | undefined): boolean {
   return kind === "context-compaction" || kind === HANDOFF_ACTIVITY_KIND;
+}
+
+const incomingAgentMessageByMessage = new WeakMap<ChatMessage, AgentMessageEnvelope | null>();
+
+/** The agent-message envelope a delivered user turn carries, or null for user text. */
+export function incomingAgentMessage(message: ChatMessage): AgentMessageEnvelope | null {
+  const cached = incomingAgentMessageByMessage.get(message);
+  if (cached !== undefined) return cached;
+  const envelope = parseAgentMessage(message.text);
+  incomingAgentMessageByMessage.set(message, envelope);
+  return envelope;
+}
+
+/**
+ * Work entries that get a row of their own: dividers and agent-to-agent
+ * message cards. They never join tool groups or the live activity row.
+ */
+function isStandaloneTimelineWork(entry: WorkLogEntry): boolean {
+  return (
+    isTimelineDividerActivityKind(entry.sourceActivityKind) || entry.agentMessageSent !== undefined
+  );
 }
 
 const TIMELINE_MINIMAP_ITEM_SPACING = 8;
@@ -54,6 +81,8 @@ const TIMELINE_CONTENT_MAX_WIDTH = 768;
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 
 function singleToolCallLabel(entry: WorkLogEntry): string {
+  const agentToolLabel = agentToolkitLabel(entry, "completed");
+  if (agentToolLabel) return agentToolLabel;
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
   if (toolPresentation) return toolPresentation.displayName;
   const command = entry.command?.trim();
@@ -63,6 +92,8 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
 }
 
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
+  const agentToolLabel = agentToolkitLabel(entry, "completed");
+  if (agentToolLabel) return agentToolLabel;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;
@@ -84,6 +115,8 @@ export function liveWorkEntryLabel(
   active: boolean,
 ) {
   const status = liveActivityToolStatus(entry.toolLifecycleStatus, active);
+  const agentToolLabel = agentToolkitLabel({ ...entry, toolLifecycleStatus: status });
+  if (agentToolLabel) return agentToolLabel;
   const toolPresentation = resolveWorkEntryToolPresentation({
     ...entry,
     toolLifecycleStatus: status,
@@ -330,7 +363,7 @@ function isActivityEntry(entry: TimelineEntry): entry is ActivityEntry {
     : entry.kind === "work" &&
         entry.entry.agentSpawn === undefined &&
         entry.entry.questionAnswer === undefined &&
-        !isTimelineDividerActivityKind(entry.entry.sourceActivityKind) &&
+        !isStandaloneTimelineWork(entry.entry) &&
         entry.entry.tone !== "error";
 }
 
@@ -393,6 +426,21 @@ export type MessagesTimelineRow =
       label: string;
       /** Compaction divider, or a ViewCode cross-provider handoff card. */
       variant: "compaction" | "handoff";
+    }
+  | {
+      /** A message another agent delivered to this thread (a user turn). */
+      kind: "agent-message-in";
+      id: string;
+      createdAt: string;
+      message: ChatMessage;
+      envelope: AgentMessageEnvelope;
+    }
+  | {
+      /** A message this thread's agent sent to another agent. */
+      kind: "agent-message-out";
+      id: string;
+      createdAt: string;
+      sent: AgentMessageSentPayload;
     }
   | {
       kind: "message";
@@ -721,7 +769,8 @@ function deriveTurnFolds(input: {
     const trailingEntryCount = group.entries.filter(
       (candidate, candidateIndex) =>
         candidateIndex > terminalEntryIndex &&
-        !(candidate.kind === "message" && candidate.message.role === "reasoning"),
+        !(candidate.kind === "message" && candidate.message.role === "reasoning") &&
+        !(candidate.kind === "work" && candidate.entry.agentMessageSent !== undefined),
     ).length;
     for (const [index, entry] of group.entries.entries()) {
       if (entry.id === group.terminalEntry?.id) {
@@ -744,10 +793,13 @@ function deriveTurnFolds(input: {
       ) {
         continue;
       }
-      // User input and subagent batches stay visible after their turn settles.
+      // User input, subagent batches and agent-to-agent messages stay
+      // visible after their turn settles.
       if (
         entry.kind === "work" &&
-        (entry.entry.questionAnswer !== undefined || entry.entry.agentSpawn !== undefined)
+        (entry.entry.questionAnswer !== undefined ||
+          entry.entry.agentSpawn !== undefined ||
+          entry.entry.agentMessageSent !== undefined)
       ) {
         continue;
       }
@@ -1029,7 +1081,7 @@ export function deriveMessagesTimelineRows(input: {
       !entryBelongsToActiveTurn(entry, index) ||
       entry.kind !== "work" ||
       entry.entry.questionAnswer !== undefined ||
-      isTimelineDividerActivityKind(entry.entry.sourceActivityKind) ||
+      isStandaloneTimelineWork(entry.entry) ||
       entry.entry.tone === "error"
     ) {
       break;
@@ -1193,19 +1245,27 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "work" && timelineEntry.entry.agentMessageSent !== undefined) {
+      nextRows.push({
+        kind: "agent-message-out",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        sent: timelineEntry.entry.agentMessageSent,
+      });
+      continue;
+    }
+
     if (
       timelineEntry.kind === "work" &&
       isTimelineDividerActivityKind(timelineEntry.entry.sourceActivityKind)
     ) {
+      const isHandoff = timelineEntry.entry.sourceActivityKind === HANDOFF_ACTIVITY_KIND;
       nextRows.push({
         kind: "context-compaction",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
-        label: timelineEntry.entry.label,
-        variant:
-          timelineEntry.entry.sourceActivityKind === HANDOFF_ACTIVITY_KIND
-            ? "handoff"
-            : "compaction",
+        label: isHandoff ? handoffDividerLabel(timelineEntry.entry) : timelineEntry.entry.label,
+        variant: isHandoff ? "handoff" : "compaction",
       });
       continue;
     }
@@ -1240,7 +1300,7 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.kind !== "work" ||
           nextEntry.entry.agentSpawn !== undefined ||
           nextEntry.entry.questionAnswer !== undefined ||
-          isTimelineDividerActivityKind(nextEntry.entry.sourceActivityKind) ||
+          isStandaloneTimelineWork(nextEntry.entry) ||
           nextEntry.entry.tone === "error" ||
           activeWorkEntryIds.has(nextEntry.id) ||
           collapsedEntryIds.has(nextEntry.id) ||
@@ -1363,6 +1423,19 @@ export function deriveMessagesTimelineRows(input: {
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         proposedPlan: timelineEntry.proposedPlan,
+      });
+      continue;
+    }
+
+    const envelope =
+      timelineEntry.message.role === "user" ? incomingAgentMessage(timelineEntry.message) : null;
+    if (envelope) {
+      nextRows.push({
+        kind: "agent-message-in",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        message: timelineEntry.message,
+        envelope,
       });
       continue;
     }
@@ -1626,6 +1699,14 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "context-compaction": {
       const bc = b as typeof a;
       return a.createdAt === bc.createdAt && a.label === bc.label && a.variant === bc.variant;
+    }
+
+    case "agent-message-in":
+      return a.message === (b as typeof a).message;
+
+    case "agent-message-out": {
+      const bo = b as typeof a;
+      return a.createdAt === bo.createdAt && Equal.equals(a.sent, bo.sent);
     }
 
     case "proposed-plan":
