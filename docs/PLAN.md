@@ -62,6 +62,43 @@ What we take from each:
 | Droppy Code | Visual spec: glass tokens, radii, spacing, timeline folding ("Worked for 58s ›"), tool groups, todo card, pill composer, effort slider, usage-limit popover, working indicators |
 | MonoCode | React/Tailwind implementations of the same look, the plan-limit fetchers, and `/operator`-style ideas |
 
+## 2a. Core features and where each piece comes from
+
+1. **Mid-chat model/provider switch (handoff).** T3 has no handoff: it
+   forces a new thread to change provider. We build it ourselves inside T3's
+   server, applying Traycer's idea of seeding the new model from our own
+   transcript.
+   - Same provider: the native session continues.
+   - Cross-provider: the new model gets a summary plus the last turns
+     verbatim, and the full transcript is saved to a file.
+   - Works on parents and children alike.
+   - The timeline shows a "context handed off" card.
+2. **Child agents (full agents, Traycer-style).**
+   - Each child has its own chat box, transcript, model, workspace and composer.
+   - Children are nested under their parent in the **left sidebar**. You can
+     open one, prompt it, and re-model it.
+   - Spawned either by the agent (`viewcode_spawn_agent` / `send_message`
+     with reply expected) or by the user ("New child agent").
+   - Messages show as "→ to X ↩" / "← from X" cards.
+   - An "Active agents · N running · Stop all" bar sits above the composer.
+   - Behavior comes from Traycer. The plumbing comes from T3's MCP server and
+     threads (child = thread with a parent link).
+3. **In-chat sub-agents (provider-native, read-only).**
+   - These are Claude `Task` / Codex `spawn_agent` running inside the parent's
+     tool session.
+   - They render as a collapsible group in the parent's timeline. They are
+     not separate agent boxes and cannot be prompted or re-modeled.
+   - T3's right-hand agents panel is removed. T3 already parses these events;
+     we only change where they are displayed.
+4. **Remote / phone:** T3 as-is (server, QR pairing, web, mobile app).
+5. **UI:**
+   - Droppy Code supplies the visual spec, and MonoCode's React/Tailwind
+     components are ported.
+   - The sidebar is always left and grouped by project → threads → child-agent
+     tree. Pin and archive only.
+6. **Providers:** Claude, Codex, Grok, OpenCode and Cursor come from T3.
+   Command Code is new and lower priority.
+
 ## 3. Locked decisions
 
 | # | Decision |
@@ -72,7 +109,7 @@ What we take from each:
 | D4 | Model switch within one provider keeps the native session. Cross-provider switch triggers a **handoff**: a deterministic summary plus the last *N* turns verbatim, with the full transcript written to a file the new agent can read. |
 | D5 | A2A goes through a new `viewcode` MCP toolkit on T3's existing MCP server. |
 | D6 | An A2A message to an idle agent **auto-wakes** it. `reply_expected` opens a thread keyed by `response_id`. If the receiver ends its turn without replying, its final answer is routed back automatically. A hop limit per chain prevents loops. |
-| D7 | Each ViewCode agent is a T3 **thread** with `parentThreadId`, so sub-agents inherit the composer, model picker, handoff, approvals and the phone UI for free. Native provider sub-agents (Claude Task, Codex spawn) stay read-only. |
+| D7 | Each **child agent** is a T3 **thread** with `parentThreadId`, so children inherit the composer, model picker, handoff, approvals and the phone UI for free, and are nested in the left sidebar. **In-chat sub-agents** (Claude Task, Codex spawn) are read-only groups inside the parent's timeline. T3's right-hand agents panel is removed. |
 | D8 | The sidebar is always on the left and grouped by project → threads → agent tree. Pin + archive only; the settle/snooze UI is removed. On phones it becomes a drawer. |
 | D9 | Reskin to Droppy/MonoCode: dark glass, pill chrome, purple accent, collapsible turns, pill composer, usage popover. |
 | D10 | Command Code is a new provider: a headless CLI adapter (`cmd -p --output-format json`) first, with an OpenAI-compatible API agent as fallback. It is lower priority. |
