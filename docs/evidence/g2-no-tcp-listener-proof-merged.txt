@@ -1,0 +1,22 @@
+== process tree under 24026 (pid: cmd)
+24026: /home/user/ViewCode/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --no-sandbox --disable-gpu dist-electron/main.cjs 
+24030: /home/user/ViewCode/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=zygote --no-zygote-sandbox --no-sandbox 
+24031: /home/user/ViewCode/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=zygote --no-sandbox 
+24058: /home/user/ViewCode/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=gpu-process --no-sandbox --ozone-platform=x11 --enab
+24067: /home/user/ViewCode/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=utility --utility-sub-type=network.mojom.NetworkServ
+24165: /home/user/ViewCode/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron --type=renderer --enable-crash-reporter=e2f3cc57-c57c-49c2-
+24175: /home/user/ViewCode/node_modules/.pnpm/electron@44.4.2/node_modules/electron/dist/electron /home/user/ViewCode/apps/server/dist/bin.mjs --bootstrap-fd
+== sockets held by the tree: 45
+== TCP LISTEN (state 0A) entries in /proc/net/tcp and /proc/net/tcp6
+other /proc/net/tcp port=44511 inode=1123
+other /proc/net/tcp port=35205 inode=1092
+other /proc/net/tcp port=5733 inode=377717
+other /proc/net/tcp port=13773 inode=397953
+other /proc/net/tcp port=2025 inode=1068
+other /proc/net/tcp port=2024 inode=858
+(/proc/net/tcp6 not present on this kernel)
+== LISTEN total=6 owned_by_app_tree=0
+== unix sockets the tree is listening on (from /proc/net/unix, flags 00010000 = listening)
+unix LISTEN inode=411235 pid=24026 path=/tmp/t3code-0/2f97133be8e6.tmp
+unix LISTEN inode=409192 pid=24175 path=/tmp/t3code-0/3534e098659e5dad38657cd7-backend.sock
+unix LISTEN inode=411197 pid=24026 path=/tmp/scoped_dirfmXqbM/SingletonSocket
