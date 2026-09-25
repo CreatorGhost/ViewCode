@@ -47,7 +47,10 @@ import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { isCommandAvailable } from "@t3tools/shared/shell";
 import { writeFileStringAtomically } from "./atomicWrite.ts";
+import { resolveCommandCodeBinary } from "./provider/commandCodeCli.ts";
 import * as ServerConfig from "./config.ts";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
@@ -264,6 +267,9 @@ const PersistedOptionalProviderSettings = Schema.Struct({
       cursor: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
       grok: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
       opencode: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
+      commandCode: Schema.optionalKey(
+        Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) }),
+      ),
     }),
   ),
 });
@@ -278,6 +284,7 @@ function restoreUsedProviders(
     readonly providerName: string;
     readonly providerInstanceId: string | null;
   }>,
+  commandCodeOnPath: boolean,
 ): ServerSettings {
   const usedProviders = new Set(providerHistory.map(({ providerName }) => providerName));
   const usedProviderInstances = new Set(
@@ -313,6 +320,12 @@ function restoreUsedProviders(
       opencode: {
         ...settings.providers.opencode,
         enabled: persisted.providers?.opencode?.enabled ?? usedProviders.has("opencode"),
+      },
+      // Command Code turns itself on when its CLI is installed; an explicit
+      // choice in settings (or on the provider instance) still wins.
+      commandCode: {
+        ...settings.providers.commandCode,
+        enabled: persisted.providers?.commandCode?.enabled ?? commandCodeOnPath,
       },
     },
     providerInstances,
@@ -368,6 +381,7 @@ const PERSISTED_SERVER_SETTINGS_DEFAULTS = {
     cursor: { ...DEFAULT_SERVER_SETTINGS.providers.cursor, enabled: undefined },
     grok: { ...DEFAULT_SERVER_SETTINGS.providers.grok, enabled: undefined },
     opencode: { ...DEFAULT_SERVER_SETTINGS.providers.opencode, enabled: undefined },
+    commandCode: { ...DEFAULT_SERVER_SETTINGS.providers.commandCode, enabled: undefined },
   },
 };
 
@@ -531,10 +545,28 @@ const make = Effect.gen(function* () {
     ),
   );
 
+  // Command Code's enabled flag detected from PATH on load, when the file did
+  // not set one. It is never written back, so installing or removing `cmd`
+  // later still changes the default.
+  let commandCodeDetectedEnabled: boolean | undefined;
+
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (settings: ServerSettings) {
+      const defaults =
+        commandCodeDetectedEnabled === undefined
+          ? PERSISTED_SERVER_SETTINGS_DEFAULTS
+          : {
+              ...PERSISTED_SERVER_SETTINGS_DEFAULTS,
+              providers: {
+                ...PERSISTED_SERVER_SETTINGS_DEFAULTS.providers,
+                commandCode: {
+                  ...PERSISTED_SERVER_SETTINGS_DEFAULTS.providers.commandCode,
+                  enabled: commandCodeDetectedEnabled,
+                },
+              },
+            };
       const sparseSettingsJson = yield* encodeServerSettingsJson(
-        stripDefaultServerSettings(settings, PERSISTED_SERVER_SETTINGS_DEFAULTS) ?? {},
+        stripDefaultServerSettings(settings, defaults) ?? {},
       );
 
       return yield* writeFileStringAtomically({
@@ -633,8 +665,19 @@ const make = Effect.gen(function* () {
             ),
           );
 
+    const commandCodeOnPath = yield* isCommandAvailable(
+      resolveCommandCodeBinary(
+        settings.providers.commandCode.binaryPath,
+        yield* HostProcessPlatform,
+      ),
+    ).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, pathService),
+    );
+    commandCodeDetectedEnabled =
+      persisted.providers?.commandCode?.enabled === undefined ? commandCodeOnPath : undefined;
     const loaded = foldProviderInstanceEnabledFlags(
-      restoreUsedProviders(settings, persisted, providerHistory),
+      restoreUsedProviders(settings, persisted, providerHistory, commandCodeOnPath),
     );
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(loaded, legacyProjectRows)

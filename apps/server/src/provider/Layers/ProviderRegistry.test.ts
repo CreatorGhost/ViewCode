@@ -2643,6 +2643,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 "antigravity",
                 "claudeAgent",
                 "codex",
+                "commandCode",
                 "cursor",
                 "grok",
                 "opencode",

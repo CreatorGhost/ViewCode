@@ -10,6 +10,7 @@ import {
   ServerSettings,
   ServerSettingsPatch,
 } from "@t3tools/contracts";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -851,6 +852,33 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.isFalse(persisted.providers.opencode.enabled);
       assert.isUndefined(persisted.providerInstances.grok.enabled);
     }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
+    "turns Command Code on when cmd is on PATH without persisting the detected flag",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const binDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-command-code-path-" });
+        yield* fs.writeFileString(path.join(binDir, "cmd"), "#!/bin/sh\n");
+        yield* fs.chmod(path.join(binDir, "cmd"), 0o755);
+
+        yield* Effect.gen(function* () {
+          const serverConfig = yield* ServerConfig.ServerConfig;
+          const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+
+          assert.isTrue((yield* serverSettings.getSettings).providers.commandCode.enabled);
+          yield* serverSettings.updateSettings({ addProjectBaseDirectory: "~/Development" });
+
+          const raw = yield* fs.readFileString(serverConfig.settingsPath);
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          assert.isUndefined(JSON.parse(raw).providers?.commandCode);
+        }).pipe(
+          Effect.provide(makeServerSettingsLayer()),
+          Effect.provideService(HostProcessEnvironment, { ...process.env, PATH: binDir }),
+        );
+      }).pipe(Effect.scoped),
   );
 
   it.effect("folds a legacy in-config enabled flag into the envelope on load", () =>
