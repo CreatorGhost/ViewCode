@@ -1,133 +1,108 @@
-# T3 Code
+<p align="center"><img src="./assets/viewcode-icon-512.png" width="96" alt="ViewCode" /></p>
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+# ViewCode
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
+ViewCode is a GUI for the coding agents you already pay for: **Claude Code, Codex,
+Grok, OpenCode, Cursor, Antigravity and Command Code**. It runs them on your own
+subscriptions, and lets them work as a team.
 
-## "Wait, what are you selling me?"
+It is a fork of [T3 Code](https://github.com/pingdotgg/t3code) (MIT). That's where
+the server, remote access, mobile app and provider integrations come from. On top of
+that it adds the orchestration ideas from [Traycer](https://github.com/traycerai/traycer)
+and a look inspired by Droppy Code and MonoCode.
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+## What ViewCode adds
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+- **Switch model or provider mid-chat.** Pick any model from any provider in the
+  composer, even in the middle of a conversation.
+  - **Same provider** (Opus → Sonnet): the provider's own session continues, so
+    nothing is lost.
+  - **Different provider or account** (Claude → Codex, or a second Claude login):
+    ViewCode hands the context off. The new model gets a recap of the conversation
+    plus the last few exchanges word for word. The full transcript is saved under
+    `~/.viewcode/…/transcripts/`, and a "Context handed off" card marks the switch.
+  - Models that will trigger a handoff are labelled **Handoff** in the picker.
+- **Child agents.** An agent can start other agents. Each child is a full agent,
+  with its own chat, transcript, model and composer.
+  - Children appear nested under their parent in the sidebar. Open one to follow its
+    work, prompt it, or switch its model.
+  - You can also create one yourself with **New child agent** in the chat menu.
+- **Agent-to-agent messaging.** Every agent gets a set of tools: `list_agents`,
+  `list_models`, `spawn_agent`, `send_message`, `read_transcript` and
+  `configure_agent`.
+  - A message to an idle agent starts it working immediately. A message to a busy
+    agent waits until its current turn ends.
+  - When a reply is expected, the receiver's final answer is routed back to the
+    sender automatically.
+  - A hop limit (24 automatic hops) stops two agents from keeping each other busy
+    forever.
+  - Messages appear as **→ to / ← from** cards. An **Active agents · N running ·
+    Stop all** bar sits above the composer.
+- **In-chat sub-agents** (a model's own helpers, like Claude's Task tool) stay
+  read-only inside the parent's timeline.
+- **Sidebar grouped by project.** Always on the left: project folders, then threads,
+  then the child-agent tree. Pin and archive only.
+- **Dark glass look.** A violet-accent ViewCode theme is the default.
 
-## Installation
+From T3 Code you also get:
 
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
+- **Phone and remote access:** QR pairing, LAN, Tailscale, SSH and the mobile app.
+- **Code history:** checkpoints for every turn, diffs, git worktrees.
+- **Tools:** a built-in terminal and pull-request integrations.
 
-### Command line
+## Install and run (from source)
 
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
+Requirements:
 
-On Windows, in PowerShell:
+- Node.js 24 and pnpm 11. Install the Vite+ `vp` CLI, or use `pnpm`.
+- At least one provider CLI installed and logged in:
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
+| Provider     | Install                                 | Log in                |
+| ------------ | --------------------------------------- | --------------------- |
+| Claude Code  | https://claude.com/product/claude-code  | `claude auth login`   |
+| Codex        | https://developers.openai.com/codex/cli | `codex login`         |
+| Grok         | https://x.ai/cli                        | `grok login`          |
+| OpenCode     | https://opencode.ai                     | `opencode auth login` |
+| Cursor       | https://cursor.com/cli                  | `agent login`         |
+| Command Code | `npm i -g command-code`                 | `cmd login`           |
 
-Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
-
-To try it once without installing, run `npx t3@latest` instead.
-
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Debian, Ubuntu (`.deb`)
-
-Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
-
-```bash
-sudo apt install ./T3-Code-*.deb
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
-
-## Documentation
-
-Full docs live in [docs/](./docs). There's no docs site yet.
-
-- [Install and first run](./docs/user/install.md)
-- [Permission modes](./docs/user/permission-modes.md)
-- [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Project settings](./docs/user/project-settings.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
-- [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run T3 Code as a background service](./docs/user/background-service.md)
-
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
-
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
+A provider shows up automatically when its CLI is on your `PATH`. Turn providers on
+or off in **Settings → Providers**. To add a second account for the same provider
+(for example a work Claude login), create an extra provider instance with its own
+home directory. A switch between accounts is handled as a handoff.
 
 ```bash
-curl -fsSL https://vite.plus | bash
+pnpm install
+pnpm dev            # server + web UI; prints a one-time pairing URL
+pnpm dev:desktop    # Electron desktop app
 ```
 
-#### Windows
+The server keeps its state in `~/.viewcode`. Telemetry is off by default.
 
-```bash
-irm https://vite.plus/ps1 | iex
-```
+## Using it from your phone
 
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
+By default the server only listens on this machine. To reach it from a phone:
 
-### Install dependencies
+1. Start it on a reachable address (`--host 0.0.0.0`), or use Tailscale. In the
+   desktop app, this is the network-access setting.
+2. Mint a pairing link with `node apps/server/src/bin.ts pair` (add `--tailscale` for
+   a tailnet URL), or from **Settings → Connections**.
+3. Scan the QR code. Pairing tokens are single-use and expire after 5 minutes.
+   Paired devices appear under Connections and can be revoked there.
 
-```bash
-vp i
-```
+The web UI adapts to phone screens: the sidebar becomes a drawer. The native mobile
+app from T3 Code also connects.
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
+## Docs
 
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
+- Product plan and decisions: [docs/PLAN.md](./docs/PLAN.md)
+- End goals and how each was verified: [docs/END_GOALS.md](./docs/END_GOALS.md);
+  screenshots are in [docs/evidence/](./docs/evidence)
+- User guides inherited from T3 Code: [docs/user/](./docs/user)
+- Architecture: [docs/internals/overview.md](./docs/internals/overview.md)
 
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+## Credits
+
+ViewCode is built on T3 Code by T3 Tools Inc. (MIT). See [LICENSE](./LICENSE). The
+agent-orchestration model follows Traycer's published protocol. The visual design
+takes cues from Droppy Code and MonoCode (both MIT).
