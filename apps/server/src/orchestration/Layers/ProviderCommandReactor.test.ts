@@ -2886,7 +2886,7 @@ describe("ProviderCommandReactor", () => {
   });
 
   effectIt.effect(
-    "rejects changing models after start when the provider requires a new thread",
+    "hands off to a fresh session when the provider requires a new thread for model changes",
     () =>
       Effect.gen(function* () {
         const harness = yield* Effect.promise(() =>
@@ -2930,32 +2930,15 @@ describe("ProviderCommandReactor", () => {
           createdAt: now,
         });
 
-        yield* Effect.promise(() =>
-          waitFor(async () => {
-            const readModel = await harness.readModel();
-            const thread = readModel.threads.find(
-              (entry) => entry.id === ThreadId.make("thread-1"),
-            );
-            return (
-              thread?.activities.some(
-                (activity) => activity.kind === "provider.turn.start.failed",
-              ) ?? false
-            );
-          }),
-        );
+        yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 2));
 
-        expect(harness.sendTurn).toHaveBeenCalledTimes(1);
-        const readModel = yield* Effect.promise(() => harness.readModel());
-        const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-        expect(
-          thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
-        ).toMatchObject({
-          payload: {
-            detail: expect.stringContaining(
-              "cannot switch models after the conversation has started",
-            ),
-          },
-        });
+        // The provider cannot switch models in place, so the thread is handed
+        // off to a fresh session whose first turn carries the recap.
+        expect(harness.startSession.mock.calls.at(-1)?.[1]).toMatchObject({ freshSession: true });
+        const handedOffInput = String(harness.sendTurn.mock.calls[1]?.[0]?.input ?? "");
+        expect(handedOffInput).toContain("<handoff>");
+        expect(handedOffInput).toContain("first");
+        expect(handedOffInput.endsWith("second")).toBe(true);
       }),
   );
 
@@ -3454,7 +3437,7 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("full-access");
   });
 
-  it("rejects provider changes after a thread is already bound to a session provider", async () => {
+  it("hands a bound thread off to a different provider mid-conversation", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -3499,34 +3482,37 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     await waitFor(async () => {
       const readModel = await harness.readModel();
       const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-      return (
-        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
-        false
-      );
+      return thread?.activities.some((activity) => activity.kind === "viewcode.handoff") ?? false;
     });
 
-    expect(harness.startSession.mock.calls.length).toBe(1);
-    expect(harness.sendTurn.mock.calls.length).toBe(1);
-    expect(harness.stopSession.mock.calls.length).toBe(0);
+    expect(harness.stopSession.mock.calls.length).toBe(1);
+    expect(harness.startSession.mock.calls.length).toBe(2);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+      freshSession: true,
+    });
+    const handedOffInput = String(harness.sendTurn.mock.calls[1]?.[0]?.input ?? "");
+    expect(handedOffInput).toContain("<handoff>");
+    expect(handedOffInput).toContain("first");
+    expect(handedOffInput.endsWith("second")).toBe(true);
 
     const readModel = await harness.readModel();
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread?.session?.threadId).toBe("thread-1");
-    expect(thread?.session?.providerName).toBe("codex");
-    expect(thread?.session?.runtimeMode).toBe("approval-required");
     expect(
-      thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
+      thread?.activities.find((activity) => activity.kind === "viewcode.handoff"),
     ).toMatchObject({
       payload: {
-        detail: expect.stringContaining("cannot switch to 'claudeAgent'"),
+        from: { instanceId: "codex" },
+        to: { instanceId: "claudeAgent", model: "claude-opus-4-6" },
       },
     });
   });
 
-  it("rejects cross-driver provider changes after the existing thread session has stopped", async () => {
+  it("hands off across drivers after the existing thread session has stopped", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -3570,26 +3556,13 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(async () => {
-      const readModel = await harness.readModel();
-      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-      return (
-        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
-        false
-      );
-    });
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
 
-    expect(harness.startSession.mock.calls.length).toBe(0);
-    expect(harness.sendTurn.mock.calls.length).toBe(0);
-    const readModel = await harness.readModel();
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(
-      thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
-    ).toMatchObject({
-      payload: {
-        detail: expect.stringContaining("cannot switch to 'claudeAgent'"),
-      },
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+      freshSession: true,
     });
+    expect(String(harness.sendTurn.mock.calls[0]?.[0]?.input ?? "")).toContain("<handoff>");
   });
 
   it("reacts to thread.turn.interrupt-requested by calling provider interrupt", async () => {

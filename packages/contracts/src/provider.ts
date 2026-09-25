@@ -60,6 +60,8 @@ export const ProviderSessionStartInput = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
+  // Start without any persisted resume state (cross-provider handoff).
+  freshSession: Schema.optional(Schema.Boolean),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,

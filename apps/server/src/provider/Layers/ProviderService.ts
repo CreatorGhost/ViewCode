@@ -1436,6 +1436,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
         if (
+          input.freshSession !== true &&
           persistedBinding?.provider === resolvedProvider &&
           persistedBinding.providerInstanceId !== resolvedInstanceId &&
           (input.resumeCursor != null || persistedBinding.resumeCursor != null)
@@ -1457,7 +1458,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }
         const effectiveResumeCursor =
           input.resumeCursor ??
-          (persistedBinding?.providerInstanceId === resolvedInstanceId
+          (input.freshSession !== true &&
+          persistedBinding?.providerInstanceId === resolvedInstanceId
             ? persistedBinding.resumeCursor
             : undefined);
         const effectiveCwd =
