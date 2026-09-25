@@ -30,7 +30,7 @@ It combines four things:
 | Where agents run | Local **server** process | Inside the window: Rust pipes CLI stdout to the webview, which parses and holds state | Inside the app | Closed "Host" binary downloaded from GitHub Releases |
 | Remote / phone | ✅ QR pairing (one-time token in the URL fragment), LAN, Tailscale, SSH, T3 Connect relay, native mobile app | ❌ | ❌ (left out on purpose) | ✅ via cloud relay (Noise-encrypted) |
 | Providers | Claude (Agent SDK), Codex (app-server JSON-RPC), Cursor/Grok/Antigravity (ACP), OpenCode (SDK) | Claude, Codex, Cursor, Grok, OpenCode, Antigravity, Pi, omp, fx, Hermes | Claude, Codex, Cursor, OpenCode, Grok, Antigravity, Copilot, DeepSeek, Meta | Claude, Codex, Cursor, OpenCode, ACP family… |
-| Switch provider mid-thread | ❌ Blocked in `ProviderCommandReactor.ts` ("bound to driver X and cannot switch to Y") | ❌ | ❌ ("New chats only") | ✅ Seeds a "fake-context" prelude from its own transcript |
+| Switch provider mid-thread | ❌ Blocked in `ProviderCommandReactor.ts` ("bound to driver X and cannot switch to Y") | ✅ Handoff (`features/sessions/model/handoff.ts`): the outgoing agent writes a recap if it is still alive and made edits, otherwise a deterministic recap; the new provider's first turn is wrapped in `<handoff>` | ❌ ("New chats only") | ✅ Seeds a "fake-context" prelude from its own transcript |
 | Agent-to-agent | MCP server injected into every session (device, preview and PR toolkits), with no agents toolkit | `/operator` → local `app` CLI: `sessions.start/list/read/send` | Hydra: lead + "heads" | Host-owned MCP `traycer_a2a`: `send_message(expectReply, responseId)`, `create_agent`, `get_transcript`… |
 | Sub-agents | Read-only activity fold | Orchestration workers | Heads in a floating panel | Children are real agents (`parentId`), openable, re-modelable |
 | Size | ~1.1M lines TS | ~225k TS + 37k Rust | ~36k Swift | clients only |
@@ -60,7 +60,7 @@ What we take from each:
 | T3 Code | Everything structural: server, protocol, providers, persistence, auth/pairing, web, desktop, mobile |
 | Traycer | Handoff via a seeded context prelude; A2A tool semantics (`reply_expected` + `response_id`, inactivity notices); parent/child agents that are fully controllable |
 | Droppy Code | Visual spec: glass tokens, radii, spacing, timeline folding ("Worked for 58s ›"), tool groups, todo card, pill composer, effort slider, usage-limit popover, working indicators |
-| MonoCode | React/Tailwind implementations of the same look, the plan-limit fetchers, and `/operator`-style ideas |
+| MonoCode | React/Tailwind implementations of the same look (tokens in `styles/index.css`, glass surfaces, composer, model flyout, transcript folding); its **handoff flow** (outgoing-agent recap or deterministic recap, `<handoff>` wrapper, divider); its **plan-limit fetchers** (Claude `GET api.anthropic.com/api/oauth/usage` with the CLI's OAuth token, Codex `account/rateLimits/read`, OpenCode Go usage); `/operator`-style ideas |
 
 ## 2a. Core features and where each piece comes from
 
@@ -126,6 +126,10 @@ What we take from each:
   2. Start the new one **without** a resume cursor.
   3. Record a `thread.handoff-recorded` event with `{from, to, summary, transcriptPath}`.
   4. On the next `sendTurn`, prepend the handoff prelude.
+- **Recap source** (ported from MonoCode's `handoff.ts`):
+  - If the outgoing session is still alive and made edits, ask it for a short
+    recap with no tools.
+  - Otherwise, or on failure or quota exhaustion, build it deterministically.
 - **Summary builder:** a new `orchestration/Handoff.ts`. It reads
   `projection_thread_messages` and `projection_thread_activities` and produces:
   - the goal;
