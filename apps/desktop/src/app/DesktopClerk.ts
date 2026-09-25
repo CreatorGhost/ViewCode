@@ -99,7 +99,14 @@ export const make = Effect.gen(function* () {
 
   const bridge = yield* Effect.acquireRelease(
     Effect.try({
-      try: () => createDesktopClerkBridge(environment.stateDir, environment.isDevelopment),
+      try: () => {
+        const created = createDesktopClerkBridge(environment.stateDir, environment.isDevelopment);
+        // The SDK registers the renderer scheme on its own, which replaces the
+        // desktop's privileged-scheme list; restore the full list in the same
+        // tick, before Electron can emit ready.
+        ElectronProtocol.registerDesktopSchemePrivilegesSync();
+        return created;
+      },
       catch: (cause) =>
         new DesktopClerkBridgeInitializationError({
           stateDir: environment.stateDir,

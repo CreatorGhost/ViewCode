@@ -69,3 +69,18 @@ auth and platform-managed discovery are skipped and only saved environments (pai
 connect. This is possible because the desktop renderer is not served by the backend: the `t3code://`
 scheme serves the bundled client from disk (Vite in development) and API traffic always goes to the
 environment's own URL.
+
+### The desktop's local backend has no port
+
+A local-only desktop backend listens on a Unix socket (Windows: a per-launch named pipe) instead of
+loopback TCP, because some managed machines refuse or flag any listening port. Network access,
+Tailscale Serve, and `T3CODE_DESKTOP_BACKEND_TCP=1` keep it on TCP. The renderer reaches the socket
+as `t3code-backend://primary/`: main serves that scheme with `protocol.handle` and forwards each
+request, and a preload WebSocket shim tunnels sockets over a `MessagePort` because Chromium cannot
+upgrade a custom-scheme request ([transport](../../apps/desktop/src/backend/DesktopLocalBackendSocket.ts),
+[shim](../../apps/web/src/lib/desktopBackendWebSocket.ts)). The scheme must stay in the single
+privileged-scheme registration; any later `registerSchemesAsPrivileged` call, such as Clerk's,
+replaces the list. Providers cannot dial a socket URL, so `/mcp` is reached through a stdio bridge
+the server launches with its own runtime ([bridge](../../apps/server/src/mcp/McpStdioBridge.ts)).
+Features that hand a loopback URL to another program (T3 Connect tunnels, Tailscale Serve, the
+device hub, OpenCode's own server) still need TCP.

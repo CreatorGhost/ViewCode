@@ -32,6 +32,12 @@ const DESKTOP_LAN_BIND_HOST = "0.0.0.0";
 
 interface ResolvedDesktopServerExposure {
   readonly mode: DesktopServerExposureMode;
+  /**
+   * The backend listens on a Unix socket or named pipe and opens no TCP port.
+   * Only a local-only backend can: network access, Tailscale Serve, and the
+   * advertised loopback endpoint all need a port.
+   */
+  readonly listenOnSocket: boolean;
   readonly bindHost: string;
   readonly localHttpUrl: string;
   readonly localWsUrl: string;
@@ -100,11 +106,38 @@ const resolveLanAdvertisedHost = (
   return null;
 };
 
+type SocketBackendSettings = Pick<
+  DesktopAppSettings.DesktopSettings,
+  "tailscaleServeEnabled" | "wslOnly" | "wslBackendEnabled"
+>;
+
+/**
+ * Whether a local-only backend may listen on a socket instead of TCP.
+ * Tailscale Serve proxies to a loopback port and a WSL-only primary is reached
+ * across the VM boundary, so both keep the backend on TCP, as does the
+ * `T3CODE_DESKTOP_BACKEND_TCP` escape hatch.
+ */
+export const allowsSocketBackend = (input: {
+  readonly settings: SocketBackendSettings;
+  readonly forceTcp: boolean;
+}): boolean =>
+  !input.forceTcp &&
+  !input.settings.tailscaleServeEnabled &&
+  !(input.settings.wslOnly && input.settings.wslBackendEnabled);
+
+/** True when the persisted settings start the backend without a TCP port. */
+export const startsSocketBackend = (input: {
+  readonly settings: SocketBackendSettings &
+    Pick<DesktopAppSettings.DesktopSettings, "serverExposureMode">;
+  readonly forceTcp: boolean;
+}): boolean => input.settings.serverExposureMode === "local-only" && allowsSocketBackend(input);
+
 const resolveDesktopServerExposure = (input: {
   readonly mode: DesktopServerExposureMode;
   readonly port: number;
   readonly networkInterfaces: DesktopNetworkInterfaces.NetworkInterfaces;
   readonly advertisedHostOverride?: string;
+  readonly socketAllowed?: boolean;
 }): ResolvedDesktopServerExposure => {
   const localHttpUrl = `http://${DESKTOP_LOOPBACK_HOST}:${input.port}`;
   const localWsUrl = `ws://${DESKTOP_LOOPBACK_HOST}:${input.port}`;
@@ -112,6 +145,7 @@ const resolveDesktopServerExposure = (input: {
   if (input.mode === "local-only") {
     return {
       mode: input.mode,
+      listenOnSocket: input.socketAllowed ?? false,
       bindHost: DESKTOP_LOOPBACK_HOST,
       localHttpUrl,
       localWsUrl,
@@ -127,6 +161,7 @@ const resolveDesktopServerExposure = (input: {
 
   return {
     mode: input.mode,
+    listenOnSocket: false,
     bindHost: DESKTOP_LAN_BIND_HOST,
     localHttpUrl,
     localWsUrl,
@@ -156,16 +191,19 @@ const createManualEndpoint = (
 const resolveDesktopCoreAdvertisedEndpoints = (
   input: DesktopAdvertisedEndpointInput,
 ): readonly AdvertisedEndpoint[] => {
-  const endpoints: AdvertisedEndpoint[] = [
-    createDesktopEndpoint({
-      id: `desktop-loopback:${input.port}`,
-      label: "This machine",
-      httpBaseUrl: input.exposure.localHttpUrl,
-      reachability: "loopback",
-      status: "available",
-      description: "Loopback endpoint for this desktop app.",
-    }),
-  ];
+  // A socket backend has no loopback URL a browser could open.
+  const endpoints: AdvertisedEndpoint[] = input.exposure.listenOnSocket
+    ? []
+    : [
+        createDesktopEndpoint({
+          id: `desktop-loopback:${input.port}`,
+          label: "This machine",
+          httpBaseUrl: input.exposure.localHttpUrl,
+          reachability: "loopback",
+          status: "available",
+          description: "Loopback endpoint for this desktop app.",
+        }),
+      ];
 
   if (input.exposure.endpointUrl) {
     endpoints.push(
@@ -255,6 +293,7 @@ export const DesktopServerExposureError = Schema.Union([
 export type DesktopServerExposureError = typeof DesktopServerExposureError.Type;
 
 export interface DesktopServerExposureBackendConfig {
+  readonly listenOnSocket: boolean;
   readonly port: number;
   readonly bindHost: string;
   readonly httpBaseUrl: URL;
@@ -289,6 +328,7 @@ export class DesktopServerExposure extends Context.Service<
 interface RuntimeState {
   readonly requestedMode: DesktopServerExposureMode;
   readonly mode: DesktopServerExposureMode;
+  readonly listenOnSocket: boolean;
   readonly port: number;
   readonly bindHost: string;
   readonly localHttpUrl: string;
@@ -326,6 +366,7 @@ const toContractState = (state: RuntimeState): DesktopServerExposureState => ({
 });
 
 const toBackendConfig = (state: RuntimeState): DesktopServerExposureBackendConfig => ({
+  listenOnSocket: state.listenOnSocket,
   port: state.port,
   bindHost: state.bindHost,
   httpBaseUrl: state.httpBaseUrl,
@@ -335,6 +376,7 @@ const toBackendConfig = (state: RuntimeState): DesktopServerExposureBackendConfi
 
 const toResolvedExposure = (state: RuntimeState): ResolvedDesktopServerExposure => ({
   mode: state.mode,
+  listenOnSocket: state.listenOnSocket,
   bindHost: state.bindHost,
   localHttpUrl: state.localHttpUrl,
   localWsUrl: state.localWsUrl,
@@ -351,6 +393,7 @@ function runtimeStateFromResolvedExposure(input: {
   return {
     requestedMode: input.requestedMode,
     mode: input.exposure.mode,
+    listenOnSocket: input.exposure.listenOnSocket,
     port: input.port,
     bindHost: input.exposure.bindHost,
     localHttpUrl: input.exposure.localHttpUrl,
@@ -369,12 +412,15 @@ function resolveRuntimeState(input: {
   readonly port: number;
   readonly networkInterfaces: DesktopNetworkInterfaces.NetworkInterfaces;
   readonly advertisedHostOverride: Option.Option<string>;
+  readonly forceTcp: boolean;
 }): ResolvedRuntimeState {
   const advertisedHostOverride = Option.getOrUndefined(input.advertisedHostOverride);
+  const socketAllowed = allowsSocketBackend(input);
   const requestedExposure = resolveDesktopServerExposure({
     mode: input.requestedMode,
     port: input.port,
     networkInterfaces: input.networkInterfaces,
+    socketAllowed,
     ...(advertisedHostOverride ? { advertisedHostOverride } : {}),
   });
   const unavailable =
@@ -391,6 +437,7 @@ function resolveRuntimeState(input: {
         mode: "local-only",
         port: input.port,
         networkInterfaces: input.networkInterfaces,
+        socketAllowed,
         ...(advertisedHostOverride ? { advertisedHostOverride } : {}),
       })
     : requestedExposure;
@@ -407,6 +454,7 @@ function resolveRuntimeState(input: {
 }
 
 const requiresBackendRelaunch = (previous: RuntimeState, next: RuntimeState): boolean =>
+  previous.listenOnSocket !== next.listenOnSocket ||
   previous.port !== next.port ||
   previous.bindHost !== next.bindHost ||
   previous.localHttpUrl !== next.localHttpUrl;
@@ -448,6 +496,7 @@ export const make = Effect.gen(function* () {
         port,
         networkInterfaces: currentNetworkInterfaces,
         advertisedHostOverride: config.desktopLanHostOverride,
+        forceTcp: config.desktopBackendTcp,
       });
       yield* Ref.set(stateRef, resolved.state);
       return toContractState(resolved.state);
@@ -471,6 +520,7 @@ export const make = Effect.gen(function* () {
       port: previous.port,
       networkInterfaces: currentNetworkInterfaces,
       advertisedHostOverride: config.desktopLanHostOverride,
+      forceTcp: config.desktopBackendTcp,
     });
 
     if (resolved.unavailable) {

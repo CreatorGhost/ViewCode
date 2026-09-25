@@ -11,6 +11,9 @@ export const DesktopBackendBootstrap = Schema.Struct({
   // own home directory instead.
   t3Home: Schema.optional(Schema.String),
   host: Schema.String,
+  // Unix socket path (Windows: named pipe) the backend listens on instead of
+  // host/port. Set when the desktop keeps the backend off the network.
+  listenPath: Schema.optionalKey(TrimmedNonEmptyString),
   desktopBootstrapToken: Schema.String,
   tailscaleServeEnabled: Schema.Boolean,
   tailscaleServePort: PortSchema,

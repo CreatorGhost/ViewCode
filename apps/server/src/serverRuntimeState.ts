@@ -14,6 +14,10 @@ export const PersistedServerRuntimeState = Schema.Struct({
   host: Schema.optional(Schema.String),
   port: Schema.Int,
   origin: Schema.String,
+  // Set when the server listens on a Unix socket or named pipe instead of
+  // TCP. `origin` then only names the HTTP authority; requests must be sent
+  // over this path.
+  listenPath: Schema.optional(Schema.String),
   // Present when the server fronts a dev web server (VITE_DEV_SERVER_URL).
   // Dev is single-origin: browsers must pair through this URL, not `origin`.
   devUrl: Schema.optional(Schema.String),
@@ -45,16 +49,17 @@ const decodePersistedServerRuntimeState = Schema.decodeUnknownEffect(
 );
 
 const runtimeOriginForConfig = (
-  config: Pick<ServerConfig.ServerConfig["Service"], "host">,
+  config: Pick<ServerConfig.ServerConfig["Service"], "host" | "listenPath">,
   port: number,
 ): PersistedServerRuntimeState["origin"] => {
+  if (config.listenPath !== undefined) return "http://localhost";
   const hostname =
     config.host && !isWildcardHost(config.host) ? formatHostForUrl(config.host) : "127.0.0.1";
   return `http://${hostname}:${port}`;
 };
 
 export const makePersistedServerRuntimeState = (input: {
-  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl">;
+  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl" | "listenPath">;
   readonly port: number;
   readonly serviceManaged?: boolean;
 }): Effect.Effect<PersistedServerRuntimeState> =>
@@ -64,6 +69,7 @@ export const makePersistedServerRuntimeState = (input: {
     ...(input.config.host ? { host: input.config.host } : {}),
     port: input.port,
     origin: runtimeOriginForConfig(input.config, input.port),
+    ...(input.config.listenPath !== undefined ? { listenPath: input.config.listenPath } : {}),
     ...(input.config.devUrl ? { devUrl: input.config.devUrl.toString() } : {}),
     startedAt: DateTime.formatIso(now),
     ...(input.serviceManaged ? { serviceManaged: true } : {}),

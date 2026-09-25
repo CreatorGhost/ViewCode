@@ -357,17 +357,74 @@ describe("DesktopServerExposure", () => {
         // mode stays at default "local-only", tailscaleServeEnabled stays false.
 
         const endpoints = yield* serverExposure.getAdvertisedEndpoints;
-        // Only the loopback endpoint; no tailscale spawn means the dieOnSpawnLayer
-        // would have crashed the test if the gate was missing.
-        assert.deepEqual(
-          endpoints.map((endpoint) => endpoint.httpBaseUrl),
-          ["http://127.0.0.1:4173/"],
-        );
+        // A local-only backend listens on a socket, so not even a loopback URL
+        // is advertised; no tailscale spawn means the dieOnSpawnLayer would
+        // have crashed the test if the gate was missing.
+        assert.deepEqual(endpoints, []);
       }),
       {},
       dieOnSpawnLayer(),
     ),
   );
+
+  it.effect("keeps a local-only backend off TCP unless something needs a port", () =>
+    withHarness(
+      lanNetworkInterfaces,
+      Effect.gen(function* () {
+        const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+        yield* serverExposure.configureFromSettings({ port: 4173 });
+        assert.equal((yield* serverExposure.backendConfig).listenOnSocket, true);
+
+        // Network access needs a port; turning it on relaunches onto TCP.
+        const toNetwork = yield* serverExposure.setMode("network-accessible");
+        assert.equal(toNetwork.requiresRelaunch, true);
+        assert.equal((yield* serverExposure.backendConfig).listenOnSocket, false);
+
+        const backToLocal = yield* serverExposure.setMode("local-only");
+        assert.equal(backToLocal.requiresRelaunch, true);
+        assert.equal((yield* serverExposure.backendConfig).listenOnSocket, true);
+      }),
+    ),
+  );
+
+  it.effect("keeps the backend on loopback TCP when asked to", () =>
+    withHarness(
+      emptyNetworkInterfaces,
+      Effect.gen(function* () {
+        const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+        yield* serverExposure.configureFromSettings({ port: 4173 });
+        assert.equal((yield* serverExposure.backendConfig).listenOnSocket, false);
+        const endpoints = yield* serverExposure.getAdvertisedEndpoints;
+        assert.deepEqual(
+          endpoints.map((endpoint) => endpoint.httpBaseUrl),
+          ["http://127.0.0.1:4173/"],
+        );
+      }),
+      { T3CODE_DESKTOP_BACKEND_TCP: "true" },
+    ),
+  );
+
+  it("starts a socket backend only for local-only settings without Tailscale Serve", () => {
+    const start = (
+      serverExposureMode: "local-only" | "network-accessible",
+      tailscaleServeEnabled: boolean,
+      options: { forceTcp?: boolean; wslOnly?: boolean } = {},
+    ) =>
+      DesktopServerExposure.startsSocketBackend({
+        settings: {
+          serverExposureMode,
+          tailscaleServeEnabled,
+          wslOnly: options.wslOnly ?? false,
+          wslBackendEnabled: options.wslOnly ?? false,
+        },
+        forceTcp: options.forceTcp ?? false,
+      });
+    assert.equal(start("local-only", false), true);
+    assert.equal(start("local-only", true), false);
+    assert.equal(start("network-accessible", false), false);
+    assert.equal(start("local-only", false, { forceTcp: true }), false);
+    assert.equal(start("local-only", false, { wslOnly: true }), false);
+  });
 
   it.effect("preserves explicit Tailscale exposure overrides", () =>
     withHarness(

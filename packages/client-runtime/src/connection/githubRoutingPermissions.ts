@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { DESKTOP_LOCAL_BACKEND_SCHEME, EnvironmentId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -39,9 +39,11 @@ export function gitHubRoutingConnectionKey(entry: ConnectionCatalogEntry): strin
   if (baseUrls === null) return null;
   try {
     const urls = baseUrls.map((baseUrl) => new URL(baseUrl));
+    // A socket-backed desktop backend uses its own scheme for both URLs.
+    const localBackend = `${DESKTOP_LOCAL_BACKEND_SCHEME}:`;
     if (
-      !["http:", "https:"].includes(urls[0]!.protocol) ||
-      !["ws:", "wss:"].includes(urls[1]!.protocol) ||
+      !["http:", "https:", localBackend].includes(urls[0]!.protocol) ||
+      !["ws:", "wss:", localBackend].includes(urls[1]!.protocol) ||
       urls.some((url) => url.username || url.password)
     )
       return null;

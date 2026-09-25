@@ -354,6 +354,32 @@ export const DesktopUpdateCheckResultSchema = Schema.Struct({
 // importing brand machinery from the desktop package.
 export const PRIMARY_LOCAL_ENVIRONMENT_ID = "primary";
 
+/**
+ * URL scheme for a desktop-local backend that listens on a Unix socket or
+ * named pipe instead of a TCP port. The desktop main process serves HTTP on
+ * `t3code-backend://<instance id>/` by forwarding to the socket, and the
+ * renderer opens WebSockets on the same URLs through
+ * `DesktopBridge.openLocalBackendSocket`.
+ */
+export const DESKTOP_LOCAL_BACKEND_SCHEME = "t3code-backend";
+
+export function isDesktopLocalBackendUrl(url: string | URL): boolean {
+  return String(url).toLowerCase().startsWith(`${DESKTOP_LOCAL_BACKEND_SCHEME}:`);
+}
+
+/** Frames the main process sends to the renderer for a tunneled WebSocket. */
+export interface DesktopLocalBackendSocketHandlers {
+  onOpen: (info: { protocol: string; extensions: string }) => void;
+  onMessage: (data: string | ArrayBuffer) => void;
+  onError: (message: string) => void;
+  onClose: (info: { code: number; reason: string; wasClean: boolean }) => void;
+}
+
+export interface DesktopLocalBackendSocket {
+  send: (data: string | ArrayBuffer | ArrayBufferView) => void;
+  close: (code?: number, reason?: string) => void;
+}
+
 export interface DesktopEnvironmentBootstrap {
   // Stable backend instance id (e.g. "primary" or "wsl:ubuntu"). The
   // web env runtime keys local environments off this so projects
@@ -1144,6 +1170,15 @@ export interface DesktopBridge {
   getLocalEnvironmentEnabled?: () => boolean;
   setLocalEnvironmentEnabled?: (enabled: boolean) => Promise<void>;
   getLocalEnvironmentBearerToken: () => Promise<string>;
+  /**
+   * Opens a WebSocket to a `t3code-backend:` URL through the main process,
+   * which dials the backend's socket. Absent on hosts without local backends.
+   */
+  openLocalBackendSocket?: (
+    url: string,
+    protocols: readonly string[],
+    handlers: DesktopLocalBackendSocketHandlers,
+  ) => DesktopLocalBackendSocket;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog?: () => Promise<string | null>;

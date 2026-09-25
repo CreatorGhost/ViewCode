@@ -11,6 +11,8 @@ import * as NetAddress from "effect/unstable/net/NetAddress";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpProviderSession from "./McpProviderSession.ts";
+import { MCP_STDIO_BRIDGE_TOKEN_ENV } from "./McpStdioBridge.ts";
+import * as McpStdioBridgeLaunch from "./McpStdioBridgeLaunch.ts";
 
 export interface McpCredentialRequest {
   readonly threadId: ThreadId;
@@ -98,7 +100,13 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const livenessWindowMs = options.livenessWindowMs ?? DEFAULT_LIVENESS_WINDOW_MS;
   const endpoint = NetAddress.isInetAddress(httpServer.address)
     ? `http://${getHttpMcpEndpointHost(httpServer.address.address)}:${httpServer.address.port}/mcp`
-    : "http://127.0.0.1/mcp";
+    : "http://localhost/mcp";
+  // A socket listener has no URL a provider can dial, so providers launch the
+  // stdio bridge, which forwards to `/mcp` over the same socket.
+  const stdioBridge =
+    httpServer.address._tag === "UnixPathAddress"
+      ? yield* McpStdioBridgeLaunch.resolveMcpStdioBridgeLaunch(httpServer.address.path)
+      : undefined;
 
   const hashToken = (token: string) =>
     crypto
@@ -144,6 +152,17 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           providerInstanceId: scope.providerInstanceId,
           endpoint,
           authorizationHeader: `Bearer ${rawToken}`,
+          ...(stdioBridge
+            ? {
+                stdio: {
+                  ...stdioBridge,
+                  env: {
+                    ...stdioBridge.env,
+                    [MCP_STDIO_BRIDGE_TOKEN_ENV]: rawToken,
+                  },
+                },
+              }
+            : {}),
           capabilities: scope.capabilities,
         },
       };

@@ -7,6 +7,7 @@ import {
   EditorId,
   PickedThemeFileSchema,
   PickFolderOptionsSchema,
+  isDesktopLocalBackendUrl,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   REMOTE_CAPABLE_EDITOR_IDS,
   SystemSettingsPaneSchema,
@@ -57,6 +58,9 @@ const ContextMenuInput = Schema.Struct({
 });
 
 function toWebSocketBaseUrl(httpBaseUrl: URL): string {
+  // A socket-backed backend keeps its scheme; the renderer's WebSocket shim
+  // tunnels those URLs through the main process.
+  if (isDesktopLocalBackendUrl(httpBaseUrl)) return httpBaseUrl.href;
   const url = new URL(httpBaseUrl.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.href;

@@ -38,6 +38,7 @@ const isDesktopBackendObservabilitySettingsReadError = Schema.is(
 const serverExposureLayer = Layer.succeed(DesktopServerExposure.DesktopServerExposure, {
   getState: Effect.die("unexpected getState"),
   backendConfig: Effect.succeed({
+    listenOnSocket: false,
     port: 4888,
     bindHost: "0.0.0.0",
     httpBaseUrl: new URL("http://127.0.0.1:4888"),

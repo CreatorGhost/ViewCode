@@ -4,18 +4,25 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { beforeEach, vi } from "vite-plus/test";
 
-const { createClerkBridgeMock, storageAdapter, storageMock } = vi.hoisted(() => ({
-  createClerkBridgeMock: vi.fn(),
-  storageAdapter: {
-    getItem: vi.fn(),
-    setItem: vi.fn(),
-    removeItem: vi.fn(),
-  },
-  storageMock: vi.fn(),
-}));
+const { createClerkBridgeMock, registerSchemesMock, storageAdapter, storageMock } = vi.hoisted(
+  () => ({
+    createClerkBridgeMock: vi.fn(),
+    registerSchemesMock: vi.fn(),
+    storageAdapter: {
+      getItem: vi.fn(),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    },
+    storageMock: vi.fn(),
+  }),
+);
 
 vi.mock("@clerk/electron", () => ({
   createClerkBridge: createClerkBridgeMock,
+}));
+
+vi.mock("electron", () => ({
+  protocol: { registerSchemesAsPrivileged: registerSchemesMock },
 }));
 
 vi.mock("@clerk/electron/storage", () => ({
@@ -60,6 +67,7 @@ const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
 describe("DesktopClerk", () => {
   beforeEach(() => {
     createClerkBridgeMock.mockReset();
+    registerSchemesMock.mockReset();
     storageMock.mockReset();
   });
 
@@ -70,6 +78,9 @@ describe("DesktopClerk", () => {
     createClerkBridgeMock.mockImplementation(() => {
       events.push("createClerkBridge");
       return { cleanup, isPrimaryInstance: true };
+    });
+    registerSchemesMock.mockImplementation((schemes: ReadonlyArray<{ scheme: string }>) => {
+      events.push(`registerSchemes:${schemes.map((entry) => entry.scheme).join(",")}`);
     });
 
     return Effect.gen(function* () {
@@ -88,7 +99,13 @@ describe("DesktopClerk", () => {
       // The bridge acquires Electron's single-instance lock at creation, and
       // the lock both lives in and creates the userData directory — so the
       // real path must be set before the bridge exists.
-      assert.deepEqual(events, ["setPath:userData:/tmp/app-data/t3code-dev", "createClerkBridge"]);
+      // The SDK's own scheme registration replaces the privileged list, so the
+      // desktop's full list, including the local backend scheme, follows it.
+      assert.deepEqual(events, [
+        "setPath:userData:/tmp/app-data/t3code-dev",
+        "createClerkBridge",
+        "registerSchemes:t3code,t3code-dev,t3code-backend",
+      ]);
       storageMock.mockClear();
       createClerkBridgeMock.mockClear();
     });

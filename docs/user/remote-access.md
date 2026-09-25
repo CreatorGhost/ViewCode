@@ -38,6 +38,11 @@ On a desktop host, open **Settings → Connections**, enable **Network access**,
 then create a pairing link using an address the other device can reach. Changing
 network access restarts the desktop app. You can turn it off in the same place.
 
+With network access and Tailscale Serve off, the desktop app opens no network
+port at all: its local server listens on a private socket that only your user
+account can reach. That is also why `t3 pair` reports that such a server cannot
+be paired until network access is on.
+
 For a command-line host, replace `<private-ip>` with the host's LAN or tailnet
 address:
 

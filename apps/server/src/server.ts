@@ -35,6 +35,7 @@ import {
   httpCompressionLayer,
 } from "./http.ts";
 import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
+import { prepareListenPath, restrictListenPathPermissions } from "./socketListener.ts";
 import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -240,9 +241,21 @@ const RelayClientLive = Layer.unwrap(
 const HttpServerLive = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
-    return NodeHttpServer.layer(() => guardHttpResponseWriteErrors(NodeHttp.createServer()), {
-      host: config.host ?? "127.0.0.1",
-      port: config.port,
+    const listenPath = config.listenPath;
+    if (listenPath !== undefined) {
+      yield* prepareListenPath(listenPath);
+    }
+    const createServer = () => {
+      const server = guardHttpResponseWriteErrors(NodeHttp.createServer());
+      if (listenPath !== undefined) {
+        server.once("listening", () => restrictListenPathPermissions(listenPath));
+      }
+      return server;
+    };
+    return NodeHttpServer.layer(createServer, {
+      ...(listenPath !== undefined
+        ? { path: listenPath }
+        : { host: config.host ?? "127.0.0.1", port: config.port }),
       gracefulShutdownTimeout: HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS,
       // Negotiate permessage-deflate with clients that offer it; clients
       // that don't still get uncompressed frames on their connection.
@@ -641,14 +654,14 @@ const makeServerLayer = Layer.unwrap(
           yield* awaitActivation;
           const server = yield* HttpServer.HttpServer;
           const address = server.address;
-          if (typeof address === "string" || !("port" in address)) {
-            return;
-          }
+          // A socket listener has no port of its own; the state then names the
+          // socket path instead, and `port` stays nominal.
+          const port = address._tag === "UnixPathAddress" ? config.port : address.port;
 
           const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
           const state = yield* makePersistedServerRuntimeState({
             config,
-            port: address.port,
+            port,
             serviceManaged: launcher.managed,
           });
           yield* persistServerRuntimeState({

@@ -56,6 +56,40 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
   }),
 );
 
+it.effect("hands providers the stdio bridge when the server listens on a socket", () =>
+  Effect.gen(function* () {
+    const socketServer = HttpServer.HttpServer.of({
+      address: NetAddress.unixPathAddress("/tmp/t3code-1000/backend.sock"),
+      serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
+    });
+    const registry = yield* makeRegistry(() => 1_000, socketServer);
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("thread-socket"),
+      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+      capabilities: new Set(),
+    });
+    const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+    const stdio = issued.config.stdio;
+    expect(stdio?.command).toBe(process.execPath);
+    expect(stdio?.args.slice(-2)).toEqual(["--socket", "/tmp/t3code-1000/backend.sock"]);
+    expect(stdio?.args[0]).toMatch(/mcp-stdio-bridge\.(ts|mjs)$/);
+    expect(stdio?.env).toEqual({ ELECTRON_RUN_AS_NODE: "1", T3_MCP_BEARER_TOKEN: token });
+    expect((yield* registry.resolve(token))?.threadId).toBe("thread-socket");
+  }),
+);
+
+it.effect("keeps URL-only MCP config when the server has a TCP port", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("thread-tcp"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      capabilities: new Set(),
+    });
+    expect(issued.config.stdio).toBeUndefined();
+  }),
+);
+
 it.effect("always grants pull-requests and gates browser and device access independently", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry(() => 1_000);
