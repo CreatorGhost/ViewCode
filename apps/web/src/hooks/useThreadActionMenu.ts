@@ -7,11 +7,12 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type { ContextMenuItem, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 
 import { resolveSnoozePresets } from "../components/Sidebar.snooze";
+import { useCreateChildAgent } from "../components/agents/useCreateChildAgent";
 import {
   buildThreadActionMenuItems,
   type ThreadActionMenuId,
@@ -97,6 +98,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
+  const createChildAgent = useCreateChildAgent();
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
@@ -141,23 +143,36 @@ export function useThreadActionMenu(input: {
         };
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
-        const items = buildThreadActionMenuItems({
-          branch: thread.branch ?? null,
-          // The chat header has no project-scoped thread list behind the
-          // menu, so the "Filter by project" affordance is sidebar-only.
-          projectFilter: null,
-          isPinned: thread.pinnedAt != null,
-          isSettled: supports.settlement && thread.settledOverride === "settled",
-          autoSettleEnabled: thread.autoSettleDisabledAt == null,
-          isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
-          canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
-          isRegeneratingTitle,
-          isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
-          supports,
-          snoozePresets,
-        });
+        // Header-only: the chat you are reading is the natural parent.
+        const newChildAgentItem: ContextMenuItem<ThreadActionMenuId | "new-child-agent"> = {
+          id: "new-child-agent",
+          label: "New child agent",
+          icon: "message-square-plus",
+        };
+        const items = [
+          newChildAgentItem,
+          ...buildThreadActionMenuItems({
+            branch: thread.branch ?? null,
+            // The chat header has no project-scoped thread list behind the
+            // menu, so the "Filter by project" affordance is sidebar-only.
+            projectFilter: null,
+            isPinned: thread.pinnedAt != null,
+            isSettled: supports.settlement && thread.settledOverride === "settled",
+            autoSettleEnabled: thread.autoSettleDisabledAt == null,
+            isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
+            canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
+            isRegeneratingTitle,
+            isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
+            supports,
+            snoozePresets,
+          }),
+        ];
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
+        if (clicked.value === "new-child-agent") {
+          await createChildAgent(thread);
+          return;
+        }
         const action: ThreadActionMenuId = clicked.value;
         if (action.startsWith("snooze:")) {
           const preset =
@@ -333,6 +348,7 @@ export function useThreadActionMenu(input: {
       copyBranchToClipboard,
       copyPathToClipboard,
       copyThreadIdToClipboard,
+      createChildAgent,
       deleteThread,
       handleNewThread,
       logicalProjectKeyByPhysicalKey,

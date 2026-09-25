@@ -1354,6 +1354,8 @@ export interface ChatComposerProps {
   sendDisabledReason: string | null;
   isPreparingWorktree: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  /** Always-attached strip above the banner stack (the child agents bar); renders its own attachment. */
+  agentsBar?: ReactNode;
   /** Picking /usage-limits from the menu is the action itself; the draft keeps nothing of it. */
   onUsageLimitsCommand?: (() => void) | undefined;
   environmentUnavailable: {
@@ -6187,6 +6189,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         : null}
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
+          {props.agentsBar}
           <ComposerBannerStack
             key={activeThreadId}
             className="relative z-0"

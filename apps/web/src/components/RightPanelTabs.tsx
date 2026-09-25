@@ -394,15 +394,21 @@ function RightPanelEmptyState(props: {
       onClick: props.onAddPullRequests,
       badgeCount: 0,
     },
-    {
-      label: "Agents",
-      icon: Bot,
-      shortcut: "A",
-      available: props.agentsAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
-      onClick: props.onAddAgents,
-      badgeCount: props.liveAgentCount,
-    },
+    // Omitted rather than disabled when unavailable: ViewCode does not offer
+    // the Agents surface (native sub-agents render inline in the timeline).
+    ...(props.agentsAvailable
+      ? [
+          {
+            label: "Agents",
+            icon: Bot,
+            shortcut: "A",
+            available: true,
+            disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
+            onClick: props.onAddAgents,
+            badgeCount: props.liveAgentCount,
+          },
+        ]
+      : []),
     {
       label: "Device",
       description: "Watch an iOS Simulator or Android Emulator.",
@@ -917,14 +923,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.pullRequests,
       onClick: props.onAddPullRequests,
     },
-    {
-      label: "Agents",
-      icon: Bot,
-      shortcut: "A",
-      available: props.agentsAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.agents,
-      onClick: props.onAddAgents,
-    },
+    ...(props.agentsAvailable
+      ? ([
+          {
+            label: "Agents",
+            icon: Bot,
+            shortcut: "A",
+            available: true,
+            disabledReason: SURFACE_DISABLED_REASONS.agents,
+            onClick: props.onAddAgents,
+          },
+        ] as const)
+      : []),
     {
       label: "Device",
       icon: Smartphone,
