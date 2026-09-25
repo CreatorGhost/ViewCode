@@ -1,7 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
+import type { EnvironmentIdentificationMode } from "@t3tools/contracts/settings";
+import { VIEWCODE_THEME_ID } from "@t3tools/shared/themePalettes";
 import { useId } from "react";
 
 import { APP_STAGE_LABEL } from "../branding";
+import { useTheme } from "../hooks/useTheme";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 import { primaryServerConfigAtom } from "../state/server";
 
@@ -42,8 +45,24 @@ export function useEnvironmentStageLabel(): string {
   });
 }
 
+/**
+ * ViewCode's glass theme has no stage artwork: an "artwork" preference reads
+ * as the plain stage pill there, so the channel stays identifiable.
+ */
+export function resolveThemeEnvironmentIdentificationMode(
+  mode: EnvironmentIdentificationMode,
+  theme: string,
+): EnvironmentIdentificationMode {
+  return mode === "artwork" && theme === VIEWCODE_THEME_ID ? "pill" : mode;
+}
+
+export function useStageArtworkAllowed(): boolean {
+  return useTheme().theme !== VIEWCODE_THEME_ID;
+}
+
 export function useSidebarStageBackdropVariant(enabled = true): SidebarStageBackdropVariant | null {
-  return resolveSidebarStageBackdropVariant(useEnvironmentStageLabel(), enabled);
+  const artworkAllowed = useStageArtworkAllowed();
+  return resolveSidebarStageBackdropVariant(useEnvironmentStageLabel(), enabled && artworkAllowed);
 }
 
 /** Stage-channel header art; palettes mirror the per-channel app icons in `assets/`. */
