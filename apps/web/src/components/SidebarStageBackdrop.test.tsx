@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
+  resolveThemeEnvironmentIdentificationMode,
   StageBackdropArt,
 } from "./SidebarStageBackdrop";
 
@@ -13,6 +14,12 @@ describe("SidebarStageBackdrop", () => {
     expect(resolveSidebarStageBackdropVariant("Nightly")).toBe("nightly");
     expect(resolveSidebarStageBackdropVariant("Dev", false)).toBeNull();
     expect(resolveSidebarStageBackdropVariant("Alpha")).toBeNull();
+  });
+
+  it("shows the stage as a pill instead of artwork under the ViewCode theme", () => {
+    expect(resolveThemeEnvironmentIdentificationMode("artwork", "viewcode")).toBe("pill");
+    expect(resolveThemeEnvironmentIdentificationMode("none", "viewcode")).toBe("none");
+    expect(resolveThemeEnvironmentIdentificationMode("artwork", "t3code")).toBe("artwork");
   });
 
   it("resolves supported environment pill labels", () => {

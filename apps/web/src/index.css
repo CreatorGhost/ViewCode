@@ -172,6 +172,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --text-4xs--line-height: 1;
   --text-5xs: 0.4375rem;
   --text-5xs--line-height: 1;
+  /* 13px list rows (the thread sidebar), between text-xs and text-sm. */
+  --text-row: 0.8125rem;
+  --text-row--line-height: calc(1.125 / 0.8125);
   /* Motion. drawer is the decelerating curve for surfaces that slide or pop in
      (composer context, pills). */
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
