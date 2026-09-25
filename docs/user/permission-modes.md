@@ -30,4 +30,7 @@ actions still require approval.
 Antigravity can still send native approval requests in **Full access**. It only offers remembered
 approvals for actions that support them.
 
+Command Code cannot ask for approval. Outside **Full access** it reads and answers, but its file
+edits and shell commands are blocked and show as declined.
+
 See the [provider guides](./install.md#providers) for setup and provider-specific limits.
