@@ -1,5 +1,7 @@
 import * as NodeOS from "node:os";
 
+import { resolveDesktopBackendListenPath } from "@t3tools/shared/desktopAppControl";
+import { HostProcessUserId } from "@t3tools/shared/hostProcess";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -15,6 +17,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
+import * as DesktopLocalBackendSocket from "./DesktopLocalBackendSocket.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -536,6 +539,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
   function* (
     input: SharedBootstrapInput & {
       readonly resourceMonitorPath: Option.Option<string>;
+      readonly listenPath: string;
     },
   ): Effect.fn.Return<
     DesktopBackendManager.DesktopBackendStartConfig,
@@ -545,6 +549,8 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     const backendExposure = yield* serverExposure.backendConfig;
+    // Local-only backends listen on a socket so the app opens no TCP port.
+    const listenPath = backendExposure.listenOnSocket ? input.listenPath : undefined;
 
     const bootstrap = {
       mode: "desktop" as const,
@@ -552,6 +558,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       port: backendExposure.port,
       t3Home: environment.baseDir,
       host: backendExposure.bindHost,
+      ...(listenPath === undefined ? {} : { listenPath }),
       desktopBootstrapToken: input.bootstrapToken,
       tailscaleServeEnabled: backendExposure.tailscaleServeEnabled,
       tailscaleServePort: backendExposure.tailscaleServePort,
@@ -586,7 +593,13 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       extendEnv: true,
       bootstrap,
       bootstrapDelivery: "fd3",
-      httpBaseUrl: backendExposure.httpBaseUrl,
+      httpBaseUrl:
+        listenPath === undefined
+          ? backendExposure.httpBaseUrl
+          : DesktopLocalBackendSocket.localBackendHttpBaseUrl(
+              DesktopBackendManager.PRIMARY_INSTANCE_ID,
+            ),
+      ...(listenPath === undefined ? {} : { listenPath }),
       captureOutput: true,
       preflightFailure: Option.none(),
     } satisfies DesktopBackendManager.DesktopBackendStartConfig;
@@ -833,6 +846,15 @@ export const make = Effect.gen(function* () {
   // invariant the renderer relies on. modifyEffect serializes the whole
   // get-or-create so the first caller wins and the rest reuse its token.
   const tokenRef = yield* SynchronizedRef.make(Option.none<string>());
+  // Fixed for the app's lifetime; Windows pipe names carry a per-launch nonce.
+  const primaryListenPath = resolveDesktopBackendListenPath({
+    stateDir: environment.path.resolve(environment.stateDir),
+    platform: environment.platform,
+    tempDir: NodeOS.tmpdir(),
+    userId: yield* HostProcessUserId,
+    nonce: Encoding.encodeHex(yield* crypto.randomBytes(8).pipe(Effect.orDie)),
+    joinPath: environment.path.join,
+  });
   const getOrCreateBootstrapToken = SynchronizedRef.modifyEffect(tokenRef, (current) =>
     Option.match(current, {
       onSome: (token) => Effect.succeed([token, current] as const),
@@ -889,7 +911,11 @@ export const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
     );
-    return yield* resolvePrimaryStartConfig({ ...shared, resourceMonitorPath }).pipe(
+    return yield* resolvePrimaryStartConfig({
+      ...shared,
+      resourceMonitorPath,
+      listenPath: primaryListenPath,
+    }).pipe(
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(DesktopServerExposure.DesktopServerExposure, serverExposure),
     );

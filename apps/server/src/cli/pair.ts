@@ -71,6 +71,20 @@ export type PairStateVariant = "userdata" | "dev";
 // dev-vs-userdata state directory; the value itself is not used.
 const DEV_VARIANT_PLACEHOLDER_URL = new URL("http://localhost");
 
+export class LocalOnlyServerError extends Schema.TaggedError<LocalOnlyServerError>()(
+  "LocalOnlyServerError",
+  {
+    listenPath: Schema.String,
+  },
+) {
+  override get message(): string {
+    return [
+      `The running T3 Code server only accepts local connections (${this.listenPath}), so no device can pair with it.`,
+      "Turn on network access in the desktop app's Connections settings, then try again.",
+    ].join("\n");
+  }
+}
+
 export class NoRunningServerError extends Schema.TaggedError<NoRunningServerError>()(
   "NoRunningServerError",
   {
@@ -276,6 +290,9 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       // token in the old database while the QR code points at the new server.
       if (!isProcessAlive(state.value.pid)) {
         continue;
+      }
+      if (state.value.listenPath !== undefined) {
+        return yield* new LocalOnlyServerError({ listenPath: state.value.listenPath });
       }
       const probed = yield* probeEnvironmentDescriptor(state.value.origin);
       if (probed._tag !== "descriptor") {

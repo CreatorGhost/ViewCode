@@ -18,6 +18,8 @@ import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
+import * as DesktopConfig from "./DesktopConfig.ts";
+import * as DesktopLocalBackendTransport from "../backend/DesktopLocalBackendTransport.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
@@ -179,6 +181,8 @@ const bootstrap = Effect.gen(function* () {
   });
   yield* installDesktopIpcHandlers();
   yield* logBootstrapInfo("bootstrap ipc handlers registered");
+  const localBackendTransport = yield* DesktopLocalBackendTransport.DesktopLocalBackendTransport;
+  yield* localBackendTransport.install;
 
   yield* snapShot.initialize;
 
@@ -199,17 +203,34 @@ const bootstrap = Effect.gen(function* () {
     return yield* new DesktopDevelopmentBackendPortRequiredError();
   }
 
-  const backendPortSelection = yield* resolveDesktopBackendPort(environment.configuredBackendPort);
+  // A socket backend binds no port, so skip the scan: probing binds every
+  // interface, which is the kind of listener locked-down machines refuse.
+  const desktopConfig = yield* DesktopConfig.DesktopConfig;
+  const startsSocketBackend = DesktopServerExposure.startsSocketBackend({
+    settings,
+    forceTcp: desktopConfig.desktopBackendTcp,
+  });
+  const backendPortSelection = startsSocketBackend
+    ? ({
+        port: Option.getOrElse(
+          environment.configuredBackendPort,
+          () => DEFAULT_DESKTOP_BACKEND_PORT,
+        ),
+        selectedByScan: false,
+      } as const)
+    : yield* resolveDesktopBackendPort(environment.configuredBackendPort);
   const backendPort = backendPortSelection.port;
-  yield* logBootstrapInfo(
-    backendPortSelection.selectedByScan
-      ? "selected backend port via sequential scan"
-      : "using configured backend port",
-    {
-      port: backendPort,
-      ...(backendPortSelection.selectedByScan ? { startPort: DEFAULT_DESKTOP_BACKEND_PORT } : {}),
-    },
-  );
+  if (!startsSocketBackend) {
+    yield* logBootstrapInfo(
+      backendPortSelection.selectedByScan
+        ? "selected backend port via sequential scan"
+        : "using configured backend port",
+      {
+        port: backendPort,
+        ...(backendPortSelection.selectedByScan ? { startPort: DEFAULT_DESKTOP_BACKEND_PORT } : {}),
+      },
+    );
+  }
 
   if (settings.serverExposureMode !== environment.defaultDesktopSettings.serverExposureMode) {
     yield* logBootstrapInfo("bootstrap restoring persisted server exposure mode", {
@@ -218,9 +239,11 @@ const bootstrap = Effect.gen(function* () {
   }
   const serverExposureState = yield* serverExposure.configureFromSettings({ port: backendPort });
   const backendConfig = yield* serverExposure.backendConfig;
-  yield* logBootstrapInfo("bootstrap resolved backend endpoint", {
-    baseUrl: backendConfig.httpBaseUrl.href,
-  });
+  yield* backendConfig.listenOnSocket
+    ? logBootstrapInfo("bootstrap keeps the backend on a local socket; no TCP port is opened")
+    : logBootstrapInfo("bootstrap resolved backend endpoint", {
+        baseUrl: backendConfig.httpBaseUrl.href,
+      });
   if (serverExposureState.endpointUrl) {
     yield* logBootstrapInfo("bootstrap enabled network access", {
       endpointUrl: serverExposureState.endpointUrl,

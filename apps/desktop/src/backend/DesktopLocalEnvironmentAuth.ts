@@ -10,6 +10,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
+import { withBackendHttpClient } from "./DesktopLocalBackendSocket.ts";
 
 export class DesktopLocalEnvironmentAuthBackendNotConfiguredError extends Schema.TaggedError<DesktopLocalEnvironmentAuthBackendNotConfiguredError>()(
   "DesktopLocalEnvironmentAuthBackendNotConfiguredError",
@@ -76,6 +77,7 @@ export const make = Effect.gen(function* () {
             deviceType: "desktop",
           },
         }).pipe(
+          withBackendHttpClient(config.listenPath),
           Effect.provideService(HttpClient.HttpClient, httpClient),
           Effect.mapError(
             (cause) =>

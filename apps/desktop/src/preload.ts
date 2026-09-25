@@ -62,6 +62,60 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
   return result as Awaited<ReturnType<DesktopBridge["ensureSshEnvironment"]>>;
 }
 
+// A WebSocket to a socket-backed local backend, carried over a MessagePort to
+// the main process, which holds the real connection. Frames cross the context
+// bridge as strings or ArrayBuffers.
+const openLocalBackendSocket: DesktopBridge["openLocalBackendSocket"] = (
+  url,
+  protocols,
+  handlers,
+) => {
+  const channel = new MessageChannel();
+  const port = channel.port1;
+  port.addEventListener("message", (event: MessageEvent) => {
+    const message = event.data as
+      | { type: "open"; protocol: string; extensions: string }
+      | { type: "message"; data: string | ArrayBuffer }
+      | { type: "error"; message: string }
+      | { type: "close"; code: number; reason: string; wasClean: boolean };
+    switch (message.type) {
+      case "open":
+        handlers.onOpen({ protocol: message.protocol, extensions: message.extensions });
+        break;
+      case "message":
+        handlers.onMessage(message.data);
+        break;
+      case "error":
+        handlers.onError(message.message);
+        break;
+      case "close":
+        port.close();
+        handlers.onClose({
+          code: message.code,
+          reason: message.reason,
+          wasClean: message.wasClean,
+        });
+        break;
+    }
+  });
+  port.start();
+  ipcRenderer.postMessage(
+    IpcChannels.OPEN_LOCAL_BACKEND_SOCKET_CHANNEL,
+    { url, protocols: [...protocols] },
+    [channel.port2],
+  );
+  return {
+    send: (data) => {
+      const payload =
+        typeof data === "string" || data instanceof ArrayBuffer
+          ? data
+          : new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice();
+      port.postMessage({ type: "send", data: payload });
+    },
+    close: (code, reason) => port.postMessage({ type: "close", code, reason }),
+  };
+};
+
 contextBridge.exposeInMainWorld("desktopBridge", {
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
@@ -97,6 +151,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   getLocalEnvironmentBearerToken: () =>
     ipcRenderer.invoke(IpcChannels.GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL),
+  openLocalBackendSocket: openLocalBackendSocket,
   getLocalEnvironmentEnabled: () =>
     ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL) !== false,
   setLocalEnvironmentEnabled: (enabled) =>

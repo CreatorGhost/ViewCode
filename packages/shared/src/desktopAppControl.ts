@@ -39,3 +39,26 @@ export function resolveDesktopAppControlAddress(input: {
     directory,
   };
 }
+
+/**
+ * Where the desktop app's local backend listens when it opens no TCP port.
+ * Unix sockets share the control socket's per-user directory, whose short
+ * path stays within socket path limits. Windows pipe names are global, so
+ * `nonce` (fresh per launch) keeps another account from claiming the name
+ * first.
+ */
+export function resolveDesktopBackendListenPath(input: {
+  readonly stateDir: string;
+  readonly platform: NodeJS.Platform;
+  readonly tempDir: string;
+  readonly userId: number | undefined;
+  readonly nonce: string;
+  readonly joinPath: (...segments: readonly string[]) => string;
+}): string {
+  const stateHash = shortHash(input.stateDir);
+  if (input.platform === "win32") {
+    return `\\\\.\\pipe\\t3code-backend-${stateHash}-${input.nonce}`;
+  }
+  const control = resolveDesktopAppControlAddress(input);
+  return input.joinPath(control.directory ?? input.tempDir, `${stateHash}-backend.sock`);
+}

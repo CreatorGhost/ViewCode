@@ -469,6 +469,59 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect("listens on the bootstrap socket path, with the flag and env taking precedence", () =>
+    Effect.gen(function* () {
+      const flags = {
+        mode: Option.none(),
+        port: Option.none(),
+        host: Option.none(),
+        baseDir: Option.some("/tmp/t3-listen-path-home"),
+        cwd: Option.none(),
+        devUrl: Option.none(),
+        noBrowser: Option.none(),
+        bootstrapFd: Option.none(),
+        autoBootstrapProjectFromCwd: Option.none(),
+        logWebSocketEvents: Option.none(),
+        tailscaleServeEnabled: Option.none(),
+        tailscaleServePort: Option.none(),
+      };
+      const resolveWith = (
+        env: Record<string, string>,
+        listenPathFlag: Option.Option<string> = Option.none(),
+      ) =>
+        resolveServerConfig({ ...flags, listenPath: listenPathFlag }, Option.none()).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env })),
+              // A socket server binds no port, so it must not probe for one.
+              Layer.succeed(NetService.NetService, {
+                canListenOnHost: () => Effect.die("unexpected port probe"),
+                isPortAvailableOnLoopback: () => Effect.die("unexpected port probe"),
+                reserveLoopbackPort: () => Effect.die("unexpected port probe"),
+                findAvailablePort: () => Effect.die("unexpected port probe"),
+              } as unknown as NetService.NetService["Service"]),
+            ),
+          ),
+        );
+
+      const fd = yield* openBootstrapFd(
+        makeDesktopBootstrap({ listenPath: "/tmp/t3code-1000/bootstrap.sock" }),
+      );
+      const fromBootstrap = yield* resolveWith({ T3CODE_BOOTSTRAP_FD: String(fd) });
+      assert.equal(fromBootstrap.listenPath, "/tmp/t3code-1000/bootstrap.sock");
+
+      const fromEnv = yield* resolveWith({ T3CODE_LISTEN_PATH: "/tmp/env.sock" });
+      assert.equal(fromEnv.listenPath, "/tmp/env.sock");
+      assert.equal(fromEnv.port, 3773);
+
+      const fromFlag = yield* resolveWith(
+        { T3CODE_LISTEN_PATH: "/tmp/env.sock" },
+        Option.some("/tmp/flag.sock"),
+      );
+      assert.equal(fromFlag.listenPath, "/tmp/flag.sock");
+    }),
+  );
+
   it.effect("creates derived runtime directories during config resolution", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

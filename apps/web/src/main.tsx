@@ -13,6 +13,11 @@ import {
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
+import { installDesktopBackendWebSocket } from "./lib/desktopBackendWebSocket";
+
+// Before any connection opens: the desktop's local backend may be reachable
+// only through the main process.
+installDesktopBackendWebSocket();
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();

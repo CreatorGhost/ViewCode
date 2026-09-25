@@ -37,6 +37,12 @@ const hostFlag = Flag.String("host").pipe(
   Flag.withDescription("Host/interface to bind (for example 127.0.0.1, 0.0.0.0, or a Tailnet IP)."),
   Flag.optional,
 );
+const listenPathFlag = Flag.String("listen-path").pipe(
+  Flag.withDescription(
+    "Listen on this Unix socket path (Windows: named pipe) instead of a TCP host/port.",
+  ),
+  Flag.optional,
+);
 export const baseDirFlag = Flag.String("base-dir").pipe(
   Flag.withDescription(
     "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME).",
@@ -122,6 +128,11 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.Port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.String("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  listenPath: Config.String("T3CODE_LISTEN_PATH").pipe(
+    Config.option,
+    Config.map(Option.filter((value) => value.trim().length > 0)),
+    Config.map(Option.getOrUndefined),
+  ),
   t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.String("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
@@ -183,6 +194,7 @@ export interface CliServerFlags {
   readonly mode: Option.Option<ServerConfig.RuntimeMode>;
   readonly port: Option.Option<number>;
   readonly host: Option.Option<string>;
+  readonly listenPath?: Option.Option<string>;
   readonly baseDir: Option.Option<string>;
   readonly cwd: Option.Option<string>;
   readonly devUrl: Option.Option<URL>;
@@ -212,6 +224,7 @@ export const sharedServerCommandFlags = {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
+  listenPath: listenPathFlag,
   baseDir: baseDirFlag,
   cwd: Argument.String("cwd").pipe(
     Argument.withDescription(
@@ -260,6 +273,7 @@ export const resolveServerConfig = (
       mode: flags.mode ?? Option.none(),
       port: flags.port ?? Option.none(),
       host: flags.host ?? Option.none(),
+      listenPath: flags.listenPath ?? Option.none(),
       baseDir: flags.baseDir ?? Option.none(),
       cwd: flags.cwd ?? Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
@@ -286,6 +300,13 @@ export const resolveServerConfig = (
       () => "web",
     );
 
+    const listenPath = Option.getOrUndefined(
+      resolveOptionPrecedence(
+        normalizedFlags.listenPath,
+        Option.fromUndefinedOr(env.listenPath),
+        Option.fromUndefinedOr(bootstrap?.listenPath),
+      ),
+    );
     const port = yield* Option.match(
       resolveOptionPrecedence(
         normalizedFlags.port,
@@ -295,7 +316,8 @@ export const resolveServerConfig = (
       {
         onSome: (value) => Effect.succeed(value),
         onNone: () => {
-          if (mode === "desktop") {
+          // A socket listener binds no port, so do not probe for a free one.
+          if (mode === "desktop" || listenPath !== undefined) {
             return Effect.succeed(ServerConfig.DEFAULT_PORT);
           }
           return findAvailablePort(ServerConfig.DEFAULT_PORT);
@@ -440,6 +462,7 @@ export const resolveServerConfig = (
       ...derivedPaths,
       serverTracePath,
       host,
+      ...(listenPath === undefined ? {} : { listenPath }),
       staticDir,
       devUrl,
       ...(devAuthToken === undefined ? {} : { devAuthToken }),

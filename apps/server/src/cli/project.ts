@@ -20,6 +20,8 @@ import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
 import { FetchHttpClient, HttpClient, HttpClientError } from "effect/unstable/http";
+
+import { makeListenPathFetch } from "../socketListener.ts";
 import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
@@ -341,6 +343,19 @@ const getOfflineSnapshot = Effect.fn("getOfflineSnapshot")(function* () {
   return yield* projectionSnapshotQuery.getCommandReadModel();
 });
 
+interface LiveProjectServer {
+  readonly origin: string;
+  readonly listenPath: string | undefined;
+}
+
+/** Routes live-server requests over the server's socket when it has no TCP port. */
+const withLiveServerTransport =
+  (listenPath: string | undefined) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+    listenPath === undefined
+      ? effect
+      : Effect.provideService(effect, FetchHttpClient.Fetch, makeListenPathFetch(listenPath));
+
 const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecutionMode")(
   function* (
     environmentAuth: EnvironmentAuth.EnvironmentAuth["Service"],
@@ -348,13 +363,16 @@ const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecu
   ) {
     const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
     if (Option.isNone(runtimeState)) {
-      return Option.none<{ readonly origin: string }>();
+      return Option.none<LiveProjectServer>();
     }
 
+    const listenPath = runtimeState.value.listenPath;
     const attempt = withProjectCliSessionToken(environmentAuth, (token) =>
       fetchLiveOrchestrationSnapshot(runtimeState.value.origin, token).pipe(
+        withLiveServerTransport(listenPath),
         Effect.as({
           origin: runtimeState.value.origin,
+          listenPath,
         }),
       ),
     );
@@ -369,7 +387,7 @@ const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecu
       cause: attempted.failure,
     });
     yield* clearPersistedServerRuntimeState(config.serverRuntimeStatePath);
-    return Option.none<{ readonly origin: string }>();
+    return Option.none<LiveProjectServer>();
   },
 );
 
@@ -402,11 +420,16 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
     if (Option.isSome(liveMode)) {
       return yield* withProjectCliSessionToken(environmentAuth, (token) =>
         Effect.gen(function* () {
-          const snapshot = yield* fetchLiveOrchestrationSnapshot(liveMode.value.origin, token);
+          const transport = withLiveServerTransport(liveMode.value.listenPath);
+          const snapshot = yield* fetchLiveOrchestrationSnapshot(liveMode.value.origin, token).pipe(
+            transport,
+          );
           const output = yield* run({
             snapshot,
             dispatch: (command) =>
-              dispatchLiveOrchestrationCommand(liveMode.value.origin, token, command),
+              dispatchLiveOrchestrationCommand(liveMode.value.origin, token, command).pipe(
+                transport,
+              ),
             mode: "live",
           });
           yield* Console.log(output);

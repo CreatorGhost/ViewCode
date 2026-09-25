@@ -10,6 +10,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
+import { DESKTOP_LOCAL_BACKEND_SCHEME } from "@t3tools/contracts";
 import * as Electron from "electron";
 
 export const DESKTOP_HOST = "app";
@@ -85,20 +86,30 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
   // origins are not known when this response policy is created, so restrict
   // connections by the network schemes the client supports instead of by host.
   // GLTFLoader fetches embedded textures through blob URLs after parsing the model.
-  const connectSources = ["'self'", "blob:", "http:", "https:", "ws:", "wss:"];
+  const connectSources = [
+    "'self'",
+    "blob:",
+    "http:",
+    "https:",
+    "ws:",
+    "wss:",
+    `${DESKTOP_LOCAL_BACKEND_SCHEME}:`,
+  ];
+  // A socket-backed local environment serves its media and documents here.
+  const backend = `${DESKTOP_LOCAL_BACKEND_SCHEME}:`;
 
   return [
     "default-src 'self'",
     `script-src ${scriptSources.join(" ")}`,
     `connect-src ${connectSources.join(" ")}`,
-    `img-src 'self' ${input.scheme}: blob: data: http: https:`,
-    `media-src 'self' ${input.scheme}: blob: http: https:`,
+    `img-src 'self' ${input.scheme}: ${backend} blob: data: http: https:`,
+    `media-src 'self' ${input.scheme}: ${backend} blob: http: https:`,
     "style-src 'self' 'unsafe-inline'",
     `font-src 'self' ${input.scheme}: data:`,
     "worker-src 'self' blob:",
     // Document viewers use local Blob URLs and signed assets from runtime environments.
     // HTML viewers retain their own sandbox; the renderer's script policy stays unchanged.
-    "frame-src 'self' blob: http: https:",
+    `frame-src 'self' ${backend} blob: http: https:`,
     "form-action 'self'",
   ].join("; ");
 }
@@ -115,8 +126,10 @@ function withContentSecurityPolicy(response: Response, policy: string): Response
 
 /**
  * Must run synchronously during process bootstrap, before Electron emits `ready`.
+ * Each call replaces the privileged-scheme list renderers receive, so anything
+ * else that registers schemes must be followed by this call.
  */
-function registerDesktopSchemePrivilegesSync(): void {
+export function registerDesktopSchemePrivilegesSync(): void {
   Electron.protocol.registerSchemesAsPrivileged([
     {
       scheme: DESKTOP_PRODUCTION_SCHEME,
@@ -133,6 +146,18 @@ function registerDesktopSchemePrivilegesSync(): void {
     },
     {
       scheme: DESKTOP_DEVELOPMENT_SCHEME,
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
+        stream: true,
+      },
+    },
+    {
+      // A socket-backed local backend. Behaves like an https origin so fetch,
+      // CORS, media streaming, and range requests work as they do over TCP.
+      scheme: DESKTOP_LOCAL_BACKEND_SCHEME,
       privileges: {
         standard: true,
         secure: true,

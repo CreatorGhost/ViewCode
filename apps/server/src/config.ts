@@ -87,6 +87,12 @@ export class ServerConfig extends Context.Service<
     readonly mode: RuntimeMode;
     readonly port: number;
     readonly host: string | undefined;
+    /**
+     * Unix socket path (Windows: named pipe) to listen on instead of
+     * host/port. When set, the server opens no TCP listener; `port` and `host`
+     * are then only nominal (cookie naming, legacy readers).
+     */
+    readonly listenPath?: string | undefined;
     readonly cwd: string;
     readonly baseDir: string;
     readonly staticDir: string | undefined;

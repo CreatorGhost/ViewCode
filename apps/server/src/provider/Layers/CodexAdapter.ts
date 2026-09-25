@@ -2301,12 +2301,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                   ),
                   T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
                 },
-                appServerArgs: [
-                  "-c",
-                  `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
-                  "-c",
-                  'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
-                ],
+                appServerArgs: [...McpProviderSession.codexMcpConfigArgs(mcpSession)],
                 mcpCapabilities: mcpSession.capabilities,
               }
             : {}),

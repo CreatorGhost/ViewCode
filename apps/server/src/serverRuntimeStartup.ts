@@ -1018,7 +1018,13 @@ export const make = (options?: StartupOptions) =>
             Effect.withSpan("server.startup.heartbeat.record"),
             Effect.ignoreCause({ log: true }),
           );
-          if (serverConfig.startupPresentation === "headless") {
+          if (serverConfig.listenPath !== undefined) {
+            // No TCP listener means no URL a browser or phone could open, so
+            // there is nothing to pair or launch; local clients dial the socket.
+            yield* Effect.logInfo("Listening on a local socket; no network port is open.").pipe(
+              Effect.annotateLogs({ listenPath: serverConfig.listenPath }),
+            );
+          } else if (serverConfig.startupPresentation === "headless") {
             const accessInfo = yield* issueHeadlessServeAccessInfo();
             yield* runStartupPhase(
               "headless.output",
@@ -1081,6 +1087,7 @@ export const make = (options?: StartupOptions) =>
         "server.mode": serverConfig.mode,
         "server.port": serverConfig.port,
         "server.host": serverConfig.host ?? "default",
+        "server.listen_path": serverConfig.listenPath ?? "none",
       }),
       Effect.withSpan("server.startup", { kind: "server", root: true }),
     );
