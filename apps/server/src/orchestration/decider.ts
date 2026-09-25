@@ -386,6 +386,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      if (command.parentThreadId) {
+        yield* requireThread({
+          readModel,
+          command,
+          threadId: command.parentThreadId,
+        });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -406,6 +413,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           worktreePath: command.worktreePath,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
+          ...(command.parentThreadId ? { parentThreadId: command.parentThreadId } : {}),
         },
       };
     }

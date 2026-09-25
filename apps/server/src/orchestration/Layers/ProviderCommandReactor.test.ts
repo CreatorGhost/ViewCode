@@ -2935,7 +2935,9 @@ describe("ProviderCommandReactor", () => {
         // The provider cannot switch models in place, so the thread is handed
         // off to a fresh session whose first turn carries the recap.
         expect(harness.startSession.mock.calls.at(-1)?.[1]).toMatchObject({ freshSession: true });
-        const handedOffInput = String(harness.sendTurn.mock.calls[1]?.[0]?.input ?? "");
+        const handedOffInput = String(
+          (harness.sendTurn.mock.calls[1]?.[0] as { input?: string } | undefined)?.input ?? "",
+        );
         expect(handedOffInput).toContain("<handoff>");
         expect(handedOffInput).toContain("first");
         expect(handedOffInput.endsWith("second")).toBe(true);
@@ -3495,7 +3497,9 @@ describe("ProviderCommandReactor", () => {
       providerInstanceId: ProviderInstanceId.make("claudeAgent"),
       freshSession: true,
     });
-    const handedOffInput = String(harness.sendTurn.mock.calls[1]?.[0]?.input ?? "");
+    const handedOffInput = String(
+      (harness.sendTurn.mock.calls[1]?.[0] as { input?: string } | undefined)?.input ?? "",
+    );
     expect(handedOffInput).toContain("<handoff>");
     expect(handedOffInput).toContain("first");
     expect(handedOffInput.endsWith("second")).toBe(true);
@@ -3562,7 +3566,9 @@ describe("ProviderCommandReactor", () => {
       providerInstanceId: ProviderInstanceId.make("claudeAgent"),
       freshSession: true,
     });
-    expect(String(harness.sendTurn.mock.calls[0]?.[0]?.input ?? "")).toContain("<handoff>");
+    expect(
+      String((harness.sendTurn.mock.calls[0]?.[0] as { input?: string } | undefined)?.input ?? ""),
+    ).toContain("<handoff>");
   });
 
   it("reacts to thread.turn.interrupt-requested by calling provider interrupt", async () => {

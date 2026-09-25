@@ -215,6 +215,10 @@
       "types": "./src/composerInlineTokens.ts",
       "import": "./src/composerInlineTokens.ts"
     },
+    "./agentMessages": {
+      "types": "./src/agentMessages.ts",
+      "import": "./src/agentMessages.ts"
+    },
     "./assistantCitations": {
       "types": "./src/assistantCitations.ts",
       "import": "./src/assistantCitations.ts"

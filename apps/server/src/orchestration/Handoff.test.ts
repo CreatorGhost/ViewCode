@@ -1,10 +1,10 @@
 import type { OrchestrationThread } from "@t3tools/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 
 import { buildHandoff } from "./Handoff.ts";
 
 function message(role: "user" | "assistant", text: string, index: number) {
-  const at = new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString();
+  const at = `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`;
   return {
     id: `m-${index}`,
     role,
