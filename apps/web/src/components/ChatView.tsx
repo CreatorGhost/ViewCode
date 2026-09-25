@@ -217,6 +217,7 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
+import { ActiveAgentsBar } from "./agents/ActiveAgentsBar";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
@@ -6303,9 +6304,8 @@ export default function ChatView(props: ChatViewProps) {
     }
     const working = activeBackgroundLiveness === "working";
     const liveCount = agentPanelModel.liveCount;
-    // Hidden once the Agents surface is on screen; the link would point at nothing.
-    const showViewAgents =
-      liveCount > 0 && !(rightPanelOpen && activeRightPanelSurface?.kind === "agents");
+    // Native sub-agents live inline in the timeline (ViewCode no longer
+    // surfaces the Agents panel), so this banner only offers Stop.
     return {
       id: `background-liveness:${activeThread.id}`,
       variant: "default",
@@ -6322,32 +6322,22 @@ export default function ChatView(props: ChatViewProps) {
           : "Background work"
         : "Monitoring",
       actions: (
-        <>
-          {showViewAgents ? (
-            <Button size="xs" variant="ghost" aria-label="View agents" onClick={addAgentsSurface}>
-              View
-            </Button>
-          ) : null}
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={isStoppingBackgroundWork}
-            onClick={() => void handleStopBackgroundWork()}
-          >
-            {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
-          </Button>
-        </>
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={isStoppingBackgroundWork}
+          onClick={() => void handleStopBackgroundWork()}
+        >
+          {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
+        </Button>
       ),
     };
   }, [
     activeBackgroundLiveness,
-    activeRightPanelSurface?.kind,
     activeThread,
-    addAgentsSurface,
     agentPanelModel.liveCount,
     handleStopBackgroundWork,
     isStoppingBackgroundWork,
-    rightPanelOpen,
   ]);
   // A woken thread announces itself in the open view, not just the sidebar
   // pill. Dismissing marks the wake as seen (same acknowledgment as the
@@ -6529,6 +6519,15 @@ export default function ChatView(props: ChatViewProps) {
         return item ? [item] : [];
       }),
     [feedbackSubmissions, routeThreadKey],
+  );
+  // Child agents (threads whose parentThreadId leads here) get their own
+  // always-attached strip; a draft thread cannot have children yet.
+  const activeAgentsBar = useMemo(
+    () =>
+      isServerThread && activeThreadRef ? (
+        <ActiveAgentsBar threadRef={activeThreadRef} providers={providerStatuses} />
+      ) : null,
+    [activeThreadRef, isServerThread, providerStatuses],
   );
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const backgroundLivenessItems =
@@ -9577,11 +9576,9 @@ export default function ChatView(props: ChatViewProps) {
       rightPanelAvailable={activeProject !== null}
       rightPanelOpen={rightPanelOpen}
       rightPanelShortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggle")}
-      // Suppressed while the Agents surface is visible: the roster itself is
-      // on screen, so the toggle badge would be pointing at nothing.
-      liveAgentCount={
-        rightPanelOpen && activeRightPanelSurface?.kind === "agents" ? 0 : agentPanelModel.liveCount
-      }
+      // No live-agent badge: the Agents surface is not offered in ViewCode
+      // (native sub-agents render inline, child agents above the composer).
+      liveAgentCount={0}
       onToggleTerminal={toggleTerminalVisibility}
       onToggleRightPanel={toggleRightPanel}
     />
@@ -10109,6 +10106,7 @@ export default function ChatView(props: ChatViewProps) {
                             }
                             isPreparingWorktree={isPreparingWorktree}
                             bannerItems={composerBannerItems}
+                            agentsBar={activeAgentsBar}
                             // With attachments or contexts aboard the pick just inserts the
                             // text, so it sends as a prompt like the typed path would.
                             onUsageLimitsCommand={
@@ -10379,9 +10377,9 @@ export default function ChatView(props: ChatViewProps) {
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
-          agentsAvailable
+          agentsAvailable={false}
           deviceAvailable={activeThreadRef !== null}
-          liveAgentCount={agentPanelModel.liveCount}
+          liveAgentCount={0}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -10436,9 +10434,9 @@ export default function ChatView(props: ChatViewProps) {
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
-            agentsAvailable
+            agentsAvailable={false}
             deviceAvailable={activeThreadRef !== null}
-            liveAgentCount={agentPanelModel.liveCount}
+            liveAgentCount={0}
           >
             {rightPanelContent}
           </RightPanelTabs>
