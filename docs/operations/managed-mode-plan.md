@@ -197,8 +197,11 @@ Deferred: seeding provider status from cache (`ProviderRegistry.ts:314-375`).
 
 ## Settings for the laptop today
 
-`./build.sh --managed` writes this into `~/.viewcode/userdata/settings.json`
-(merging with what's there), which is what Round 3 ran:
+`./build.sh --managed` writes this into the settings of the server it launches
+(merging with what's there; comments are accepted but not kept), which is what
+Round 3 ran. For the desktop app that is `~/.viewcode/userdata/settings.json`;
+with `--web` it is `~/.viewcode/dev/`, or `userdata/` under an explicit
+`T3CODE_HOME` or a git worktree's own `.t3`, as `pnpm dev` resolves it:
 
 ```json
 {

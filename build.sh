@@ -13,6 +13,7 @@
 #                         (~/.viewcode) and the desktop app's profile aside, with a
 #                         timestamp, so onboarding and the provider picker show again.
 #                         Nothing is deleted; the script prints how to restore.
+#                         Refuses to run while ViewCode is open.
 #
 # Run from anywhere; it works in the folder this script lives in.
 set -euo pipefail
@@ -30,7 +31,7 @@ for arg in "$@"; do
     --managed) managed=1 ;;
     --fresh) fresh=1 ;;
     -h | --help)
-      sed -n '2,17p' "$0"
+      sed -n '2,18p' "$0"
       exit 0
       ;;
     *)
@@ -41,6 +42,62 @@ for arg in "$@"; do
 done
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+
+# The data --managed and --fresh act on must be the data the launched app will
+# use, so this mirrors how each mode resolves it:
+# - desktop: T3CODE_HOME or ~/.viewcode, state in userdata/
+#   (apps/desktop/src/app/DesktopStatePaths.ts);
+# - --web (`pnpm dev`, scripts/dev-runner.ts): a linked git worktree uses its
+#   own .t3 (packages/shared/src/devHome.ts), which outranks T3CODE_HOME. The
+#   runner passes either one to the server as T3CODE_HOME, and an explicit home
+#   keeps its state in userdata/; with neither, ~/.viewcode keeps it in dev/
+#   (deriveServerPaths in apps/server/src/config.ts).
+t3home=$(printf '%s' "${T3CODE_HOME:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+base_dir="${t3home:-$HOME/.viewcode}"
+state_dir=userdata
+if [ "$mode" = web ]; then
+  # A linked worktree's .git is a file pointing at <common-dir>/worktrees/<name>.
+  if [ -f .git ] && sed -n 's/^gitdir:[[:space:]]*//p' .git | grep -Eq '/worktrees/[^/]+/?$'; then
+    base_dir="$(pwd -P)/.t3"
+  elif [ -z "$t3home" ]; then
+    state_dir=dev
+  fi
+fi
+
+# Prints the PIDs of a running ViewCode desktop app. Only observes processes;
+# nothing is signalled.
+viewcode_pids() {
+  # An installed app: its executable is ViewCode on macOS, viewcode on Linux.
+  pgrep -x ViewCode || true
+  pgrep -x viewcode || true
+  # The copy build.sh opens: Electron running dist-electron/main.cjs from this
+  # checkout's apps/desktop.
+  local pid cwd desktop_dir
+  desktop_dir="$(pwd -P)/apps/desktop"
+  for pid in $(pgrep -f 'dist-electron/main[.]cjs' || true); do
+    if [ -d /proc ]; then
+      cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+    else
+      cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)
+    fi
+    [ "$cwd" = "$desktop_dir" ] && echo "$pid"
+  done
+  return 0
+}
+
+# --fresh moves data out from under a running app, which would then write it
+# back, so it refuses before anything is moved.
+refuse_fresh_while_running() {
+  command -v pgrep >/dev/null || {
+    echo "Cannot check whether ViewCode is running (pgrep not found); not moving anything." >&2
+    exit 1
+  }
+  if [ -n "$(viewcode_pids)" ]; then
+    echo "Quit ViewCode first, then run again." >&2
+    exit 1
+  fi
+}
+[ "$fresh" = 1 ] && refuse_fresh_while_running
 
 node_ok() {
   command -v node >/dev/null &&
@@ -135,8 +192,10 @@ pnpm install --frozen-lockfile --config.confirmModulesPurge=false
 
 if [ "$fresh" = 1 ]; then
   step "Fresh start: moving existing ViewCode data aside"
+  # Checked again: the install above takes a while.
+  refuse_fresh_while_running
   stamp=$(date +%Y%m%d-%H%M%S)
-  data_dir="${T3CODE_HOME:-$HOME/.viewcode}"
+  data_dir="$base_dir"
   case "$(uname -s)" in
     Darwin) profile_dir="$HOME/Library/Application Support/viewcode" ;;
     *) profile_dir="${XDG_CONFIG_HOME:-$HOME/.config}/viewcode" ;;
@@ -148,25 +207,36 @@ if [ "$fresh" = 1 ]; then
       echo "  restore: rm -rf \"$dir\" && mv \"$dir.bak-$stamp\" \"$dir\""
     fi
   done
-  echo "Quit ViewCode first if it was open, or it will write its data back."
 fi
 
 if [ "$managed" = 1 ]; then
   step "Managed mode: enabling only Claude and Cursor"
-  # Merges into the desktop app's settings; other settings are kept.
-  state_dir=userdata
-  [ "$mode" = web ] && state_dir=dev # `pnpm dev` keeps its state in dev/
-  settings_file="${T3CODE_HOME:-$HOME/.viewcode}/$state_dir/settings.json"
+  # Merges into the settings the launched app reads; other settings are kept.
+  settings_file="$base_dir/$state_dir/settings.json"
   SETTINGS_FILE="$settings_file" node -e '
     const fs = require("node:fs"), path = require("node:path");
     const file = process.env.SETTINGS_FILE;
+    // Parsed as leniently as the server does (fromLenientJson in
+    // packages/shared/src/schemaJson.ts): comments and trailing commas outside
+    // strings are dropped. Anything still unparsable is left untouched.
+    const lenient = (text) =>
+      text
+        .replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*/g, (m, str) => (str ? m : ""))
+        .replace(/("(?:[^"\\]|\\.)*")|\/\*[\s\S]*?\*\//g, (m, str) => (str ? m : ""))
+        .replace(/("(?:[^"\\]|\\.)*")|,(\s*[}\]])/g, (m, str, close) => (str ? m : (close ?? "")));
     let settings = {};
     if (fs.existsSync(file)) {
-      try { settings = JSON.parse(fs.readFileSync(file, "utf8")); }
+      const text = fs.readFileSync(file, "utf8");
+      try { settings = JSON.parse(lenient(text)); }
       catch (error) {
         console.error("Cannot read " + file + " (" + error.message + "); fix or remove it first.");
         process.exit(1);
       }
+      if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+        console.error("Cannot read " + file + " (not a JSON object); fix or remove it first.");
+        process.exit(1);
+      }
+      if (lenient(text) !== text) console.log("Note: comments in " + file + " are not kept.");
     }
     const chosen = new Set(["claudeAgent", "cursor"]);
     const drivers = ["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity", "commandCode"];
