@@ -1,5 +1,7 @@
-# ViewCode: handoff for the next agent
+# ViewCode: notes for the next agent working on this codebase
 
+Not to be confused with the in-app **handoff** feature (switching model or
+provider mid-chat), which is described in `internals/viewcode.md`.
 Read this first, then [`internals/viewcode.md`](internals/viewcode.md) (decisions
 and traps) and [`design/droppy-look.md`](design/droppy-look.md) (the visual
 spec). `AGENTS.md` rules still apply: never kill processes by pattern, never

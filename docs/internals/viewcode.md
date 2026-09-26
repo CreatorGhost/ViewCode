@@ -26,7 +26,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   and hook into upstream code with small edits; theming goes through tokens
   and `components/ui` variants; contracts only gain optional fields; upstream
   features are hidden behind flags rather than deleted. Details and current
-  hot spots: [`docs/HANDOFF.md`](../HANDOFF.md#staying-mergeable-with-upstream-t3-code).
+  hot spots: [`docs/NEXT_AGENT.md`](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
 
 ### Handoff (switching provider or account mid-chat)
 
@@ -123,7 +123,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   onboarding step is off (`SHOW_SESSION_IMPORT_STEP` in
   `onboarding/WelcomeWizard.tsx`). Provider session files mostly brought in
   agent plumbing; the intended replacement is importing threads from a T3 Code
-  install (see `docs/HANDOFF.md`). "Remove imported sessions…" stays so users
+  install (see `docs/NEXT_AGENT.md`). "Remove imported sessions…" stays so users
   can clean up earlier imports. The server RPCs and dialog code remain.
 - When shown, nothing is imported by default: sessions are picked one by one.
 - `agentSessions.list` reads the recent transcripts without writing and marks
