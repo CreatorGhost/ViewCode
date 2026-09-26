@@ -936,7 +936,12 @@ export function EnvironmentProviderSettings({
       <ProviderInstanceCard
         key={row.instanceId}
         instanceId={row.instanceId}
-        instance={row.instance}
+        // Until agents are chosen nothing is running, so show every switch off.
+        instance={
+          settings.providerSelection === "pending"
+            ? { ...row.instance, enabled: false }
+            : row.instance
+        }
         driverOption={driverOption}
         liveProvider={liveProvider}
         mode={mode}
