@@ -89,7 +89,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
-import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
+import { requireClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { claudeSignedOutMessage, makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { planClaudeSkillDispatch } from "../Drivers/ClaudeSkillDispatch.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
@@ -2079,10 +2079,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, options?.environment).pipe(
     Effect.provideService(Path.Path, path),
-  );
-  const claudeSdkExecutablePath = yield* resolveClaudeSdkExecutablePath(
-    claudeSettings.binaryPath,
-    claudeEnvironment,
   );
   const nativeEventLogger =
     options?.nativeEventLogger ??
@@ -4830,7 +4826,20 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         callbackOptions,
       ) => runPromise(handleResumeDialog(request, callbackOptions));
 
-      const claudeBinaryPath = claudeSdkExecutablePath;
+      // ViewCode: resolve and validate at launch; a missing binary is never run.
+      const claudeBinaryPath = yield* requireClaudeSdkExecutablePath(
+        claudeSettings.binaryPath,
+        claudeEnvironment,
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "startSession",
+              issue: cause.message,
+            }),
+        ),
+      );
       const {
         "permission-mode": launchArgPermissionMode,
         "dangerously-skip-permissions": launchArgSkipPermissions,

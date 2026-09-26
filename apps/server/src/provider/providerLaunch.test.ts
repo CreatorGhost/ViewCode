@@ -17,6 +17,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -254,6 +255,72 @@ describe("first-run provider selection", () => {
         // Codex and Claude are on by default and get probed as before.
         assert.includeMembers([...new Set(spawned)], [`${dir}/codex`, `${dir}/claude`]);
       }).pipe(Effect.provide(services));
+    }),
+  );
+});
+
+describe("turning a provider off", () => {
+  it.effect.skipIf(windowsHost)("stops its in-flight probe and never relaunches it", () =>
+    Effect.gen(function* () {
+      const dir = makeStubDir(["claude"]);
+      const claudeStub = `${dir}/claude`;
+      const probeStarted = yield* Deferred.make<void>();
+      const probeKilled = yield* Deferred.make<void>();
+      const spawned: Array<string> = [];
+      // Claude's version probe hangs until its scope closes.
+      const spawner = ChildProcessSpawner.make((command) =>
+        Effect.gen(function* () {
+          const name = command._tag === "StandardCommand" ? command.command : "<piped>";
+          spawned.push(name);
+          yield* Effect.addFinalizer(() => Deferred.succeed(probeKilled, undefined));
+          yield* Deferred.succeed(probeStarted, undefined);
+          return ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(1),
+            exitCode: Effect.never,
+            isRunning: Effect.succeed(true),
+            kill: () => Effect.void,
+            unref: Effect.succeed(Effect.void),
+            stdin: Sink.drain,
+            stdout: Stream.never,
+            stderr: Stream.never,
+            all: Stream.never,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+          });
+        }),
+      );
+      const initial = {
+        ...stubbedSettings(dir, "chosen"),
+        providers: {
+          ...stubbedSettings(dir, "chosen").providers,
+          codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, enabled: false },
+        },
+      } satisfies ServerSettings;
+      const settings = yield* makeSettingsService(initial);
+      const scope = yield* Scope.make();
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+      const services = yield* Layer.build(buildRegistry(settings, spawner)).pipe(
+        Scope.provide(scope),
+      );
+      yield* Effect.gen(function* () {
+        const registry = yield* ProviderRegistry.ProviderRegistry;
+        yield* Deferred.await(probeStarted);
+        const claudeOff = yield* registry.streamChanges.pipe(
+          Stream.filter((providers) =>
+            providers.some(
+              (provider) => provider.instanceId === "claudeAgent" && !provider.enabled,
+            ),
+          ),
+          Stream.take(1),
+          Stream.runDrain,
+          Effect.forkScoped,
+        );
+        yield* settings.updateSettings({ providers: { claudeAgent: { enabled: false } } });
+        // The rebuild closes the old instance, interrupting the probe.
+        yield* Deferred.await(probeKilled);
+        yield* Fiber.join(claudeOff);
+        assert.deepStrictEqual(spawned, [claudeStub]);
+      }).pipe(Effect.scoped, Effect.provide(services));
     }),
   );
 });

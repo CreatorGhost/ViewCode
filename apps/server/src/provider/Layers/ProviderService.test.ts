@@ -832,6 +832,62 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+// ViewCode: turning a provider off must not let recovery or a queued message
+// (delivered as a later sendTurn) relaunch it.
+it.effect("ProviderServiceLive does not relaunch a provider turned off mid-thread", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    let codexEnabled = true;
+    const registryBase = makeAdapterRegistryMock({ [CODEX_DRIVER]: codex.adapter });
+    const registry: ProviderAdapterRegistry.ProviderAdapterRegistry["Service"] = {
+      ...registryBase,
+      getInstanceInfo: (instanceId) =>
+        registryBase
+          .getInstanceInfo(instanceId)
+          .pipe(Effect.map((info) => ({ ...info, enabled: codexEnabled }))),
+    };
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(NodeServices.layer),
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provide(ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer))),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(serverConfigTestLayer),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-turned-off");
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      // Turning the provider off rebuilds its instance, which stops sessions.
+      yield* codex.stopSession(threadId);
+      codexEnabled = false;
+      const startsBefore = codex.startSession.mock.calls.length;
+
+      const failure = yield* Effect.flip(
+        provider.sendTurn({ threadId, input: "queued agent message", attachments: [] }),
+      );
+      assert.instanceOf(failure, ProviderValidationError);
+      assert.include(failure.issue, "disabled");
+      assert.equal(codex.startSession.mock.calls.length, startsBefore);
+    }).pipe(Effect.provide(providerLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect(
   "ProviderServiceLive allows enabled custom instances when legacy driver is disabled",
   () =>

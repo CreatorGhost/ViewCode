@@ -2456,13 +2456,15 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             assert.include(initialCodex?.message, firstMissing);
             assert.deepStrictEqual(spawnedCommands, []);
 
-            const pendingRebuild = yield* Stream.toPull(
-              codexSnapshots.pipe(
-                Stream.filter((provider) => provider.status === "warning" && !provider.installed),
-              ),
-            );
+            // The rebuilt instance's error names the new executable.
             const rebuiltError = yield* Stream.toPull(
-              codexSnapshots.pipe(Stream.filter((provider) => provider.status === "error")),
+              codexSnapshots.pipe(
+                Stream.filter(
+                  (provider) =>
+                    provider.status === "error" &&
+                    provider.message?.includes(secondMissing) === true,
+                ),
+              ),
             );
             yield* serverSettings.updateSettings({
               providers: {
@@ -2473,9 +2475,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             // not subscribe before forking has already lost this update.
             yield* Deferred.succeed(allowLazySettingsStream, undefined);
 
-            // The rebuilt instance publishes its pending snapshot, then the
-            // error from probing the new executable.
-            yield* pendingRebuild;
             const [reprobedCodex] = yield* rebuiltError;
             assert.include(reprobedCodex?.message, secondMissing);
             assert.deepStrictEqual(spawnedCommands, []);
@@ -2645,7 +2644,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               assert.strictEqual(cursorProvider?.status, "disabled");
               assert.strictEqual(
                 cursorProvider?.message,
-                "Cursor is disabled in T3 Code settings.",
+                "Cursor is disabled in ViewCode settings.",
               );
               assert.strictEqual(cursorSpawned, false);
             }).pipe(Effect.provide(runtimeServices));
@@ -2660,7 +2659,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           assert.strictEqual(status.enabled, false);
           assert.strictEqual(status.status, "disabled");
           assert.strictEqual(status.installed, false);
-          assert.strictEqual(status.message, "Codex is disabled in T3 Code settings.");
+          assert.strictEqual(status.message, "Codex is disabled in ViewCode settings.");
         }),
       );
     });

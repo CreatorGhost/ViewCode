@@ -6,16 +6,20 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { ClaudeSettings } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { resolveSpawnCommand, SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { checkClaudeProviderStatus } from "./Layers/ClaudeProvider.ts";
-import { guardMissingProviderBinary } from "./providerBinary.ts";
+import type { OpenCodeRuntimeShape } from "./opencodeRuntime.ts";
+import {
+  guardMissingOpenCodeBinary,
+  guardMissingProviderBinary,
+  unescapeWindowsShellCommand,
+} from "./providerBinary.ts";
 
 const encoder = new TextEncoder();
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
@@ -46,11 +50,7 @@ function recordingSpawner(stdout: string) {
 }
 
 const guarded = (spawner: ChildProcessSpawner.ChildProcessSpawner["Service"]) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    return guardMissingProviderBinary(spawner, fileSystem, path);
-  });
+  Effect.succeed(guardMissingProviderBinary(spawner));
 
 const makeExecutable = (name: string) => {
   const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-provider-binary-"));
@@ -123,5 +123,86 @@ describe("guardMissingProviderBinary", () => {
       assert.strictEqual(status.status, "error");
       assert.deepStrictEqual(spawned, []);
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect.skipIf(windowsHost)("resolves a relative path against the command's cwd", () =>
+    Effect.gen(function* () {
+      const { spawner, spawned } = recordingSpawner("");
+      const guard = yield* guarded(spawner);
+      const { dir, file } = makeExecutable("t3-relative-cli");
+      yield* Effect.scoped(guard.spawn(ChildProcess.make("./t3-relative-cli", [], { cwd: dir })));
+      assert.deepStrictEqual(spawned, [file]);
+    }),
+  );
+
+  it.effect("fails closed without PATH, for piped commands and POSIX shell strings", () =>
+    Effect.gen(function* () {
+      const { spawner, spawned } = recordingSpawner("");
+      const guard = yield* guarded(spawner);
+      const attempts = [
+        ChildProcess.make("t3-any-cli", [], { env: { HOME: "/tmp" } }),
+        ChildProcess.make("t3-any-cli | cat", [], { shell: true }),
+        ChildProcess.make("echo", ["hi"]).pipe(ChildProcess.pipeTo(ChildProcess.make("cat", []))),
+      ];
+      for (const command of attempts) {
+        const error = yield* Effect.flip(
+          Effect.scoped(guard.spawn(command)).pipe(
+            Effect.provideService(HostProcessPlatform, "linux"),
+          ),
+        );
+        assert.strictEqual(error.reason._tag, "NotFound");
+      }
+      assert.deepStrictEqual(spawned, []);
+    }),
+  );
+
+  it.effect.skipIf(windowsHost)("does not launch a binary removed after an earlier lookup", () =>
+    Effect.gen(function* () {
+      const { spawner, spawned } = recordingSpawner("");
+      const guard = yield* guarded(spawner);
+      const { dir, file } = makeExecutable("t3-removed-cli");
+      const command = ChildProcess.make("t3-removed-cli", [], { env: { PATH: dir } });
+      yield* Effect.scoped(guard.spawn(command));
+      NodeFS.rmSync(file);
+      const error = yield* Effect.flip(Effect.scoped(guard.spawn(command)));
+      assert.strictEqual(error.reason._tag, "NotFound");
+      assert.deepStrictEqual(spawned, [file]);
+    }),
+  );
+
+  it.effect("recovers the launcher script from Windows shell wrapping", () =>
+    Effect.gen(function* () {
+      const script = "C:\\Program Files\\nodejs\\claude.cmd";
+      const wrapped = yield* resolveSpawnCommand("claude", ["--version"]).pipe(
+        Effect.provideService(HostProcessPlatform, "win32"),
+        Effect.provideService(SpawnExecutableResolution, () => script),
+      );
+      assert.isTrue(wrapped.shell);
+      assert.notStrictEqual(wrapped.command, script);
+      assert.strictEqual(unescapeWindowsShellCommand(wrapped.command), script);
+    }),
+  );
+});
+
+describe("guardMissingOpenCodeBinary", () => {
+  it.effect("never starts `opencode serve` for a missing binary", () =>
+    Effect.gen(function* () {
+      let starts = 0;
+      const runtime = guardMissingOpenCodeBinary({
+        startOpenCodeServerProcess: () => {
+          starts += 1;
+          return Effect.die("started");
+        },
+      } as unknown as OpenCodeRuntimeShape);
+      const error = yield* Effect.flip(
+        Effect.scoped(
+          runtime.startOpenCodeServerProcess({
+            binaryPath: NodePath.join(NodeOS.tmpdir(), "t3-no-such-dir", "opencode"),
+            directory: NodeOS.tmpdir(),
+          }),
+        ),
+      );
+      assert.include(error.detail, "ENOENT");
+      assert.strictEqual(starts, 0);
+    }),
   );
 });

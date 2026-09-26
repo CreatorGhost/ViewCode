@@ -33,7 +33,7 @@ import {
   spawnAndCollect,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
-import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
+import { requireClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
 import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
@@ -337,7 +337,7 @@ const probeClaudeCapabilities = (
   const abort = new AbortController();
   return Effect.gen(function* () {
     const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, environment);
-    const executablePath = yield* resolveClaudeSdkExecutablePath(
+    const executablePath = yield* requireClaudeSdkExecutablePath(
       claudeSettings.binaryPath,
       claudeEnvironment,
     );

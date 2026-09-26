@@ -56,7 +56,6 @@ import {
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
 import { discoverCursorSkills, probeCursorSkills } from "./CursorSkills.ts";
-import { guardMissingProviderBinary } from "../providerBinary.ts";
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("cursor");
@@ -162,10 +161,7 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
         Effect.map(stampIdentity),
         Effect.provideService(HttpClient.HttpClient, httpClient),
         Effect.provideService(Crypto.Crypto, crypto),
-        Effect.provideService(
-          ChildProcessSpawner.ChildProcessSpawner,
-          guardMissingProviderBinary(spawner, fileSystem, path),
-        ),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
       );

@@ -61,6 +61,7 @@ import {
   type ProviderInstanceRegistryMutatorShape,
 } from "../Services/ProviderInstanceRegistryMutator.ts";
 import type { AnyProviderDriver, ProviderInstance } from "../ProviderDriver.ts";
+import { withProviderLaunchGuard } from "../providerBinary.ts";
 
 /**
  * Live registry entry: the materialized `ProviderInstance` + the fresh
@@ -182,7 +183,8 @@ const buildEntry = <R>(input: {
         enabled: resolveEntryEnabled(entry, typedConfig),
         config: typedConfig,
       })
-      .pipe(Effect.provideService(Scope.Scope, childScope), Effect.result);
+      // ViewCode: every launch the instance makes resolves its executable first.
+      .pipe(withProviderLaunchGuard, Effect.provideService(Scope.Scope, childScope), Effect.result);
     if (createResult._tag === "Failure") {
       yield* Effect.logError("Failed to create provider instance", {
         instanceId: rawInstanceId,

@@ -42,7 +42,6 @@ import {
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
 import { withInstanceIdentity } from "./instanceIdentity.ts";
-import { guardMissingProviderBinary } from "../providerBinary.ts";
 
 const decodeCommandCodeSettings = Schema.decodeSync(CommandCodeSettings);
 
@@ -128,10 +127,7 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
             ).pipe(Effect.map((usageLimits) => ({ ...snapshot, usageLimits }))),
         ),
         Effect.map(stampIdentity),
-        Effect.provideService(
-          ChildProcessSpawner.ChildProcessSpawner,
-          guardMissingProviderBinary(spawner, fileSystem, path),
-        ),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(HttpClient.HttpClient, httpClient),
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),

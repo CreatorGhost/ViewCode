@@ -41,7 +41,6 @@ import {
   makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
-import { guardMissingProviderBinary } from "../providerBinary.ts";
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("grok");
@@ -154,10 +153,7 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv> = {
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
         Effect.provideService(Crypto.Crypto, crypto),
-        Effect.provideService(
-          ChildProcessSpawner.ChildProcessSpawner,
-          guardMissingProviderBinary(spawner, fileSystem, path),
-        ),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       );
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
