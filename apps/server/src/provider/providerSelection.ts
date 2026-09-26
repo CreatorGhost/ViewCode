@@ -11,8 +11,11 @@
  *   instance map, so no boot probe, refresh, session or text generation can
  *   launch one. Persisted, so it survives restarts until the user chooses,
  *   even if projects are created meanwhile.
- * - `"chosen"` or absent (settings that predate the gate): settings apply as
- *   in upstream T3 Code.
+ * - `"chosen"`: settings apply as in upstream T3 Code.
+ * - absent: needs migration. `decideProviderSelection` settles it when
+ *   settings load, before any provider is built; if the decision cannot be
+ *   persisted the run stays pending. Only in-memory test settings stay
+ *   absent, and they behave as chosen.
  *
  * Pure functions only; `serverSettings.ts` imports this module.
  *

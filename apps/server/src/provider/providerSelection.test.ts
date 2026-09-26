@@ -10,6 +10,7 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as PlatformError from "effect/PlatformError";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -209,6 +210,42 @@ it.layer(NodeServices.layer)("settings load", (it) => {
       assert.deepStrictEqual(enabledInstances(settings), []);
       assert.strictEqual(yield* fs.readFileString(config.settingsPath), malformed);
     }).pipe(Effect.provide(freshConfig())),
+  );
+
+  it.effect("keeps providers off for the run when the decision cannot be persisted", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      // A used environment would be marked chosen, but the write fails.
+      yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at) VALUES ('p1', 'p', '/tmp', '[]', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z')`;
+      const settings = yield* ServerSettingsModule.ServerSettingsService.pipe(
+        Effect.flatMap((service) => service.getSettings),
+      );
+      assert.strictEqual(settings.providerSelection, "pending");
+      assert.deepStrictEqual(enabledInstances(settings), []);
+    }).pipe(
+      Effect.provide(
+        makeSettingsLayer(freshConfig()).pipe(
+          Layer.provide(
+            Layer.effect(
+              FileSystem.FileSystem,
+              FileSystem.FileSystem.pipe(
+                Effect.map((fs) => ({
+                  ...fs,
+                  rename: () =>
+                    Effect.fail(
+                      PlatformError.systemError({
+                        _tag: "PermissionDenied",
+                        module: "FileSystem",
+                        method: "rename",
+                      }),
+                    ),
+                })),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 
   it.effect("closes the selection through a settings toggle, in one write", () =>

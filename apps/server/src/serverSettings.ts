@@ -715,7 +715,17 @@ const make = Effect.gen(function* () {
           })
         : folded;
     if (selected !== loaded && settingsFileTrusted) {
-      yield* writeSettingsAtomically(selected);
+      const written = yield* Effect.exit(writeSettingsAtomically(selected));
+      if (Exit.isFailure(written)) {
+        if (selected === folded) return yield* Effect.failCause(written.cause);
+        // An unpersisted decision is not permission: run with providers off
+        // and decide again next time.
+        yield* Effect.logWarning("could not persist the provider selection; providers stay off", {
+          path: settingsPath,
+          cause: Cause.pretty(written.cause),
+        });
+        return { ...selected, providerSelection: "pending" as const };
+      }
     }
     return selected;
   });

@@ -1329,9 +1329,10 @@ export const ServerSettings = Schema.Struct({
    * ViewCode: whether the user has chosen which providers this environment
    * may run. `"pending"` (a fresh install) means no provider is probed or
    * launched until the choice is made (`server.chooseProviders`, or turning
-   * one on in Settings). Absent means settings that predate the choice and
-   * behaves as `"chosen"`. Persisted explicitly because sparse settings files
-   * drop defaults. Server-side so a second browser or the phone cannot
+   * one on in Settings). Absent means the file predates the choice and needs
+   * migration: the server decides and persists it when settings load, so
+   * clients always see a value. Persisted explicitly because sparse settings
+   * files drop defaults. Server-side so a second browser or the phone cannot
    * bypass it.
    */
   providerSelection: Schema.optionalKey(ProviderSelectionState),
