@@ -30,6 +30,7 @@ import {
 import type { DraftId } from "../../composerDraftStore";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Switch } from "../ui/switch";
@@ -857,9 +858,8 @@ function EffortTrackCanvas(props: {
 }) {
   const { kind, brand, stopCount, rootRef, knobRef, revision } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [reduceMotion] = useState(
-    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-  );
+  // Live: turning reduced motion on stops the loop (a still frame), off restarts it.
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   // Only the still frame needs redrawing when the knob settles; the loop reads live geometry.
   const stillFrameRevision = reduceMotion ? revision : null;
 
