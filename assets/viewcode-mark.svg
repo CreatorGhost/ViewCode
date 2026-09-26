@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="250 232 524 572">
+<defs><linearGradient id="amber" x1="0" y1="300" x2="0" y2="736" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#F6B862"/><stop offset="1" stop-color="#DE8A2F"/></linearGradient><mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect width="1024" height="1024" fill="#fff"/><path d="M706 300 L512 736" stroke="#000" stroke-width="176" stroke-linecap="round"/></mask></defs>
+<path d="M318 300 L512 736" stroke="#F3F0E8" stroke-width="124" stroke-linecap="round" fill="none" mask="url(#cut)"/><path d="M706 300 L512 736" stroke="url(#amber)" stroke-width="124" stroke-linecap="round" fill="none"/>
+</svg>

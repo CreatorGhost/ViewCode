@@ -1,17 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2a1f45"/>
-      <stop offset="1" stop-color="#120f1c"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2A2B2F"/>
+      <stop offset="1" stop-color="#131416"/>
     </linearGradient>
-    <linearGradient id="fg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#d9c2ff"/>
-      <stop offset="1" stop-color="#9b6bff"/>
+    <linearGradient id="amber" x1="0" y1="300" x2="0" y2="736" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F6B862"/>
+      <stop offset="1" stop-color="#DE8A2F"/>
     </linearGradient>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <path d="M706 300 L512 736" stroke="#000" stroke-width="176" stroke-linecap="round"/>
+    </mask>
   </defs>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
-  <rect x="16.5" y="16.5" width="479" height="479" rx="111.5" fill="none" stroke="#ffffff" stroke-opacity="0.12"/>
-  <path d="M150 180 L110 256 L150 332" fill="none" stroke="url(#fg)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M362 180 L402 256 L362 332" fill="none" stroke="url(#fg)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M196 188 L256 330 L316 188" fill="none" stroke="url(#fg)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#tile)"/>
+  <rect x="3" y="3" width="1018" height="1018" rx="225" fill="none" stroke="#fff" stroke-opacity=".10" stroke-width="6"/>
+  <path d="M318 300 L512 736" stroke="#F3F0E8" stroke-width="124" stroke-linecap="round" fill="none" mask="url(#cut)"/>
+  <path d="M706 300 L512 736" stroke="url(#amber)" stroke-width="124" stroke-linecap="round" fill="none"/>
 </svg>

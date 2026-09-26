@@ -69,9 +69,20 @@ Requirements:
 | Cursor       | https://cursor.com/cli                  | `agent login`         |
 | Command Code | `npm i -g command-code`                 | `cmd login`           |
 
+The quick way: clone once, then run `./build.sh` whenever you want the latest.
+It pulls, installs, builds the desktop app and opens it.
+
 ```bash
 git clone https://github.com/CreatorGhost/ViewCode.git
 cd ViewCode
+./build.sh              # later runs: just ./build.sh again
+./build.sh --no-pull    # build what you have checked out
+./build.sh --web        # server + web UI instead of the desktop app
+```
+
+Or step by step:
+
+```bash
 corepack enable
 pnpm install
 ```

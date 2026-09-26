@@ -30,6 +30,9 @@ is in [`END_GOALS.md`](END_GOALS.md); product intent in [`PLAN.md`](PLAN.md).
 
 ## Run it
 
+The user runs `./build.sh` (pull, install, build desktop, open). Keep it
+working when build steps change.
+
 ```bash
 corepack enable && pnpm install
 pnpm dev                                   # server + web; read ports from [dev-runner]

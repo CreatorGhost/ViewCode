@@ -1,23 +1,26 @@
-import type { SVGProps } from "react";
+import { useId, type SVGProps } from "react";
 
-/** ViewCode's ⟨V⟩ mark (the component keeps T3's name so upstream call sites merge cleanly). */
+/**
+ * ViewCode's interlocked V mark, in `currentColor` (source: `assets/viewcode-mark.svg`).
+ * The component keeps T3's name so upstream call sites merge cleanly.
+ */
 export function T3Wordmark(props: SVGProps<SVGSVGElement>) {
+  const cutId = useId();
   return (
-    <svg {...props} viewBox="90 165 332 182" xmlns="http://www.w3.org/2000/svg" fill="none">
+    <svg {...props} viewBox="250 232 524 572" xmlns="http://www.w3.org/2000/svg" fill="none">
+      <mask id={cutId} maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+        <rect width="1024" height="1024" fill="#fff" />
+        <path d="M706 300 L512 736" stroke="#000" strokeWidth="176" strokeLinecap="round" />
+      </mask>
       <path
-        d="M150 180 L110 256 L150 332 M362 180 L402 256 L362 332"
+        d="M318 300 L512 736"
         stroke="currentColor"
-        strokeWidth="30"
+        strokeOpacity="0.55"
+        strokeWidth="124"
         strokeLinecap="round"
-        strokeLinejoin="round"
+        mask={`url(#${cutId})`}
       />
-      <path
-        d="M196 188 L256 330 L316 188"
-        stroke="currentColor"
-        strokeWidth="34"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M706 300 L512 736" stroke="currentColor" strokeWidth="124" strokeLinecap="round" />
     </svg>
   );
 }

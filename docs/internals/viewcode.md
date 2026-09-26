@@ -144,6 +144,18 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   them (restorable from Settings → Archive) and pre-checks only those with no
   turn and no provider session, i.e. never continued.
 
+### Brand assets
+
+- The logo source is `assets/viewcode-icon.svg` (app tile) and
+  `assets/viewcode-mark.svg` (mark alone). The production PNG/ICO files under
+  `assets/prod/` and `apps/web/public/` are regenerated from it **in place,
+  under T3's file names**, so no code path changes and upstream merges only
+  conflict if upstream redraws its own icons (keep ours). macOS uses the
+  824px-on-1024 grid with a baked shadow; iOS and apple-touch are square (the
+  OS masks them). `.icns` is built from the PNG at package time. Dev builds
+  keep T3's blueprint icons in `assets/dev/`.
+- In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
+
 ## Traps (things that cost hours)
 
 - **Running as root in a sandbox:** Claude refuses `bypassPermissions` as root;
