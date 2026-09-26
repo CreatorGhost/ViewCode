@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useRef } from "react";
+import { memo, useEffect, useId, useRef, type RefObject } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import {
   formatSubagentTokenCount,
@@ -7,22 +7,42 @@ import {
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { cn } from "~/lib/utils";
-import { deriveSubagentCard, deriveSubagentElapsedMs } from "./subagentCard.logic";
+import {
+  deriveSubagentCard,
+  deriveSubagentElapsedMs,
+  subagentLastProgressAt,
+  subagentQuietMessage,
+} from "./subagentCard.logic";
 
-/** Ticks only the time label, so progress lists and the transcript stay still. */
-function SubagentElapsed({ agent }: { agent: RuntimeSubagent }) {
+/** Updates the clock and quiet notice without rerendering the transcript. */
+function SubagentElapsed({
+  agent,
+  quietNoticeRef,
+}: {
+  agent: RuntimeSubagent;
+  quietNoticeRef: RefObject<HTMLParagraphElement | null>;
+}) {
   const ref = useRef<HTMLSpanElement>(null);
   const { status, startedAt, firstSeenAt, completedAt, updatedAt } = agent;
   const live = status === "pending" || status === "running" || status === "waiting";
   const timing = { status, startedAt, firstSeenAt, completedAt, updatedAt };
   const elapsed = deriveSubagentElapsedMs(timing, Date.parse(updatedAt));
+  const lastProgressAt = subagentLastProgressAt(agent);
 
   useEffect(() => {
     const timing = { status, startedAt, firstSeenAt, completedAt, updatedAt };
     let timer: ReturnType<typeof setInterval> | undefined;
     const update = () => {
-      const elapsed = deriveSubagentElapsedMs(timing, Date.now());
+      const now = Date.now();
+      const elapsed = deriveSubagentElapsedMs(timing, now);
       if (ref.current) ref.current.textContent = elapsed === null ? "" : formatDuration(elapsed);
+      const notice = quietNoticeRef.current;
+      if (notice) {
+        const message = subagentQuietMessage(lastProgressAt, now);
+        // Minute-granularity copy avoids churning the notice on every clock tick.
+        if (notice.textContent !== (message ?? "")) notice.textContent = message ?? "";
+        notice.hidden = message === null;
+      }
     };
     update();
     if (!live) return;
@@ -39,7 +59,16 @@ function SubagentElapsed({ agent }: { agent: RuntimeSubagent }) {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", sync);
     };
-  }, [live, status, startedAt, firstSeenAt, completedAt, updatedAt]);
+  }, [
+    live,
+    status,
+    startedAt,
+    firstSeenAt,
+    completedAt,
+    updatedAt,
+    lastProgressAt,
+    quietNoticeRef,
+  ]);
 
   return (
     <span ref={ref} className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
@@ -85,7 +114,12 @@ export const SubagentCard = memo(function SubagentCard({
   colorClassName: string;
 }) {
   const bodyId = useId();
+  const quietNoticeRef = useRef<HTMLParagraphElement>(null);
   const card = deriveSubagentCard(agent, Date.parse(agent.updatedAt));
+  const quietMessage = subagentQuietMessage(
+    subagentLastProgressAt(agent),
+    Date.parse(agent.updatedAt),
+  );
   const running = agent.status === "running" || agent.status === "pending";
   const preview = card.latestActivity ?? card.statusLabel;
   const metadata = [
@@ -111,7 +145,7 @@ export const SubagentCard = memo(function SubagentCard({
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
             {agent.title}
           </span>
-          <SubagentElapsed agent={agent} />
+          <SubagentElapsed agent={agent} quietNoticeRef={quietNoticeRef} />
           <span
             className={cn(
               "flex shrink-0 items-center gap-1.5 text-xs",
@@ -144,6 +178,13 @@ export const SubagentCard = memo(function SubagentCard({
           <span className="truncate font-mono">{preview}</span>
         </span>
       </button>
+      <p
+        ref={quietNoticeRef}
+        hidden={quietMessage === null}
+        className="px-3 pb-2.5 text-xs text-muted-foreground"
+      >
+        {quietMessage}
+      </p>
       {expanded ? (
         <div
           id={bodyId}
@@ -193,12 +234,14 @@ export const SubagentCard = memo(function SubagentCard({
               <p className="whitespace-pre-wrap break-words text-foreground/90">{card.error}</p>
             </div>
           ) : null}
-          {card.result ? (
+          {card.result || card.resultNotice ? (
             <div>
               <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
                 Result
               </p>
-              <p className="whitespace-pre-wrap break-words text-foreground/90">{card.result}</p>
+              <p className="whitespace-pre-wrap break-words text-foreground/90">
+                {card.result ?? card.resultNotice}
+              </p>
             </div>
           ) : null}
           {metadata.length > 0 ? (

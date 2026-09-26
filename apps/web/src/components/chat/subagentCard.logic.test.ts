@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
-import { deriveSubagentCard } from "./subagentCard.logic";
+import {
+  deriveSubagentCard,
+  subagentLastProgressAt,
+  subagentQuietMessage,
+} from "./subagentCard.logic";
 
 const start = "2026-09-27T10:00:00.000Z";
 const updated = "2026-09-27T10:00:10.000Z";
@@ -40,6 +44,29 @@ function agent(overrides: Partial<RuntimeSubagent> = {}): RuntimeSubagent {
 }
 
 describe("deriveSubagentCard", () => {
+  it("explains a completed task's missing result without inventing an answer", () => {
+    const card = deriveSubagentCard(agent({ status: "completed", result: "  " }), now);
+    expect(card.result).toBeNull();
+    expect(card.resultNotice).toBe("No separate task result was reported.");
+    expect(card.latestActivity).toBe(card.resultNotice);
+    for (const status of [
+      "pending",
+      "running",
+      "waiting",
+      "idle",
+      "failed",
+      "cancelled",
+      "interrupted",
+    ] as const) {
+      expect(deriveSubagentCard(agent({ status }), now).resultNotice).toBeNull();
+    }
+    expect(
+      deriveSubagentCard(agent({ status: "completed", result: "Done" }), now).resultNotice,
+    ).toBeNull();
+    expect(
+      deriveSubagentCard(agent({ status: "completed", error: "Failure" }), now).resultNotice,
+    ).toBeNull();
+  });
   it.each([
     ["pending", "Starting", true],
     ["running", "Working", true],
@@ -193,5 +220,59 @@ describe("deriveSubagentCard", () => {
     expect(
       deriveSubagentCard(agent({ startedAt: "2026-09-27T11:00:00.000Z" }), now).elapsedMs,
     ).toBe(0);
+  });
+});
+
+describe("subagent quiet notice", () => {
+  const began = Date.parse(start);
+
+  it("appears after five quiet minutes and clears when progress resumes", () => {
+    const task = agent();
+    const last = subagentLastProgressAt(task);
+    expect(subagentQuietMessage(last, began + 299_999)).toBeNull();
+    expect(subagentQuietMessage(last, began + 300_000)).toBe(
+      "No progress update for 5m. The provider may still be working.",
+    );
+    expect(subagentQuietMessage(last, began + 1_800_000)).toContain("30m");
+    const next = agent({
+      recentActivity: [{ at: "2026-09-27T10:05:00.000Z", summary: "Reading files" }],
+    });
+    expect(subagentQuietMessage(subagentLastProgressAt(next), began + 300_000)).toBeNull();
+    expect(task.status).toBe("running");
+  });
+
+  it("does not mistake usage or metadata updates for progress", () => {
+    const task = agent({ updatedAt: "2026-09-27T10:10:00.000Z", usage: { totalTokens: 50 } });
+    expect(subagentLastProgressAt(task)).toBe(began);
+    expect(subagentQuietMessage(subagentLastProgressAt(task), began + 600_000)).toContain("10m");
+  });
+
+  it.each(["waiting", "idle", "completed", "failed", "cancelled", "interrupted"] as const)(
+    "does not warn about intentionally waiting or settled %s tasks",
+    (status) => {
+      expect(
+        subagentQuietMessage(subagentLastProgressAt(agent({ status })), began + 600_000),
+      ).toBeNull();
+    },
+  );
+
+  it("starts a new quiet window on reactivation and ignores empty or invalid observations", () => {
+    const task = agent({
+      startedAt: "2026-09-27T10:09:00.000Z",
+      recentActivity: [
+        { at: start, summary: "Earlier run" },
+        { at: "2026-09-27T10:10:00.000Z", summary: " " },
+        { at: "invalid", summary: "Unknown time" },
+      ],
+    });
+    expect(subagentLastProgressAt(task)).toBe(began + 540_000);
+    expect(subagentQuietMessage(subagentLastProgressAt(task), began + 600_000)).toBeNull();
+    expect(
+      subagentQuietMessage(
+        subagentLastProgressAt(agent({ startedAt: "invalid", firstSeenAt: "invalid" })),
+        now,
+      ),
+    ).toBeNull();
+    expect(subagentQuietMessage(began + 60_000, began)).toBeNull();
   });
 });

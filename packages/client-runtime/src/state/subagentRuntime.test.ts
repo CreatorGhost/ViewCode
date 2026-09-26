@@ -258,6 +258,77 @@ describe("foldSubagentActivities", () => {
     expect(agent.status).toBe("running");
   });
 
+  it.each(["idle", "completed", "failed"] as const)(
+    "starts a fresh clock once when %s reactivates through pending",
+    (status) => {
+      const initial = "2026-09-27T10:00:00.000Z";
+      const settled = "2026-09-27T10:01:00.000Z";
+      const restarted = "2026-09-27T11:00:00.000Z";
+      const running = "2026-09-27T11:01:00.000Z";
+      const rows = [
+        activity("task.started", { taskId: "restart", taskType: "subagent" }, initial),
+        activity(
+          status === "idle" ? "task.updated" : "task.completed",
+          { taskId: "restart", status, summary: "Previous result" },
+          settled,
+        ),
+        activity("task.updated", { taskId: "restart", error: "Previous error" }, settled),
+        activity("task.updated", { taskId: "restart", status: "pending" }, restarted),
+      ];
+      expect(fold(rows)[0]).toMatchObject({
+        status: "pending",
+        activationCount: 2,
+        startedAt: restarted,
+        completedAt: null,
+        result: null,
+        error: null,
+      });
+      rows.push(
+        activity("task.updated", { taskId: "restart", status: "pending" }, running),
+        activity("task.updated", { taskId: "restart", status: "running" }, running),
+      );
+      expect(fold(rows)[0]).toMatchObject({
+        status: "running",
+        activationCount: 2,
+        startedAt: restarted,
+        completedAt: null,
+        result: null,
+        error: null,
+      });
+    },
+  );
+
+  it.each(["task.progress", "tool.progress", "task.updated"] as const)(
+    "%s refreshes repeated activity without adding rows or moving its timestamp backward",
+    (kind) => {
+      const initial = "2026-09-27T10:00:00.000Z";
+      const latest = "2026-09-27T10:10:00.000Z";
+      const older = "2026-09-27T10:05:00.000Z";
+      const payload = {
+        taskId: "repeated",
+        ...(kind === "tool.progress"
+          ? { toolName: "Read file" }
+          : kind === "task.updated"
+            ? { detail: "Read file" }
+            : { summary: "Read file" }),
+      };
+      const [agent] = fold([
+        activity("task.started", { taskId: "repeated", taskType: "subagent" }, initial),
+        activity(kind, payload, initial),
+        activity(kind, payload, latest),
+        activity(kind, payload, older),
+        activity(
+          "task.progress",
+          { taskId: "repeated", usageSnapshot: true, typedUsage: { totalTokens: 100 } },
+          "2026-09-27T10:11:00.000Z",
+        ),
+      ]);
+      expect(agent?.recentActivity).toEqual([
+        { at: latest, summary: kind === "tool.progress" ? "▸ Read file" : "Read file" },
+      ]);
+    },
+  );
+
   it("idle is nonterminal: an idle agent resumes without losing identity", () => {
     const agents = fold([
       activity("task.started", { taskId: "codex-child-1", title: "Marlow", role: "explorer" }),

@@ -30,6 +30,27 @@ function timestamp(value: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** Usage and metadata updates are not evidence of new progress. */
+export function subagentLastProgressAt(
+  agent: Pick<RuntimeSubagent, "status" | "startedAt" | "firstSeenAt" | "recentActivity">,
+): number | null {
+  if (agent.status !== "pending" && agent.status !== "running") return null;
+  let last = timestamp(agent.startedAt) ?? timestamp(agent.firstSeenAt);
+  for (const entry of agent.recentActivity) {
+    const at = firstLine(entry.summary) ? timestamp(entry.at) : null;
+    if (at !== null) last = last === null ? at : Math.max(last, at);
+  }
+  return last;
+}
+
+export function subagentQuietMessage(lastProgressAt: number | null, now: number): string | null {
+  if (lastProgressAt === null || !Number.isFinite(now)) return null;
+  const minutes = Math.floor((now - lastProgressAt) / 60_000);
+  return minutes >= 5
+    ? `No progress update for ${minutes}m. The provider may still be working.`
+    : null;
+}
+
 export function deriveSubagentElapsedMs(
   agent: Pick<
     RuntimeSubagent,
@@ -65,15 +86,22 @@ export function deriveSubagentCard(agent: RuntimeSubagent, now: number) {
     })
     .toReversed();
   const isActive = isActiveSubagentStatus(agent.status);
-  const outcome = isActive ? null : (firstLine(agent.error) ?? firstLine(agent.result));
+  const result = agent.result?.trim() || null;
+  const error = agent.error?.trim() || null;
+  const resultNotice =
+    agent.status === "completed" && !result && !error
+      ? "No separate task result was reported."
+      : null;
+  const outcome = isActive ? null : (firstLine(error) ?? firstLine(result) ?? resultNotice);
 
   return {
     statusLabel: STATUS_LABEL[agent.status],
     isActive,
     latestActivity: outcome ?? history.at(-1)?.summary ?? null,
     history: keyedHistory,
-    result: agent.result?.trim() || null,
-    error: agent.error?.trim() || null,
+    result,
+    resultNotice,
+    error,
     modelLabel: formatSubagentModelLabel(agent.model, agent.effort),
     elapsedMs: deriveSubagentElapsedMs(agent, now),
   };

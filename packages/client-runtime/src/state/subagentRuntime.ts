@@ -124,15 +124,18 @@ function bounded(value: string): string {
   return value.length <= SUMMARY_CHAR_LIMIT ? value : `${value.slice(0, SUMMARY_CHAR_LIMIT - 1)}…`;
 }
 
-/** Appends to the ring buffer, deduping consecutive identical summaries. */
+/** Dedupes consecutive summaries while retaining the latest observation time. */
 function appendActivity(
   entries: ReadonlyArray<SubagentActivityEntry>,
   at: string,
   summary: string,
 ): ReadonlyArray<SubagentActivityEntry> {
   const boundedSummary = bounded(summary);
-  if (entries.length > 0 && entries[entries.length - 1]?.summary === boundedSummary) {
-    return entries;
+  const previous = entries.at(-1);
+  if (previous?.summary === boundedSummary) {
+    const observedAt = Date.parse(at);
+    if (!Number.isFinite(observedAt) || observedAt <= Date.parse(previous.at)) return entries;
+    return [...entries.slice(0, -1), { at, summary: boundedSummary }];
   }
   const next = [...entries, { at, summary: boundedSummary }];
   return next.length > RECENT_ACTIVITY_LIMIT ? next.slice(-RECENT_ACTIVITY_LIMIT) : next;
@@ -410,9 +413,7 @@ function applyStatus(agent: MutableAgent, status: RuntimeSubagentStatus, at: str
     agent.result = null;
     agent.error = null;
     agent.completedAt = null;
-    if (status === "running") {
-      agent.startedAt = at;
-    }
+    agent.startedAt = at;
   }
   if (status === "running" && agent.startedAt === null) {
     agent.startedAt = at;
