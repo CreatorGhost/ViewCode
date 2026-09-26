@@ -49,13 +49,20 @@ export function resolveEffortStopIndex(
 }
 
 /**
- * The highest effort a model offers (Max, Ultrathink) gets the warm "peak"
- * treatment; every other stop is standard. A single stop is never a peak.
+ * Max, and anything a model offers above it (Ultracode, Ultrathink), gets the
+ * warm "peak" treatment. Without a Max stop only the highest stop does. A
+ * single stop is never a peak.
  */
 export type EffortTier = "standard" | "peak";
 
-export function effortTierForIndex(index: number, stopCount: number): EffortTier {
-  return stopCount > 1 && index === stopCount - 1 ? "peak" : "standard";
+export function effortTierForIndex(
+  index: number,
+  stops: ReadonlyArray<Pick<EffortStop, "id">>,
+): EffortTier {
+  if (stops.length <= 1 || index < 0) return "standard";
+  const maxIndex = stops.findIndex(({ id }) => id.toLowerCase() === "max");
+  const peakFrom = maxIndex >= 0 ? maxIndex : stops.length - 1;
+  return index >= peakFrom ? "peak" : "standard";
 }
 
 export type FastModeControl = {

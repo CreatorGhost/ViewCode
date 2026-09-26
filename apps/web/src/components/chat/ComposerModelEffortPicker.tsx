@@ -146,7 +146,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
       : null;
   const effortIndex = resolveEffortStopIndex(effortDescriptor, effortValue);
   const effortLabel = effortIndex >= 0 ? (effortStops[effortIndex]?.label ?? null) : null;
-  const effortTier = effortTierForIndex(effortIndex, effortStops.length);
+  const effortTier = effortTierForIndex(effortIndex, effortStops);
   const fastMode = resolveFastModeControl(traits.provider, descriptors);
   const resetIds = [
     ...(effortDescriptor ? [effortDescriptor.id] : []),

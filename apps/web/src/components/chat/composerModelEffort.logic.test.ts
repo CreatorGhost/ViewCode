@@ -100,19 +100,26 @@ describe("resolveEffortStopIndex", () => {
 });
 
 describe("effortTierForIndex", () => {
-  it("marks only the highest stop as the peak", () => {
-    const stops = buildEffortStops(EFFORT);
-    expect(stops.map((_, index) => effortTierForIndex(index, stops.length))).toEqual([
+  it("makes Max and every stop above it the peak", () => {
+    const stops = ["low", "medium", "high", "xhigh", "max", "ultracode", "ultrathink"].map(
+      (id) => ({ id }),
+    );
+    expect(stops.map((_, index) => effortTierForIndex(index, stops))).toEqual([
       "standard",
       "standard",
       "standard",
       "standard",
       "peak",
+      "peak",
+      "peak",
     ]);
   });
 
-  it("never treats a lone stop as the peak", () => {
-    expect(effortTierForIndex(0, 1)).toBe("standard");
+  it("falls back to the highest stop without a Max, and never marks a lone stop", () => {
+    const stops = buildEffortStops(EFFORT);
+    expect(effortTierForIndex(stops.length - 1, stops)).toBe("peak");
+    expect(effortTierForIndex(0, stops)).toBe("standard");
+    expect(effortTierForIndex(0, [{ id: "max" }])).toBe("standard");
   });
 });
 
