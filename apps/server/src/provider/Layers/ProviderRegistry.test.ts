@@ -2369,14 +2369,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
-      // A binary path change must rebuild Codex and publish its new probe result.
+      // A binary path change must rebuild Codex and publish its new probe
+      // result. Both paths are missing, so neither probe may exec anything.
       it.effect("re-probes when settings change the codex binaryPath", () =>
         Effect.gen(function* () {
           const firstMissing = `t3code_codex_first_`;
           const secondMissing = `t3code_codex_second_`;
           const spawnedCommands: Array<string> = [];
-          const secondProbeStarted = yield* Deferred.make<void>();
-          const releaseSecondProbe = yield* Deferred.make<void>();
           const allowLazySettingsStream = yield* Deferred.make<void>();
           const mutableServerSettings = yield* makeMutableServerSettingsService(
             decodeServerSettings(
@@ -2426,13 +2425,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               ChildProcessSpawner.make((command) => {
                 if (command._tag !== "StandardCommand") return spawner.spawn(command);
                 spawnedCommands.push(command.command);
-                const beforeSpawn =
-                  command.command === secondMissing
-                    ? Deferred.succeed(secondProbeStarted, undefined).pipe(
-                        Effect.andThen(Deferred.await(releaseSecondProbe)),
-                      )
-                    : Effect.void;
-                return beforeSpawn.pipe(Effect.andThen(spawner.spawn(command)));
+                return spawner.spawn(command);
               }),
             ),
             Layer.provideMerge(NodeServices.layer),
@@ -2460,12 +2453,16 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               currentCodex?.status === "error" ? currentCodex : (yield* firstError)[0];
             assert.strictEqual(initialCodex?.status, "error");
             assert.strictEqual(initialCodex?.installed, false);
-            assert.deepStrictEqual(spawnedCommands, [firstMissing]);
+            assert.include(initialCodex?.message, firstMissing);
+            assert.deepStrictEqual(spawnedCommands, []);
 
             const pendingRebuild = yield* Stream.toPull(
               codexSnapshots.pipe(
                 Stream.filter((provider) => provider.status === "warning" && !provider.installed),
               ),
+            );
+            const rebuiltError = yield* Stream.toPull(
+              codexSnapshots.pipe(Stream.filter((provider) => provider.status === "error")),
             );
             yield* serverSettings.updateSettings({
               providers: {
@@ -2476,16 +2473,12 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             // not subscribe before forking has already lost this update.
             yield* Deferred.succeed(allowLazySettingsStream, undefined);
 
-            // Hold the second probe until the aggregator sees the rebuilt
-            // instance. Its next error must come from the new executable.
-            yield* Deferred.await(secondProbeStarted);
+            // The rebuilt instance publishes its pending snapshot, then the
+            // error from probing the new executable.
             yield* pendingRebuild;
-            const rebuiltError = yield* Stream.toPull(
-              codexSnapshots.pipe(Stream.filter((provider) => provider.status === "error")),
-            );
-            yield* Deferred.succeed(releaseSecondProbe, undefined);
             const [reprobedCodex] = yield* rebuiltError;
-            assert.deepStrictEqual(spawnedCommands, [firstMissing, secondMissing]);
+            assert.include(reprobedCodex?.message, secondMissing);
+            assert.deepStrictEqual(spawnedCommands, []);
             assert.strictEqual(reprobedCodex?.status, "error");
             assert.strictEqual(reprobedCodex?.installed, false);
           }).pipe(Effect.provide(runtimeServices));

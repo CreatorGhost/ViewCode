@@ -108,7 +108,9 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       yield* Fiber.interrupt(previousFiber).pipe(Effect.ignore);
     }
 
-    if (!input.enrichSnapshot) {
+    // A disabled provider needs no update advisory; enriching it would still
+    // run maintenance lookups such as `brew --prefix` (ViewCode managed mode).
+    if (!input.enrichSnapshot || !snapshot.enabled) {
       return;
     }
 

@@ -68,6 +68,7 @@ import {
   materializeCodexShadowHome,
   resolveCodexHomeLayout,
 } from "./CodexHomeLayout.ts";
+import { guardMissingProviderBinary } from "../providerBinary.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("codex");
@@ -189,7 +190,10 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
             { concurrent: true },
           ),
         ),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          guardMissingProviderBinary(spawner, fileSystem, pathService),
+        ),
       );
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CodexSettings>>({

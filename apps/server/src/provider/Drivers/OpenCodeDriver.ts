@@ -57,6 +57,7 @@ import {
   makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
+import { guardMissingOpenCodeBinary } from "../providerBinary.ts";
 const decodeOpenCodeSettings = Schema.decodeSync(OpenCodeSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("opencode");
@@ -166,7 +167,10 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
         Effect.provideService(Path.Path, pathService),
         Effect.provideService(HttpClient.HttpClient, httpClient),
         Effect.provideService(OpenCodeServerOwner.OpenCodeServerOwner, serverOwner),
-        Effect.provideService(OpenCodeRuntime, openCodeRuntime),
+        Effect.provideService(
+          OpenCodeRuntime,
+          guardMissingOpenCodeBinary(openCodeRuntime, fileSystem, pathService),
+        ),
       );
       // NOTE: the local branch intentionally uses the shared SDK server
       // instead of `opencode debug skill` (loadSkillsFromCli). The CLI writes
