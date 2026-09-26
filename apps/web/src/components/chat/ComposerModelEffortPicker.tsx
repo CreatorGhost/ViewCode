@@ -8,8 +8,17 @@ import {
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
-import { Slider } from "@base-ui/react/slider";
-import { memo, useMemo } from "react";
+import {
+  type CSSProperties,
+  memo,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -30,16 +39,33 @@ import type { ComposerControlSize } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import {
   buildEffortStops,
+  effortFractionAtPointer,
   effortRampColor,
   effortRampForIndex,
+  effortStopForKey,
+  effortStopFraction,
   effortTierForIndex,
   findEffortDescriptor,
   isEffortAndFastModeAtDefaults,
+  nearestEffortStop,
+  offersUltracode,
   resetEffortAndFastMode,
   resolveEffortStopIndex,
   resolveFastModeControl,
+  ULTRACODE_EFFORT,
 } from "./composerModelEffort.logic";
 import { resolveComposerTraitsOptions } from "./composerProviderState";
+import {
+  drawEffortTrackFrame,
+  type EffortBrand,
+  effortBrandForDriver,
+  effortTrackFrameRate,
+  type EffortTrackKind,
+  effortTrackKind,
+  effortTrackStyle,
+  FAST_TITLE,
+  rgba,
+} from "./effortTrack";
 import { ModelPickerContent } from "./ModelPickerContent";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { resolveModelPickerTrigger, useModelPickerScrollLock } from "./ProviderModelPicker";
@@ -61,7 +87,6 @@ export type ComposerModelEffortTraits = {
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
   prompt: string;
-  onPromptChange: (prompt: string) => void;
   planModeEnabled: boolean;
 };
 
@@ -132,7 +157,6 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
     models: traits.models,
     model: traits.model,
     prompt: traits.prompt,
-    onPromptChange: traits.onPromptChange,
     modelOptions: selections,
     planModeEnabled: traits.planModeEnabled,
     persistence,
@@ -141,37 +165,56 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
   const effortDescriptor = findEffortDescriptor(descriptors);
   const effortStops = buildEffortStops(effortDescriptor);
   const currentEffortValue = getProviderOptionCurrentValue(effortDescriptor);
-  const effortValue = controller.ultrathinkPromptControlled
-    ? "ultrathink"
-    : typeof currentEffortValue === "string"
-      ? currentEffortValue
-      : null;
-  const effortIndex = resolveEffortStopIndex(effortDescriptor, effortValue);
-  const effortLabel = effortIndex >= 0 ? (effortStops[effortIndex]?.label ?? null) : null;
-  const effortTier = effortTierForIndex(effortIndex, effortStops);
-  // Standard stops shade from light to deep blue; the peak is coral.
-  const effortColor =
-    effortTier === "peak"
-      ? "var(--effort-peak)"
-      : effortRampColor(effortRampForIndex(effortIndex, effortStops));
+  const effortValue = typeof currentEffortValue === "string" ? currentEffortValue : null;
+  const ultracodeOn = effortValue === ULTRACODE_EFFORT;
+  const effortIndex = resolveEffortStopIndex(effortDescriptor, effortStops, effortValue);
+  const effortStopLabel = effortIndex >= 0 ? (effortStops[effortIndex]?.label ?? null) : null;
+  const effortLabel = ultracodeOn ? "Ultracode" : effortStopLabel;
   const fastMode = resolveFastModeControl(traits.provider, descriptors);
+  const brand = effortBrandForDriver(activeEntry?.driverKind ?? traits.provider);
+  const trackKind = effortTrackKind({
+    peak: effortTierForIndex(effortIndex, effortStops) === "peak",
+    fast: fastMode?.enabled === true,
+  });
+  const trackStyle = effortTrackStyle(trackKind, brand);
+  // Standard levels shade from light sky to deep blue; the other looks take
+  // their title colour (brand, gold, or the fusion gradient).
+  const effortColor =
+    trackKind === "plain"
+      ? effortRampColor(effortRampForIndex(effortIndex, effortStops))
+      : trackStyle.titleColor;
   const resetIds = [
     ...(effortDescriptor ? [effortDescriptor.id] : []),
     ...(fastMode ? [fastMode.descriptorId] : []),
   ];
-  const atDefaults =
-    !controller.ultrathinkPromptControlled &&
-    isEffortAndFastModeAtDefaults({
-      current: descriptors,
-      defaults: defaultDescriptors,
-      descriptorIds: resetIds,
-    });
+  const atDefaults = isEffortAndFastModeAtDefaults({
+    current: descriptors,
+    defaults: defaultDescriptors,
+    descriptorIds: resetIds,
+  });
   const readOnly = controller.modelIsUnavailable;
-  const effortLocked = readOnly || controller.ultrathinkInBodyText;
   const otherDescriptors = descriptors.filter(
     (descriptor) =>
       descriptor.id !== effortDescriptor?.id && descriptor.id !== fastMode?.descriptorId,
   );
+
+  const selectEffortStop = (index: number) => {
+    const stop = effortStops[index];
+    if (effortDescriptor && stop) controller.selectOption(effortDescriptor, stop.id);
+  };
+  const toggleFastMode = () => {
+    if (!fastMode) return;
+    const next = fastMode.enabled ? fastMode.offValue : fastMode.onValue;
+    if (typeof next === "boolean") {
+      controller.setBooleanOption(fastMode.descriptorId, next);
+      return;
+    }
+    const descriptor = descriptors.find(
+      (candidate): candidate is SelectDescriptor =>
+        candidate.id === fastMode.descriptorId && candidate.type === "select",
+    );
+    if (descriptor) controller.selectOption(descriptor, next);
+  };
 
   const shortcutLabel = props.keybindings
     ? shortcutLabelForCommand(props.keybindings, "modelPicker.toggle")
@@ -230,19 +273,31 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
           }
         >
           {providerIcon}
+          {fastMode?.enabled ? (
+            <ZapIcon
+              aria-hidden="true"
+              className="size-3 shrink-0 fill-current"
+              style={{ color: rgba(FAST_TITLE) }}
+            />
+          ) : null}
           <span
             data-chat-provider-model-picker-label="true"
             className="flex min-w-0 items-center gap-1.5 overflow-hidden"
           >
-            <span className="min-w-0 truncate">{triggerTitle}</span>
-            {fastMode?.enabled ? (
-              <ZapIcon aria-hidden="true" className="size-3 shrink-0 fill-current text-primary" />
-            ) : null}
-            {effortLabel ? (
-              <span className="shrink-0" style={{ color: effortColor }}>
-                {controller.ultrathinkPromptControlled ? "Ultrathink" : effortLabel}
-              </span>
-            ) : null}
+            {open ? (
+              // The chip anchors the popover: while it is open a fixed label keeps
+              // its width, so effort changes never shift the popover.
+              <span className="min-w-0 truncate">Select effort</span>
+            ) : (
+              <>
+                <span className="min-w-0 truncate">{triggerTitle}</span>
+                {effortLabel ? (
+                  <span className="shrink-0" style={{ color: effortColor }}>
+                    {effortLabel}
+                  </span>
+                ) : null}
+              </>
+            )}
           </span>
           <ChevronDownIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
         </TooltipTrigger>
@@ -258,7 +313,8 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
         padding="none"
         variant="floating"
       >
-        <div className="w-80 max-w-[calc(100vw-2rem)]">
+        {/* A fixed width, so neither view nor any label change resizes the popover. */}
+        <div className="w-82.5 max-w-[calc(100vw-2rem)]">
           {view === "model" ? (
             <div className="flex flex-col">
               <div className="flex items-center gap-1 px-2 pt-2">
@@ -305,64 +361,51 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
               />
             </div>
           ) : (
-            <div className="flex flex-col gap-4 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        aria-label="Fast mode"
-                        aria-pressed={fastMode?.enabled ?? false}
-                        disabled={!fastMode || readOnly}
-                        onClick={() => {
-                          if (!fastMode) return;
-                          const next = fastMode.enabled ? fastMode.offValue : fastMode.onValue;
-                          if (typeof next === "boolean") {
-                            controller.setBooleanOption(fastMode.descriptorId, next);
-                            return;
+            <div className="flex flex-col gap-4 px-4 pt-3.5 pb-4">
+              <div className="flex h-11 items-center justify-between gap-2">
+                {fastMode ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label="Fast mode"
+                          aria-pressed={fastMode.enabled}
+                          disabled={readOnly}
+                          onClick={toggleFastMode}
+                          className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/8 text-muted-foreground outline-none transition-colors duration-300 hover:bg-foreground/12 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                          style={
+                            fastMode.enabled
+                              ? { color: rgba(FAST_TITLE), backgroundColor: rgba(FAST_TITLE, 0.16) }
+                              : undefined
                           }
-                          const descriptor = descriptors.find(
-                            (candidate): candidate is SelectDescriptor =>
-                              candidate.id === fastMode.descriptorId && candidate.type === "select",
-                          );
-                          if (descriptor) controller.selectOption(descriptor, next);
-                        }}
-                        className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/8 text-muted-foreground outline-none transition-colors hover:bg-foreground/12 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+                        />
+                      }
+                    >
+                      <ZapIcon
+                        aria-hidden="true"
+                        className={cn("size-4", fastMode.enabled && "fill-current")}
                       />
-                    }
-                  >
-                    <ZapIcon
-                      aria-hidden="true"
-                      className={cn("size-4.5", fastMode?.enabled && "fill-current")}
-                    />
-                  </TooltipTrigger>
-                  <TooltipPopup side="top">
-                    {!fastMode
-                      ? "Fast mode isn't available for this model"
-                      : fastMode.enabled
-                        ? "Fast mode on"
-                        : "Fast mode off"}
-                  </TooltipPopup>
-                </Tooltip>
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">
+                      {fastMode.enabled ? "Fast mode on" : "Fast mode off"}
+                    </TooltipPopup>
+                  </Tooltip>
+                ) : (
+                  <span aria-hidden="true" className="size-8 shrink-0" />
+                )}
                 <button
                   type="button"
                   aria-label={`Change model (${triggerTitle})`}
                   onClick={() => onViewChange("model")}
-                  className="flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-0.5 rounded-2xl px-2 py-1 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex h-11 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl px-2 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <span
-                    className="flex min-w-0 items-center gap-0.5 font-semibold text-xl leading-tight text-foreground"
-                    style={effortLabel === null ? undefined : { color: effortColor }}
-                  >
-                    <span className="truncate">
-                      {controller.ultrathinkPromptControlled
-                        ? "Ultrathink"
-                        : (effortLabel ?? triggerTitle)}
-                    </span>
-                    <ChevronRightIcon aria-hidden="true" className="size-5 shrink-0" />
-                  </span>
-                  <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs">
+                  <EffortTitle
+                    text={effortLabel ?? "Standard"}
+                    color={effortLabel === null ? "var(--foreground)" : effortColor}
+                    gradient={trackStyle.titleGradient}
+                  />
+                  <span className="flex h-4 min-w-0 items-center gap-1 text-muted-foreground text-xs">
                     {providerIcon}
                     <span className="truncate">{triggerTitle}</span>
                   </span>
@@ -373,9 +416,8 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                       <button
                         type="button"
                         aria-label="Reset effort to default"
-                        disabled={resetIds.length === 0 || atDefaults || effortLocked}
+                        disabled={resetIds.length === 0 || atDefaults || readOnly}
                         onClick={() => {
-                          controller.clearPromptInjectedEffort();
                           controller.updateDescriptors(
                             resetEffortAndFastMode({
                               current: descriptors,
@@ -384,44 +426,55 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                             }),
                           );
                         }}
-                        className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/8 text-muted-foreground outline-none transition-colors hover:bg-foreground/12 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-40"
+                        className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/8 text-muted-foreground outline-none transition-colors hover:bg-foreground/12 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-40"
                       />
                     }
                   >
-                    <RotateCcwIcon aria-hidden="true" className="size-4" />
+                    <RotateCcwIcon aria-hidden="true" className="size-3.5" />
                   </TooltipTrigger>
-                  <TooltipPopup side="top">Reset to the model's defaults</TooltipPopup>
+                  <TooltipPopup side="top">Reset to default</TooltipPopup>
                 </Tooltip>
               </div>
 
               {effortDescriptor && effortStops.length > 1 ? (
                 <EffortSlider
-                  label={effortDescriptor.label}
+                  label="Reasoning effort"
                   stops={effortStops}
                   index={effortIndex}
-                  peak={effortTier === "peak"}
-                  color={effortColor}
-                  disabled={effortLocked}
-                  onIndexChange={(index) => {
-                    const stop = effortStops[index];
-                    if (stop) controller.selectOption(effortDescriptor, stop.id);
-                  }}
+                  kind={trackKind}
+                  brand={brand}
+                  plainColor={effortRampColor(effortRampForIndex(effortIndex, effortStops))}
+                  disabled={readOnly}
+                  onIndexChange={selectEffortStop}
                 />
-              ) : null}
-              {controller.ultrathinkInBodyText ? (
-                <p className="text-muted-foreground text-xs">
-                  Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change the
-                  effort.
+              ) : (
+                <p className="flex h-10.5 items-center justify-center text-muted-foreground text-xs">
+                  {hasTraitsTarget ? "This model has one reasoning level." : "No effort levels."}
                 </p>
-              ) : null}
-              {!hasTraitsTarget || (!effortDescriptor && otherDescriptors.length === 0) ? (
-                <p className="text-center text-muted-foreground text-xs">
-                  This model has no effort levels.
-                </p>
-              ) : null}
+              )}
 
-              {otherDescriptors.length > 0 ? (
+              {(effortDescriptor && offersUltracode(effortDescriptor)) ||
+              otherDescriptors.length > 0 ? (
                 <div className="flex flex-col gap-2.5 border-border/70 border-t pt-3">
+                  {effortDescriptor && offersUltracode(effortDescriptor) ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="shrink-0 text-muted-foreground text-xs">Ultracode</span>
+                      <Switch
+                        size="sm"
+                        aria-label="Ultracode"
+                        checked={ultracodeOn}
+                        disabled={readOnly}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            controller.selectOption(effortDescriptor, ULTRACODE_EFFORT);
+                          } else {
+                            // Back to the level the slider shows while Ultracode is on.
+                            selectEffortStop(effortIndex);
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : null}
                   {otherDescriptors.map((descriptor) => (
                     <div key={descriptor.id} className="flex items-center justify-between gap-3">
                       <span className="shrink-0 text-muted-foreground text-xs">
@@ -471,72 +524,396 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
 });
 
 /**
- * A pill track with a dot per effort stop. The fill runs from the left edge to
- * the thumb; the peak stop turns it coral over a static sparkle scatter.
+ * The header's effort name, in a fixed-height box. A change crossfades in
+ * place: the outgoing name fades out over the incoming one. Colour eases over
+ * 300ms; a gradient (Gemini, fusion) is clipped to the text.
  */
-function EffortSlider(props: {
+function EffortTitle(props: { text: string; color: string; gradient: string | null }) {
+  const [labels, setLabels] = useState(() => [{ id: 0, text: props.text }]);
+  const current = labels[labels.length - 1];
+  if (current && current.text !== props.text) {
+    setLabels([current, { id: current.id + 1, text: props.text }]);
+  }
+  const style: CSSProperties = props.gradient
+    ? { backgroundImage: props.gradient, color: "transparent" }
+    : { color: props.color };
+  return (
+    <span className="flex h-6 w-full min-w-0 items-center justify-center gap-1">
+      <span
+        className={cn(
+          "relative flex min-w-0 justify-center font-medium text-lg leading-6 transition-colors duration-300 ease-out",
+          props.gradient && "bg-clip-text",
+        )}
+        style={style}
+      >
+        {labels.map((label, position) =>
+          position === labels.length - 1 ? (
+            <span
+              key={label.id}
+              className="min-w-0 truncate transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none"
+            >
+              {label.text}
+            </span>
+          ) : (
+            <span
+              key={label.id}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none"
+            >
+              {label.text}
+            </span>
+          ),
+        )}
+      </span>
+      <ChevronRightIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+    </span>
+  );
+}
+
+/** Half the track's height: stop centres sit this far in from each end. */
+const TRACK_INSET_PX = 17;
+
+/**
+ * A 34px capsule with a dot per effort stop and a 42px glass knob (Droppy's
+ * EffortSlider). While dragging, the knob and fill follow the pointer 1:1 and
+ * the effort commits as the nearest stop changes; on release the knob springs
+ * onto its stop. Position is a CSS variable written straight to the DOM and
+ * only transforms move, so a drag repaints this slider alone and a re-render
+ * mid-drag cannot snap the knob.
+ */
+const EffortSlider = memo(function EffortSlider(props: {
   label: string;
   stops: ReadonlyArray<{ id: string; label: string }>;
   index: number;
-  peak: boolean;
-  /** Fill colour at the current stop (the blue ramp, or coral at the peak). */
-  color: string;
+  kind: EffortTrackKind;
+  brand: EffortBrand;
+  /** The standard look's solid colour at this level. */
+  plainColor: string;
   disabled: boolean;
   onIndexChange: (index: number) => void;
 }) {
-  const lastIndex = props.stops.length - 1;
+  const { stops, index, kind, onIndexChange } = props;
+  const stopCount = stops.length;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
+  const dotRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const draggingRef = useRef(false);
+  const committedRef = useRef(index);
+  const onIndexChangeRef = useRef(onIndexChange);
+  const [dragging, setDragging] = useState(false);
+  // Only the first position goes through React; later ones are written directly.
+  const [initialPosition] = useState(() => effortStopFraction(index, stopCount));
+  const style = effortTrackStyle(kind, props.brand);
+
+  useLayoutEffect(() => {
+    onIndexChangeRef.current = onIndexChange;
+  }, [onIndexChange]);
+
+  const writePosition = useCallback(
+    (fraction: number) => {
+      rootRef.current?.style.setProperty("--effort-pos", String(fraction));
+      // A stop lights once the knob's centre has reached it.
+      dotRefs.current.forEach((dot, stopIndex) => {
+        if (!dot) return;
+        if (effortStopFraction(stopIndex, stopCount) <= fraction + 1e-6) {
+          dot.dataset.passed = "true";
+        } else {
+          delete dot.dataset.passed;
+        }
+      });
+    },
+    [stopCount],
+  );
+
+  useLayoutEffect(() => {
+    if (draggingRef.current) return;
+    committedRef.current = index;
+    writePosition(effortStopFraction(index, stopCount));
+  }, [index, stopCount, writePosition]);
+
+  // Entering Max or fusion plays one short surge; each entry remounts it.
+  const [surge, setSurge] = useState({ kind, count: 0 });
+  if (surge.kind !== kind) {
+    const entersPeak = kind === "supercharged" || kind === "fusion";
+    setSurge({ kind, count: entersPeak ? surge.count + 1 : surge.count });
+  }
+
+  const moveTo = (clientX: number) => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const fraction = effortFractionAtPointer({
+      clientX,
+      trackLeft: rect.left,
+      trackWidth: rect.width,
+      inset: TRACK_INSET_PX,
+    });
+    writePosition(fraction);
+    const nearest = nearestEffortStop(fraction, stopCount);
+    if (nearest !== committedRef.current) {
+      committedRef.current = nearest;
+      onIndexChangeRef.current(nearest);
+    }
+  };
+  const endDrag = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    setDragging(false);
+    writePosition(effortStopFraction(committedRef.current, stopCount));
+  };
+
+  const activeIndex = Math.max(index, 0);
+  // Following the pointer is 1:1; settling onto a stop is a short spring.
+  const moverTransition = dragging
+    ? "transition-none"
+    : "transition-transform duration-320 ease-settle motion-reduce:transition-none";
+
   return (
-    <Slider.Root
-      value={Math.max(props.index, 0)}
-      min={0}
-      max={lastIndex}
-      step={1}
-      thumbAlignment="edge"
-      disabled={props.disabled}
-      onValueChange={(value) => {
-        if (value !== props.index) props.onIndexChange(value);
+    <div
+      ref={rootRef}
+      data-disabled={props.disabled || undefined}
+      className="relative h-10.5 w-full cursor-pointer touch-none select-none data-disabled:cursor-not-allowed data-disabled:opacity-64"
+      style={
+        {
+          "--effort-pos": initialPosition,
+          "--effort-stop-passed": style.stopPassed,
+        } as CSSProperties
+      }
+      onPointerDown={(event) => {
+        if (props.disabled || event.button !== 0) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        draggingRef.current = true;
+        committedRef.current = index;
+        setDragging(true);
+        knobRef.current?.focus({ preventScroll: true });
+        moveTo(event.clientX);
       }}
-      className="w-full data-disabled:opacity-64"
+      onPointerMove={(event) => {
+        if (draggingRef.current) moveTo(event.clientX);
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
     >
-      <Slider.Control className="relative flex h-11 w-full cursor-pointer touch-none items-center select-none data-disabled:cursor-not-allowed">
-        <Slider.Track
-          data-peak={props.peak || undefined}
-          className="relative h-9 w-full rounded-full bg-foreground/10 data-peak:bg-effort-sparkles"
-        >
-          <Slider.Indicator
-            // The peak fill replays a one-shot surge each time it is reached
-            // (no loop), then rests on static sparkles over a coral gradient.
-            // Kept out of cn(): tailwind-merge would drop one of the two images.
-            className={
-              props.peak
-                ? "rounded-full bg-effort-peak animate-effort-surge motion-reduce:animate-none"
-                : "rounded-full transition-[background] duration-200"
-            }
-            style={
-              props.peak
-                ? undefined
-                : { backgroundImage: `linear-gradient(90deg, var(--effort-low), ${props.color})` }
-            }
-          />
-          {props.stops.map((stop, index) => (
-            <span
-              key={stop.id}
-              aria-hidden="true"
-              className={cn(
-                "pointer-events-none absolute top-1/2 size-1.5 -translate-1/2 rounded-full",
-                index <= props.index ? "bg-primary-foreground/70" : "bg-foreground/35",
-              )}
-              // Stop centres match the thumb's edge-aligned travel (a 44px thumb).
-              style={{ left: `calc(1.375rem + (100% - 2.75rem) * ${index / lastIndex})` }}
+      <div className="absolute inset-x-0 top-1/2 h-8.5 -translate-y-1/2 rounded-full bg-foreground/10">
+        <div className="absolute inset-0 overflow-hidden rounded-full">
+          {/*
+           * The fill is a full-width pill slid left so its right end sits under
+           * the knob's far edge; the track clips what slides past the left.
+           * Each look is its own layer, crossfaded on opacity: gradients cannot
+           * interpolate, solid colours ease on background-color.
+           */}
+          <div
+            className={cn("absolute inset-y-0 left-4.25 right-4.25", moverTransition)}
+            style={{ transform: "translateX(calc((var(--effort-pos) - 1) * 100%))" }}
+          >
+            <div
+              className="absolute inset-y-0 -left-4.25 -right-4.25 rounded-full transition-[background-color,opacity] duration-300 ease-out"
+              style={{ backgroundColor: props.plainColor, opacity: kind === "plain" ? 1 : 0 }}
             />
-          ))}
-          <Slider.Thumb
-            aria-label={props.label}
-            getAriaValueText={(_formatted, value) => props.stops[value]?.label ?? String(value)}
-            className="size-11 rounded-full border border-foreground/20 bg-foreground/15 shadow-md outline-none backdrop-blur-sm focus-visible:ring-2 focus-visible:ring-ring"
+            {(["supercharged", "fast", "fusion"] as const).map((layer) => (
+              <div
+                key={layer}
+                aria-hidden="true"
+                className="absolute inset-y-0 -left-4.25 -right-4.25 rounded-full transition-opacity duration-300 ease-out"
+                style={{
+                  background: effortTrackStyle(layer, props.brand).fillBackground,
+                  opacity: kind === layer ? 1 : 0,
+                }}
+              />
+            ))}
+          </div>
+          {kind !== "plain" ? (
+            <EffortTrackCanvas
+              kind={kind}
+              brand={props.brand}
+              stopCount={stopCount}
+              revision={`${index}:${dragging}`}
+              rootRef={rootRef}
+              knobRef={knobRef}
+            />
+          ) : null}
+        </div>
+        {surge.count > 0 && (kind === "supercharged" || kind === "fusion") ? (
+          <div
+            key={surge.count}
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 rounded-full animate-effort-surge motion-reduce:hidden"
+            style={{ "--effort-surge": style.surge } as CSSProperties}
           />
-        </Slider.Track>
-      </Slider.Control>
-    </Slider.Root>
+        ) : null}
+        {stops.map((stop, stopIndex) => (
+          <span
+            key={stop.id}
+            ref={(element) => {
+              dotRefs.current[stopIndex] = element;
+            }}
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 size-1.25 -translate-1/2 rounded-full bg-foreground/30 transition-colors duration-300 data-passed:bg-(--effort-stop-passed)"
+            style={{
+              left: `calc(${TRACK_INSET_PX}px + (100% - ${TRACK_INSET_PX * 2}px) * ${effortStopFraction(stopIndex, stopCount)})`,
+            }}
+          />
+        ))}
+      </div>
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-4.25 right-4.25",
+          moverTransition,
+        )}
+        style={{ transform: "translateX(calc(var(--effort-pos) * 100%))" }}
+      >
+        {/* The glow is a blurred disc beneath the lens, not a shadow on it. */}
+        <div
+          aria-hidden="true"
+          className={cn(
+            "absolute top-1/2 left-0 size-10.5 -translate-x-1/2 -translate-y-[calc(50%-1px)] rounded-full transition-[background-color] duration-300 ease-out",
+            kind === "plain" ? "blur-xs" : "blur-sm",
+          )}
+          style={{ backgroundColor: style.glow }}
+        />
+        <div
+          ref={knobRef}
+          role="slider"
+          tabIndex={props.disabled ? -1 : 0}
+          aria-label={props.label}
+          aria-orientation="horizontal"
+          aria-valuemin={0}
+          aria-valuemax={stopCount - 1}
+          aria-valuenow={activeIndex}
+          aria-valuetext={stops[activeIndex]?.label}
+          aria-disabled={props.disabled || undefined}
+          onKeyDown={(event) => {
+            if (props.disabled) return;
+            const next = effortStopForKey(event.key, activeIndex, stopCount);
+            if (next === null) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (next !== activeIndex) onIndexChange(next);
+          }}
+          className={cn(
+            "pointer-events-auto absolute top-1/2 left-0 size-10.5 -translate-1/2 rounded-full border outline-none backdrop-blur-md backdrop-saturate-150 transition-[scale,background-color,border-color] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring",
+            dragging && "scale-106",
+          )}
+          style={{ backgroundColor: style.knobTint, borderColor: style.knobEdge }}
+        />
+      </div>
+    </div>
+  );
+});
+
+/**
+ * The live track effect: sparks, arcs, streaks, bolts, sheen and flare drawn
+ * into a canvas clipped to the fill (see effortTrack.ts).
+ *
+ * This is a deliberate, bounded exception to the "no continuously repainting
+ * animations" rule: it exists only while the effort popover is open and the
+ * look is not the standard one, is capped at 30fps (sparks alone) or 60fps
+ * (streaks and bolts), stops while the page is hidden, and under reduced
+ * motion draws a single still frame instead of looping.
+ */
+function EffortTrackCanvas(props: {
+  kind: EffortTrackKind;
+  brand: EffortBrand;
+  stopCount: number;
+  /** Changes when the knob settles somewhere new, for the still frame under reduced motion. */
+  revision: string;
+  rootRef: RefObject<HTMLDivElement | null>;
+  knobRef: RefObject<HTMLDivElement | null>;
+}) {
+  const { kind, brand, stopCount, rootRef, knobRef, revision } = props;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [reduceMotion] = useState(
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  // Only the still frame needs redrawing when the knob settles; the loop reads live geometry.
+  const stillFrameRevision = reduceMotion ? revision : null;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const startedAt = performance.now();
+    const interval = 1000 / effortTrackFrameRate(kind);
+    let pixelWidth = 0;
+    let pixelHeight = 0;
+    let frame = 0;
+    let lastDrawn = 0;
+
+    const draw = (now: number) => {
+      const root = rootRef.current;
+      const knob = knobRef.current;
+      if (!root || !knob) return;
+      // Read the live geometry, which includes the knob's settling transition.
+      const canvasRect = canvas.getBoundingClientRect();
+      const knobRect = knob.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.round(canvasRect.width * dpr);
+      const height = Math.round(canvasRect.height * dpr);
+      if (width !== pixelWidth || height !== pixelHeight) {
+        canvas.width = width;
+        canvas.height = height;
+        pixelWidth = width;
+        pixelHeight = height;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, canvasRect.width, canvasRect.height);
+      const knobX = knobRect.left + knobRect.width / 2 - canvasRect.left;
+      const fillWidth = Math.min(knobX + TRACK_INSET_PX, canvasRect.width);
+      const travel = canvasRect.width - TRACK_INSET_PX * 2;
+      const passedStopXs: number[] = [];
+      for (let stop = 0; stop < stopCount; stop += 1) {
+        const x = TRACK_INSET_PX + travel * effortStopFraction(stop, stopCount);
+        if (x <= knobX + 0.5) passedStopXs.push(x);
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(0, 0, fillWidth, canvasRect.height, canvasRect.height / 2);
+      ctx.clip();
+      drawEffortTrackFrame(ctx, {
+        kind,
+        brand,
+        width: fillWidth,
+        height: canvasRect.height,
+        time: reduceMotion ? 0 : (now - startedAt) / 1000,
+        knobX,
+        passedStopXs,
+      });
+      ctx.restore();
+    };
+
+    if (reduceMotion) {
+      // One still frame, redrawn only when the knob settles on a new stop.
+      if (stillFrameRevision !== null) draw(startedAt);
+      return;
+    }
+    const tick = (now: number) => {
+      frame = window.requestAnimationFrame(tick);
+      if (now - lastDrawn < interval - 1) return;
+      lastDrawn = now;
+      draw(now);
+    };
+    const start = () => {
+      if (frame === 0 && !document.hidden) frame = window.requestAnimationFrame(tick);
+    };
+    const stop = () => {
+      window.cancelAnimationFrame(frame);
+      frame = 0;
+    };
+    const onVisibilityChange = () => (document.hidden ? stop() : start());
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    start();
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [kind, brand, stopCount, rootRef, knobRef, reduceMotion, stillFrameRevision]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 size-full transition-opacity duration-300 ease-out starting:opacity-0"
+    />
   );
 }

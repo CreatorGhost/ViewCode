@@ -49,7 +49,6 @@ type TraitsRenderInput = {
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
   prompt: string;
-  onPromptChange: (prompt: string) => void;
   planModeEnabled: boolean;
   size?: ComposerControlSize;
   hidden?: boolean;
@@ -199,7 +198,6 @@ function renderTraitsControl(
     models,
     modelOptions,
     prompt,
-    onPromptChange,
     planModeEnabled,
     size,
     hidden,
@@ -237,7 +235,6 @@ function renderTraitsControl(
       model={model}
       modelOptions={resolvedModelOptions}
       prompt={prompt}
-      onPromptChange={onPromptChange}
       planModeEnabled={planModeEnabled}
       {...(size !== undefined ? { size } : {})}
       {...(hidden !== undefined ? { hidden } : {})}

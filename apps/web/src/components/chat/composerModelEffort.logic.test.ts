@@ -3,11 +3,16 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildEffortStops,
+  effortFractionAtPointer,
   effortRampForIndex,
+  effortStopForKey,
+  effortStopFraction,
   effortTierForIndex,
   findEffortDescriptor,
   isEffortAndFastModeAtDefaults,
   modelSupportsFastMode,
+  nearestEffortStop,
+  offersUltracode,
   resetEffortAndFastMode,
   resolveEffortStopIndex,
   resolveFastModeControl,
@@ -76,14 +81,45 @@ describe("findEffortDescriptor", () => {
   });
 });
 
+const CLAUDE_EFFORT = {
+  ...EFFORT,
+  options: [
+    ...EFFORT.options,
+    { id: "ultracode", label: "Ultracode" },
+    { id: "ultrathink", label: "Ultrathink" },
+  ],
+  promptInjectedValues: ["ultrathink"],
+} satisfies ProviderOptionDescriptor;
+
+describe("buildEffortStops", () => {
+  it("ends the slider at Max: Ultracode is a switch and Ultrathink is typed", () => {
+    expect(buildEffortStops(CLAUDE_EFFORT).map(({ id }) => id)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(offersUltracode(CLAUDE_EFFORT)).toBe(true);
+    expect(offersUltracode(EFFORT)).toBe(false);
+  });
+});
+
 describe("resolveEffortStopIndex", () => {
+  const stops = buildEffortStops(CLAUDE_EFFORT);
+
   it("locates the current value among the stops", () => {
-    expect(resolveEffortStopIndex(EFFORT, "xhigh")).toBe(3);
+    expect(resolveEffortStopIndex(CLAUDE_EFFORT, stops, "xhigh")).toBe(3);
   });
 
-  it("falls back to the default stop for an unknown or missing value", () => {
-    expect(resolveEffortStopIndex(EFFORT, "brutal")).toBe(1);
-    expect(resolveEffortStopIndex(EFFORT, null)).toBe(1);
+  it("shows Ultracode at Extra High, the level the server runs it at", () => {
+    expect(resolveEffortStopIndex(CLAUDE_EFFORT, stops, "ultracode")).toBe(3);
+  });
+
+  it("falls back to the default stop for an unknown, missing or off-slider value", () => {
+    expect(resolveEffortStopIndex(CLAUDE_EFFORT, stops, "brutal")).toBe(1);
+    expect(resolveEffortStopIndex(CLAUDE_EFFORT, stops, null)).toBe(1);
+    expect(resolveEffortStopIndex(CLAUDE_EFFORT, stops, "ultrathink")).toBe(1);
   });
 
   it("falls back to the first stop when nothing is marked default", () => {
@@ -91,12 +127,45 @@ describe("resolveEffortStopIndex", () => {
       ...EFFORT,
       options: EFFORT.options.map(({ id, label }) => ({ id, label })),
     };
-    expect(resolveEffortStopIndex(noDefault, null)).toBe(0);
+    expect(resolveEffortStopIndex(noDefault, buildEffortStops(noDefault), null)).toBe(0);
   });
 
   it("has no stop without a descriptor", () => {
-    expect(resolveEffortStopIndex(null, "high")).toBe(-1);
+    expect(resolveEffortStopIndex(null, [], "high")).toBe(-1);
     expect(buildEffortStops(null)).toEqual([]);
+  });
+});
+
+describe("slider geometry", () => {
+  it("places stops evenly along the knob's travel", () => {
+    expect([0, 1, 2, 3, 4].map((index) => effortStopFraction(index, 5))).toEqual([
+      0, 0.25, 0.5, 0.75, 1,
+    ]);
+    expect(effortStopFraction(3, 1)).toBe(0);
+  });
+
+  it("maps a pointer to the travel, clamping past the insets", () => {
+    const track = { trackLeft: 100, trackWidth: 334, inset: 17 };
+    expect(effortFractionAtPointer({ ...track, clientX: 117 })).toBe(0);
+    expect(effortFractionAtPointer({ ...track, clientX: 267 })).toBe(0.5);
+    expect(effortFractionAtPointer({ ...track, clientX: 90 })).toBe(0);
+    expect(effortFractionAtPointer({ ...track, clientX: 999 })).toBe(1);
+  });
+
+  it("commits the nearest stop, switching halfway between two", () => {
+    expect(nearestEffortStop(0.12, 5)).toBe(0);
+    expect(nearestEffortStop(0.13, 5)).toBe(1);
+    expect(nearestEffortStop(1, 5)).toBe(4);
+    expect(nearestEffortStop(0.7, 1)).toBe(0);
+  });
+
+  it("moves one stop per arrow and jumps with Home and End", () => {
+    expect(effortStopForKey("ArrowRight", 2, 5)).toBe(3);
+    expect(effortStopForKey("ArrowRight", 4, 5)).toBe(4);
+    expect(effortStopForKey("ArrowLeft", 0, 5)).toBe(0);
+    expect(effortStopForKey("Home", 3, 5)).toBe(0);
+    expect(effortStopForKey("End", 1, 5)).toBe(4);
+    expect(effortStopForKey("a", 1, 5)).toBeNull();
   });
 });
 
@@ -117,8 +186,10 @@ describe("effortTierForIndex", () => {
   });
 
   it("falls back to the highest stop without a Max, and never marks a lone stop", () => {
-    const stops = buildEffortStops(EFFORT);
-    expect(effortTierForIndex(stops.length - 1, stops)).toBe("peak");
+    // Grok's top level is Extra High.
+    const stops = ["low", "medium", "high", "xhigh"].map((id) => ({ id }));
+    expect(effortTierForIndex(3, stops)).toBe("peak");
+    expect(effortTierForIndex(2, stops)).toBe("standard");
     expect(effortTierForIndex(0, stops)).toBe("standard");
     expect(effortTierForIndex(0, [{ id: "max" }])).toBe("standard");
   });

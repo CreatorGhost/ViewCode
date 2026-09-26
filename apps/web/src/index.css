@@ -178,6 +178,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   /* Motion. drawer is the decelerating curve for surfaces that slide or pop in
      (composer context, pills). */
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  /* settle is a light spring with a touch of overshoot, for a control
+     snapping onto its resting place (the effort slider's knob). */
+  --ease-settle: cubic-bezier(0.2, 0.9, 0.25, 1.05);
   /* The composer's elevation: a soft drop pulled in under the surface, shared
      by the composer, its context strip and attached banners. */
   --shadow-composer: 0 12px 28px -18px rgb(0 0 0 / 40%);
@@ -208,22 +211,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      compositor updates discrete frames instead of every vsync. */
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
-  /* The highest reasoning effort a model offers (Max, Ultrathink) in the
-     composer's effort picker: Claude's coral, with a static sparkle scatter. */
-  --color-effort-peak: var(--effort-peak);
-  /* One-shot surge when the effort slider reaches its peak: a bright flash,
-     a spreading coral glow and a jolt of the sparkles, then it rests. */
-  --animate-effort-surge: effort-surge 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) 1 both;
-  --background-image-effort-sparkles:
-    radial-gradient(circle at 12% 30%, rgb(255 255 255 / 70%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 24% 72%, rgb(255 255 255 / 45%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 37% 22%, rgb(255 255 255 / 55%) 0 0.75px, transparent 1.25px),
-    radial-gradient(circle at 48% 64%, rgb(255 255 255 / 70%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 59% 35%, rgb(255 255 255 / 40%) 0 0.75px, transparent 1.25px),
-    radial-gradient(circle at 68% 78%, rgb(255 255 255 / 60%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 79% 26%, rgb(255 255 255 / 65%) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 88% 60%, rgb(255 255 255 / 45%) 0 0.75px, transparent 1.25px),
-    radial-gradient(circle at 6% 58%, rgb(255 255 255 / 35%) 0 0.75px, transparent 1.25px);
+  /* One-shot surge when the effort slider enters Max or fusion: a flash and a
+     glow spreading from the track in the look's colour (--effort-surge). */
+  --animate-effort-surge: effort-surge 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 1 both;
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
@@ -1092,7 +1082,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-700);
   --warning-surface: color-mix(in srgb, var(--warning) 8%, transparent);
-  --effort-peak: #d97757;
   /* Effort ramp below the peak: light sky blue at the lowest stop to deep blue. */
   --effort-low: #7dd3fc;
   --effort-high: #1d4ed8;
@@ -2246,43 +2235,17 @@ code {
   margin: 0;
 }
 
-/* The peak effort fill: static sparkles over a coral gradient, resting on a
-   soft glow. The surge animation runs once when the peak is reached. */
-.bg-effort-peak {
-  background-image:
-    var(--background-image-effort-sparkles),
-    linear-gradient(90deg, #f6b89a, var(--effort-peak) 55%, #c2502c);
-  box-shadow: 0 0 14px 2px color-mix(in srgb, var(--effort-peak) 40%, transparent);
-}
-
 @keyframes effort-surge {
   0% {
-    filter: brightness(1.9) saturate(1.5);
+    background-color: rgb(255 255 255 / 45%);
     box-shadow:
-      0 0 0 0 color-mix(in srgb, var(--effort-peak) 90%, transparent),
-      0 0 22px 6px rgb(255 205 150 / 90%);
-    background-position: 0 0;
-  }
-  18% {
-    filter: brightness(1.2);
-    background-position: 5px -3px;
-  }
-  32% {
-    filter: brightness(1.7) saturate(1.3);
-    background-position: -4px 2px;
-  }
-  55% {
-    filter: brightness(1.15);
-    box-shadow:
-      0 0 0 7px color-mix(in srgb, var(--effort-peak) 25%, transparent),
-      0 0 30px 10px rgb(255 170 110 / 55%);
-    background-position: 2px 1px;
+      0 0 0 0 var(--effort-surge),
+      0 0 18px 4px var(--effort-surge);
   }
   100% {
-    filter: none;
+    background-color: transparent;
     box-shadow:
-      0 0 0 0 transparent,
-      0 0 14px 2px color-mix(in srgb, var(--effort-peak) 40%, transparent);
-    background-position: 0 0;
+      0 0 0 10px transparent,
+      0 0 36px 14px transparent;
   }
 }

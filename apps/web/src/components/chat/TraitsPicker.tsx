@@ -7,7 +7,6 @@ import {
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import {
-  applyClaudePromptEffortPrefix,
   buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentLabel,
   getProviderOptionCurrentValue,
@@ -88,8 +87,6 @@ export type TraitsPersistence =
       threadRef?: undefined;
       onModelOptionsChange: (nextOptions: ProviderOptions | undefined) => void;
     };
-
-const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
 
 function DefaultBadge() {
   return (
@@ -175,9 +172,6 @@ function getSelectedTraits(
     (primarySelectDescriptor?.promptInjectedValues?.length ?? 0) > 0 &&
     isClaudeUltrathinkPrompt(prompt);
 
-  // Check if "ultrathink" appears in the body text (not just our prefix)
-  const ultrathinkInBodyText =
-    ultrathinkPromptControlled && isClaudeUltrathinkPrompt(prompt.replace(/^Ultrathink:\s*/i, ""));
   const effort =
     (ultrathinkPromptControlled
       ? "ultrathink"
@@ -204,7 +198,6 @@ function getSelectedTraits(
     thinkingEnabled,
     contextWindow,
     ultrathinkPromptControlled,
-    ultrathinkInBodyText,
     selectedAgent,
     selectedAgentLabel,
     modelIsUnavailable,
@@ -271,7 +264,6 @@ export interface TraitsMenuContentProps {
   models: ReadonlyArray<ServerProviderModel>;
   model: string | null | undefined;
   prompt: string;
-  onPromptChange: (prompt: string) => void;
   modelOptions?: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
   planModeEnabled: boolean;
@@ -285,7 +277,6 @@ export type TraitsControllerInput = {
   models: ReadonlyArray<ServerProviderModel>;
   model: string | null | undefined;
   prompt: string;
-  onPromptChange: (prompt: string) => void;
   modelOptions?: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
   planModeEnabled: boolean;
@@ -295,7 +286,7 @@ export type TraitsControllerInput = {
 /**
  * The traits state and setters shared by the traits menu and the composer's
  * model/effort popover. Writes go to the draft store (or the caller's
- * `onModelOptionsChange`), and prompt-injected effort edits the prompt.
+ * `onModelOptionsChange`); the prompt is only read, to notice a typed Ultrathink.
  */
 export function useTraitsController({
   provider,
@@ -303,7 +294,6 @@ export function useTraitsController({
   models,
   model,
   prompt,
-  onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
   planModeEnabled,
@@ -337,35 +327,18 @@ export function useTraitsController({
     allowPromptInjectedEffort,
     planModeEnabled,
   });
-  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled, ultrathinkInBodyText } =
-    visibility;
+  const { descriptors } = visibility;
   const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
-  };
-  /** Drop the "Ultrathink:" prefix this picker added, so a descriptor value takes over again. */
-  const clearPromptInjectedEffort = () => {
-    if (ultrathinkPromptControlled && !ultrathinkInBodyText) {
-      onPromptChange(prompt.replace(/^Ultrathink:\s*/i, ""));
-    }
   };
 
   const selectOption = (
     descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
     value: string,
   ) => {
-    if (!value) return;
-    if (descriptor.promptInjectedValues?.includes(value)) {
-      const nextPrompt =
-        prompt.trim().length === 0
-          ? ULTRATHINK_PROMPT_PREFIX
-          : applyClaudePromptEffortPrefix(prompt, "ultrathink");
-      onPromptChange(nextPrompt);
-      return;
-    }
-    if (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) return;
-    if (ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id) {
-      clearPromptInjectedEffort();
-    }
+    // Prompt-injected levels (Ultrathink) are the user's to type; a picker
+    // never writes them into the prompt.
+    if (!value || descriptor.promptInjectedValues?.includes(value)) return;
     updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
   };
   const setBooleanOption = (descriptorId: string, value: boolean) => {
@@ -375,7 +348,6 @@ export function useTraitsController({
   return {
     ...visibility,
     updateDescriptors,
-    clearPromptInjectedEffort,
     selectOption,
     setBooleanOption,
   };
@@ -387,7 +359,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   models,
   model,
   prompt,
-  onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
   planModeEnabled,
@@ -397,9 +368,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     descriptors,
     selectDescriptors,
     booleanDescriptors,
-    primarySelectDescriptor,
-    ultrathinkPromptControlled,
-    ultrathinkInBodyText,
     hasAnyControls,
     modelIsUnavailable,
     selectOption: handleSelectChange,
@@ -410,7 +378,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     models,
     model,
     prompt,
-    onPromptChange,
     modelOptions,
     allowPromptInjectedEffort,
     planModeEnabled,
@@ -446,10 +413,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   return (
     <>
       {selectDescriptors.map((descriptor, index) => {
-        const selectedValue =
-          ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id
-            ? "ultrathink"
-            : (getDescriptorStringValue(descriptor) ?? "");
+        const selectedValue = getDescriptorStringValue(descriptor) ?? "";
+        // Prompt-injected levels (Ultrathink) are typed, not picked.
+        const options = descriptor.options.filter(
+          (option) => !descriptor.promptInjectedValues?.includes(option.id),
+        );
 
         return (
           <div key={descriptor.id}>
@@ -458,17 +426,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
               <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
                 {descriptor.label}
               </div>
-              {ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id ? (
-                <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
-                  Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change this
-                  option.
-                </div>
-              ) : null}
               <MenuRadioGroup
                 value={selectedValue}
                 onValueChange={(value) => handleSelectChange(descriptor, value)}
               >
-                {descriptor.options.map((option) => (
+                {options.map((option) => (
                   <MenuRadioItem
                     key={option.id}
                     value={option.id}
@@ -476,7 +438,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                     // Base UI keeps radio menus open by default. Close on pick so
                     // the traits menu behaves like the model picker.
                     closeOnClick
-                    disabled={ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id}
                   >
                     <span className="flex w-full min-w-0 flex-col">
                       <span className="flex w-full min-w-0 items-center justify-between gap-3">
@@ -599,7 +560,6 @@ export const TraitsPicker = memo(function TraitsPicker({
   models,
   model,
   prompt,
-  onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
   planModeEnabled,
@@ -739,7 +699,6 @@ export const TraitsPicker = memo(function TraitsPicker({
           models={models}
           model={model}
           prompt={prompt}
-          onPromptChange={onPromptChange}
           modelOptions={modelOptions}
           allowPromptInjectedEffort={allowPromptInjectedEffort}
           planModeEnabled={planModeEnabled}

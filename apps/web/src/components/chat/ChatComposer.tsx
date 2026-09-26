@@ -2635,28 +2635,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Provider traits UI
   // ------------------------------------------------------------------
-  const setPromptFromTraits = useCallback(
-    (nextPrompt: string) => {
-      if (nextPrompt === promptRef.current) {
-        scheduleComposerFocus();
-        return;
-      }
-      promptRef.current = nextPrompt;
-      setComposerDraftPrompt(composerDraftTarget, nextPrompt);
-      const nextCursor = collapseExpandedComposerCursor(nextPrompt, nextPrompt.length);
-      setComposerCursor(nextCursor);
-      setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
-      scheduleComposerFocus();
-    },
-    [
-      composerDraftTarget,
-      promptRef,
-      scheduleComposerFocus,
-      setComposerDraftPrompt,
-      setComposerTrigger,
-    ],
-  );
-
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
@@ -2666,7 +2644,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
-    onPromptChange: setPromptFromTraits,
     planModeEnabled: settings.planModeEnabled,
   });
   const providerTraitsPickerInput = {
@@ -2678,7 +2655,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
-    onPromptChange: setPromptFromTraits,
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
@@ -5053,7 +5029,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         models: selectedProviderModels,
         modelOptions: composerModelOptions?.[selectedInstanceId],
         prompt,
-        onPromptChange: setPromptFromTraits,
         planModeEnabled: settings.planModeEnabled,
       }}
       {...(modelEffortPickerIconClassName
