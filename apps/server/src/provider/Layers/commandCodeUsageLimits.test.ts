@@ -67,7 +67,7 @@ describe("commandCodeUsageToLimits", () => {
 });
 
 const SECRET_KEY = "cc-secret-key-123";
-const logText = Schema.encodeSync(Schema.UnknownFromJsonString);
+const logText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const captureLogs = () => {
   const entries: Array<ReadonlyArray<unknown>> = [];
