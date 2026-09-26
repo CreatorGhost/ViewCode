@@ -24,7 +24,7 @@ of the selected theme.
 ## Window transparency
 
 On macOS and Windows 11, the desktop app lets your desktop show through the sidebar and the
-window around the chat when you use a ViewCode theme. Turn it off with **Window transparency** in
+window around the chat, tinted by your theme. Turn it off with **Window transparency** in
 **Settings → Appearance**; the change applies immediately. When **Reduce transparency** is on in
 your system settings, the window stays solid. The browser and other systems always use a solid
 background.

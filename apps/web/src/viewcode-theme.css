@@ -369,49 +369,57 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
  * text stays legible. No backdrop-filter on these large areas.
  * ------------------------------------------------------------------------- */
 
-html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+/* Glass works with every theme: the tint comes from the active theme's own
+   surface, so an upstream theme becomes a tinted glass window too. Values follow
+   Droppy's WindowBackdrop (scrim 0.26 dark / 0.18 light, tint 12 %); the chat
+   sheet adds only a little density so the wallpaper still reads through it.
+   `!important` on the few fills below because upstream themes paint these
+   surfaces with selectors of equal weight, and glass is an explicit choice. */
+html[data-window-glass="true"] {
+  --vc-glass-surface: var(--app-theme-surface, var(--background));
+  --vc-glass-edge: var(--vc-hairline, color-mix(in srgb, var(--foreground) 12%, transparent));
   --vc-glass-scrim: rgb(255 255 255 / 0.18);
-  --vc-glass-tint: color-mix(in srgb, var(--app-theme-surface) 12%, transparent);
-  --vc-glass-sheet: rgb(255 255 255 / 0.5);
-  --vc-glass-sheet-tint: color-mix(in srgb, var(--app-theme-surface) 16%, transparent);
+  --vc-glass-tint: color-mix(in srgb, var(--vc-glass-surface) 12%, transparent);
+  --vc-glass-sheet: rgb(255 255 255 / 0.28);
+  --vc-glass-sheet-tint: color-mix(in srgb, var(--vc-glass-surface) 14%, transparent);
   /* Beats the inline colour useTheme and the boot script put on <html>. */
   background-color: transparent !important;
 }
 
-html.dark[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+html.dark[data-window-glass="true"] {
   --vc-glass-scrim: rgb(0 0 0 / 0.26);
-  --vc-glass-sheet: rgb(0 0 0 / 0.3);
-  --vc-glass-sheet-tint: color-mix(in srgb, var(--app-theme-surface) 22%, transparent);
+  --vc-glass-sheet: rgb(0 0 0 / 0.16);
+  --vc-glass-sheet-tint: color-mix(in srgb, var(--vc-glass-surface) 18%, transparent);
 }
 
 /* Window layers: scrim, then the theme tint. */
-html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""]) body {
-  background: linear-gradient(var(--vc-glass-tint), var(--vc-glass-tint)), var(--vc-glass-scrim);
+html[data-window-glass="true"] body {
+  background:
+    linear-gradient(var(--vc-glass-tint), var(--vc-glass-tint)), var(--vc-glass-scrim) !important;
 }
 
 @media (min-width: 768px) {
   /* The sidebar sits straight on the window glass. */
-  html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""])
+  html[data-window-glass="true"]
     :is([data-slot="sidebar-wrapper"], [data-slot="sidebar-inner"], [data-slot="sidebar"]) {
-    background-color: transparent;
+    background-color: transparent !important;
   }
 
-  /* The content sheet is denser than the window so the transcript reads
-     easily, with a hairline edge instead of a fill change alone. */
-  html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""])
-    [data-slot="sidebar-inset"] {
+  /* The content sheet is a little denser than the window, with a hairline
+     edge, so the transcript reads easily while the wallpaper shows through. */
+  html[data-window-glass="true"] [data-slot="sidebar-inset"] {
     background:
-      linear-gradient(var(--vc-glass-sheet-tint), var(--vc-glass-sheet-tint)), var(--vc-glass-sheet);
-    box-shadow: inset 0 0 0 1px var(--vc-hairline);
+      linear-gradient(var(--vc-glass-sheet-tint), var(--vc-glass-sheet-tint)), var(--vc-glass-sheet) !important;
+    box-shadow: inset 0 0 0 1px var(--vc-glass-edge);
   }
 
   /* Pane fills inside the sheet (chat, new-thread, settings and pull-request
      pages, the chat header) let the sheet show through. Cards, code, the
      terminal and floating glass keep their own fills. */
-  html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""])
+  html[data-window-glass="true"]
     [data-slot="sidebar-inset"]
     :is(.flex-1.bg-background, [data-chat-header].bg-background, [data-timeline-loading]) {
-    background-color: transparent;
+    background-color: transparent !important;
   }
 }
 

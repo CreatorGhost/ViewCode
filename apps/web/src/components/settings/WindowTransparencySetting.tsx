@@ -56,7 +56,7 @@ export function WindowTransparencySetting() {
     ? "Needs macOS or Windows 11. This system keeps a solid window."
     : state.enabled && !state.active
       ? "Paused because Reduce transparency is on in your system settings."
-      : "Let the desktop show through the sidebar and window behind the chat. Applies to the ViewCode themes.";
+      : "Let the desktop show through the window, tinted by your theme.";
 
   return (
     <SettingsRow
