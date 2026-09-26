@@ -1,4 +1,5 @@
 import type { DesktopBridge } from "@t3tools/contracts";
+import { VIEWCODE_THEME_ID } from "@t3tools/shared/themePalettes";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
@@ -37,13 +38,14 @@ type DesktopThemeBridge = Pick<DesktopBridge, "setTheme">;
 
 const STORAGE_KEY = "t3code:theme";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
-// ViewCode opens in its own dark glass theme until the user picks another.
+// ViewCode opens in its own theme, following the system appearance, until the
+// user picks another.
 const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
-  theme: "viewcode",
+  theme: VIEWCODE_THEME_ID,
   resolvedTheme: "dark",
   systemDark: false,
-  followSystem: false,
-  appearanceMode: "dark",
+  followSystem: true,
+  appearanceMode: "system",
   themeHalves: null,
 };
 
@@ -182,6 +184,9 @@ export function readAppearanceModePreference(theme: Theme): ThemePreferenceMode 
   }
 
   if (readStoredFollowSystem(theme)) return "system";
+  // ViewCode's own theme defines both halves and follows the system until the
+  // user picks a mode.
+  if (theme === VIEWCODE_THEME_ID) return "system";
   return getThemePreferenceMode(theme) ?? "light";
 }
 

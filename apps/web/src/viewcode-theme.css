@@ -1,0 +1,264 @@
+/*
+ * ViewCode look, after Droppy Code (docs/design/droppy-look.md).
+ *
+ * Imported once from main.tsx right after index.css, so it loads last. Every
+ * rule is scoped to the ViewCode themes: the default ("viewcode") and the
+ * ported named themes ("viewcode-*", packages/shared/src/viewcodeThemes.ts).
+ * Upstream themes and the stock look render unchanged.
+ *
+ * Specificity: index.css maps palette roles in
+ * `html[data-theme-id]:not([data-theme-id=""])`, which is (0,2,1). The scope
+ * below has the same shape and wins by loading later; `html.dark…` adds one
+ * class for the dark half. Palette colours live in themePalettes.ts; this
+ * file holds only var()/color-mix() derivations and the few values the spec
+ * gives as fixed (success, sidebar icon, shadows).
+ *
+ * L(a) in the spec is `color-mix(in srgb, var(--vc-label) a%, transparent)`:
+ * the label colour at a fixed opacity. Hover, selection and hairlines use it.
+ */
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+  --vc-label: rgb(0 0 0 / 0.85);
+  --vc-window: var(--app-theme-chrome);
+  --vc-sheet: var(--app-theme-canvas);
+  --vc-sheet-inset: 10px;
+  --vc-sheet-radius: 16px;
+  --vc-row-radius: 7px;
+  --vc-card-radius: 16px;
+  --vc-hairline: color-mix(in srgb, var(--vc-label) 10%, transparent);
+  --vc-hover: color-mix(in srgb, var(--vc-label) 10%, transparent);
+
+  /* Rows and menus: radius 7, 8px side padding (spec rows 9, 31). */
+  --control-radius: var(--vc-row-radius);
+  --sidebar-row-content-inset: 8px;
+  --sidebar-icon-color: #3a3a3a;
+
+  /* Glass: blur 20 (light) / 24 (dark), 72 %, saturation 1.6 (row 5). */
+  --glass-blur: 20px;
+  --glass-opacity: 72%;
+  --glass-saturation: 1.6;
+
+  /* No texture (row 8). */
+  --surface-grain: none;
+
+  /* Status and links (row 19): success is calm green, info is the accent so
+     links read as brand, not as system blue. */
+  --success: #2e8b57;
+  --success-foreground: #2e8b57;
+  --info: var(--app-theme-accent);
+  --info-foreground: var(--app-theme-accent);
+
+  /* The plain effort track is one solid accent (Droppy TrackLook.plain, row 17).
+     Max / fast / fusion looks keep their own colours in effortTrack.ts. */
+  --effort-low: var(--app-theme-accent);
+  --effort-high: var(--app-theme-accent);
+}
+
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+  --vc-label: rgb(255 255 255 / 0.85);
+  --sidebar-icon-color: #c8c8c9;
+  --glass-blur: 24px;
+  --success: #5bb98b;
+  --success-foreground: #5bb98b;
+}
+
+/* Diff foregrounds follow success and danger, unless the user chose the
+   blue/orange diff scheme. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]):not(
+    [data-diff-color-scheme="blue-orange"]
+  ) {
+  --diff-addition-foreground: var(--success);
+  --diff-deletion-foreground: var(--error-foreground);
+}
+
+/* ---------------------------------------------------------------------------
+ * Two planes (row 6): the sidebar sits on the window colour with no border;
+ * the content sits on an inset rounded sheet. Desktop widths only; on phones
+ * the sidebar is a sheet of its own and the content fills the screen.
+ * ------------------------------------------------------------------------- */
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-app-sidebar] {
+  border-color: transparent;
+}
+
+@media (min-width: 768px) {
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="sidebar-wrapper"] {
+    background-color: var(--vc-window);
+  }
+
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="sidebar-inset"] {
+    height: calc(100dvh - 2 * var(--vc-sheet-inset));
+    margin: var(--vc-sheet-inset) var(--vc-sheet-inset) var(--vc-sheet-inset) 0;
+    overflow: hidden;
+    border-radius: var(--vc-sheet-radius);
+    background-color: var(--vc-sheet);
+    box-shadow: none;
+  }
+
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+    [data-slot="sidebar"][data-state="collapsed"]
+    ~ [data-slot="sidebar-inset"] {
+    margin-left: var(--vc-sheet-inset);
+  }
+}
+
+/* Settings navigation rows: 28 tall, 13px, like the thread rows (row 9). */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="sidebar-menu-button"][data-size="default"] {
+  height: 28px;
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Composer (rows 14–16): one glass pill, radius 22, hairline, no coloured
+ * glow; at most a tiny neutral drop in light.
+ * ------------------------------------------------------------------------- */
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: var(--vc-sheet);
+  --chat-composer-outline: var(--vc-hairline);
+  --chat-composer-highlight: transparent;
+}
+
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
+  --chat-composer-highlight: rgb(255 255 255 / 0.1);
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"]::before,
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"],
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-chat-composer-main-surface] {
+  border-radius: 22px;
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"] {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"],
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-context-strip"]::before {
+  box-shadow: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * Transcript (rows 13, 29): the user bubble is radius 18 with 9/14 padding;
+ * code blocks are filled, borderless, radius 12; inline code is plain mono.
+ * ------------------------------------------------------------------------- */
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-user-bubble] {
+  border-radius: 18px;
+  padding: 9px 14px;
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) .chat-markdown .chat-markdown-codeblock,
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) .chat-markdown pre {
+  border-color: transparent;
+  border-radius: 12px;
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) .chat-markdown :not(pre) > code {
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) .chat-markdown li::marker {
+  color: color-mix(in srgb, var(--app-theme-accent) 90%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+ * Menus (row 31): radius 12, 6px padding, 26px rows at radius 6, hover L(.10),
+ * 11/600 section headers, a small neutral shadow.
+ * ------------------------------------------------------------------------- */
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="menu-popup"] {
+  border-radius: 12px;
+  border-color: var(--vc-hairline);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="menu-popup"] {
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="menu-popup"] > div {
+  padding: 6px;
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  :is(
+    [data-slot="menu-item"],
+    [data-slot="menu-checkbox-item"],
+    [data-slot="menu-radio-item"],
+    [data-slot="menu-sub-trigger"]
+  ) {
+  border-radius: 6px;
+}
+
+@media (min-width: 640px) {
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+    :is(
+      [data-slot="menu-item"],
+      [data-slot="menu-checkbox-item"],
+      [data-slot="menu-radio-item"],
+      [data-slot="menu-sub-trigger"]
+    ) {
+    min-height: 26px;
+  }
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  :is(
+    [data-slot="menu-item"],
+    [data-slot="menu-checkbox-item"],
+    [data-slot="menu-radio-item"],
+    [data-slot="menu-sub-trigger"]
+  ):is([data-highlighted], [data-popup-open]) {
+  background-color: var(--vc-hover);
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="menu-label"] {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+ * Settings (row 32): borderless cards filled L(.03), radius 16; section titles
+ * 13/600 secondary.
+ * ------------------------------------------------------------------------- */
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="settings-group"][data-variant="grouped"] {
+  border-color: transparent;
+  border-radius: var(--vc-card-radius);
+  background-color: color-mix(in srgb, var(--vc-label) 3%, transparent);
+  box-shadow: none;
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="settings-group"][data-variant="grouped"]
+  > *
+  + * {
+  border-color: var(--vc-hairline);
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="settings-section-title"] {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--secondary-label);
+}
+
+/* Switches take the accent when on (spec §1.4); other solid controls keep the
+   neutral action colour. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="switch"][data-checked] {
+  background-color: var(--app-theme-accent);
+}
+
+/* ---------------------------------------------------------------------------
+ * Standalone pages (row 22): no coloured radial glow.
+ * ------------------------------------------------------------------------- */
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="standalone-glow"] {
+  display: none;
+}

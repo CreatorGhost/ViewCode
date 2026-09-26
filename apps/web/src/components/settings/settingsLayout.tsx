@@ -202,7 +202,10 @@ export function SettingsSection({
           className="flex min-h-7 items-start justify-between gap-4 px-3 sm:px-4"
         >
           <div className="min-w-0">
-            <h2 className="flex min-h-7 items-center gap-2 text-sm font-normal text-foreground/70">
+            <h2
+              data-slot="settings-section-title"
+              className="flex min-h-7 items-center gap-2 text-sm font-normal text-foreground/70"
+            >
               {icon}
               {title}
             </h2>

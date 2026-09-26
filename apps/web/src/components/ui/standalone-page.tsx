@@ -21,7 +21,11 @@ export function StandalonePage({
 }) {
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
-      <div className="pointer-events-none absolute inset-0 opacity-80" aria-hidden>
+      <div
+        className="pointer-events-none absolute inset-0 opacity-80"
+        aria-hidden
+        data-slot="standalone-glow"
+      >
         <div className={backdropClassNames[tone]} />
         {tone === "pairing" ? (
           <div className="absolute inset-y-0 left-0 w-72 bg-[radial-gradient(28rem_18rem_at_left,color-mix(in_srgb,var(--color-sky-500)_10%,transparent),transparent)]" />
