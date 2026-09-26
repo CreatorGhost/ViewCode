@@ -29,18 +29,64 @@ done
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
+node_ok() {
+  command -v node >/dev/null &&
+    node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>24||(a===24&&b>=13)?0:1)'
+}
+
+# Downloads Node 24 into ~/.viewcode/node for ViewCode only; the system Node is untouched.
+install_private_node() {
+  local os arch ext dir base file sums
+  case "$(uname -s)" in
+    Darwin) os=darwin ext=tar.gz ;;
+    Linux) os=linux ext=tar.xz ;;
+    *) echo "Install Node.js 24.13+ from https://nodejs.org and run again." >&2; exit 1 ;;
+  esac
+  case "$(uname -m)" in
+    arm64 | aarch64) arch=arm64 ;;
+    x86_64 | amd64) arch=x64 ;;
+    *) echo "Unsupported CPU $(uname -m); install Node.js 24.13+ yourself." >&2; exit 1 ;;
+  esac
+  base=https://nodejs.org/dist/latest-v24.x
+  sums=$(curl -fsSL "$base/SHASUMS256.txt")
+  file=$(printf '%s\n' "$sums" | awk -v s="-$os-$arch.$ext" 'index($2, s) { print $2; exit }')
+  [ -n "$file" ] || { echo "Could not find a Node 24 download for $os-$arch." >&2; exit 1; }
+  dir="$HOME/.viewcode/node/${file%.$ext}"
+  if [ ! -x "$dir/bin/node" ]; then
+    echo "Downloading $file (used only by ViewCode, into ~/.viewcode/node)"
+    mkdir -p "$HOME/.viewcode/node"
+    local tmp
+    tmp=$(mktemp -d)
+    curl -fL --progress-bar "$base/$file" -o "$tmp/$file"
+    local want got
+    want=$(printf '%s\n' "$sums" | awk -v f="$file" '$2 == f { print $1 }')
+    if command -v shasum >/dev/null; then got=$(shasum -a 256 "$tmp/$file" | awk '{print $1}');
+    else got=$(sha256sum "$tmp/$file" | awk '{print $1}'); fi
+    [ "$want" = "$got" ] || { echo "Checksum mismatch for $file; aborting." >&2; rm -rf "$tmp"; exit 1; }
+    tar -xf "$tmp/$file" -C "$HOME/.viewcode/node"
+    rm -rf "$tmp"
+  fi
+  export PATH="$dir/bin:$PATH"
+}
+
 step "Checking tools"
 command -v git >/dev/null || { echo "git is not installed." >&2; exit 1; }
-command -v node >/dev/null || { echo "Node.js 24.13+ is required: https://nodejs.org" >&2; exit 1; }
-node_major=$(node -p 'process.versions.node.split(".")[0]')
-if [ "$node_major" -lt 24 ]; then
-  echo "Node.js $(node -v) found; ViewCode needs 24.13 or newer." >&2
-  exit 1
+if ! node_ok; then
+  latest=$(ls -d "$HOME"/.viewcode/node/node-v24.*/bin 2>/dev/null | tail -1 || true)
+  [ -n "$latest" ] && export PATH="$latest:$PATH"
+  if ! node_ok; then
+    echo "Node.js $(node -v 2>/dev/null || echo 'not found') is too old; ViewCode needs 24.13 or newer."
+    install_private_node
+  fi
 fi
-if ! command -v pnpm >/dev/null; then
-  echo "Enabling pnpm through corepack"
-  corepack enable
-fi
+echo "Using Node.js $(node -v)"
+# pnpm comes from corepack in a private folder, so nothing global is changed.
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+shims="$HOME/.viewcode/bin"
+mkdir -p "$shims"
+corepack enable --install-directory "$shims" pnpm
+export PATH="$shims:$PATH"
+echo "Using pnpm $(pnpm -v)"
 
 if [ "$pull" = 1 ]; then
   branch=$(git rev-parse --abbrev-ref HEAD)
@@ -55,7 +101,7 @@ fi
 echo "At $(git log -1 --format='%h %s')"
 
 step "Installing dependencies"
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --config.confirmModulesPurge=false
 
 if [ "$mode" = web ]; then
   step "Starting server + web UI (Ctrl+C to stop)"
