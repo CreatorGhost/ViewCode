@@ -354,6 +354,61 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 }
 
 /* ---------------------------------------------------------------------------
+ * Window glass (spec §3.2). Desktop only: the preload sets
+ * `html[data-window-glass="true"]` while macOS vibrancy or Windows 11 Mica is
+ * drawn behind the page (apps/desktop/src/window/WindowGlass.ts), and clears
+ * it when the user turns it off or the OS asks to reduce transparency. The OS
+ * does the blur; the page only drops its opaque fills and lays rgba scrims so
+ * text stays legible. No backdrop-filter on these large areas.
+ * ------------------------------------------------------------------------- */
+
+html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+  --vc-glass-scrim: rgb(255 255 255 / 0.18);
+  --vc-glass-tint: color-mix(in srgb, var(--app-theme-surface) 12%, transparent);
+  --vc-glass-sheet: rgb(255 255 255 / 0.5);
+  --vc-glass-sheet-tint: color-mix(in srgb, var(--app-theme-surface) 16%, transparent);
+  /* Beats the inline colour useTheme and the boot script put on <html>. */
+  background-color: transparent !important;
+}
+
+html.dark[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+  --vc-glass-scrim: rgb(0 0 0 / 0.26);
+  --vc-glass-sheet: rgb(0 0 0 / 0.3);
+  --vc-glass-sheet-tint: color-mix(in srgb, var(--app-theme-surface) 22%, transparent);
+}
+
+/* Window layers: scrim, then the theme tint. */
+html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""]) body {
+  background: linear-gradient(var(--vc-glass-tint), var(--vc-glass-tint)), var(--vc-glass-scrim);
+}
+
+@media (min-width: 768px) {
+  /* The sidebar sits straight on the window glass. */
+  html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""])
+    :is([data-slot="sidebar-wrapper"], [data-slot="sidebar-inner"], [data-slot="sidebar"]) {
+    background-color: transparent;
+  }
+
+  /* The content sheet is denser than the window so the transcript reads
+     easily, with a hairline edge instead of a fill change alone. */
+  html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""])
+    [data-slot="sidebar-inset"] {
+    background:
+      linear-gradient(var(--vc-glass-sheet-tint), var(--vc-glass-sheet-tint)), var(--vc-glass-sheet);
+    box-shadow: inset 0 0 0 1px var(--vc-hairline);
+  }
+
+  /* Pane fills inside the sheet (chat, new-thread, settings and pull-request
+     pages, the chat header) let the sheet show through. Cards, code, the
+     terminal and floating glass keep their own fills. */
+  html[data-window-glass="true"][data-theme-id^="viewcode"]:not([data-theme-id=""])
+    [data-slot="sidebar-inset"]
+    :is(.flex-1.bg-background, [data-chat-header].bg-background, [data-timeline-loading]) {
+    background-color: transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * Effort title roll (Droppy's `.contentTransition(.numericText())`): letters
  * leave and enter vertically with a blur, staggered per letter. `--roll` is
  * 1 when effort goes up, -1 when it goes down. Used by `EffortTitle`.

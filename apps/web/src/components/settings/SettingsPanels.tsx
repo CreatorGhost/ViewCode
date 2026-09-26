@@ -171,6 +171,7 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
+import { WindowTransparencySetting } from "./WindowTransparencySetting";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -1291,6 +1292,8 @@ export function AppearanceSettingsPanel() {
             </div>
           }
         />
+
+        <WindowTransparencySetting />
 
         {showEnvironmentIdentification ? (
           <SettingsRow

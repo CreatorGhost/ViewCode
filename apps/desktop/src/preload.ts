@@ -10,6 +10,7 @@ import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
+import { exposeWindowGlass } from "./window/windowGlassPreload.ts";
 
 const SNAP_SHOT_EVENT_TYPES = new Set([
   "requested",
@@ -29,6 +30,7 @@ function isSnapShotEvent(value: unknown): value is DesktopSnapShotEvent {
 }
 
 exposeClerkBridge({ passkeys: true });
+exposeWindowGlass();
 
 // oxlint-disable-next-line t3code/no-global-process-runtime -- Electron exposes the client platform in its sandboxed preload process.
 const clientPlatform = process.platform;

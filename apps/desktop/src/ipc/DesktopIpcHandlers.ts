@@ -53,6 +53,7 @@ import {
   setTheme,
   showContextMenu,
 } from "./methods/window.ts";
+import { getWindowGlassState, setWindowGlassEnabled } from "./methods/windowGlass.ts";
 import {
   acknowledgeSnapShot,
   checkSnapShotShortcut,
@@ -82,6 +83,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handleSync(getAppBranding);
   yield* ipc.handleSync(getSystemLocale);
   yield* ipc.handleSync(getWindowFullscreenState);
+  yield* ipc.handleSync(getWindowGlassState);
+  yield* ipc.handle(setWindowGlassEnabled);
   yield* ipc.handleSync(getLocalEnvironmentBootstraps);
   yield* ipc.handleSync(getLocalEnvironmentEnabled);
   yield* ipc.handle(setLocalEnvironmentEnabled);

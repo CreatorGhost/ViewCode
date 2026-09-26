@@ -206,6 +206,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["transparent transparency solid menus dialogs composer"],
   },
   {
+    id: "window-transparency",
+    title: "Window transparency",
+    to: "/settings/appearance",
+    searchTerms: ["see-through translucent vibrancy mica blur desktop background"],
+    desktopOnly: true,
+  },
+  {
     id: "diff-color-scheme",
     title: "Diff colors",
     to: "/settings/appearance",

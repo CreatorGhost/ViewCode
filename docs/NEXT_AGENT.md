@@ -125,9 +125,11 @@ Status: palettes, `viewcode-theme.css` and the one-line class swaps are in;
 the picker lists ViewCode, upstream's themes and 18 ported Droppy themes
 (`viewcode-*` ids). Screenshots and `docs/evidence/` are still to do. Open:
 
-- macOS vibrancy / Windows Mica (§3.2). Needs a desktop helper, a bridge flag
-  (`html[data-vc-translucent]`), transparent `html, body` and the rgba scrim
-  layers in `viewcode-theme.css`; only the initial window colour changed.
+- macOS vibrancy / Windows Mica (§3.2) is wired (`window/WindowGlass.ts`,
+  `html[data-window-glass]`, Settings → Appearance → Window transparency) but
+  has only been built on Linux, where it is inert. Check on a real Mac and a
+  Windows 11 machine: the see-through sidebar/window, the sheet's legibility,
+  toggling live, Reduce transparency, and the window after a theme switch.
 - Per-theme success colour for ported themes (success is not a palette role;
   they use the ViewCode green).
 - The boot splash (`apps/web/index.html`) doesn't know `viewcode*` ids, so it
