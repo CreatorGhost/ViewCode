@@ -13,7 +13,20 @@ import {
   makeUsageLimits,
 } from "../providerUsageLimits.ts";
 
+/** What the usage popover shows for Command Code: where to see credits. */
+export function commandCodeUsagePointer(checkedAt: string) {
+  return makeUnavailableUsageLimits({
+    checkedAt,
+    reason: "unsupported",
+    message:
+      "Command Code shows credits in /usage and at commandcode.ai/usage. To show them here, turn on Settings → Providers → Command Code → Show credits in the usage popover.",
+  });
+}
+
 /**
+ * Opt-in only (the provider's `readAccountCredits` setting): Command Code asks
+ * tools not to read its stored key or billing API.
+ *
  * Command Code's own `/usage` screen reads these endpoints with the key the
  * CLI stores in ~/.commandcode/auth.json (or COMMAND_CODE_API_KEY). The plan
  * table and the used-percentage formula mirror the CLI's, so the bar matches
@@ -130,7 +143,16 @@ export const readCommandCodeUsageLimits = Effect.fn("readCommandCodeUsageLimits"
     }
     if (!apiKey) return makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
     const cached = usageCache.get(apiKey);
-    if (cached && nowMs - cached.at < USAGE_CACHE_MS) return cached.limits;
+    if (cached && nowMs - cached.at < USAGE_CACHE_MS) {
+      yield* Effect.logDebug("Command Code credits: reused cached reading", {
+        ageSeconds: Math.round((nowMs - cached.at) / 1000),
+      });
+      return cached.limits;
+    }
+    const keySource = environment.COMMAND_CODE_API_KEY?.trim()
+      ? "COMMAND_CODE_API_KEY"
+      : "~/.commandcode/auth.json";
+    const calls: Array<{ readonly route: string; readonly status: number | "error" }> = [];
 
     const client = yield* HttpClient.HttpClient;
     const get = <S extends Schema.Top>(
@@ -150,8 +172,17 @@ export const readCommandCodeUsageLimits = Effect.fn("readCommandCodeUsageLimits"
           ),
         )
         .pipe(
+          Effect.tap((response) =>
+            Effect.sync(() => calls.push({ route, status: response.status })),
+          ),
           Effect.flatMap(HttpClientResponse.filterStatusOk),
           Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              if (!calls.some((call) => call.route === route))
+                calls.push({ route, status: "error" });
+            }),
+          ),
           Effect.orElseSucceed(() => null),
         );
     };
@@ -170,6 +201,14 @@ export const readCommandCodeUsageLimits = Effect.fn("readCommandCodeUsageLimits"
     });
     const limits = commandCodeUsageToLimits({ credits, subscription, summary }, checkedAt);
     if (!limits.unavailable) usageCache.set(apiKey, { at: nowMs, limits });
+    // Never logs the key or account details: only where the key came from,
+    // which endpoints were called and how they answered.
+    yield* Effect.logInfo("Command Code credits: read billing API (opt-in)", {
+      keySource,
+      host: COMMAND_CODE_API,
+      calls,
+      result: limits.unavailable ? `unavailable (${limits.unavailable.reason})` : "ok",
+    });
     return limits;
   }).pipe(
     Effect.timeout("10 seconds"),

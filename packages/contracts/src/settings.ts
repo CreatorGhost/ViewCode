@@ -899,9 +899,20 @@ export const CommandCodeSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
+    // Command Code documents usage only through /usage and commandcode.ai, so
+    // reading its stored login is an explicit, local opt-in.
+    readAccountCredits: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({
+        title: "Show credits in the usage popover",
+        description:
+          "Reads the key Command Code stores in ~/.commandcode/auth.json and asks its billing API for credits left, at most every 5 minutes. Unofficial and read-only; the key never leaves this machine except to api.commandcode.ai.",
+        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit" },
+      }),
+    ),
   },
   {
-    order: ["binaryPath"],
+    order: ["binaryPath", "readAccountCredits"],
   },
 );
 export type CommandCodeSettings = typeof CommandCodeSettings.Type;

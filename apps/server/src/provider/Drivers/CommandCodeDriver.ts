@@ -1,5 +1,6 @@
 import { CommandCodeSettings, ProviderDriverKind } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -13,7 +14,10 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { makeCommandCodeTextGeneration } from "../../textGeneration/CommandCodeTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeCommandCodeAdapter } from "../Layers/CommandCodeAdapter.ts";
-import { readCommandCodeUsageLimits } from "../Layers/commandCodeUsageLimits.ts";
+import {
+  commandCodeUsagePointer,
+  readCommandCodeUsageLimits,
+} from "../Layers/commandCodeUsageLimits.ts";
 import {
   buildInitialCommandCodeSnapshot,
   checkCommandCodeProviderStatus,
@@ -109,13 +113,18 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
       const textGeneration = yield* makeCommandCodeTextGeneration(effectiveConfig, processEnv);
 
       const checkProvider = checkCommandCodeProviderStatus(effectiveConfig, processEnv).pipe(
-        // Credits left this billing period, for the composer's usage popover.
+        // Command Code documents usage only through its /usage overlay and
+        // commandcode.ai/usage, so its credits are read only when the user
+        // opts in; otherwise the popover points there.
         Effect.filterOrElse(
           (snapshot) => !(effectiveConfig.enabled && snapshot.installed),
           (snapshot) =>
-            readCommandCodeUsageLimits(processEnv).pipe(
-              Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),
-            ),
+            (effectiveConfig.readAccountCredits
+              ? readCommandCodeUsageLimits(processEnv)
+              : DateTime.now.pipe(
+                  Effect.map((now) => commandCodeUsagePointer(DateTime.formatIso(now))),
+                )
+            ).pipe(Effect.map((usageLimits) => ({ ...snapshot, usageLimits }))),
         ),
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
