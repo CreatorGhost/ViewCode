@@ -310,8 +310,9 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
         padding="none"
         variant="floating"
       >
-        {/* A fixed width, so neither view nor any label change resizes the popover. */}
-        <div className="w-82.5 max-w-[calc(100vw-2rem)]">
+        {/* Fixed widths per view, so no label change resizes the popover. The model
+            view is wider to fit the provider rail beside the list. */}
+        <div className={cn("max-w-[calc(100vw-2rem)]", view === "model" ? "w-120" : "w-82.5")}>
           {view === "model" ? (
             <div className="flex flex-col">
               <div className="flex items-center gap-1 px-2 pt-2">
@@ -326,7 +327,8 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                 <span className="font-semibold text-sm">Select model</span>
               </div>
               <ModelPickerContent
-                layout="flat"
+                layout="sidebar"
+                fillContainer
                 activeInstanceId={props.activeInstanceId}
                 model={props.model}
                 lockedProvider={props.lockedProvider}

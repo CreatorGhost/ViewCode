@@ -194,6 +194,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
    * frame to its host popover.
    */
   layout?: "sidebar" | "flat";
+  /** Fill the parent's width and grow taller (ViewCode's composer popover). */
+  fillContainer?: boolean;
 }) {
   const isFlat = props.layout === "flat";
   const {
@@ -865,7 +867,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       <div
         className={cn(
           "relative flex h-screen flex-row overflow-hidden",
-          isFlat ? "max-h-80 w-full" : "max-h-86.5 w-screen max-w-90",
+          props.fillContainer
+            ? "max-h-[min(32rem,65vh)] w-full"
+            : isFlat
+              ? "max-h-80 w-full"
+              : "max-h-86.5 w-screen max-w-90",
         )}
         data-model-picker-content="true"
       >
