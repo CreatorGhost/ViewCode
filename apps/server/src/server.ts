@@ -37,6 +37,7 @@ import {
 import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
 import { prepareListenPath, restrictListenPathPermissions } from "./socketListener.ts";
 import { fixPath } from "./os-jank.ts";
+import { installSpawnTrace } from "./diagnostics/spawnTrace.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
@@ -638,6 +639,8 @@ const makeServerLayer = Layer.unwrap(
     const routesReady = yield* Deferred.make<void>();
     const launcherLayer = ServiceLauncherClient.layer;
 
+    // ViewCode: trace every child process from here on (managed-mode diagnostics).
+    yield* Effect.sync(() => installSpawnTrace(config.logsDir));
     yield* fixPath();
 
     const httpListeningLayer = Layer.effectDiscard(

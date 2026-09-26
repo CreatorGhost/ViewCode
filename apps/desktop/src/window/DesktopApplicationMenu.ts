@@ -13,6 +13,7 @@ import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import { openLogsFolder } from "./DesktopLogsFolder.ts";
 
 export class DesktopApplicationMenuActionError extends Schema.TaggedError<DesktopApplicationMenuActionError>()(
   "DesktopApplicationMenuActionError",
@@ -133,6 +134,9 @@ export const make = Effect.gen(function* () {
   const configure = Effect.gen(function* () {
     const checkForUpdatesClick = () => {
       runMenuEffect("check-for-updates", handleCheckForUpdatesMenuClick);
+    };
+    const openLogsClick = () => {
+      runMenuEffect("open-logs", openLogsFolder(environment.logDir));
     };
     const settingsClick = () => {
       runMenuEffect("open-settings", dispatchMenuAction("open-settings"));
@@ -261,6 +265,8 @@ export const make = Effect.gen(function* () {
             label: "Check for Updates...",
             click: checkForUpdatesClick,
           },
+          // ViewCode: reachable even when the backend has crashed.
+          { label: "Open Logs Folder", click: openLogsClick },
         ],
       },
     );
