@@ -244,6 +244,10 @@ import {
 import { useEnvironmentQuery } from "~/state/query";
 import { useDebouncedValue } from "~/state/queries";
 import { ProviderModelPicker } from "./ProviderModelPicker";
+import {
+  ComposerModelEffortPicker,
+  type ComposerModelEffortView,
+} from "./ComposerModelEffortPicker";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
@@ -2126,6 +2130,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
+  // The model/effort popover shows its model list while the model picker is
+  // open (so model shortcuts keep working) and its effort slider otherwise.
+  const [isComposerEffortPickerOpen, setIsComposerEffortPickerOpen] = useState(false);
+  const composerModelEffortView: ComposerModelEffortView | null = isComposerModelPickerOpen
+    ? "model"
+    : isComposerEffortPickerOpen
+      ? "effort"
+      : null;
+  const setComposerModelEffortView = useCallback((view: ComposerModelEffortView | null) => {
+    setIsComposerModelPickerOpen(view === "model");
+    setIsComposerEffortPickerOpen(view === "effort");
+  }, []);
   const isMobileViewport = useMediaQuery("max-sm");
   const {
     isComposerFocused,
@@ -4759,6 +4775,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   if (composerControlsHidden && isComposerModelPickerOpen) {
     setIsComposerModelPickerOpen(false);
   }
+  if (composerControlsHidden && isComposerEffortPickerOpen) {
+    setIsComposerEffortPickerOpen(false);
+  }
   useLayoutEffect(() => {
     onRestingControlsVisibilityChange(composerControlsVisibleInStrip);
   }, [composerControlsVisibleInStrip, onRestingControlsVisibilityChange]);
@@ -4964,13 +4983,101 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const iconOnlyBlockCount = composerControlsInStrip
     ? restingControlsIconOnlyBlockCount
     : expandedControlsLayout.iconOnlyBlockCount;
+  // Several draft models at once keep the multi-select picker and traits chip;
+  // otherwise one model + effort pill replaces both.
+  const useModelEffortPicker = !(
+    routeKind === "draft" &&
+    supportsMultipleModels &&
+    multipleModelSelections !== null
+  );
+  const pickerActiveInstanceId = providerCatalogPending
+    ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
+    : selectedInstanceId;
+  const pickerModel = providerCatalogPending
+    ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
+    : selectedModelForPickerWithCustomFallback;
+  const toggleDraftModel =
+    routeKind === "draft" && supportsMultipleModels
+      ? (instanceId: ProviderInstanceId, model: string) => {
+          const current = multipleModelSelections ?? [selectedModelSelection];
+          const matchesModel = (selection: ModelSelection) => {
+            if (selection.instanceId !== instanceId) return false;
+            const entry = providerInstanceEntries.find(
+              (entry) => entry.instanceId === selection.instanceId,
+            );
+            const resolvedModel = resolveModelPickerSelectedModel({
+              driverKind: entry?.driverKind,
+              model: selection.model,
+              options: modelOptionsByInstance.get(selection.instanceId) ?? [],
+            });
+            return (resolvedModel?.slug ?? selection.model) === model;
+          };
+          const exists = current.some(matchesModel);
+          const next = exists
+            ? current.filter((selection) => !matchesModel(selection))
+            : [...current, createModelSelection(instanceId, model)];
+          if (next.length > 1) {
+            setMultipleModelSelections(next);
+          } else {
+            setMultipleModelSelections(null);
+            const remaining = next[0] ?? selectedModelSelection;
+            onProviderModelSelect(remaining.instanceId, remaining.model, {
+              focusComposer: false,
+            });
+          }
+        }
+      : undefined;
+  const modelEffortPickerIconClassName = cn(
+    composerProviderState.modelPickerIconClassName,
+    composerControlsInStrip &&
+      "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-opencode-hole]]:fill-transparent!",
+  );
+  const modelEffortPicker = (
+    <ComposerModelEffortPicker
+      disabled={providerCatalogPending || isSendBusy}
+      activeInstanceId={pickerActiveInstanceId}
+      model={pickerModel}
+      lockedProvider={lockedProvider}
+      lockedContinuationGroupKey={lockedContinuationGroupKey}
+      handoffFromContinuationGroupKey={handoffFromContinuationGroupKey}
+      instanceEntries={providerInstanceEntries}
+      keybindings={keybindings}
+      modelOptionsByInstance={modelOptionsByInstance}
+      traits={{
+        provider: selectedProvider,
+        instanceId: selectedInstanceId,
+        ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+        ...(routeKind === "draft" && draftId ? { draftId } : {}),
+        model: selectedModel,
+        models: selectedProviderModels,
+        modelOptions: composerModelOptions?.[selectedInstanceId],
+        prompt,
+        onPromptChange: setPromptFromTraits,
+        planModeEnabled: settings.planModeEnabled,
+      }}
+      {...(modelEffortPickerIconClassName
+        ? { activeProviderIconClassName: modelEffortPickerIconClassName }
+        : {})}
+      size={composerControlsInStrip ? "xs" : "sm"}
+      terminalOpen={terminalOpen}
+      view={composerModelEffortView}
+      onViewChange={setComposerModelEffortView}
+      getModelDisabledReason={getModelDisabledReason}
+      {...(toggleDraftModel ? { onToggleModel: toggleDraftModel } : {})}
+      onInstanceModelChange={(instanceId, model) => {
+        setMultipleModelSelections(null);
+        onProviderModelSelect(instanceId, model, { focusComposer: false });
+      }}
+      onOpenProviderSetup={onOpenProviderSetup}
+    />
+  );
   const restingProviderTraitsPicker = renderProviderTraitsPicker({
     ...providerTraitsPickerInput,
     size: composerControlsInStrip ? "xs" : "sm",
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
-    ...(providerTraitsPicker
+    ...(providerTraitsPicker && !useModelEffortPicker
       ? [
           {
             id: "traits",
@@ -5025,90 +5132,50 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           data-resting-controls-separator="true"
         />
       ) : null}
-      <ProviderModelPicker
-        isComposerOwned
-        disabled={providerCatalogPending || isSendBusy}
-        {...(routeKind === "draft" && supportsMultipleModels
-          ? {
-              ...(multipleModelSelections !== null
-                ? { selectedModels: multipleModelSelections }
-                : {}),
-              onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
-                const current = multipleModelSelections ?? [selectedModelSelection];
-                const matchesModel = (selection: ModelSelection) => {
-                  if (selection.instanceId !== instanceId) return false;
-                  const entry = providerInstanceEntries.find(
-                    (entry) => entry.instanceId === selection.instanceId,
-                  );
-                  const resolvedModel = resolveModelPickerSelectedModel({
-                    driverKind: entry?.driverKind,
-                    model: selection.model,
-                    options: modelOptionsByInstance.get(selection.instanceId) ?? [],
-                  });
-                  return (resolvedModel?.slug ?? selection.model) === model;
-                };
-                const exists = current.some(matchesModel);
-                const next = exists
-                  ? current.filter((selection) => !matchesModel(selection))
-                  : [...current, createModelSelection(instanceId, model)];
-                if (next.length > 1) {
-                  setMultipleModelSelections(next);
-                } else {
-                  setMultipleModelSelections(null);
-                  const remaining = next[0] ?? selectedModelSelection;
-                  onProviderModelSelect(remaining.instanceId, remaining.model, {
-                    focusComposer: false,
-                  });
-                }
-              },
-            }
-          : {})}
-        activeInstanceId={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
-            : selectedInstanceId
-        }
-        model={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
-            : selectedModelForPickerWithCustomFallback
-        }
-        lockedProvider={lockedProvider}
-        lockedContinuationGroupKey={lockedContinuationGroupKey}
-        handoffFromContinuationGroupKey={handoffFromContinuationGroupKey}
-        instanceEntries={providerInstanceEntries}
-        keybindings={keybindings}
-        modelOptionsByInstance={modelOptionsByInstance}
-        size={composerControlsInStrip ? "xs" : "sm"}
-        triggerClassName={
-          composerControlsInStrip
-            ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
-            : "-ms-2.5 min-w-13"
-        }
-        terminalOpen={terminalOpen}
-        open={isComposerModelPickerOpen}
-        instanceIndicatorBackground={
-          composerControlsInStrip
-            ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
-            : "var(--contrast-input)"
-        }
-        {...(composerProviderState.modelPickerIconClassName || composerControlsInStrip
-          ? {
-              activeProviderIconClassName: cn(
-                composerProviderState.modelPickerIconClassName,
-                composerControlsInStrip &&
-                  "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-opencode-hole]]:fill-transparent!",
-              ),
-            }
-          : {})}
-        onOpenChange={setIsComposerModelPickerOpen}
-        getModelDisabledReason={getModelDisabledReason}
-        onInstanceModelChange={(instanceId, model) => {
-          setMultipleModelSelections(null);
-          onProviderModelSelect(instanceId, model);
-        }}
-        onOpenProviderSetup={onOpenProviderSetup}
-      />
+      {useModelEffortPicker ? (
+        // The expanded footer shows the pill beside the send button instead.
+        composerControlsInStrip ? (
+          modelEffortPicker
+        ) : null
+      ) : (
+        <ProviderModelPicker
+          isComposerOwned
+          disabled={providerCatalogPending || isSendBusy}
+          {...(multipleModelSelections !== null ? { selectedModels: multipleModelSelections } : {})}
+          {...(toggleDraftModel ? { onToggleModel: toggleDraftModel } : {})}
+          activeInstanceId={pickerActiveInstanceId}
+          model={pickerModel}
+          lockedProvider={lockedProvider}
+          lockedContinuationGroupKey={lockedContinuationGroupKey}
+          handoffFromContinuationGroupKey={handoffFromContinuationGroupKey}
+          instanceEntries={providerInstanceEntries}
+          keybindings={keybindings}
+          modelOptionsByInstance={modelOptionsByInstance}
+          size={composerControlsInStrip ? "xs" : "sm"}
+          triggerClassName={
+            composerControlsInStrip
+              ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
+              : "-ms-2.5 min-w-13"
+          }
+          terminalOpen={terminalOpen}
+          open={isComposerModelPickerOpen}
+          instanceIndicatorBackground={
+            composerControlsInStrip
+              ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
+              : "var(--contrast-input)"
+          }
+          {...(modelEffortPickerIconClassName
+            ? { activeProviderIconClassName: modelEffortPickerIconClassName }
+            : {})}
+          onOpenChange={setIsComposerModelPickerOpen}
+          getModelDisabledReason={getModelDisabledReason}
+          onInstanceModelChange={(instanceId, model) => {
+            setMultipleModelSelections(null);
+            onProviderModelSelect(instanceId, model);
+          }}
+          onOpenProviderSetup={onOpenProviderSetup}
+        />
+      )}
 
       <>
         {restingBlockDefs.map((def, index) => {
@@ -5845,6 +5912,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       setIsComposerScrollCollapsed(false);
       setIsComposerFocused(true);
     }
+    setIsComposerEffortPickerOpen(false);
     setIsComposerModelPickerOpen(true);
   }, [composerControlsHidden, setIsComposerFocused, setIsComposerScrollCollapsed]);
 
@@ -6986,6 +7054,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {useModelEffortPicker && !composerControlsInStrip && !showProviderUnavailable
+                    ? modelEffortPicker
+                    : null}
                   {showComposerAttachAction ? (
                     <>
                       <input

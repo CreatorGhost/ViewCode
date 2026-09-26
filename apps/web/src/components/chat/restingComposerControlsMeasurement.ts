@@ -85,9 +85,10 @@ export function measureRestingComposerControls(
 ): RestingComposerControlsMeasurement | null {
   const gap = Number.parseFloat(getComputedStyle(controls).columnGap) || 0;
   const picker = controls.querySelector<HTMLElement>("[data-chat-provider-model-picker]");
+  // The expanded footer can have no leading control: the model pill sits by
+  // the send button there, leaving only the blocks to measure.
   const leadingControl =
     picker ?? controls.querySelector<HTMLElement>('[data-chat-provider-unavailable="true"]');
-  if (!leadingControl) return null;
   // Separators are display:none on phone widths; a hidden one takes no gap.
   const separator = controls.querySelector<HTMLElement>("[data-resting-controls-separator]");
   const separatorWidth = separator ? elementOuterWidth(separator) : 0;
@@ -98,11 +99,17 @@ export function measureRestingComposerControls(
   return {
     gap,
     naturalFixedWidth:
-      (picker ? providerModelPickerNaturalWidth(picker) : elementOuterWidth(leadingControl)) +
-      separatorAndGapWidth,
+      (picker
+        ? providerModelPickerNaturalWidth(picker)
+        : leadingControl
+          ? elementOuterWidth(leadingControl)
+          : 0) + separatorAndGapWidth,
     minimumFixedWidth:
-      (picker ? providerModelPickerMinimumWidth(picker) : elementOuterWidth(leadingControl)) +
-      separatorAndGapWidth,
+      (picker
+        ? providerModelPickerMinimumWidth(picker)
+        : leadingControl
+          ? elementOuterWidth(leadingControl)
+          : 0) + separatorAndGapWidth,
     blockWidths: widths.map((width) => width.natural),
     iconOnlyBlockWidths: widths.map((width) => width.iconOnly),
     overflowWidth: overflow ? elementOuterWidth(overflow) : 0,
