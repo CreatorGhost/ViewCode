@@ -1,0 +1,5 @@
+Stop all, verified live (2026-09-26):
+- Child "Build check B" was running a 180 s foreground command (turn started 07:31:06).
+- Clicked "Stop all" in the parent's Active agents bar at ~07:32:49.
+- Server state 1.1 s later: Build check B session=stopped, latestTurn=interrupted (ended 07:32:50).
+- Build check A had already finished (it declined the task), so the bar showed "1 running" before the click.
