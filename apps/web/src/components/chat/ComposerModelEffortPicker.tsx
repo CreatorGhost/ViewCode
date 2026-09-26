@@ -30,6 +30,8 @@ import type { ComposerControlSize } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import {
   buildEffortStops,
+  effortRampColor,
+  effortRampForIndex,
   effortTierForIndex,
   findEffortDescriptor,
   isEffortAndFastModeAtDefaults,
@@ -147,6 +149,11 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
   const effortIndex = resolveEffortStopIndex(effortDescriptor, effortValue);
   const effortLabel = effortIndex >= 0 ? (effortStops[effortIndex]?.label ?? null) : null;
   const effortTier = effortTierForIndex(effortIndex, effortStops);
+  // Standard stops shade from light to deep blue; the peak is coral.
+  const effortColor =
+    effortTier === "peak"
+      ? "var(--effort-peak)"
+      : effortRampColor(effortRampForIndex(effortIndex, effortStops));
   const fastMode = resolveFastModeControl(traits.provider, descriptors);
   const resetIds = [
     ...(effortDescriptor ? [effortDescriptor.id] : []),
@@ -232,12 +239,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
               <ZapIcon aria-hidden="true" className="size-3 shrink-0 fill-current text-primary" />
             ) : null}
             {effortLabel ? (
-              <span
-                className={cn(
-                  "shrink-0 text-muted-foreground",
-                  effortTier === "peak" && "text-effort-peak",
-                )}
-              >
+              <span className="shrink-0" style={{ color: effortColor }}>
                 {controller.ultrathinkPromptControlled ? "Ultrathink" : effortLabel}
               </span>
             ) : null}
@@ -350,14 +352,8 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                   className="flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-0.5 rounded-2xl px-2 py-1 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span
-                    className={cn(
-                      "flex min-w-0 items-center gap-0.5 font-semibold text-xl leading-tight",
-                      effortLabel === null
-                        ? "text-foreground"
-                        : effortTier === "peak"
-                          ? "text-effort-peak"
-                          : "text-primary",
-                    )}
+                    className="flex min-w-0 items-center gap-0.5 font-semibold text-xl leading-tight text-foreground"
+                    style={effortLabel === null ? undefined : { color: effortColor }}
                   >
                     <span className="truncate">
                       {controller.ultrathinkPromptControlled
@@ -404,6 +400,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                   stops={effortStops}
                   index={effortIndex}
                   peak={effortTier === "peak"}
+                  color={effortColor}
                   disabled={effortLocked}
                   onIndexChange={(index) => {
                     const stop = effortStops[index];
@@ -482,6 +479,8 @@ function EffortSlider(props: {
   stops: ReadonlyArray<{ id: string; label: string }>;
   index: number;
   peak: boolean;
+  /** Fill colour at the current stop (the blue ramp, or coral at the peak). */
+  color: string;
   disabled: boolean;
   onIndexChange: (index: number) => void;
 }) {
@@ -505,12 +504,18 @@ function EffortSlider(props: {
           className="relative h-9 w-full rounded-full bg-foreground/10 data-peak:bg-effort-sparkles"
         >
           <Slider.Indicator
-            // Kept out of cn(): tailwind-merge would read the sparkle image as a
-            // second background colour and drop one of the two.
+            // The peak fill replays a one-shot surge each time it is reached
+            // (no loop), then rests on static sparkles over a coral gradient.
+            // Kept out of cn(): tailwind-merge would drop one of the two images.
             className={
               props.peak
-                ? "rounded-full bg-effort-peak bg-effort-sparkles"
-                : "rounded-full bg-primary"
+                ? "rounded-full bg-effort-peak animate-effort-surge motion-reduce:animate-none"
+                : "rounded-full transition-[background] duration-200"
+            }
+            style={
+              props.peak
+                ? undefined
+                : { backgroundImage: `linear-gradient(90deg, var(--effort-low), ${props.color})` }
             }
           />
           {props.stops.map((stop, index) => (

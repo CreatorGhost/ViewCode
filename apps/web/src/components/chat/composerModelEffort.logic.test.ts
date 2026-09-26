@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildEffortStops,
+  effortRampForIndex,
   effortTierForIndex,
   findEffortDescriptor,
   isEffortAndFastModeAtDefaults,
@@ -204,5 +205,19 @@ describe("resetEffortAndFastMode", () => {
         descriptorIds: ["fastMode"],
       }),
     ).toBe(true);
+  });
+});
+
+describe("effortRampForIndex", () => {
+  it("runs from 0 at the lowest stop to 1 just below Max, and stays 1 at the peak", () => {
+    const stops = ["low", "medium", "high", "xhigh", "max", "ultrathink"].map((id) => ({ id }));
+    expect(stops.map((_, index) => effortRampForIndex(index, stops))).toEqual([
+      0,
+      1 / 3,
+      2 / 3,
+      1,
+      1,
+      1,
+    ]);
   });
 });

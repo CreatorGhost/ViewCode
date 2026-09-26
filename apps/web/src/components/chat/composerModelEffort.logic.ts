@@ -65,6 +65,27 @@ export function effortTierForIndex(
   return index >= peakFrom ? "peak" : "standard";
 }
 
+/**
+ * How far along the blue ramp a standard stop sits: 0 at the lowest effort,
+ * 1 at the last stop before the peak. Peak stops are 1 (they switch to coral).
+ */
+export function effortRampForIndex(
+  index: number,
+  stops: ReadonlyArray<Pick<EffortStop, "id">>,
+): number {
+  if (stops.length <= 1 || index <= 0) return 0;
+  const maxIndex = stops.findIndex(({ id }) => id.toLowerCase() === "max");
+  const peakFrom = maxIndex >= 0 ? maxIndex : stops.length - 1;
+  if (index >= peakFrom || peakFrom <= 1) return 1;
+  return index / (peakFrom - 1);
+}
+
+/** The ramp colour for a standard stop, from light sky blue to deep blue. */
+export function effortRampColor(ramp: number): string {
+  const percent = Math.round(Math.min(Math.max(ramp, 0), 1) * 100);
+  return `color-mix(in oklab, var(--effort-low), var(--effort-high) ${percent}%)`;
+}
+
 export type FastModeControl = {
   descriptorId: string;
   enabled: boolean;
