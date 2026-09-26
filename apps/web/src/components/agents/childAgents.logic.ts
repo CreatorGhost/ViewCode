@@ -54,6 +54,31 @@ export function collectChildAgents<T extends ChildAgentShellInput>(
   return result;
 }
 
+/**
+ * The whole agent tree `ref` belongs to: its root (depth 0) and every
+ * descendant. A thread without parent or children is a tree of one.
+ */
+export function collectAgentTree<T extends ChildAgentShellInput>(
+  threads: ReadonlyArray<T>,
+  ref: { readonly environmentId: EnvironmentId; readonly threadId: ThreadId },
+): ReadonlyArray<ChildAgentEntry<T>> {
+  const byId = new Map<ThreadId, T>();
+  for (const thread of threads) {
+    if (thread.environmentId === ref.environmentId) byId.set(thread.id, thread);
+  }
+  let root = byId.get(ref.threadId);
+  const seen = new Set<ThreadId>();
+  while (root?.parentThreadId && byId.has(root.parentThreadId) && !seen.has(root.id)) {
+    seen.add(root.id);
+    root = byId.get(root.parentThreadId);
+  }
+  if (!root) return [];
+  return [
+    { thread: root, depth: 0, running: isChildAgentRunning(root) },
+    ...collectChildAgents(threads, { environmentId: ref.environmentId, threadId: root.id }),
+  ];
+}
+
 export type ChildAgentStatus = "approval" | "input" | "working" | "failed" | "idle";
 
 /** What a child agent row shows: anything asking for the user outranks working. */

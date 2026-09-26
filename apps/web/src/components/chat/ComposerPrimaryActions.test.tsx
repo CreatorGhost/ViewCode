@@ -14,6 +14,10 @@ vi.mock("../SidebarStageBackdrop", () => ({
   StageBackdropButtonArt: ({ variant }: { variant: string }) => `stage-${variant}`,
   useSidebarStageBackdropVariant: (enabled = true) => (enabled ? stageArtworkState.variant : null),
 }));
+vi.mock("../agents/AgentStopButton", () => ({
+  AgentStopButton: (props: { onStopThis: () => void; render: (p: object) => unknown }) =>
+    props.render({ onClick: props.onStopThis }),
+}));
 
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 

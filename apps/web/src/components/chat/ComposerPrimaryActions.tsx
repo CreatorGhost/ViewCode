@@ -2,6 +2,7 @@ import { memo, type PointerEventHandler } from "react";
 import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
+import { AgentStopButton } from "../agents/AgentStopButton";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -87,21 +88,27 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     environmentIdentificationMode === "artwork",
   );
 
+  // ViewCode: with other agents of this tree running, Stop offers "this agent" or "all".
   const stopGenerationButton = (
-    <button
-      type="button"
-      className={cn(
-        // Same 28px accent disc as send (Droppy composer); touch keeps 32px.
-        "flex size-8 cursor-pointer items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-message-action-hover hover:scale-105 active:inset-shadow-black/8 active:shadow-none sm:size-7",
+    <AgentStopButton
+      onStopThis={onInterrupt}
+      render={(stopProps) => (
+        <button
+          type="button"
+          className={cn(
+            // Same 28px accent disc as send (Droppy composer); touch keeps 32px.
+            "flex size-8 cursor-pointer items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-message-action-hover hover:scale-105 active:inset-shadow-black/8 active:shadow-none sm:size-7",
+          )}
+          {...pointerFocusProps}
+          {...stopProps}
+          aria-label="Stop generation"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+            <rect x="2" y="2" width="8" height="8" rx="1.5" />
+          </svg>
+        </button>
       )}
-      {...pointerFocusProps}
-      onClick={onInterrupt}
-      aria-label="Stop generation"
-    >
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-        <rect x="2" y="2" width="8" height="8" rx="1.5" />
-      </svg>
-    </button>
+    />
   );
 
   if (pendingAction) {

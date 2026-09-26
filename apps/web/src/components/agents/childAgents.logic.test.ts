@@ -2,6 +2,7 @@ import { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  collectAgentTree,
   collectChildAgents,
   countRunningChildAgents,
   isChildAgentRunning,
@@ -147,5 +148,32 @@ describe("running state", () => {
       root,
     );
     expect(countRunningChildAgents(agents)).toBe(2);
+  });
+});
+
+describe("collectAgentTree", () => {
+  it("returns the root and all its descendants from any member", () => {
+    const threads = [
+      shell("lead", null),
+      shell("a", "lead", { sessionStatus: "running" }),
+      shell("a1", "a"),
+      shell("b", "lead"),
+      shell("other", null),
+    ];
+    const fromLeaf = collectAgentTree(threads, {
+      environmentId: env,
+      threadId: ThreadId.make("a1"),
+    });
+    expect(fromLeaf.map((entry) => [entry.thread.id, entry.depth, entry.running])).toEqual([
+      ["lead", 0, false],
+      ["a", 1, true],
+      ["a1", 2, false],
+      ["b", 1, false],
+    ]);
+    expect(
+      collectAgentTree(threads, { environmentId: env, threadId: ThreadId.make("other") }).map(
+        (entry) => entry.thread.id,
+      ),
+    ).toEqual(["other"]);
   });
 });
