@@ -178,6 +178,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `.github/triage/PLAYBOOK.md`; don't rebrand one without the other.
 - **Effect lint** prefers `Effect.filterOrElse` over `flatMap` with an identity
   branch, and `DateTime` over `new Date()`.
+- **The production CSS minifier rewrites a nameless `animation` shorthand to
+  `animation: none`**, silently dropping duration and fill mode; dev (unminified)
+  looks fine. Use longhands (`animation-duration`, …) in `viewcode-theme.css`,
+  and check animations against a production build (`vp build`, then run the
+  server without `--dev-url` so it serves `apps/web/dist`).
 - **tailwind-merge** drops one of two background images in `cn(...)`; keep
   sparkle/gradient classes out of `cn()`.
 

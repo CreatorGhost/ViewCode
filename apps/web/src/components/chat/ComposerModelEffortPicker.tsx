@@ -540,6 +540,14 @@ function EffortTitle(props: {
     { id: 0, text: props.text, rank: props.rank, roll: 1, animate: false },
   ]);
   const current = labels[labels.length - 1];
+  // Drop the outgoing name once its roll has finished, so two names can never
+  // stay stacked even if the animation doesn't run.
+  const hasOutgoing = labels.length > 1;
+  useEffect(() => {
+    if (!hasOutgoing) return;
+    const timer = window.setTimeout(() => setLabels((all) => all.slice(-1)), 450);
+    return () => window.clearTimeout(timer);
+  }, [hasOutgoing, current?.id]);
   if (current && current.text !== props.text) {
     const roll = props.rank < current.rank ? -1 : 1;
     setLabels([
