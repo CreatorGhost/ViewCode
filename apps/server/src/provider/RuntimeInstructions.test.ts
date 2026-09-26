@@ -17,6 +17,11 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).toContain(
       "only when the user explicitly asks for built-in, inline or in-chat sub-agents",
     );
+    // A failed or missing ViewCode spawn is reported, never silently replaced.
+    expect(instructions).toContain(
+      "If viewcode_spawn_agent is unavailable or fails, do not fall back on your own: tell the user what failed and ask whether to use your built-in sub-agents instead.",
+    );
+    expect(instructions).not.toContain("or when viewcode_spawn_agent is unavailable or fails");
   });
 
   it("keeps known model and effort metadata on one line", () => {

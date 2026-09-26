@@ -16,6 +16,7 @@ const AGENT_TOOLKIT_LABELS: Readonly<
   list_models: ["List models", "Listing models", "Listed models"],
   read_transcript: ["Read agent transcript", "Reading agent transcript", "Read agent transcript"],
   configure_agent: ["Configure agent", "Configuring agent", "Configured agent"],
+  search_history: ["Search history", "Searching history", "Searched history"],
 };
 
 const T3_MCP_PREFIX =

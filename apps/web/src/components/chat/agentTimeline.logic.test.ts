@@ -50,6 +50,12 @@ describe("agentToolkitLabel", () => {
     expect(
       agentToolkitLabel({ ...entry("t3-code · configure_agent"), toolLifecycleStatus: "failed" }),
     ).toBe("Failed to configure agent");
+    expect(agentToolkitLabel(entry("mcp__t3-code__viewcode_search_history", "inProgress"))).toBe(
+      "Searching history",
+    );
+    expect(agentToolkitLabel(entry("t3-code.viewcode_search_history", "completed"))).toBe(
+      "Searched history",
+    );
   });
 
   it("reads the tool name from MCP tool data and ignores other servers", () => {
