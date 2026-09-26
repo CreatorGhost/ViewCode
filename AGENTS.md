@@ -4,6 +4,10 @@ T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provid
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
+## This repository is ViewCode
+
+This is ViewCode, a fork of T3 Code. It adds mid-chat provider handoff, child agents, agent-to-agent messaging, a Command Code provider, a no-port desktop mode and a Droppy-style composer. Read [docs/internals/viewcode.md](docs/internals/viewcode.md) before changing those areas: it lists where the code lives, the decisions behind it and the traps already hit. Keep it current when a ViewCode decision changes.
+
 ## What makes T3 Code special?
 
 We have over 200,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
