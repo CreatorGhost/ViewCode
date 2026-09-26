@@ -79,6 +79,7 @@ cd ViewCode
 ./build.sh --no-pull    # build what you have checked out
 ./build.sh --web        # server + web UI instead of the desktop app
 ./build.sh --managed    # locked-down work laptops: only Claude and Cursor are enabled
+./build.sh --fresh      # start as a brand-new install (moves your ViewCode data aside, restorable)
 ```
 
 Or step by step:

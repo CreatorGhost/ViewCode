@@ -47,7 +47,7 @@ node_ok() {
     node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>24||(a===24&&b>=13)?0:1)'
 }
 
-# Downloads Node 24 into ~/.viewcode/node for ViewCode only; the system Node is untouched.
+# Downloads Node 24 into ~/.viewcode-tools/node for ViewCode only; the system Node is untouched.
 install_private_node() {
   local os arch ext dir base file sums
   case "$(uname -s)" in
@@ -64,10 +64,10 @@ install_private_node() {
   sums=$(curl -fsSL "$base/SHASUMS256.txt")
   file=$(printf '%s\n' "$sums" | awk -v s="-$os-$arch.$ext" 'index($2, s) { print $2; exit }')
   [ -n "$file" ] || { echo "Could not find a Node 24 download for $os-$arch." >&2; exit 1; }
-  dir="$HOME/.viewcode/node/${file%.$ext}"
+  dir="$tools_dir/node/${file%.$ext}"
   if [ ! -x "$dir/bin/node" ]; then
-    echo "Downloading $file (used only by ViewCode, into ~/.viewcode/node)"
-    mkdir -p "$HOME/.viewcode/node"
+    echo "Downloading $file (used only by ViewCode, into $tools_dir/node)"
+    mkdir -p "$tools_dir/node"
     local tmp
     tmp=$(mktemp -d)
     curl -fL --progress-bar "$base/$file" -o "$tmp/$file"
@@ -76,16 +76,30 @@ install_private_node() {
     if command -v shasum >/dev/null; then got=$(shasum -a 256 "$tmp/$file" | awk '{print $1}');
     else got=$(sha256sum "$tmp/$file" | awk '{print $1}'); fi
     [ "$want" = "$got" ] || { echo "Checksum mismatch for $file; aborting." >&2; rm -rf "$tmp"; exit 1; }
-    tar -xf "$tmp/$file" -C "$HOME/.viewcode/node"
+    tar -xf "$tmp/$file" -C "$tools_dir/node"
     rm -rf "$tmp"
   fi
   export PATH="$dir/bin:$PATH"
 }
 
 step "Checking tools"
+# build.sh's own Node and pnpm live apart from ViewCode's data, so --fresh can
+# move the data aside without pulling the tools out from under this script.
+tools_dir="$HOME/.viewcode-tools"
+if [ ! -d "$tools_dir" ]; then
+  mkdir -p "$tools_dir"
+  # Earlier versions kept them inside ~/.viewcode, or in a --fresh backup of it.
+  for old in "$HOME/.viewcode" $(ls -d "$HOME"/.viewcode.bak-* 2>/dev/null | sort -r); do
+    if [ -d "$old/node" ]; then
+      mv "$old/node" "$tools_dir/node"
+      [ -d "$old/bin" ] && mv "$old/bin" "$tools_dir/bin"
+      break
+    fi
+  done
+fi
 command -v git >/dev/null || { echo "git is not installed." >&2; exit 1; }
 if ! node_ok; then
-  latest=$(ls -d "$HOME"/.viewcode/node/node-v24.*/bin 2>/dev/null | tail -1 || true)
+  latest=$(ls -d "$tools_dir"/node/node-v24.*/bin 2>/dev/null | tail -1 || true)
   [ -n "$latest" ] && export PATH="$latest:$PATH"
   if ! node_ok; then
     echo "Node.js $(node -v 2>/dev/null || echo 'not found') is too old; ViewCode needs 24.13 or newer."
@@ -98,7 +112,7 @@ echo "Using Node.js $(node -v)"
 export NODE_OPTIONS="--use-system-ca${NODE_OPTIONS:+ $NODE_OPTIONS}"
 # pnpm comes from corepack in a private folder, so nothing global is changed.
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-shims="$HOME/.viewcode/bin"
+shims="$tools_dir/bin"
 mkdir -p "$shims"
 corepack enable --install-directory "$shims" pnpm
 export PATH="$shims:$PATH"
