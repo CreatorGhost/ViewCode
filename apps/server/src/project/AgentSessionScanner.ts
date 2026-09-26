@@ -22,6 +22,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
+  type AgentSessionHiddenReason,
   type AgentSessionImportSource,
   type AgentSessionProjectCandidate,
   type AgentSessionProjectGit,
@@ -44,6 +45,7 @@ import {
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   parseOriginUrlFromGitConfig,
 } from "@t3tools/shared/git";
+import { AGENT_MESSAGE_TAG } from "@t3tools/shared/agentMessages";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 
@@ -170,6 +172,10 @@ export interface AgentSessionThread {
   readonly messages: ReadonlyArray<AgentSessionThreadMessage>;
   /** Provider session that spawned this one, when it is a sub-agent. */
   readonly parentProviderSessionId?: string;
+  /** User messages with text of their own, not only injected context. */
+  readonly userMessageCount: number;
+  /** Set when the import picker should fold this session away by default. */
+  readonly hiddenReason: AgentSessionHiddenReason | null;
 }
 
 export type AgentSessionRecentThread =
@@ -328,25 +334,75 @@ export function codexSessionOrigin(source: unknown): CodexSessionOrigin {
 }
 
 const LEADING_TAG_BLOCK = /^<([A-Za-z_][\w-]*)[^>]*>[\s\S]*?<\/\1>\s*/;
+const TRAYCER_AGENT_MESSAGE = "[traycer:agent-message]";
 
-/**
- * A title from what the person actually asked: skips context blocks harnesses
- * inject as user messages (`<environment_context>`, AGENTS.md instructions,
- * plugin lists) and agent-message headers.
- */
-export function titleFromUserText(text: string): string | null {
+/** Drops leading context blocks a harness injects, optionally stopping at one tag. */
+function stripLeadingTagBlocks(text: string, keepTag?: string): string {
   let rest = text.trim();
   for (let match = rest.match(LEADING_TAG_BLOCK); match; match = rest.match(LEADING_TAG_BLOCK)) {
+    if (match[1] === keepTag) break;
     rest = rest.slice(match[0].length).trimStart();
   }
+  return rest;
+}
+
+/**
+ * What the person actually typed: the text left after context blocks
+ * harnesses inject as user messages (`<environment_context>`, AGENTS.md
+ * instructions, plugin lists) and agent-message headers. Null when nothing is.
+ */
+function userAuthoredText(text: string): string | null {
+  const rest = stripLeadingTagBlocks(text);
   if (/^# AGENTS\.md instructions/i.test(rest)) return null;
   const lines = rest
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("[traycer:agent-message]"));
-  const first = lines[0];
-  if (first === undefined || first.startsWith("<")) return null;
-  return first.slice(0, 100).trim() || null;
+    .filter((line) => line.length > 0 && !line.startsWith(TRAYCER_AGENT_MESSAGE));
+  if (lines[0] === undefined || lines[0].startsWith("<")) return null;
+  return lines.join("\n");
+}
+
+/** A title from what the person actually asked. */
+export function titleFromUserText(text: string): string | null {
+  const authored = userAuthoredText(text);
+  if (authored === null) return null;
+  return authored.split("\n")[0]?.slice(0, 100).trim() || null;
+}
+
+const MIN_VISIBLE_USER_MESSAGES = 2;
+const MIN_VISIBLE_USER_CHARACTERS = 200;
+
+/**
+ * Decide whether the import picker folds a session away, and count the user
+ * messages worth showing. `userTexts` are the session's user messages in
+ * order. The first message with content of its own decides whether another
+ * agent started the session.
+ */
+export function classifyAgentSession(input: {
+  readonly origin: CodexSessionOrigin["kind"];
+  readonly userTexts: ReadonlyArray<string>;
+}): { readonly hiddenReason: AgentSessionHiddenReason | null; readonly userMessageCount: number } {
+  const authored = input.userTexts.flatMap((text) => {
+    const value = userAuthoredText(text);
+    return value === null ? [] : [value];
+  });
+  const userMessageCount = authored.length;
+  const hidden = (hiddenReason: AgentSessionHiddenReason) => ({ hiddenReason, userMessageCount });
+  if (input.origin === "child") return hidden("subagent");
+  if (input.origin === "internal") return hidden("internal");
+  for (const text of input.userTexts) {
+    const rest = stripLeadingTagBlocks(text, AGENT_MESSAGE_TAG);
+    if (rest.startsWith(TRAYCER_AGENT_MESSAGE) || rest.startsWith(`<${AGENT_MESSAGE_TAG}`)) {
+      return hidden("agent-message");
+    }
+    if (userAuthoredText(text) !== null) break;
+  }
+  if (userMessageCount === 0) return hidden("no-user-text");
+  const characters = authored.reduce((total, text) => total + text.length, 0);
+  if (userMessageCount < MIN_VISIBLE_USER_MESSAGES && characters < MIN_VISIBLE_USER_CHARACTERS) {
+    return hidden("too-short");
+  }
+  return { hiddenReason: null, userMessageCount };
 }
 
 function parseAgentSessionRecords(
@@ -540,7 +596,6 @@ function parseAgentSessionRecords(
     });
   }
 
-  if (origin.kind === "internal") return null;
   const visibleMessages = messages.map(
     ({ codexResponseUser: _codexResponseUser, ...message }) => message,
   );
@@ -550,6 +605,12 @@ function parseAgentSessionRecords(
   const retainedMessages = firstUserMessageRetained
     ? visibleMessages
     : [visibleFirstUserMessage, ...visibleMessages.slice(-(MAX_IMPORTED_MESSAGES - 1))];
+  const classification = classifyAgentSession({
+    origin: origin.kind,
+    userTexts: retainedMessages
+      .filter((message) => message.role === "user")
+      .map((message) => message.text),
+  });
   const derivedTitle =
     [visibleFirstUserMessage, ...visibleMessages]
       .filter((message) => message.role === "user")
@@ -567,6 +628,8 @@ function parseAgentSessionRecords(
     updatedAt: fallbackTimestamp,
     messages: retainedMessages,
     ...(origin.kind === "child" ? { parentProviderSessionId: origin.parentSessionId } : {}),
+    userMessageCount: classification.userMessageCount,
+    hiddenReason: classification.hiddenReason,
   };
 }
 

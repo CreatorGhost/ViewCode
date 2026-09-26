@@ -3,13 +3,10 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   groupOnboardingProjects,
-  partitionOnboardingProjects,
   onboardingProjectKey,
   resolveOnboardingLandingProject,
   resolveOnboardingProjectId,
 } from "./projectImport.logic";
-
-const now = Date.parse("2026-08-22T12:00:00.000Z");
 
 function candidate(
   path: string,
@@ -30,56 +27,6 @@ function candidate(
 const github = (repository: string) => ({
   remoteKey: `github.com/${repository.toLowerCase()}`,
   repository,
-});
-
-describe("partitionOnboardingProjects", () => {
-  it("keeps existing projects available for thread history import", () => {
-    const imported = candidate("/projects/current", { alreadyImported: true });
-    const available = candidate("/projects/other");
-
-    expect(partitionOnboardingProjects([imported, available], now)).toEqual({
-      available: [imported, available],
-      recent: [imported, available],
-    });
-  });
-
-  it("keeps projects older than 30 days out of the default selection", () => {
-    const recent = candidate("/projects/recent");
-    const older = candidate("/projects/older", {
-      lastActiveAt: "2026-07-01T12:00:00.000Z",
-    });
-
-    expect(partitionOnboardingProjects([recent, older], now)).toEqual({
-      available: [recent, older],
-      recent: [recent],
-    });
-  });
-
-  it("keeps future activity out of the default selection", () => {
-    const recent = candidate("/projects/recent");
-    const future = candidate("/projects/future", {
-      lastActiveAt: "2026-08-23T12:00:00.000Z",
-    });
-
-    expect(partitionOnboardingProjects([recent, future], now)).toEqual({
-      available: [recent, future],
-      recent: [recent],
-    });
-  });
-
-  it("keeps non-git folders and thin histories out of the default selection", () => {
-    const repo = candidate("/projects/repo");
-    const folder = candidate("/projects/folder", { git: null });
-    const thin = candidate("/projects/thin", { threadCount: 2 });
-
-    expect(partitionOnboardingProjects([repo, folder, thin], now).recent).toEqual([repo]);
-  });
-
-  it("selects candidates from servers that do not report git identity", () => {
-    const { git: _git, ...legacy } = candidate("/projects/legacy");
-
-    expect(partitionOnboardingProjects([legacy], now).recent).toEqual([legacy]);
-  });
 });
 
 describe("groupOnboardingProjects", () => {
@@ -341,11 +288,5 @@ describe("projects on multiple computers", () => {
     expect(resolveOnboardingLandingProject([second, first], completed, completed)).toBe(
       "second-project",
     );
-  });
-
-  it("preserves computer identity when choosing recent projects", () => {
-    const first = { ...candidate("/code/app"), environmentId: "first" };
-    const second = { ...candidate("/code/app"), environmentId: "second" };
-    expect(partitionOnboardingProjects([first, second], now).recent).toEqual([first, second]);
   });
 });

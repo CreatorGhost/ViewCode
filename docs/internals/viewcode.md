@@ -15,7 +15,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Command Code provider                    | `apps/server/src/provider/commandCodeCli.ts`, `Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`, `Layers/commandCodeUsageLimits.ts`                                                |
 | Desktop local mode (no TCP port)         | `apps/server/src/socketListener.ts`, `mcp/McpStdioBridge.ts`, desktop `backend/DesktopLocalBackend*.ts`, web `lib/desktopBackendWebSocket.ts`                                             |
 | Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                     |
-| Session import (nesting, titles)         | `apps/server/src/project/AgentSessionScanner.ts` (`codexSessionOrigin`, `titleFromUserText`), `AgentSessionImporter.ts`                                                                   |
+| Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, web `components/agentSessions/`                               |
 | Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME`, web-only default)                                                                                                               |
 
 ## Decisions
@@ -111,13 +111,27 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ### Session import
 
+- Nothing is imported by default. Onboarding only adds projects; sessions are
+  picked one by one in the "Import past sessions" dialog (onboarding, or a
+  project's sidebar menu). Imports used to pull in every recent transcript, and
+  most of those were agent plumbing.
+- `agentSessions.list` reads the recent transcripts without writing and marks
+  junk `hidden` with a reason (`classifyAgentSession`): Codex sub-agent and
+  internal rollouts, sessions opened by an agent message (Traycer or
+  `<viewcode-agent-message>`), sessions whose user messages are only injected
+  context, and one-message fragments under 200 characters. Hidden sessions are
+  still importable behind "Show hidden".
+- `agentSessions.import` takes an optional `sessions` list. Without it (older
+  clients) it imports everything recent except Codex internal runs.
 - Codex writes sub-agent rollouts beside main ones: `session_meta.payload.source`
   `{subagent: {thread_spawn: {parent_thread_id}}}` (rollouts spell it
-  `subagent`, the app-server protocol `subAgent`). Children import under their
-  parent (second pass for children that arrive first); review/compact/memory
-  runs are skipped. Titles skip injected blocks and Traycer headers.
-- Import only runs from the onboarding wizard, so already-imported threads are
-  not re-nested.
+  `subagent`, the app-server protocol `subAgent`). A child nests under its
+  parent when the parent is imported in the same run or already exists
+  (second pass for children that arrive first); otherwise it imports flat.
+  Titles skip injected blocks and Traycer headers.
+- Imported threads have `import:` ids. "Remove imported sessions" archives
+  them (restorable from Settings → Archive) and pre-checks only those with no
+  turn and no provider session, i.e. never continued.
 
 ## Traps (things that cost hours)
 

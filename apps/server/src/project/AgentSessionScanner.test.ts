@@ -3268,3 +3268,93 @@ describe("titleFromUserText", () => {
     ).toBe(null);
   });
 });
+
+describe("classifyAgentSession", () => {
+  const classify = (
+    userTexts: ReadonlyArray<string>,
+    origin: "main" | "child" | "internal" = "main",
+  ) => AgentSessionScanner.classifyAgentSession({ origin, userTexts });
+  const longPrompt = "Refactor the settings page so every section loads lazily. ".repeat(4);
+
+  it("keeps real conversations visible and counts only authored messages", () => {
+    expect(
+      classify([
+        "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>x</INSTRUCTIONS>",
+        "<environment_context>cwd</environment_context>",
+        "Fix the flaky login test",
+        "Now add a regression test",
+      ]),
+    ).toEqual({ hiddenReason: null, userMessageCount: 2 });
+    expect(classify([longPrompt])).toEqual({ hiddenReason: null, userMessageCount: 1 });
+  });
+
+  it("hides Codex sub-agents and internal runs whatever they contain", () => {
+    expect(classify([longPrompt, longPrompt], "child").hiddenReason).toBe("subagent");
+    expect(classify([longPrompt, longPrompt], "internal").hiddenReason).toBe("internal");
+  });
+
+  it("hides sessions another agent started", () => {
+    expect(
+      classify([
+        "<environment_context>cwd</environment_context>",
+        "[traycer:agent-message] from Lead (agent abc) [claude]\nAudit the frontend.",
+        "Follow-up from a person",
+      ]).hiddenReason,
+    ).toBe("agent-message");
+    expect(
+      classify([
+        '<viewcode-agent-message from="Lead" from-id="t1" message-id="m1" reply-expected="false">\nReview the diff\n</viewcode-agent-message>\n\nNo reply is required.',
+        longPrompt,
+      ]).hiddenReason,
+    ).toBe("agent-message");
+    // A later agent message does not hide a session a person started.
+    expect(classify([longPrompt, "[traycer:agent-message] from Lead\nStatus?"]).hiddenReason).toBe(
+      null,
+    );
+  });
+
+  it("hides sessions with only injected context", () => {
+    expect(
+      classify([
+        "<recommended_plugins>\n- a\n</recommended_plugins>",
+        "<external_codex_apps_list>x</external_codex_apps_list>",
+      ]),
+    ).toEqual({ hiddenReason: "no-user-text", userMessageCount: 0 });
+    expect(classify([]).hiddenReason).toBe("no-user-text");
+  });
+
+  it("hides one short message but keeps two", () => {
+    expect(classify(["Wrapping up now…"])).toEqual({
+      hiddenReason: "too-short",
+      userMessageCount: 1,
+    });
+    expect(classify(["hi", "thanks"]).hiddenReason).toBe(null);
+  });
+});
+
+describe("parseAgentSessionTranscript classification", () => {
+  it("keeps Codex internal runs so the picker can show them as hidden", () => {
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({
+          type: "session_meta",
+          payload: { id: "review-session", source: { subagent: "review" } },
+        }),
+        encodeTranscriptRecord({
+          type: "event_msg",
+          payload: { type: "user_message", message: "Review the current diff" },
+        }),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
+    });
+
+    expect(thread).toMatchObject({
+      providerSessionId: "review-session",
+      hiddenReason: "internal",
+      userMessageCount: 1,
+    });
+  });
+});
