@@ -20,6 +20,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ## Decisions
 
+### Staying mergeable with upstream
+
+- ViewCode tracks upstream T3 Code by merging it. Features live in new files
+  and hook into upstream code with small edits; theming goes through tokens
+  and `components/ui` variants; contracts only gain optional fields; upstream
+  features are hidden behind flags rather than deleted. Details and current
+  hot spots: [`docs/HANDOFF.md`](../HANDOFF.md#staying-mergeable-with-upstream-t3-code).
+
 ### Handoff (switching provider or account mid-chat)
 
 - The projected transcript is the source of truth; provider sessions are only a
