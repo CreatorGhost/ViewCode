@@ -214,7 +214,8 @@ function ImportSessionsPopup({
           <div className="space-y-0.5">
             {shown.length === 0 ? (
               <p className="py-4 text-center text-sm text-muted-foreground">
-                Every session here looks like agent plumbing. Show hidden to see them.
+                Nothing new to import. The hidden ones are already in ViewCode, sub-agents or too
+                short; show hidden to see them.
               </p>
             ) : null}
             {shown.map((session) => (

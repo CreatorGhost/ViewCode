@@ -1378,11 +1378,20 @@ it.layer(NodeServices.layer)("AgentSessionImporter session selection", (it) => {
   it.effect("lists sessions newest first with hidden and imported flags, writing nothing", () =>
     Effect.gen(function* () {
       const older = codexThread("older", { updatedAt: "2026-08-20T10:00:00.000Z" });
+      const own = codexThread("own", { updatedAt: "2026-08-19T10:00:00.000Z" });
       const result = yield* listImportableAgentSessions({ projectId: PROJECT_ID }).pipe(
         Effect.provideService(
           AgentSessionScanner.AgentSessionScanner,
-          scannerOf([older, child, parent].map(makeThreadOutcome)),
+          scannerOf([older, own, child, parent].map(makeThreadOutcome)),
         ),
+        // A session ViewCode ran itself (its binding's resume cursor names it).
+        Effect.provideService(ProviderSessionDirectory.ProviderSessionDirectory, {
+          ...noBindingDirectory,
+          listBindings: () =>
+            Effect.succeed([
+              { threadId: "thread-own", resumeCursor: { threadId: "own" } },
+            ] as unknown as ReadonlyArray<ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata>),
+        }),
         Effect.provide(
           makeSnapshotsLayer({
             project: makeProject(),
@@ -1402,6 +1411,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter session selection", (it) => {
         { id: "child", alreadyImported: false, hidden: true, hiddenReason: "subagent" },
         { id: "parent", alreadyImported: true, hidden: false, hiddenReason: null },
         { id: "older", alreadyImported: false, hidden: false, hiddenReason: null },
+        { id: "own", alreadyImported: false, hidden: true, hiddenReason: "in-viewcode" },
       ]);
     }),
   );

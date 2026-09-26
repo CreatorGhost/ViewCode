@@ -12,6 +12,7 @@ export const HIDDEN_REASON_LABELS: Record<AgentSessionHiddenReason, string> = {
   internal: "Internal run",
   "too-short": "Too short",
   "no-user-text": "No message of yours",
+  "in-viewcode": "Already in ViewCode",
 };
 
 export function sessionKey(

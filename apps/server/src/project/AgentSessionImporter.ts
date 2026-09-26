@@ -129,6 +129,16 @@ const resolveImportWorkspaceRoot = Effect.fn("resolveImportWorkspaceRoot")(funct
   return workspaceRoot;
 });
 
+/** Provider session ids a resume cursor names (Codex `threadId`, Claude `resume`). */
+export function resumeCursorSessionIds(cursor: unknown): string[] {
+  if (typeof cursor !== "object" || cursor === null) return [];
+  const record = cursor as Record<string, unknown>;
+  return ["resume", "threadId", "sessionId"].flatMap((key) => {
+    const value = record[key];
+    return typeof value === "string" && value.trim().length > 0 ? [value.trim()] : [];
+  });
+}
+
 /**
  * Recent sessions for a project, without importing anything. Every transcript
  * is read fresh so already-imported sessions keep their titles; the imported
@@ -150,6 +160,15 @@ export const listImportableAgentSessions = Effect.fn("listImportableAgentSession
       sessionKey(source.providerInstanceId, source.providerSessionId),
     ),
   );
+  // Sessions ViewCode ran itself also land in the providers' session files;
+  // their resume cursors name them, so they can be folded away as duplicates.
+  const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+  const bindings = yield* directory.listBindings().pipe(Effect.orElseSucceed(() => []));
+  const ownSessionIds = new Set(
+    bindings
+      .filter((binding) => !String(binding.threadId).startsWith("import:"))
+      .flatMap((binding) => resumeCursorSessionIds(binding.resumeCursor)),
+  );
   const sessions: Array<AgentSessionSummary> = [];
   yield* Stream.runForEach(scanner.recentThreads(workspaceRoot), (outcome) =>
     Effect.sync(() => {
@@ -166,8 +185,12 @@ export const listImportableAgentSessions = Effect.fn("listImportableAgentSession
         alreadyImported: imported.has(
           sessionKey(thread.providerInstanceId, thread.providerSessionId),
         ),
-        hidden: thread.hiddenReason !== null,
-        hiddenReason: thread.hiddenReason,
+        ...(() => {
+          const hiddenReason = ownSessionIds.has(thread.providerSessionId)
+            ? ("in-viewcode" as const)
+            : thread.hiddenReason;
+          return { hidden: hiddenReason !== null, hiddenReason };
+        })(),
       });
     }),
   );

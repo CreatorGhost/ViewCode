@@ -103,6 +103,8 @@ export const AgentSessionHiddenReason = Schema.Literals([
   "internal",
   "too-short",
   "no-user-text",
+  // A provider session ViewCode itself ran: importing it would duplicate a thread.
+  "in-viewcode",
 ]);
 export type AgentSessionHiddenReason = typeof AgentSessionHiddenReason.Type;
 

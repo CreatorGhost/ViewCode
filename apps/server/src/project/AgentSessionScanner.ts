@@ -351,13 +351,20 @@ function stripLeadingTagBlocks(text: string, keepTag?: string): string {
  * harnesses inject as user messages (`<environment_context>`, AGENTS.md
  * instructions, plugin lists) and agent-message headers. Null when nothing is.
  */
+// The last line of ViewCode's handoff prelude (orchestration/Handoff.ts), sent
+// ahead of the user's message on the first turn after a provider switch.
+const HANDOFF_TRAILER = "The user's new message follows.";
+
 function userAuthoredText(text: string): string | null {
   const rest = stripLeadingTagBlocks(text);
   if (/^# AGENTS\.md instructions/i.test(rest)) return null;
   const lines = rest
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith(TRAYCER_AGENT_MESSAGE));
+    .filter(
+      (line) =>
+        line.length > 0 && !line.startsWith(TRAYCER_AGENT_MESSAGE) && line !== HANDOFF_TRAILER,
+    );
   if (lines[0] === undefined || lines[0].startsWith("<")) return null;
   return lines.join("\n");
 }

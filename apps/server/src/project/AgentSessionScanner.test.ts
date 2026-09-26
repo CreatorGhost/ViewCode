@@ -3247,6 +3247,14 @@ describe("codexSessionOrigin", () => {
 });
 
 describe("titleFromUserText", () => {
+  it("skips ViewCode's handoff prelude and its trailer line", () => {
+    expect(
+      AgentSessionScanner.titleFromUserText(
+        "<handoff>\nrecap\n</handoff>\n\nThe user's new message follows.\n\nFix the flaky test",
+      ),
+    ).toBe("Fix the flaky test");
+  });
+
   it("skips injected blocks and agent-message headers", () => {
     expect(
       AgentSessionScanner.titleFromUserText(
