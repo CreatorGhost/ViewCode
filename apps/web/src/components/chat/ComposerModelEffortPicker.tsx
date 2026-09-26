@@ -401,6 +401,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                 >
                   <EffortTitle
                     text={effortLabel ?? "Standard"}
+                    rank={ultracodeOn ? effortStops.length : effortIndex}
                     color={effortLabel === null ? "var(--foreground)" : effortColor}
                     gradient={trackStyle.titleGradient}
                   />
@@ -523,15 +524,28 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
 });
 
 /**
- * The header's effort name, in a fixed-height box. A change crossfades in
- * place: the outgoing name fades out over the incoming one. Colour eases over
- * 300ms; a gradient (Gemini, fusion) is clipped to the text.
+ * The header's effort name, in a fixed-height box. A change rolls letter by
+ * letter like Droppy's numeric-text transition: the old name slides out with
+ * a blur while the new one slides in, upward when `rank` rises and downward
+ * when it falls (keyframes in `viewcode-theme.css`). Colour eases over 300ms;
+ * a gradient (Gemini, fusion) is clipped to the text.
  */
-function EffortTitle(props: { text: string; color: string; gradient: string | null }) {
-  const [labels, setLabels] = useState(() => [{ id: 0, text: props.text }]);
+function EffortTitle(props: {
+  text: string;
+  rank: number;
+  color: string;
+  gradient: string | null;
+}) {
+  const [labels, setLabels] = useState(() => [
+    { id: 0, text: props.text, rank: props.rank, roll: 1, animate: false },
+  ]);
   const current = labels[labels.length - 1];
   if (current && current.text !== props.text) {
-    setLabels([current, { id: current.id + 1, text: props.text }]);
+    const roll = props.rank < current.rank ? -1 : 1;
+    setLabels([
+      { ...current, roll },
+      { id: current.id + 1, text: props.text, rank: props.rank, roll, animate: true },
+    ]);
   }
   const style: CSSProperties = props.gradient
     ? { backgroundImage: props.gradient, color: "transparent" }
@@ -545,24 +559,37 @@ function EffortTitle(props: { text: string; color: string; gradient: string | nu
         )}
         style={style}
       >
-        {labels.map((label, position) =>
-          position === labels.length - 1 ? (
+        {labels.map((label, position) => {
+          const incoming = position === labels.length - 1;
+          const letters = Array.from(label.text);
+          return (
             <span
               key={label.id}
-              className="min-w-0 truncate transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none"
+              aria-hidden={incoming ? undefined : "true"}
+              aria-label={incoming ? label.text : undefined}
+              className={
+                incoming
+                  ? "min-w-0 truncate"
+                  : "pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap"
+              }
+              style={{ "--roll": label.roll } as CSSProperties}
             >
-              {label.text}
+              {incoming && !label.animate
+                ? label.text
+                : letters.map((letter, index) => (
+                    <span
+                      // oxlint-disable-next-line react/no-array-index-key -- letters are positional
+                      key={index}
+                      aria-hidden="true"
+                      className={incoming ? "viewcode-roll-in" : "viewcode-roll-out"}
+                      style={{ "--i": index } as CSSProperties}
+                    >
+                      {letter}
+                    </span>
+                  ))}
             </span>
-          ) : (
-            <span
-              key={label.id}
-              aria-hidden="true"
-              className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none"
-            >
-              {label.text}
-            </span>
-          ),
-        )}
+          );
+        })}
       </span>
       <ChevronRightIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
     </span>
