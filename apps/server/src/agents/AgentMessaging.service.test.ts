@@ -37,7 +37,7 @@ const testCrypto = Crypto.make({
   digest: (_algorithm, data) => Effect.succeed(data),
 });
 
-function shell(id: ThreadId, parentThreadId: ThreadId | null, busy = false) {
+function shell(id: ThreadId, parentThreadId: ThreadId | null, busy = false, lastError?: string) {
   return {
     id,
     projectId: "project",
@@ -49,14 +49,20 @@ function shell(id: ThreadId, parentThreadId: ThreadId | null, busy = false) {
     parentThreadId,
     latestTurn: null,
     session: busy
-      ? { threadId: id, status: "running", providerInstanceId: "claudeAgent" }
-      : { threadId: id, status: "ready", providerInstanceId: "claudeAgent" },
+      ? { threadId: id, status: "running", providerInstanceId: "claudeAgent", lastError: null }
+      : {
+          threadId: id,
+          status: lastError ? "error" : "ready",
+          providerInstanceId: "claudeAgent",
+          lastError: lastError ?? null,
+        },
   } as unknown as OrchestrationThreadShell;
 }
 
 const makeHarness = Effect.gen(function* () {
   const busy = yield* Ref.make(new Set<string>());
   const answers = yield* Ref.make(new Map<string, string>());
+  const errors = yield* Ref.make(new Map<string, string>());
   const turnStarts = yield* Ref.make<ReadonlyArray<TurnStart>>([]);
   const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
@@ -68,11 +74,14 @@ const makeHarness = Effect.gen(function* () {
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
       getShellSnapshot: () =>
-        Ref.get(busy).pipe(
-          Effect.map((set) => ({
+        Effect.all([Ref.get(busy), Ref.get(errors)]).pipe(
+          Effect.map(([set, failed]) => ({
             snapshotSequence: 1,
             projects: [],
-            threads: [shell(LEAD, null, set.has(LEAD)), shell(CHILD, LEAD, set.has(CHILD))],
+            threads: [
+              shell(LEAD, null, set.has(LEAD), failed.get(LEAD)),
+              shell(CHILD, LEAD, set.has(CHILD), failed.get(CHILD)),
+            ],
             updatedAt: "2026-01-01T00:00:00.000Z",
           })),
         ),
@@ -81,7 +90,14 @@ const makeHarness = Effect.gen(function* () {
           Effect.map((map) =>
             Option.some({
               messages: map.has(threadId)
-                ? [{ role: "assistant", text: map.get(threadId), streaming: false }]
+                ? [
+                    {
+                      role: "assistant",
+                      text: map.get(threadId),
+                      streaming: false,
+                      createdAt: "2099-01-01T00:00:00.000Z",
+                    },
+                  ]
                 : [],
             } as unknown as OrchestrationThread),
           ),
@@ -116,7 +132,14 @@ const makeHarness = Effect.gen(function* () {
       ),
     );
 
-  return { busy, answers, turnStarts, endTurn, layer: layer.pipe(Layer.provide(dependencies)) };
+  return {
+    busy,
+    answers,
+    errors,
+    turnStarts,
+    endTurn,
+    layer: layer.pipe(Layer.provide(dependencies)),
+  };
 });
 
 describe("AgentMessaging", () => {
@@ -151,6 +174,74 @@ describe("AgentMessaging", () => {
           assert.equal(starts[1]!.threadId, LEAD);
           assert.equal(reply?.body, "3 gaps found.");
           assert.equal(reply?.inReplyTo, sent.messageId);
+        }).pipe(Effect.provide(harness.layer));
+      }),
+    ),
+  );
+
+  it.effect("reports the receiver's error when its turn fails without an answer", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        yield* Effect.gen(function* () {
+          const messaging = yield* AgentMessaging;
+          yield* messaging.start();
+
+          yield* messaging.sendMessage(LEAD, {
+            to: CHILD,
+            message: "Run the tests.",
+            replyExpected: true,
+          });
+          yield* Ref.update(harness.errors, (map) =>
+            new Map(map).set(CHILD, "403 MODEL_NOT_IN_PLAN"),
+          );
+          yield* harness.endTurn(CHILD);
+          yield* Effect.yieldNow;
+          yield* messaging.drain;
+
+          const starts = yield* Ref.get(harness.turnStarts);
+          assert.equal(starts.length, 2);
+          assert.include(
+            parseAgentMessage(starts[1]!.message.text)?.body ?? "",
+            "403 MODEL_NOT_IN_PLAN",
+          );
+        }).pipe(Effect.provide(harness.layer));
+      }),
+    ),
+  );
+
+  it.effect("tells the sender when a receiver runs out of quota and refuses further messages", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        yield* Effect.gen(function* () {
+          const messaging = yield* AgentMessaging;
+          yield* messaging.start();
+
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Run the Python suite." });
+          yield* Ref.update(harness.errors, (map) =>
+            new Map(map).set(
+              CHILD,
+              "Claude usage limit reached. Send the message again once the limit resets.",
+            ),
+          );
+          yield* harness.endTurn(CHILD);
+          yield* Effect.yieldNow;
+          yield* messaging.drain;
+
+          const starts = yield* Ref.get(harness.turnStarts);
+          assert.equal(starts.length, 2);
+          assert.equal(starts[1]!.threadId, LEAD);
+          assert.include(
+            parseAgentMessage(starts[1]!.message.text)?.body ?? "",
+            "Do not message it again",
+          );
+
+          const refused = yield* messaging
+            .sendMessage(LEAD, { to: CHILD, message: "Are you still going?" })
+            .pipe(Effect.flip);
+          assert.include(refused.message, "out of quota");
+          assert.equal((yield* Ref.get(harness.turnStarts)).length, 2);
         }).pipe(Effect.provide(harness.layer));
       }),
     ),

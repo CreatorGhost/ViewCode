@@ -1,6 +1,6 @@
 import { type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
 import { memo } from "react";
-import { CheckIcon, StarIcon } from "lucide-react";
+import { ArrowRightLeftIcon, CheckIcon, StarIcon } from "lucide-react";
 import {
   getDisplayModelName,
   getTriggerDisplayModelLabel,
@@ -79,9 +79,11 @@ export const ModelListRow = memo(function ModelListRow(props: {
             </span>
           ) : null}
           {props.showHandoffBadge ? (
-            <Badge variant="outline" size="sm" aria-label="Switches with a context handoff">
-              Handoff
-            </Badge>
+            <ArrowRightLeftIcon
+              role="img"
+              aria-label="Switches with a context handoff"
+              className="size-3 shrink-0 text-muted-foreground"
+            />
           ) : null}
           {props.unavailable ? (
             <Badge variant="outline" size="sm">

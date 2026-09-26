@@ -45,7 +45,7 @@ const listenPathFlag = Flag.String("listen-path").pipe(
 );
 export const baseDirFlag = Flag.String("base-dir").pipe(
   Flag.withDescription(
-    "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME).",
+    "Explicit ViewCode data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME).",
   ),
   Flag.optional,
 );

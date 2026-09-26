@@ -61,12 +61,15 @@ const ListAgentsTool = Tool.make("list_agents", {
 
 const ListModelsTool = Tool.make("list_models", {
   description:
-    "List the providers and models available for spawn_agent and configure_agent. Pick the model that fits the task, e.g. a fast model for search, a strong one for review.",
+    "List the providers and models available for spawn_agent and configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
   success: Schema.Struct({
     providers: Schema.Array(
       Schema.Struct({
         providerId: Schema.String,
         name: Schema.String,
+        driver: Schema.String,
+        usable: Schema.Boolean,
+        note: Schema.optional(Schema.String),
         models: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
       }),
     ),

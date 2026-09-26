@@ -572,6 +572,16 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
 
   const selectedEntry =
     selectedInstanceId === "favorites" ? undefined : entryByInstanceId.get(selectedInstanceId);
+  const handoffFromKey = props.handoffFromContinuationGroupKey ?? null;
+  const modelNeedsHandoff = (model: (typeof filteredModels)[number]) =>
+    handoffFromKey !== null && (model.continuationGroupKey ?? model.instanceId) !== handoffFromKey;
+  // One provider's list either all hands off or none of it does, so say it
+  // once above the list; mixed lists (favorites, search) mark each row.
+  const singleProviderList = selectedInstanceId !== "favorites" && !isSearching;
+  const handoffProviderName =
+    singleProviderList && filteredModels.some(modelNeedsHandoff)
+      ? (filteredModels[0]?.instanceDisplayName ?? "this provider")
+      : null;
   const providerSetupEntries =
     !isSearching && props.onOpenProviderSetup
       ? instanceEntries.filter(
@@ -944,6 +954,13 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               onTouchStart={(e) => e.stopPropagation()}
             />
 
+            {handoffProviderName !== null ? (
+              <p className="px-4 pt-2 text-xs text-muted-foreground">
+                Switching to {handoffProviderName} hands this chat off: your messages carry over
+                word for word, earlier replies as a summary.
+              </p>
+            ) : null}
+
             {/* Model list */}
             <div className="relative min-h-0 flex-1 overflow-hidden pr-px">
               <ComboboxListVirtualized>
@@ -1005,11 +1022,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                         preferShortName={!isLocked}
                         useTriggerLabel={false}
                         showNewBadge={model.badge === "new"}
-                        showHandoffBadge={
-                          props.handoffFromContinuationGroupKey != null &&
-                          (model.continuationGroupKey ?? model.instanceId) !==
-                            props.handoffFromContinuationGroupKey
-                        }
+                        showHandoffBadge={!singleProviderList && modelNeedsHandoff(model)}
                         unavailable={model.isUnavailable === true}
                         jumpLabel={modelJumpLabelByKey.get(modelKey) ?? null}
                         disabledReason={disabledReason}

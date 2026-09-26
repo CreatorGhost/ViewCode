@@ -32,11 +32,14 @@ export interface HandoffDocument {
 
 interface Exchange {
   readonly user: string;
-  readonly assistant: string;
+  readonly assistant: ReadonlyArray<string>;
 }
 
-const MAX_RECENT_CHARS = 12_000;
-const MAX_ANSWER_CHARS = 1_500;
+// The user's own words carry intent (which PR, which constraint, which
+// codeword), so every user message travels verbatim and uncapped. Only the
+// assistant's side is compacted.
+const MAX_RECENT_ASSISTANT_CHARS = 12_000;
+const MAX_CONDENSED_ANSWER_CHARS = 700;
 const MAX_LIST_ITEMS = 25;
 
 function clip(text: string, max: number): string {
@@ -50,15 +53,14 @@ function exchangesOf(thread: OrchestrationThread): Exchange[] {
   let current: { user: string; assistant: string[] } | null = null;
   for (const message of thread.messages) {
     if (message.role === "user") {
-      if (current)
-        exchanges.push({ user: current.user, assistant: current.assistant.join("\n\n") });
+      if (current) exchanges.push(current);
       current = { user: message.text, assistant: [] };
     } else if (message.role === "assistant" && message.text.trim().length > 0) {
       if (!current) current = { user: "", assistant: [] };
       current.assistant.push(message.text);
     }
   }
-  if (current) exchanges.push({ user: current.user, assistant: current.assistant.join("\n\n") });
+  if (current) exchanges.push(current);
   return exchanges;
 }
 
@@ -110,28 +112,27 @@ export function buildHandoff(input: {
 }): HandoffDocument {
   const { thread } = input;
   const exchanges = exchangesOf(thread);
-  const firstAsk = exchanges.find((exchange) => exchange.user.trim().length > 0)?.user ?? "";
   const { edits, commands } = toolWork(thread);
   const plan = latestPlan(thread);
 
-  const recent: Exchange[] = [];
-  let budget = MAX_RECENT_CHARS;
+  // The last few replies stay verbatim; earlier ones shrink to their final answer.
+  let recentCount = 0;
+  let assistantBudget = MAX_RECENT_ASSISTANT_CHARS;
   for (
     let index = exchanges.length - 1;
-    index >= 0 && recent.length < input.recentExchanges;
+    index >= 0 && recentCount < input.recentExchanges;
     index -= 1
   ) {
-    const exchange = exchanges[index]!;
-    const size = exchange.user.length + exchange.assistant.length;
-    if (recent.length > 0 && size > budget) break;
-    budget -= size;
-    recent.unshift(exchange);
+    const size = exchanges[index]!.assistant.join("\n\n").length;
+    if (recentCount > 0 && size > assistantBudget) break;
+    assistantBudget -= size;
+    recentCount += 1;
   }
-  const earlier = exchanges.slice(0, exchanges.length - recent.length);
+  const firstRecent = exchanges.length - recentCount;
 
   const summaryLines = [
     `Thread "${thread.title}" moved from ${describeModel(input.from)} to ${describeModel(input.to)}.`,
-    `${exchanges.length} earlier exchange${exchanges.length === 1 ? "" : "s"}; ${recent.length} carried verbatim.`,
+    `${exchanges.length} earlier exchange${exchanges.length === 1 ? "" : "s"}; your messages carried verbatim; last ${recentCount} repl${recentCount === 1 ? "y" : "ies"} verbatim.`,
   ];
   if (edits.length > 0)
     summaryLines.push(
@@ -142,34 +143,29 @@ export function buildHandoff(input: {
       `Open plan steps: ${plan.filter((step) => !step.startsWith("[completed]")).length}`,
     );
 
+  const conversation = exchanges.map((exchange, index) => {
+    const number = index + 1;
+    const user = exchange.user.trim() || "(no user message)";
+    const verbatim = index >= firstRecent;
+    const reply = verbatim
+      ? exchange.assistant.join("\n\n").trim()
+      : clip(exchange.assistant.at(-1) ?? "", MAX_CONDENSED_ANSWER_CHARS);
+    return [
+      `### ${number}. User`,
+      user,
+      "",
+      `### ${number}. Assistant${verbatim ? "" : " (final answer, condensed)"}`,
+      reply || "(no reply)",
+    ].join("\n");
+  });
+
   const recap: string[] = [];
-  if (firstAsk) recap.push(`## Original request\n${clip(firstAsk, 2_000)}`);
-  if (earlier.length > 0) {
-    recap.push(
-      `## Earlier exchanges (condensed)\n${earlier
-        .map((exchange, index) => {
-          const ask = clip(exchange.user, 300) || "(no user message)";
-          const answer = clip(exchange.assistant, MAX_ANSWER_CHARS) || "(no reply)";
-          return `${index + 1}. User: ${ask}\n   Assistant: ${answer.replace(/\n/g, "\n   ")}`;
-        })
-        .join("\n")}`,
-    );
-  }
+  if (conversation.length > 0) recap.push(`## Conversation so far\n\n${conversation.join("\n\n")}`);
   if (edits.length > 0)
     recap.push(`## Files changed so far\n${edits.map((path) => `- ${path}`).join("\n")}`);
   if (commands.length > 0)
     recap.push(`## Commands run\n${commands.map((command) => `- ${command}`).join("\n")}`);
   if (plan.length > 0) recap.push(`## Plan / todos\n${plan.map((step) => `- ${step}`).join("\n")}`);
-  if (recent.length > 0) {
-    recap.push(
-      `## Most recent exchanges (verbatim)\n${recent
-        .map(
-          (exchange) =>
-            `### User\n${exchange.user.trim()}\n\n### Assistant\n${exchange.assistant.trim()}`,
-        )
-        .join("\n\n")}`,
-    );
-  }
 
   const transcript = [
     `# Transcript: ${thread.title}`,

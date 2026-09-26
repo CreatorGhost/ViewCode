@@ -130,7 +130,7 @@ export const runMcpStdioBridge = (options: McpStdioBridgeOptions): Promise<void>
       emit({
         jsonrpc: "2.0",
         id,
-        error: { code: -32000, message: `T3 Code MCP bridge: ${detail}` },
+        error: { code: -32000, message: `ViewCode MCP bridge: ${detail}` },
       });
     }
   };

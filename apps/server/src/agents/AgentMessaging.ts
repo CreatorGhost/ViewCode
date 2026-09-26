@@ -47,6 +47,14 @@ import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
  * other busy forever without the user.
  */
 
+/** Provider errors that retrying cannot fix until a quota or plan changes. */
+const LIMIT_ERROR_PATTERN =
+  /usage limit|rate[ _-]?limit|quota|exceed|\b429\b|MODEL_NOT_IN_PLAN|not (?:in|available on) (?:your )?plan|insufficient (?:credit|balance|funds)/i;
+
+export function isLimitError(message: string | null | undefined): message is string {
+  return typeof message === "string" && LIMIT_ERROR_PATTERN.test(message);
+}
+
 export const AGENT_MESSAGE_MAX_HOPS = 24;
 const TRANSCRIPT_MAX_CHARS = 24_000;
 
@@ -68,6 +76,15 @@ export interface AgentSummary {
   readonly model: string;
   readonly status: "running" | "idle" | "error" | "stopped" | "new";
   readonly queuedMessages: number;
+}
+
+export interface ProviderModels {
+  readonly providerId: string;
+  readonly name: string;
+  readonly driver: string;
+  readonly usable: boolean;
+  readonly note?: string;
+  readonly models: ReadonlyArray<{ readonly id: string; readonly name: string }>;
 }
 
 export interface SendResult {
@@ -96,13 +113,7 @@ export interface AgentMessagingShape {
   readonly listAgents: (
     caller: ThreadId,
   ) => Effect.Effect<ReadonlyArray<AgentSummary>, AgentMessagingError>;
-  readonly listModels: () => Effect.Effect<
-    ReadonlyArray<{
-      readonly providerId: string;
-      readonly name: string;
-      readonly models: ReadonlyArray<{ readonly id: string; readonly name: string }>;
-    }>
-  >;
+  readonly listModels: () => Effect.Effect<ReadonlyArray<ProviderModels>>;
   readonly spawnAgent: (
     caller: ThreadId,
     input: {
@@ -209,7 +220,10 @@ const make = Effect.gen(function* () {
   const queues = new Map<string, Delivery[]>();
   // The request each receiver is currently answering (turn started by a
   // reply-expected message) and whether it already replied explicitly.
-  const answering = new Map<string, { delivery: Delivery; replied: boolean }>();
+  // Agents whose last turn hit a usage/plan limit. Messages to them are
+  // refused until a turn succeeds or configure_agent moves them to another model.
+  const limited = new Map<string, string>();
+  const answering = new Map<string, { delivery: Delivery; replied: boolean; startedAt: string }>();
   // The delivery whose turn is running on a thread, for hop accounting.
   const runningDelivery = new Map<string, Delivery>();
   const pendingModels = new Map<string, ModelSelection>();
@@ -288,7 +302,7 @@ const make = Effect.gen(function* () {
     pendingModels.delete(delivery.toThreadId);
     runningDelivery.set(delivery.toThreadId, delivery);
     if (delivery.replyExpected) {
-      answering.set(delivery.toThreadId, { delivery, replied: false });
+      answering.set(delivery.toThreadId, { delivery, replied: false, startedAt: createdAt });
     }
     yield* engine.dispatch({
       type: "thread.turn.start",
@@ -339,6 +353,12 @@ const make = Effect.gen(function* () {
         );
       }
       if (target.id === self.id) return yield* fail("An agent cannot message itself.");
+      const limitReason = limited.get(target.id);
+      if (limitReason !== undefined && !pendingModels.has(target.id)) {
+        return yield* fail(
+          `${target.title} is out of quota and cannot take messages: ${limitReason} Do not retry. Use configure_agent to move it to a model on another provider, spawn_agent a new agent on another provider, or tell the user.`,
+        );
+      }
       const request = answering.get(caller);
       const isReply =
         input.responseId !== undefined &&
@@ -471,18 +491,24 @@ const make = Effect.gen(function* () {
   const listModels: AgentMessagingShape["listModels"] = () =>
     providerRegistry.getProviders.pipe(
       Effect.map((providers) =>
+        // Unusable providers stay listed with the reason, so an agent asked
+        // for "GPT" learns Codex needs attention instead of silently picking
+        // another provider's copy of the model.
         providers
-          .filter(
-            (provider) =>
-              provider.enabled && provider.status !== "disabled" && provider.status !== "error",
-          )
-          .map((provider) => ({
-            providerId: String(provider.instanceId),
-            name: provider.displayName ?? String(provider.driver),
-            models: provider.models
-              .filter((model) => model.isLegacy !== true)
-              .map((model) => ({ id: model.slug, name: model.name })),
-          })),
+          .filter((provider) => provider.enabled && provider.status !== "disabled")
+          .map((provider): ProviderModels => {
+            const note = provider.message ?? provider.unavailableReason;
+            return {
+              providerId: String(provider.instanceId),
+              name: provider.displayName ?? String(provider.driver),
+              driver: String(provider.driver),
+              usable: provider.status !== "error" && provider.availability !== "unavailable",
+              ...(note ? { note } : {}),
+              models: provider.models
+                .filter((model) => model.isLegacy !== true)
+                .map((model) => ({ id: model.slug, name: model.name })),
+            };
+          }),
       ),
     );
 
@@ -524,34 +550,65 @@ const make = Effect.gen(function* () {
     const threads = yield* shells;
     const thread = threads.find((entry) => entry.id === threadId);
     if (!thread || isBusy(thread)) return;
+    const running = runningDelivery.get(threadId);
     runningDelivery.delete(threadId);
     const request = answering.get(threadId);
     answering.delete(threadId);
-    if (request && !request.replied) {
+    const lastError = thread.session?.lastError ?? null;
+    const hitLimit = isLimitError(lastError);
+    if (hitLimit) limited.set(threadId, lastError);
+    else limited.delete(threadId);
+    // A sender that expected no reply still needs to know its agent is out of quota.
+    const notify = request && !request.replied ? request.delivery : hitLimit ? running : undefined;
+    if (notify) {
       const detail = yield* projections.getThreadDetailById(threadId, { activityKinds: [] }).pipe(
         Effect.map(Option.getOrUndefined),
         Effect.orElseSucceed(() => undefined),
       );
-      const answer = [...(detail?.messages ?? [])]
-        .reverse()
-        .find((message) => message.role === "assistant" && message.text.trim().length > 0)?.text;
-      const requester = threads.find((entry) => entry.id === request.delivery.fromThreadId);
-      if (requester && request.delivery.hop + 1 < AGENT_MESSAGE_MAX_HOPS) {
+      // Only this turn's answer: an older reply would read as the answer to
+      // the new request. A turn that failed reports its error instead.
+      // Without a reply request we don't know when the turn began, so send no answer text.
+      const startedAt = request?.startedAt;
+      const answer =
+        startedAt === undefined
+          ? undefined
+          : [...(detail?.messages ?? [])]
+              .reverse()
+              .find(
+                (message) =>
+                  message.role === "assistant" &&
+                  message.createdAt >= startedAt &&
+                  message.text.trim().length > 0,
+              )?.text;
+      const requester = threads.find((entry) => entry.id === notify.fromThreadId);
+      if (requester && notify.hop + 1 < AGENT_MESSAGE_MAX_HOPS) {
+        const limitNotice = hitLimit
+          ? `[Usage limit reached: ${lastError} This agent stops here. Do not message it again or wait for it; use configure_agent to move it to a model on another provider, or finish without it.]`
+          : null;
+        const body =
+          limitNotice !== null
+            ? [answer, limitNotice].filter(Boolean).join("\n\n")
+            : (answer ??
+              (lastError
+                ? `(failed without an answer: ${lastError})`
+                : "(finished without a written answer)"));
         const reply: Delivery = {
           messageId: yield* uuid,
-          chainId: request.delivery.chainId,
-          hop: request.delivery.hop + 1,
+          chainId: notify.chainId,
+          hop: notify.hop + 1,
           fromThreadId: threadId,
           fromName: thread.title,
           toThreadId: requester.id,
-          body: answer ?? "(finished without a written answer)",
+          body,
           replyExpected: false,
-          inReplyTo: request.delivery.messageId,
+          inReplyTo: notify.messageId,
         };
         const status = yield* deliver(reply).pipe(Effect.orElseSucceed(() => "queued" as const));
         yield* recordSent(reply, requester.title, "message", status);
       }
     }
+    // Queued messages wait: waking an agent that is out of quota only fails again.
+    if (hitLimit) return;
     const queue = queues.get(threadId);
     const next = queue?.shift();
     if (queue && queue.length === 0) queues.delete(threadId);
