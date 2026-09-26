@@ -52,9 +52,12 @@ From T3 Code you also get:
 
 ## Install and run (from source)
 
+There are no prebuilt downloads yet: you build ViewCode from this repository.
+
 Requirements:
 
-- Node.js 24 and pnpm 11. Install the Vite+ `vp` CLI, or use `pnpm`.
+- Git, Node.js **24.13 or newer**, and pnpm 11 (`corepack enable` installs the
+  right pnpm for you).
 - At least one provider CLI installed and logged in:
 
 | Provider     | Install                                 | Log in                |
@@ -66,16 +69,42 @@ Requirements:
 | Cursor       | https://cursor.com/cli                  | `agent login`         |
 | Command Code | `npm i -g command-code`                 | `cmd login`           |
 
+```bash
+git clone https://github.com/CreatorGhost/ViewCode.git
+cd ViewCode
+corepack enable
+pnpm install
+```
+
+Then pick one:
+
+```bash
+# The desktop app, built as it ships. It opens no network port.
+pnpm build:desktop
+pnpm --filter @t3tools/desktop start
+
+# Or the server plus the web UI in your browser. Open the pairing URL it prints.
+pnpm dev
+```
+
+`pnpm dev:desktop` also opens the desktop app, but in development mode, which
+serves the window from a local dev server on a port.
+
+To build an installer you can keep and double-click, run the command for your
+operating system on that operating system. The file lands in `release/`.
+
+```bash
+pnpm dist:desktop:dmg     # macOS
+pnpm dist:desktop:win     # Windows
+pnpm dist:desktop:linux   # Linux (AppImage)
+```
+
+These builds are unsigned, so macOS and Windows warn the first time you open them.
+
 A provider shows up automatically when its CLI is on your `PATH`. Turn providers on
 or off in **Settings → Providers**. To add a second account for the same provider
 (for example a work Claude login), create an extra provider instance with its own
 home directory. A switch between accounts is handled as a handoff.
-
-```bash
-pnpm install
-pnpm dev            # server + web UI; prints a one-time pairing URL
-pnpm dev:desktop    # Electron desktop app
-```
 
 The server keeps its state in `~/.viewcode`. Telemetry is off by default.
 
