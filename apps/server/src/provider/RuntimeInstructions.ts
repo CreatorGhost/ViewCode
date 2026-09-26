@@ -2,6 +2,12 @@ const PULL_REQUEST_LINKING_INSTRUCTIONS = `<pull_request_linking>
 When the t3-code MCP server exposes link_pull_request, you must use it to register every pull request you create or work on for this thread. Call link_pull_request with the full PR URL immediately after creating a PR or starting work on an existing PR. For a stack, call it for every layer, not just the current branch or the top PR. This applies when creating or updating PRs through gh, gh stack, another CLI, or the host API: those operations do not register the PRs with this thread. Linking an already-linked PR is safe. Before finishing PR work, call list_thread_pull_requests and link any PR from your work that is missing. Do not link unrelated PRs mentioned only as background. If a linking call fails, report that failure instead of claiming the PR is linked.
 </pull_request_linking>`;
 
+// ViewCode: child agents are full, visible chats the user can open, prompt and
+// switch models on. Harness-native sub-agents stay available when asked for.
+const CHILD_AGENT_INSTRUCTIONS = `<child_agents>
+When the t3-code MCP server exposes spawn_agent and the user asks for sub-agents, child agents, helpers or parallel agents, use spawn_agent (one call per agent, with the provider and model the user named; call list_models first if unsure). These appear as separate chats in ViewCode that the user can open, prompt and switch models on, and their answers come back to you automatically. Use your harness's built-in sub-agent feature only if the user explicitly asks for in-chat or inline sub-agents, or if spawn_agent is unavailable or fails.
+</child_agents>`;
+
 /**
  * Shared runtime context; omit model and effort when the harness manages them dynamically.
  * `modelName` is the display name users see in the model picker; `model` is the slug.
@@ -20,7 +26,7 @@ export function buildRuntimeInstructions(runtime: {
     modelName && modelName !== model ? `${modelName} (model slug: ${model})` : model;
   const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
-  return `<runtime_info>In case you're asked: you are running in ViewCode through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}`;
+  return `<runtime_info>In case you're asked: you are running in ViewCode through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${CHILD_AGENT_INSTRUCTIONS}`;
 }
 
 function toSingleLine(value: string): string {

@@ -10,6 +10,14 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).toContain("call list_thread_pull_requests and link any PR");
   });
 
+  it("routes requests for sub-agents to ViewCode child agents", () => {
+    const instructions = buildRuntimeInstructions({ harness: "Codex" });
+    expect(instructions).toContain("When the t3-code MCP server exposes spawn_agent");
+    expect(instructions).toContain(
+      "only if the user explicitly asks for in-chat or inline sub-agents",
+    );
+  });
+
   it("keeps known model and effort metadata on one line", () => {
     expect(
       buildRuntimeInstructions({
