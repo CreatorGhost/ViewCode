@@ -147,6 +147,7 @@ import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
+import { AgentMessaging } from "./agents/AgentMessaging.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
@@ -627,6 +628,7 @@ const makeWsRpcLayer = (
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
+      const agentMessaging = yield* AgentMessaging;
       const repositoryIdentityResolver =
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       // Clone hooks run on the tracker's fiber, outside any RPC, so the
@@ -3072,6 +3074,22 @@ const makeWsRpcLayer = (
         [WS_METHODS.subscribeProjectClones]: () =>
           observeRpcStream(WS_METHODS.subscribeProjectClones, projectCloneTracker.stream, {
             "rpc.aggregate": "source-control",
+          }),
+        [WS_METHODS.agentsStop]: (input) =>
+          observeRpcEffect(WS_METHODS.agentsStop, agentMessaging.stop(input), {
+            "rpc.aggregate": "agents",
+          }),
+        [WS_METHODS.agentsResume]: (input) =>
+          observeRpcEffect(WS_METHODS.agentsResume, agentMessaging.resume(input), {
+            "rpc.aggregate": "agents",
+          }),
+        [WS_METHODS.agentsDiscard]: (input) =>
+          observeRpcEffect(WS_METHODS.agentsDiscard, agentMessaging.discard(input), {
+            "rpc.aggregate": "agents",
+          }),
+        [WS_METHODS.subscribeAgentControl]: () =>
+          observeRpcStream(WS_METHODS.subscribeAgentControl, agentMessaging.controlChanges, {
+            "rpc.aggregate": "agents",
           }),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           observeRpcEffect(

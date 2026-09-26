@@ -258,6 +258,13 @@ import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from ".
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import { ChooseProvidersInput, DetectProvidersResult } from "./providerChoice.ts";
 import {
+  AgentControlError,
+  AgentControlInput,
+  AgentControlResult,
+  AgentControlSnapshot,
+  AgentControlSubscribeInput,
+} from "./agentControl.ts";
+import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
   ProjectCloneListEvent,
@@ -434,6 +441,12 @@ export const WS_METHODS = {
   projectCloneCancel: "projectClone.cancel",
   projectCloneRetry: "projectClone.retry",
   subscribeProjectClones: "subscribeProjectClones",
+
+  // ViewCode agent control (stop, resume, discard held agent messages)
+  agentsStop: "agents.stop",
+  agentsResume: "agents.resume",
+  agentsDiscard: "agents.discard",
+  subscribeAgentControl: "subscribeAgentControl",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -935,6 +948,31 @@ const WsProjectCloneRetryRpc = Rpc.make(WS_METHODS.projectCloneRetry, {
 const WsSubscribeProjectClonesRpc = Rpc.make(WS_METHODS.subscribeProjectClones, {
   payload: ProjectCloneSubscribeInput,
   success: ProjectCloneListEvent,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const WsAgentsStopRpc = Rpc.make(WS_METHODS.agentsStop, {
+  payload: AgentControlInput,
+  success: AgentControlResult,
+  error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
+});
+
+const WsAgentsResumeRpc = Rpc.make(WS_METHODS.agentsResume, {
+  payload: AgentControlInput,
+  success: AgentControlResult,
+  error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
+});
+
+const WsAgentsDiscardRpc = Rpc.make(WS_METHODS.agentsDiscard, {
+  payload: AgentControlInput,
+  success: AgentControlResult,
+  error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
+});
+
+const WsSubscribeAgentControlRpc = Rpc.make(WS_METHODS.subscribeAgentControl, {
+  payload: AgentControlSubscribeInput,
+  success: AgentControlSnapshot,
   error: EnvironmentAuthorizationError,
   stream: true,
 });
@@ -1497,6 +1535,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectCloneCancelRpc,
   WsProjectCloneRetryRpc,
   WsSubscribeProjectClonesRpc,
+  WsAgentsStopRpc,
+  WsAgentsResumeRpc,
+  WsAgentsDiscardRpc,
+  WsSubscribeAgentControlRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,

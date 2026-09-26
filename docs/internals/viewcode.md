@@ -73,18 +73,40 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `traycer_*`). Codex has its own built-in `spawn_agent`; with the bare name the
   model picked the built-in one, so "sub-agents" never became visible ViewCode
   agents. The runtime instructions (`provider/RuntimeInstructions.ts`) name the
-  ViewCode path and say when the harness's own sub-agents are appropriate.
+  ViewCode path and say when the harness's own sub-agents are appropriate. If
+  `viewcode_spawn_agent` is missing or fails, the agent reports it and asks the
+  user before using its harness's sub-agents (a user decision: no silent
+  fallback).
 
 - A message is a normal `thread.turn.start` whose text begins with a
-  `<viewcode-agent-message …>` envelope. Idle receiver → starts now; busy →
-  queued until its turn ends. `reply_expected` routes the receiver's final
-  answer **from that turn only** back to the sender.
+  `<viewcode-agent-message …>` envelope. Idle receiver → starts now; busy,
+  paused or out of quota → queued. `reply_expected` routes the receiver's final
+  answer **from that turn only** back to the sender. "That turn" is the provider
+  turn id bound from the first `session-set` running after the delivery's own
+  `thread.turn-start-requested` event (matched by message id), never a
+  timestamp: a user prompt interleaved on the same thread used to be routed as
+  the answer.
 - Agents can reach only their own tree (root thread and all descendants). A hop
-  limit (24) stops ping-pong loops.
-- A turn that ends with a usage/plan/rate-limit error marks the agent "out of
-  quota": the sender is told once ("do not message it again"), further sends
-  are refused with the reason, and queued messages wait. Cleared by a successful
-  turn or by `viewcode_configure_agent` moving it to another model.
+  limit (24) stops ping-pong loops; spawning counts as a hop too.
+- Stopping an agent that belongs to a tree **pauses** it (user decision): any
+  `thread.turn.interrupt` / session stop from any client, or the `agents.stop`
+  RPC (Stop all = whole tree). While paused, messages and replies to it queue,
+  senders are told it is paused, and a stopped turn's pending reply is held.
+  `agents.resume` sends "Continue where you left off." when a turn was cut
+  short (its answer still goes to the original requester) and drains the queue;
+  `agents.discard` drops the held work. Typing a prompt into a paused agent
+  resumes it. Pause and queues live in server memory only
+  (`subscribeAgentControl` streams them); a restart forgets them. Mobile can
+  stop and prompt but has no Resume/Discard buttons yet.
+- A turn that ends with a usage/plan/rate-limit/credit error marks the agent
+  "out of quota": the sender is told once ("do not message it again"), further
+  sends are refused, queued messages wait. Providers only report this as text,
+  so `isLimitError` is a narrow pattern that explicitly excludes context-length
+  errors ("context window exceeded" is not a quota problem). Cleared by a
+  successful turn, or by `viewcode_configure_agent` moving it to another model,
+  which also starts its queued work on the new model. Configure writes the
+  thread's model too, so the user's next prompt uses it unless the composer
+  already has another model picked.
 - `viewcode_list_models` lists every enabled provider with `usable` and a `note`, and
   tells agents to use a vendor's own provider (GPT → Codex) over resellers
   (Command Code, OpenCode, Cursor) unless the user names the reseller.

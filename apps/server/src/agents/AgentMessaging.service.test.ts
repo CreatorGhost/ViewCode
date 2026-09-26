@@ -1,4 +1,5 @@
 import {
+  type AgentControlSnapshot,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -19,12 +20,19 @@ import { OrchestrationEngineService } from "../orchestration/Services/Orchestrat
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
 import { ServerActivation } from "../serverActivation.ts";
-import { AGENT_MESSAGE_MAX_HOPS, AgentMessaging, layer } from "./AgentMessaging.ts";
+import {
+  AGENT_CONTINUE_PROMPT,
+  AGENT_MESSAGE_MAX_HOPS,
+  AgentMessaging,
+  isLimitError,
+  layer,
+} from "./AgentMessaging.ts";
 
 type TurnStart = Extract<OrchestrationCommand, { readonly type: "thread.turn.start" }>;
 
 const LEAD = ThreadId.make("lead");
 const CHILD = ThreadId.make("child");
+const LONER = ThreadId.make("loner");
 
 let counter = 0;
 const testCrypto = Crypto.make({
@@ -37,68 +45,137 @@ const testCrypto = Crypto.make({
   digest: (_algorithm, data) => Effect.succeed(data),
 });
 
-function shell(id: ThreadId, parentThreadId: ThreadId | null, busy = false, lastError?: string) {
-  return {
-    id,
-    projectId: "project",
-    title: id === LEAD ? "Lead" : "Child",
-    modelSelection: { instanceId: "claudeAgent", model: "claude-sonnet-4-6" },
-    runtimeMode: "full-access",
-    branch: null,
-    worktreePath: null,
-    parentThreadId,
-    latestTurn: null,
-    session: busy
-      ? { threadId: id, status: "running", providerInstanceId: "claudeAgent", lastError: null }
-      : {
-          threadId: id,
-          status: lastError ? "error" : "ready",
-          providerInstanceId: "claudeAgent",
-          lastError: lastError ?? null,
-        },
-  } as unknown as OrchestrationThreadShell;
+interface Message {
+  readonly role: "user" | "assistant";
+  readonly text: string;
+  readonly turnId: string | null;
 }
 
+/**
+ * A fake engine: a turn start publishes `thread.turn-start-requested` and
+ * then the provider turn starting (`session-set` running with a fresh turn
+ * id); `endTurn` writes the turn's answer and publishes its end.
+ */
 const makeHarness = Effect.gen(function* () {
-  const busy = yield* Ref.make(new Set<string>());
-  const answers = yield* Ref.make(new Map<string, string>());
+  const activeTurn = yield* Ref.make(new Map<string, string>());
+  const messages = yield* Ref.make(new Map<string, ReadonlyArray<Message>>());
   const errors = yield* Ref.make(new Map<string, string>());
+  const models = yield* Ref.make(new Map<string, string>());
   const turnStarts = yield* Ref.make<ReadonlyArray<TurnStart>>([]);
+  const interrupts = yield* Ref.make<ReadonlyArray<string>>([]);
   const events = yield* PubSub.unbounded<OrchestrationEvent>();
+  let turnCounter = 0;
 
-  const dispatch = (command: OrchestrationCommand) =>
-    command.type === "thread.turn.start"
-      ? Ref.update(turnStarts, (all) => [...all, command]).pipe(Effect.as({ sequence: 1 }))
-      : Effect.succeed({ sequence: 1 });
+  const publish = (event: unknown) => PubSub.publish(events, event as OrchestrationEvent);
+
+  const addMessage = (threadId: ThreadId, message: Message) =>
+    Ref.update(messages, (map) =>
+      new Map(map).set(threadId, [...(map.get(threadId) ?? []), message]),
+    );
+
+  /** The provider turn for a requested message starts. */
+  const runTurn = (threadId: ThreadId, messageId: string, text: string) =>
+    Effect.gen(function* () {
+      turnCounter += 1;
+      const turnId = `turn-${turnCounter}`;
+      yield* publish({ type: "thread.turn-start-requested", payload: { threadId, messageId } });
+      yield* addMessage(threadId, { role: "user", text, turnId: null });
+      yield* Ref.update(activeTurn, (map) => new Map(map).set(threadId, turnId));
+      yield* publish({
+        type: "thread.session-set",
+        payload: { threadId, session: { threadId, status: "running", activeTurnId: turnId } },
+      });
+      return turnId;
+    });
+
+  const dispatch = (command: OrchestrationCommand) => {
+    switch (command.type) {
+      case "thread.turn.start":
+        return Ref.update(turnStarts, (all) => [...all, command]).pipe(
+          Effect.andThen(
+            runTurn(command.threadId, command.message.messageId, command.message.text),
+          ),
+          Effect.as({ sequence: 1 }),
+        );
+      case "thread.turn.interrupt":
+        return Ref.update(interrupts, (all) => [...all, command.threadId]).pipe(
+          Effect.andThen(
+            publish({
+              type: "thread.turn-interrupt-requested",
+              payload: { threadId: command.threadId },
+            }),
+          ),
+          Effect.as({ sequence: 1 }),
+        );
+      case "thread.meta.update":
+        return Ref.update(models, (map) =>
+          command.modelSelection
+            ? new Map(map).set(command.threadId, command.modelSelection.model)
+            : map,
+        ).pipe(Effect.as({ sequence: 1 }));
+      default:
+        return Effect.succeed({ sequence: 1 });
+    }
+  };
+
+  const shell = (
+    id: ThreadId,
+    parentThreadId: ThreadId | null,
+    turnId: string | undefined,
+    lastError: string | undefined,
+    model: string | undefined,
+  ) =>
+    ({
+      id,
+      projectId: "project",
+      title: id === LEAD ? "Lead" : id === CHILD ? "Child" : "Loner",
+      modelSelection: { instanceId: "claudeAgent", model: model ?? "claude-sonnet-4-6" },
+      runtimeMode: "full-access",
+      branch: null,
+      worktreePath: null,
+      parentThreadId,
+      latestTurn: null,
+      session: turnId
+        ? {
+            threadId: id,
+            status: "running",
+            activeTurnId: turnId,
+            providerInstanceId: "claudeAgent",
+            lastError: null,
+          }
+        : {
+            threadId: id,
+            status: lastError ? "error" : "ready",
+            activeTurnId: null,
+            providerInstanceId: "claudeAgent",
+            lastError: lastError ?? null,
+          },
+    }) as unknown as OrchestrationThreadShell;
 
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
       getShellSnapshot: () =>
-        Effect.all([Ref.get(busy), Ref.get(errors)]).pipe(
-          Effect.map(([set, failed]) => ({
+        Effect.all([Ref.get(activeTurn), Ref.get(errors), Ref.get(models)]).pipe(
+          Effect.map(([turns, failed, chosen]) => ({
             snapshotSequence: 1,
             projects: [],
             threads: [
-              shell(LEAD, null, set.has(LEAD), failed.get(LEAD)),
-              shell(CHILD, LEAD, set.has(CHILD), failed.get(CHILD)),
+              shell(LEAD, null, turns.get(LEAD), failed.get(LEAD), chosen.get(LEAD)),
+              shell(CHILD, LEAD, turns.get(CHILD), failed.get(CHILD), chosen.get(CHILD)),
+              shell(LONER, null, turns.get(LONER), failed.get(LONER), chosen.get(LONER)),
             ],
             updatedAt: "2026-01-01T00:00:00.000Z",
           })),
         ),
       getThreadDetailById: (threadId) =>
-        Ref.get(answers).pipe(
+        Ref.get(messages).pipe(
           Effect.map((map) =>
             Option.some({
-              messages: map.has(threadId)
-                ? [
-                    {
-                      role: "assistant",
-                      text: map.get(threadId),
-                      streaming: false,
-                      createdAt: "2099-01-01T00:00:00.000Z",
-                    },
-                  ]
-                : [],
+              messages: (map.get(threadId) ?? []).map((message) => ({
+                ...message,
+                streaming: false,
+                createdAt: "2026-01-01T00:00:00.000Z",
+              })),
             } as unknown as OrchestrationThread),
           ),
         ),
@@ -112,206 +189,421 @@ const makeHarness = Effect.gen(function* () {
       ),
       latestSequence: Effect.succeed(0),
     }),
-    Layer.mock(ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+    Layer.mock(ProviderRegistry)({
+      getProviders: Effect.succeed([
+        {
+          instanceId: "claudeAgent",
+          models: [{ slug: "claude-sonnet-4-6", name: "Sonnet" }],
+        },
+        {
+          instanceId: "codex",
+          models: [{ slug: "gpt-5.4", name: "GPT-5.4", isDefault: true }],
+        },
+      ] as never),
+    }),
     Layer.succeed(ServerActivation, undefined),
     Layer.succeed(Crypto.Crypto, testCrypto),
   );
 
-  /** The receiver's session left "running": its turn ended. */
-  const endTurn = (threadId: ThreadId) =>
-    Ref.update(busy, (set) => {
-      const next = new Set(set);
-      next.delete(threadId);
-      return next;
-    }).pipe(
-      Effect.andThen(
-        PubSub.publish(events, {
-          type: "thread.session-set",
-          payload: { threadId, session: { threadId, status: "ready" } },
-        } as unknown as OrchestrationEvent),
-      ),
-    );
+  /** The thread's running turn ends, optionally with a final answer. */
+  const endTurn = (threadId: ThreadId, answer?: string, status = "ready") =>
+    Effect.gen(function* () {
+      const turnId = (yield* Ref.get(activeTurn)).get(threadId) ?? null;
+      if (answer !== undefined)
+        yield* addMessage(threadId, { role: "assistant", text: answer, turnId });
+      yield* Ref.update(activeTurn, (map) => {
+        const next = new Map(map);
+        next.delete(threadId);
+        return next;
+      });
+      yield* publish({
+        type: "thread.session-set",
+        payload: { threadId, session: { threadId, status, activeTurnId: null } },
+      });
+    });
+
+  /** The user types a prompt into the thread; its turn starts at once. */
+  const userPrompt = (threadId: ThreadId, text: string) => {
+    counter += 1;
+    return runTurn(threadId, `user-message-${counter}`, text);
+  };
+
+  const starts = Ref.get(turnStarts);
+
+  const clientInterrupt = (threadId: ThreadId) =>
+    publish({ type: "thread.turn-interrupt-requested", payload: { threadId } });
 
   return {
-    busy,
-    answers,
     errors,
-    turnStarts,
+    models,
+    interrupts,
+    starts,
     endTurn,
+    userPrompt,
+    clientInterrupt,
     layer: layer.pipe(Layer.provide(dependencies)),
   };
 });
 
+type Harness = Effect.Success<typeof makeHarness>;
+
+/** Runs `body` against a started AgentMessaging service. */
+const withMessaging = <A, E>(
+  body: (
+    harness: Harness,
+    messaging: AgentMessaging["Service"],
+    settle: Effect.Effect<void>,
+  ) => Effect.Effect<A, E>,
+) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      return yield* Effect.gen(function* () {
+        const messaging = yield* AgentMessaging;
+        yield* messaging.start();
+        // Let the event stream reach the worker, then wait for the worker.
+        const settle = Effect.yieldNow.pipe(Effect.andThen(messaging.drain));
+        return yield* body(harness, messaging, settle);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+const bodyOf = (start: TurnStart | undefined) => parseAgentMessage(start?.message.text ?? "")?.body;
+
 describe("AgentMessaging", () => {
   it.effect("wakes an idle receiver and routes its final answer back to the sender", () =>
-    Effect.scoped(
+    withMessaging((harness, messaging, settle) =>
       Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        yield* Effect.gen(function* () {
-          const messaging = yield* AgentMessaging;
-          yield* messaging.start();
+        const sent = yield* messaging.sendMessage(LEAD, {
+          to: "Child",
+          message: "Audit the frontend.",
+          replyExpected: true,
+        });
+        assert.equal(sent.delivery, "started");
+        const [wake] = yield* harness.starts;
+        assert.equal(wake?.threadId, CHILD);
+        const envelope = parseAgentMessage(wake?.message.text ?? "");
+        assert.equal(envelope?.fromThreadId, LEAD);
+        assert.isTrue(envelope?.replyExpected);
 
-          const sent = yield* messaging.sendMessage(LEAD, {
-            to: "Child",
-            message: "Audit the frontend.",
-            replyExpected: true,
-          });
-          assert.equal(sent.delivery, "started");
-          const [wake] = yield* Ref.get(harness.turnStarts);
-          assert.equal(wake?.threadId, CHILD);
-          const envelope = parseAgentMessage(wake?.message.text ?? "");
-          assert.equal(envelope?.fromThreadId, LEAD);
-          assert.isTrue(envelope?.replyExpected);
+        yield* settle;
+        yield* harness.endTurn(CHILD, "3 gaps found.");
+        yield* settle;
 
-          yield* Ref.update(harness.answers, (map) => new Map(map).set(CHILD, "3 gaps found."));
-          yield* harness.endTurn(CHILD);
-          yield* Effect.yieldNow;
-          yield* messaging.drain;
+        const starts = yield* harness.starts;
+        assert.equal(starts.length, 2);
+        const reply = parseAgentMessage(starts[1]!.message.text);
+        assert.equal(starts[1]!.threadId, LEAD);
+        assert.equal(reply?.body, "3 gaps found.");
+        assert.equal(reply?.inReplyTo, sent.messageId);
+      }),
+    ),
+  );
 
-          const starts = yield* Ref.get(harness.turnStarts);
-          assert.equal(starts.length, 2);
-          const reply = parseAgentMessage(starts[1]!.message.text);
-          assert.equal(starts[1]!.threadId, LEAD);
-          assert.equal(reply?.body, "3 gaps found.");
-          assert.equal(reply?.inReplyTo, sent.messageId);
-        }).pipe(Effect.provide(harness.layer));
+  it.effect("routes the answer of the delivery's own turn when a user prompt interleaves", () =>
+    withMessaging((harness, messaging, settle) =>
+      Effect.gen(function* () {
+        yield* messaging.sendMessage(LEAD, {
+          to: CHILD,
+          message: "Audit the frontend.",
+          replyExpected: true,
+        });
+        // The delivery's turn ends and the user prompts the child before the
+        // worker has handled that end; the user's turn answers first.
+        yield* harness.endTurn(CHILD, "Frontend: 3 gaps.");
+        yield* harness.userPrompt(CHILD, "Also, what time is it?");
+        yield* harness.endTurn(CHILD, "It is noon.");
+        yield* settle;
+
+        const toLead = (yield* harness.starts).filter((start) => start.threadId === LEAD);
+        assert.equal(toLead.length, 1);
+        assert.equal(bodyOf(toLead[0]), "Frontend: 3 gaps.");
       }),
     ),
   );
 
   it.effect("reports the receiver's error when its turn fails without an answer", () =>
-    Effect.scoped(
+    withMessaging((harness, messaging, settle) =>
       Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        yield* Effect.gen(function* () {
-          const messaging = yield* AgentMessaging;
-          yield* messaging.start();
+        yield* messaging.sendMessage(LEAD, {
+          to: CHILD,
+          message: "Run the tests.",
+          replyExpected: true,
+        });
+        yield* Ref.update(harness.errors, (map) =>
+          new Map(map).set(CHILD, "403 MODEL_NOT_IN_PLAN"),
+        );
+        yield* harness.endTurn(CHILD, undefined, "error");
+        yield* settle;
 
-          yield* messaging.sendMessage(LEAD, {
-            to: CHILD,
-            message: "Run the tests.",
-            replyExpected: true,
-          });
-          yield* Ref.update(harness.errors, (map) =>
-            new Map(map).set(CHILD, "403 MODEL_NOT_IN_PLAN"),
-          );
-          yield* harness.endTurn(CHILD);
-          yield* Effect.yieldNow;
-          yield* messaging.drain;
-
-          const starts = yield* Ref.get(harness.turnStarts);
-          assert.equal(starts.length, 2);
-          assert.include(
-            parseAgentMessage(starts[1]!.message.text)?.body ?? "",
-            "403 MODEL_NOT_IN_PLAN",
-          );
-        }).pipe(Effect.provide(harness.layer));
+        const starts = yield* harness.starts;
+        assert.equal(starts.length, 2);
+        assert.include(bodyOf(starts[1]) ?? "", "403 MODEL_NOT_IN_PLAN");
       }),
     ),
   );
 
   it.effect("tells the sender when a receiver runs out of quota and refuses further messages", () =>
-    Effect.scoped(
+    withMessaging((harness, messaging, settle) =>
       Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        yield* Effect.gen(function* () {
-          const messaging = yield* AgentMessaging;
-          yield* messaging.start();
+        yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Run the Python suite." });
+        yield* Ref.update(harness.errors, (map) =>
+          new Map(map).set(
+            CHILD,
+            "Claude usage limit reached. Send the message again once the limit resets.",
+          ),
+        );
+        yield* harness.endTurn(CHILD, undefined, "error");
+        yield* settle;
 
-          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Run the Python suite." });
-          yield* Ref.update(harness.errors, (map) =>
-            new Map(map).set(
-              CHILD,
-              "Claude usage limit reached. Send the message again once the limit resets.",
-            ),
-          );
-          yield* harness.endTurn(CHILD);
-          yield* Effect.yieldNow;
-          yield* messaging.drain;
+        const starts = yield* harness.starts;
+        assert.equal(starts.length, 2);
+        assert.equal(starts[1]!.threadId, LEAD);
+        assert.include(bodyOf(starts[1]) ?? "", "Do not message it again");
 
-          const starts = yield* Ref.get(harness.turnStarts);
-          assert.equal(starts.length, 2);
-          assert.equal(starts[1]!.threadId, LEAD);
-          assert.include(
-            parseAgentMessage(starts[1]!.message.text)?.body ?? "",
-            "Do not message it again",
-          );
+        const refused = yield* messaging
+          .sendMessage(LEAD, { to: CHILD, message: "Are you still going?" })
+          .pipe(Effect.flip);
+        assert.include(refused.message, "out of quota");
+        assert.equal((yield* harness.starts).length, 2);
+      }),
+    ),
+  );
 
-          const refused = yield* messaging
-            .sendMessage(LEAD, { to: CHILD, message: "Are you still going?" })
-            .pipe(Effect.flip);
-          assert.include(refused.message, "out of quota");
-          assert.equal((yield* Ref.get(harness.turnStarts)).length, 2);
-        }).pipe(Effect.provide(harness.layer));
+  it.effect("moving an out-of-quota agent to another model starts its queued work", () =>
+    withMessaging((harness, messaging, settle) =>
+      Effect.gen(function* () {
+        yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task one." });
+        // A second message waits behind the running turn.
+        const queued = yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task two." });
+        assert.equal(queued.delivery, "queued");
+        yield* Ref.update(harness.errors, (map) =>
+          new Map(map).set(CHILD, "You have hit your usage limit."),
+        );
+        yield* harness.endTurn(CHILD, undefined, "error");
+        yield* settle;
+        // Out of quota: the queued message waits.
+        assert.isFalse((yield* harness.starts).some((start) => bodyOf(start) === "Task two."));
+
+        yield* Ref.update(harness.errors, () => new Map());
+        yield* messaging.configureAgent(LEAD, {
+          agent: CHILD,
+          providerId: "codex",
+          model: "gpt-5.4",
+        });
+        yield* settle;
+
+        const starts = yield* harness.starts;
+        const next = starts.at(-1)!;
+        assert.equal(next.threadId, CHILD);
+        assert.equal(bodyOf(next), "Task two.");
+        assert.equal(next.modelSelection?.model, "gpt-5.4");
+        // The thread's own model follows too, for the user's next prompt.
+        assert.equal((yield* Ref.get(harness.models)).get(CHILD), "gpt-5.4");
+        const accepted = yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task three." });
+        assert.equal(accepted.delivery, "queued");
       }),
     ),
   );
 
   it.effect("queues a message for a busy receiver until its turn ends", () =>
-    Effect.scoped(
+    withMessaging((harness, messaging, settle) =>
       Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        yield* Ref.set(harness.busy, new Set([CHILD]));
-        yield* Effect.gen(function* () {
-          const messaging = yield* AgentMessaging;
-          yield* messaging.start();
+        yield* harness.userPrompt(CHILD, "Refactor the parser.");
+        yield* settle;
 
-          const sent = yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Next task." });
-          assert.equal(sent.delivery, "queued");
-          assert.equal((yield* Ref.get(harness.turnStarts)).length, 0);
+        const sent = yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Next task." });
+        assert.equal(sent.delivery, "queued");
+        assert.equal((yield* harness.starts).length, 0);
 
-          yield* harness.endTurn(CHILD);
-          yield* Effect.yieldNow;
-          yield* messaging.drain;
-          const starts = yield* Ref.get(harness.turnStarts);
-          assert.equal(starts.length, 1);
-          assert.equal(parseAgentMessage(starts[0]!.message.text)?.body, "Next task.");
-        }).pipe(Effect.provide(harness.layer));
+        yield* harness.endTurn(CHILD, "Done.");
+        yield* settle;
+        const starts = yield* harness.starts;
+        assert.equal(starts.length, 1);
+        assert.equal(bodyOf(starts[0]), "Next task.");
       }),
     ),
   );
 
   it.effect("stops a runaway chain of automatic hops", () =>
-    Effect.scoped(
+    withMessaging((harness, messaging, settle) =>
       Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        yield* Effect.gen(function* () {
-          const messaging = yield* AgentMessaging;
-          yield* messaging.start();
-
-          // Lead and child keep messaging each other from inside the turns
-          // those messages started, so every send is one more hop.
-          let sender = LEAD;
-          let receiver = CHILD;
-          for (let hop = 0; hop < AGENT_MESSAGE_MAX_HOPS; hop += 1) {
-            yield* messaging.sendMessage(sender, { to: receiver, message: `ping ${hop}` });
-            yield* harness.endTurn(sender);
-            yield* Effect.yieldNow;
-            yield* messaging.drain;
-            [sender, receiver] = [receiver, sender];
-          }
-          const blocked = yield* messaging
-            .sendMessage(sender, { to: receiver, message: "one more" })
-            .pipe(Effect.flip);
-          assert.include(blocked.message, `${AGENT_MESSAGE_MAX_HOPS} automatic hops`);
-          assert.equal((yield* Ref.get(harness.turnStarts)).length, AGENT_MESSAGE_MAX_HOPS);
-        }).pipe(Effect.provide(harness.layer));
+        // Lead and child keep messaging each other from inside the turns
+        // those messages started, so every send is one more hop.
+        let sender = LEAD;
+        let receiver = CHILD;
+        for (let hop = 0; hop < AGENT_MESSAGE_MAX_HOPS; hop += 1) {
+          yield* messaging.sendMessage(sender, { to: receiver, message: `ping ${hop}` });
+          yield* settle;
+          yield* harness.endTurn(sender);
+          yield* settle;
+          [sender, receiver] = [receiver, sender];
+        }
+        const blocked = yield* messaging
+          .sendMessage(sender, { to: receiver, message: "one more" })
+          .pipe(Effect.flip);
+        assert.include(blocked.message, `${AGENT_MESSAGE_MAX_HOPS} automatic hops`);
+        // Spawning is one more hop too.
+        const spawnBlocked = yield* messaging
+          .spawnAgent(sender, { name: "Helper", prompt: "Take over." })
+          .pipe(Effect.flip);
+        assert.include(spawnBlocked.message, `${AGENT_MESSAGE_MAX_HOPS} automatic hops`);
+        assert.equal((yield* harness.starts).length, AGENT_MESSAGE_MAX_HOPS);
       }),
     ),
   );
 
   it.effect("refuses agents outside the caller's tree", () =>
-    Effect.scoped(
+    withMessaging((_harness, messaging) =>
       Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        yield* Effect.gen(function* () {
-          const messaging = yield* AgentMessaging;
-          const error = yield* messaging
-            .sendMessage(LEAD, { to: "stranger", message: "hi" })
-            .pipe(Effect.flip);
-          assert.include(error.message, "No agent");
-        }).pipe(Effect.provide(harness.layer));
+        const error = yield* messaging
+          .sendMessage(LEAD, { to: "stranger", message: "hi" })
+          .pipe(Effect.flip);
+        assert.include(error.message, "No agent");
       }),
     ),
   );
+
+  describe("stop and resume", () => {
+    it.effect("Stop all pauses the tree: the stopped turn's reply and new messages are held", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, {
+            to: CHILD,
+            message: "Audit the frontend.",
+            replyExpected: true,
+          });
+          yield* settle;
+          const stopped = yield* messaging.stop({ threadId: LEAD, scope: "tree" });
+          assert.deepEqual([...stopped.threadIds].toSorted(), [CHILD, LEAD].toSorted());
+          assert.deepEqual(yield* harness.interrupts.pipe(Ref.get), [CHILD]);
+          yield* settle;
+          yield* harness.endTurn(CHILD, "Half an audit", "interrupted");
+          yield* settle;
+
+          // Nothing restarted, nothing was routed to the paused lead.
+          assert.equal((yield* harness.starts).length, 1);
+          const sent = yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Status?" });
+          assert.equal(sent.delivery, "queued");
+          assert.include(sent.note ?? "", "stopped by the user");
+          const agents = yield* messaging.listAgents(LEAD);
+          assert.equal(agents.find((agent) => agent.id === CHILD)?.status, "paused");
+
+          const control = yield* messaging.controlChanges.pipe(Stream.take(1), Stream.runCollect);
+          const snapshot: AgentControlSnapshot = [...control][0]!;
+          assert.deepEqual(
+            snapshot.find((entry) => entry.threadId === CHILD),
+            { threadId: CHILD, paused: true, queued: 1 },
+          );
+
+          // Resume continues the stopped turn; its answer goes to the lead.
+          yield* messaging.resume({ threadId: LEAD, scope: "tree" });
+          yield* settle;
+          let starts = yield* harness.starts;
+          assert.equal(starts.length, 2);
+          assert.equal(starts[1]!.threadId, CHILD);
+          assert.equal(starts[1]!.message.text, AGENT_CONTINUE_PROMPT);
+
+          yield* harness.endTurn(CHILD, "Frontend: 3 gaps.");
+          yield* settle;
+          starts = yield* harness.starts;
+          const toLead = starts.find((start) => start.threadId === LEAD);
+          assert.equal(bodyOf(toLead), "Frontend: 3 gaps.");
+          // Then the held "Status?" runs on the child.
+          assert.equal(bodyOf(starts.findLast((start) => start.threadId === CHILD)), "Status?");
+        }),
+      ),
+    );
+
+    it.effect("a user Stop pauses a child agent until the user prompts it", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* harness.userPrompt(CHILD, "Work on the parser.");
+          yield* settle;
+          // The composer's Stop button: a plain turn interrupt from the client.
+          yield* harness.clientInterrupt(CHILD);
+          yield* settle;
+          yield* harness.endTurn(CHILD, undefined, "interrupted");
+          yield* settle;
+
+          const sent = yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Next." });
+          assert.equal(sent.delivery, "queued");
+          yield* settle;
+          assert.equal((yield* harness.starts).length, 0);
+
+          // Typing into it resumes it; the held message runs after that turn.
+          yield* harness.userPrompt(CHILD, "Carry on.");
+          yield* settle;
+          yield* harness.endTurn(CHILD, "Parser done.");
+          yield* settle;
+          assert.equal(bodyOf((yield* harness.starts)[0]), "Next.");
+        }),
+      ),
+    );
+
+    it.effect("Discard drops held work without waking the agent", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "One." });
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Two." });
+          const discarded = yield* messaging.discard({ threadId: CHILD, scope: "thread" });
+          assert.deepEqual(discarded.threadIds, [CHILD]);
+          yield* settle;
+          assert.equal((yield* harness.starts).length, 0);
+          const agents = yield* messaging.listAgents(LEAD);
+          const child = agents.find((agent) => agent.id === CHILD);
+          assert.equal(child?.status, "idle");
+          assert.equal(child?.queuedMessages, 0);
+        }),
+      ),
+    );
+
+    it.effect("stopping a thread outside any agent tree pauses nothing", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* harness.userPrompt(LONER, "Hello.");
+          yield* settle;
+          const result = yield* messaging.stop({ threadId: LONER, scope: "tree" });
+          assert.deepEqual(result.threadIds, [LONER]);
+          yield* settle;
+          const control = yield* messaging.controlChanges.pipe(Stream.take(1), Stream.runCollect);
+          assert.deepEqual([...control][0], []);
+        }),
+      ),
+    );
+  });
+});
+
+describe("isLimitError", () => {
+  it("recognises usage, rate, plan and credit limits", () => {
+    for (const message of [
+      "Claude usage limit reached. Try again at 5pm.",
+      "usage_limit_reached",
+      "Rate limit exceeded, retry after 30s",
+      "429 Too Many Requests",
+      "You exceeded your current quota, please check your plan and billing details.",
+      "403 MODEL_NOT_IN_PLAN",
+      "This model is not available on your plan",
+      "You have run out of credits",
+      "Insufficient balance",
+    ]) {
+      assert.isTrue(isLimitError(message), message);
+    }
+  });
+
+  it("does not treat context-length or other failures as a quota problem", () => {
+    for (const message of [
+      "Context window exceeded",
+      "context_length_exceeded: this model's maximum context length is 200000 tokens",
+      "prompt is too long: 210000 tokens > 200000 maximum",
+      "Request exceeded max_tokens",
+      "Timeout exceeded while waiting for the provider",
+      "Command exited with code 1",
+      null,
+      undefined,
+    ]) {
+      assert.isFalse(isLimitError(message), String(message));
+    }
+  });
 });

@@ -35,7 +35,10 @@ const AgentEntry = Schema.Struct({
   relation: Schema.Literals(["you", "parent", "child", "sibling", "other"]),
   provider: Schema.String,
   model: Schema.String,
-  status: Schema.Literals(["running", "idle", "error", "stopped", "new"]),
+  status: Schema.Literals(["running", "idle", "error", "stopped", "new", "paused"]).annotate({
+    description:
+      "paused: the user stopped this agent. Messages to it wait in its queue until the user resumes it.",
+  }),
   queuedMessages: Schema.Int,
 });
 
@@ -43,8 +46,9 @@ const SendResult = Schema.Struct({
   messageId: Schema.String,
   delivery: Schema.Literals(["started", "queued"]).annotate({
     description:
-      "started: the receiver was idle and began working. queued: it runs after its current turn.",
+      "started: the receiver was idle and began working. queued: it runs after its current turn, or when the user resumes a paused agent.",
   }),
+  note: Schema.optional(Schema.String),
 });
 
 const ListAgentsTool = Tool.make("viewcode_list_agents", {
