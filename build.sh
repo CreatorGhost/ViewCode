@@ -80,6 +80,9 @@ if ! node_ok; then
   fi
 fi
 echo "Using Node.js $(node -v)"
+# Trust the OS certificate store too, so installs work behind corporate TLS
+# inspection (otherwise Node fails with SELF_SIGNED_CERT_IN_CHAIN).
+export NODE_OPTIONS="--use-system-ca${NODE_OPTIONS:+ $NODE_OPTIONS}"
 # pnpm comes from corepack in a private folder, so nothing global is changed.
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 shims="$HOME/.viewcode/bin"

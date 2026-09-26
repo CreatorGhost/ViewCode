@@ -11,6 +11,11 @@ unless asked, no repo-wide checks.
 Branch: `claude/modest-meitner-9cuywa`. Status of the original goals (G1–G14)
 is in [`END_GOALS.md`](END_GOALS.md); product intent in [`PLAN.md`](PLAN.md).
 
+**Setting ViewCode up on the user's managed company Mac (EDR, no admin)?**
+Follow [`operations/managed-macos.md`](operations/managed-macos.md) step by
+step. Its "Work items" are also open engineering work (items 1–4 below
+reference them).
+
 ## What the user wants, in their words
 
 - A daily driver with a **professional, restrained look in the spirit of
@@ -169,6 +174,13 @@ building `apps/mobile` ourselves. Ask the user before starting mobile work.
 | Effort slider fast and fusion looks                   | Test model had no fast mode          | Opus with fast mode, drag to Max, toggle fast                           |
 | Windows named-pipe local mode                         | Linux sandbox                        | Windows build, confirm no TCP listener (`netstat -ano`)                 |
 | macOS desktop first run                               | Linux sandbox                        | Fresh install, no "Still connecting"                                    |
+
+### 4b. Managed-machine startup (from the company-laptop report)
+
+From [`operations/managed-macos.md`](operations/managed-macos.md#work-items-in-priority-order):
+don't exec providers that aren't installed; bound probe concurrency; first
+launch probes only chosen providers; don't read credential files for a
+telemetry id when telemetry is off. Each has its own "done when" there.
 
 ### 5. Smaller known gaps
 
