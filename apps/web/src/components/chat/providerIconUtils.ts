@@ -51,7 +51,10 @@ export function getDisplayModelName(
   options?: { preferShortName?: boolean },
 ): string {
   const name = options?.preferShortName && model.shortName ? model.shortName : model.name;
-  return stripLeadingQualifier(name, model.subProvider);
+  const display = stripLeadingQualifier(name, model.subProvider);
+  // Compact places name the provider beside the model, so "Claude Opus 5.5"
+  // reads as "Opus 5.5" there.
+  return options?.preferShortName ? stripLeadingQualifier(display, "Claude") : display;
 }
 
 export function getTriggerDisplayModelName(model: ModelEsque): string {
