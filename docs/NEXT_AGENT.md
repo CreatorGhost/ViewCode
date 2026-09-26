@@ -12,8 +12,9 @@ Branch: `claude/modest-meitner-9cuywa`. Status of the original goals (G1–G14)
 is in [`END_GOALS.md`](END_GOALS.md); product intent in [`PLAN.md`](PLAN.md).
 
 **Setting ViewCode up on the user's managed company Mac (EDR, no admin)?**
-Follow [`operations/managed-macos.md`](operations/managed-macos.md) step by
-step. Its "Work items" are also open engineering work (items 1–4 below
+Start with [`operations/managed-mode-plan.md`](operations/managed-mode-plan.md)
+(the plan and settings), [`operations/managed-mac-experiments.md`](operations/managed-mac-experiments.md)
+(what to run on the laptop) and [`operations/managed-macos.md`](operations/managed-macos.md) (background). Its "Work items" are also open engineering work (items 1–4 below
 reference them).
 
 ## What the user wants, in their words

@@ -93,9 +93,11 @@ exception, or touches the EDR.
    ```json
    {
      "providers": {
+       "codex": { "enabled": false },
+       "claudeAgent": { "enabled": true },
+       "cursor": { "enabled": true },
        "grok": { "enabled": false },
        "opencode": { "enabled": false },
-       "cursor": { "enabled": false },
        "antigravity": { "enabled": false },
        "commandCode": { "enabled": false }
      }
