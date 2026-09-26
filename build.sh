@@ -4,9 +4,10 @@
 #   ./build.sh            pull, install, build, open the desktop app
 #   ./build.sh --no-pull  build what is checked out
 #   ./build.sh --web      run server + web UI in dev mode instead (open the printed URL)
-#   ./build.sh --managed  for locked-down machines: only Claude and Cursor are
-#                         enabled, so ViewCode never launches Codex, OpenCode,
-#                         Grok, Antigravity or Command Code
+#   ./build.sh --managed  for locked-down machines: chooses Claude and Cursor
+#                         (the onboarding provider choice is marked made), so
+#                         ViewCode never launches Codex, OpenCode, Grok,
+#                         Antigravity or Command Code
 #                         (docs/operations/managed-mode-plan.md)
 #
 # Run from anywhere; it works in the folder this script lives in.
@@ -23,7 +24,7 @@ for arg in "$@"; do
     --web) mode=web ;;
     --managed) managed=1 ;;
     -h | --help)
-      sed -n '2,12p' "$0"
+      sed -n '2,13p' "$0"
       exit 0
       ;;
     *)
@@ -122,13 +123,27 @@ if [ "$managed" = 1 ]; then
     const fs = require("node:fs"), path = require("node:path");
     const file = process.env.SETTINGS_FILE;
     let settings = {};
-    try { settings = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
-    const off = { enabled: false }, on = { enabled: true };
-    const wanted = { codex: off, claudeAgent: on, cursor: on, grok: off,
-      opencode: off, antigravity: off, commandCode: off };
+    if (fs.existsSync(file)) {
+      try { settings = JSON.parse(fs.readFileSync(file, "utf8")); }
+      catch (error) {
+        console.error("Cannot read " + file + " (" + error.message + "); fix or remove it first.");
+        process.exit(1);
+      }
+    }
+    const chosen = new Set(["claudeAgent", "cursor"]);
+    const drivers = ["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity", "commandCode"];
     settings.providers = settings.providers ?? {};
-    for (const [key, value] of Object.entries(wanted))
-      settings.providers[key] = { ...settings.providers[key], ...value };
+    for (const driver of drivers)
+      settings.providers[driver] = { ...settings.providers[driver], enabled: chosen.has(driver) };
+    // Explicit provider instances (extra accounts) override providers.*, so
+    // they follow their driver too; the envelope flag carries the choice.
+    for (const instance of Object.values(settings.providerInstances ?? {})) {
+      if (!instance || typeof instance !== "object") continue;
+      instance.enabled = chosen.has(instance.driver);
+      if (instance.config && typeof instance.config === "object") delete instance.config.enabled;
+    }
+    // The first-run provider choice is made: no picker, nothing else probed.
+    settings.providerSelection = "chosen";
     settings.defaultAutoPull = false;
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
