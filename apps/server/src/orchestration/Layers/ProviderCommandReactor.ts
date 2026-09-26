@@ -866,6 +866,41 @@ const make = Effect.gen(function* () {
    * writes the full transcript under the state dir and returns the prelude
    * for the next provider turn (null when no handoff is pending).
    */
+  /**
+   * The incoming model's context window, as its provider last reported it on
+   * any thread that runs it (context-window activities carry `maxTokens`).
+   * Undefined when the model has not run yet; the handoff then assumes a
+   * conservative default.
+   */
+  const observedContextTokens = Effect.fnUntraced(function* (to: HandoffEndpoint) {
+    const snapshot = yield* projectionSnapshotQuery
+      .getShellSnapshot()
+      .pipe(Effect.orElseSucceed(() => undefined));
+    const candidates = (snapshot?.threads ?? [])
+      .filter(
+        (entry) =>
+          String(entry.modelSelection.instanceId) === to.instanceId &&
+          entry.modelSelection.model === to.model,
+      )
+      .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, 5);
+    for (const candidate of candidates) {
+      const detail = yield* projectionSnapshotQuery
+        .getThreadDetailById(candidate.id, { activityKinds: ["context-window.updated"] })
+        .pipe(
+          Effect.map(Option.getOrUndefined),
+          Effect.orElseSucceed(() => undefined),
+        );
+      for (const activity of [...(detail?.activities ?? [])].reverse()) {
+        const maxTokens = (activity.payload as { maxTokens?: unknown } | null)?.maxTokens;
+        if (typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens > 0) {
+          return maxTokens;
+        }
+      }
+    }
+    return undefined;
+  });
+
   const takeHandoffPrelude = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageText: string;
@@ -890,11 +925,13 @@ const make = Effect.gen(function* () {
       lastMessage?.role === "user" && lastMessage.text === input.messageText
         ? { ...detail, messages: detail.messages.slice(0, -1) }
         : detail;
+    const targetContextTokens = yield* observedContextTokens(pending.to);
     const handoff = buildHandoff({
       thread,
       from: pending.from,
       to: pending.to,
       recentExchanges: HANDOFF_RECENT_EXCHANGES,
+      ...(targetContextTokens !== undefined ? { targetContextTokens } : {}),
     });
     const config = yield* Effect.serviceOption(ServerConfig);
     let transcriptPath: string | null = null;
@@ -925,6 +962,7 @@ const make = Effect.gen(function* () {
           from: pending.from,
           to: pending.to,
           summary: handoff.summary,
+          mode: handoff.mode,
           transcriptPath,
         },
         turnId: null,

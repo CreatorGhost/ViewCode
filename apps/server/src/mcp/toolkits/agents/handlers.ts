@@ -53,6 +53,17 @@ const make = Effect.gen(function* () {
         ),
         Effect.map((transcript) => ({ transcript })),
       ),
+    search_history: (input) =>
+      caller.pipe(
+        Effect.flatMap((threadId) =>
+          messaging.searchHistory(threadId, {
+            query: input.query,
+            agent: input.agent,
+            limit: input.limit,
+          }),
+        ),
+        Effect.map((matches) => ({ matches })),
+      ),
     configure_agent: (input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>

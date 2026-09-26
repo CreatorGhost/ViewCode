@@ -153,6 +153,30 @@ const ReadTranscriptTool = Tool.make("read_transcript", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const SearchHistoryTool = Tool.make("search_history", {
+  description:
+    "Search the full history of this conversation (messages and tool results), or another agent's in your tree. Use it before asking the user about earlier work, and after a handoff to recover details that were condensed: PR numbers, file names, error text, decisions. All query words must appear in a match.",
+  parameters: Schema.Struct({
+    query: Schema.String.annotate({
+      description: 'Words to find, e.g. "PR 1541" or "cordon rollback".',
+    }),
+    agent: Schema.optional(AgentRef),
+    limit: Schema.optional(Schema.Int.annotate({ description: "Maximum matches. Default 8." })),
+  }),
+  success: Schema.Struct({
+    matches: Schema.Array(
+      Schema.Struct({ source: Schema.String, createdAt: Schema.String, snippet: Schema.String }),
+    ),
+  }),
+  failure: AgentToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Search conversation history")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 const ConfigureAgentTool = Tool.make("configure_agent", {
   description:
     "Switch the model (and optionally provider) another agent uses from its next turn. Switching provider hands its context off automatically.",
@@ -177,5 +201,6 @@ export const AgentsToolkit = Toolkit.make(
   SpawnAgentTool,
   SendMessageTool,
   ReadTranscriptTool,
+  SearchHistoryTool,
   ConfigureAgentTool,
 );

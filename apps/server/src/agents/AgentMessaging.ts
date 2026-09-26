@@ -1,3 +1,4 @@
+import { type HistoryMatch, searchThreadHistory } from "./searchHistory.ts";
 import {
   CommandId,
   EventId,
@@ -133,6 +134,14 @@ export interface AgentMessagingShape {
       readonly responseId?: string | undefined;
     },
   ) => Effect.Effect<SendResult, AgentMessagingError>;
+  readonly searchHistory: (
+    caller: ThreadId,
+    input: {
+      readonly query: string;
+      readonly agent?: string | undefined;
+      readonly limit?: number | undefined;
+    },
+  ) => Effect.Effect<ReadonlyArray<HistoryMatch>, AgentMessagingError>;
   readonly readTranscript: (
     caller: ThreadId,
     input: { readonly agent: string; readonly lastMessages?: number | undefined },
@@ -512,6 +521,21 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  const searchHistory: AgentMessagingShape["searchHistory"] = (caller, input) =>
+    Effect.gen(function* () {
+      const { tree } = yield* resolveCaller(caller);
+      const target = input.agent === undefined ? caller : resolveTarget(tree, input.agent)?.id;
+      if (target === undefined) {
+        return yield* fail(`No agent "${input.agent}" in this agent tree.`);
+      }
+      const detail = yield* projections.getThreadDetailById(target).pipe(
+        Effect.map(Option.getOrUndefined),
+        Effect.orElseSucceed(() => undefined),
+      );
+      if (!detail) return yield* fail("That conversation could not be read.");
+      return searchThreadHistory(detail, input.query, input.limit ?? 8);
+    });
+
   const readTranscript: AgentMessagingShape["readTranscript"] = (caller, input) =>
     Effect.gen(function* () {
       const { tree } = yield* resolveCaller(caller);
@@ -644,6 +668,7 @@ const make = Effect.gen(function* () {
     spawnAgent,
     sendMessage,
     readTranscript,
+    searchHistory,
     configureAgent,
     start,
     drain: worker.drain,
