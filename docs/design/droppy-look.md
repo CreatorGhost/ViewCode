@@ -55,7 +55,7 @@ Notation:
 | `tertiaryLabelColor`                                | `rgb(255 255 255 / .25)`          | `rgb(0 0 0 / .26)` | `#555556`                             | `#B9B9B9`                              |
 | `quaternaryLabelColor` (SwiftUI `.quaternary` fill) | `rgb(255 255 255 / .10)`          | `rgb(0 0 0 / .10)` | n/a                                   | n/a                                    |
 | `separatorColor`                                    | `rgb(255 255 255 / .10)`          | `rgb(0 0 0 / .10)` | n/a                                   | n/a                                    |
-| `placeholderTextColor`                              | `rgb(255 255 255 / .25)`          | `rgb(0 0 0 / .25)` | ViewCode default `#6B6B6C` (0.35)     | ViewCode default `#A0A0A0`             |
+| `placeholderTextColor`                              | `rgb(255 255 255 / .25)`          | `rgb(0 0 0 / .25)` | ViewCode default `#808081`            | ViewCode default `#828282`             |
 | `controlAccentColor` (blue)                         | `#0A84FF`                         | `#007AFF`          | n/a                                   | n/a                                    |
 | systemGreen                                         | `#32D74B`                         | `#28CD41`          | n/a                                   | n/a                                    |
 | systemOrange                                        | `#FF9F0A`                         | `#FF9500`          | n/a                                   | n/a                                    |
@@ -506,7 +506,7 @@ ViewCode tracks upstream T3 Code. The re-theme must keep future merges cheap.
 | accent                   | `#E0A15A`                 | accentForeground        | `#1A1206`                 |
 | secondary                | `rgb(255 255 255 / 0.06)` | secondaryForeground     | `#DEDEDF`                 |
 | muted                    | `rgb(255 255 255 / 0.04)` | mutedForeground         | `#999999`                 |
-| placeholder              | `#6B6B6C`                 | secondaryLabel          | `#999999`                 |
+| placeholder              | `#808081`                 | secondaryLabel          | `#999999`                 |
 | iconMuted                | `#8A8A8C`                 | error                   | `#E5675F`                 |
 | errorForeground          | `#F08A83`                 | errorSurface            | `rgb(229 103 95 / 0.12)`  |
 | warning                  | `#C9B037`                 | warningForeground       | `#DCC86A`                 |
@@ -527,6 +527,11 @@ ViewCode tracks upstream T3 Code. The re-theme must keep future merges cheap.
 
 **ViewCode default: light** (`VIEWCODE_THEME.variants.light`)
 
+Muted and secondary text is darker than macOS's flattened `secondaryLabelColor`,
+and placeholders darker than `placeholderTextColor`, so text reaches 4.5:1 and
+placeholders 3.5:1 on their surfaces in both appearances
+(`viewcodeThemes.test.ts` checks this).
+
 | Role                     | Value                   | Role                    | Value                   |
 | ------------------------ | ----------------------- | ----------------------- | ----------------------- |
 | canvas                   | `#FAFAFA`               | chrome                  | `#EDEDEF`               |
@@ -535,12 +540,12 @@ ViewCode tracks upstream T3 Code. The re-theme must keep future merges cheap.
 | toolbarControlForeground | `#2E2E2E`               | toolbarControlHover     | `#F2F2F3`               |
 | surface                  | `#FAFAFA`               | surfaceRaised           | `#FFFFFF`               |
 | surfaceOverlay           | `#F7F7F8`               | text                    | `#262626`               |
-| textMuted                | `#7D7D7D`               | border                  | `rgb(0 0 0 / 0.08)`     |
+| textMuted                | `#6B6B6B`               | border                  | `rgb(0 0 0 / 0.08)`     |
 | input                    | `rgb(0 0 0 / 0.12)`     | focus                   | `#9A5714`               |
 | accent                   | `#9A5714`               | accentForeground        | `#FFFFFF`               |
 | secondary                | `rgb(0 0 0 / 0.04)`     | secondaryForeground     | `#262626`               |
-| muted                    | `rgb(0 0 0 / 0.03)`     | mutedForeground         | `#7D7D7D`               |
-| placeholder              | `#A0A0A0`               | secondaryLabel          | `#7D7D7D`               |
+| muted                    | `rgb(0 0 0 / 0.03)`     | mutedForeground         | `#6B6B6B`               |
+| placeholder              | `#828282`               | secondaryLabel          | `#6B6B6B`               |
 | iconMuted                | `#8C8C8C`               | error                   | `#C4392F`               |
 | errorForeground          | `#B3261E`               | errorSurface            | `rgb(196 57 47 / 0.08)` |
 | warning                  | `#7E6A00`               | warningForeground       | `#6B5A00`               |
@@ -551,7 +556,7 @@ ViewCode tracks upstream T3 Code. The re-theme must keep future merges cheap.
 | messageAction            | `#1D1D1F`               | messageActionForeground | `#FFFFFF`               |
 | messageActionHover       | `#3A3A3C`               | codeBackground          | `#F2F2F3`               |
 | codeForeground           | `#262626`               | sidebar                 | `#EDEDEF`               |
-| sidebarForeground        | `#262626`               | sidebarMutedForeground  | `#7A7A7C`               |
+| sidebarForeground        | `#262626`               | sidebarMutedForeground  | `#68686A`               |
 | sidebarControlSurface    | `rgb(0 0 0 / 0.06)`     | sidebarRowHover         | `rgb(0 0 0 / 0.05)`     |
 | sidebarRowActive         | `rgb(0 0 0 / 0.08)`     | sidebarRowSelected      | `rgb(0 0 0 / 0.10)`     |
 | sidebarBorder            | `rgb(0 0 0 / 0)`        | terminalBackground      | `#FBFBFB`               |
