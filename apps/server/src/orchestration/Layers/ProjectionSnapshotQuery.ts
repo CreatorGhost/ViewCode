@@ -1611,6 +1611,32 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  // Unbounded variant of the query above, for one-off exports.
+  const listAllThreadActivityRowsByThreadAndKinds = SqlSchema.findAll({
+    Request: ThreadActivityKindsLookupInput,
+    Result: ProjectionThreadActivityDbRowSchema,
+    execute: ({ threadId, activityKinds }) =>
+      sql`
+        SELECT
+          activity_id AS "activityId",
+          thread_id AS "threadId",
+          turn_id AS "turnId",
+          tone,
+          kind,
+          summary,
+          payload_json AS "payload",
+          sequence,
+          created_at AS "createdAt"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+          AND ${sql.in("kind", activityKinds)}
+        ORDER BY
+          sequence ASC,
+          created_at ASC,
+          activity_id ASC
+      `,
+  });
+
   const getThreadSessionRowByThread = SqlSchema.findOneOption({
     Request: ThreadIdLookupInput,
     Result: ProjectionThreadSessionDbRowSchema,
@@ -3433,7 +3459,9 @@ pending_approval_requests AS (
                   : listThreadActivityRowsByThreadWindow({ threadId, ...bounds })
                 : activityRead.query.activityKinds.length === 0
                   ? Effect.succeed([])
-                  : listThreadActivityRowsByThreadAndKinds({
+                  : (activityRead.query.allActivities === true
+                      ? listAllThreadActivityRowsByThreadAndKinds
+                      : listThreadActivityRowsByThreadAndKinds)({
                       threadId,
                       activityKinds: activityRead.query.activityKinds,
                     })

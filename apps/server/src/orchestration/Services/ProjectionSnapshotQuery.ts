@@ -71,6 +71,11 @@ export interface ProjectionThreadDetailQuery {
    * the activity query. Omit this option to preserve the full detail response.
    */
   readonly activityKinds?: ReadonlyArray<string>;
+  /**
+   * With `activityKinds`, return every matching activity instead of the newest
+   * 500. For one-off exports (the handoff transcript), not for hot paths.
+   */
+  readonly allActivities?: boolean;
 }
 
 /**

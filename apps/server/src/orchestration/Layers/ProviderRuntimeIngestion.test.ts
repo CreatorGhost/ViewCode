@@ -4507,6 +4507,41 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("stamps context window updates with the model and instance that reported them", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    harness.setProviderSession({
+      provider: ProviderDriverKind.make("claudeAgent"),
+      providerInstanceId: ProviderInstanceId.make("claude_work"),
+      model: "claude-opus-4-6",
+      status: "running",
+      runtimeMode: "approval-required",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    harness.emit({
+      type: "thread.token-usage.updated",
+      eventId: asEventId("evt-thread-token-usage-stamped"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: { usage: { usedTokens: 10, maxTokens: 200_000 } },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
+      ),
+    );
+    expect(
+      thread.activities.find(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
+      )?.payload,
+    ).toMatchObject({ maxTokens: 200_000, model: "claude-opus-4-6", instanceId: "claude_work" });
+  });
+
   it("projects Codex camelCase token usage payloads into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

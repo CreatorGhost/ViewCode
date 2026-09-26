@@ -222,6 +222,15 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 // Exchanges carried verbatim across a cross-provider handoff.
 const HANDOFF_RECENT_EXCHANGES = 3;
 
+const HandoffEndpointSchema = Schema.Struct({ instanceId: Schema.String, model: Schema.String });
+const PendingHandoffJson = Schema.fromJsonString(
+  Schema.Struct({ from: HandoffEndpointSchema, to: HandoffEndpointSchema }),
+);
+type PendingHandoff = typeof PendingHandoffJson.Type;
+/** Reads a pending handoff persisted by the reactor; None when unreadable. */
+const decodePendingHandoff = Schema.decodeUnknownOption(PendingHandoffJson);
+const encodePendingHandoff = Schema.encodeSync(PendingHandoffJson);
+
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
@@ -263,8 +272,67 @@ const make = Effect.gen(function* () {
     );
 
   const threadModelSelections = new Map<string, ModelSelection>();
-  // Threads whose next provider turn must carry a handoff prelude.
-  const pendingHandoffs = new Map<string, { from: HandoffEndpoint; to: HandoffEndpoint }>();
+  // Threads whose next provider turn must carry a handoff prelude. Mirrored to
+  // `<stateDir>/handoffs/<thread>.json` until the provider accepts that turn,
+  // so a failed send or a server restart does not lose the recap.
+  const pendingHandoffs = new Map<string, PendingHandoff>();
+  let pendingHandoffsLoaded = false;
+  const pendingHandoffsDir = Effect.serviceOption(ServerConfig).pipe(
+    Effect.map((config) =>
+      Option.isSome(config) ? path.join(config.value.stateDir, "handoffs") : null,
+    ),
+  );
+  const pendingHandoffFile = (dir: string, threadId: string) =>
+    path.join(dir, `${encodeURIComponent(threadId)}.json`);
+  const logHandoffStoreFailure = (message: string, threadId: string) =>
+    Effect.catchCause((cause: Cause.Cause<unknown>) =>
+      Effect.logWarning(message, { threadId, cause: Cause.pretty(cause) }),
+    );
+  const loadPendingHandoffs = Effect.gen(function* () {
+    if (pendingHandoffsLoaded) return;
+    pendingHandoffsLoaded = true;
+    const dir = yield* pendingHandoffsDir;
+    if (dir === null) return;
+    const entries = yield* fileSystem.readDirectory(dir).pipe(Effect.orElseSucceed(() => []));
+    for (const entry of entries) {
+      if (!entry.endsWith(".json")) continue;
+      const threadId = decodeURIComponent(entry.slice(0, -".json".length));
+      const text = yield* fileSystem
+        .readFileString(path.join(dir, entry))
+        .pipe(Effect.orElseSucceed(() => ""));
+      const pending = decodePendingHandoff(text);
+      if (Option.isSome(pending) && !pendingHandoffs.has(threadId)) {
+        pendingHandoffs.set(threadId, pending.value);
+      }
+    }
+  });
+  const rememberPendingHandoff = Effect.fnUntraced(function* (
+    threadId: string,
+    pending: PendingHandoff,
+  ) {
+    yield* loadPendingHandoffs;
+    pendingHandoffs.set(threadId, pending);
+    const dir = yield* pendingHandoffsDir;
+    if (dir === null) return;
+    yield* fileSystem
+      .makeDirectory(dir, { recursive: true })
+      .pipe(
+        Effect.andThen(
+          fileSystem.writeFileString(
+            pendingHandoffFile(dir, threadId),
+            encodePendingHandoff(pending),
+          ),
+        ),
+        logHandoffStoreFailure("failed to persist pending handoff", threadId),
+      );
+  });
+  const forgetPendingHandoffFile = Effect.fnUntraced(function* (threadId: string) {
+    const dir = yield* pendingHandoffsDir;
+    if (dir === null) return;
+    yield* fileSystem
+      .remove(pendingHandoffFile(dir, threadId), { force: true })
+      .pipe(logHandoffStoreFailure("failed to clear pending handoff", threadId));
+  });
   const compactingThreadIds = new Set<ThreadId>();
   type QueuedTurnStart = Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>;
   // Turn starts received while a thread compacts, replayed in order once its session is restored.
@@ -779,8 +847,11 @@ const make = Effect.gen(function* () {
       });
       const handedOffSession = yield* startProviderSession({ freshSession: true });
       yield* bindSessionToThread(handedOffSession);
-      pendingHandoffs.set(threadId, {
-        from: {
+      yield* loadPendingHandoffs;
+      // A second switch before any turn went out still hands over from the
+      // model that actually ran the conversation.
+      yield* rememberPendingHandoff(threadId, {
+        from: pendingHandoffs.get(threadId)?.from ?? {
           instanceId: String(boundInstanceId ?? currentInstanceId),
           model: activeSession?.model ?? thread.modelSelection.model,
         },
@@ -863,14 +934,11 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * Consumes a pending handoff for the thread: records the handoff card,
-   * writes the full transcript under the state dir and returns the prelude
-   * for the next provider turn (null when no handoff is pending).
-   */
-  /**
-   * The incoming model's context window, as its provider last reported it on
-   * any thread that runs it (context-window activities carry `maxTokens`).
-   * Undefined when the model has not run yet; the handoff then assumes a
+   * The incoming model's context window, as its provider last reported it.
+   * Only context-window activities stamped with that same model and instance
+   * count (ProviderRuntimeIngestion stamps them from the running session), so
+   * a window reported by another model on the same thread is never borrowed.
+   * Undefined when the model has not reported yet; the handoff then assumes a
    * conservative default.
    */
   const observedContextTokens = Effect.fnUntraced(function* (to: HandoffEndpoint) {
@@ -892,8 +960,14 @@ const make = Effect.gen(function* () {
           Effect.map(Option.getOrUndefined),
           Effect.orElseSucceed(() => undefined),
         );
-      for (const activity of [...(detail?.activities ?? [])].reverse()) {
-        const maxTokens = (activity.payload as { maxTokens?: unknown } | null)?.maxTokens;
+      for (const activity of (detail?.activities ?? []).toReversed()) {
+        const payload = activity.payload as {
+          maxTokens?: unknown;
+          model?: unknown;
+          instanceId?: unknown;
+        } | null;
+        if (payload?.model !== to.model || payload.instanceId !== to.instanceId) continue;
+        const maxTokens = payload.maxTokens;
         if (typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens > 0) {
           return maxTokens;
         }
@@ -902,23 +976,32 @@ const make = Effect.gen(function* () {
     return undefined;
   });
 
+  /**
+   * Builds the prelude for a pending handoff and writes the full transcript
+   * under the state dir (null when no handoff is pending). The pending entry
+   * leaves the in-memory map while the turn is in flight: `accepted` records
+   * the handoff card and clears the persisted copy, `rejected` puts it back
+   * so the next turn carries the prelude instead.
+   */
   const takeHandoffPrelude = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageText: string;
     readonly createdAt: string;
   }) {
+    yield* loadPendingHandoffs;
     const pending = pendingHandoffs.get(input.threadId);
     if (!pending) return null;
-    pendingHandoffs.delete(input.threadId);
     const detail = yield* projectionSnapshotQuery
       .getThreadDetailById(input.threadId, {
         activityKinds: ["tool.completed", "turn.plan.updated"],
+        allActivities: true,
       })
       .pipe(
         Effect.map(Option.getOrUndefined),
         Effect.orElseSucceed(() => undefined),
       );
     if (!detail) return null;
+    pendingHandoffs.delete(input.threadId);
     // The message that triggered this turn is already projected; it is sent
     // after the prelude, so leave it out of the recap.
     const lastMessage = detail.messages.at(-1);
@@ -950,28 +1033,37 @@ const make = Effect.gen(function* () {
         ),
       );
     }
-    yield* orchestrationEngine.dispatch({
-      type: "thread.activity.append",
-      commandId: yield* serverCommandId("handoff"),
-      threadId: input.threadId,
-      activity: {
-        id: yield* serverEventId(),
-        tone: "info",
-        kind: HANDOFF_ACTIVITY_KIND,
-        summary: `Context handed off from ${describeModel(pending.from)} to ${describeModel(pending.to)}`,
-        payload: {
-          from: pending.from,
-          to: pending.to,
-          summary: handoff.summary,
-          mode: handoff.mode,
-          transcriptPath,
+    const accepted = Effect.gen(function* () {
+      // A newer switch made while this turn was in flight keeps its own record.
+      if (!pendingHandoffs.has(input.threadId)) {
+        yield* forgetPendingHandoffFile(input.threadId);
+      }
+      yield* orchestrationEngine.dispatch({
+        type: "thread.activity.append",
+        commandId: yield* serverCommandId("handoff"),
+        threadId: input.threadId,
+        activity: {
+          id: yield* serverEventId(),
+          tone: "info",
+          kind: HANDOFF_ACTIVITY_KIND,
+          summary: `Context handed off from ${describeModel(pending.from)} to ${describeModel(pending.to)}`,
+          payload: {
+            from: pending.from,
+            to: pending.to,
+            summary: handoff.summary,
+            mode: handoff.mode,
+            transcriptPath,
+          },
+          turnId: null,
+          createdAt: input.createdAt,
         },
-        turnId: null,
         createdAt: input.createdAt,
-      },
-      createdAt: input.createdAt,
+      });
+    }).pipe(logHandoffStoreFailure("failed to record handoff", input.threadId));
+    const rejected = Effect.sync(() => {
+      if (!pendingHandoffs.has(input.threadId)) pendingHandoffs.set(input.threadId, pending);
     });
-    return handoff.prelude(transcriptPath);
+    return { prelude: handoff.prelude(transcriptPath), accepted, rejected };
   });
 
   const buildSendTurnRequestForThread = Effect.fnUntraced(function* (input: {
@@ -995,14 +1087,6 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const handoffPrelude = yield* takeHandoffPrelude({
-      threadId: input.threadId,
-      messageText: input.messageText,
-      createdAt: input.createdAt,
-    });
-    const normalizedInput = toNonEmptyProviderInput(
-      handoffPrelude === null ? input.messageText : `${handoffPrelude}${input.messageText}`,
-    );
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService
       .listSessions()
@@ -1031,8 +1115,18 @@ const make = Effect.gen(function* () {
             }
           : requestedModelSelection
         : input.modelSelection;
+    // Last, so nothing between taking the handoff and returning can fail.
+    const handoff = yield* takeHandoffPrelude({
+      threadId: input.threadId,
+      messageText: input.messageText,
+      createdAt: input.createdAt,
+    });
+    const normalizedInput = toNonEmptyProviderInput(
+      handoff === null ? input.messageText : `${handoff.prelude}${input.messageText}`,
+    );
 
     return {
+      handoff,
       threadId: input.threadId,
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
@@ -1647,9 +1741,13 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const send = providerService
-      .sendTurn(sendTurnRequest.value)
-      .pipe(Effect.asVoid, Effect.catchCause(recoverTurnStartFailure));
+    const { handoff, ...turnRequest } = sendTurnRequest.value;
+    const send = providerService.sendTurn(turnRequest).pipe(
+      Effect.onError(() => handoff?.rejected ?? Effect.void),
+      Effect.tap(() => handoff?.accepted ?? Effect.void),
+      Effect.asVoid,
+      Effect.catchCause(recoverTurnStartFailure),
+    );
     // The forked send settles `sent` from here on, so drop the entry the post-processing hook uses.
     if (resumed && event.commandId !== null) resumedTurnStarts.delete(event.commandId);
     yield* send.pipe(

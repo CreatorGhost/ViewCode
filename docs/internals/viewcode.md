@@ -34,21 +34,38 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   resume cache. Same continuation key → the native session continues. Different
   key → the new session starts with `freshSession: true` and the first turn gets
   a `<handoff>` prelude.
-- Size is decided by the **incoming** model's context window, read from the
-  latest `context-window.updated` activity (`maxTokens`) on any thread running
-  that model; 128k is assumed until the model has reported once.
-- If the whole conversation fits in 25% of that window it is carried verbatim.
-  Otherwise: key facts (links, PR/issue numbers, branches, commits, file paths —
-  extracted deterministically from messages _and tool results_), the user's
-  messages newest first, the last 3 replies verbatim, older final answers; and
-  the new model is told to build its own working summary and to call
-  `viewcode_search_history` before asking the user about earlier work.
-- The user's own words are never summarized by a model. The outgoing model is
-  never asked to summarize (it is usually out of quota — that's why the user
-  switched).
-- The full transcript (including tool results) is written under
-  `<stateDir>/transcripts/<thread>/` and linked from the prelude, for providers
-  without MCP (Command Code).
+- Size is decided by the **incoming** model's context window: the latest
+  `context-window.updated` activity (`maxTokens`) stamped with that same model
+  and instance (ingestion stamps rows from the running session), on a thread
+  currently set to that model. Unstamped rows and rows from other models are
+  ignored; 128k is assumed until the model has reported once.
+- The budget is 25% of that window and covers the **whole rendered prelude**
+  (header, recap, omission note); the only overrun is a transcript path longer
+  than the reserved 400 characters, or a window too small for the fixed header.
+  If everything fits, it is carried verbatim ("full"). Otherwise ("compact") the
+  budget is filled in priority order: the user's messages newest first in full,
+  then older user messages clipped to 300 characters, then replies newest first
+  (the last 3 verbatim only if they fit, else condensed to the final answer),
+  then key facts, then plan/files/commands. Whatever did not fit is counted in a
+  "Not shown here" section that points at `viewcode_search_history` and the
+  transcript file. The user's words are prioritized but not guaranteed whole: a
+  message too large for the budget is clipped, and on a very long thread older
+  messages are left out.
+- Key facts (links, PR/issue numbers, branches, file paths including root-level
+  names and Windows paths, and hex hashes only next to a git word such as
+  `commit`/`sha`/`git show`) are extracted deterministically from messages and
+  tool results, at most 60, each at most 200 characters.
+- Nothing is ever summarized by a model. The outgoing model is never asked to
+  summarize (it is usually out of quota — that's why the user switched).
+- The pending handoff survives a failed send and a restart: it lives in memory
+  and in `<stateDir>/handoffs/<thread>.json` until the provider accepts the
+  turn that carries it; only then is the handoff card recorded and the file
+  removed.
+- The transcript written under `<stateDir>/transcripts/<thread>/` (for
+  providers without MCP, e.g. Command Code) holds every message and every
+  completed tool result. `viewcode_search_history` searches every message but
+  only tool results among the thread's newest 500 activities; older tool output
+  is in the transcript file only.
 
 ### Agent-to-agent messaging
 

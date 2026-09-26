@@ -3571,6 +3571,168 @@ describe("ProviderCommandReactor", () => {
     ).toContain("<handoff>");
   });
 
+  describe("handoff delivery and sizing", () => {
+    const claude = {
+      instanceId: ProviderInstanceId.make("claudeAgent"),
+      model: "claude-opus-4-6",
+    };
+    type Harness = Awaited<ReturnType<typeof createHarness>>;
+    const startTurn = (
+      harness: Harness,
+      id: string,
+      text: string,
+      modelSelection?: ModelSelection,
+    ) =>
+      Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-turn-start-${id}`),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId(`user-message-${id}`),
+            role: "user",
+            text,
+            attachments: [],
+          },
+          ...(modelSelection ? { modelSelection } : {}),
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        }),
+      );
+    const sentInput = (harness: Harness, index: number) =>
+      String(
+        (harness.sendTurn.mock.calls[index]?.[0] as { input?: string } | undefined)?.input ?? "",
+      );
+    const handoffActivities = async (harness: Harness) =>
+      (await harness.readModel()).threads
+        .find((entry) => entry.id === ThreadId.make("thread-1"))
+        ?.activities.filter((activity) => activity.kind === "viewcode.handoff") ?? [];
+    const failNextSend = (harness: Harness) =>
+      harness.sendTurn.mockImplementationOnce(
+        () =>
+          Effect.fail(
+            new ProviderAdapterRequestError({
+              provider: "claudeAgent",
+              method: "thread.turn.start",
+              detail: "simulated send failure",
+            }),
+          ) as never,
+      );
+    const pendingFile = (harness: Harness) =>
+      NodePath.join(harness.stateDir, "handoffs", "thread-1.json");
+
+    it("keeps the pending handoff when the handed-off turn fails and delivers it next turn", async () => {
+      const harness = await createHarness();
+      await startTurn(harness, "first", "first");
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+      failNextSend(harness);
+      await startTurn(harness, "second", "second", claude);
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+      await harness.drain();
+      expect(sentInput(harness, 1)).toContain("<handoff>");
+      expect(await handoffActivities(harness)).toHaveLength(0);
+      expect(NodeFS.existsSync(pendingFile(harness))).toBe(true);
+
+      await startTurn(harness, "third", "third", claude);
+      await waitFor(() => harness.sendTurn.mock.calls.length === 3);
+      await waitFor(async () => (await handoffActivities(harness)).length === 1);
+      expect(sentInput(harness, 2)).toContain("<handoff>");
+      expect(sentInput(harness, 2).endsWith("third")).toBe(true);
+      expect(NodeFS.existsSync(pendingFile(harness))).toBe(false);
+
+      await startTurn(harness, "fourth", "fourth", claude);
+      await waitFor(() => harness.sendTurn.mock.calls.length === 4);
+      expect(sentInput(harness, 3)).not.toContain("<handoff>");
+    });
+
+    it("delivers a pending handoff after a server restart", async () => {
+      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3code-reactor-"));
+      const before = await createHarness({ baseDir });
+      await startTurn(before, "first", "first");
+      await waitFor(() => before.sendTurn.mock.calls.length === 1);
+      failNextSend(before);
+      await startTurn(before, "second", "second", claude);
+      await waitFor(() => before.sendTurn.mock.calls.length === 2);
+      await before.drain();
+      expect(NodeFS.existsSync(pendingFile(before))).toBe(true);
+      await Effect.runPromise(Scope.close(scope!, Exit.void));
+      scope = null;
+      await runtime!.dispose();
+      runtime = null;
+
+      const after = await createHarness({ baseDir });
+      await startTurn(after, "after-restart", "after restart");
+      await waitFor(() => after.sendTurn.mock.calls.length === 1);
+      await waitFor(async () => (await handoffActivities(after)).length === 1);
+      expect(sentInput(after, 0)).toContain("<handoff>");
+      expect(sentInput(after, 0)).toContain("claude-opus-4-6 (claudeAgent)");
+      expect(sentInput(after, 0).endsWith("after restart")).toBe(true);
+      expect(NodeFS.existsSync(pendingFile(after))).toBe(false);
+    });
+
+    const handOffWithReportedWindow = async (reportedBy: { model: string; instanceId: string }) => {
+      const harness = await createHarness();
+      // ~15k tokens: whole under the 128k default, compact under a 20k window.
+      await startTurn(
+        harness,
+        "first",
+        `${"Background detail. ".repeat(3_200)}Remember PINEAPPLE.`,
+      );
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      // Another thread now set to the incoming model; its last report may come
+      // from the model it ran before the switch.
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-thread-create-window"),
+          threadId: ThreadId.make("thread-window"),
+          projectId: asProjectId("project-1"),
+          title: "Window source",
+          modelSelection: claude,
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        }),
+      );
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make("cmd-context-window"),
+          threadId: ThreadId.make("thread-window"),
+          activity: {
+            id: EventId.make("activity-context-window"),
+            tone: "info",
+            kind: "context-window.updated",
+            summary: "Context window updated",
+            payload: { usedTokens: 1_000, maxTokens: 20_000, ...reportedBy },
+            turnId: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+          createdAt: "2026-01-01T00:00:00.000Z",
+        }),
+      );
+      await startTurn(harness, "second", "second", claude);
+      await waitFor(async () => (await handoffActivities(harness)).length === 1);
+      return (await handoffActivities(harness))[0]?.payload as { mode?: string };
+    };
+
+    it("sizes the handoff by a window the incoming model itself reported", async () => {
+      expect(
+        await handOffWithReportedWindow({ model: "claude-opus-4-6", instanceId: "claudeAgent" }),
+      ).toMatchObject({ mode: "compact" });
+    });
+
+    it("ignores a window reported by a different model", async () => {
+      expect(
+        await handOffWithReportedWindow({ model: "gpt-5-codex", instanceId: "codex" }),
+      ).toMatchObject({ mode: "full" });
+    });
+  });
+
   it("reacts to thread.turn.interrupt-requested by calling provider interrupt", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

@@ -1716,6 +1716,35 @@ const make = Effect.gen(function* () {
     } as const;
   });
 
+  // A context window belongs to the model that reported it. Handoff sizing
+  // (ProviderCommandReactor.observedContextTokens) only trusts stamped rows.
+  const stampContextWindowModel = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    activities: ReadonlyArray<OrchestrationThreadActivity>,
+  ) {
+    if (!activities.some((activity) => activity.kind === "context-window.updated")) {
+      return activities;
+    }
+    const session = (yield* providerService.listSessions()).find(
+      (entry) => entry.threadId === threadId,
+    );
+    if (session?.model === undefined || session.providerInstanceId === undefined) {
+      return activities;
+    }
+    return activities.map((activity) =>
+      activity.kind === "context-window.updated" && Predicate.isObject(activity.payload)
+        ? {
+            ...activity,
+            payload: {
+              ...activity.payload,
+              model: session.model,
+              instanceId: session.providerInstanceId,
+            },
+          }
+        : activity,
+    );
+  });
+
   const getExpectedProviderTurnIdForThread = Effect.fn("getExpectedProviderTurnIdForThread")(
     function* (threadId: ThreadId) {
       const sessions = yield* providerService.listSessions();
@@ -2601,7 +2630,10 @@ const make = Effect.gen(function* () {
         }
       }
 
-      const activities = runtimeEventToActivities(activityEvent, taskTitle);
+      const activities = yield* stampContextWindowModel(
+        thread.id,
+        runtimeEventToActivities(activityEvent, taskTitle),
+      );
       yield* Effect.forEach(activities, (activity) =>
         providerCommandId(event, "thread-activity-append").pipe(
           Effect.flatMap((commandId) =>
