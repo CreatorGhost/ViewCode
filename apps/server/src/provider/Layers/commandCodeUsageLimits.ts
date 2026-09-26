@@ -102,10 +102,19 @@ export function commandCodeUsageToLimits(usage: CommandCodeUsage, checkedAt: str
   return makeUsageLimits({ checkedAt, windows: [window] });
 }
 
+// These endpoints are unofficial, so read them gently: a successful reading
+// is reused for a few minutes however often the provider status refreshes.
+const USAGE_CACHE_MS = 5 * 60_000;
+const usageCache = new Map<
+  string,
+  { readonly at: number; readonly limits: ReturnType<typeof commandCodeUsageToLimits> }
+>();
+
 export const readCommandCodeUsageLimits = Effect.fn("readCommandCodeUsageLimits")(function* (
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
+  const nowMs = Date.parse(checkedAt);
   return yield* Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -120,6 +129,8 @@ export const readCommandCodeUsageLimits = Effect.fn("readCommandCodeUsageLimits"
       )).apiKey?.trim();
     }
     if (!apiKey) return makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
+    const cached = usageCache.get(apiKey);
+    if (cached && nowMs - cached.at < USAGE_CACHE_MS) return cached.limits;
 
     const client = yield* HttpClient.HttpClient;
     const get = <S extends Schema.Top>(
@@ -157,7 +168,9 @@ export const readCommandCodeUsageLimits = Effect.fn("readCommandCodeUsageLimits"
       orgId,
       since: subscription?.data?.currentPeriodStart ?? null,
     });
-    return commandCodeUsageToLimits({ credits, subscription, summary }, checkedAt);
+    const limits = commandCodeUsageToLimits({ credits, subscription, summary }, checkedAt);
+    if (!limits.unavailable) usageCache.set(apiKey, { at: nowMs, limits });
+    return limits;
   }).pipe(
     Effect.timeout("10 seconds"),
     Effect.orElseSucceed(() =>
