@@ -177,12 +177,9 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
     fast: fastMode?.enabled === true,
   });
   const trackStyle = effortTrackStyle(trackKind, brand);
-  // Standard levels shade from light sky to deep blue; the other looks take
-  // their title colour (brand, gold, or the fusion gradient).
-  const effortColor =
-    trackKind === "plain"
-      ? effortRampColor(effortRampForIndex(effortIndex, effortStops))
-      : trackStyle.titleColor;
+  // Standard levels read in plain white; only the charged looks (brand at the
+  // top level, gold in fast mode, the fusion gradient) colour the effort name.
+  const effortColor = trackKind === "plain" ? "var(--foreground)" : trackStyle.titleColor;
   const resetIds = [
     ...(effortDescriptor ? [effortDescriptor.id] : []),
     ...(fastMode ? [fastMode.descriptorId] : []),
