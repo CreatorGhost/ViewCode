@@ -291,6 +291,35 @@ function makeThread(
 }
 
 describe("buildThreadFeed", () => {
+  it("omits internal turn acceptance receipts while keeping turn failures", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-1"),
+      projectId: ProjectId.make("project-1"),
+      title: "Turn receipts",
+      activities: [
+        makeActivity({
+          id: EventId.make("accepted"),
+          kind: "provider.turn.start.accepted",
+          summary: "Provider turn accepted",
+          createdAt: "2026-04-01T00:00:01.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: { requestId: "request-1" },
+        }),
+        makeActivity({
+          id: EventId.make("failed"),
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn failed",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          tone: "error",
+          sequence: 1,
+        }),
+      ],
+    });
+    expect(buildThreadFeed(thread)).toMatchObject([
+      { type: "activity-group", activities: [{ id: "failed" }] },
+    ]);
+  });
+
   it("reuses unchanged feed and presentation rows during an assistant text update", () => {
     const completedTurnId = TurnId.make("completed-turn");
     const activeTurnId = TurnId.make("active-turn");

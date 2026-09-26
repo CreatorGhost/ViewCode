@@ -34,6 +34,7 @@ import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as Fiber from "effect/Fiber";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -48,6 +49,7 @@ import {
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -848,6 +850,51 @@ describe("ProviderCommandReactor", () => {
         expect.objectContaining({
           input: text,
           ...(attachments.length > 0 ? { attachments } : {}),
+        }),
+      );
+    }),
+  );
+
+  effectIt.effect("records the accepted provider turn against its requesting message", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const events = yield* harness.engine.subscribeDomainEvents;
+          const receipt = yield* events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "thread.activity-appended" &&
+                event.payload.activity.kind === "provider.turn.start.accepted",
+            ),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+          yield* harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-accepted-turn"),
+            threadId: ThreadId.make("thread-1"),
+            message: {
+              messageId: MessageId.make("accepted-message"),
+              role: "user",
+              text: "Audit the code",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          });
+          const accepted = yield* Fiber.join(receipt);
+          expect([...accepted][0]).toMatchObject({
+            payload: {
+              threadId: "thread-1",
+              activity: {
+                turnId: "turn-1",
+                payload: { requestId: "accepted-message" },
+              },
+            },
+          });
         }),
       );
     }),
@@ -3621,6 +3668,70 @@ describe("ProviderCommandReactor", () => {
       );
     const pendingFile = (harness: Harness) =>
       NodePath.join(harness.stateDir, "handoffs", "thread-1.json");
+
+    effectIt.effect.each(["read error", "missing transcript"] as const)(
+      "does not send a pending handoff without its transcript (%s)",
+      (failure) =>
+        Effect.gen(function* () {
+          const harness = yield* Effect.promise(() => createHarness());
+          const firstSent = yield* Deferred.make<void>();
+          const retrySent = yield* Deferred.make<void>();
+          const transcriptReadAttempted = yield* Deferred.make<void>();
+          harness.sendTurn.mockReturnValueOnce(
+            Deferred.succeed(firstSent, undefined).pipe(
+              Effect.as({ threadId: ThreadId.make("thread-1"), turnId: asTurnId("turn-1") }),
+            ),
+          );
+          yield* Effect.promise(() => startTurn(harness, "first", "Remember PINEAPPLE."));
+          yield* Deferred.await(firstSent);
+          yield* Effect.promise(() => harness.drain());
+          expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+
+          const transcriptRead = vi.spyOn(harness.snapshotQuery, "getThreadDetailById");
+          transcriptRead.mockReturnValueOnce(
+            Deferred.succeed(transcriptReadAttempted, undefined).pipe(
+              Effect.andThen(
+                failure === "read error"
+                  ? Effect.fail(new PersistenceSqlError({ operation: "read handoff transcript" }))
+                  : Effect.succeed(Option.none()),
+              ),
+            ),
+          );
+          yield* Effect.promise(() => startTurn(harness, "second", "Continue.", claude));
+          yield* Deferred.await(transcriptReadAttempted);
+          yield* Effect.promise(() => harness.drain());
+
+          expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+          expect(NodeFS.existsSync(pendingFile(harness))).toBe(true);
+          const failedThread = (yield* harness.snapshotQuery.getSnapshot()).threads.find(
+            (thread) => thread.id === ThreadId.make("thread-1"),
+          );
+          expect(failedThread?.session?.status).toBe("error");
+          expect(failedThread?.session?.lastError).toContain("handoff transcript");
+          expect(
+            failedThread?.activities.some(
+              (activity) => activity.kind === "provider.turn.start.failed",
+            ),
+          ).toBe(true);
+          expect(
+            failedThread?.activities.some((activity) => activity.kind === "viewcode.handoff"),
+          ).toBe(false);
+
+          harness.sendTurn.mockReturnValueOnce(
+            Deferred.succeed(retrySent, undefined).pipe(
+              Effect.as({ threadId: ThreadId.make("thread-1"), turnId: asTurnId("turn-2") }),
+            ),
+          );
+          yield* Effect.promise(() => startTurn(harness, "retry", "Try again.", claude));
+          yield* Deferred.await(retrySent);
+          yield* Effect.promise(() => harness.drain());
+          expect(harness.sendTurn).toHaveBeenCalledTimes(2);
+          expect(sentInput(harness, 1)).toContain("<handoff>");
+          expect(sentInput(harness, 1)).toContain("Remember PINEAPPLE.");
+          expect(sentInput(harness, 1).endsWith("Try again.")).toBe(true);
+          transcriptRead.mockRestore();
+        }),
+    );
 
     it("keeps the pending handoff when the handed-off turn fails and delivers it next turn", async () => {
       const harness = await createHarness();

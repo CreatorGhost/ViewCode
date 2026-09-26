@@ -82,10 +82,10 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `<viewcode-agent-message …>` envelope. Idle receiver → starts now; busy,
   paused or out of quota → queued. `reply_expected` routes the receiver's final
   answer **from that turn only** back to the sender. "That turn" is the provider
-  turn id bound from the first `session-set` running after the delivery's own
-  `thread.turn-start-requested` event (matched by message id), never a
-  timestamp: a user prompt interleaved on the same thread used to be routed as
-  the answer.
+  turn id returned by the provider's send call, correlated to the request's
+  message id in an acceptance receipt. Lifecycle events can precede that
+  receipt; the next running session alone cannot identify the request, since
+  an earlier user prompt may still be starting.
 - Agents can reach only their own tree (root thread and all descendants). A hop
   limit (24) stops ping-pong loops; spawning counts as a hop too.
 - Stopping an agent that belongs to a tree **pauses** it (user decision): any
@@ -94,7 +94,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   senders are told it is paused, and a stopped turn's pending reply is held.
   `agents.resume` sends "Continue where you left off." when a turn was cut
   short (its answer still goes to the original requester) and drains the queue;
-  `agents.discard` drops the held work. Typing a prompt into a paused agent
+  `agents.discard` drops the held work. Resume and Discard requested while an
+  interruption is pending wait for it to settle; its partial answer must not
+  be forwarded as the requested result. Typing a prompt into a paused agent
   resumes it. Pause and queues live in server memory only
   (`subscribeAgentControl` streams them); a restart forgets them. Mobile can
   stop and prompt but has no Resume/Discard buttons yet.

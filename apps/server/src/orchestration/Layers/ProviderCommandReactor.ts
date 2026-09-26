@@ -996,11 +996,12 @@ const make = Effect.gen(function* () {
         activityKinds: ["tool.completed", "turn.plan.updated"],
         allActivities: true,
       })
-      .pipe(
-        Effect.map(Option.getOrUndefined),
-        Effect.orElseSucceed(() => undefined),
+      .pipe(Effect.map(Option.getOrUndefined));
+    if (!detail) {
+      return yield* Effect.die(
+        new Error(`The pending handoff transcript for thread '${input.threadId}' was not found.`),
       );
-    if (!detail) return null;
+    }
     pendingHandoffs.delete(input.threadId);
     // The message that triggered this turn is already projected; it is sent
     // after the prelude, so leave it out of the recap.
@@ -1744,7 +1745,33 @@ const make = Effect.gen(function* () {
     const { handoff, ...turnRequest } = sendTurnRequest.value;
     const send = providerService.sendTurn(turnRequest).pipe(
       Effect.onError(() => handoff?.rejected ?? Effect.void),
-      Effect.tap(() => handoff?.accepted ?? Effect.void),
+      Effect.tap(() =>
+        (handoff?.accepted ?? Effect.void).pipe(
+          Effect.ignoreCause({ log: true, message: "failed to finalize accepted handoff" }),
+        ),
+      ),
+      Effect.tap((result) =>
+        Effect.gen(function* () {
+          const createdAt = DateTime.formatIso(yield* DateTime.now);
+          yield* orchestrationEngine.dispatch({
+            type: "thread.activity.append",
+            commandId: yield* serverCommandId("provider-turn-accepted"),
+            threadId: event.payload.threadId,
+            activity: {
+              id: yield* serverEventId(),
+              tone: "info",
+              kind: "provider.turn.start.accepted",
+              summary: "Provider accepted turn",
+              payload: { requestId: event.payload.messageId },
+              turnId: result.turnId,
+              createdAt,
+            },
+            createdAt,
+          });
+        }).pipe(
+          Effect.ignoreCause({ log: true, message: "failed to record accepted provider turn" }),
+        ),
+      ),
       Effect.asVoid,
       Effect.catchCause(recoverTurnStartFailure),
     );

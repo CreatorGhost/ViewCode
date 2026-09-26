@@ -10,6 +10,8 @@ import { parseAgentMessage } from "@t3tools/shared/agentMessages";
 import { assert, describe, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
@@ -65,6 +67,22 @@ const makeHarness = Effect.gen(function* () {
   const interrupts = yield* Ref.make<ReadonlyArray<string>>([]);
   const events = yield* PubSub.unbounded<OrchestrationEvent>();
   let turnCounter = 0;
+  let uuidBarrier:
+    | { entered: Deferred.Deferred<void>; release: Deferred.Deferred<void> }
+    | undefined;
+  const crypto = {
+    ...testCrypto,
+    randomUUIDv4: Effect.suspend(() => {
+      const barrier = uuidBarrier;
+      uuidBarrier = undefined;
+      return barrier
+        ? Deferred.succeed(barrier.entered, undefined).pipe(
+            Effect.andThen(Deferred.await(barrier.release)),
+            Effect.andThen(testCrypto.randomUUIDv4),
+          )
+        : testCrypto.randomUUIDv4;
+    }),
+  };
 
   const publish = (event: unknown) => PubSub.publish(events, event as OrchestrationEvent);
 
@@ -74,7 +92,7 @@ const makeHarness = Effect.gen(function* () {
     );
 
   /** The provider turn for a requested message starts. */
-  const runTurn = (threadId: ThreadId, messageId: string, text: string) =>
+  const runTurn = (threadId: ThreadId, messageId: string, text: string, accepted = false) =>
     Effect.gen(function* () {
       turnCounter += 1;
       const turnId = `turn-${turnCounter}`;
@@ -85,15 +103,43 @@ const makeHarness = Effect.gen(function* () {
         type: "thread.session-set",
         payload: { threadId, session: { threadId, status: "running", activeTurnId: turnId } },
       });
+      if (accepted) yield* acceptTurn(threadId, messageId, turnId);
       return turnId;
     });
+
+  const acceptTurn = (threadId: ThreadId, messageId: string, turnId: string) =>
+    publish({
+      type: "thread.activity-appended",
+      payload: {
+        threadId,
+        activity: {
+          kind: "provider.turn.start.accepted",
+          payload: { requestId: messageId },
+          turnId,
+        },
+      },
+    });
+  const delayedStarts = new Set<string>();
 
   const dispatch = (command: OrchestrationCommand) => {
     switch (command.type) {
       case "thread.turn.start":
         return Ref.update(turnStarts, (all) => [...all, command]).pipe(
           Effect.andThen(
-            runTurn(command.threadId, command.message.messageId, command.message.text),
+            delayedStarts.has(command.threadId)
+              ? publish({
+                  type: "thread.turn-start-requested",
+                  payload: {
+                    threadId: command.threadId,
+                    messageId: command.message.messageId,
+                  },
+                }).pipe(Effect.asVoid)
+              : runTurn(
+                  command.threadId,
+                  command.message.messageId,
+                  command.message.text,
+                  true,
+                ).pipe(Effect.asVoid),
           ),
           Effect.as({ sequence: 1 }),
         );
@@ -102,6 +148,7 @@ const makeHarness = Effect.gen(function* () {
           Effect.andThen(
             publish({
               type: "thread.turn-interrupt-requested",
+              commandId: command.commandId,
               payload: { threadId: command.threadId },
             }),
           ),
@@ -202,7 +249,7 @@ const makeHarness = Effect.gen(function* () {
       ] as never),
     }),
     Layer.succeed(ServerActivation, undefined),
-    Layer.succeed(Crypto.Crypto, testCrypto),
+    Layer.succeed(Crypto.Crypto, crypto),
   );
 
   /** The thread's running turn ends, optionally with a final answer. */
@@ -218,7 +265,15 @@ const makeHarness = Effect.gen(function* () {
       });
       yield* publish({
         type: "thread.session-set",
-        payload: { threadId, session: { threadId, status, activeTurnId: null } },
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status,
+            activeTurnId: null,
+            lastError: (yield* Ref.get(errors)).get(threadId) ?? null,
+          },
+        },
       });
     });
 
@@ -234,6 +289,27 @@ const makeHarness = Effect.gen(function* () {
     publish({ type: "thread.turn-interrupt-requested", payload: { threadId } });
 
   return {
+    blockNextUuid: (barrier: {
+      entered: Deferred.Deferred<void>;
+      release: Deferred.Deferred<void>;
+    }) => {
+      uuidBarrier = barrier;
+    },
+    acceptTurn,
+    rejectTurn: (threadId: ThreadId, messageId: string, detail: string) =>
+      publish({
+        type: "thread.activity-appended",
+        payload: {
+          threadId,
+          activity: {
+            kind: "provider.turn.start.failed",
+            payload: { requestId: messageId, detail },
+            turnId: null,
+          },
+        },
+      }),
+    delayedStarts,
+    runTurn,
     errors,
     models,
     interrupts,
@@ -318,6 +394,58 @@ describe("AgentMessaging", () => {
         const toLead = (yield* harness.starts).filter((start) => start.threadId === LEAD);
         assert.equal(toLead.length, 1);
         assert.equal(bodyOf(toLead[0]), "Frontend: 3 gaps.");
+      }),
+    ),
+  );
+
+  it.effect("binds an accepted delivery to its own turn despite an earlier late user turn", () =>
+    withMessaging((harness, messaging, settle) =>
+      Effect.gen(function* () {
+        harness.delayedStarts.add(CHILD);
+        yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Audit.", replyExpected: true });
+        const request = (yield* harness.starts)[0]!;
+        yield* harness.runTurn(CHILD, "earlier-user-request", "Earlier question");
+        yield* harness.endTurn(CHILD, "Unrelated answer");
+        yield* settle;
+        assert.equal((yield* harness.starts).length, 1);
+        const turnId = yield* harness.runTurn(
+          CHILD,
+          request.message.messageId,
+          request.message.text,
+        );
+        yield* harness.endTurn(CHILD, "The audit answer");
+        yield* settle;
+        // Providers may finish before sendTurn resolves with its acceptance receipt.
+        yield* harness.acceptTurn(CHILD, request.message.messageId, turnId);
+        yield* settle;
+        assert.equal(bodyOf((yield* harness.starts)[1]), "The audit answer");
+      }),
+    ),
+  );
+
+  it.effect("matches failed starts by request id and releases queued work", () =>
+    withMessaging((harness, messaging, settle) =>
+      Effect.gen(function* () {
+        harness.delayedStarts.add(CHILD);
+        yield* messaging.sendMessage(LEAD, {
+          to: CHILD,
+          message: "First task",
+          replyExpected: true,
+        });
+        yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Second task" });
+        const request = (yield* harness.starts)[0]!;
+        yield* harness.rejectTurn(CHILD, "another-message", "Unrelated failure");
+        yield* settle;
+        assert.equal((yield* harness.starts).length, 1);
+        harness.delayedStarts.delete(CHILD);
+        yield* harness.rejectTurn(CHILD, request.message.messageId, "Provider could not start");
+        yield* settle;
+        const starts = yield* harness.starts;
+        assert.include(
+          bodyOf(starts.find((start) => start.threadId === LEAD)) ?? "",
+          "Provider could not start",
+        );
+        assert.equal(bodyOf(starts.findLast((start) => start.threadId === CHILD)), "Second task");
       }),
     ),
   );
@@ -511,6 +639,144 @@ describe("AgentMessaging", () => {
           assert.equal(bodyOf(toLead), "Frontend: 3 gaps.");
           // Then the held "Status?" runs on the child.
           assert.equal(bodyOf(starts.findLast((start) => start.threadId === CHILD)), "Status?");
+        }),
+      ),
+    );
+
+    it.effect(
+      "Resume before interruption completes waits, then continues without routing partial output",
+      () =>
+        withMessaging((harness, messaging, settle) =>
+          Effect.gen(function* () {
+            yield* messaging.sendMessage(LEAD, {
+              to: CHILD,
+              message: "Audit.",
+              replyExpected: true,
+            });
+            yield* settle;
+            yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+            yield* messaging.resume({ threadId: CHILD, scope: "thread" });
+            yield* settle;
+            assert.equal((yield* harness.starts).length, 1);
+            yield* harness.endTurn(CHILD, "Half done", "interrupted");
+            yield* settle;
+            const resumed = yield* harness.starts;
+            assert.equal(resumed.length, 2);
+            assert.equal(resumed[1]!.message.text, AGENT_CONTINUE_PROMPT);
+            yield* harness.endTurn(CHILD, "All done");
+            yield* settle;
+            assert.equal(bodyOf((yield* harness.starts)[2]), "All done");
+          }),
+        ),
+    );
+
+    it.effect("Discard before interruption completes suppresses the interrupted reply", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Audit.", replyExpected: true });
+          yield* settle;
+          yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+          yield* messaging.discard({ threadId: CHILD, scope: "thread" });
+          yield* harness.endTurn(CHILD, "Half done", "interrupted");
+          yield* settle;
+          assert.equal((yield* harness.starts).length, 1);
+          assert.equal(
+            (yield* messaging.listAgents(LEAD)).find((agent) => agent.id === CHILD)?.status,
+            "idle",
+          );
+        }),
+      ),
+    );
+
+    it.effect("a second Stop cancels an early Resume", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Audit.", replyExpected: true });
+          yield* settle;
+          yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+          yield* messaging.resume({ threadId: CHILD, scope: "thread" });
+          yield* harness.clientInterrupt(CHILD);
+          yield* harness.endTurn(CHILD, "Half done", "interrupted");
+          yield* settle;
+          assert.equal((yield* harness.starts).length, 1);
+          assert.equal(
+            (yield* messaging.listAgents(LEAD)).find((agent) => agent.id === CHILD)?.status,
+            "paused",
+          );
+        }),
+      ),
+    );
+
+    it.effect(
+      "a user takeover before interruption completes releases the request without routing partial output",
+      () =>
+        withMessaging((harness, messaging, settle) =>
+          Effect.gen(function* () {
+            yield* messaging.sendMessage(LEAD, {
+              to: CHILD,
+              message: "Audit.",
+              replyExpected: true,
+            });
+            yield* settle;
+            yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+            yield* settle;
+            yield* harness.userPrompt(CHILD, "Do this instead.");
+            yield* settle;
+            yield* harness.endTurn(CHILD, "Answer to user");
+            yield* settle;
+            const replies = (yield* harness.starts).filter((start) => start.threadId === LEAD);
+            assert.equal(replies.length, 1);
+            assert.include(bodyOf(replies[0]) ?? "", "the user is now directing this agent");
+          }),
+        ),
+    );
+
+    it.effect("a newer Stop wins while Resume is preparing the continuation", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Audit.", replyExpected: true });
+          yield* settle;
+          yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+          yield* harness.endTurn(CHILD, "Half done", "interrupted");
+          yield* settle;
+          const entered = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          harness.blockNextUuid({ entered, release });
+          const resuming = yield* messaging
+            .resume({ threadId: CHILD, scope: "thread" })
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(resuming);
+          yield* settle;
+          assert.equal((yield* harness.starts).length, 1);
+          assert.equal(
+            (yield* messaging.listAgents(LEAD)).find((agent) => agent.id === CHILD)?.status,
+            "paused",
+          );
+        }),
+      ),
+    );
+
+    it.effect("Resume redelivers a held request that the provider never accepted", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          harness.delayedStarts.add(CHILD);
+          yield* messaging.sendMessage(LEAD, {
+            to: CHILD,
+            message: "Audit the parser.",
+            replyExpected: true,
+          });
+          const request = (yield* harness.starts)[0]!;
+          yield* settle;
+          yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+          yield* harness.rejectTurn(CHILD, request.message.messageId, "Connection closed");
+          yield* settle;
+          harness.delayedStarts.delete(CHILD);
+          yield* messaging.resume({ threadId: CHILD, scope: "thread" });
+          yield* settle;
+          assert.equal(bodyOf((yield* harness.starts)[1]), "Audit the parser.");
         }),
       ),
     );

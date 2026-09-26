@@ -10,6 +10,7 @@ import {
   MessageId,
   type ModelSelection,
   type OrchestrationEvent,
+  type OrchestrationSession,
   type OrchestrationSessionStatus,
   type OrchestrationThreadShell,
   ProviderInstanceId,
@@ -52,9 +53,8 @@ import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
  *   explicit reply, that turn's final answer is routed back to the sender,
  *   which wakes the sender the same way.
  *
- * Each delivery is bound to the provider turn it started (the first turn to
- * run after its `thread.turn-start-requested` event), so a user prompt on the
- * same thread can never be mistaken for the answer.
+ * Each delivery is bound to the provider turn returned by its send request,
+ * so an overlapping user prompt cannot be mistaken for the answer.
  *
  * When the user stops an agent that belongs to a tree, it is paused: nothing
  * wakes it until the user resumes it (Resume, or typing a prompt into it) or
@@ -142,21 +142,33 @@ interface Delivery {
   readonly inReplyTo: string | null;
 }
 
+const decodeTurnStartReceipt = Schema.decodeUnknownOption(
+  Schema.Struct({
+    requestId: Schema.String,
+    detail: Schema.optional(Schema.String),
+  }),
+);
+
 /** A turn this service started, from dispatch until the provider turn it became ends. */
 interface OwnTurn {
-  /** Null for Resume's "continue" turn, which answers nobody. */
+  /** Null when continuing a user-started turn with no requester. */
   readonly delivery: Delivery | null;
   /** The user message that starts the turn. */
   readonly messageId: MessageId;
-  /** Its `thread.turn-start-requested` event has been seen. */
-  requested: boolean;
-  /** The provider turn it runs as, bound when that turn starts. */
+  readonly text: string;
+  finishing: boolean;
+  discarded: boolean;
+  /** Lifecycle events can arrive before the send acceptance receipt. */
+  observedTurnId: TurnId | null;
+  readonly ended: Map<TurnId, OrchestrationSession>;
+  /** The provider turn returned by the matching send acceptance receipt. */
   turnId: TurnId | null;
   /** The receiver already answered with an explicit reply. */
   replied: boolean;
 }
 
 interface Pause {
+  action: "hold" | "resume" | "discard";
   /** A turn was running when the user stopped the agent. */
   readonly interrupted: boolean;
   /** The stopped turn this service started; Resume continues it. */
@@ -164,7 +176,12 @@ interface Pause {
 }
 
 type Job =
-  | { readonly kind: "turn-ended"; readonly threadId: ThreadId; readonly turn: OwnTurn }
+  | {
+      readonly kind: "turn-ended";
+      readonly threadId: ThreadId;
+      readonly turn: OwnTurn;
+      readonly session: OrchestrationSession;
+    }
   | { readonly kind: "idle"; readonly threadId: ThreadId }
   | { readonly kind: "stopped"; readonly threadId: ThreadId; readonly interrupted: boolean }
   | { readonly kind: "user-prompt"; readonly threadId: ThreadId };
@@ -313,6 +330,7 @@ const make = Effect.gen(function* () {
   // Threads whose session is running or starting, as of the last event seen.
   const active = new Set<string>();
   const pendingModels = new Map<string, ModelSelection>();
+  const ownStopCommands = new Set<CommandId>();
   const control = yield* SubscriptionRef.make<AgentControlSnapshot>([]);
   let controlKey = "";
 
@@ -405,7 +423,17 @@ const make = Effect.gen(function* () {
     messageId: MessageId,
   ) => {
     const threadId = target.id;
-    ownTurns.set(threadId, { delivery, messageId, requested: false, turnId: null, replied: false });
+    ownTurns.set(threadId, {
+      delivery,
+      messageId,
+      text,
+      finishing: false,
+      discarded: false,
+      observedTurnId: null,
+      ended: new Map(),
+      turnId: null,
+      replied: false,
+    });
     const modelSelection = pendingModels.get(threadId);
     pendingModels.delete(threadId);
     return Effect.gen(function* () {
@@ -729,7 +757,7 @@ const make = Effect.gen(function* () {
     hitLimit: boolean,
   ) {
     const delivery = turn.delivery;
-    if (!delivery) return;
+    if (!delivery || turn.discarded) return;
     const wantsAnswer = delivery.replyExpected && !turn.replied;
     // A sender that expected no reply still needs to know its agent is out of quota.
     if (!wantsAnswer && !hitLimit) return;
@@ -793,17 +821,38 @@ const make = Effect.gen(function* () {
     return isLimitError(lastError);
   };
 
-  /** Pauses an agent; a turn this service started that has not begun yet is held. */
+  /** Keep the in-flight delivery until its terminal event and acceptance agree. */
   const pauseThread = (threadId: ThreadId, interrupted: boolean) => {
     const existing = paused.get(threadId);
-    let held = existing?.held ?? null;
-    const own = ownTurns.get(threadId);
-    if (own && own.turnId === null && held === null) {
-      ownTurns.delete(threadId);
-      held = own;
-    }
-    paused.set(threadId, { interrupted: (existing?.interrupted ?? false) || interrupted, held });
+    paused.set(threadId, {
+      interrupted: (existing?.interrupted ?? false) || interrupted,
+      held: existing?.held ?? null,
+      action: "hold",
+    });
   };
+
+  const finishPause = Effect.fnUntraced(function* (thread: OrchestrationThreadShell) {
+    const pause = paused.get(thread.id);
+    if (!pause || pause.action === "hold" || ownTurns.has(thread.id) || isBusy(thread)) return;
+    if (pause.action === "resume" && pause.interrupted) {
+      const messageId = MessageId.make(yield* uuid);
+      // Stop/Discard may have replaced the intent while prerequisites were awaited.
+      if (paused.get(thread.id) !== pause || pause.action !== "resume" || ownTurns.has(thread.id))
+        return;
+      paused.delete(thread.id);
+      const text = pause.held?.turnId === null ? pause.held.text : AGENT_CONTINUE_PROMPT;
+      // startTurn reserves the thread synchronously, before the next yield.
+      const started = startTurn(thread, text, pause.held?.delivery ?? null, messageId);
+      const own = ownTurns.get(thread.id);
+      if (own && pause.held?.replied) own.replied = true;
+      yield* started;
+      yield* publishControl;
+    } else {
+      paused.delete(thread.id);
+      yield* publishControl;
+      yield* drainQueue(thread.id);
+    }
+  });
 
   const handleJob = Effect.fnUntraced(function* (job: Job) {
     const threads = yield* shells;
@@ -811,22 +860,27 @@ const make = Effect.gen(function* () {
     if (!thread) return;
     switch (job.kind) {
       case "turn-ended": {
-        const hitLimit = updateLimit(thread);
+        if (ownTurns.get(job.threadId) === job.turn) ownTurns.delete(job.threadId);
+        const endedThread = { ...thread, session: job.session };
+        const hitLimit = updateLimit(endedThread);
         // Stopped by the user (providers report an interrupted turn as
         // "interrupted" or as an ordinary "ready"): Resume continues it, and
         // its answer still goes to the requester.
-        if (paused.has(job.threadId) && !hitLimit) {
-          paused.set(job.threadId, { interrupted: true, held: job.turn });
+        const pause = paused.get(job.threadId);
+        if (pause?.action === "discard" || (pause && !hitLimit)) {
+          paused.set(job.threadId, { ...pause, interrupted: true, held: job.turn });
           yield* publishControl;
+          yield* finishPause(thread);
           return;
         }
-        yield* routeReply(thread, job.turn, hitLimit);
+        yield* routeReply(endedThread, job.turn, hitLimit);
         yield* drainQueue(job.threadId);
         return;
       }
       case "idle": {
         if (ownTurns.has(job.threadId)) return;
         updateLimit(thread);
+        yield* finishPause(thread);
         yield* drainQueue(job.threadId);
         return;
       }
@@ -844,8 +898,10 @@ const make = Effect.gen(function* () {
         if (!pause) return;
         paused.delete(job.threadId);
         yield* publishControl;
-        const held = pause.held?.delivery;
-        if (held?.replyExpected && !pause.held?.replied) {
+        const stoppedTurn = pause.held ?? ownTurns.get(job.threadId);
+        const held = stoppedTurn?.delivery;
+        if (stoppedTurn) stoppedTurn.discarded = true;
+        if (held?.replyExpected && !stoppedTurn?.replied) {
           const requester = threads.find((entry) => entry.id === held.fromThreadId);
           if (requester && held.hop + 1 < AGENT_MESSAGE_MAX_HOPS) {
             yield* sendAutomatic(
@@ -883,13 +939,13 @@ const make = Effect.gen(function* () {
         case "thread.turn-start-requested": {
           const own = ownTurns.get(event.payload.threadId);
           if (own && own.messageId === event.payload.messageId) {
-            own.requested = true;
             return Effect.void;
           }
           return worker.enqueue({ kind: "user-prompt", threadId: event.payload.threadId });
         }
         case "thread.turn-interrupt-requested":
         case "thread.session-stop-requested": {
+          if (event.commandId && ownStopCommands.delete(event.commandId)) return Effect.void;
           const threadId = event.payload.threadId;
           return worker.enqueue({ kind: "stopped", threadId, interrupted: active.has(threadId) });
         }
@@ -899,21 +955,67 @@ const make = Effect.gen(function* () {
           if (live) active.add(threadId);
           else active.delete(threadId);
           const own = ownTurns.get(threadId);
-          if (own?.requested) {
-            if (own.turnId === null && session.status === "running" && session.activeTurnId) {
-              own.turnId = session.activeTurnId;
-              return Effect.void;
+          if (own) {
+            const previous = own.observedTurnId;
+            if (
+              previous &&
+              (!live || (session.activeTurnId && session.activeTurnId !== previous))
+            ) {
+              own.ended.set(previous, session);
             }
-            const ended =
-              own.turnId !== null
-                ? !live || (session.activeTurnId !== null && session.activeTurnId !== own.turnId)
-                : session.status === "error" || session.status === "interrupted";
-            if (ended) {
-              ownTurns.delete(threadId);
-              return worker.enqueue({ kind: "turn-ended", threadId, turn: own });
+            own.observedTurnId = session.activeTurnId;
+            if (!own.finishing && own.turnId !== null && own.ended.has(own.turnId)) {
+              own.finishing = true;
+              return worker.enqueue({
+                kind: "turn-ended",
+                threadId,
+                turn: own,
+                session: own.ended.get(own.turnId)!,
+              });
             }
           }
           return live ? Effect.void : worker.enqueue({ kind: "idle", threadId });
+        }
+        case "thread.activity-appended": {
+          const { threadId, activity } = event.payload;
+          if (
+            activity.kind !== "provider.turn.start.accepted" &&
+            activity.kind !== "provider.turn.start.failed"
+          )
+            return Effect.void;
+          const decoded = decodeTurnStartReceipt(activity.payload);
+          if (Option.isNone(decoded)) return Effect.void;
+          const payload = decoded.value;
+          const own = ownTurns.get(threadId);
+          if (!own || own.finishing || payload.requestId !== own.messageId) return Effect.void;
+          if (activity.kind === "provider.turn.start.accepted" && activity.turnId !== null) {
+            own.turnId = activity.turnId;
+            const session = own.ended.get(own.turnId);
+            if (!session) return Effect.void;
+            own.finishing = true;
+            return worker.enqueue({ kind: "turn-ended", threadId, turn: own, session });
+          }
+          if (activity.kind === "provider.turn.start.failed") {
+            own.finishing = true;
+            return worker.enqueue({
+              kind: "turn-ended",
+              threadId,
+              turn: own,
+              session: {
+                threadId,
+                status: "error",
+                activeTurnId: null,
+                providerName: null,
+                runtimeMode: "full-access",
+                lastError:
+                  typeof payload.detail === "string"
+                    ? payload.detail
+                    : "Provider turn start failed",
+                updatedAt: activity.createdAt,
+              },
+            });
+          }
+          return Effect.void;
         }
         default:
           return Effect.void;
@@ -942,7 +1044,7 @@ const make = Effect.gen(function* () {
       const createdAt = yield* nowIso;
       const changed: ThreadId[] = [];
       for (const thread of targets) {
-        const running = isBusy(thread) || active.has(thread.id);
+        const running = isBusy(thread) || active.has(thread.id) || ownTurns.has(thread.id);
         if (inTree) pauseThread(thread.id, running);
         if (!running) {
           if (inTree) changed.push(thread.id);
@@ -951,13 +1053,23 @@ const make = Effect.gen(function* () {
         changed.push(thread.id);
         const turnId =
           thread.session?.status === "running" ? thread.session.activeTurnId : undefined;
-        yield* engine.dispatch({
-          type: "thread.turn.interrupt",
-          commandId: CommandId.make(`server:agent-stop:${yield* uuid}`),
-          threadId: thread.id,
-          ...(turnId ? { turnId } : {}),
-          createdAt,
-        });
+        const commandId = CommandId.make(`server:agent-stop:${yield* uuid}`);
+        ownStopCommands.add(commandId);
+        yield* engine
+          .dispatch({
+            type: "thread.turn.interrupt",
+            commandId,
+            threadId: thread.id,
+            ...(turnId ? { turnId } : {}),
+            createdAt,
+          })
+          .pipe(
+            Effect.onError(() =>
+              Effect.sync(() => {
+                ownStopCommands.delete(commandId);
+              }),
+            ),
+          );
       }
       yield* publishControl;
       return { threadIds: changed };
@@ -966,35 +1078,19 @@ const make = Effect.gen(function* () {
   const resume: AgentMessagingShape["resume"] = (input) =>
     Effect.gen(function* () {
       const { targets } = yield* scopeOf(input);
-      // Unpause the whole scope first so replies between its agents flow.
-      const resumed = targets.flatMap((thread) => {
+      const resumed: ThreadId[] = [];
+      for (const thread of targets) {
         const pause = paused.get(thread.id);
-        if (!pause) return [];
-        paused.delete(thread.id);
-        return [{ thread, pause }];
-      });
-      yield* publishControl;
-      for (const { thread, pause } of resumed) {
-        const messageId = MessageId.make(yield* uuid);
-        const fresh = (yield* shells).find((entry) => entry.id === thread.id);
-        if (!fresh) continue;
-        if (pause.interrupted && !isBusy(fresh) && !ownTurns.has(fresh.id)) {
-          yield* startTurn(fresh, AGENT_CONTINUE_PROMPT, pause.held?.delivery ?? null, messageId);
-          const own = ownTurns.get(fresh.id);
-          if (own && pause.held?.replied) own.replied = true;
+        if (pause?.action === "discard") continue;
+        if (pause) {
+          pause.action = "resume";
+          resumed.push(thread.id);
+          yield* finishPause(thread);
         } else {
-          if (pause.held && !ownTurns.has(fresh.id)) {
-            // Stopped before its turn began: deliver it again from the front of the queue.
-            const delivery = pause.held.delivery;
-            if (delivery) queues.set(fresh.id, [delivery, ...(queues.get(fresh.id) ?? [])]);
-          }
-          yield* drainQueue(fresh.id);
+          yield* drainQueue(thread.id);
         }
       }
-      for (const thread of targets) {
-        if (!resumed.some((entry) => entry.thread.id === thread.id)) yield* drainQueue(thread.id);
-      }
-      return { threadIds: resumed.map((entry) => entry.thread.id) };
+      return { threadIds: resumed };
     }).pipe(Effect.mapError(controlError));
 
   const discard: AgentMessagingShape["discard"] = (input) =>
@@ -1003,7 +1099,12 @@ const make = Effect.gen(function* () {
       const changed = targets
         .filter((thread) => {
           const had = paused.has(thread.id) || queues.has(thread.id);
-          paused.delete(thread.id);
+          const pause = paused.get(thread.id);
+          if (pause && (ownTurns.has(thread.id) || isBusy(thread))) {
+            pause.action = "discard";
+            const own = ownTurns.get(thread.id);
+            if (own) own.discarded = true;
+          } else paused.delete(thread.id);
           queues.delete(thread.id);
           return had;
         })

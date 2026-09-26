@@ -477,6 +477,26 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("omits internal turn acceptance receipts while keeping turn failures", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "accepted",
+        kind: "provider.turn.start.accepted",
+        summary: "Provider turn accepted",
+        turnId: "turn-1",
+        payload: { requestId: "request-1" },
+      }),
+      makeActivity({
+        id: "failed",
+        kind: "provider.turn.start.failed",
+        summary: "Provider turn failed",
+        tone: "error",
+        sequence: 1,
+      }),
+    ]);
+    expect(entries.map((entry) => entry.id)).toEqual(["failed"]);
+  });
+
   it("keeps the latest task progress without emitting plan-update log entries", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),
