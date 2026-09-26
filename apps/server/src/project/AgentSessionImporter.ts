@@ -137,7 +137,16 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
   let importedCount = 0;
   let skippedCount = 0;
 
-  yield* Stream.runForEach(threads, (outcome) =>
+  // Sub-agent sessions nest under their parent, so a child whose parent has
+  // not been imported yet (rollouts arrive newest first) waits for a second pass.
+  const deferred: AgentSessionScanner.AgentSessionRecentThread[] = [];
+  const threadIdFor = (providerInstanceId: string, providerSessionId: string) =>
+    ThreadId.make(`import:${providerInstanceId}:${providerSessionId}`);
+
+  const importOutcome = (
+    outcome: AgentSessionScanner.AgentSessionRecentThread,
+    finalPass: boolean,
+  ) =>
     Effect.gen(function* () {
       if (outcome._tag === "Skipped") {
         skippedCount += 1;
@@ -165,9 +174,15 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
         return;
       }
       const thread = outcome.thread;
-      const threadId = ThreadId.make(
-        `import:${thread.providerInstanceId}:${thread.providerSessionId}`,
-      );
+      const threadId = threadIdFor(thread.providerInstanceId, thread.providerSessionId);
+      const parentThreadId =
+        thread.parentProviderSessionId === undefined
+          ? null
+          : threadIdFor(thread.providerInstanceId, thread.parentProviderSessionId);
+      if (parentThreadId !== null && !importedThreadIds.has(parentThreadId) && !finalPass) {
+        deferred.push(outcome);
+        return;
+      }
       const imported = yield* Effect.gen(function* () {
         const provider = ProviderDriverKind.make(thread.source);
         const model = thread.model ?? DEFAULT_MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL;
@@ -255,6 +270,11 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
             worktreePath: null,
             createdAt: thread.createdAt,
             historyImport: true,
+            ...(parentThreadId !== null &&
+            (importedThreadIds.has(parentThreadId) ||
+              Option.isSome(yield* snapshots.getThreadDetailById(parentThreadId)))
+              ? { parentThreadId }
+              : {}),
           });
         }
 
@@ -291,8 +311,10 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
       } else {
         skippedCount += 1;
       }
-    }),
-  );
+    });
+
+  yield* Stream.runForEach(threads, (outcome) => importOutcome(outcome, false));
+  for (const outcome of deferred) yield* importOutcome(outcome, true);
 
   return { importedCount, skippedCount } satisfies AgentSessionImportResult;
 });

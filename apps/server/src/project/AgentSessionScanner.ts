@@ -131,6 +131,8 @@ const TranscriptRecord = Schema.Struct({
       cwd: Schema.optional(Schema.String),
       content: Schema.optional(Schema.Array(TranscriptContentBlock)),
       internal_chat_message_metadata_passthrough: Schema.optional(Schema.Unknown),
+      // Codex session_meta: `{ subagent: … }` marks a sub-agent rollout.
+      source: Schema.optional(Schema.Unknown),
     }),
   ),
 });
@@ -166,6 +168,8 @@ export interface AgentSessionThread {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly messages: ReadonlyArray<AgentSessionThreadMessage>;
+  /** Provider session that spawned this one, when it is a sub-agent. */
+  readonly parentProviderSessionId?: string;
 }
 
 export type AgentSessionRecentThread =
@@ -295,6 +299,56 @@ export function parseAgentSessionTranscript(
   return parseAgentSessionRecords(input, records);
 }
 
+type CodexSessionOrigin =
+  | { readonly kind: "main" }
+  | { readonly kind: "child"; readonly parentSessionId: string }
+  | { readonly kind: "internal" };
+
+/**
+ * Codex writes sub-agent rollouts next to the main ones. Spawned sub-agents
+ * name their parent; review, compaction and memory runs are internal work
+ * with no conversation of their own. Rollouts spell the key `subagent`, the
+ * app-server protocol `subAgent`.
+ */
+export function codexSessionOrigin(source: unknown): CodexSessionOrigin {
+  if (typeof source !== "object" || source === null) return { kind: "main" };
+  const record = source as Record<string, unknown>;
+  const subAgent = record.subagent ?? record.subAgent ?? record.sub_agent;
+  if (subAgent === undefined) return { kind: "main" };
+  if (typeof subAgent === "object" && subAgent !== null) {
+    const spawn = (subAgent as Record<string, unknown>).thread_spawn;
+    if (typeof spawn === "object" && spawn !== null) {
+      const parent = (spawn as Record<string, unknown>).parent_thread_id;
+      if (typeof parent === "string" && parent.trim().length > 0) {
+        return { kind: "child", parentSessionId: parent.trim() };
+      }
+    }
+  }
+  return { kind: "internal" };
+}
+
+const LEADING_TAG_BLOCK = /^<([A-Za-z_][\w-]*)[^>]*>[\s\S]*?<\/\1>\s*/;
+
+/**
+ * A title from what the person actually asked: skips context blocks harnesses
+ * inject as user messages (`<environment_context>`, AGENTS.md instructions,
+ * plugin lists) and agent-message headers.
+ */
+export function titleFromUserText(text: string): string | null {
+  let rest = text.trim();
+  for (let match = rest.match(LEADING_TAG_BLOCK); match; match = rest.match(LEADING_TAG_BLOCK)) {
+    rest = rest.slice(match[0].length).trimStart();
+  }
+  if (/^# AGENTS\.md instructions/i.test(rest)) return null;
+  const lines = rest
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("[traycer:agent-message]"));
+  const first = lines[0];
+  if (first === undefined || first.startsWith("<")) return null;
+  return first.slice(0, 100).trim() || null;
+}
+
 function parseAgentSessionRecords(
   input: AgentSessionTranscriptMetadata,
   records: ReadonlyArray<DecodedTranscriptRecord>,
@@ -306,6 +360,7 @@ function parseAgentSessionRecords(
   let title: string | null = null;
   let model: string | null = null;
   let hasCodexSessionId = false;
+  let origin: CodexSessionOrigin = { kind: "main" };
   const messages: Array<AgentSessionThreadMessage & { readonly codexResponseUser: boolean }> = [];
   let firstUserMessage:
     | (AgentSessionThreadMessage & { readonly codexResponseUser: boolean })
@@ -429,6 +484,8 @@ function parseAgentSessionRecords(
       if (!hasCodexSessionId && sessionId) {
         providerSessionId = sessionId;
         hasCodexSessionId = true;
+        // Only the rollout's own meta: a fork can repeat its parent's meta later.
+        origin = codexSessionOrigin(record.payload?.source);
       }
       continue;
     }
@@ -483,6 +540,7 @@ function parseAgentSessionRecords(
     });
   }
 
+  if (origin.kind === "internal") return null;
   const visibleMessages = messages.map(
     ({ codexResponseUser: _codexResponseUser, ...message }) => message,
   );
@@ -492,7 +550,12 @@ function parseAgentSessionRecords(
   const retainedMessages = firstUserMessageRetained
     ? visibleMessages
     : [visibleFirstUserMessage, ...visibleMessages.slice(-(MAX_IMPORTED_MESSAGES - 1))];
-  const derivedTitle = visibleFirstUserMessage.text.trim().split("\n")[0]?.slice(0, 100).trim();
+  const derivedTitle =
+    [visibleFirstUserMessage, ...visibleMessages]
+      .filter((message) => message.role === "user")
+      .map((message) => titleFromUserText(message.text))
+      .find((candidate) => candidate !== null) ??
+    visibleFirstUserMessage.text.trim().split("\n")[0]?.slice(0, 100).trim();
 
   return {
     source: input.source,
@@ -503,6 +566,7 @@ function parseAgentSessionRecords(
     createdAt: retainedMessages[0]?.createdAt ?? fallbackTimestamp,
     updatedAt: fallbackTimestamp,
     messages: retainedMessages,
+    ...(origin.kind === "child" ? { parentProviderSessionId: origin.parentSessionId } : {}),
   };
 }
 

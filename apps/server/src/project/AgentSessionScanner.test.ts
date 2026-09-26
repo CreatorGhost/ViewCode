@@ -3103,7 +3103,7 @@ describe("parseAgentSessionTranscript", () => {
       lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
     });
 
-    expect(thread?.title).toBe("<environment_context>");
+    expect(thread?.title).toBe("Initialize Git and add a README.");
     expect(thread?.messages.map((message) => message.text)).toEqual([
       context,
       "Initialize Git and add a README.",
@@ -3130,7 +3130,7 @@ describe("parseAgentSessionTranscript", () => {
       lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
     });
 
-    expect(thread?.title).toBe("<environment_context>");
+    expect(thread?.title).toBe("Create a useful project.");
     expect(thread?.messages.map((message) => message.text)).toEqual([prompt]);
   });
 
@@ -3218,5 +3218,53 @@ describe("parseAgentSessionTranscript", () => {
     expect(thread?.messages).toHaveLength(200);
     expect(thread?.messages[0]?.text).toBe("Keep this prompt");
     expect(thread?.messages.at(-1)?.text).toBe("Assistant update 249");
+  });
+});
+
+describe("codexSessionOrigin", () => {
+  it("reads the parent of a spawned sub-agent in either spelling", () => {
+    const spawn = { thread_spawn: { parent_thread_id: "parent-1", depth: 1 } };
+    expect(AgentSessionScanner.codexSessionOrigin({ subagent: spawn })).toEqual({
+      kind: "child",
+      parentSessionId: "parent-1",
+    });
+    expect(AgentSessionScanner.codexSessionOrigin({ subAgent: spawn })).toEqual({
+      kind: "child",
+      parentSessionId: "parent-1",
+    });
+  });
+
+  it("treats review and compaction runs as internal and plain sources as main", () => {
+    expect(AgentSessionScanner.codexSessionOrigin({ subagent: "review" })).toEqual({
+      kind: "internal",
+    });
+    expect(AgentSessionScanner.codexSessionOrigin({ subagent: "compact" })).toEqual({
+      kind: "internal",
+    });
+    expect(AgentSessionScanner.codexSessionOrigin("cli")).toEqual({ kind: "main" });
+    expect(AgentSessionScanner.codexSessionOrigin(undefined)).toEqual({ kind: "main" });
+  });
+});
+
+describe("titleFromUserText", () => {
+  it("skips injected blocks and agent-message headers", () => {
+    expect(
+      AgentSessionScanner.titleFromUserText(
+        "<recommended_plugins>\n- a\n</recommended_plugins>\nReview PR 1541",
+      ),
+    ).toBe("Review PR 1541");
+    expect(
+      AgentSessionScanner.titleFromUserText(
+        "[traycer:agent-message] from Lead (agent abc) [claude]\n[traycer:agent-message] No reply is required.\nAudit the frontend.",
+      ),
+    ).toBe("Audit the frontend.");
+    expect(
+      AgentSessionScanner.titleFromUserText(
+        "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>x</INSTRUCTIONS>",
+      ),
+    ).toBe(null);
+    expect(
+      AgentSessionScanner.titleFromUserText("<environment_context>cwd</environment_context>"),
+    ).toBe(null);
   });
 });
