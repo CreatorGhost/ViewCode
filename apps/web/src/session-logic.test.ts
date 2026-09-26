@@ -2146,14 +2146,16 @@ describe("deriveActiveWorkStartedAt", () => {
 
 describe("deriveWorkLogEntries quiet-timeline guarantee", () => {
   it("batches Cursor Task lifecycle updates by tool id instead of identical titles", () => {
-    const activities = [
-      ["task.started", "task-a"],
-      ["task.started", "task-b"],
-      ["task.progress", "task-b"],
-      ["task.completed", "task-a"],
-      ["task.completed", "task-b"],
-      ["task.completed", "task-b"],
-    ].map(([kind, taskId], index) =>
+    const activities = (
+      [
+        ["task.started", "task-a"],
+        ["task.started", "task-b"],
+        ["task.progress", "task-b"],
+        ["task.completed", "task-a"],
+        ["task.completed", "task-b"],
+        ["task.completed", "task-b"],
+      ] as const
+    ).map(([kind, taskId], index) =>
       makeActivity({
         kind,
         id: `cursor-task-${index}`,

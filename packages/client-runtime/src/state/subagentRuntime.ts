@@ -551,7 +551,10 @@ export function foldSubagentActivities(
         const agent = getOrCreate(agents, taskId, payload, at);
         fillMetadata(agent, payload);
         const detail = asString(payload.detail);
-        if (detail) agent.progress = bounded(detail);
+        if (detail) {
+          agent.progress = bounded(detail);
+          agent.recentActivity = appendActivity(agent.recentActivity, at, detail);
+        }
         // A task first seen via task.updated (start row aged out) has run at
         // least once — zero activations would misreport "run 0" and let a
         // later start row treat it as never-started (review finding).

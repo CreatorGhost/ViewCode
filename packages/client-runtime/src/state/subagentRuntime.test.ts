@@ -62,6 +62,32 @@ function fold(rows: ReadonlyArray<OrchestrationThreadActivity>) {
 }
 
 describe("foldSubagentActivities", () => {
+  it("retains updated task detail after earlier progress without duplicate history", () => {
+    const earlier = "2026-09-27T10:00:00.000Z";
+    const later = "2026-09-27T10:00:10.000Z";
+    const [agent] = fold([
+      activity(
+        "task.progress",
+        { taskId: "audit", taskType: "subagent", summary: "Read source" },
+        earlier,
+      ),
+      activity(
+        "task.updated",
+        { taskId: "audit", status: "waiting", detail: "Waiting for approval" },
+        later,
+      ),
+      activity("task.updated", { taskId: "audit", detail: "Waiting for approval" }, later),
+    ]);
+    expect(agent).toMatchObject({
+      status: "waiting",
+      progress: "Waiting for approval",
+      recentActivity: [
+        { at: earlier, summary: "Read source" },
+        { at: later, summary: "Waiting for approval" },
+      ],
+    });
+  });
+
   it("keeps Cursor Task tool ids distinct through repeated updates with identical titles", () => {
     const rows = [
       activity("task.started", {
