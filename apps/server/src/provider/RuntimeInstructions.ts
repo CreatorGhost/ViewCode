@@ -6,8 +6,12 @@ When the t3-code MCP server exposes link_pull_request, you must use it to regist
 // models on. Every toolkit tool carries the viewcode_ prefix (as Traycer prefixes
 // traycer_*) so it can't be confused with a harness's own tools, such as
 // Codex's built-in spawn_agent. Provider-native sub-agents stay available.
-const VIEWCODE_AGENTS_INSTRUCTIONS = `<viewcode_agents>
-ViewCode agents are separate agents the user sees in the ViewCode sidebar: each has its own chat, provider and model, the user can open and prompt it, and its final answer is sent back to you automatically. When the t3-code MCP server exposes viewcode_spawn_agent and the user asks for sub-agents, child agents, agents, helpers or parallel agents, create ViewCode agents: call viewcode_list_models if you need provider or model ids, then viewcode_spawn_agent once per agent with the provider and model the user named, then viewcode_send_message for follow-ups. Your harness's built-in sub-agents (for example a native spawn_agent or Task tool) are a different feature: use them only when the user explicitly asks for built-in, inline or in-chat sub-agents, and say which kind you used. If viewcode_spawn_agent is unavailable or fails, do not fall back on your own: tell the user what failed and ask whether to use your built-in sub-agents instead.
+const viewcodeAgentsInstructions = (allowNativeAgentFallback: boolean) => `<viewcode_agents>
+ViewCode agents are separate agents the user sees in the ViewCode sidebar: each has its own chat, provider and model, the user can open and prompt it, and its final answer is sent back to you automatically. When the t3-code MCP server exposes viewcode_spawn_agent and the user asks for sub-agents, child agents, agents, helpers or parallel agents, create ViewCode agents: call viewcode_list_models if you need provider or model ids, then viewcode_spawn_agent once per agent with the provider and model the user named, then viewcode_send_message for follow-ups. Your harness's built-in sub-agents (for example a native spawn_agent or Task tool) are a different feature: ${
+  allowNativeAgentFallback
+    ? "use them when the user explicitly asks for built-in, inline or in-chat sub-agents, or as a fallback when viewcode_spawn_agent is unavailable or fails. Explain the failure and that you are using native tasks, then proceed without an extra confirmation. Native tasks appear inside the current chat; they are not separate ViewCode chats with an independent model picker. If the user requires a particular provider/model or a separate child chat that native tasks cannot provide, report that limitation instead of silently substituting."
+    : "use them only when the user explicitly asks for built-in, inline or in-chat sub-agents, and say which kind you used. If viewcode_spawn_agent is unavailable or fails, do not fall back on your own: tell the user what failed and ask whether to use your built-in sub-agents instead."
+}
 </viewcode_agents>`;
 
 /**
@@ -19,6 +23,7 @@ export function buildRuntimeInstructions(runtime: {
   readonly model?: string | undefined;
   readonly modelName?: string | undefined;
   readonly reasoningEffort?: string | undefined;
+  readonly allowNativeAgentFallback?: boolean;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
@@ -28,7 +33,7 @@ export function buildRuntimeInstructions(runtime: {
     modelName && modelName !== model ? `${modelName} (model slug: ${model})` : model;
   const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
-  return `<runtime_info>In case you're asked: you are running in ViewCode through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}`;
+  return `<runtime_info>In case you're asked: you are running in ViewCode through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${viewcodeAgentsInstructions(runtime.allowNativeAgentFallback ?? false)}`;
 }
 
 function toSingleLine(value: string): string {

@@ -945,6 +945,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     Effect.gen(function* () {
       const capabilities = yield* agentAccessCapabilities(threadId);
       const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
+      yield* Effect.logInfo("MCP session prepared", {
+        threadId,
+        providerInstanceId,
+        issued: credential !== undefined,
+        ...(credential ? { transport: credential.config.stdio ? "stdio" : "http" } : {}),
+        capabilities: [...capabilities],
+      });
       if (credential) {
         const deviceEnvironment = capabilities.has("device")
           ? yield* agentDeviceEnvironment

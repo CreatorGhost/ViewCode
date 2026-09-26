@@ -3101,6 +3101,36 @@ describe("quiet timeline: nested agents", () => {
     },
   );
 
+  it("batches Cursor Task lifecycle updates by tool id instead of identical titles", () => {
+    const activities = [
+      ["task.started", "task-a"],
+      ["task.started", "task-b"],
+      ["task.progress", "task-b"],
+      ["task.completed", "task-a"],
+      ["task.completed", "task-b"],
+      ["task.completed", "task-b"],
+    ].map(([kind, taskId], index) =>
+      makeActivity({
+        id: EventId.make(`cursor-${index}`),
+        kind,
+        turnId: TurnId.make("cursor-turn"),
+        payload: {
+          taskId,
+          toolUseId: taskId,
+          taskType: "subagent",
+          agentKind: "agent",
+          title: "Audit",
+          status: kind === "task.completed" ? "completed" : "running",
+        },
+      }),
+    );
+    const rows = buildThreadFeed(makeThread({ activities })).flatMap((entry) =>
+      entry.type === "activity-group" ? entry.activities : [],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.workEntry?.agentSpawn?.agentTaskIds).toEqual(["task-a", "task-b"]);
+  });
+
   it("folds a turn's direct spawns into one batch row that tracks their states", () => {
     const turnId = TurnId.make("turn-spawn");
     const agent = (

@@ -15,6 +15,47 @@ const nodeServicesIt = it.layer(NodeServices.layer);
 const encodeUnknownJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 nodeServicesIt("ACP native logging", (it) => {
+  it.effect("records MCP attachment on every setup method without claiming tools were loaded", () =>
+    Effect.gen(function* () {
+      const records: Array<unknown> = [];
+      const makeLogger = yield* makeAcpNativeLoggerFactory();
+      const logger = makeLogger({
+        nativeEventLogger: {
+          filePath: "/tmp/provider-native.ndjson",
+          write: (event) => Effect.sync(() => void records.push(event)),
+          close: () => Effect.void,
+        },
+        provider: ProviderDriverKind.make("cursor"),
+        threadId: ThreadId.make("thread-mcp"),
+      });
+      const secret = "private-MCP-value";
+      for (const method of ["session/new", "session/load", "session/resume"]) {
+        yield* logger.requestLogger!({
+          method,
+          status: "started",
+          payload: {
+            cwd: secret,
+            sessionId: secret,
+            mcpServers: [
+              {
+                type: "http",
+                name: secret,
+                url: secret,
+                headers: [{ name: "Authorization", value: secret }],
+              },
+            ],
+          },
+        });
+      }
+      const serialized = encodeUnknownJson(records);
+      assert.notInclude(serialized, secret);
+      assert.equal(serialized.match(/"mcpServerCount":1/g)?.length, 3);
+      assert.equal(serialized.match(/"mcpTransports":\["http"\]/g)?.length, 3);
+      assert.equal(serialized.match(/"toolsAvailability":"unverified"/g)?.length, 3);
+      assert.include(serialized, '"threadId":"thread-mcp"');
+    }),
+  );
+
   it.effect("records bounded request and protocol diagnostics without raw payloads", () =>
     Effect.gen(function* () {
       const records: Array<unknown> = [];

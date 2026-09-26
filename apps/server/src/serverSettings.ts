@@ -593,8 +593,8 @@ const make = Effect.gen(function* () {
 
   const readEnvironmentHasHistory = sql<{ readonly used: number }>`
     SELECT
-      EXISTS (SELECT 1 FROM projection_projects)
-      OR EXISTS (SELECT 1 FROM projection_threads) AS "used"
+      EXISTS (SELECT 1 FROM projection_thread_sessions WHERE provider_name IS NOT NULL)
+      OR EXISTS (SELECT 1 FROM provider_session_runtime) AS "used"
   `.pipe(
     Effect.map((rows) => Number(rows[0]?.used ?? 0) > 0),
     Effect.mapError(

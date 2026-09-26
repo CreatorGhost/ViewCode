@@ -74,9 +74,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   model picked the built-in one, so "sub-agents" never became visible ViewCode
   agents. The runtime instructions (`provider/RuntimeInstructions.ts`) name the
   ViewCode path and say when the harness's own sub-agents are appropriate. If
-  `viewcode_spawn_agent` is missing or fails, the agent reports it and asks the
-  user before using its harness's sub-agents (a user decision: no silent
-  fallback).
+  `viewcode_spawn_agent` is missing or fails, Cursor reports the failure and
+  may continue with native Tasks without another confirmation. These remain
+  inline agents, not separate chats with model pickers. It must report a
+  limitation if the fallback cannot satisfy a requested provider/model or
+  separate chat. Other providers still ask before substituting native agents.
 
 - A message is a normal `thread.turn.start` whose text begins with a
   `<viewcode-agent-message …>` envelope. Idle receiver → starts now; busy,

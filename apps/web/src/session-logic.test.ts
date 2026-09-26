@@ -2145,6 +2145,34 @@ describe("deriveActiveWorkStartedAt", () => {
 });
 
 describe("deriveWorkLogEntries quiet-timeline guarantee", () => {
+  it("batches Cursor Task lifecycle updates by tool id instead of identical titles", () => {
+    const activities = [
+      ["task.started", "task-a"],
+      ["task.started", "task-b"],
+      ["task.progress", "task-b"],
+      ["task.completed", "task-a"],
+      ["task.completed", "task-b"],
+      ["task.completed", "task-b"],
+    ].map(([kind, taskId], index) =>
+      makeActivity({
+        kind,
+        id: `cursor-task-${index}`,
+        sequence: index,
+        turnId: "cursor-turn",
+        payload: {
+          taskId,
+          toolUseId: taskId,
+          taskType: "subagent",
+          title: "Audit",
+          status: kind === "task.completed" ? "completed" : "running",
+        },
+      }),
+    );
+    const entries = deriveWorkLogEntries(activities);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.agentSpawn?.agentTaskIds).toEqual(["task-a", "task-b"]);
+  });
+
   it("concurrent subagents replace their launch tools with one lifecycle row", () => {
     const activities: OrchestrationThreadActivity[] = [];
     for (let agent = 0; agent < 5; agent += 1) {

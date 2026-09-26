@@ -65,24 +65,14 @@ export function gateProviderInstanceConfigMap(
 const decodeLenientJson = Schema.decodeUnknownOption(fromLenientJson(Schema.Unknown));
 
 /**
- * Whether raw `settings.json` records provider decisions: an explicit
- * `providers.<driver>.enabled`, or any provider instance.
+ * Explicit instances predate the gate and are only created by user settings.
+ * Legacy `providers.*.enabled` flags are also written by default persistence,
+ * so their presence alone cannot establish that the user chose any provider.
  */
 export function hasPersistedProviderChoices(rawSettingsJson: string): boolean {
   const decoded = decodeLenientJson(rawSettingsJson);
   if (decoded._tag === "None" || !Predicate.isObject(decoded.value)) return false;
-  const { providers, providerInstances } = decoded.value as {
-    readonly providers?: unknown;
-    readonly providerInstances?: unknown;
-  };
-  if (
-    Predicate.isObject(providers) &&
-    Object.values(providers).some(
-      (entry) => Predicate.isObject(entry) && typeof entry["enabled"] === "boolean",
-    )
-  ) {
-    return true;
-  }
+  const { providerInstances } = decoded.value as { readonly providerInstances?: unknown };
   return Predicate.isObject(providerInstances) && Object.keys(providerInstances).length > 0;
 }
 
@@ -92,8 +82,8 @@ export function hasPersistedProviderChoices(rawSettingsJson: string): boolean {
  * defaults were applied:
  *
  * - an unreadable settings file: pending, since defaults are not permission;
- * - a used environment (any project or thread) or persisted provider
- *   decisions: chosen, so existing installs behave exactly as before;
+ * - a used environment (a recorded provider session) or explicit provider
+ *   instances: chosen, so existing installs behave exactly as before;
  * - anything else (fresh or never-used install): pending.
  */
 export function decideProviderSelection(

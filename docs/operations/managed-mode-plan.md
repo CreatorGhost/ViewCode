@@ -59,11 +59,13 @@ Turning on a provider the machine blocks is the user's call.
    `providerSelection: "pending" | "chosen"`; **absent means "needs
    migration"**. The decision is made from the raw persisted settings before
    providers are constructed, and persisted:
-   - brand-new home, unreadable settings, or an old home with no projects and
-     no explicit provider choices → `pending` (user's decision for the
-     ambiguous case);
-   - an old home with projects/threads, explicit `providers.*.enabled`, or any
-     `providerInstances` entry → `chosen`, behaving as today.
+   - brand-new home, unreadable settings, or an old home without recorded
+     provider sessions or explicit instances → `pending`. Generated
+     `providers.*.enabled` defaults and bootstrap projects/threads do not
+     establish that the user chose a provider;
+   - an old home with recorded provider sessions or an explicit
+     `providerInstances` entry → `chosen`. An existing selection marker is
+     retained, including the choice written by `./build.sh --managed`.
      Malformed settings files are preserved, not overwritten. If persisting the
      decision fails, provider execution stays disabled for that run. Pending
      survives restarts even if projects are created meanwhile.

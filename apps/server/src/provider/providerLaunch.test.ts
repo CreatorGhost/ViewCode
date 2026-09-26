@@ -8,6 +8,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
+  ServerSettingsPatch,
   type ServerSettings,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -18,9 +19,11 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
@@ -31,6 +34,8 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettingsModule from "../serverSettings.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import { AntigravityInstallation } from "./AntigravityInstallation.ts";
@@ -50,6 +55,7 @@ import * as ProviderRegistry from "./Services/ProviderRegistry.ts";
 // recording fake), but must exist and be executable for the lookup.
 const windowsHost = HostProcessPlatform.defaultValue() === "win32";
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
+const encodeSettingsPatch = Schema.encodeEffect(Schema.fromJsonString(ServerSettingsPatch));
 
 const makeStubDir = (names: ReadonlyArray<string>) => {
   const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-provider-launch-"));
@@ -237,6 +243,63 @@ describe("first-run provider selection", () => {
           assert.deepStrictEqual([...new Set(spawned)], [claudeStub]);
         }).pipe(Effect.provide(services));
       }),
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "does not probe default-seeded settings until an explicit choice",
+    () =>
+      Effect.gen(function* () {
+        const dir = makeStubDir(["codex", "claude", "cursor-agent", "grok", "opencode", "cmd"]);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => NodeFS.rmSync(dir, { recursive: true })),
+        );
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        // Older app writes include enabled defaults but have no choice marker.
+        yield* fs.writeFileString(
+          config.settingsPath,
+          yield* encodeSettingsPatch({
+            providers: stubbedSettings(dir, undefined).providers,
+          }),
+        );
+        const settings = yield* ServerSettingsModule.ServerSettingsService;
+        const claudeSpawned = yield* Deferred.make<void>();
+        const { spawner, spawned } = makeRecordingSpawner((command) =>
+          command === `${dir}/claude` ? Deferred.succeed(claudeSpawned, undefined) : Effect.void,
+        );
+        const scope = yield* Scope.make();
+        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+        const services = yield* Layer.build(buildRegistry(settings, spawner)).pipe(
+          Scope.provide(scope),
+        );
+        yield* Effect.gen(function* () {
+          const registry = yield* ProviderRegistry.ProviderRegistry;
+          yield* registry.refresh();
+          yield* TestClock.adjust("2 hours");
+          yield* registry.refresh();
+          assert.deepStrictEqual(spawned, []);
+          assert.strictEqual((yield* settings.getSettings).providerSelection, "pending");
+          yield* settings.updateSettings(
+            makeChooseProvidersPatch([ProviderDriverKind.make("claudeAgent")]),
+          );
+          yield* Deferred.await(claudeSpawned);
+          yield* registry.refresh();
+          assert.deepStrictEqual([...new Set(spawned)], [`${dir}/claude`]);
+        }).pipe(Effect.provide(services));
+      }).pipe(
+        Effect.provide(
+          ServerSettingsModule.layer.pipe(
+            Layer.provide(ServerSecretStore.layer),
+            Layer.provideMerge(Layer.fresh(SqlitePersistenceMemory)),
+            Layer.provideMerge(
+              Layer.fresh(
+                ServerConfig.layerTest(process.cwd(), { prefix: "t3-provider-launch-settings-" }),
+              ),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
   );
 
   it.effect.skipIf(windowsHost)("keeps today's behaviour for an environment already chosen", () =>

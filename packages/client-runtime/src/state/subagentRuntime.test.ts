@@ -62,6 +62,44 @@ function fold(rows: ReadonlyArray<OrchestrationThreadActivity>) {
 }
 
 describe("foldSubagentActivities", () => {
+  it("keeps Cursor Task tool ids distinct through repeated updates with identical titles", () => {
+    const rows = [
+      activity("task.started", {
+        taskId: "task-a",
+        toolUseId: "task-a",
+        taskType: "subagent",
+        title: "Audit",
+      }),
+      activity("task.started", {
+        taskId: "task-b",
+        toolUseId: "task-b",
+        taskType: "subagent",
+        title: "Audit",
+      }),
+      activity("task.progress", {
+        taskId: "task-b",
+        taskType: "subagent",
+        title: "Audit",
+        status: "running",
+      }),
+    ];
+    expect(fold(rows).map((agent) => [agent.id, agent.status])).toEqual([
+      ["task-a", "running"],
+      ["task-b", "running"],
+    ]);
+    rows.push(
+      activity("task.completed", { taskId: "task-a", status: "completed", summary: "A result" }),
+      activity("task.completed", { taskId: "task-b", status: "completed", summary: "B result" }),
+      activity("task.completed", { taskId: "task-b", status: "completed", summary: "B result" }),
+    );
+    expect(
+      fold(rows).map((agent) => [agent.id, agent.status, agent.result, agent.activationCount]),
+    ).toEqual([
+      ["task-a", "completed", "A result", 1],
+      ["task-b", "completed", "B result", 1],
+    ]);
+  });
+
   it("shows the batch status limit after its parent turn ends without claiming a result", () => {
     const running = activity("task.progress", {
       taskId: "batch-1",

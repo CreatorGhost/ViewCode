@@ -9,34 +9,38 @@ Protection), CyberArk EPM, standard (non-admin) account, TLS interception on
 the corporate network. The measurements were made on upstream T3 Code at
 `ed809f7ad`, which is exactly ViewCode's fork point, so file references match.
 
-## TL;DR
+## Findings and current guidance
 
 - The packaged T3 Code app was **killed by Cortex XDR ~4.5s into launch**. The
   kill lands **27ms after the app spawns every provider CLI at once** (codex,
   opencode, claude). Best-fit explanation: one spawned CLI is flagged and
   Cortex kills the causal parent (every alert names the app binary). **Not
-  proven**: no positive control was ever reproduced.
+  proven** for an individual CLI. A later controlled run kept the same ad-hoc
+  signed DMG alive for over eight minutes with the blocked providers off; see
+  [round 3](managed-mac-experiments.md#round-3-result-2026-09-26-alive).
 - Disproved as triggers (don't retry): the login-shell probe, the telemetry
   read-and-POST, the entitlements, GUI/launchd parentage.
 - A ViewCode build from `./build.sh` is **ad-hoc signed** (the launcher copies
   Electron and re-signs it with `codesign --sign -`) under a never-seen name.
-  Expect it to be treated at least as harshly as the notarized T3 Code release.
+  The surviving round-3 run shows that ad-hoc signing alone did not trigger
+  termination in that experiment. Signing and notarization still matter for
+  distributing downloaded copies through Gatekeeper.
 - **Never try to evade the EDR** (obfuscation, renaming binaries to dodge
   rules, poking at the agent's helpers or policy DB). If a legitimate behaviour
   trips a rule, get the rule name and an exception from IT.
 
 ## What ViewCode does at startup (verified in this repo)
 
-| Behaviour                                                                                            | Where                                                                                                                                                                                  | ViewCode status                                                                                                                                                                                                                                               |
-| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Interactive login shell (`$SHELL -ilc`) to read `PATH`, run twice per launch (desktop main + server) | `packages/shared/src/shell.ts` (`-ilc`), `apps/server/src/os-jank.ts` (`hydratePosixPath`), desktop `app/DesktopApp.ts`                                                                | Same as upstream. ~1s each on the critical path. Not the EDR trigger                                                                                                                                                                                          |
-| Every provider probed concurrently                                                                   | `apps/server/src/provider/Layers/ProviderRegistry.ts` (`loadProviders`, `concurrency: "unbounded"`); more in `providerSnapshot.ts`, `providerMaintenanceRunner.ts`, `CodexProvider.ts` | Same, **plus one more CLI**: Command Code (`cmd`)                                                                                                                                                                                                             |
-| Providers that aren't installed are still exec'd                                                     | per-driver health checks                                                                                                                                                               | Same (e.g. `grok` probed when absent)                                                                                                                                                                                                                         |
-| Turning a provider off                                                                               | Settings → Providers → switch on each card (`ProviderInstanceCard.tsx`, writes `instance.enabled`; server `resolveEntryEnabled` makes an explicit `false` win)                         | **Correction to the field notes:** a UI switch exists. The per-driver `enabled` field is hidden only because the card switch replaces it. Gap: all providers default to on, so the **first** launch probes everything before the user can switch anything off |
-| TCP listener on `127.0.0.1:3773`                                                                     | server                                                                                                                                                                                 | **Not in ViewCode desktop by default**: it listens on a Unix socket (`socketListener.ts`). Only with Settings → Connections → Network access on, or `./build.sh --web`                                                                                        |
-| Telemetry                                                                                            | `apps/server/src/telemetry/AnalyticsService.ts`                                                                                                                                        | **Off by default in ViewCode.** But `getTelemetryIdentifier` still runs at service construction regardless, reading `~/.codex/auth.json` and `~/.claude.json` to hash an id (`Identify.ts`). Credential files are read even with telemetry off                |
-| Entitlements                                                                                         | `apps/desktop` packaging, `apps/server/resources/cli-entitlements.plist`                                                                                                               | Not re-checked here. Upstream grants `allow-unsigned-executable-memory`, `disable-library-validation` (app) and more for the CLI; only `allow-jit` is known to be required                                                                                    |
-| Signing                                                                                              | `apps/desktop/scripts/electron-launcher.mjs` (`codesign --force --deep --sign -`)                                                                                                      | Source-tree launches are ad-hoc signed; `dist:desktop:*` builds are unsigned                                                                                                                                                                                  |
+| Behaviour                                                                                            | Where                                                                                                                                                                                  | ViewCode status                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Interactive login shell (`$SHELL -ilc`) to read `PATH`, run twice per launch (desktop main + server) | `packages/shared/src/shell.ts` (`-ilc`), `apps/server/src/os-jank.ts` (`hydratePosixPath`), desktop `app/DesktopApp.ts`                                                                | Same as upstream. ~1s each on the critical path. Not the EDR trigger                                                                                                                                                                           |
+| Every provider probed concurrently                                                                   | `apps/server/src/provider/Layers/ProviderRegistry.ts` (`loadProviders`, `concurrency: "unbounded"`); more in `providerSnapshot.ts`, `providerMaintenanceRunner.ts`, `CodexProvider.ts` | Only enabled instances after provider selection; pending selection blocks probes, including Command Code (`cmd`)                                                                                                                               |
+| Providers that aren't installed are still exec'd                                                     | per-driver health checks                                                                                                                                                               | The launch guard resolves the executable first and refuses to spawn a missing binary                                                                                                                                                           |
+| Turning a provider off                                                                               | Settings → Providers → switch on each card (`ProviderInstanceCard.tsx`, writes `instance.enabled`; server `resolveEntryEnabled` makes an explicit `false` win)                         | The card switch controls each instance. Fresh environments require a provider choice before probing; managed setup records that choice explicitly                                                                                              |
+| TCP listener on `127.0.0.1:3773`                                                                     | server                                                                                                                                                                                 | **Not in ViewCode desktop by default**: it listens on a Unix socket (`socketListener.ts`). Only with Settings → Connections → Network access on, or `./build.sh --web`                                                                         |
+| Telemetry                                                                                            | `apps/server/src/telemetry/AnalyticsService.ts`                                                                                                                                        | **Off by default in ViewCode.** But `getTelemetryIdentifier` still runs at service construction regardless, reading `~/.codex/auth.json` and `~/.claude.json` to hash an id (`Identify.ts`). Credential files are read even with telemetry off |
+| Entitlements                                                                                         | `apps/desktop` packaging, `apps/server/resources/cli-entitlements.plist`                                                                                                               | Not re-checked here. Upstream grants `allow-unsigned-executable-memory`, `disable-library-validation` (app) and more for the CLI; only `allow-jit` is known to be required                                                                     |
+| Signing                                                                                              | `apps/desktop/scripts/electron-launcher.mjs` (`codesign --force --deep --sign -`)                                                                                                      | Source-tree launches are ad-hoc signed; `dist:desktop:*` builds are unsigned                                                                                                                                                                   |
 
 ## Work items (in priority order)
 
@@ -92,6 +96,7 @@ exception, or touches the EDR.
 
    ```json
    {
+     "providerSelection": "chosen",
      "providers": {
        "codex": { "enabled": false },
        "claudeAgent": { "enabled": true },
@@ -105,7 +110,9 @@ exception, or touches the EDR.
    ```
 
    Keys: `codex`, `claudeAgent`, `cursor`, `grok`, `opencode`, `antigravity`,
-   `commandCode` (`providers` in `packages/contracts/src/settings.ts`). Leave
+   `commandCode` (`providers` in `packages/contracts/src/settings.ts`). The
+   explicit `providerSelection` marker records this operator's choice; enabled
+   flags alone are not proof that someone chose them. Leave
    on only what is installed and allowed; `opencode` is ad-hoc signed and the
    prime suspect.
 
@@ -114,19 +121,42 @@ exception, or touches the EDR.
    inspection is fine) and exports `--use-system-ca` for the install. No
    `sudo` is needed.
 4. **If the app dies within seconds:** read
-   `~/.viewcode/userdata/logs/server-child.log` (the last lines show which
-   provider was being probed), note the time, and check the Cortex XDR app for
-   an alert. An EDR `SIGKILL` leaves no crash report; that absence is itself
-   the signal. Report to the user; don't work around it.
+   `~/.viewcode/userdata/logs/server.trace.ndjson`, `desktop.trace.ndjson`, and
+   `spawn-trace.log`, note the time, and check the Cortex XDR app for an alert.
+   Trace rows are OpenTelemetry spans (`name`, `attributes`, `events`, `exit`,
+   and nanosecond timestamps), not messages with `message`/`level` fields.
+   A missing shutdown log or crash report does not prove an EDR kill: an agent
+   harness can also tear down the process group. Correlate an actual alert.
+   Report to the user; don't work around the policy.
 5. **Positive control (the missing experiment),** only with the user's go-ahead:
    run each CLI alone with a timeout and note which raises an alert:
-   `timeout 15 codex --version`, `timeout 15 claude --version`,
-   `timeout 15 cursor-agent --version`, `timeout 15 cmd --version`.
+   `perl -e 'alarm shift @ARGV; exec @ARGV' 15 codex --version` (replace the
+   executable and arguments for each allowed CLI). Stock macOS has neither
+   `timeout` nor `gtimeout`.
    **Never** run `opencode --version` without a timeout: it opens a TUI and
    hung for minutes, taking the terminal session with it.
 6. `./build.sh --web` runs the server from the terminal and the UI in a
    browser, a legitimate mode that is useful as a data point. It still spawns
    provider CLIs; if Cortex flags it too, stop and go back to step 1.
+
+## Cursor Enterprise MCP policy
+
+If Cursor reports that MCP servers are blocked by team policy, ask the team's
+administrator to allow `t3-code`. Verify with `cursor-agent mcp list` under the
+same account; a blocked server cannot be restored by changing ViewCode's MCP
+transport. An HTTP 401 for a bogus credential proves that the endpoint is
+reachable and auth-gated, not that Cursor registered its tools.
+
+ACP session setup confirms a session ID, not an inventory of loaded MCP tools.
+Empty MCP resources are not evidence of empty tools. Stdio is mandatory in
+ACP; only HTTP and SSE have capability flags. See the
+[ACP session setup specification](https://agentclientprotocol.com/protocol/v1/session-setup).
+
+The UI's New child agent action creates a thread directly and does not require
+MCP. Cursor's native Task agents are a separate path; the agent explains the
+fallback and can proceed without another confirmation, unless a required
+provider/model or separate chat cannot be supplied. Cursor's team-policy result does
+not establish whether Claude's separate SDK/MCP path is blocked.
 
 ## Building the installer on the managed Mac
 
@@ -159,6 +189,16 @@ pnpm dist:desktop:dmg:arm64                # output in release/
 - No `sudo`; the EPM tool blocks elevation. `eslogger`, `log show` and
   `cytool` need privileges you don't have. Don't plan around them.
 - Node fails TLS with `SELF_SIGNED_CERT_IN_CHAIN`; `curl` works (keychain).
+  Use `NODE_OPTIONS=--use-system-ca` with Node 24, or an approved
+  `NODE_EXTRA_CA_CERTS` bundle; never disable certificate verification.
+- A source launch from `./build.sh` runs as Electron, so `pgrep -x ViewCode`
+  does not establish whether it is alive. An observation-only check such as
+  `pgrep -f 'electron-runtime.*dist-electron/main.cjs'` finds that launcher;
+  inspect the result's command and cwd to distinguish other checkouts. Never
+  use a pattern match as a list of processes to kill.
+- For an agent-harness experiment, `nohup ... &` alone may not outlive process
+  group teardown. Use the [macOS detachment procedure](managed-mac-experiments.md#running-experiments-correctly-on-macos)
+  and retain the spawned PID before attributing an unexplained exit to EDR.
 - `ps` output inflates shell counts: one `zsh -ilc` whose `.zshrc` runs command
   substitutions (nvm, starship) shows as up to 4 processes with the same argv.
 - **Line not to cross:** don't inspect or call the EDR's own helper binaries to
@@ -170,6 +210,7 @@ pnpm dist:desktop:dmg:arm64                # output in release/
 - Demand a positive control; ten surviving probes are not a diagnosis.
 - Match cardinality and context (a burst of several CLIs, not one), not just
   the command.
-- Read the app's own `server-child.log` first; it held the timeline.
+- Read the app's trace files and spawn trace first; correlate their timestamps
+  with the provider and security-tool evidence.
 - A failed experiment (`fetch failed`) is inconclusive, not negative.
 - Log unbuffered when the process may be killed.

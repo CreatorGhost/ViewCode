@@ -4,12 +4,40 @@ import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
+import * as EffectAcpSchema from "effect-acp/schema";
 
 import type { EventNdjsonLogger } from "../Layers/EventNdjsonLogger.ts";
 import type * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
+import { summarizeMcpServers } from "./AcpMcpDiagnostics.ts";
 
 const transientProtocolUpdates = new Set(["agent_message_chunk", "agent_thought_chunk"]);
+const sessionSetupMethods = new Set(["session/new", "session/load", "session/resume"]);
+const decodeSessionRequest = Schema.decodeUnknownOption(EffectAcpSchema.NewSessionRequest);
+const decodeInitializeResponse = Schema.decodeUnknownOption(EffectAcpSchema.InitializeResponse);
+
+function mcpRequestDiagnostics(event: AcpSessionRuntime.AcpSessionRequestLogEvent) {
+  if (sessionSetupMethods.has(event.method)) {
+    const request = decodeSessionRequest(event.payload);
+    if (Option.isSome(request)) return summarizeMcpServers(request.value.mcpServers);
+  }
+  if (event.method === "initialize" && event.status === "succeeded") {
+    const result = decodeInitializeResponse(event.result);
+    if (Option.isSome(result)) {
+      const capabilities = result.value.agentCapabilities?.mcpCapabilities;
+      return {
+        agentMcpCapabilities: {
+          stdio: true,
+          http: capabilities?.http === true,
+          sse: capabilities?.sse === true,
+        },
+      };
+    }
+  }
+  return {};
+}
 
 function structuralMethod(value: string): string {
   return value.length <= 128 && /^[A-Za-z][A-Za-z0-9._:/-]*$/.test(value) ? value : "unknown";
@@ -48,6 +76,7 @@ function formatRequestLogPayload(event: AcpSessionRuntime.AcpSessionRequestLogEv
     method: structuralMethod(event.method),
     status: event.status,
     request: summarizePayload(event.payload),
+    ...mcpRequestDiagnostics(event),
     ...(event.result !== undefined ? { result: summarizePayload(event.result) } : {}),
     ...(event.cause !== undefined
       ? {
@@ -161,7 +190,20 @@ export const makeAcpNativeLoggerFactory = Effect.fn("makeAcpNativeLoggerFactory"
         writeNativeAcpLog({
           kind: "request",
           payload: formatRequestLogPayload(event),
-        }),
+        }).pipe(
+          Effect.andThen(
+            sessionSetupMethods.has(event.method) ||
+              (event.method === "initialize" && event.status === "succeeded")
+              ? Effect.logInfo("ACP session MCP diagnostics", {
+                  provider: input.provider,
+                  threadId: input.threadId,
+                  method: structuralMethod(event.method),
+                  status: event.status,
+                  ...mcpRequestDiagnostics(event),
+                })
+              : Effect.void,
+          ),
+        ),
       ...(input.nativeEventLogger && input.verboseProtocolLogging
         ? {
             protocolLogging: {

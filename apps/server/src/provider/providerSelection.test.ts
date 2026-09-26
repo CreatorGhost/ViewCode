@@ -2,6 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
+  ServerSettingsPatch,
   type ServerSettings,
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -11,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -25,6 +27,7 @@ import {
 } from "./providerSelection.ts";
 
 const driver = ProviderDriverKind.make;
+const encodeSettingsPatch = Schema.encodeEffect(Schema.fromJsonString(ServerSettingsPatch));
 const pending: ServerSettings = { ...DEFAULT_SERVER_SETTINGS, providerSelection: "pending" };
 const workClaudeId = ProviderInstanceId.make("claude_work");
 const withWorkClaude = (settings: ServerSettings): ServerSettings => ({
@@ -67,11 +70,17 @@ describe("decideProviderSelection", () => {
     assert.strictEqual(decide({ hasHistory: true }), "chosen");
   });
 
-  it("marks persisted provider decisions chosen", () => {
+  it("does not mistake persisted default flags for a provider choice", () => {
     assert.strictEqual(
-      decide({ rawSettingsJson: '{"providers":{"codex":{"enabled":false}}}' }),
-      "chosen",
+      decide({
+        rawSettingsJson:
+          '{"providers":{"codex":{"enabled":false},"cursor":{"enabled":true},"grok":{"enabled":false},"opencode":{"enabled":false}}}',
+      }),
+      "pending",
     );
+  });
+
+  it("migrates explicit provider instances as an existing choice", () => {
     assert.strictEqual(
       decide({ rawSettingsJson: '{"providerInstances":{"codex_work":{"driver":"codex"}}}' }),
       "chosen",
@@ -166,17 +175,76 @@ it.layer(NodeServices.layer)("settings load", (it) => {
     }).pipe(Effect.provide(freshConfig())),
   );
 
-  it.effect("marks an environment with a project chosen and keeps its enabled set", () =>
+  it.effect("keeps app-written default flags and a bootstrap project pending", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(
+        config.settingsPath,
+        '{"providers":{"codex":{"enabled":true},"cursor":{"enabled":false},"grok":{"enabled":false},"opencode":{"enabled":false}}}',
+      );
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at) VALUES ('p1', 'p', '/tmp', '[]', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z')`;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.strictEqual(settings.providerSelection, "pending");
+        assert.deepStrictEqual(enabledInstances(settings), []);
+      }).pipe(Effect.provide(makeSettingsLayer(Layer.succeed(ServerConfig.ServerConfig, config))));
+    }).pipe(Effect.provide(freshConfig())),
+  );
+
+  it.effect("migrates a previously used provider and keeps its explicit enabled set", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at) VALUES ('p1', 'p', '/tmp', '[]', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z')`;
+      yield* sql`INSERT INTO projection_thread_sessions (thread_id, status, provider_name, updated_at) VALUES ('t1', 'ready', 'claudeAgent', '2026-09-26T00:00:00.000Z')`;
       const settings = yield* ServerSettingsModule.ServerSettingsService.pipe(
         Effect.flatMap((service) => service.getSettings),
       );
       assert.strictEqual(settings.providerSelection, "chosen");
-      // Behaves as before the gate: the schema defaults (Codex, Claude) apply.
+      // Existing provider sessions retain the pre-gate defaults.
       assert.includeMembers(enabledInstances(settings), ["claudeAgent", "codex"]);
     }).pipe(Effect.provide(makeSettingsLayer(freshConfig()))),
+  );
+
+  it.effect("preserves the managed-mode explicit choice on first boot", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(
+        config.settingsPath,
+        yield* encodeSettingsPatch(
+          makeChooseProvidersPatch([driver("claudeAgent"), driver("cursor")]),
+        ),
+      );
+      const settings = yield* ServerSettingsModule.ServerSettingsService.pipe(
+        Effect.flatMap((service) => service.getSettings),
+        Effect.provide(makeSettingsLayer(Layer.succeed(ServerConfig.ServerConfig, config))),
+      );
+      assert.strictEqual(settings.providerSelection, "chosen");
+      assert.deepStrictEqual(enabledInstances(settings), ["claudeAgent", "cursor"]);
+    }).pipe(Effect.provide(freshConfig())),
+  );
+
+  it.effect("persists an explicit choice and restores only those providers after restart", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const settingsLayer = () =>
+        makeSettingsLayer(Layer.succeed(ServerConfig.ServerConfig, config));
+      yield* ServerSettingsModule.ServerSettingsService.pipe(
+        Effect.flatMap((service) =>
+          service.updateSettings(makeChooseProvidersPatch([driver("cursor")])),
+        ),
+        Effect.provide(settingsLayer()),
+      );
+      const restarted = yield* ServerSettingsModule.ServerSettingsService.pipe(
+        Effect.flatMap((service) => service.getSettings),
+        Effect.provide(settingsLayer()),
+      );
+      assert.strictEqual(restarted.providerSelection, "chosen");
+      assert.deepStrictEqual(enabledInstances(restarted), ["cursor"]);
+    }).pipe(Effect.provide(freshConfig())),
   );
 
   it.effect("respects explicit provider instances as an existing choice", () =>
@@ -216,6 +284,7 @@ it.layer(NodeServices.layer)("settings load", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       // A used environment would be marked chosen, but the write fails.
+      yield* sql`INSERT INTO projection_thread_sessions (thread_id, status, provider_name, updated_at) VALUES ('t1', 'ready', 'claudeAgent', '2026-09-26T00:00:00.000Z')`;
       yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at) VALUES ('p1', 'p', '/tmp', '[]', '2026-09-26T00:00:00.000Z', '2026-09-26T00:00:00.000Z')`;
       const settings = yield* ServerSettingsModule.ServerSettingsService.pipe(
         Effect.flatMap((service) => service.getSettings),

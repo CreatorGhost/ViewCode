@@ -2,6 +2,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Tracer from "effect/Tracer";
 import { HttpServer } from "effect/unstable/http";
 import * as NetAddress from "effect/unstable/net/NetAddress";
 
@@ -9,6 +11,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 
 const environmentId = EnvironmentId.make("environment-1");
+const encodeUnknownJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const makeFakeHttpServer = (hostname: string, port = 43123) =>
   HttpServer.HttpServer.of({
     address: NetAddress.inetAddressFromIpStringUnsafe(hostname, port),
@@ -31,6 +34,44 @@ const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
       Effect.provideService(ServerEnvironment.ServerEnvironment, fakeEnvironment),
       Effect.provide(NodeServices.layer),
     );
+
+it.effect(
+  "correlates credential lifecycle spans with the thread without exposing the credential",
+  () =>
+    Effect.gen(function* () {
+      const spans: Array<Tracer.Span> = [];
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
+      const registry = yield* makeRegistry(() => 1_000);
+      const threadId = ThreadId.make("thread-traced");
+      const issued = yield* registry
+        .issue({
+          threadId,
+          providerInstanceId: ProviderInstanceId.make("cursor"),
+          capabilities: new Set(["agents"]),
+        })
+        .pipe(Effect.withTracer(tracer));
+      yield* registry.revokeThread(threadId).pipe(Effect.withTracer(tracer));
+      for (const name of ["McpSessionRegistry.issue", "McpSessionRegistry.revokeThread"]) {
+        const span = spans.find((entry) => entry.name === name);
+        expect(span?.attributes.get("threadId")).toBe(threadId);
+        expect(encodeUnknownJson([...span!.attributes])).not.toContain(
+          issued.config.authorizationHeader,
+        );
+        expect(encodeUnknownJson([...span!.attributes])).not.toContain(issued.config.endpoint);
+      }
+      expect(
+        spans
+          .find((entry) => entry.name === "McpSessionRegistry.issue")
+          ?.attributes.get("transport"),
+      ).toBe("http");
+    }),
+);
 
 it.effect("stores only a token hash, resolves the bearer token, and revokes by thread", () =>
   Effect.gen(function* () {

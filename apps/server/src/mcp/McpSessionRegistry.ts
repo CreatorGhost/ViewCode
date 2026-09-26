@@ -124,6 +124,12 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
   const issue: McpSessionRegistryShape["issue"] = Effect.fn("McpSessionRegistry.issue")(
     function* (request) {
+      yield* Effect.annotateCurrentSpan({
+        threadId: request.threadId,
+        providerInstanceId: request.providerInstanceId,
+        transport: stdioBridge ? "stdio" : "http",
+        capabilities: [...request.capabilities],
+      });
       const issuedAt = yield* currentTimeMillis;
       const providerSessionId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
       const rawToken = yield* crypto.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
@@ -216,6 +222,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       },
     ),
     revokeThread: Effect.fn("McpSessionRegistry.revokeThread")(function* (threadId) {
+      yield* Effect.annotateCurrentSpan({ threadId });
       yield* revokeWhere((record) => record.scope.threadId === threadId);
     }),
     revokeAll: SynchronizedRef.set(state, { records: new Map() }),

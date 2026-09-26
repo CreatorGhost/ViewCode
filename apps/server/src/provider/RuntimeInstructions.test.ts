@@ -34,6 +34,18 @@ describe("buildRuntimeInstructions", () => {
     ).toContain("through the Codex harness, as custom model with high reasoning effort.");
   });
 
+  it("allows an announced native fallback without confirmation when enabled", () => {
+    const instructions = buildRuntimeInstructions({
+      harness: "Cursor",
+      allowNativeAgentFallback: true,
+    });
+    expect(instructions).toContain("create ViewCode agents");
+    expect(instructions).toContain("proceed without an extra confirmation");
+    expect(instructions).toContain("Explain the failure and that you are using native tasks");
+    expect(instructions).toContain("a particular provider/model or a separate child chat");
+    expect(instructions).not.toContain("ask whether to use your built-in sub-agents instead");
+  });
+
   it("names the model by display name and slug when they differ", () => {
     expect(
       buildRuntimeInstructions({ harness: "Codex", model: "gpt-5.4", modelName: "GPT-5.4" }),

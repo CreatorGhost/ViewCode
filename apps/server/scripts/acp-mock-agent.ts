@@ -1239,6 +1239,36 @@ const program = Effect.gen(function* () {
         return { stopReason: "end_turn" };
       }
 
+      if (process.env.T3_ACP_EMIT_CURSOR_TASKS === "1") {
+        for (const toolCallId of ["task-a", "task-b"]) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId,
+              title: "Task: Code audit",
+              kind: "other",
+              status: "pending",
+            },
+          });
+        }
+        if (process.env.T3_ACP_CURSOR_TASKS_CANCEL === "1") return { stopReason: "cancelled" };
+        for (const toolCallId of ["task-a", "task-b", "task-b"]) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId,
+              status: "completed",
+              content: [
+                { type: "content", content: { type: "text", text: `${toolCallId} result` } },
+              ],
+            },
+          });
+        }
+        return { stopReason: "end_turn" };
+      }
+
       if (emitXAiPlanMdWrite) {
         // Match Grok's real session layout so isGrokPlanMarkdownPath accepts it.
         const planRoot = process.env.T3_ACP_PLAN_ROOT ?? "/tmp/mock-home/.grok";

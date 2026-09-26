@@ -23,9 +23,11 @@ import {
   type ProviderRuntimeEvent,
   ThreadId,
   ProviderInstanceId,
+  EnvironmentId,
 } from "@t3tools/contracts";
 
 import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { CursorAdapterShape } from "../Services/CursorAdapter.ts";
@@ -162,6 +164,66 @@ const cursorAdapterTestLayer = it.layer(
 );
 
 cursorAdapterTestLayer("CursorAdapterLive", (it) => {
+  it.effect(
+    "rejects unsupported HTTP MCP before session creation but accepts mandatory stdio",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CursorAdapter;
+        const settings = yield* ServerSettingsService;
+        const tempDir = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "cursor-mcp-capabilities-")),
+        );
+        for (const transport of ["http", "stdio"] as const) {
+          const threadId = ThreadId.make(`cursor-mcp-${transport}`);
+          const requestLogPath = NodePath.join(tempDir, `${transport}.ndjson`);
+          const wrapperPath = yield* Effect.promise(() =>
+            makeProbeWrapper(requestLogPath, NodePath.join(tempDir, `${transport}.argv`)),
+          );
+          yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
+          yield* Effect.acquireUseRelease(
+            Effect.sync(() =>
+              McpProviderSession.setMcpProviderSession({
+                environmentId: EnvironmentId.make("test-environment"),
+                threadId,
+                providerInstanceId: ProviderInstanceId.make("cursor"),
+                providerSessionId: "test-session",
+                endpoint: "http://127.0.0.1:1234/mcp",
+                authorizationHeader: "Bearer test-token",
+                capabilities: new Set(["agents"]),
+                ...(transport === "stdio"
+                  ? {
+                      stdio: { command: "test-bridge", args: [], env: { TOKEN: "test-token" } },
+                    }
+                  : {}),
+              }),
+            ),
+            () =>
+              Effect.gen(function* () {
+                const start = adapter.startSession({
+                  threadId,
+                  cwd: process.cwd(),
+                  runtimeMode: "full-access",
+                });
+                if (transport === "http") {
+                  const error = yield* start.pipe(Effect.flip);
+                  assert.include(error.message, "does not advertise support");
+                  assert.include(error.message, "http");
+                } else {
+                  yield* start;
+                  yield* adapter.stopSession(threadId);
+                }
+                const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
+                assert.equal(
+                  requests.filter((entry) => entry.method === "session/new").length,
+                  transport === "stdio" ? 1 : 0,
+                );
+              }),
+            () => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
+          );
+        }
+      }),
+  );
+
   it.effect("rejects rollback without discarding the provider conversation", () =>
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
@@ -359,7 +421,10 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
         [
           [
             { type: "text", text: "please /review this" },
-            { type: "text", text: buildRuntimeInstructions({ harness: "Cursor" }) },
+            {
+              type: "text",
+              text: buildRuntimeInstructions({ harness: "Cursor", allowNativeAgentFallback: true }),
+            },
           ],
           [{ type: "text", text: "/copy-request-id" }],
         ],
@@ -713,6 +778,80 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
         assert.equal(finalRequests.filter((entry) => entry.method === "session/prompt").length, 1);
       }),
   );
+
+  for (const cancelled of [false, true]) {
+    it.effect(`maps native Cursor Tasks to stable agent lifecycles (cancelled=${cancelled})`, () =>
+      Effect.gen(function* () {
+        const adapter = yield* CursorAdapter;
+        const settings = yield* ServerSettingsService;
+        const threadId = ThreadId.make("cursor-native-tasks");
+        const events: ProviderRuntimeEvent[] = [];
+        const done = yield* Deferred.make<void>();
+        const wrapper = yield* Effect.promise(() =>
+          makeMockAgentWrapper({
+            T3_ACP_EMIT_CURSOR_TASKS: "1",
+            T3_ACP_CURSOR_TASKS_CANCEL: cancelled ? "1" : "0",
+          }),
+        );
+        yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapper } } });
+        yield* Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.gen(function* () {
+            if (event.threadId !== threadId) return;
+            events.push(event);
+            if (event.type === "turn.completed") yield* Deferred.succeed(done, undefined);
+          }),
+        ).pipe(Effect.forkChild);
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("cursor"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        const turn = yield* adapter.sendTurn({
+          threadId,
+          input: "Audit with two tasks",
+          attachments: [],
+        });
+        yield* Deferred.await(done);
+        const starts = events.filter((event) => event.type === "task.started");
+        assert.deepStrictEqual(
+          starts.map((event) => event.payload.taskId),
+          ["task-a", "task-b"],
+        );
+        assert.isTrue(
+          starts.every(
+            (event) => event.turnId === turn.turnId && event.payload.title === "Code audit",
+          ),
+        );
+        const completions = events.filter((event) => event.type === "task.completed");
+        assert.deepStrictEqual(
+          completions.map((event) => [event.payload.taskId, event.payload.summary]),
+          cancelled
+            ? []
+            : [
+                ["task-a", "task-a result"],
+                ["task-b", "task-b result"],
+                ["task-b", "task-b result"],
+              ],
+        );
+        if (cancelled) {
+          assert.deepStrictEqual(
+            events
+              .filter((event) => event.type === "task.updated")
+              .map((event) => [String(event.payload.taskId), event.payload.status]),
+            [
+              ["task-a", "cancelled"],
+              ["task-b", "cancelled"],
+            ],
+          );
+        }
+        assert.isFalse(
+          events.some((event) => event.type === "item.updated" || event.type === "item.completed"),
+        );
+        yield* adapter.stopSession(threadId);
+      }),
+    );
+  }
 
   it.effect(
     "streams ACP tool calls and approvals on the active turn in approval-required mode",

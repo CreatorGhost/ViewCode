@@ -23,6 +23,7 @@ import type * as EffectAcpProtocol from "effect-acp/protocol";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./AcpStderr.ts";
+import { unsupportedMcpTransports } from "./AcpMcpDiagnostics.ts";
 import {
   collectSessionConfigOptionValues,
   decideToolCallUpdateEmission,
@@ -742,6 +743,17 @@ export const make = (
 
     const startOnce = Effect.gen(function* () {
       const initializeResult = yield* sendInitialize;
+      const unsupportedTransports = unsupportedMcpTransports(
+        options.mcpServers ?? [],
+        initializeResult.agentCapabilities?.mcpCapabilities,
+      );
+      if (unsupportedTransports.length > 0) {
+        return yield* new EffectAcpErrors.AcpRequestError({
+          code: -32602,
+          method: "initialize",
+          errorMessage: `The ACP agent does not advertise support for the configured MCP transport: ${unsupportedTransports.join(", ")}. Update the provider CLI or use a supported MCP transport before starting this session.`,
+        });
+      }
 
       const authenticatePayload = {
         methodId: options.authMethodId,

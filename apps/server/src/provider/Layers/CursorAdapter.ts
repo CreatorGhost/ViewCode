@@ -67,6 +67,7 @@ import {
 } from "../acp/AcpRuntimeModel.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { applyCursorAcpModelSelection, makeCursorAcpRuntime } from "../acp/CursorAcpSupport.ts";
+import { CursorSubagentEvents } from "../acp/CursorSubagentEvents.ts";
 import { CursorTransportFailure } from "../acp/CursorTransportFailure.ts";
 import {
   CursorAskQuestionRequest,
@@ -150,6 +151,7 @@ interface CursorSessionContext {
    * continues it, and only the last remaining prompt settles the turn. */
   promptsInFlight: number;
   assistantReply: CursorTransportFailure;
+  readonly subagentEvents: CursorSubagentEvents;
   stopped: boolean;
 }
 
@@ -545,6 +547,12 @@ export function makeCursorAdapter(
             : cursorSettings;
 
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+          yield* Effect.logInfo("Cursor session MCP attachment", {
+            threadId: input.threadId,
+            attached: mcpSession !== undefined,
+            ...(mcpSession ? { transport: mcpSession.stdio ? "stdio" : "http" } : {}),
+            resumed: resumeSessionId !== undefined,
+          });
           const acp = yield* makeCursorAcpRuntime({
             cursorSettings: effectiveCursorSettings,
             ...(options?.environment || mcpSession?.agentDeviceEnvironment
@@ -790,6 +798,7 @@ export function makeCursorAdapter(
             cursorSkillNames: undefined,
             promptsInFlight: 0,
             assistantReply: new CursorTransportFailure(),
+            subagentEvents: new CursorSubagentEvents(),
             stopped: false,
           };
 
@@ -854,6 +863,22 @@ export function makeCursorAdapter(
                       event.rawPayload,
                       "acp.jsonrpc",
                     );
+                    const task = ctx.subagentEvents.update(event.toolCall);
+                    if (task) {
+                      yield* offerRuntimeEvent({
+                        ...task,
+                        ...(yield* makeEventStamp()),
+                        provider: PROVIDER,
+                        threadId: ctx.threadId,
+                        turnId: ctx.activeTurnId,
+                        raw: {
+                          source: "acp.jsonrpc",
+                          method: "session/update",
+                          payload: event.rawPayload,
+                        },
+                      });
+                      return;
+                    }
                     yield* offerRuntimeEvent(
                       makeAcpToolCallEvent({
                         stamp: yield* makeEventStamp(),
@@ -1085,7 +1110,11 @@ export function makeCursorAdapter(
                     ...promptParts,
                     {
                       type: "text",
-                      text: buildRuntimeInstructions({ harness: "Cursor", model: resolvedModel }),
+                      text: buildRuntimeInstructions({
+                        harness: "Cursor",
+                        model: resolvedModel,
+                        allowNativeAgentFallback: true,
+                      }),
                     },
                   ],
             })
@@ -1123,6 +1152,17 @@ export function makeCursorAdapter(
           // superseded prompt resolving (usually cancelled) while another is
           // in flight or pending must leave the merged turn running.
           if (ctx.promptsInFlight === 1) {
+            if (result.stopReason === "cancelled") {
+              for (const task of ctx.subagentEvents.cancelActive()) {
+                yield* offerRuntimeEvent({
+                  ...task,
+                  ...(yield* makeEventStamp()),
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                  turnId,
+                });
+              }
+            }
             yield* offerRuntimeEvent({
               type: "turn.completed",
               ...(yield* makeEventStamp()),

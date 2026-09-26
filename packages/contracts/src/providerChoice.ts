@@ -2,7 +2,7 @@
  * ViewCode: choosing which providers an environment may run.
  *
  * A fresh environment probes no provider until the user picks some
- * (`ServerSettings.providersChosenAt`). Detection is a filesystem lookup only,
+ * (`ServerSettings.providerSelection`). Detection is a filesystem lookup only,
  * so listing the choices never starts a provider CLI.
  */
 import * as Schema from "effect/Schema";

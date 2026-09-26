@@ -174,7 +174,11 @@ them. Paste to the laptop agent:
 >    and the same for the `npx t3` binary
 >    (`~/.npm/_npx/*/node_modules/@t3code/t3-darwin-arm64/t3`).
 > 4. Launch: `open ~/Applications/ViewCode.app`, note the time, then every 5s
->    for 180s record whether `pgrep -x ViewCode` finds it (observe only).
+>    for 180s record whether the packaged app remains alive (observe only).
+>    `pgrep -x ViewCode` applies to that packaged executable, not a source
+>    launch from `./build.sh`. For the latter, inspect
+>    `pgrep -f 'electron-runtime.*dist-electron/main.cjs'` and its cwd to
+>    distinguish other checkouts. Never kill processes selected by a pattern.
 > 5. Record: ALIVE/DEAD and time of death; last 30 lines of
 >    `~/.viewcode/userdata/logs/server.trace.ndjson` and `desktop.trace.ndjson`
 >    (OpenTelemetry spans, one JSON object per line; grep `"name":"check` to see
@@ -183,7 +187,7 @@ them. Paste to the laptop agent:
 >    alert at that time (mode, module, source command line).
 > 6. Quit the app normally if alive.
 >
-> Report: `Round 3: ALIVE|DEAD at +Ns · last server-child lines · alert · codesign lines`.
+> Report: `Round 3: ALIVE|DEAD at +Ns · last trace spans · alert · codesign lines`.
 
 Reading it: **alive** → the blocked providers were the trigger for the app too;
 the provider gate is the fix. **Dead** → the app's own startup or its missing
