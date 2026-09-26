@@ -990,8 +990,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.hasPendingUserInput) {
     return {
       label: "Awaiting Input",
-      colorClass: "text-indigo-600 dark:text-indigo-300/90",
-      dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+      colorClass: "text-warning-foreground",
+      dotClass: "bg-warning",
       pulse: false,
     };
   }
@@ -999,8 +999,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.session?.status === "running") {
     return {
       label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      colorClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
       pulse: true,
     };
   }
@@ -1008,8 +1008,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.session?.status === "starting") {
     return {
       label: "Connecting",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      colorClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
       pulse: true,
     };
   }
@@ -1024,8 +1024,8 @@ export function resolveThreadStatusPill(input: {
   if (hasPlanReadyPrompt) {
     return {
       label: "Plan Ready",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      colorClass: "text-foreground",
+      dotClass: "bg-foreground",
       pulse: false,
     };
   }
@@ -1037,8 +1037,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.backgroundLiveness === "working") {
     return {
       label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      colorClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
       pulse: true,
     };
   }
@@ -1046,8 +1046,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.backgroundLiveness === "monitoring") {
     return {
       label: "Monitoring",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      colorClass: "text-muted-foreground",
+      dotClass: "bg-muted-foreground",
       pulse: false,
     };
   }

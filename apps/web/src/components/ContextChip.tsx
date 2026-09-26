@@ -36,14 +36,14 @@ const contextChipVariants = cva(
         terminal: "[--context-chip-accent:oklch(0.62_0.134_163)]",
         element: "[--context-chip-accent:oklch(0.62_0.134_70)]",
         "preview-annotation": "[--context-chip-accent:oklch(0.62_0.134_70)]",
-        "review-comment": "[--context-chip-accent:oklch(0.62_0.16_292)]",
-        "pull-request": "[--context-chip-accent:oklch(0.62_0.16_277)]",
+        "review-comment": "[--context-chip-accent:oklch(0.62_0.02_259)]",
+        "pull-request": "[--context-chip-accent:oklch(0.62_0.02_259)]",
         "pr-open": "[--context-chip-accent:oklch(0.62_0.134_163)]",
         "pr-draft": "[--context-chip-accent:oklch(0.62_0.02_259)]",
         "pr-merged": "[--context-chip-accent:oklch(0.62_0.16_292)]",
         "pr-closed": "[--context-chip-accent:oklch(0.62_0.16_16)]",
         skill: "[--context-chip-accent:oklch(0.62_0.16_322)]",
-        citation: "[--context-chip-accent:oklch(0.62_0.16_259)]",
+        citation: "[--context-chip-accent:oklch(0.62_0.02_259)]",
       },
       // Colors live in compoundVariants below so they come after the kind colors.
       state: {

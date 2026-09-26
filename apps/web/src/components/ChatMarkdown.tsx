@@ -521,8 +521,8 @@ const GITHUB_ALERT_PRESENTATIONS: Record<
   note: {
     label: "Note",
     Icon: InfoIcon,
-    borderClassName: "border-blue-500/70",
-    titleClassName: "text-blue-600 dark:text-blue-400",
+    borderClassName: "border-info/70",
+    titleClassName: "text-info-foreground",
   },
   tip: {
     label: "Tip",
@@ -533,8 +533,8 @@ const GITHUB_ALERT_PRESENTATIONS: Record<
   important: {
     label: "Important",
     Icon: MessageSquareWarningIcon,
-    borderClassName: "border-purple-500/70",
-    titleClassName: "text-purple-600 dark:text-purple-400",
+    borderClassName: "border-foreground/40",
+    titleClassName: "text-foreground",
   },
   warning: {
     label: "Warning",
