@@ -4,8 +4,8 @@ import type { ThemeAppearance, ThemeColors, ThemeDefinition } from "./themePalet
  * Droppy Code's named themes (docs/design/droppy-look.md §4), ported onto the
  * ViewCode default through the §6.3 derivation: start from the ViewCode table
  * of the same appearance and recolour only the tint surfaces, the accent roles
- * and the status hues. Unlike the default, named themes fill the send button
- * with the accent and tint the user bubble 14 %, as Droppy does.
+ * and the status hues. Like the default, named themes fill the send button
+ * with the accent and tint the user bubble with it (14 %, as Droppy does).
  *
  * Every id starts with `viewcode-`, which `viewcode-theme.css` keys on for the
  * shared glass structure. Values are computed once at module load and are

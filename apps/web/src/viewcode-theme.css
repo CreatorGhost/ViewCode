@@ -264,6 +264,96 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="standalone-g
 }
 
 /* ---------------------------------------------------------------------------
+ * Amber presence. The logo amber (the accent) marks what is live or chosen:
+ * the focused composer, the send action, an open chip, the current thread,
+ * links and citations, and a running turn. Resting chrome stays neutral, and
+ * warnings keep their own yellow. Palette roles do the rest (messageAction is
+ * amber, messageSurface is an amber tint).
+ * ------------------------------------------------------------------------- */
+
+/* Composer: an amber hairline and a soft ring while it holds focus. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"]:focus-within {
+  --chat-composer-outline: color-mix(in srgb, var(--app-theme-accent) 60%, transparent);
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-shell"]:focus-within
+  [data-slot="composer-host"] {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-theme-accent) 14%, transparent);
+}
+
+/* Send: amber (messageAction) once there is something to send; a neutral
+   disc while the draft is empty, instead of a faded amber one. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-shell"]
+  button[type="submit"]:disabled {
+  background-color: color-mix(in srgb, var(--vc-label) 10%, transparent);
+  color: color-mix(in srgb, var(--vc-label) 45%, transparent);
+  opacity: 1;
+}
+
+/* Chips (model/effort, attach, branch): accent text over a 16 % accent fill
+   while their popover is open (spec §5.5, chip "active"). */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-shell"]
+  :is(button, [role="button"])[data-popup-open] {
+  background-color: color-mix(in srgb, var(--app-theme-accent) 16%, transparent);
+  color: var(--app-theme-accent);
+}
+
+/* Citations read as links, which are amber (--info-foreground). */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-assistant-citation-chip] {
+  --context-chip-accent: var(--app-theme-accent);
+}
+
+/* Timeline: tool and "Worked for" rows keep neutral text; their icon or
+   chevron turns amber on hover, keyboard focus and while expanded. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-timeline-row-kind]
+  button:is(:hover, :focus-visible, [aria-expanded="true"])
+  .text-icon-muted,
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-timeline-row-kind="turn-fold"]
+  button:is(:hover, :focus-visible, [aria-expanded="true"])
+  > svg {
+  color: var(--app-theme-accent);
+}
+
+/* A running turn: the existing sweep (paused off screen, off under reduced
+   motion) passes in amber, and "Working for …" carries a static amber dot. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) .live-tool-shine {
+  --contrast-foreground: var(--app-theme-accent);
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) .live-activity-focus-aligned,
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) .live-activity-focus-aligned * {
+  color: var(--app-theme-accent);
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-timeline-row-kind="working"]
+  .tabular-nums::before {
+  content: "";
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background-color: var(--app-theme-accent);
+}
+
+/* Sidebar: the open thread is tinted amber; hover and project headers stay
+   neutral. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-thread-item][aria-current="page"] {
+  background-color: color-mix(in srgb, var(--app-theme-accent) 13%, transparent);
+}
+
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-thread-item][aria-current="page"]:hover {
+  background-color: color-mix(in srgb, var(--app-theme-accent) 17%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
  * Effort title roll (Droppy's `.contentTransition(.numericText())`): letters
  * leave and enter vertically with a blur, staggered per letter. `--roll` is
  * 1 when effort goes up, -1 when it goes down. Used by `EffortTitle`.

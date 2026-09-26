@@ -35,6 +35,8 @@ Notation:
 
    The accent is **never** used on: sidebar selection (neutral `L(0.12)`), hover, borders, headers, tool rows, code blocks, cards, window chrome, section titles or icons.
 
+   **ViewCode deviates** (user feedback: the neutral default "doesn't feel like a change"): the amber also marks what is live or chosen — the send button, the user bubble (12 % / 10 %), the focused composer's hairline, an open composer chip, citations, the open thread in the sidebar (13 % fill), and tool-row icons and the "Worked for" chevron on hover or while expanded. Resting chrome, hover, headers and tool text stay neutral. The rules live in `viewcode-theme.css` ("Amber presence").
+
 5. **Status hues only for status.** Success is used for diff additions and settled checks. Warning is used for "needs input" hands and declined tools. Danger is used for failures, deletions and destructive menu rows.
 6. **Plain transcript.** Assistant replies are unboxed markdown with no avatar or author label. Tool calls are one secondary-text line each, with a 16px icon column and no card. Only the user message has a bubble.
 7. **Motion is short and one-shot.** Hover takes 100ms. Panels use one spring. Rows fade up 4px. There are no continuous animations, except the working indicator while a turn runs (stepped, see §5.4) and the effort-slider exception documented in `docs/internals/viewcode.md` (Composer picker).
@@ -240,15 +242,15 @@ The picker badge (`AppTheme.swatch`) is a circle with a linear gradient from top
 
 **ViewCode default theme** (replaces today's violet `VIEWCODE_THEME`). Name: "ViewCode"; scheme follows the system, with both variants defined. It is the neutral Droppy `system` look with a warm **amber** accent taken from the ViewCode logo (the user rejected blue and violet) instead of loud `#0A84FF`/`#007AFF` or violet:
 
-| Field                      | Dark                                     | Light                           | Why it deviates from Droppy                                                                                                                         |
-| -------------------------- | ---------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| accent                     | `#E0A15A`                                | `#9A5714`                       | Droppy uses the system blue; ViewCode uses its logo amber, kept rare so it reads as brand, not warning. Light value is darkened for ≥4.5:1 on white |
-| surface (tint)             | `#1E1E20`                                | `#FFFFFF`                       | same as Droppy                                                                                                                                      |
-| success                    | `#5BB98B`                                | `#2E8B57`                       | system green is neon on dark glass                                                                                                                  |
-| warning                    | `#C9B037`                                | `#7E6A00`                       | yellow, not orange, so it never reads as the amber accent                                                                                           |
-| danger                     | `#E5675F`                                | `#C4392F`                       | calmer than systemRed                                                                                                                               |
-| primary action (send, CTA) | neutral: fill `#E8E8EA`, glyph `#1C1C1E` | fill `#1D1D1F`, glyph `#FFFFFF` | Droppy fills it with the accent; a neutral action keeps the accent rare. Ported named themes keep Droppy's accent fill.                             |
-| user bubble                | neutral `#2A2A2C`                        | `#EDEDEF`                       | Droppy uses accent 14 %; named themes keep accent 14 %                                                                                              |
+| Field                      | Dark                            | Light                           | Why it deviates from Droppy                                                                                                               |
+| -------------------------- | ------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| accent                     | `#E0A15A`                       | `#9A5714`                       | Droppy uses the system blue; ViewCode uses its logo amber on live and chosen elements (§1.4). Light value is darkened for ≥4.5:1 on white |
+| surface (tint)             | `#1E1E20`                       | `#FFFFFF`                       | same as Droppy                                                                                                                            |
+| success                    | `#5BB98B`                       | `#2E8B57`                       | system green is neon on dark glass                                                                                                        |
+| warning                    | `#C9B037`                       | `#7E6A00`                       | yellow, not orange, so it never reads as the amber accent                                                                                 |
+| danger                     | `#E5675F`                       | `#C4392F`                       | calmer than systemRed                                                                                                                     |
+| primary action (send, CTA) | fill `#E0A15A`, glyph `#1A1206` | fill `#9A5714`, glyph `#FFFFFF` | as Droppy (accent fill); an empty composer's send button is a neutral `L(.10)` disc instead of a faded amber one                          |
+| user bubble                | accent 12 %: `#312923`          | accent 10 %: `#F0EAE3`          | Droppy uses accent 14 %; named themes keep accent 14 %                                                                                    |
 
 The Droppy-ported themes are optional. Ship at least **Claude / Claude Light** (needed for acceptance) through the derivation in §6.3. Do not ship Codex (`#D946EF`) or Dracula/Catppuccin as the default; purple accents are allowed only as opt-in named themes.
 
@@ -306,7 +308,7 @@ The Droppy-ported themes are optional. Ship at least **Claude / Claude Light** (
 - **User message** (`UserMessageRow`):
   - Right-aligned, with at least 96 of leading inset.
   - Bubble: radius 18 with a 4px iMessage tail at the bottom-right (`UserBubble`). Padding 14 on the leading side, 14+4 on the trailing side, 9 vertically. Text 13 in the label colour.
-  - **Fill**: Droppy uses accent 14 %; ViewCode default is the neutral `#2A2A2C` / `#EDEDEF`. The tail is optional for ViewCode (a plain 18 radius is fine).
+  - **Fill**: Droppy uses accent 14 %; ViewCode default is accent 12 % dark (`#312923`) / 10 % light (`#F0EAE3`). The tail is optional for ViewCode (a plain 18 radius is fine).
   - Attachments sit above as 56px thumbnails, radius 12, 6 apart. Files are 10px chips, radius 10.
   - A hover line below holds revert and copy at 22×22 in secondary, faded in. It sits in the 20px gap and does not add height.
   - **There is no "You" heading.**
@@ -363,7 +365,7 @@ ViewCode rules:
 - **Pill**:
   - Glass `regular`, **radius 22** (continuous). Padding 14 on the leading side, 8 trailing, 8 vertical; the text column has 4 more vertically.
   - An empty pill is **44 tall**. The text is 14px and grows up to 5 lines, with its height animated over 280ms.
-  - There is no border ring and no coloured focus ring. Focus is shown by the caret only.
+  - Droppy has no focus ring. **ViewCode default:** while focused, the hairline turns accent 60 % with a 3px accent 14 % ring, so the composer reads as the live surface.
   - ViewCode web: `--vc-sheet` at 72 % with blur and a hairline `L(0.10)` (§3.1). Replace `rounded-3xl` (24px) with 22.
 - **Controls** sit on the pill's bottom line, trailing, 2 apart, in this order:
   1. the paperclip chip;
@@ -378,7 +380,7 @@ ViewCode rules:
 - **Context ring** (`ContextMeter`): 15px circle with a 2.5 stroke. Track `.quaternary`; progress in the accent, orange above 85 %; round caps, starting at −90°. Padding 6/5.
 - **Send button** (`SendButton`):
   - A 28px circle with a 12/600 arrow-up glyph, turning into a stop square while running.
-  - Enabled: accent fill with a white glyph (Droppy). ViewCode default is neutral (§4).
+  - Enabled: accent fill (Droppy). ViewCode default: the same, with a dark glyph on the dark-mode amber.
   - Disabled: `.quaternary` fill.
   - 4px extra gap before it.
 - **Draft attachments**: 48px thumbnails at the top of the pill; the remove badge is white on `black .6`, offset (6, −6).
@@ -584,13 +586,13 @@ Review from screenshots of the main window: an empty thread, a thread with a use
 Acceptance:
 
 1. There is no purple, violet or indigo anywhere in the default theme (dark or light) except provider or brand logos and GitHub's merged-PR state.
-2. The accent is used on these elements only: links, list markers, the unread dot, an active chip, the context ring, the focus ring, the plain effort track, the working spinner and switches (plus the send button and user bubble in named themes). Sidebar selection, hovers, headers, tool rows, cards and borders are neutral.
+2. The accent is used on these elements only: links and citations, list markers, the unread dot, an active chip, the context ring, the focus ring and focused composer, the plain effort track, the working indicator, switches and primary actions (the send button), the user bubble tint, the open sidebar thread, and tool-row icons on hover or while expanded. Hovers, headers, tool text, cards and borders are neutral.
 3. There are two planes: the sidebar on the window colour with no border line, and the content on an inset rounded sheet (inset ≈10, radius ≈16). You can tell them apart by tone alone (dark `#1F1F21` vs `#19191B`; light `#EDEDEF` vs `#FAFAFA`).
 4. The text hierarchy is visibly three-step: primary, secondary (~55 %), tertiary chevrons (~25 %). No text colour carries a hue except links and status.
 5. Sidebar rows are 28 tall, radius ~7, 13px titles. Selection is a soft neutral fill (≈10 % label). Trailing times are 11px tabular.
 6. The chat header is floating capsules and circles (32 tall) over the content, with no full-width bar or bottom border. Content scrolls under a soft veil.
 7. The transcript: the user message is a right-aligned rounded bubble (radius ~18) with no "You" label. The assistant reply is unboxed. Tool rows are single secondary-text lines with a 16px icon column and no cards. Rows are ~20px apart.
-8. The composer is one glass pill, radius ~22, 44 tall when empty, with no coloured border or glow. The chips are borderless. The send button is 28px and neutral (default) or the accent (Claude).
+8. The composer is one glass pill, radius ~22, 44 tall when empty, with a neutral hairline that turns accent while focused and no glow. The chips are borderless. The send button is 28px, the accent when there is a draft and neutral when empty.
 9. Popovers and menus have 26px rows, a hover fill of ~8–10 % label, 11px semibold section headers and a hairline border only.
 10. Settings cards are borderless, filled at ~3 % label, radius 16, with 11px secondary detail lines.
 11. Claude theme: the accent is terracotta `#C15F3C` on the elements in item 2 plus the send button and bubble (14 %). The surfaces are warm-neutral near-greys, not brown slabs. Status colours come from the Claude row in §4.

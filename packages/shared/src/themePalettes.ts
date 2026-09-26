@@ -927,11 +927,11 @@ const VIEWCODE_LIGHT_COLORS: ThemeColors = {
   updateSurface: "rgb(154 87 20 / 0.10)",
   accentSurface: "rgb(0 0 0 / 0.05)",
   accentSurfaceForeground: "#262626",
-  messageSurface: "#EDEDEF",
+  messageSurface: "#F0EAE3",
   messageForeground: "#262626",
-  messageAction: "#1D1D1F",
+  messageAction: "#9A5714",
   messageActionForeground: "#FFFFFF",
-  messageActionHover: "#3A3A3C",
+  messageActionHover: "#884D12",
   codeBackground: "#F2F2F3",
   codeForeground: "#262626",
   sidebar: "#EDEDEF",
@@ -953,8 +953,9 @@ const VIEWCODE_LIGHT_COLORS: ThemeColors = {
 /**
  * ViewCode's default: neutral glass after Droppy Code (docs/design/droppy-look.md
  * §6.3). Text, hovers, selection and hairlines are one label colour at fixed
- * opacities; the logo amber is the accent and appears rarely. The send button
- * and the user bubble stay neutral. Follows the system appearance.
+ * opacities. The logo amber is the accent and carries the brand: solid
+ * actions (the send button) are amber and the user bubble is amber at 12 %
+ * (10 % in light) over the sheet. Follows the system appearance.
  */
 export const VIEWCODE_THEME: ThemeDefinition = {
   id: VIEWCODE_THEME_ID,
@@ -997,11 +998,11 @@ export const VIEWCODE_THEME: ThemeDefinition = {
     updateSurface: "rgb(224 161 90 / 0.14)",
     accentSurface: "rgb(255 255 255 / 0.06)",
     accentSurfaceForeground: "#DEDEDF",
-    messageSurface: "#2A2A2C",
+    messageSurface: "#312923",
     messageForeground: "#DEDEDF",
-    messageAction: "#E8E8EA",
-    messageActionForeground: "#1C1C1E",
-    messageActionHover: "#FFFFFF",
+    messageAction: "#E0A15A",
+    messageActionForeground: "#1A1206",
+    messageActionHover: "#E4AC6E",
     codeBackground: "#232325",
     codeForeground: "#DEDEDF",
     sidebar: "#1F1F21",
