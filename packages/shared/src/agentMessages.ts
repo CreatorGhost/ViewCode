@@ -38,7 +38,7 @@ export function formatAgentMessage(envelope: AgentMessageEnvelope): string {
   const footer = envelope.inReplyTo
     ? `This is ${envelope.fromName}'s reply to your message ${envelope.inReplyTo}.`
     : envelope.replyExpected
-      ? `A reply is expected. Answer with the send_message tool (to="${envelope.fromThreadId}", response_id="${envelope.messageId}"). If you finish without calling it, your final answer is sent back automatically.`
+      ? `A reply is expected. Answer with the viewcode_send_message tool (to="${envelope.fromThreadId}", response_id="${envelope.messageId}"). If you finish without calling it, your final answer is sent back automatically.`
       : "No reply is required.";
   return `<${AGENT_MESSAGE_TAG} ${attributes}>\n${envelope.body.trim()}\n</${AGENT_MESSAGE_TAG}>\n\n${footer}`;
 }

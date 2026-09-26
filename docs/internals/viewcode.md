@@ -42,7 +42,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   extracted deterministically from messages _and tool results_), the user's
   messages newest first, the last 3 replies verbatim, older final answers; and
   the new model is told to build its own working summary and to call
-  `search_history` before asking the user about earlier work.
+  `viewcode_search_history` before asking the user about earlier work.
 - The user's own words are never summarized by a model. The outgoing model is
   never asked to summarize (it is usually out of quota — that's why the user
   switched).
@@ -51,6 +51,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   without MCP (Command Code).
 
 ### Agent-to-agent messaging
+
+- Every agents-toolkit tool carries the `viewcode_` prefix (as Traycer prefixes
+  `traycer_*`). Codex has its own built-in `spawn_agent`; with the bare name the
+  model picked the built-in one, so "sub-agents" never became visible ViewCode
+  agents. The runtime instructions (`provider/RuntimeInstructions.ts`) name the
+  ViewCode path and say when the harness's own sub-agents are appropriate.
 
 - A message is a normal `thread.turn.start` whose text begins with a
   `<viewcode-agent-message …>` envelope. Idle receiver → starts now; busy →
@@ -61,8 +67,8 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - A turn that ends with a usage/plan/rate-limit error marks the agent "out of
   quota": the sender is told once ("do not message it again"), further sends
   are refused with the reason, and queued messages wait. Cleared by a successful
-  turn or by `configure_agent` moving it to another model.
-- `list_models` lists every enabled provider with `usable` and a `note`, and
+  turn or by `viewcode_configure_agent` moving it to another model.
+- `viewcode_list_models` lists every enabled provider with `usable` and a `note`, and
   tells agents to use a vendor's own provider (GPT → Codex) over resellers
   (Command Code, OpenCode, Cursor) unless the user names the reseller.
 

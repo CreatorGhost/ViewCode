@@ -10,17 +10,17 @@ const make = Effect.gen(function* () {
     Effect.map((scope) => scope.threadId),
   );
   return AgentsToolkit.of({
-    list_agents: () =>
+    viewcode_list_agents: () =>
       caller.pipe(
         Effect.flatMap((threadId) => messaging.listAgents(threadId)),
         Effect.map((agents) => ({ agents })),
       ),
-    list_models: () =>
+    viewcode_list_models: () =>
       caller.pipe(
         Effect.andThen(messaging.listModels()),
         Effect.map((providers) => ({ providers })),
       ),
-    spawn_agent: (input) =>
+    viewcode_spawn_agent: (input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.spawnAgent(threadId, {
@@ -32,7 +32,7 @@ const make = Effect.gen(function* () {
           }),
         ),
       ),
-    send_message: (input) =>
+    viewcode_send_message: (input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.sendMessage(threadId, {
@@ -43,7 +43,7 @@ const make = Effect.gen(function* () {
           }),
         ),
       ),
-    read_transcript: (input) =>
+    viewcode_read_transcript: (input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.readTranscript(threadId, {
@@ -53,7 +53,7 @@ const make = Effect.gen(function* () {
         ),
         Effect.map((transcript) => ({ transcript })),
       ),
-    search_history: (input) =>
+    viewcode_search_history: (input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.searchHistory(threadId, {
@@ -64,7 +64,7 @@ const make = Effect.gen(function* () {
         ),
         Effect.map((matches) => ({ matches })),
       ),
-    configure_agent: (input) =>
+    viewcode_configure_agent: (input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.configureAgent(threadId, {

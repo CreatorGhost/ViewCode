@@ -10,11 +10,12 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).toContain("call list_thread_pull_requests and link any PR");
   });
 
-  it("routes requests for sub-agents to ViewCode child agents", () => {
+  it("routes requests for sub-agents to ViewCode agents, not the harness's own", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
-    expect(instructions).toContain("When the t3-code MCP server exposes spawn_agent");
+    expect(instructions).toContain("When the t3-code MCP server exposes viewcode_spawn_agent");
+    expect(instructions).toContain("call viewcode_list_models");
     expect(instructions).toContain(
-      "only if the user explicitly asks for in-chat or inline sub-agents",
+      "only when the user explicitly asks for built-in, inline or in-chat sub-agents",
     );
   });
 

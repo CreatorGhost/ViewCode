@@ -213,7 +213,7 @@ export function buildHandoff(input: {
         userTexts[index] = text;
         remaining -= estimateTokens(text);
       } else {
-        userTexts[index] = `${clip(text, 300)} [longer; search_history for the rest]`;
+        userTexts[index] = `${clip(text, 300)} [longer; viewcode_search_history for the rest]`;
         remaining -= estimateTokens(userTexts[index]!);
         omittedUserMessages += 1;
       }
@@ -251,7 +251,7 @@ export function buildHandoff(input: {
     const number = index + 1;
     const reply =
       replyTexts[index] ||
-      (exchange.assistant.length > 0 ? "(omitted; search_history)" : "(no reply)");
+      (exchange.assistant.length > 0 ? "(omitted; viewcode_search_history)" : "(no reply)");
     return [
       `### ${number}. User`,
       userTexts[index] || "(no user message)",
@@ -294,7 +294,7 @@ export function buildHandoff(input: {
   const compactInstructions = [
     "This conversation is too long to hand over whole, so part of it is condensed below.",
     "Your first job, before answering: build your own working summary of what was asked, decided and done.",
-    "Use the search_history tool (search by PR number, file name, error text or topic) or read the full transcript file for anything not shown here.",
+    "Use the viewcode_search_history tool (search by PR number, file name, error text or topic) or read the full transcript file for anything not shown here.",
     "Never ask the user about earlier work before searching for it.",
   ];
 

@@ -230,7 +230,7 @@ const make = Effect.gen(function* () {
   // The request each receiver is currently answering (turn started by a
   // reply-expected message) and whether it already replied explicitly.
   // Agents whose last turn hit a usage/plan limit. Messages to them are
-  // refused until a turn succeeds or configure_agent moves them to another model.
+  // refused until a turn succeeds or viewcode_configure_agent moves them to another model.
   const limited = new Map<string, string>();
   const answering = new Map<string, { delivery: Delivery; replied: boolean; startedAt: string }>();
   // The delivery whose turn is running on a thread, for hop accounting.
@@ -358,14 +358,14 @@ const make = Effect.gen(function* () {
       const target = resolveTarget(tree, input.to);
       if (!target) {
         return yield* fail(
-          `No agent "${input.to}" in this agent tree. Call list_agents to see the agents you can message.`,
+          `No agent "${input.to}" in this agent tree. Call viewcode_list_agents to see the agents you can message.`,
         );
       }
       if (target.id === self.id) return yield* fail("An agent cannot message itself.");
       const limitReason = limited.get(target.id);
       if (limitReason !== undefined && !pendingModels.has(target.id)) {
         return yield* fail(
-          `${target.title} is out of quota and cannot take messages: ${limitReason} Do not retry. Use configure_agent to move it to a model on another provider, spawn_agent a new agent on another provider, or tell the user.`,
+          `${target.title} is out of quota and cannot take messages: ${limitReason} Do not retry. Use viewcode_configure_agent to move it to a model on another provider, viewcode_spawn_agent a new agent on another provider, or tell the user.`,
         );
       }
       const request = answering.get(caller);
@@ -412,7 +412,9 @@ const make = Effect.gen(function* () {
       const instanceId = providerId ?? String(fallback.instanceId);
       const provider = providers.find((entry) => entry.instanceId === instanceId);
       if (!provider) {
-        return yield* fail(`Unknown provider "${instanceId}". Call list_models for valid ids.`);
+        return yield* fail(
+          `Unknown provider "${instanceId}". Call viewcode_list_models for valid ids.`,
+        );
       }
       const slug =
         model === undefined
@@ -425,7 +427,7 @@ const make = Effect.gen(function* () {
             )?.slug;
       if (!slug) {
         return yield* fail(
-          `Unknown model "${model}" for ${instanceId}. Call list_models for valid ids.`,
+          `Unknown model "${model}" for ${instanceId}. Call viewcode_list_models for valid ids.`,
         );
       }
       return {
@@ -607,7 +609,7 @@ const make = Effect.gen(function* () {
       const requester = threads.find((entry) => entry.id === notify.fromThreadId);
       if (requester && notify.hop + 1 < AGENT_MESSAGE_MAX_HOPS) {
         const limitNotice = hitLimit
-          ? `[Usage limit reached: ${lastError} This agent stops here. Do not message it again or wait for it; use configure_agent to move it to a model on another provider, or finish without it.]`
+          ? `[Usage limit reached: ${lastError} This agent stops here. Do not message it again or wait for it; use viewcode_configure_agent to move it to a model on another provider, or finish without it.]`
           : null;
         const body =
           limitNotice !== null

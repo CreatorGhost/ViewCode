@@ -37,6 +37,13 @@ describe("agentToolkitLabel", () => {
     );
     expect(agentToolkitLabel(entry("t3-code.list_agents"), "completed")).toBe("Listed agents");
     expect(agentToolkitLabel(entry("list_models"), "completed")).toBe("Listed models");
+    // Current names carry the viewcode_ prefix; the bare names above are older sessions.
+    expect(agentToolkitLabel(entry("mcp__t3-code__viewcode_spawn_agent", "completed"))).toBe(
+      "Spawned agent",
+    );
+    expect(agentToolkitLabel(entry("t3-code.viewcode_send_message", "inProgress"))).toBe(
+      "Messaging agent",
+    );
     expect(agentToolkitLabel(entry("t3-code · read_transcript", "completed"))).toBe(
       "Read agent transcript",
     );

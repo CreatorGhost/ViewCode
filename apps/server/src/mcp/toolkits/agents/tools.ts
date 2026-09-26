@@ -11,19 +11,20 @@ const dependencies = [McpInvocationContext.McpInvocationContext, AgentMessaging]
 export const AgentToolError = Schema.Union([McpCapabilityUnavailableError, AgentMessagingError]);
 
 const AgentRef = TrimmedNonEmptyString.annotate({
-  description: "The agent's id from list_agents, or its exact name.",
+  description: "The agent's id from viewcode_list_agents, or its exact name.",
 });
 
 const ProviderId = Schema.optional(
   TrimmedNonEmptyString.annotate({
     description:
-      "Provider id from list_models, e.g. claudeAgent or codex. Defaults to your own provider.",
+      "Provider id from viewcode_list_models, e.g. claudeAgent or codex. Defaults to your own provider.",
   }),
 );
 
 const ModelId = Schema.optional(
   TrimmedNonEmptyString.annotate({
-    description: "Model id from list_models. Defaults to the provider's default model (or yours).",
+    description:
+      "Model id from viewcode_list_models. Defaults to the provider's default model (or yours).",
   }),
 );
 
@@ -46,9 +47,9 @@ const SendResult = Schema.Struct({
   }),
 });
 
-const ListAgentsTool = Tool.make("list_agents", {
+const ListAgentsTool = Tool.make("viewcode_list_agents", {
   description:
-    "List the ViewCode agents in your agent tree (your root agent and all of its descendants), with their model and status. Use the ids with send_message, read_transcript and configure_agent.",
+    "List the ViewCode agents in your agent tree (your root agent and all of its descendants), with their model and status. Use the ids with viewcode_send_message, viewcode_read_transcript and viewcode_configure_agent.",
   success: Schema.Struct({ agents: Schema.Array(AgentEntry) }),
   failure: AgentToolError,
   dependencies,
@@ -59,9 +60,9 @@ const ListAgentsTool = Tool.make("list_agents", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
-const ListModelsTool = Tool.make("list_models", {
+const ListModelsTool = Tool.make("viewcode_list_models", {
   description:
-    "List the providers and models available for spawn_agent and configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
+    "List the providers and models available for viewcode_spawn_agent and viewcode_configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
   success: Schema.Struct({
     providers: Schema.Array(
       Schema.Struct({
@@ -83,7 +84,7 @@ const ListModelsTool = Tool.make("list_models", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
-const SpawnAgentTool = Tool.make("spawn_agent", {
+const SpawnAgentTool = Tool.make("viewcode_spawn_agent", {
   description:
     "Start a child agent: a separate, full ViewCode agent with its own chat, transcript and model that the user can open, follow and prompt. It works in the same project and checkout as you. Give it a short name and a self-contained prompt. By default its final answer is sent back to you as a message when it finishes, which starts a new turn for you; you do not need to poll. Prefer this over in-session sub-agents when the user asks for agents they can see.",
   parameters: Schema.Struct({
@@ -111,7 +112,7 @@ const SpawnAgentTool = Tool.make("spawn_agent", {
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
-const SendMessageTool = Tool.make("send_message", {
+const SendMessageTool = Tool.make("viewcode_send_message", {
   description:
     "Send a message to another agent in your tree. An idle agent starts working on it immediately; a busy one gets it after its current turn. Set reply_expected to have its answer routed back to you. To answer a message that expects a reply, pass its response_id.",
   parameters: Schema.Struct({
@@ -135,7 +136,7 @@ const SendMessageTool = Tool.make("send_message", {
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
-const ReadTranscriptTool = Tool.make("read_transcript", {
+const ReadTranscriptTool = Tool.make("viewcode_read_transcript", {
   description: "Read the recent conversation of another agent in your tree.",
   parameters: Schema.Struct({
     agent: AgentRef,
@@ -153,7 +154,7 @@ const ReadTranscriptTool = Tool.make("read_transcript", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
-const SearchHistoryTool = Tool.make("search_history", {
+const SearchHistoryTool = Tool.make("viewcode_search_history", {
   description:
     "Search the full history of this conversation (messages and tool results), or another agent's in your tree. Use it before asking the user about earlier work, and after a handoff to recover details that were condensed: PR numbers, file names, error text, decisions. All query words must appear in a match.",
   parameters: Schema.Struct({
@@ -177,7 +178,7 @@ const SearchHistoryTool = Tool.make("search_history", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
-const ConfigureAgentTool = Tool.make("configure_agent", {
+const ConfigureAgentTool = Tool.make("viewcode_configure_agent", {
   description:
     "Switch the model (and optionally provider) another agent uses from its next turn. Switching provider hands its context off automatically.",
   parameters: Schema.Struct({

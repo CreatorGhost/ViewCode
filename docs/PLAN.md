@@ -77,7 +77,7 @@ What we take from each:
    - Each child has its own chat box, transcript, model, workspace and composer.
    - Children are nested under their parent in the **left sidebar**. You can
      open one, prompt it, and re-model it.
-   - Spawned either by the agent (`spawn_agent`, or `send_message` with a
+   - Spawned either by the agent (`viewcode_spawn_agent`, or `viewcode_send_message` with a
      reply expected) or by the user ("New child agent").
    - Messages show as "→ to X ↩" / "← from X" cards.
    - An "Active agents · N running · Stop all" bar sits above the composer.
@@ -141,14 +141,14 @@ What we take from each:
   granted to every provider session that has MCP (Claude, Codex, Cursor, Grok,
   OpenCode, Antigravity; not Command Code, whose CLI takes no MCP config):
 
-  | Tool              | Params                                                |
-  | ----------------- | ----------------------------------------------------- |
-  | `list_agents`     | —                                                     |
-  | `list_models`     | —                                                     |
-  | `spawn_agent`     | `name, prompt, provider_id?, model?, reply_expected?` |
-  | `send_message`    | `to, message, reply_expected?, response_id?`          |
-  | `read_transcript` | `agent, last_messages?`                               |
-  | `configure_agent` | `agent, provider_id?, model`                          |
+  | Tool                       | Params                                                |
+  | -------------------------- | ----------------------------------------------------- |
+  | `viewcode_list_agents`     | —                                                     |
+  | `viewcode_list_models`     | —                                                     |
+  | `viewcode_spawn_agent`     | `name, prompt, provider_id?, model?, reply_expected?` |
+  | `viewcode_send_message`    | `to, message, reply_expected?, response_id?`          |
+  | `viewcode_read_transcript` | `agent, last_messages?`                               |
+  | `viewcode_configure_agent` | `agent, provider_id?, model`                          |
 
 - `agents/AgentMessaging.ts` delivers a message as a normal
   `thread.turn.start` whose text begins with a
@@ -163,7 +163,7 @@ What we take from each:
 
 - `parentThreadId` on the thread shell and detail, persisted by migration
   `055_ProjectionThreadsParentThreadId`.
-- Created by `spawn_agent` or by the user ("New child agent" in the chat
+- Created by `viewcode_spawn_agent` or by the user ("New child agent" in the chat
   menu). A child is a normal thread: its own chat, composer, model picker and
   handoff.
 - An "Active agents · N running · Stop all" bar above the parent's composer.

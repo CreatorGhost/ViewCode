@@ -23,7 +23,10 @@ const T3_MCP_PREFIX =
 
 function agentToolkitToolName(value: string | undefined): string | null {
   if (!value) return null;
-  const name = normalizeCompactToolLabel(value).replace(T3_MCP_PREFIX, "");
+  // Tools are exposed as viewcode_<name> (older sessions used the bare name).
+  const name = normalizeCompactToolLabel(value)
+    .replace(T3_MCP_PREFIX, "")
+    .replace(/^viewcode_/i, "");
   return Object.hasOwn(AGENT_TOOLKIT_LABELS, name) ? name : null;
 }
 
