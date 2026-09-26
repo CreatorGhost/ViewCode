@@ -77,53 +77,67 @@ nice-to-haves, no longer needed to survive.
 
 ## Decided design: choose agents before anything is launched
 
-Agreed with the user on 2026-09-26. This is the main fix; it supersedes M1.
+Agreed with the user on 2026-09-26, then corrected after a code review (Astra).
+This is the main fix; it supersedes M1.
 
-**Behaviour**
+**What the user sees.** ViewCode opens and lists the providers it supports,
+all off, each with "Found at `<path>`" or "Not installed" (a disk check, nothing
+run). The user clicks the ones they use and continues ("Enable 2 agents", or
+"Continue without agents"). Only then does ViewCode check those providers, and
+if one is already signed in (Claude Code, Cursor), it's picked up exactly as
+today. Turning on a provider the machine blocks is the user's call.
 
-1. **Fresh install: nothing is launched.** The server starts with every
-   provider in a "not chosen yet" state and probes none of them.
-2. **Onboarding's Agents step asks.** It lists every provider (Claude Code,
-   Codex, Cursor, OpenCode, Grok, Antigravity, Command Code), **all switched
-   off**, each showing "Found at `<path>`" or "Not installed" from a
-   filesystem check only (no exec).
-3. **Continue saves the choice**: chosen providers `enabled: true`, all others
-   `enabled: false`, then only the chosen ones are probed. The existing
-   login/install cards appear after that, for chosen providers only.
-4. **Existing installs keep their choices**: if the environment already has
-   threads/projects or `settings.json` has explicit `providers.*.enabled`
-   values, it is marked chosen on first boot of the new version and behaves
-   as today.
-5. **Later changes** go through Settings → Providers (switch on = probe now).
-   Turning on a blocked provider is the user's choice.
-6. **Always (all installs):** never exec a provider whose binary can't be
-   found (M2).
-7. `./build.sh --managed` stays: it writes the Claude + Cursor choice and marks
-   the selection made, so a laptop can skip clicking through.
+**Rules**
+
+1. **Nothing runs until a choice is made.** While the selection is pending,
+   every provider instance is effectively off: no boot probe, interval,
+   refresh, session, recovery, text generation, workspace scan or sign-in.
+2. **The pending state is saved explicitly** (`providerSelection:
+"pending" | "chosen"`; absent = legacy = chosen) and decided once, before
+   providers are built, on first boot of this version, from the raw settings:
+   - brand-new home, unreadable settings, or an old home with no projects and
+     no explicit provider choices → `pending` (the user chose "show the picker
+     again" for that ambiguous case);
+   - an old home with projects/threads, explicit `providers.*.enabled`, or any
+     `providerInstances` entry → `chosen`, behaving as today.
+     Pending survives restarts, even if projects get created meanwhile.
+3. **A choice writes every effective instance**: instances of chosen drivers on
+   (all accounts of that driver), all others explicitly off, selection
+   `chosen`, in one settings write. It is an initial-choice operation: a second
+   stale screen can't overwrite it. Flipping a switch in Settings while pending
+   counts as the first choice (that one on, the rest off).
+4. **Turning a provider off stops it immediately** (user's decision) and nothing
+   relaunches it (recovery, queued work).
+5. **Never run a provider whose binary can't be found**, checked right before
+   every execution with the instance's PATH / custom path (Antigravity uses its
+   own install resolver), and run the resolved path.
+6. **A copied profile keeps its choices** (user's decision).
+7. `./build.sh --managed` writes the Claude + Cursor choice (instance level,
+   selection `chosen`) for laptops set up from source.
 
 **Implementation**
 
-| Piece                                                                                                                                                             | Where                                                                                                                                                                               | Notes                                                                                                                                                                                                                                                                                      |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `providersChosenAt: string \| null` server setting (optional, default null)                                                                                       | `packages/contracts/src/settings.ts` (ServerSettings + patch)                                                                                                                       | Server-side, **not** the client `onboardingCompletedAt` (that's per browser; a phone or second browser must not bypass the gate)                                                                                                                                                           |
-| Gate: while `providersChosenAt` is null, treat every provider as not enabled for probing (no boot probe, no interval, no `refreshAll`)                            | new `apps/server/src/provider/providerSelection.ts`, used by `resolveEntryEnabled` (`ProviderInstanceRegistryLive.ts:104-110`) and `restoreUsedProviders` (`serverSettings.ts:279`) | Keep upstream defaults (Codex default-on) untouched in the schema; the gate sits in front, so upstream merges stay clean                                                                                                                                                                   |
-| Migration for existing installs                                                                                                                                   | same file, at settings load (`serverSettings.ts:619-680`)                                                                                                                           | Existing = any project/thread in the state DB, or explicit `providers.*.enabled` in `settings.json` → set `providersChosenAt = now`                                                                                                                                                        |
-| `providers.detect` RPC: `[{ driver, installed, path }]` via `resolveCommandPath` (`packages/shared/src/shell.ts:618`) or configured `binaryPath`; filesystem only | `packages/contracts` (RPC schema), `apps/server/src/ws.ts`                                                                                                                          | Never spawns                                                                                                                                                                                                                                                                               |
-| `providers.choose({ enabled: DriverKind[] })` RPC: writes `providers.*.enabled` for **all** drivers and `providersChosenAt`, then probes the chosen ones          | same                                                                                                                                                                                | One atomic settings write                                                                                                                                                                                                                                                                  |
-| Onboarding picker                                                                                                                                                 | new `apps/web/src/components/onboarding/ProviderChoiceStep.tsx`, rendered by `AgentsStep` (`WelcomeWizard.tsx:626`) while `providersChosenAt` is null                               | Must **not** call `refreshProviders` before the choice (today `ConnectedAgentsStep` does on mount, `WelcomeWizard.tsx:675-678`, which would probe everything). After the choice, show the existing cards for chosen drivers (today only `PRIMARY_AGENT_DRIVERS = ["claudeAgent","codex"]`) |
-| Skipped onboarding / other clients                                                                                                                                | web: a banner "Choose your agents" linking to Settings → Providers when `providersChosenAt` is null; Settings → Providers switches also set `providersChosenAt`                     | Mobile: shows no providers until chosen; add the banner later                                                                                                                                                                                                                              |
-| `--managed` also sets `providersChosenAt`                                                                                                                         | `build.sh`                                                                                                                                                                          | Only once the field exists (unknown keys may be dropped)                                                                                                                                                                                                                                   |
-| M2: resolve binary before exec                                                                                                                                    | each driver's `checkProvider` (listed in M2 below)                                                                                                                                  | Independent; do first                                                                                                                                                                                                                                                                      |
+| Piece                                                                                                                                 | Where                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Selection state, one-time migration from raw settings                                                                                 | new `apps/server/src/provider/providerSelection.ts`; `packages/contracts/src/settings.ts` (optional field)                                                                                                                                                                                                                                                                                         |
+| Gate applied when deriving the effective instance map (so reconciliation reacts to it)                                                | `ProviderInstanceRegistryHydration.ts` (`deriveProviderInstanceConfigMap`)                                                                                                                                                                                                                                                                                                                         |
+| Launch guard (effective-enabled + binary resolves) at every execution path                                                            | health checks (each driver's `checkProvider`); `ProviderService.ts` recovery (~1239; new sessions ~1431 already check); `textGeneration/TextGeneration.ts:118`, `CodexTextGeneration.ts:196`; `ProviderRegistry.ts:844` / `CodexDriver.ts:243` (workspace); `ProviderAuthService.ts:18` (Antigravity, via `AntigravityInstallation.ts:404`); maintenance enrichment skipped for disabled instances |
+| `detect` (filesystem only) and `choose` (initial-choice) RPCs                                                                         | contracts + `apps/server/src/ws.ts`, reusing the settings mutation (`serverSettings.ts` ~986)                                                                                                                                                                                                                                                                                                      |
+| Onboarding picker, per environment, named ("Agents on Work Mac"), with "Check again" (filesystem only, bypasses the 30s lookup cache) | new `onboarding/ProviderChoiceStep.tsx` in `AgentsStep`; must not call `refreshProviders` before the choice                                                                                                                                                                                                                                                                                        |
+| Clients that reach a pending server some other way (remote browser, phone)                                                            | banner "Choose which agents ViewCode may run on <computer>" → Settings → Providers                                                                                                                                                                                                                                                                                                                 |
+| Status wording after the choice                                                                                                       | "Found · Not started" → "Checking" → "Ready" / "Sign-in needed" / "Couldn't start", with last-checked time; "stopped unexpectedly" + "Turn off", never claiming the cause                                                                                                                                                                                                                          |
+| Backend crash loop                                                                                                                    | cap desktop backend restarts after abrupt exits (`DesktopBackendManager.ts:994`); title generation stops retrying after abrupt kills (`ProviderCommandReactor.ts:1128`)                                                                                                                                                                                                                            |
+| Built-in spawn trace                                                                                                                  | `<stateDir>/logs/spawn-trace.log`: time, executable, instance/purpose, exit result; no prompt payloads; size-capped                                                                                                                                                                                                                                                                                |
 
-**Tests (server behaviour changes need them):** fresh environment boots with
-zero provider spawns (spawn spy); `providers.choose(["claudeAgent"])` probes
-only Claude; an existing environment keeps its enabled set and gets
-`providersChosenAt`; `providers.detect` never spawns; a missing binary is
-reported not installed without a spawn.
+**Tests:** fresh home launches nothing; pending survives a restart with
+projects created; malformed settings → pending; explicit `providerInstances`
+respected by migration and choice; interval/manual/workspace refresh and text
+generation launch nothing while pending or for a disabled provider; a stale
+second `choose` is rejected; a Settings toggle while pending closes the
+selection with the rest off; a missing binary is never spawned.
 
-**Order:** M2 → server gate + migration + RPCs (with tests) → onboarding picker
-→ banner → `--managed` update. Verify on the laptop with the spawn tracer:
-first launch shows no provider spawns until Continue.
+Deferred (not needed for this fix): shell-probe, sidecar, discovery and cache
+changes (M5–M7, M4).
 
 ### Installers (DMG, EXE, AppImage) get the same protection
 
@@ -134,16 +148,19 @@ fresh install shows the picker with everything off and launches no provider
 until Continue. Nothing about it may depend on `build.sh`, environment
 variables or a source checkout.
 
-- **Spawn trace must be built in (M11).** Packaged Electron may ignore
-  `NODE_OPTIONS` (Electron's `nodeOptions` fuse), so the `--require` tracer is
-  only for `npx t3`/source runs. Verify installers with M11's
+- **Spawn trace must be built in (M11).** Whether a packaged app honours
+  `NODE_OPTIONS` depends on its Electron fuses (the backend runs Electron with
+  `ELECTRON_RUN_AS_NODE=1`, `DesktopBackendConfiguration.ts:574`); inspect the
+  artifact, don't change fuses. Rely on the built-in trace, and add a desktop
+  "Open logs" action that works while the server is down. Verify installers with M11's
   `<userdata>/logs/spawn-trace.log`.
 - **Installing without admin on macOS:** `/Applications` usually needs admin;
-  drag the app to `~/Applications` instead. The DMG is unsigned, so macOS
-  quarantines it: right-click → Open, or
-  `xattr -dr com.apple.quarantine ~/Applications/ViewCode.app` (user-owned
-  file, no admin). If policy blocks unsigned apps entirely, only Developer ID
-  signing + notarization fixes that (work item 8 in `managed-macos.md`).
+  drag the app to `~/Applications` instead (ordinary user-owned location).
+  Don't strip security metadata such as the quarantine attribute to get past
+  an execution check. A build made on the same machine isn't quarantined; if
+  normal opening of a copied build is blocked, report it. Developer ID signing
+  - notarization improve provenance but don't guarantee company policy
+    accepts the app.
 - **Acceptance for an installer build:** on a clean profile
   (`~/.viewcode` absent), install from the DMG, launch, stop at the Agents
   step, and check `spawn-trace.log` shows no provider CLI; choose Claude +
