@@ -1110,6 +1110,19 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
+    // ViewCode first-run provider choice: a filesystem-only lookup, and the
+    // one-time choice (later changes go through updateSettings).
+    detectProviders: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:detect-providers",
+      tag: WS_METHODS.serverDetectProviders,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
+    chooseProviders: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:choose-providers",
+      tag: WS_METHODS.serverChooseProviders,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
