@@ -1,0 +1,24 @@
+# G12 desktop network-access toggle: TCP listeners owned by the app's process tree
+# DEBUGGER(playwright) ports come from Playwright's --inspect/--remote-debugging-port launch flags, not the app.
+# The pairing token in the QR was single-use and expired 5 minutes after capture.
+
+# 1. default: network access OFF — 2026-09-26T08:09:13.284Z
+OURS[DEBUGGER(playwright)]  /proc/net/tcp port=37683 inode=162406 pid=9139
+OURS[DEBUGGER(playwright)]  /proc/net/tcp port=37543 inode=162384 pid=8988
+== LISTEN total=8 owned_by_app_tree=2
+unix LISTEN inode=162529 pid=8988 path=/tmp/t3code-0/54bffa1ebc5b.tmp
+unix LISTEN inode=164117 pid=9139 path=/tmp/t3code-0/5cf8be4ce03706fee76ba069-backend.sock
+
+# 3. network access ON — 2026-09-26T08:10:23.795Z
+OURS[DEBUGGER(playwright)]  /proc/net/tcp port=39383 inode=173366 pid=12537
+OURS[DEBUGGER(playwright)]  /proc/net/tcp port=36959 inode=173387 pid=12689
+OURS[APP]  /proc/net/tcp port=3773 inode=173480 pid=12689
+== LISTEN total=9 owned_by_app_tree=3
+unix LISTEN inode=172497 pid=12537 path=/tmp/t3code-0/f95b526aef68.tmp
+
+# 6. network access OFF again — 2026-09-26T08:11:57.781Z
+OURS[DEBUGGER(playwright)]  /proc/net/tcp port=39313 inode=188797 pid=17665
+OURS[DEBUGGER(playwright)]  /proc/net/tcp port=39453 inode=187262 pid=17815
+== LISTEN total=8 owned_by_app_tree=2
+unix LISTEN inode=188974 pid=17815 path=/tmp/t3code-0/5cf8be4ce03706fee76ba069-backend.sock
+unix LISTEN inode=187942 pid=17665 path=/tmp/t3code-0/8d442ebe0803.tmp
