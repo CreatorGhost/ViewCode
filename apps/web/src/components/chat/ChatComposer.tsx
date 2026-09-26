@@ -7076,6 +7076,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       threadRef={routeKind === "server" ? routeThreadRef : null}
                       leadInstanceId={selectedInstanceId}
                       instanceEntries={providerInstanceEntries}
+                      contextWindow={activeContextWindow}
                     />
                   )}
                   <ComposerFooterPrimaryActions

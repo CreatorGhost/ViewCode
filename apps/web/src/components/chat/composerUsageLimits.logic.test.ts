@@ -8,12 +8,18 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildUsageSections,
+  formatBankedResets,
+  formatContextWindowSummary,
+  formatTokenCount,
   formatUsageReset,
   formatUsedPercent,
   orderUsageWindows,
   peakUsedPercent,
+  resolveUsageRing,
+  shortPlanName,
   shouldRefreshUsage,
   type UsageProviderInput,
+  usageRingTone,
   usageTone,
 } from "./composerUsageLimits.logic";
 
@@ -147,7 +153,7 @@ describe("buildUsageSections", () => {
     expect(section?.status).toBe("checking");
   });
 
-  it("keeps banked reset credits and drops an empty balance", () => {
+  it("keeps banked reset credits, including an empty balance the provider reports", () => {
     const [withCredits] = buildUsageSections({
       lead: provider(
         "codex",
@@ -165,7 +171,56 @@ describe("buildUsageSections", () => {
       agentProviders: [],
       refreshingInstanceIds: noRefresh,
     });
-    expect(withoutCredits?.resetCredits).toBeNull();
+    expect(withoutCredits?.resetCredits?.availableCount).toBe(0);
+    expect(formatBankedResets({ availableCount: 2 })).toBe("2 available");
+    expect(formatBankedResets({ availableCount: 0 })).toBe("None available yet");
+    const [unreported] = buildUsageSections({
+      lead: provider("claudeAgent", limits([window("five-hour", "session", 5)])),
+      agentProviders: [],
+      refreshingInstanceIds: noRefresh,
+    });
+    expect(unreported?.resetCredits).toBeNull();
+  });
+
+  it("shortens the plan label in the subtitle", () => {
+    expect(shortPlanName("ChatGPT Pro 20x Subscription")).toBe("ChatGPT Pro 20x");
+    expect(shortPlanName("Claude Max")).toBe("Claude Max");
+  });
+});
+
+describe("context window formatting", () => {
+  it("formats token counts in k and M with one decimal", () => {
+    expect(formatTokenCount(950)).toBe("950");
+    expect(formatTokenCount(19_700)).toBe("19.7k");
+    expect(formatTokenCount(258_400)).toBe("258.4k");
+    expect(formatTokenCount(200_000)).toBe("200k");
+    expect(formatTokenCount(999_990)).toBe("1M");
+    expect(formatTokenCount(1_200_000)).toBe("1.2M");
+  });
+
+  it("summarises used against the window with its percent", () => {
+    expect(formatContextWindowSummary(19_700, 258_400)).toBe("19.7k / 258.4k (8%)");
+    expect(formatContextWindowSummary(19_700, null)).toBe("19.7k");
+  });
+});
+
+describe("resolveUsageRing", () => {
+  it("draws the context window, falling back to the plan's busiest window", () => {
+    expect(resolveUsageRing({ contextPercent: 8, planPeakPercent: 90 })).toEqual({
+      source: "context",
+      percent: 8,
+    });
+    expect(resolveUsageRing({ contextPercent: null, planPeakPercent: 90 })).toEqual({
+      source: "plan",
+      percent: 90,
+    });
+    expect(resolveUsageRing({ contextPercent: null, planPeakPercent: null })).toBeNull();
+  });
+
+  it("warns amber from 80% and red from 95%", () => {
+    expect(usageRingTone(79)).toBe("normal");
+    expect(usageRingTone(80)).toBe("warning");
+    expect(usageRingTone(95)).toBe("critical");
   });
 });
 
