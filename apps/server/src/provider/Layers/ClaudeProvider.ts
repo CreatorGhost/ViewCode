@@ -8,6 +8,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
@@ -34,6 +35,7 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { requireClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
+import { hasClaudeManagedMcpConfig } from "../Drivers/ClaudeEnterprisePolicy.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
 import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
@@ -188,6 +190,8 @@ export function buildClaudeCapabilitiesProbeQueryOptions(input: {
   readonly abortController: AbortController;
   readonly environment: NodeJS.ProcessEnv;
   readonly cwd: string | undefined;
+  /** An enterprise-managed MCP config is present; Claude rejects the strict flag then. */
+  readonly managedMcpConfig?: boolean;
 }): ClaudeQueryOptions {
   return {
     persistSession: false,
@@ -202,7 +206,7 @@ export function buildClaudeCapabilitiesProbeQueryOptions(input: {
     // Ignore MCP definitions from every filesystem setting source above. The
     // SDK combines this empty explicit map with --strict-mcp-config.
     mcpServers: {},
-    strictMcpConfig: true,
+    ...(input.managedMcpConfig ? {} : { strictMcpConfig: true }),
     env: {
       ...input.environment,
       // Connected claude.ai MCP servers are discovered outside filesystem
@@ -242,6 +246,8 @@ type ClaudeCapabilitiesProbe = {
    * otherwise successful response mean the account has none (API key).
    */
   readonly usage?: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits">;
+  /** Why the probe failed; the other fields are then empty. */
+  readonly probeError?: string;
 };
 
 function parseClaudeInitializationCommands(
@@ -341,6 +347,7 @@ const probeClaudeCapabilities = (
       claudeSettings.binaryPath,
       claudeEnvironment,
     );
+    const managedMcpConfig = yield* hasClaudeManagedMcpConfig;
     return yield* Effect.tryPromise(async () => {
       const q = claudeQuery({
         // Never yield — we only need initialization data, not a conversation.
@@ -354,6 +361,7 @@ const probeClaudeCapabilities = (
           abortController: abort,
           environment: claudeEnvironment,
           cwd,
+          managedMcpConfig,
         }),
       });
       const init = await q.initializationResult();
@@ -397,9 +405,57 @@ const probeClaudeCapabilities = (
       }),
     ),
     Effect.result,
-    Effect.map((result) => (Result.isSuccess(result) ? result.success : undefined)),
+    // ViewCode: keep the reason, so a failed probe is not reported as a
+    // silent "could not verify".
+    Effect.map((result) =>
+      Result.isSuccess(result) ? result.success : failedClaudeProbe(result.failure),
+    ),
   );
 };
+
+function failedClaudeProbe(cause: unknown): ClaudeCapabilitiesProbe {
+  const inner = Predicate.hasProperty(cause, "cause") ? cause.cause : cause;
+  const message = Predicate.isTagged(cause, "TimeoutError")
+    ? "Timed out waiting for Claude to initialize."
+    : inner instanceof Error
+      ? inner.message
+      : String(inner);
+  return {
+    email: undefined,
+    subscriptionType: undefined,
+    tokenSource: undefined,
+    apiProvider: undefined,
+    slashCommands: [],
+    probeError: message.trim().slice(0, 300) || "Unknown error.",
+  };
+}
+
+/** `claude auth status` JSON, read when the SDK probe cannot report the account. */
+const readClaudeAuthStatus = (claudeSettings: ClaudeSettings, environment: NodeJS.ProcessEnv) =>
+  runClaudeCommand(claudeSettings, ["auth", "status"], environment).pipe(
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.map((result) => {
+      if (Option.isNone(result)) return undefined;
+      try {
+        const parsed: unknown = JSON.parse(result.value.stdout);
+        return Predicate.isObject(parsed)
+          ? (parsed as {
+              readonly loggedIn?: unknown;
+              readonly authMethod?: unknown;
+              readonly apiProvider?: unknown;
+              readonly email?: unknown;
+              readonly subscriptionType?: unknown;
+            })
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    }),
+    Effect.orElseSucceed(() => undefined),
+  );
+
+const optionalString = (value: unknown) =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 
 const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (
   claudeSettings: ClaudeSettings,
@@ -540,7 +596,41 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   const slashCommands = [COMPACT_SLASH_COMMAND, ...(capabilities?.slashCommands ?? [])];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
 
-  if (!capabilities) {
+  if (!capabilities || capabilities.probeError !== undefined) {
+    const probeError = capabilities?.probeError;
+    // ViewCode: the SDK probe fails under some enterprise policies; the CLI's
+    // own account report still identifies a signed-in user.
+    const authStatus = probeError
+      ? yield* readClaudeAuthStatus(claudeSettings, resolvedEnvironment)
+      : undefined;
+    if (authStatus?.loggedIn === true) {
+      const email = optionalString(authStatus.email);
+      const authMetadata =
+        claudeAuthMetadata({
+          subscriptionType: optionalString(authStatus.subscriptionType),
+          authMethod: optionalString(authStatus.authMethod),
+        }) ?? apiProviderAuthMetadata(optionalString(authStatus.apiProvider));
+      return buildServerProvider({
+        presentation: CLAUDE_PRESENTATION,
+        enabled: claudeSettings.enabled,
+        checkedAt,
+        models,
+        slashCommands: dedupedSlashCommands,
+        skills,
+        probe: {
+          installed: true,
+          version: parsedVersion,
+          status: "ready",
+          auth: {
+            status: "authenticated",
+            ...(email ? { email } : {}),
+            ...(authMetadata ? authMetadata : {}),
+          },
+          message: `Signed in (from \`claude auth status\`). Claude's capability check failed: ${probeError}`,
+          usageLimits: makeUnavailableUsageLimits({ checkedAt, reason: "probeFailed" }),
+        },
+      });
+    }
     return buildServerProvider({
       presentation: CLAUDE_PRESENTATION,
       enabled: claudeSettings.enabled,
@@ -553,7 +643,9 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         version: parsedVersion,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Could not verify Claude authentication status from initialization result.",
+        message:
+          "Could not verify Claude authentication status from initialization result." +
+          (probeError ? ` Claude reported: ${probeError}` : ""),
       },
     });
   }

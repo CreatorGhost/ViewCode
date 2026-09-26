@@ -49,6 +49,7 @@ import {
   scopeClaudeModelCatalog,
 } from "../provider/ClaudeModelCatalog.ts";
 import { makeClaudeEnvironment } from "../provider/Drivers/ClaudeHome.ts";
+import { hasClaudeManagedMcpConfig } from "../provider/Drivers/ClaudeEnterprisePolicy.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
 
@@ -196,6 +197,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
                 ),
               )
           : cwd;
+      const managedMcpConfig = yield* hasClaudeManagedMcpConfig;
       const spawnCommand = yield* resolveSpawnCommand(
         claudeSettings.binaryPath || "claude",
         [
@@ -213,7 +215,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
           "--tools",
           "",
           "--disable-slash-commands",
-          "--strict-mcp-config",
+          // ViewCode: Claude refuses the strict flag under an enterprise MCP policy.
+          ...(managedMcpConfig ? [] : ["--strict-mcp-config"]),
           "--permission-mode",
           "dontAsk",
         ],
