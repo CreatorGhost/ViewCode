@@ -73,11 +73,64 @@ export const AgentSessionScanResult = Schema.Struct({
 });
 export type AgentSessionScanResult = typeof AgentSessionScanResult.Type;
 
+/** One provider session, as named by the list RPC and the import selection. */
+export const AgentSessionRef = Schema.Struct({
+  providerInstanceId: ProviderInstanceId,
+  providerSessionId: TrimmedNonEmptyString,
+});
+export type AgentSessionRef = typeof AgentSessionRef.Type;
+
 export const AgentSessionImportInput = Schema.Struct({
   projectId: ProjectId,
   expectedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * Import only these sessions. Omitted imports every recent session the
+   * scanner finds (the pre-selection behavior older clients rely on).
+   */
+  sessions: Schema.optional(Schema.Array(AgentSessionRef)),
 });
 export type AgentSessionImportInput = typeof AgentSessionImportInput.Type;
+
+/**
+ * Why a session is folded away by default: a Codex sub-agent rollout, a
+ * session another agent started with an agent message, Codex internal work
+ * (review, compaction), a fragment too short to be a conversation, or a
+ * session whose user messages are only injected context.
+ */
+export const AgentSessionHiddenReason = Schema.Literals([
+  "subagent",
+  "agent-message",
+  "internal",
+  "too-short",
+  "no-user-text",
+]);
+export type AgentSessionHiddenReason = typeof AgentSessionHiddenReason.Type;
+
+export const AgentSessionListInput = Schema.Struct({
+  projectId: ProjectId,
+  expectedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+});
+export type AgentSessionListInput = typeof AgentSessionListInput.Type;
+
+export const AgentSessionSummary = Schema.Struct({
+  providerInstanceId: ProviderInstanceId,
+  providerSessionId: TrimmedNonEmptyString,
+  provider: AgentSessionSource,
+  title: TrimmedNonEmptyString,
+  firstActivityAt: IsoDateTime,
+  lastActivityAt: IsoDateTime,
+  userMessageCount: NonNegativeInt,
+  alreadyImported: Schema.Boolean,
+  hidden: Schema.Boolean,
+  hiddenReason: Schema.NullOr(AgentSessionHiddenReason),
+});
+export type AgentSessionSummary = typeof AgentSessionSummary.Type;
+
+/** Recent sessions for a project, newest first. Nothing is imported by listing. */
+export const AgentSessionListResult = Schema.Struct({
+  sessions: Schema.Array(AgentSessionSummary),
+});
+export type AgentSessionListResult = typeof AgentSessionListResult.Type;
 
 export class AgentSessionImportProjectNotFoundError extends Schema.TaggedError<AgentSessionImportProjectNotFoundError>()(
   "AgentSessionImportProjectNotFoundError",

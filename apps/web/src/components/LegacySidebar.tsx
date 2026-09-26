@@ -215,6 +215,10 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import {
+  openImportSessionsDialog,
+  openRemoveImportedSessionsDialog,
+} from "./agentSessions/AgentSessionDialogsHost";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -1759,11 +1763,32 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           });
         });
 
+        actionHandlers.set("import-sessions", () =>
+          openImportSessionsDialog({
+            environmentId: project.environmentId,
+            projectId: project.id,
+            workspaceRoot: project.workspaceRoot,
+            title: project.displayName,
+          }),
+        );
+        actionHandlers.set("remove-imported-sessions", () =>
+          openRemoveImportedSessionsDialog({
+            title: project.displayName,
+            projectRefs: project.memberProjectRefs,
+          }),
+        );
+
         const clicked = await api.contextMenu.show(
           [
             buildTargetedItem("rename", "Rename"),
             buildTargetedItem("grouping", "Group into..."),
             buildTargetedItem("copy-path", "Copy Path"),
+            { id: "import-sessions", label: "Import past sessions…", icon: "clock" },
+            {
+              id: "remove-imported-sessions",
+              label: "Remove imported sessions…",
+              icon: "archive",
+            },
             { id: "project-settings", label: "Project settings", icon: "settings" },
             buildTargetedItem("delete", "Remove", {
               destructive: true,
@@ -1788,9 +1813,14 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       isMobile,
       openProjectGroupingDialog,
       openProjectRenameDialog,
+      project.displayName,
+      project.environmentId,
       project.groupedProjectCount,
+      project.id,
+      project.memberProjectRefs,
       project.memberProjects,
       project.projectKey,
+      project.workspaceRoot,
       router,
       setOpenMobile,
       suppressProjectClickForContextMenuRef,

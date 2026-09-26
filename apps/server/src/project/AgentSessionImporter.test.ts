@@ -59,7 +59,7 @@ import { TextGeneration } from "../textGeneration/TextGeneration.ts";
 import { TerminalManager } from "../terminal/Manager.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
-import { importRecentAgentThreads } from "./AgentSessionImporter.ts";
+import { importRecentAgentThreads, listImportableAgentSessions } from "./AgentSessionImporter.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
 
 const PROJECT_ID = ProjectId.make("project-1");
@@ -79,6 +79,8 @@ const makeThread = (source: "codex" | "claudeAgent"): AgentSessionScanner.AgentS
     { role: "user", text: "Fix the bug", createdAt: "2026-08-24T10:00:00.000Z" },
     { role: "assistant", text: "Fixed", createdAt: "2026-08-24T10:01:00.000Z" },
   ],
+  userMessageCount: 1,
+  hiddenReason: null,
 });
 
 const makeThreadOutcome = (thread: AgentSessionScanner.AgentSessionThread) =>
@@ -171,11 +173,20 @@ const makeProjectedThread = (input: {
 const makeSnapshotsLayer = (input: {
   readonly project?: OrchestrationProjectShell;
   readonly getThread?: (threadId: ThreadId) => Option.Option<OrchestrationThread>;
+  readonly importedSources?: ReadonlyArray<ReturnType<typeof makeThreadOutcome>["source"]>;
 }) =>
   Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
     getProjectShellById: () =>
       Effect.succeed(input.project === undefined ? Option.none() : Option.some(input.project)),
-    getImportedAgentSessionSources: () => Effect.succeed([]),
+    getImportedAgentSessionSources: () =>
+      Effect.succeed(
+        (input.importedSources ?? []).map((source) => ({
+          threadId: ThreadId.make(
+            `import:${source.providerInstanceId}:${source.providerSessionId}`,
+          ),
+          source,
+        })),
+      ),
     getThreadDetailById: (threadId) => Effect.succeed(input.getThread?.(threadId) ?? Option.none()),
   });
 
@@ -1211,6 +1222,187 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
           (message) => message.text,
         ),
       ).toEqual(["Continue while import waits"]);
+    }),
+  );
+});
+
+const recordingEngine = (commands: Array<OrchestrationCommand>) =>
+  OrchestrationEngine.OrchestrationEngineService.of({
+    dispatch: (command) => Effect.sync(() => ({ sequence: commands.push(command) })),
+    readEvents: () => Stream.empty,
+    readThreadEvents: () => Stream.empty,
+    getThreadReplayStats: () => Effect.die("unused"),
+    streamDomainEvents: Stream.empty,
+    subscribeDomainEvents: Effect.succeed(Stream.empty),
+    latestSequence: Effect.succeed(0),
+  });
+
+const noBindingDirectory = ProviderSessionDirectory.ProviderSessionDirectory.of({
+  upsert: () => Effect.void,
+  getProvider: () => Effect.die("unused"),
+  recordImportedTranscript: () => Effect.void,
+  getBinding: () => Effect.succeedNone,
+  listThreadIds: () => Effect.die("unused"),
+  listBindings: () => Effect.die("unused"),
+});
+
+const codexThread = (
+  providerSessionId: string,
+  overrides: Partial<AgentSessionScanner.AgentSessionThread> = {},
+): AgentSessionScanner.AgentSessionThread => ({
+  ...makeThread("codex"),
+  providerSessionId,
+  title: `Session ${providerSessionId}`,
+  ...overrides,
+});
+
+const scannerOf = (outcomes: ReadonlyArray<AgentSessionScanner.AgentSessionRecentThread>) =>
+  AgentSessionScanner.AgentSessionScanner.of({
+    scan: Effect.die("unused"),
+    recentThreads: () => Stream.fromIterable(outcomes),
+  });
+
+it.layer(NodeServices.layer)("AgentSessionImporter session selection", (it) => {
+  const parent = codexThread("parent");
+  const child = codexThread("child", {
+    parentProviderSessionId: "parent",
+    hiddenReason: "subagent",
+  });
+  const other = codexThread("other");
+  // Children arrive before their parent, as newer rollouts do.
+  const outcomes = [child, parent, other].map(makeThreadOutcome);
+
+  const importSelection = (
+    sessions: ReadonlyArray<string>,
+    commands: Array<OrchestrationCommand>,
+    getThread?: (threadId: ThreadId) => Option.Option<OrchestrationThread>,
+  ) =>
+    importRecentAgentThreads({
+      projectId: PROJECT_ID,
+      sessions: sessions.map((providerSessionId) => ({
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        providerSessionId,
+      })),
+    }).pipe(
+      Effect.provideService(AgentSessionScanner.AgentSessionScanner, scannerOf(outcomes)),
+      Effect.provideService(
+        OrchestrationEngine.OrchestrationEngineService,
+        recordingEngine(commands),
+      ),
+      Effect.provideService(ProviderSessionDirectory.ProviderSessionDirectory, noBindingDirectory),
+      Effect.provide(
+        makeSnapshotsLayer({
+          project: makeProject(),
+          ...(getThread === undefined ? {} : { getThread }),
+        }),
+      ),
+    );
+
+  const created = (commands: ReadonlyArray<OrchestrationCommand>) =>
+    commands.flatMap((command) =>
+      command.type === "thread.create"
+        ? [{ threadId: command.threadId, parentThreadId: command.parentThreadId ?? null }]
+        : [],
+    );
+
+  it.effect("imports only the selected sessions and nests a child under its selected parent", () =>
+    Effect.gen(function* () {
+      const commands: Array<OrchestrationCommand> = [];
+      const result = yield* importSelection(["parent", "child"], commands);
+
+      expect(result).toEqual({ importedCount: 2, skippedCount: 0 });
+      expect(created(commands)).toEqual([
+        { threadId: "import:codex:parent", parentThreadId: null },
+        { threadId: "import:codex:child", parentThreadId: "import:codex:parent" },
+      ]);
+    }),
+  );
+
+  it.effect("imports a selected child flat when its parent is not imported", () =>
+    Effect.gen(function* () {
+      const commands: Array<OrchestrationCommand> = [];
+      const result = yield* importSelection(["child", "other"], commands);
+
+      expect(result).toEqual({ importedCount: 2, skippedCount: 0 });
+      expect(created(commands)).toEqual([
+        { threadId: "import:codex:other", parentThreadId: null },
+        { threadId: "import:codex:child", parentThreadId: null },
+      ]);
+    }),
+  );
+
+  it.effect("nests a selected child under a parent imported earlier", () =>
+    Effect.gen(function* () {
+      const commands: Array<OrchestrationCommand> = [];
+      const existingParent = {
+        ...makeProjectedThread({ source: "codex", imported: true }),
+        id: ThreadId.make("import:codex:parent"),
+      };
+      yield* importSelection(["child"], commands, (threadId) =>
+        threadId === existingParent.id ? Option.some(existingParent) : Option.none(),
+      );
+
+      expect(created(commands)).toEqual([
+        { threadId: "import:codex:child", parentThreadId: "import:codex:parent" },
+      ]);
+    }),
+  );
+
+  it.effect("skips Codex internal runs when importing without a selection", () =>
+    Effect.gen(function* () {
+      const commands: Array<OrchestrationCommand> = [];
+      const result = yield* importRecentAgentThreads({ projectId: PROJECT_ID }).pipe(
+        Effect.provideService(
+          AgentSessionScanner.AgentSessionScanner,
+          scannerOf([
+            makeThreadOutcome(codexThread("review", { hiddenReason: "internal" })),
+            makeThreadOutcome(other),
+          ]),
+        ),
+        Effect.provideService(
+          OrchestrationEngine.OrchestrationEngineService,
+          recordingEngine(commands),
+        ),
+        Effect.provideService(
+          ProviderSessionDirectory.ProviderSessionDirectory,
+          noBindingDirectory,
+        ),
+        Effect.provide(makeSnapshotsLayer({ project: makeProject() })),
+      );
+
+      expect(result).toEqual({ importedCount: 1, skippedCount: 0 });
+      expect(created(commands).map((entry) => entry.threadId)).toEqual(["import:codex:other"]);
+    }),
+  );
+
+  it.effect("lists sessions newest first with hidden and imported flags, writing nothing", () =>
+    Effect.gen(function* () {
+      const older = codexThread("older", { updatedAt: "2026-08-20T10:00:00.000Z" });
+      const result = yield* listImportableAgentSessions({ projectId: PROJECT_ID }).pipe(
+        Effect.provideService(
+          AgentSessionScanner.AgentSessionScanner,
+          scannerOf([older, child, parent].map(makeThreadOutcome)),
+        ),
+        Effect.provide(
+          makeSnapshotsLayer({
+            project: makeProject(),
+            importedSources: [makeThreadOutcome(parent).source],
+          }),
+        ),
+      );
+
+      expect(
+        result.sessions.map((session) => ({
+          id: session.providerSessionId,
+          alreadyImported: session.alreadyImported,
+          hidden: session.hidden,
+          hiddenReason: session.hiddenReason,
+        })),
+      ).toEqual([
+        { id: "child", alreadyImported: false, hidden: true, hiddenReason: "subagent" },
+        { id: "parent", alreadyImported: true, hidden: false, hiddenReason: null },
+        { id: "older", alreadyImported: false, hidden: false, hiddenReason: null },
+      ]);
     }),
   );
 });

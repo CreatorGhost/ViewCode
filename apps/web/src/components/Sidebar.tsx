@@ -136,6 +136,10 @@ import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
+  openImportSessionsDialog,
+  openRemoveImportedSessionsDialog,
+} from "./agentSessions/AgentSessionDialogsHost";
+import {
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
@@ -1534,7 +1538,12 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
 });
 
-type ProjectMenuAction = "new-thread" | "copy-path" | "project-settings";
+type ProjectMenuAction =
+  | "new-thread"
+  | "copy-path"
+  | "import-sessions"
+  | "remove-imported-sessions"
+  | "project-settings";
 
 export default function Sidebar() {
   const projects = useProjects();
@@ -2840,6 +2849,17 @@ export default function Sidebar() {
               { id: "new-thread", label: "New thread", icon: "message-square-plus" },
               { id: "copy-path", label: "Copy path" },
               {
+                id: "import-sessions",
+                label: "Import past sessions…",
+                icon: "clock",
+                separatorBefore: true,
+              },
+              {
+                id: "remove-imported-sessions",
+                label: "Remove imported sessions…",
+                icon: "archive",
+              },
+              {
                 id: "project-settings",
                 label: "Project settings",
                 icon: "settings",
@@ -2856,6 +2876,20 @@ export default function Sidebar() {
             return;
           case "copy-path":
             copyPathToClipboard(group.workspaceRoot, { path: group.workspaceRoot });
+            return;
+          case "import-sessions":
+            openImportSessionsDialog({
+              environmentId: group.environmentId,
+              projectId: group.id,
+              workspaceRoot: group.workspaceRoot,
+              title: group.displayName,
+            });
+            return;
+          case "remove-imported-sessions":
+            openRemoveImportedSessionsDialog({
+              title: group.displayName,
+              projectRefs: group.memberProjectRefs,
+            });
             return;
           case "project-settings":
             openProjectSettings(group);

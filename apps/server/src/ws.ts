@@ -144,7 +144,10 @@ import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
-import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
+import {
+  importRecentAgentThreads,
+  listImportableAgentSessions,
+} from "./project/AgentSessionImporter.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
@@ -3175,6 +3178,18 @@ const makeWsRpcLayer = (
               Effect.provideService(
                 ProviderSessionDirectory.ProviderSessionDirectory,
                 providerSessionDirectory,
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.agentSessionsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentSessionsList,
+            listImportableAgentSessions(input).pipe(
+              Effect.provideService(AgentSessionScanner.AgentSessionScanner, agentSessionScanner),
+              Effect.provideService(
+                ProjectionSnapshotQuery.ProjectionSnapshotQuery,
+                projectionSnapshotQuery,
               ),
             ),
             { "rpc.aggregate": "workspace" },

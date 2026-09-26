@@ -34,7 +34,6 @@ import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
 import { useCompleteOnboarding } from "../../onboarding/firstRun";
 import {
   groupOnboardingProjects,
-  partitionOnboardingProjects,
   onboardingProjectKey,
   resolveOnboardingLandingProject,
   resolveOnboardingProjectId,
@@ -48,7 +47,6 @@ import {
 } from "../../onboarding/providerReadiness.logic";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { newProjectId, randomUUID } from "../../lib/utils";
-import { agentSessionImport } from "../../state/agentSessions";
 import { readProjects, useProjects } from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import { isOnboardingRelayEnvironment } from "../../onboarding/targetEnvironment.logic";
@@ -62,6 +60,10 @@ import { getProviderSummary } from "../settings/providerStatus";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
+import {
+  ImportSessionsDialog,
+  type ImportSessionsTarget,
+} from "../agentSessions/ImportSessionsDialog";
 import { ClaudeAI, OpenAI } from "../Icons";
 import { T3Wordmark } from "../T3Wordmark";
 import { Button } from "../ui/button";
@@ -954,25 +956,30 @@ function ImportStep({
 }) {
   const { environments } = useEnvironments();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
-  const importThreads = useAtomCommand(agentSessionImport, { reportFailure: false });
   const projects = useProjects();
-  const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string> | null>(null);
-  const [importError, setImportError] = useState("");
+  // Clean start: nothing is selected until the person picks it.
+  const [selectedKeys, setSelectedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [addError, setAddError] = useState("");
   const [landingProject, setLandingProject] = useState<ScopedProjectRef | null>(null);
-  // Keep project creation attempts separate from completed history imports so both can retry.
-  const importedProjectsRef = useRef(new Map<string, ScopedProjectRef>());
+  const [addedProjects, setAddedProjects] = useState<ReadonlyArray<AddedProject> | null>(null);
+  const [sessionTarget, setSessionTarget] = useState<AddedProject | null>(null);
+  const [importedSessionCounts, setImportedSessionCounts] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  // Keep project creation attempts separate from completed adds so both can retry.
+  const addedProjectsRef = useRef(new Map<string, ScopedProjectRef>());
   const projectsWithImportedHistoryRef = useRef(new Map<string, ScopedProjectRef>());
-  const lastImportSelectionRef = useRef<ReadonlyArray<string>>([]);
+  const lastAddSelectionRef = useRef<ReadonlyArray<string>>([]);
   const projectAttemptsRef = useRef(
     new Map<string, { readonly projectId: ProjectId; readonly commandId: CommandId }>(),
   );
-  const importGenerationRef = useRef(0);
+  const addGenerationRef = useRef(0);
 
   // Ignore command completions after leaving the import step.
   useEffect(() => {
-    importGenerationRef.current += 1;
+    addGenerationRef.current += 1;
     return () => {
-      importGenerationRef.current += 1;
+      addGenerationRef.current += 1;
     };
   }, []);
 
@@ -992,30 +999,24 @@ function ImportStep({
     }
   }, [landingProject, onDone, projects, setIsImporting]);
 
-  const { available: candidates, recent } = useMemo(
+  const candidates = useMemo(
     () =>
-      partitionOnboardingProjects(
-        scans.flatMap((scan) =>
-          (scan.data?.candidates ?? []).map((candidate) => ({
-            ...candidate,
-            environmentId: scan.environmentId,
-            key: onboardingProjectKey(scan.environmentId, candidate.path),
-          })),
-        ),
+      scans.flatMap((scan) =>
+        (scan.data?.candidates ?? []).map((candidate) => ({
+          ...candidate,
+          environmentId: scan.environmentId,
+          key: onboardingProjectKey(scan.environmentId, candidate.path),
+        })),
       ),
     [scans],
   );
-  const selectedKeys = useMemo(
-    () => selectedPaths ?? new Set(recent.map((candidate) => candidate.key)),
-    [selectedPaths, recent],
-  );
   const selected = candidates.filter((candidate) => selectedKeys.has(candidate.key));
 
-  const finishAfterImport = () => {
+  const finishWithProjects = () => {
     const projectRef = resolveOnboardingLandingProject(
-      lastImportSelectionRef.current,
+      lastAddSelectionRef.current,
       projectsWithImportedHistoryRef.current,
-      importedProjectsRef.current,
+      addedProjectsRef.current,
     );
     if (projectRef === undefined) {
       void onDone();
@@ -1025,39 +1026,25 @@ function ImportStep({
     setLandingProject(projectRef);
   };
 
-  const runImport = async (selection: typeof candidates) => {
+  /** Create the selected projects. Their past sessions are a separate, explicit choice. */
+  const addProjects = async (selection: typeof candidates) => {
     if (isImporting) return;
     if (selection.length === 0) {
       void onDone();
       return;
     }
     setIsImporting(true);
-    setImportError("");
-    lastImportSelectionRef.current = selection.map((candidate) => candidate.key);
-    const importGeneration = importGenerationRef.current;
-    const importedProjects = importedProjectsRef.current;
+    setAddError("");
+    lastAddSelectionRef.current = selection.map((candidate) => candidate.key);
+    const addGeneration = addGenerationRef.current;
+    const added = addedProjectsRef.current;
     const projectAttempts = projectAttemptsRef.current;
-    // Interrupted imports are neither failures nor successes — the command was
-    // superseded or the environment dropped — but they still didn't land, so
-    // they must not read as "imported everything". Retries skip paths that
-    // already landed this session (re-creating them would only trip the
-    // duplicate-root invariant and read as a failure).
-    let importedProjectsCount =
-      importedProjects.size > 0
-        ? selection.filter((candidate) => importedProjects.has(candidate.key)).length
-        : 0;
-    let importedThreadCount = 0;
-    let skippedThreadCount = 0;
     const refreshEnvironments = new Set<EnvironmentId>();
+    let failedCount = 0;
     for (const candidate of selection) {
       const { environmentId } = candidate;
-      if (
-        importGeneration !== importGenerationRef.current ||
-        importedProjects !== importedProjectsRef.current
-      ) {
-        return;
-      }
-      if (importedProjects.has(candidate.key)) continue;
+      if (addGeneration !== addGenerationRef.current) return;
+      if (added.has(candidate.key)) continue;
       let projectId = resolveOnboardingProjectId(readProjects(), environmentId, candidate);
       if (projectId === null) {
         let attempt = projectAttempts.get(candidate.key);
@@ -1081,73 +1068,115 @@ function ImportStep({
             defaultModelSelection: null,
           },
         });
-        if (
-          importGeneration !== importGenerationRef.current ||
-          importedProjects !== importedProjectsRef.current
-        ) {
-          return;
-        }
+        if (addGeneration !== addGenerationRef.current) return;
         if (result._tag !== "Success") {
+          // Interrupted creates were superseded, not refused; retry them as-is.
           if (!isAtomCommandInterrupted(result)) {
             projectAttempts.delete(candidate.key);
             refreshEnvironments.add(environmentId);
           }
+          failedCount += 1;
           continue;
         }
       }
-
-      const threadImportResult = await importThreads({
-        environmentId,
-        input: { projectId, expectedWorkspaceRoot: candidate.path },
-      });
-      if (
-        importGeneration !== importGenerationRef.current ||
-        importedProjects !== importedProjectsRef.current
-      ) {
-        return;
-      }
-      if (threadImportResult._tag === "Success") {
-        importedThreadCount += threadImportResult.value.importedCount;
-        skippedThreadCount += threadImportResult.value.skippedCount;
-        if (threadImportResult.value.importedCount > 0) {
-          projectsWithImportedHistoryRef.current.set(
-            candidate.key,
-            scopeProjectRef(environmentId, projectId),
-          );
-        }
-        if (threadImportResult.value.skippedCount === 0) {
-          importedProjectsCount += 1;
-          importedProjects.set(candidate.key, scopeProjectRef(environmentId, projectId));
-        }
-      } else if (!isAtomCommandInterrupted(threadImportResult)) {
-        projectAttempts.delete(candidate.key);
-        refreshEnvironments.add(environmentId);
-      }
+      added.set(candidate.key, scopeProjectRef(environmentId, projectId));
     }
     for (const scan of scans) {
       if (refreshEnvironments.has(scan.environmentId)) scan.refresh();
     }
     setIsImporting(false);
-    if (importedProjectsCount < selection.length) {
-      if (importedThreadCount > 0 && skippedThreadCount > 0) {
-        setImportError(
-          `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. ${skippedThreadCount} ${skippedThreadCount === 1 ? "thread" : "threads"} could not be imported.`,
-        );
-      } else if (skippedThreadCount > 0) {
-        setImportError(
-          `${skippedThreadCount} ${skippedThreadCount === 1 ? "thread could" : "threads could"} not be imported.`,
-        );
-      } else if (importedThreadCount > 0) {
-        setImportError(
-          `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. Some thread history could not be imported.`,
-        );
-      } else {
-        setImportError("Could not import thread history.");
-      }
+    if (failedCount > 0) {
+      setAddError(
+        `${failedCount} ${failedCount === 1 ? "project could" : "projects could"} not be added.`,
+      );
       return;
     }
-    finishAfterImport();
+    showAddedProjects();
   };
+
+  /** Move on to the per-project session choice with whatever was added. */
+  const showAddedProjects = () => {
+    const added = candidates.flatMap((candidate) => {
+      if (!lastAddSelectionRef.current.includes(candidate.key)) return [];
+      const ref = addedProjectsRef.current.get(candidate.key);
+      return ref === undefined
+        ? []
+        : [
+            {
+              key: candidate.key,
+              environmentId: ref.environmentId,
+              projectId: ref.projectId,
+              workspaceRoot: candidate.path,
+              title: candidate.title,
+            },
+          ];
+    });
+    if (added.length === 0) {
+      void onDone();
+      return;
+    }
+    setAddedProjects(added);
+  };
+
+  if (addedProjects !== null) {
+    return (
+      <StepShell
+        title="Bring in past conversations?"
+        description="Your projects start empty. Pick specific Claude Code or Codex sessions to continue, or skip this. You can do it later from a project's menu in the sidebar."
+      >
+        <ScrollArea scrollFade className="mt-5 h-auto max-h-80">
+          <div className="space-y-0.5 pr-3">
+            {addedProjects.map((project) => {
+              const importedCount = importedSessionCounts.get(project.key) ?? 0;
+              return (
+                <div
+                  key={project.key}
+                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/40"
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {project.title}
+                  </span>
+                  {importedCount > 0 ? (
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {importedCount} imported
+                    </span>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    disabled={isImporting}
+                    onClick={() => setSessionTarget(project)}
+                  >
+                    Choose sessions…
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+          <Button autoFocus disabled={isImporting} onClick={finishWithProjects}>
+            {isImporting ? "Opening…" : "Done"}
+          </Button>
+        </div>
+        <ImportSessionsDialog
+          target={sessionTarget}
+          onClose={() => setSessionTarget(null)}
+          onImported={(count) => {
+            const project = sessionTarget;
+            if (project === null || count === 0) return;
+            projectsWithImportedHistoryRef.current.set(
+              project.key,
+              scopeProjectRef(project.environmentId, project.projectId),
+            );
+            setImportedSessionCounts((current) =>
+              new Map(current).set(project.key, (current.get(project.key) ?? 0) + count),
+            );
+          }}
+        />
+      </StepShell>
+    );
+  }
 
   if (scans.every((scan) => scan.data === null) && scans.some((scan) => scan.isPending)) {
     return (
@@ -1161,7 +1190,7 @@ function ImportStep({
         </div>
         <div className="flex justify-end">
           <Button variant="ghost-muted" onClick={() => void onDone()}>
-            Do not import projects
+            Start fresh
           </Button>
         </div>
       </div>
@@ -1170,8 +1199,8 @@ function ImportStep({
 
   return (
     <StepShell
-      title="Choose your projects"
-      description="Import projects and conversations from your selected computers."
+      title="Start fresh, or add projects"
+      description="ViewCode starts with a clean sidebar. Add folders you have used with Claude Code or Codex as projects if you like. Adding a project does not bring in its conversations; you choose those next."
     >
       {candidates.length > 0 ? (
         <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -1183,7 +1212,7 @@ function ImportStep({
               variant="ghost"
               size="xs"
               disabled={isImporting || selected.length === candidates.length}
-              onClick={() => setSelectedPaths(new Set(candidates.map((item) => item.key)))}
+              onClick={() => setSelectedKeys(new Set(candidates.map((item) => item.key)))}
             >
               Select all
             </Button>
@@ -1191,7 +1220,7 @@ function ImportStep({
               variant="ghost"
               size="xs"
               disabled={isImporting || selected.length === 0}
-              onClick={() => setSelectedPaths(new Set())}
+              onClick={() => setSelectedKeys(new Set())}
             >
               Select none
             </Button>
@@ -1244,34 +1273,45 @@ function ImportStep({
                 <ImportCandidateList
                   candidates={scanCandidates}
                   selectedKeys={selectedKeys}
-                  onSelectionChange={setSelectedPaths}
+                  onSelectionChange={setSelectedKeys}
                 />
               </fieldset>
             );
           })}
         </div>
       </ScrollArea>
-      {importError ? <p className="mt-3 text-sm text-destructive">{importError}</p> : null}
+      {addError ? <p className="mt-3 text-sm text-destructive">{addError}</p> : null}
       <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-        <Button
-          variant="ghost-muted"
-          disabled={isImporting}
-          onClick={importError ? finishAfterImport : () => void onDone()}
-        >
-          {importError ? "Continue without the rest" : "Do not import projects"}
-        </Button>
-        <Button
-          autoFocus
-          disabled={isImporting || selected.length === 0}
-          onClick={() => void runImport(selected)}
-        >
-          {isImporting
-            ? "Importing…"
-            : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
-        </Button>
+        {selected.length > 0 || addError ? (
+          <Button
+            variant="ghost-muted"
+            disabled={isImporting}
+            onClick={addError ? showAddedProjects : () => void onDone()}
+          >
+            {addError ? "Continue without the rest" : "Start fresh"}
+          </Button>
+        ) : null}
+        {selected.length === 0 && !addError ? (
+          <Button autoFocus disabled={isImporting} onClick={() => void onDone()}>
+            Start fresh
+          </Button>
+        ) : (
+          <Button
+            disabled={isImporting || selected.length === 0}
+            onClick={() => void addProjects(selected)}
+          >
+            {isImporting
+              ? "Adding…"
+              : `Add ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
+          </Button>
+        )}
       </div>
     </StepShell>
   );
+}
+
+interface AddedProject extends ImportSessionsTarget {
+  readonly key: string;
 }
 
 type ImportCandidate = AgentSessionProjectCandidate & {
