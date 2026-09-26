@@ -13,6 +13,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { makeCommandCodeTextGeneration } from "../../textGeneration/CommandCodeTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeCommandCodeAdapter } from "../Layers/CommandCodeAdapter.ts";
+import { readCommandCodeUsageLimits } from "../Layers/commandCodeUsageLimits.ts";
 import {
   buildInitialCommandCodeSnapshot,
   checkCommandCodeProviderStatus,
@@ -108,8 +109,19 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
       const textGeneration = yield* makeCommandCodeTextGeneration(effectiveConfig, processEnv);
 
       const checkProvider = checkCommandCodeProviderStatus(effectiveConfig, processEnv).pipe(
+        // Credits left this billing period, for the composer's usage popover.
+        Effect.filterOrElse(
+          (snapshot) => !(effectiveConfig.enabled && snapshot.installed),
+          (snapshot) =>
+            readCommandCodeUsageLimits(processEnv).pipe(
+              Effect.map((usageLimits) => ({ ...snapshot, usageLimits })),
+            ),
+        ),
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
       );
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
