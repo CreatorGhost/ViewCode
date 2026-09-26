@@ -105,7 +105,9 @@ function toSection(
     key: `${role}:${provider.instanceId}`,
     role,
     title: `${role === "lead" ? "Lead" : "Agents"} · ${provider.displayName}`,
-    subtitle: provider.plan ? `Plan usage limits · ${provider.plan}` : "Plan usage limits",
+    subtitle: provider.plan
+      ? `Plan usage limits · ${shortPlanName(provider.plan)}`
+      : "Plan usage limits",
     instanceId: provider.instanceId,
     driver: provider.driver,
     status,
@@ -114,8 +116,7 @@ function toSection(
         ? (notice ?? `${provider.displayName} doesn't report plan limits.`)
         : null,
     windows: limits && !notice ? orderUsageWindows(limits.windows) : [],
-    resetCredits:
-      limits?.resetCredits && limits.resetCredits.availableCount > 0 ? limits.resetCredits : null,
+    resetCredits: limits?.resetCredits ?? null,
   };
 }
 
@@ -153,4 +154,49 @@ export function shouldRefreshUsage(
   if (!limits || limits.unavailable?.reason === "unsupported") return false;
   const checkedAt = Date.parse(limits.checkedAt);
   return !Number.isFinite(checkedAt) || now - checkedAt > USAGE_REFRESH_AFTER_MS;
+}
+
+/** A plan label without its boilerplate: "ChatGPT Pro 20x Subscription" reads "ChatGPT Pro 20x". */
+export function shortPlanName(plan: string): string {
+  return plan.replace(/\s+(subscription|plan)$/i, "").trim() || plan;
+}
+
+/** Banked reset credits, as the provider reports them. */
+export function formatBankedResets(credits: ServerProviderResetCredits): string {
+  return credits.availableCount > 0 ? `${credits.availableCount} available` : "None available yet";
+}
+
+/** Token counts the way the usage panel shows them: 950, 19.7k, 258.4k, 1.2M. */
+export function formatTokenCount(tokens: number): string {
+  const value = Math.max(0, tokens);
+  if (value < 999.5) return String(Math.round(value));
+  if (value < 999_950) return `${(value / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+}
+
+/** `19.7k / 258.4k (8%)`, or just the tokens used when the window size is unknown. */
+export function formatContextWindowSummary(usedTokens: number, maxTokens: number | null): string {
+  if (maxTokens === null || maxTokens <= 0) return formatTokenCount(usedTokens);
+  return `${formatTokenCount(usedTokens)} / ${formatTokenCount(maxTokens)} (${formatUsedPercent((usedTokens / maxTokens) * 100)})`;
+}
+
+/** The send-button ring warns earlier than the plan bars: amber from 80%, red from 95%. */
+export function usageRingTone(percent: number): UsageTone {
+  if (percent >= 95) return "critical";
+  if (percent >= 80) return "warning";
+  return "normal";
+}
+
+/** What the ring draws: the thread's context window, or the plan's busiest window without one. */
+export function resolveUsageRing(input: {
+  contextPercent: number | null;
+  planPeakPercent: number | null;
+}): { source: "context" | "plan"; percent: number } | null {
+  if (input.contextPercent !== null && Number.isFinite(input.contextPercent)) {
+    return { source: "context", percent: Math.max(0, Math.min(100, input.contextPercent)) };
+  }
+  if (input.planPeakPercent !== null) {
+    return { source: "plan", percent: Math.max(0, Math.min(100, input.planPeakPercent)) };
+  }
+  return null;
 }

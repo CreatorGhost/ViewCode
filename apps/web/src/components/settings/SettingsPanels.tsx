@@ -3159,7 +3159,6 @@ export function GeneralSettingsPanel() {
                     }
                     model={textGenModel}
                     prompt=""
-                    onPromptChange={() => {}}
                     modelOptions={textGenModelOptions}
                     allowPromptInjectedEffort={false}
                     planModeEnabled={settings.planModeEnabled}

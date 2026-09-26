@@ -1,10 +1,13 @@
 import type { EnvironmentId, ProviderInstanceId, ScopedThreadRef } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowUpRightIcon } from "lucide-react";
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { useThreadShells } from "../../state/entities";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import type { ContextWindowSnapshot } from "~/lib/contextWindow";
 import { cn } from "~/lib/utils";
 import { collectChildAgents, resolveChildAgentStatus } from "../agents/childAgents.logic";
 import { Button } from "../ui/button";
@@ -13,12 +16,17 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useComposerMenuProps } from "./composerEventScope";
 import {
   buildUsageSections,
+  formatBankedResets,
+  formatContextWindowSummary,
   formatUsageReset,
   formatUsedPercent,
   peakUsedPercent,
+  resolveUsageRing,
   shouldRefreshUsage,
   type UsageProviderInput,
   type UsageSection,
+  type UsageTone,
+  usageRingTone,
   usageTone,
 } from "./composerUsageLimits.logic";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -36,10 +44,22 @@ function usageProviderInput(entry: ProviderInstanceEntry): UsageProviderInput {
   };
 }
 
+function toneStrokeClassName(tone: UsageTone) {
+  return tone === "critical"
+    ? "stroke-destructive"
+    : tone === "warning"
+      ? "stroke-warning"
+      : "stroke-primary";
+}
+
+function toneFillClassName(tone: UsageTone) {
+  return tone === "critical" ? "bg-destructive" : tone === "warning" ? "bg-warning" : "bg-primary";
+}
+
 /**
- * The composer's plan-usage ring: a static arc of the lead provider's most-used
- * window that opens the lead's (and other agents' providers') limits before
- * sending.
+ * The composer's usage ring: a static arc of the thread's context window (or,
+ * before one is known, the lead provider's busiest plan window) that opens the
+ * context window and plan limits before sending.
  */
 export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopover(props: {
   environmentId: EnvironmentId;
@@ -47,18 +67,26 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
   threadRef: ScopedThreadRef | null;
   leadInstanceId: ProviderInstanceId;
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
+  /** The thread's latest context window reading, when known. */
+  contextWindow: ContextWindowSnapshot | null;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [open, setOpen] = useState(false);
   const leadEntry =
     props.instanceEntries.find((entry) => entry.instanceId === props.leadInstanceId) ?? null;
   if (!leadEntry) return null;
-  const peak = peakUsedPercent(leadEntry.snapshot.usageLimits);
-  const tone = peak === null ? null : usageTone(peak);
+  const ring = resolveUsageRing({
+    contextPercent: props.contextWindow?.usedPercentage ?? null,
+    planPeakPercent: peakUsedPercent(leadEntry.snapshot.usageLimits),
+  });
+  const peak = ring?.percent ?? null;
+  const tone = ring === null ? null : usageRingTone(ring.percent);
   const label =
-    peak === null
-      ? "Plan usage limits"
-      : `Plan usage limits, ${formatUsedPercent(peak)} of the busiest window used`;
+    ring === null
+      ? "Usage"
+      : ring.source === "context"
+        ? `Usage, context window ${formatUsedPercent(ring.percent)} used`
+        : `Usage, ${formatUsedPercent(ring.percent)} of the busiest plan window used`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -89,13 +117,7 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
                 strokeLinecap="round"
                 strokeDasharray={`${(RING_CIRCUMFERENCE * Math.min(peak, 100)) / 100} ${RING_CIRCUMFERENCE}`}
                 transform="rotate(-90 11 11)"
-                className={cn(
-                  tone === "critical"
-                    ? "stroke-destructive"
-                    : tone === "warning"
-                      ? "stroke-warning"
-                      : "stroke-primary",
-                )}
+                className={toneStrokeClassName(tone ?? "normal")}
               />
             ) : null}
           </svg>
@@ -115,6 +137,8 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
           threadRef={props.threadRef}
           leadEntry={leadEntry}
           instanceEntries={props.instanceEntries}
+          contextWindow={props.contextWindow}
+          onClose={() => setOpen(false)}
         />
       </PopoverPopup>
     </Popover>
@@ -127,8 +151,11 @@ function UsageLimitsPanel(props: {
   threadRef: ScopedThreadRef | null;
   leadEntry: ProviderInstanceEntry;
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
+  contextWindow: ContextWindowSnapshot | null;
+  onClose: () => void;
 }) {
-  const { environmentId, threadRef, leadEntry, instanceEntries } = props;
+  const { environmentId, threadRef, leadEntry, instanceEntries, contextWindow } = props;
+  const navigate = useNavigate();
   const threads = useThreadShells();
   const agentEntries = useMemo(() => {
     if (!threadRef) return [];
@@ -183,7 +210,51 @@ function UsageLimitsPanel(props: {
   const entryById = new Map(instanceEntries.map((entry) => [entry.instanceId, entry]));
 
   return (
-    <div className="flex w-80 max-w-[calc(100vw-2rem)] flex-col py-1">
+    <div className="flex w-82.5 max-w-[calc(100vw-2rem)] flex-col pt-3 pb-1">
+      <div className="flex items-center justify-between gap-2 px-4">
+        <span className="font-semibold text-muted-foreground text-sm">Usage</span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost-muted"
+                size="icon-xs"
+                aria-label="Open usage"
+                onClick={() => {
+                  props.onClose();
+                  void navigate({ to: "/usage" });
+                }}
+              />
+            }
+          >
+            <ArrowUpRightIcon aria-hidden="true" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Open usage</TooltipPopup>
+        </Tooltip>
+      </div>
+      {contextWindow ? (
+        <>
+          <section className="flex flex-col gap-1.5 px-4 py-3" aria-label="Context window">
+            <div className="flex items-baseline gap-2 text-xs">
+              <span className="min-w-0 flex-1 truncate font-medium">Context window</span>
+              <span className="shrink-0 text-muted-foreground tabular-nums">
+                {formatContextWindowSummary(
+                  contextWindow.usedTokens,
+                  contextWindow.maxTokens ?? null,
+                )}
+              </span>
+            </div>
+            {contextWindow.usedPercentage !== null ? (
+              <UsageBar
+                label="Context window used"
+                percent={contextWindow.usedPercentage}
+                tone={usageRingTone(contextWindow.usedPercentage)}
+              />
+            ) : null}
+          </section>
+          <div className="mx-4 border-border/70 border-t" />
+        </>
+      ) : null}
       {sections.map((section, index) => (
         <Fragment key={section.key}>
           {index > 0 ? <div className="mx-4 border-border/70 border-t" /> : null}
@@ -246,39 +317,39 @@ function UsageSectionView(props: {
                     {formatUsedPercent(window.usedPercent)}
                   </span>
                 </div>
-                <div
-                  role="meter"
-                  aria-label={`${window.label} used`}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(window.usedPercent)}
-                  className="h-1 w-full overflow-hidden rounded-full bg-foreground/10"
-                >
-                  <div
-                    className={cn(
-                      "h-full rounded-full",
-                      tone === "critical"
-                        ? "bg-destructive"
-                        : tone === "warning"
-                          ? "bg-warning"
-                          : "bg-primary",
-                    )}
-                    style={{ width: `${Math.max(0, Math.min(100, window.usedPercent))}%` }}
-                  />
-                </div>
+                <UsageBar label={`${window.label} used`} percent={window.usedPercent} tone={tone} />
               </li>
             );
           })}
           {section.resetCredits ? (
-            <li className="flex items-baseline gap-2 text-xs">
-              <span className="min-w-0 flex-1 truncate">Reset credits</span>
+            <li className="flex items-baseline gap-2 border-border/70 border-t pt-3 text-xs">
+              <span className="min-w-0 flex-1 truncate">Banked resets</span>
               <span className="shrink-0 text-muted-foreground tabular-nums">
-                {section.resetCredits.availableCount} available
+                {formatBankedResets(section.resetCredits)}
               </span>
             </li>
           ) : null}
         </ul>
       )}
     </section>
+  );
+}
+
+function UsageBar(props: { label: string; percent: number; tone: UsageTone }) {
+  const percent = Math.max(0, Math.min(100, props.percent));
+  return (
+    <div
+      role="meter"
+      aria-label={props.label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(percent)}
+      className="h-1 w-full overflow-hidden rounded-full bg-foreground/10"
+    >
+      <div
+        className={cn("h-full rounded-full", toneFillClassName(props.tone))}
+        style={{ width: `${percent}%` }}
+      />
+    </div>
   );
 }

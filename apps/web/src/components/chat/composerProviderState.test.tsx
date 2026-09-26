@@ -482,7 +482,6 @@ describe("provider traits render guards", () => {
       models,
       modelOptions: undefined,
       prompt: "",
-      onPromptChange: () => {},
       planModeEnabled: true,
     };
 

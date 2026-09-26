@@ -32,20 +32,50 @@ export function findEffortDescriptor(
 
 export type EffortStop = { id: string; label: string };
 
+/**
+ * Claude's Ultracode: xhigh effort plus multi-agent orchestration. It is a
+ * switch beside the slider rather than a stop on it; the server maps it to
+ * xhigh, so the slider shows that level while it is on.
+ */
+export const ULTRACODE_EFFORT = "ultracode";
+const ULTRACODE_SLIDER_LEVEL = "xhigh";
+
+/**
+ * The slider's stops: the effort levels, ending at Max. Ultracode moves to its
+ * own switch, and prompt-injected values (Ultrathink) are not offered at all;
+ * a user who wants one types the keyword.
+ */
 export function buildEffortStops(descriptor: SelectDescriptor | null): ReadonlyArray<EffortStop> {
-  return descriptor?.options.map(({ id, label }) => ({ id, label })) ?? [];
+  if (!descriptor) return [];
+  const injected = descriptor.promptInjectedValues ?? [];
+  return descriptor.options
+    .filter(({ id }) => id !== ULTRACODE_EFFORT && !injected.includes(id))
+    .map(({ id, label }) => ({ id, label }));
 }
 
-/** Index of `value` among the stops, falling back to the default option, then the first stop. */
+/** Whether a model's effort offers Ultracode, which then shows as a switch. */
+export function offersUltracode(descriptor: SelectDescriptor | null): boolean {
+  return descriptor?.options.some(({ id }) => id === ULTRACODE_EFFORT) ?? false;
+}
+
+/**
+ * Index of `value` among the stops. Ultracode sits at Extra High; anything
+ * else off the slider falls back to the default option, then the first stop.
+ */
 export function resolveEffortStopIndex(
   descriptor: SelectDescriptor | null,
+  stops: ReadonlyArray<EffortStop>,
   value: string | null,
 ): number {
-  if (!descriptor || descriptor.options.length === 0) return -1;
-  const index = value === null ? -1 : descriptor.options.findIndex(({ id }) => id === value);
+  if (!descriptor || stops.length === 0) return -1;
+  const target = value === ULTRACODE_EFFORT ? ULTRACODE_SLIDER_LEVEL : value;
+  const index = target === null ? -1 : stops.findIndex(({ id }) => id === target);
   if (index >= 0) return index;
-  const defaultIndex = descriptor.options.findIndex(({ isDefault }) => isDefault === true);
-  return Math.max(defaultIndex, 0);
+  const defaultId = descriptor.options.find(({ isDefault }) => isDefault === true)?.id;
+  return Math.max(
+    stops.findIndex(({ id }) => id === defaultId),
+    0,
+  );
 }
 
 /**
@@ -187,4 +217,52 @@ export function isEffortAndFastModeAtDefaults(input: {
     // An unset boolean means off, the same as an explicit false.
     return (current ?? false) === (fallback ?? false);
   });
+}
+
+/** Where a stop sits along the slider's travel, 0 at the first stop and 1 at the last. */
+export function effortStopFraction(index: number, stopCount: number): number {
+  if (stopCount <= 1) return 0;
+  return Math.min(Math.max(index, 0), stopCount - 1) / (stopCount - 1);
+}
+
+/**
+ * The travel fraction under a pointer. The knob's centre travels between
+ * `inset` from each end of the track, so the ends clamp there.
+ */
+export function effortFractionAtPointer(input: {
+  clientX: number;
+  trackLeft: number;
+  trackWidth: number;
+  inset: number;
+}): number {
+  const travel = input.trackWidth - input.inset * 2;
+  if (travel <= 0) return 0;
+  return Math.min(Math.max((input.clientX - input.trackLeft - input.inset) / travel, 0), 1);
+}
+
+/** The stop nearest a travel fraction. */
+export function nearestEffortStop(fraction: number, stopCount: number): number {
+  if (stopCount <= 1) return 0;
+  return Math.min(Math.max(Math.round(fraction * (stopCount - 1)), 0), stopCount - 1);
+}
+
+/** The stop a slider key moves to, or null for keys the slider does not handle. */
+export function effortStopForKey(key: string, index: number, stopCount: number): number | null {
+  const last = stopCount - 1;
+  switch (key) {
+    case "ArrowRight":
+    case "ArrowUp":
+    case "PageUp":
+      return Math.min(index + 1, last);
+    case "ArrowLeft":
+    case "ArrowDown":
+    case "PageDown":
+      return Math.max(index - 1, 0);
+    case "Home":
+      return 0;
+    case "End":
+      return last;
+    default:
+      return null;
+  }
 }
