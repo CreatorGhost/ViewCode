@@ -3,6 +3,24 @@
 Connect a phone, browser, or another desktop app to T3 Code running on a different
 machine. That machine must stay running and reachable while you work.
 
+## Connect your phone
+
+Install **T3 Code** from the App Store or Google Play; it works with ViewCode.
+No account or T3 Connect is needed.
+
+1. On the computer, choose **Connect phone** in the sidebar footer, the command
+   palette, or at the top of **Settings → Connections**.
+2. If phone access is off, choose **Turn on and restart**. ViewCode restarts
+   once and reopens on the code.
+3. In the mobile app, tap **Add environment** and scan the code.
+
+The phone must be on the same Wi-Fi. Away from home, install
+[Tailscale](https://tailscale.com) on both devices; the dialog then offers the
+tailnet address. Each code works once for five minutes; choose **New code** for
+another phone. **Turn off phone access** in the same dialog restarts ViewCode
+with no network port again. Phones you already paired stay listed under
+**Settings → Connections → Authorized clients**, where you can revoke them.
+
 ## T3 Connect
 
 T3 Connect makes an environment available to your other devices without setting
@@ -34,9 +52,11 @@ disconnect an otherwise healthy conversation.
 
 Use direct pairing when the other device can reach the host's network address.
 
-On a desktop host, open **Settings → Connections**, enable **Network access**,
-then create a pairing link using an address the other device can reach. Changing
-network access restarts the desktop app. You can turn it off in the same place.
+On a desktop host, [Connect phone](#connect-your-phone) turns on network access
+and shows a code. For another desktop or a browser, open **Settings →
+Connections**, enable **Network access**, then create a pairing link using an
+address the other device can reach. Changing network access restarts the
+desktop app. You can turn it off in the same place.
 
 With network access and Tailscale Serve off, the desktop app opens no network
 port at all: its local server listens on a private socket that only your user

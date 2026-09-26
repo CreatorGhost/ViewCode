@@ -77,6 +77,7 @@ import {
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { GitHubRoutingSettings } from "./GitHubRoutingSettings";
+import { ConnectPhoneSettingsSection } from "../connectPhone/ConnectPhoneSettingsSection";
 import { Input } from "../ui/input";
 import { CommandShortcut } from "../ui/command";
 import {
@@ -3673,6 +3674,7 @@ export function ConnectionsSettings() {
 
   return (
     <SettingsPageContainer width="wide">
+      <ConnectPhoneSettingsSection />
       {primarySettings}
       <SettingsSection
         {...searchableSetting("remote-environments")}

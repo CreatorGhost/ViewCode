@@ -53,6 +53,7 @@ import {
   MoonIcon,
   PaletteIcon,
   SettingsIcon,
+  SmartphoneIcon,
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
@@ -169,6 +170,7 @@ import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
+import { openConnectPhoneDialog } from "./connectPhone/ConnectPhoneDialog";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
 import {
   COMMAND_PALETTE_META_ICON_CLASS,
@@ -2036,6 +2038,17 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:connect-phone",
+    searchTerms: ["phone", "mobile", "ios", "android", "pair", "qr", "remote", "network"],
+    title: "Connect phone",
+    icon: <SmartphoneIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openConnectPhoneDialog();
     },
   });
 

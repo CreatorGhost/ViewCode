@@ -130,9 +130,16 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   Windows), reached by the window through the main process as
   `t3code-backend://<id>/`; providers reach MCP through a stdio bridge. No TCP
   port. `T3CODE_DESKTOP_BACKEND_TCP=1` forces TCP.
-- Settings → Connections → Network access relaunches the app on TCP for phone
-  pairing; turning it off returns to socket-only. `pnpm dev:desktop` is
-  development mode and always uses a Vite port.
+- Network access relaunches the app on TCP for phone pairing; turning it off
+  returns to socket-only. `pnpm dev:desktop` is development mode and always
+  uses a Vite port.
+- Connect phone (`web/src/components/connectPhone/`) is the user-facing path to
+  that toggle. The relaunch kills the open dialog, so it leaves a timestamped
+  `viewcode:open-connect-phone` localStorage flag first and the root host
+  reopens the dialog on boot. That works only because the packaged renderer
+  keeps its `t3code://app` origin across socket and TCP modes; a mode-dependent
+  origin would lose the flag. The flag goes stale after two minutes so a
+  relaunch that never happened can't pop the dialog later.
 - ViewCode's desktop identity must never match T3 Code's: profile folder
   `viewcode`, app id `dev.viewcode.app`, WM class `viewcode`. Sharing T3's
   profile shared its IndexedDB lock and cached projects, which stalls first run
