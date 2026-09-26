@@ -81,14 +81,18 @@ The server keeps its state in `~/.viewcode`. Telemetry is off by default.
 
 ## Using it from your phone
 
-By default the server only listens on this machine. To reach it from a phone:
+By default the server only listens on this machine. The desktop app goes
+further: it opens no network port at all, and the window talks to the engine
+over a local socket. To reach it from a phone:
 
-1. Start it on a reachable address (`--host 0.0.0.0`), or use Tailscale. In the
-   desktop app, this is the network-access setting.
+1. In the desktop app, turn on **Settings → Connections → Network access**
+   (the app restarts). From source, start the server on a reachable address
+   (`--host 0.0.0.0`), or use Tailscale.
 2. Mint a pairing link with `node apps/server/src/bin.ts pair` (add `--tailscale` for
    a tailnet URL), or from **Settings → Connections**.
 3. Scan the QR code. Pairing tokens are single-use and expire after 5 minutes.
    Paired devices appear under Connections and can be revoked there.
+4. Turn network access off again when you're done. The port closes.
 
 The web UI adapts to phone screens: the sidebar becomes a drawer. The native mobile
 app from T3 Code also connects.
