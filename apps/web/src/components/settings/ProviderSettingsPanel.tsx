@@ -85,6 +85,7 @@ import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
+import { ProviderChoiceStep } from "../onboarding/ProviderChoiceStep";
 import { searchableSetting } from "./settingsSearch";
 import {
   backgroundActivityOverrideSettings,
@@ -424,6 +425,13 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
         />
       ) : null}
 
+      {selectedEnvironment?.serverConfig?.settings.providerSelection === "pending" ? (
+        <ProviderChoiceStep
+          key={`choice:${selectedEnvironment.environmentId}`}
+          environmentId={selectedEnvironment.environmentId}
+          machineLabel={selectedEnvironment.label}
+        />
+      ) : null}
       {selectedEnvironment ? (
         <SelectedEnvironmentProviderSettings
           key={selectedEnvironment.environmentId}

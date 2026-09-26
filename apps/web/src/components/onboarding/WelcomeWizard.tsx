@@ -57,6 +57,8 @@ import { terminalEnvironment } from "../../state/terminal";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { connectPairing } from "../../connection/onboarding";
 import { getProviderSummary } from "../settings/providerStatus";
+import { ProviderChoiceStep, useProviderSelectionViews } from "./ProviderChoiceStep";
+import { resolveOnboardingAgentDrivers } from "../../onboarding/providerChoice.logic";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
@@ -606,6 +608,13 @@ function PairingForm({
 const PRIMARY_AGENT_DRIVERS = ["claudeAgent", "codex"] as const;
 type OnboardingAgentDriver = (typeof PRIMARY_AGENT_DRIVERS)[number];
 
+/** Only Claude Code and Codex have an install and sign-in flow in the terminal. */
+function isTerminalSetupDriver(
+  driver: ProviderDriverKind,
+): driver is OnboardingAgentDriver & ProviderDriverKind {
+  return (PRIMARY_AGENT_DRIVERS as readonly string[]).includes(driver);
+}
+
 /** Setup values stay fixed while provider probes refresh the surrounding cards. */
 interface AgentTerminalSession {
   readonly environmentId: EnvironmentId;
@@ -631,28 +640,59 @@ function AgentsStep({
   readonly onContinue: () => void;
 }) {
   const { environments } = useEnvironments();
+  const selectionViews = useProviderSelectionViews(environmentIds);
+  // What was chosen on this screen, so the cards follow the choice before the
+  // settings stream echoes it back.
+  const [justChosen, setJustChosen] = useState<
+    ReadonlyMap<EnvironmentId, readonly ProviderDriverKind[]>
+  >(() => new Map());
+  const awaitingChoice = environmentIds.filter(
+    (environmentId, index) => selectionViews[index] === "pending" && !justChosen.has(environmentId),
+  );
+  const handleChosen = (environmentId: EnvironmentId, enabled: readonly ProviderDriverKind[]) => {
+    const next = new Map(justChosen).set(environmentId, enabled);
+    setJustChosen(next);
+    // Nothing to set up when every computer went without agents.
+    const done = awaitingChoice.every((id) => id === environmentId);
+    if (done && environmentIds.every((id) => next.get(id)?.length === 0)) onContinue();
+  };
   return (
     <StepShell title="Your agents" description="Agents available on your selected computers.">
       <ScrollArea scrollFade className="mt-5 h-auto max-h-96">
         <div className="space-y-5 pr-3">
-          {environmentIds.map((environmentId) => (
-            <ConnectedAgentsStep
-              key={environmentId}
-              environmentId={environmentId}
-              machineLabel={
-                environments.find((environment) => environment.environmentId === environmentId)
-                  ?.label ?? "Computer"
-              }
-            />
-          ))}
+          {environmentIds.map((environmentId, index) => {
+            const machineLabel =
+              environments.find((environment) => environment.environmentId === environmentId)
+                ?.label ?? "Computer";
+            // Until settings arrive the choice is unknown; wait rather than
+            // mount the cards, which re-probe providers.
+            if (selectionViews[index] === "unknown") return null;
+            return awaitingChoice.includes(environmentId) ? (
+              <ProviderChoiceStep
+                key={environmentId}
+                environmentId={environmentId}
+                machineLabel={machineLabel}
+                onChosen={(enabled) => handleChosen(environmentId, enabled)}
+              />
+            ) : (
+              <ConnectedAgentsStep
+                key={environmentId}
+                environmentId={environmentId}
+                machineLabel={machineLabel}
+                justChosen={justChosen.get(environmentId)}
+              />
+            );
+          })}
         </div>
       </ScrollArea>
-      <div className="mt-6 flex justify-end">
-        <Button autoFocus onClick={onContinue}>
-          Continue
-          <ArrowRightIcon className="size-3.5" />
-        </Button>
-      </div>
+      {awaitingChoice.length === 0 ? (
+        <div className="mt-6 flex justify-end">
+          <Button autoFocus onClick={onContinue}>
+            Continue
+            <ArrowRightIcon className="size-3.5" />
+          </Button>
+        </div>
+      ) : null}
     </StepShell>
   );
 }
@@ -660,9 +700,12 @@ function AgentsStep({
 function ConnectedAgentsStep({
   environmentId,
   machineLabel,
+  justChosen,
 }: {
   readonly environmentId: EnvironmentId;
   readonly machineLabel: string;
+  /** Drivers just chosen on this screen; the server is already probing them. */
+  readonly justChosen?: readonly ProviderDriverKind[] | undefined;
 }) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -673,19 +716,29 @@ function ConnectedAgentsStep({
 
   // Re-probe on entry so freshly installed CLIs show up without a manual
   // refresh; harmless when nothing changed (single-flighted per environment).
+  // Skipped right after the choice: the server probes the chosen agents itself.
+  const skipEntryRefresh = justChosen !== undefined;
   useEffect(() => {
+    if (skipEntryRefresh) return;
     void refreshProviders({ environmentId, input: {} });
-  }, [environmentId, refreshProviders]);
+  }, [environmentId, refreshProviders, skipEntryRefresh]);
 
   const byDriver = useMemo(() => selectOnboardingProvidersByDriver(providers), [providers]);
 
-  const primaryAgents = PRIMARY_AGENT_DRIVERS.map((driver) => ({
+  const primaryAgents = resolveOnboardingAgentDrivers(providers, justChosen).map((driver) => ({
     driver,
     provider: byDriver.get(driver),
   }));
   return (
     <section>
       <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
+      {primaryAgents.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {providers === null && justChosen === undefined
+            ? "Checking agents..."
+            : "No agents enabled. Turn agents on in Settings, Providers."}
+        </p>
+      ) : null}
       <div className="space-y-1.5">
         {primaryAgents.map(({ driver, provider }) => (
           <AgentCard
@@ -696,6 +749,7 @@ function ConnectedAgentsStep({
             terminalAvailable={serverConfig !== null}
             onOpenTerminal={() => {
               if (provider === undefined || serverConfig === null) return;
+              if (!isTerminalSetupDriver(driver)) return;
               setTerminalSession({
                 environmentId,
                 driver,
@@ -738,13 +792,13 @@ function AgentCard({
   terminalAvailable,
   onOpenTerminal,
 }: {
-  readonly driver: OnboardingAgentDriver;
+  readonly driver: ProviderDriverKind;
   readonly provider: ServerProvider | undefined;
   readonly terminalOpen: boolean;
   readonly terminalAvailable: boolean;
   readonly onOpenTerminal: () => void;
 }) {
-  const meta = getDriverOption(ProviderDriverKind.make(driver));
+  const meta = getDriverOption(driver);
   const Icon = meta?.icon;
   const displayName = driver === "claudeAgent" ? "Claude Code" : (meta?.label ?? driver);
   const summary = getProviderSummary(provider);
@@ -772,7 +826,7 @@ function AgentCard({
           <span className="text-xs text-muted-foreground">Checking...</span>
         ) : providerState === "disabled" ? (
           <span className="text-xs text-muted-foreground">Disabled</span>
-        ) : providerState === "attention" ? (
+        ) : providerState === "attention" || !isTerminalSetupDriver(driver) ? (
           <span className="text-xs text-muted-foreground">{summary.headline}</span>
         ) : (
           <Button
