@@ -137,3 +137,54 @@ last spawn for each.
   evidence of the EDR; check for a Terminate alert at that time.
 - **Stop what you started:** the `npx` wrapper PID is not the server; stop the
   server PID from the spawn-trace as well.
+
+---
+
+## Round 3: the desktop app with the blocked providers off
+
+Background: the locally built, ad-hoc signed DMG app was terminated by
+Behavioral Threat Protection (source process = the app's main binary, publisher
+blank, killed live after it had created `~/.viewcode`). That run used a fresh
+`~/.viewcode`, so default settings: Codex on. The `npx t3` runs that survived had
+Codex/OpenCode/Grok off. Two variables changed at once; this round separates
+them. Paste to the laptop agent:
+
+> Same hard limits as before (no sudo, never touch the security software,
+> timeouts via `perl -e 'alarm shift; exec @ARGV' <secs> <cmd>`, stop only
+> PIDs you started or observed for this app).
+>
+> 1. Move the old state aside, don't delete it:
+>    `mv ~/.viewcode ~/.viewcode.bak-$(date +%s)` (skip if absent).
+> 2. Write `~/.viewcode/userdata/settings.json` **before** launching:
+>    ```json
+>    {
+>      "providers": {
+>        "codex": { "enabled": false },
+>        "claudeAgent": { "enabled": true },
+>        "cursor": { "enabled": true },
+>        "grok": { "enabled": false },
+>        "opencode": { "enabled": false },
+>        "antigravity": { "enabled": false },
+>        "commandCode": { "enabled": false }
+>      },
+>      "defaultAutoPull": false
+>    }
+>    ```
+> 3. `codesign -dv ~/Applications/ViewCode.app 2>&1 | grep -E 'Identifier|Signature|TeamIdentifier'`
+>    and the same for the `npx t3` binary
+>    (`~/.npm/_npx/*/node_modules/@t3code/t3-darwin-arm64/t3`).
+> 4. Launch: `open ~/Applications/ViewCode.app`, note the time, then every 5s
+>    for 180s record whether `pgrep -x ViewCode` finds it (observe only).
+> 5. Record: ALIVE/DEAD and time of death; last 30 lines of
+>    `~/.viewcode/userdata/logs/server-child.log` and of any desktop log in
+>    `~/.viewcode/userdata/logs/`; any new file in
+>    `~/Library/Logs/DiagnosticReports` (crash vs external kill); the Cortex XDR
+>    alert at that time (mode, module, source command line).
+> 6. Quit the app normally if alive.
+>
+> Report: `Round 3: ALIVE|DEAD at +Ns · last server-child lines · alert · codesign lines`.
+
+Reading it: **alive** → the blocked providers were the trigger for the app too;
+the provider gate is the fix. **Dead** → the app's own startup or its missing
+signature is scored; go to the desktop startup diet in `managed-mode-plan.md`
+and signing.

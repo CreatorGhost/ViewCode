@@ -75,6 +75,42 @@ into the desktop app's `settings.json` before launching. M1 (allow-list) and M2
 (don't exec missing binaries) are now the items that matter; M5–M7 are
 nice-to-haves, no longer needed to survive.
 
+## Desktop app result (2026-09-26, later)
+
+The locally built DMG app (ad-hoc signed, publisher blank) was **terminated**
+by Behavioral Threat Protection a few seconds after launch; the alert's source
+process is the app's main binary. No crash report was written (external kill).
+That run used a fresh `~/.viewcode`, i.e. **default settings with Codex on**,
+while the surviving `npx t3` runs had Codex/OpenCode/Grok off. Two variables
+changed at once (unsigned app bundle, and blocked providers on), so this does
+not yet say which one matters. Round 3 in
+[`managed-mac-experiments.md`](managed-mac-experiments.md) runs the same DMG
+with those providers off to separate them.
+
+Consequences for the plan:
+
+- **Phase 1 (the provider gate) stays first.** It removes the blocked
+  providers from startup regardless, and it's what makes Round 3's setup the
+  default.
+- **Phase 2, the desktop startup diet, moves up** from "deferred". Each item
+  removes work the app doesn't need at startup and is justified on its own
+  (latency, least privilege), whether or not it matters to the EDR:
+  1. One PATH resolution for the whole app: the desktop resolves it once and
+     hands it to the backend (today both run `$SHELL -ilc`), and without an
+     interactive shell (`-lc` or in-process candidate dirs; M7).
+  2. No hardware/host lookups at boot: `os.hostname()` instead of `scutil`,
+     no `ioreg`/`sysctl` until something needs them (M5).
+  3. The `t3-resource-monitor` sidecar starts on demand (when diagnostics are
+     opened), not at boot (M6).
+     Keychain reads during the Cursor probe are `cursor-agent`'s own behaviour
+     (it does the same from Terminal); ViewCode can only avoid probing Cursor
+     until it's chosen, which Phase 1 does.
+- **Signing** (Developer ID + notarization; the repo supports it via
+  `scripts/sign-macos.ts`) needs an Apple Developer account, not code. It
+  improves provenance but no change guarantees a policy accepts the app.
+- Nothing here hides behaviour from the EDR; every item does less, or does it
+  later, openly.
+
 ## Decided design: choose agents before anything is launched
 
 Agreed with the user on 2026-09-26, then corrected after a code review (Astra).
@@ -136,8 +172,7 @@ generation launch nothing while pending or for a disabled provider; a stale
 second `choose` is rejected; a Settings toggle while pending closes the
 selection with the rest off; a missing binary is never spawned.
 
-Deferred (not needed for this fix): shell-probe, sidecar, discovery and cache
-changes (M5–M7, M4).
+Phase 2 (desktop startup diet: M7, M5, M6) follows; see "Desktop app result" above. M4 (cache seeding) stays deferred.
 
 ### Installers (DMG, EXE, AppImage) get the same protection
 
