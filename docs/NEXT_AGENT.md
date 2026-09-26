@@ -115,6 +115,21 @@ Acceptance:
 - Performance: no new continuous animation, no layout thrash; scroll a long
   thread and compare frame time before/after.
 
+Status: palettes, `viewcode-theme.css` and the one-line class swaps are in;
+the picker lists ViewCode, upstream's themes and 18 ported Droppy themes
+(`viewcode-*` ids). Screenshots and `docs/evidence/` are still to do. Open:
+
+- macOS vibrancy / Windows Mica (§3.2). Needs a desktop helper, a bridge flag
+  (`html[data-vc-translucent]`), transparent `html, body` and the rgba scrim
+  layers in `viewcode-theme.css`; only the initial window colour changed.
+- Per-theme success colour for ported themes (success is not a palette role;
+  they use the ViewCode green).
+- The boot splash (`apps/web/index.html`) doesn't know `viewcode*` ids, so it
+  paints stock `#0a0a0a`/`#ffffff` until React mounts.
+- Not done from the §6.2 table: row 23 (T3 Connect banner), 26 (monochrome
+  project icons), 30 (tool-row spacing check), 34 (gradient swatches), the
+  floating chrome row, top veil and stepped working spinner (§5).
+
 ### 2. Import from T3 Code instead of provider session files
 
 Provider-file import (Claude/Codex JSONL) is hidden: sidebar menu items

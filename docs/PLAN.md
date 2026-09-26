@@ -173,8 +173,9 @@ What we take from each:
 - The sidebar is grouped project → threads → child-agent tree with dotted
   connectors. Pin and archive only; settle/snooze is gone. On phones it is a
   drawer.
-- A violet-accent dark `viewcode` theme is the default on web and desktop.
-  The chat top bar uses pill buttons and capsule groups. Finished turns fold
+- The neutral `viewcode` theme (logo-amber accent, follows the system
+  appearance) is the default on web and desktop; Droppy's named themes are
+  offered beside it. The chat top bar uses pill buttons and capsule groups. Finished turns fold
   to "Worked for Xs ›".
 - The model picker has effort levels and a Fast toggle. Plan limits use T3's
   usage page, which shows data only where the provider's login reports it.
