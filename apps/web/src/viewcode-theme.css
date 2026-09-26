@@ -285,25 +285,23 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="standalone-g
   }
 }
 
-.viewcode-roll-in,
-.viewcode-roll-out {
+[data-viewcode-roll] {
   display: inline-block;
   white-space: pre;
   animation: 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   animation-delay: calc(var(--i, 0) * 18ms);
 }
-.viewcode-roll-in {
+[data-viewcode-roll="in"] {
   animation-name: viewcode-roll-in;
 }
-.viewcode-roll-out {
+[data-viewcode-roll="out"] {
   animation-name: viewcode-roll-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .viewcode-roll-in,
-  .viewcode-roll-out {
+  [data-viewcode-roll] {
     animation: none;
   }
-  .viewcode-roll-out {
+  [data-viewcode-roll="out"] {
     opacity: 0;
   }
 }

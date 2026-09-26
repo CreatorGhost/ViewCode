@@ -581,7 +581,7 @@ function EffortTitle(props: {
                       // oxlint-disable-next-line react/no-array-index-key -- letters are positional
                       key={index}
                       aria-hidden="true"
-                      className={incoming ? "viewcode-roll-in" : "viewcode-roll-out"}
+                      data-viewcode-roll={incoming ? "in" : "out"}
                       style={{ "--i": index } as CSSProperties}
                     >
                       {letter}
