@@ -312,7 +312,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
       >
         {/* Fixed widths per view, so no label change resizes the popover. The model
             view is wider to fit the provider rail beside the list. */}
-        <div className={cn("max-w-[calc(100vw-2rem)]", view === "model" ? "w-120" : "w-82.5")}>
+        <div className={cn("max-w-[calc(100vw-2rem)]", view === "model" ? "w-90" : "w-82.5")}>
           {view === "model" ? (
             <div className="flex flex-col">
               <div className="flex items-center gap-1 px-2 pt-2">
