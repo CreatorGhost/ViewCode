@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useRef } from "react";
-import { CheckIcon, ChevronDownIcon, CircleAlertIcon, SquareIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import {
   formatSubagentTokenCount,
   type RuntimeSubagent,
@@ -48,20 +48,21 @@ function SubagentElapsed({ agent }: { agent: RuntimeSubagent }) {
   );
 }
 
-function SubagentIndicator({ status }: { status: RuntimeSubagent["status"] }) {
-  if (status === "completed") return <CheckIcon aria-hidden className="size-4 text-success" />;
-  if (status === "failed")
-    return <CircleAlertIcon aria-hidden className="size-4 text-destructive" />;
-  if (status !== "running" && status !== "pending") {
-    return <SquareIcon aria-hidden className="size-4 text-muted-foreground" />;
-  }
+function SubagentIndicator({
+  status,
+  colorClassName,
+}: {
+  status: RuntimeSubagent["status"];
+  colorClassName: string;
+}) {
+  const working = status === "running" || status === "pending";
   return (
     <svg
-      ref={observeVisibleAnimation}
+      ref={working ? observeVisibleAnimation : undefined}
       aria-hidden
       viewBox="0 0 20 20"
       fill="currentColor"
-      className="size-4 text-info motion-safe:visible-animate-spin"
+      className={cn("size-4", colorClassName, working && "motion-safe:visible-animate-spin")}
     >
       <rect x="2" y="2" width="5" height="5" />
       <rect x="9" y="2" width="5" height="5" opacity=".75" />
@@ -76,10 +77,12 @@ export const SubagentCard = memo(function SubagentCard({
   agent,
   expanded,
   onToggle,
+  colorClassName,
 }: {
   agent: RuntimeSubagent;
   expanded: boolean;
   onToggle: () => void;
+  colorClassName: string;
 }) {
   const bodyId = useId();
   const card = deriveSubagentCard(agent, Date.parse(agent.updatedAt));
@@ -103,7 +106,7 @@ export const SubagentCard = memo(function SubagentCard({
       >
         <span className="flex w-full min-w-0 items-center gap-2">
           <span className="flex size-5 shrink-0 items-center justify-center">
-            <SubagentIndicator status={agent.status} />
+            <SubagentIndicator status={agent.status} colorClassName={colorClassName} />
           </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
             {agent.title}

@@ -250,6 +250,7 @@ import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../times
 import { SkillChipIcon, SkillInlineText } from "./SkillInlineText";
 import { deriveAgentSpawnSummary } from "./agentSpawnSummary";
 import { SubagentCard } from "./SubagentCard";
+import { subagentColors } from "./subagentIdentity";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import {
   buildReviewCommentRenderablePatch,
@@ -4549,6 +4550,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     ? [...workflowGroup.phases.flatMap((phase) => phase.members), ...workflowGroup.unphasedMembers]
     : agentPanelModel.directAgents.filter((agent) => memberIds.has(agent.id));
   const workflowName = workflowGroup?.workflow.workflowName ?? workflowGroup?.workflow.title;
+  const colors = subagentColors(agents.map((agent) => agent.id));
   const summary = deriveAgentSpawnSummary({
     agents,
     agentCount: Math.max(agents.length, memberIds.size - (spawn.workflowId ? 1 : 0), 0),
@@ -4583,6 +4585,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
           <SubagentCard
             key={agent.id}
             agent={agent}
+            colorClassName={colors.get(agent.id) ?? "text-info"}
             expanded={expanded}
             onToggle={() => {
               props.onToggleEntry?.(expanded);
