@@ -244,6 +244,7 @@ import {
 import { useEnvironmentQuery } from "~/state/query";
 import { useDebouncedValue } from "~/state/queries";
 import { ProviderModelPicker } from "./ProviderModelPicker";
+import { ComposerUsageLimitsPopover } from "./ComposerUsageLimitsPopover";
 import {
   ComposerModelEffortPicker,
   type ComposerModelEffortView,
@@ -7094,6 +7095,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </Tooltip>
                     </>
                   ) : null}
+                  {isComposerResting || showProviderUnavailable ? null : (
+                    <ComposerUsageLimitsPopover
+                      environmentId={environmentId}
+                      threadRef={routeKind === "server" ? routeThreadRef : null}
+                      leadInstanceId={selectedInstanceId}
+                      instanceEntries={providerInstanceEntries}
+                    />
+                  )}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     activeContextWindow={
