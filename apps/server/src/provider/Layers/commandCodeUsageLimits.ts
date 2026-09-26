@@ -3,7 +3,9 @@ import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
@@ -28,7 +30,8 @@ export function commandCodeUsagePointer(checkedAt: string) {
  * tools not to read its stored key or billing API.
  *
  * Command Code's own `/usage` screen reads these endpoints with the key the
- * CLI stores in ~/.commandcode/auth.json (or COMMAND_CODE_API_KEY). The plan
+ * CLI stores in ~/.commandcode/auth.json (or COMMAND_CODE_API_KEY). Every read
+ * of that file is logged (path and outcome, never the key). The plan
  * table and the used-percentage formula mirror the CLI's, so the bar matches
  * what `cmd` shows.
  */
@@ -117,75 +120,99 @@ export function commandCodeUsageToLimits(usage: CommandCodeUsage, checkedAt: str
 
 // These endpoints are unofficial, so read them gently: a successful reading
 // is reused for a few minutes however often the provider status refreshes.
+// Keyed by where the key comes from (the env key, or the auth file path), so a
+// fresh reading is reused without opening the key file again.
 const USAGE_CACHE_MS = 5 * 60_000;
 const usageCache = new Map<
   string,
   { readonly at: number; readonly limits: ReturnType<typeof commandCodeUsageToLimits> }
 >();
 
+type AuthFileOutcome = "found" | "missing" | "noKey" | "error";
+
+/**
+ * Reads the key Command Code's CLI stores, and logs that the file was read
+ * (path and outcome, never the key) whatever happens after.
+ */
+const readAuthFileKey = Effect.fn("readCommandCodeAuthFileKey")(function* (file: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const { outcome, apiKey } = yield* fs.readFileString(file).pipe(
+    Effect.flatMap(decodeAuthFile),
+    Effect.map(({ apiKey }) => {
+      const trimmed = apiKey?.trim();
+      return trimmed
+        ? { outcome: "found" as AuthFileOutcome, apiKey: trimmed }
+        : { outcome: "noKey" as AuthFileOutcome, apiKey: undefined };
+    }),
+    Effect.catch((error) =>
+      Effect.succeed({
+        outcome: (error instanceof PlatformError.PlatformError && error.reason._tag === "NotFound"
+          ? "missing"
+          : "error") as AuthFileOutcome,
+        apiKey: undefined,
+      }),
+    ),
+  );
+  yield* Effect.logInfo("Command Code credits: read credential file (opt-in)", {
+    file,
+    outcome,
+  });
+  return apiKey;
+});
+
 export const readCommandCodeUsageLimits = Effect.fn("readCommandCodeUsageLimits")(function* (
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const nowMs = Date.parse(checkedAt);
-  return yield* Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    let apiKey = environment.COMMAND_CODE_API_KEY?.trim();
-    if (!apiKey) {
-      const home = environment.HOME || environment.USERPROFILE || NodeOS.homedir();
-      const raw = yield* fs
-        .readFileString(path.join(home, ".commandcode", "auth.json"))
-        .pipe(Effect.orElseSucceed(() => "{}"));
-      apiKey = (yield* decodeAuthFile(raw).pipe(
-        Effect.orElseSucceed(() => ({ apiKey: undefined })),
-      )).apiKey?.trim();
-    }
-    if (!apiKey) return makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
-    const cached = usageCache.get(apiKey);
-    if (cached && nowMs - cached.at < USAGE_CACHE_MS) {
-      yield* Effect.logDebug("Command Code credits: reused cached reading", {
-        ageSeconds: Math.round((nowMs - cached.at) / 1000),
-      });
-      return cached.limits;
-    }
-    const keySource = environment.COMMAND_CODE_API_KEY?.trim()
-      ? "COMMAND_CODE_API_KEY"
-      : "~/.commandcode/auth.json";
-    const calls: Array<{ readonly route: string; readonly status: number | "error" }> = [];
+  const path = yield* Path.Path;
+  const envKey = environment.COMMAND_CODE_API_KEY?.trim() || undefined;
+  const home = environment.HOME || environment.USERPROFILE || NodeOS.homedir();
+  const authFile = path.join(home, ".commandcode", "auth.json");
 
-    const client = yield* HttpClient.HttpClient;
-    const get = <S extends Schema.Top>(
-      schema: S,
-      route: string,
-      params: Record<string, string | null>,
-    ) => {
-      const query = new URLSearchParams(
-        Object.entries(params).flatMap(([key, value]): Array<[string, string]> =>
-          value ? [[key, value]] : [],
+  const cached = usageCache.get(envKey ?? authFile);
+  if (cached && nowMs - cached.at < USAGE_CACHE_MS) {
+    yield* Effect.logDebug("Command Code credits: reused cached reading", {
+      ageSeconds: Math.round((nowMs - cached.at) / 1000),
+    });
+    return cached.limits;
+  }
+
+  const apiKey = envKey ?? (yield* readAuthFileKey(authFile));
+  if (!apiKey) return makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
+  const keySource = envKey ? "COMMAND_CODE_API_KEY" : authFile;
+  const calls: Array<{ readonly route: string; readonly status: number | "error" }> = [];
+
+  const client = yield* HttpClient.HttpClient;
+  const get = <S extends Schema.Top>(
+    schema: S,
+    route: string,
+    params: Record<string, string | null>,
+  ) => {
+    const query = new URLSearchParams(
+      Object.entries(params).flatMap(([key, value]): Array<[string, string]> =>
+        value ? [[key, value]] : [],
+      ),
+    ).toString();
+    return client
+      .execute(
+        HttpClientRequest.get(`${COMMAND_CODE_API}${route}${query ? `?${query}` : ""}`).pipe(
+          HttpClientRequest.bearerToken(apiKey),
         ),
-      ).toString();
-      return client
-        .execute(
-          HttpClientRequest.get(`${COMMAND_CODE_API}${route}${query ? `?${query}` : ""}`).pipe(
-            HttpClientRequest.bearerToken(apiKey!),
-          ),
-        )
-        .pipe(
-          Effect.tap((response) =>
-            Effect.sync(() => calls.push({ route, status: response.status })),
-          ),
-          Effect.flatMap(HttpClientResponse.filterStatusOk),
-          Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
-          Effect.tapError(() =>
-            Effect.sync(() => {
-              if (!calls.some((call) => call.route === route))
-                calls.push({ route, status: "error" });
-            }),
-          ),
-          Effect.orElseSucceed(() => null),
-        );
-    };
+      )
+      .pipe(
+        Effect.tap((response) => Effect.sync(() => calls.push({ route, status: response.status }))),
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            if (!calls.some((call) => call.route === route)) calls.push({ route, status: "error" });
+          }),
+        ),
+        Effect.orElseSucceed(() => null),
+      );
+  };
+  const reading = yield* Effect.gen(function* () {
     const whoami = yield* get(Whoami, "/alpha/whoami", { limits: "1" });
     const orgId = whoami?.org?.id ?? null;
     const [credits, subscription] = yield* Effect.all(
@@ -199,25 +226,24 @@ export const readCommandCodeUsageLimits = Effect.fn("readCommandCodeUsageLimits"
       orgId,
       since: subscription?.data?.currentPeriodStart ?? null,
     });
-    const limits = commandCodeUsageToLimits({ credits, subscription, summary }, checkedAt);
-    if (!limits.unavailable) usageCache.set(apiKey, { at: nowMs, limits });
-    // Never logs the key or account details: only where the key came from,
-    // which endpoints were called and how they answered.
-    yield* Effect.logInfo("Command Code credits: read billing API (opt-in)", {
-      keySource,
-      host: COMMAND_CODE_API,
-      calls,
-      result: limits.unavailable ? `unavailable (${limits.unavailable.reason})` : "ok",
-    });
-    return limits;
-  }).pipe(
-    Effect.timeout("10 seconds"),
-    Effect.orElseSucceed(() =>
-      makeUnavailableUsageLimits({
-        checkedAt,
-        reason: "probeFailed",
-        message: "Command Code could not read its credits.",
-      }),
-    ),
+    return commandCodeUsageToLimits({ credits, subscription, summary }, checkedAt);
+  }).pipe(Effect.timeoutOption("10 seconds"));
+  const limits = Option.getOrElse(reading, () =>
+    makeUnavailableUsageLimits({
+      checkedAt,
+      reason: "probeFailed",
+      message: "Command Code could not read its credits.",
+    }),
   );
+  if (!limits.unavailable) usageCache.set(envKey ?? authFile, { at: nowMs, limits });
+  // Never logs the key or account details: only where the key came from,
+  // which endpoints were called and how they answered (a timeout included).
+  yield* Effect.logInfo("Command Code credits: read billing API (opt-in)", {
+    keySource,
+    host: COMMAND_CODE_API,
+    calls,
+    ...(Option.isNone(reading) ? { timedOut: true } : {}),
+    result: limits.unavailable ? `unavailable (${limits.unavailable.reason})` : "ok",
+  });
+  return limits;
 });
