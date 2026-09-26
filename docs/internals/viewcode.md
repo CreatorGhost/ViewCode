@@ -87,14 +87,27 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ### Composer picker
 
-- One chip (model + effort) opens a fixed-size popover modelled on Droppy
-  Code's `EffortSlider.swift`: fast-mode button, effort title (opens the model
-  list), reset, and a slider. Standard stops shade light → deep blue; Max and
-  above are coral with static sparkles and a one-shot surge when reached (never
-  a loop — AGENTS.md forbids continuous animations).
+- One chip (model + effort) opens a fixed-width popover modelled on Droppy
+  Code's `EffortSlider.swift` (MIT; the reference for every visual detail):
+  fast-mode button, effort title (opens the model list), reset, and a slider.
+- Claude's slider ends at **Max**, as in Droppy. T3's extra levels are not
+  effort levels: Ultracode is a Claude Code mode (a switch under the slider);
+  Ultrathink is only a prompt keyword and is never written into the user's text.
+- Smoothness rules, learned the hard way: the knob follows the pointer
+  continuously and springs to a stop on release (Base UI's `step: 1` makes it
+  teleport); drag state stays inside the slider so the composer doesn't
+  re-render per move; the chip shows a fixed label while the popover is open so
+  its anchor never resizes; solid fills only (browsers can't interpolate
+  gradients); move things with `transform`, not layout.
+- Looks follow Droppy's `TrackLook`: solid blue below Max, the provider's brand
+  colour at Max, gold in fast mode, both blended in fusion.
+- **The one deliberate exception to "no continuous animations"**: the Max /
+  fast / fusion track draws Droppy's particles, streaks and lightning on a
+  small canvas at 30–60fps. It runs only while the effort popover is open and
+  above the plain level, pauses when the window is hidden, and is off under
+  reduced motion. Anything wider or always-on needs a maintainer's sign-off.
 - Compact names drop the "Claude " prefix ("Opus 5.5"); the provider is shown
-  beside them.
-- Handoff is shown once per provider list, not as a badge on every row.
+  beside them. Handoff is shown once per provider list, not on every row.
 
 ### Session import
 
@@ -129,9 +142,6 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   branch, and `DateTime` over `new Date()`.
 - **tailwind-merge** drops one of two background images in `cn(...)`; keep
   sparkle/gradient classes out of `cn()`.
-- **Base UI Slider with `step: 1`** snaps the knob between stops while
-  dragging, which feels glitchy; drive the knob continuously and snap on
-  release (Droppy's approach).
 
 ## Running and verifying locally
 
