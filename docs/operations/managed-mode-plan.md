@@ -118,6 +118,33 @@ reported not installed without a spawn.
 → banner → `--managed` update. Verify on the laptop with the spawn tracer:
 first launch shows no provider spawns until Continue.
 
+### Installers (DMG, EXE, AppImage) get the same protection
+
+The user's requirement: the packaged app must be safe on its own, not only
+when launched through `build.sh`. The gate above lives in server code, so it
+ships in every artifact from `pnpm dist:desktop:dmg` / `:win` / `:linux`: a
+fresh install shows the picker with everything off and launches no provider
+until Continue. Nothing about it may depend on `build.sh`, environment
+variables or a source checkout.
+
+- **Spawn trace must be built in (M11).** Packaged Electron may ignore
+  `NODE_OPTIONS` (Electron's `nodeOptions` fuse), so the `--require` tracer is
+  only for `npx t3`/source runs. Verify installers with M11's
+  `<userdata>/logs/spawn-trace.log`.
+- **Installing without admin on macOS:** `/Applications` usually needs admin;
+  drag the app to `~/Applications` instead. The DMG is unsigned, so macOS
+  quarantines it: right-click → Open, or
+  `xattr -dr com.apple.quarantine ~/Applications/ViewCode.app` (user-owned
+  file, no admin). If policy blocks unsigned apps entirely, only Developer ID
+  signing + notarization fixes that (work item 8 in `managed-macos.md`).
+- **Acceptance for an installer build:** on a clean profile
+  (`~/.viewcode` absent), install from the DMG, launch, stop at the Agents
+  step, and check `spawn-trace.log` shows no provider CLI; choose Claude +
+  Cursor, Continue, and see only `claude` and `cursor-agent` spawn.
+- A `--managed` equivalent for installers is not needed: the picker is the
+  managed path. If one is wanted later, read the same provider set from a
+  file dropped next to the settings (not a build-time flag).
+
 ## Assumptions, most likely first
 
 1. **Executing blocked or unknown provider binaries** (`codex app-server`,
