@@ -46,6 +46,7 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { modelSupportsFastMode } from "./composerModelEffort.logic";
 
 type ModelPickerItem = {
   slug: string;
@@ -60,6 +61,7 @@ type ModelPickerItem = {
   continuationGroupKey?: string | undefined;
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
+  supportsFastMode?: boolean | undefined;
 };
 
 export function resolveModelPickerSelectedModel(input: {
@@ -186,7 +188,14 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  /**
+   * `sidebar` (default) filters by a provider rail. `flat` lists every
+   * provider's current models in one list, favorites first, and leaves the
+   * frame to its host popover.
+   */
+  layout?: "sidebar" | "flat";
 }) {
+  const isFlat = props.layout === "flat";
   const {
     keybindings: providedKeybindings,
     modelOptionsByInstance,
@@ -395,11 +404,18 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           ...(entry.continuationGroupKey
             ? { continuationGroupKey: entry.continuationGroupKey }
             : {}),
+          ...(isFlat &&
+          modelSupportsFastMode(
+            entry.driverKind,
+            entry.models.find((candidate) => candidate.slug === model.slug)?.capabilities,
+          )
+            ? { supportsFastMode: true }
+            : {}),
         });
       }
     }
     return out;
-  }, [modelOptionsByInstance, entryByInstanceId, props.activeInstanceId, activeModelSlug]);
+  }, [modelOptionsByInstance, entryByInstanceId, props.activeInstanceId, activeModelSlug, isFlat]);
 
   const isLocked = props.lockedProvider !== null;
   const isSearching = searchQuery.trim().length > 0;
@@ -431,7 +447,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     }
     return [...available, ...disabled];
   }, [instanceEntries, isLocked, matchesLockedProvider]);
-  const showSidebar = !isSearching && sidebarInstanceEntries.length > 0;
+  const showSidebar = !isFlat && !isSearching && sidebarInstanceEntries.length > 0;
   const instanceOrder = useMemo(
     () => instanceEntries.map((entry) => entry.instanceId),
     [instanceEntries],
@@ -515,6 +531,20 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         .map((rankedModel) => rankedModel.model);
     }
 
+    if (isFlat) {
+      // Legacy models stay out of the flat list unless one is already selected.
+      result = result.filter(
+        (m) =>
+          matchesLockedProvider(m) &&
+          (!m.isLegacy || modelPickerModelKey(m.instanceId, m.slug) === activeModelKey),
+      );
+      return sortProviderModelItems(result, {
+        favoriteModelKeys: favoritesSet,
+        groupFavorites: true,
+        instanceOrder,
+      });
+    }
+
     if (props.lockedProvider !== null) {
       result = result.filter((m) => matchesLockedProvider(m));
       if (selectedInstanceId === "favorites") {
@@ -534,9 +564,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       instanceOrder: selectedInstanceId === "favorites" ? instanceOrder : [],
     });
   }, [
+    activeModelKey,
     favoritesSet,
     flatModels,
     instanceOrder,
+    isFlat,
     matchesLockedProvider,
     props.lockedProvider,
     searchQuery,
@@ -544,7 +576,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   ]);
 
   const legacySection = useMemo(() => {
-    if (isSearching || selectedInstanceId === "favorites") {
+    if (isFlat || isSearching || selectedInstanceId === "favorites") {
       return null;
     }
     const currentModels = filteredModels.filter((model) => !model.isLegacy);
@@ -558,7 +590,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       legacyModels,
       isExpanded: expandedLegacyInstances.has(selectedInstanceId),
     };
-  }, [expandedLegacyInstances, filteredModels, isSearching, selectedInstanceId]);
+  }, [expandedLegacyInstances, filteredModels, isFlat, isSearching, selectedInstanceId]);
 
   const visibleModels = useMemo(() => {
     if (!legacySection) {
@@ -577,7 +609,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     handoffFromKey !== null && (model.continuationGroupKey ?? model.instanceId) !== handoffFromKey;
   // One provider's list either all hands off or none of it does, so say it
   // once above the list; mixed lists (favorites, search) mark each row.
-  const singleProviderList = selectedInstanceId !== "favorites" && !isSearching;
+  const singleProviderList = !isFlat && selectedInstanceId !== "favorites" && !isSearching;
   const handoffProviderName =
     singleProviderList && filteredModels.some(modelNeedsHandoff)
       ? (filteredModels[0]?.instanceDisplayName ?? "this provider")
@@ -591,9 +623,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               entry,
               modelOptionsByInstance.get(entry.instanceId) ?? [],
             ) &&
-            (selectedEntry
-              ? entry.instanceId === selectedEntry.instanceId
-              : filteredModels.length === 0),
+            (isFlat ||
+              (selectedEntry
+                ? entry.instanceId === selectedEntry.instanceId
+                : filteredModels.length === 0)),
         )
       : [];
 
@@ -760,7 +793,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         platform: navigator.platform,
         context: modelJumpShortcutContext,
       });
-      if (command === "modelPicker.previousProvider" || command === "modelPicker.nextProvider") {
+      if (
+        !isFlat &&
+        (command === "modelPicker.previousProvider" || command === "modelPicker.nextProvider")
+      ) {
         event.preventDefault();
         event.stopPropagation();
         const next = adjacentModelPickerProvider({
@@ -800,6 +836,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   }, [
     handleModelSelect,
     handleSelectInstance,
+    isFlat,
     keybindings,
     lockedDisabledInstanceIds,
     modelJumpModelKeys,
@@ -826,7 +863,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   return (
     <TooltipProvider delay={0}>
       <div
-        className="relative flex h-screen max-h-86.5 w-screen max-w-90 flex-row overflow-hidden"
+        className={cn(
+          "relative flex h-screen flex-row overflow-hidden",
+          isFlat ? "max-h-80 w-full" : "max-h-86.5 w-screen max-w-90",
+        )}
         data-model-picker-content="true"
       >
         {/* Sidebar */}
@@ -893,7 +933,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         >
           <div
             className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/40",
+              "flex min-h-0 flex-1 flex-col overflow-hidden",
+              !isFlat && "bg-muted/40",
               showSidebar && "border-l border-border/70",
             )}
           >
@@ -1023,6 +1064,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                         useTriggerLabel={false}
                         showNewBadge={model.badge === "new"}
                         showHandoffBadge={!singleProviderList && modelNeedsHandoff(model)}
+                        variant={isFlat ? "flat" : "default"}
+                        supportsFastMode={model.supportsFastMode === true}
                         unavailable={model.isUnavailable === true}
                         jumpLabel={modelJumpLabelByKey.get(modelKey) ?? null}
                         disabledReason={disabledReason}

@@ -208,6 +208,19 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      compositor updates discrete frames instead of every vsync. */
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
+  /* The highest reasoning effort a model offers (Max, Ultrathink) in the
+     composer's effort picker: Claude's coral, with a static sparkle scatter. */
+  --color-effort-peak: var(--effort-peak);
+  --background-image-effort-sparkles:
+    radial-gradient(circle at 12% 30%, rgb(255 255 255 / 70%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 24% 72%, rgb(255 255 255 / 45%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 37% 22%, rgb(255 255 255 / 55%) 0 0.75px, transparent 1.25px),
+    radial-gradient(circle at 48% 64%, rgb(255 255 255 / 70%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 59% 35%, rgb(255 255 255 / 40%) 0 0.75px, transparent 1.25px),
+    radial-gradient(circle at 68% 78%, rgb(255 255 255 / 60%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 79% 26%, rgb(255 255 255 / 65%) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 88% 60%, rgb(255 255 255 / 45%) 0 0.75px, transparent 1.25px),
+    radial-gradient(circle at 6% 58%, rgb(255 255 255 / 35%) 0 0.75px, transparent 1.25px);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
@@ -1076,6 +1089,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-700);
   --warning-surface: color-mix(in srgb, var(--warning) 8%, transparent);
+  --effort-peak: #d97757;
   --update: var(--primary);
   --update-foreground: var(--primary);
   --update-surface: color-mix(in srgb, var(--update) 12%, transparent);

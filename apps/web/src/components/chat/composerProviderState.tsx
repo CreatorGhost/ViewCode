@@ -85,6 +85,34 @@ export function withImplicitFastModeDefault(
   return [...(modelOptions ?? []), { id: "fastMode", value: false }];
 }
 
+/**
+ * The traits controls' view of a model: its current option selections (with
+ * the implicit fast-mode default applied) and the descriptors a fresh draft
+ * would start from, which the effort picker's reset restores.
+ */
+export function resolveComposerTraitsOptions(input: {
+  provider: ProviderDriverKind;
+  model: string;
+  models: ReadonlyArray<ServerProviderModel>;
+  modelOptions: ReadonlyArray<ProviderOptionSelection> | null | undefined;
+  planModeEnabled: boolean;
+}) {
+  const { caps, selections } = resolveComposerOptionSelections(
+    input.models,
+    input.model,
+    input.provider,
+    input.modelOptions,
+    input.planModeEnabled,
+  );
+  return {
+    selections,
+    defaultDescriptors: getProviderOptionDescriptors({
+      caps,
+      selections: withImplicitFastModeDefault(caps, undefined),
+    }),
+  };
+}
+
 function resolveComposerOptionSelections(
   models: ReadonlyArray<ServerProviderModel>,
   model: string,

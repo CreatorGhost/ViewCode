@@ -34,6 +34,13 @@ const popoverViewportPaddingClassName = {
   none: "rounded-[calc(var(--radius-lg)-1px)] py-0 [--viewport-inline-padding:0px]",
 } as const;
 
+// "floating" is a rounder sheet with a caret pointing at its trigger, for compact
+// control panels that hang off a pill (the composer's model and usage popovers).
+const popoverPopupVariantClassName = {
+  default: "rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]",
+  floating: "rounded-3xl before:rounded-[calc(var(--radius-3xl)-1px)]",
+} as const;
+
 function PopoverPopup({
   children,
   className,
@@ -46,8 +53,10 @@ function PopoverPopup({
   tooltipStyle = false,
   keepMounted = false,
   anchor,
+  variant = "default",
   ...props
 }: PopoverPrimitive.Popup.Props & {
+  variant?: keyof typeof popoverPopupVariantClassName;
   padding?: keyof typeof popoverViewportPaddingClassName;
   side?: PopoverPrimitive.Positioner.Props["side"];
   align?: PopoverPrimitive.Positioner.Props["align"];
@@ -74,7 +83,8 @@ function PopoverPopup({
       >
         <PopoverPrimitive.Popup
           className={cn(
-            "dropdown-glass relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-lg text-popover-foreground outline-none transition-[width,height,scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-xl has-data-[slot=calendar]:before:rounded-[calc(var(--radius-xl)-1px)] data-starting-style:scale-98 data-starting-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+            "dropdown-glass relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-popover-foreground outline-none transition-[width,height,scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-xl has-data-[slot=calendar]:before:rounded-[calc(var(--radius-xl)-1px)] data-starting-style:scale-98 data-starting-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+            popoverPopupVariantClassName[variant],
             tooltipStyle &&
               "w-fit text-balance rounded-md text-xs shadow-md/5 before:rounded-[calc(var(--radius-md)-1px)]",
             !tooltipStyle &&
@@ -91,12 +101,25 @@ function PopoverPopup({
               tooltipStyle && padding === "default"
                 ? "py-1 [--viewport-inline-padding:--spacing(2)]"
                 : popoverViewportPaddingClassName[padding],
+              variant === "floating" && "rounded-[calc(var(--radius-3xl)-1px)]",
               !tooltipStyle && "not-data-transitioning:overflow-y-auto",
             )}
             data-slot="popover-viewport"
           >
             {children}
           </Viewport>
+          {variant === "floating" ? (
+            // The caret sits just outside the popup edge and overlaps its border by a pixel,
+            // so its fill hides the border line where the two meet.
+            <PopoverPrimitive.Arrow
+              className="pointer-events-none flex h-2 w-4 data-[side=bottom]:bottom-full data-[side=bottom]:mb-[-1px] data-[side=bottom]:rotate-180 data-[side=top]:top-full data-[side=top]:mt-[-1px]"
+              data-slot="popover-arrow"
+            >
+              <svg viewBox="0 0 16 8" className="size-full overflow-visible" aria-hidden="true">
+                <path d="M0 0 L8 8 L16 0" className="fill-popover stroke-foreground/10" />
+              </svg>
+            </PopoverPrimitive.Arrow>
+          ) : null}
         </PopoverPrimitive.Popup>
       </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
