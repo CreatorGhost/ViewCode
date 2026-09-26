@@ -176,8 +176,9 @@ them. Paste to the laptop agent:
 > 4. Launch: `open ~/Applications/ViewCode.app`, note the time, then every 5s
 >    for 180s record whether `pgrep -x ViewCode` finds it (observe only).
 > 5. Record: ALIVE/DEAD and time of death; last 30 lines of
->    `~/.viewcode/userdata/logs/server-child.log` and of any desktop log in
->    `~/.viewcode/userdata/logs/`; any new file in
+>    `~/.viewcode/userdata/logs/server.trace.ndjson` and `desktop.trace.ndjson`
+>    (OpenTelemetry spans, one JSON object per line; grep `"name":"check` to see
+>    which provider checks ran); any new file in
 >    `~/Library/Logs/DiagnosticReports` (crash vs external kill); the Cortex XDR
 >    alert at that time (mode, module, source command line).
 > 6. Quit the app normally if alive.
@@ -188,3 +189,23 @@ Reading it: **alive** → the blocked providers were the trigger for the app too
 the provider gate is the fix. **Dead** → the app's own startup or its missing
 signature is scored; go to the desktop startup diet in `managed-mode-plan.md`
 and signing.
+
+### Round 3 result (2026-09-26): ALIVE
+
+The same ad-hoc signed DMG app, not rebuilt, with Codex/OpenCode/Grok/
+Antigravity/Command Code off and Claude + Cursor on: alive for the whole
+window (8+ minutes), clean exit on quit, no crash report.
+
+| Run                   | Signature                  | Codex/OpenCode/Grok | Result     |
+| --------------------- | -------------------------- | ------------------- | ---------- |
+| `npx t3` A/B/C        | Developer ID (`t3` binary) | off                 | alive      |
+| DMG app, first launch | ad-hoc, no team            | on (fresh defaults) | terminated |
+| DMG app, round 3      | ad-hoc, no team            | off                 | alive      |
+
+Conclusion: launching the blocked providers is what gets the app killed;
+the missing signature is not sufficient on its own (it may still add to the
+score). The provider gate is the fix; signing matters for sharing builds.
+
+Logs in this build are OpenTelemetry span files
+(`~/.viewcode/userdata/logs/server.trace.ndjson`, `desktop.trace.ndjson`), not
+`server-child.log`; earlier references to that file are wrong.

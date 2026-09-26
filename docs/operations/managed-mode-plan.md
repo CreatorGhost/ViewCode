@@ -82,8 +82,10 @@ by Behavioral Threat Protection a few seconds after launch; the alert's source
 process is the app's main binary. No crash report was written (external kill).
 That run used a fresh `~/.viewcode`, i.e. **default settings with Codex on**,
 while the surviving `npx t3` runs had Codex/OpenCode/Grok off. Two variables
-changed at once (unsigned app bundle, and blocked providers on), so this does
-not yet say which one matters. Round 3 in
+changed at once (unsigned app bundle, and blocked providers on).
+**Round 3 answered it: the same unsigned app with those providers off
+survived.** The provider gate is the fix; the items below are optional
+hardening, not required to survive. Round 3 in
 [`managed-mac-experiments.md`](managed-mac-experiments.md) runs the same DMG
 with those providers off to separate them.
 
@@ -92,7 +94,8 @@ Consequences for the plan:
 - **Phase 1 (the provider gate) stays first.** It removes the blocked
   providers from startup regardless, and it's what makes Round 3's setup the
   default.
-- **Phase 2, the desktop startup diet, moves up** from "deferred". Each item
+- **Phase 2, the desktop startup diet, is optional** (lower priority after
+  Round 3). Each item
   removes work the app doesn't need at startup and is justified on its own
   (latency, least privilege), whether or not it matters to the EDR:
   1. One PATH resolution for the whole app: the desktop resolves it once and
@@ -110,6 +113,33 @@ Consequences for the plan:
   improves provenance but no change guarantees a policy accepts the app.
 - Nothing here hides behaviour from the EDR; every item does less, or does it
   later, openly.
+
+## Claude on company Macs with Claude Code enterprise policy
+
+Found on the laptop: Settings → Providers shows Claude "Needs attention ·
+Could not verify Claude authentication status" although `claude auth status`
+is fine. Cause: the machine has `/Library/Application Support/ClaudeCode/
+managed-mcp.json` (and `managed-settings.json` with `allowManagedHooksOnly`),
+and Claude Code refuses to start with `--strict-mcp-config` when an
+enterprise MCP config is present ("You cannot use --strict-mcp-config when an
+enterprise MCP config is present").
+
+- Affected: the capability probe (`buildClaudeCapabilitiesProbeQueryOptions`,
+  `ClaudeProvider.ts`, `strictMcpConfig: true`) and thread-title/text
+  generation (`ClaudeTextGeneration.ts`, `--strict-mcp-config`). Sessions
+  (`ClaudeAdapter.ts`) don't pass it, so threads should still start; confirm
+  on the laptop.
+- Fix: when the managed MCP file exists (macOS `/Library/Application
+Support/ClaudeCode/managed-mcp.json`, Linux `/etc/claude-code/managed-mcp.json`,
+  Windows `C:\Program Files\ClaudeCode\managed-mcp.json`), omit the strict
+  flag (keep the empty `mcpServers` and `ENABLE_CLAUDEAI_MCP_SERVERS=false`);
+  surface the probe's error text instead of `orElseSucceed(() => undefined)`;
+  fall back to `claude auth status` for the account display when the probe
+  fails. Check whether `--settings {"disableAllHooks":true}` collides with
+  `allowManagedHooksOnly` next.
+- Open: with an enterprise MCP config, Claude may ignore the MCP server
+  ViewCode passes to sessions (the agents toolkit), so child agents / agent
+  messaging under Claude may not work on such machines. Test on the laptop.
 
 ## Decided design: choose agents before anything is launched
 
