@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -791,6 +792,10 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       }
     }
 
+    // `vp` is a devDependency; find it in the repo's node_modules/.bin even when
+    // the runner is started with plain `node` and no global vp is installed.
+    const repoBin = NodePath.join(import.meta.dirname, "..", "node_modules", ".bin");
+    env.PATH = [repoBin, env.PATH].filter(Boolean).join(NodePath.delimiter);
     const spawnCommand = yield* resolveSpawnCommand(
       "vp",
       [...MODE_ARGS[input.mode], ...input.runArgs],

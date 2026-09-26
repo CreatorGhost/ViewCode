@@ -32,7 +32,9 @@ dist-electron/
 .showcase/
 apps/mobile/.showcase/
 apps/mobile/.generated/
-/.generated/
+/.generated/*
+# Vendored SPDX license texts, so desktop builds work offline / behind TLS inspection.
+!/.generated/third-party-licenses/
 artifacts/app-store/screenshots/
 .github/pr-assets/
 native/**/target/

@@ -57,6 +57,13 @@ with the port listening. The login shell, `scutil`, `ioreg`, the
 (including its `security find-generic-password` keychain reads and a
 `npx typescript-language-server` it starts) all ran without a kill.
 
+**Caveat (found later):** an agent harness can kill background processes it
+started when its tool call returns, which looks exactly like an EDR kill (no
+shutdown log). The earlier report that `npx t3` "also dies" may have been that
+artifact. The desktop-app kills are real (Terminate alerts name the app). So
+what is established: with those providers off the server survives; the proof
+that a provider launch is the trigger still needs round 2 run fully detached.
+
 So assumptions 2 and 3 below are **ruled out** on this machine, and the
 trigger is one of the providers that were off: `codex app-server` and
 `opencode` (both installed via npm under nvm there; `opencode` is ad-hoc

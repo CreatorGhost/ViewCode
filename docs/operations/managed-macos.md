@@ -128,6 +128,32 @@ exception, or touches the EDR.
    browser, a legitimate mode that is useful as a data point. It still spawns
    provider CLIs; if Cortex flags it too, stop and go back to step 1.
 
+## Building the installer on the managed Mac
+
+Verified on the laptop (arm64, no admin): an unsigned DMG builds in ~80s with
+
+```bash
+export NODE_OPTIONS="--use-system-ca"      # Electron/dmg tool downloads go through TLS inspection
+export CSC_IDENTITY_AUTO_DISCOVERY=false   # no signing identity on this machine
+pnpm dist:desktop:dmg:arm64                # output in release/
+```
+
+- SPDX license texts are now vendored in `.generated/third-party-licenses/`, so
+  the web bundle no longer needs `raw.githubusercontent.com`. A new dependency
+  with a new license id still downloads once; commit the new cache file.
+- electron-builder downloads Electron, 7zip and dmgbuild on the first build
+  (`~/Library/Caches/electron-builder`), so the first build needs HTTPS with
+  the system CA.
+- Only the host arch works without rustup (Homebrew cargo has no cross
+  targets); build `arm64` on Apple Silicon.
+- The result is ad-hoc signed. It runs where it was built (no quarantine). A
+  copy that is downloaded or sent gets quarantined; see "Installers" in
+  `managed-mode-plan.md`. Sharing builds with colleagues needs Developer ID +
+  notarization (`scripts/sign-macos.ts`, `T3CODE_DESKTOP_SIGNED`).
+- In a **main checkout** (not a worktree) `pnpm dev` uses the shared
+  `~/.viewcode` home; the worktree `.t3` protection doesn't apply. Pass
+  `--home-dir` when experimenting.
+
 ## Machine gotchas
 
 - No `sudo`; the EPM tool blocks elevation. `eslogger`, `log show` and

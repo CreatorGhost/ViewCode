@@ -125,3 +125,15 @@ run F "{\"codex\":$OFF,\"claudeAgent\":$OFF,\"cursor\":$OFF,\"grok\":{\"enabled\
 
 D = Codex, E = OpenCode, F = Grok (not installed). Report ALIVE/DEAD and the
 last spawn for each.
+
+## Running experiments correctly on macOS
+
+- **No `timeout` on a stock Mac.** Use `perl -e 'alarm shift; exec @ARGV' 20 <cmd>`.
+- **Detach fully.** Agent harnesses can tear down the process group when a
+  tool call returns, which leaves a dead server with no shutdown log, the same
+  signature as an EDR kill. macOS has no `setsid` command; start servers with
+  `perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' npx -y t3 serve ...`
+  and confirm PPID 1. A process that died without a log is not by itself
+  evidence of the EDR; check for a Terminate alert at that time.
+- **Stop what you started:** the `npx` wrapper PID is not the server; stop the
+  server PID from the spawn-trace as well.
