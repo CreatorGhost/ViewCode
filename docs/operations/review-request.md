@@ -1,5 +1,7 @@
 # Review request: managed-mode implementation, onboarding picker, theme
 
+> Superseded in scope by [`feature-audit.md`](feature-audit.md), which covers every ViewCode feature.
+
 Read-only code review of what was built from
 [`managed-mode-plan.md`](managed-mode-plan.md) after your two plan reviews.
 Branch `claude/modest-meitner-9cuywa`; the range to review is
