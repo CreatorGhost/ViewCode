@@ -9,6 +9,10 @@
 #                         ViewCode never launches Codex, OpenCode, Grok,
 #                         Antigravity or Command Code
 #                         (docs/operations/managed-mode-plan.md)
+#   ./build.sh --fresh    start as a brand-new install: moves your ViewCode data
+#                         (~/.viewcode) and the desktop app's profile aside, with a
+#                         timestamp, so onboarding and the provider picker show again.
+#                         Nothing is deleted; the script prints how to restore.
 #
 # Run from anywhere; it works in the folder this script lives in.
 set -euo pipefail
@@ -18,13 +22,15 @@ cd "$(dirname "$0")"
 pull=1
 mode=desktop
 managed=0
+fresh=0
 for arg in "$@"; do
   case "$arg" in
     --no-pull) pull=0 ;;
     --web) mode=web ;;
     --managed) managed=1 ;;
+    --fresh) fresh=1 ;;
     -h | --help)
-      sed -n '2,13p' "$0"
+      sed -n '2,17p' "$0"
       exit 0
       ;;
     *)
@@ -112,6 +118,24 @@ echo "At $(git log -1 --format='%h %s')"
 
 step "Installing dependencies"
 pnpm install --frozen-lockfile --config.confirmModulesPurge=false
+
+if [ "$fresh" = 1 ]; then
+  step "Fresh start: moving existing ViewCode data aside"
+  stamp=$(date +%Y%m%d-%H%M%S)
+  data_dir="${T3CODE_HOME:-$HOME/.viewcode}"
+  case "$(uname -s)" in
+    Darwin) profile_dir="$HOME/Library/Application Support/viewcode" ;;
+    *) profile_dir="${XDG_CONFIG_HOME:-$HOME/.config}/viewcode" ;;
+  esac
+  for dir in "$data_dir" "$profile_dir"; do
+    if [ -e "$dir" ]; then
+      mv "$dir" "$dir.bak-$stamp"
+      echo "Moved $dir -> $dir.bak-$stamp"
+      echo "  restore: rm -rf \"$dir\" && mv \"$dir.bak-$stamp\" \"$dir\""
+    fi
+  done
+  echo "Quit ViewCode first if it was open, or it will write its data back."
+fi
 
 if [ "$managed" = 1 ]; then
   step "Managed mode: enabling only Claude and Cursor"

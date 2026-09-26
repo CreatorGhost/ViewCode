@@ -15,10 +15,21 @@ import {
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
 import { installDesktopBackendWebSocket } from "./lib/desktopBackendWebSocket";
+import { stackedThreadToast, toastManager } from "./components/ui/toast";
+import { migrateToViewCodeLook, undoViewCodeLookMigration } from "./viewcodeLookMigration";
 
 // Before any connection opens: the desktop's local backend may be reachable
 // only through the main process.
 installDesktopBackendWebSocket();
+
+// Profiles from earlier builds move to ViewCode's own look once, before the
+// theme is read; the toast below offers Undo.
+let switchedToViewCodeLook = false;
+try {
+  switchedToViewCodeLook = migrateToViewCodeLook(window.localStorage);
+} catch {
+  // Storage unavailable: keep whatever theme resolves.
+}
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
@@ -88,3 +99,28 @@ export const startup = Promise.all([
     if (reloadScheduled) return;
     throw error;
   });
+
+if (switchedToViewCodeLook) {
+  // After the first paint, once the toast viewport has mounted.
+  void startup.then(() => setTimeout(showViewCodeLookToast, 1500));
+}
+
+function showViewCodeLookToast() {
+  toastManager.add(
+    stackedThreadToast({
+      type: "info",
+      title: "ViewCode has a new look",
+      description:
+        "Switched to the ViewCode theme with the glass window. Change it any time in Settings → Appearance.",
+      timeout: 20000,
+      actionProps: {
+        children: "Undo",
+        onClick: () => {
+          undoViewCodeLookMigration(window.localStorage);
+          window.location.reload();
+        },
+      },
+      data: { hideCopyButton: true },
+    }),
+  );
+}
