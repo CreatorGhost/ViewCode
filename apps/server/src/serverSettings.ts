@@ -60,6 +60,10 @@ import {
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import {
+  applyProviderSelectionRules,
+  decideProviderSelection,
+} from "./provider/providerSelection.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
 
@@ -587,15 +591,33 @@ const make = Effect.gen(function* () {
     ),
   );
 
+  const readEnvironmentHasHistory = sql<{ readonly used: number }>`
+    SELECT
+      EXISTS (SELECT 1 FROM projection_projects)
+      OR EXISTS (SELECT 1 FROM projection_threads) AS "used"
+  `.pipe(
+    Effect.map((rows) => Number(rows[0]?.used ?? 0) > 0),
+    Effect.mapError(
+      (cause) =>
+        new ServerSettingsError({
+          settingsPath,
+          operation: "read-provider-history",
+          cause,
+        }),
+    ),
+  );
+
   const loadSettingsFromDisk = Effect.gen(function* () {
     let settings = DEFAULT_SERVER_SETTINGS;
     let persisted: typeof PersistedOptionalProviderSettings.Type = {};
     // A file that failed to decode must stay on disk for the user to repair;
     // the fold below only writes when it started from the file's real contents.
     let settingsFileTrusted = true;
+    let rawSettingsJson: string | undefined;
 
     if (yield* readConfigExists) {
       const raw = yield* readRawConfig;
+      rawSettingsJson = raw;
       const decoded = decodeServerSettingsJsonExit(raw);
       const persistedSettings = decodePersistedOptionalProviderSettingsJsonExit(raw);
       if (persistedSettings._tag === "Success") {
@@ -682,10 +704,20 @@ const make = Effect.gen(function* () {
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(loaded, legacyProjectRows)
       : loaded;
-    if (folded !== loaded) {
-      yield* writeSettingsAtomically(folded);
+    // ViewCode: decide once whether this environment still has to choose its
+    // providers (see provider/providerSelection.ts).
+    const selected =
+      folded.providerSelection === undefined
+        ? decideProviderSelection(folded, {
+            rawSettingsJson,
+            settingsFileTrusted,
+            hasHistory: yield* readEnvironmentHasHistory,
+          })
+        : folded;
+    if (selected !== loaded && settingsFileTrusted) {
+      yield* writeSettingsAtomically(selected);
     }
-    return folded;
+    return selected;
   });
 
   const settingsCache = yield* Cache.make<typeof cacheKey, ServerSettings, ServerSettingsError>({
@@ -989,7 +1021,11 @@ const make = Effect.gen(function* () {
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* getSettingsFromCache;
-        const updated = applyServerSettingsPatch(current, patch);
+        const updated = applyProviderSelectionRules(
+          current,
+          patch,
+          applyServerSettingsPatch(current, patch),
+        );
         const persisted = yield* persistProviderEnvironmentSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>

@@ -117,6 +117,12 @@ import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner
 import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
+import { AntigravityInstallation } from "./provider/AntigravityInstallation.ts";
+import { detectProviders } from "./provider/providerLaunch.ts";
+import {
+  isProviderSelectionPending,
+  makeChooseProvidersPatch,
+} from "./provider/providerSelection.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -574,6 +580,7 @@ const makeWsRpcLayer = (
       const providerAuth = yield* ProviderAuthService;
       const providerInstances = yield* ProviderInstanceRegistry;
       const providerInstallation = yield* makeProviderInstallation();
+      const antigravityInstallation = yield* AntigravityInstallation;
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -2372,7 +2379,9 @@ const makeWsRpcLayer = (
                 yield* Effect.forEach(
                   instances.filter(
                     (instance) =>
-                      input.instanceId === undefined || input.instanceId === instance.instanceId,
+                      // Disabled instances get no maintenance lookups (brew, npm).
+                      instance.enabled &&
+                      (input.instanceId === undefined || input.instanceId === instance.instanceId),
                   ),
                   (instance) =>
                     Effect.gen(function* () {
@@ -2628,6 +2637,32 @@ const makeWsRpcLayer = (
             {
               "rpc.aggregate": "server",
             },
+          ),
+        [WS_METHODS.serverDetectProviders]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverDetectProviders,
+            serverSettings.getSettings.pipe(
+              Effect.flatMap(detectProviders),
+              Effect.map((providers) => ({ providers })),
+              Effect.provideService(AntigravityInstallation, antigravityInstallation),
+            ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverChooseProviders]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverChooseProviders,
+            // An initial choice only: a closed selection is returned as is, so
+            // a stale onboarding screen cannot overwrite later changes. The
+            // settings change reconciles the registry, which probes the
+            // newly enabled instances once.
+            serverSettings.getSettings.pipe(
+              Effect.filterOrElse(
+                (current) => !isProviderSelectionPending(current),
+                () => serverSettings.updateSettings(makeChooseProvidersPatch(input.enabled)),
+              ),
+              Effect.map(ServerSettings.redactServerSettingsForClient),
+            ),
+            { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) =>
           observeRpcEffect(

@@ -86,6 +86,7 @@ import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { providerLaunchBlockReason } from "../providerLaunch.ts";
 const isModelSelection = Schema.is(ModelSelection);
 const encodePromptJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -1265,6 +1266,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
         );
       }
+      // ViewCode: recovery must not relaunch a disabled, unchosen or missing provider.
+      const launchBlocked = yield* providerLaunchBlockReason(
+        yield* registry.getInstanceInfo(bindingInstanceId),
+      );
+      if (launchBlocked !== null) return yield* toValidationError(input.operation, launchBlocked);
 
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
@@ -1433,6 +1439,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             "ProviderService.startSession",
             `Provider instance '${resolvedInstanceId}' is disabled in ViewCode settings.`,
           );
+        }
+        const launchBlocked = yield* providerLaunchBlockReason(instanceInfo);
+        if (launchBlocked !== null) {
+          return yield* toValidationError("ProviderService.startSession", launchBlocked);
         }
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
         if (

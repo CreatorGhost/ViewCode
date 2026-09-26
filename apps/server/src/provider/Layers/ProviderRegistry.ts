@@ -56,6 +56,7 @@ import {
 import type { ProviderInstance } from "../ProviderDriver.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import type { ProviderSnapshotSource } from "../builtInProviderCatalog.ts";
+import { providerLaunchBlockReason } from "../providerLaunch.ts";
 
 const loadProviders = (
   providerSources: ReadonlyArray<ProviderSnapshotSource>,
@@ -850,6 +851,8 @@ export const ProviderRegistryLive = Layer.effect(
       }
       const instance = yield* instanceRegistry.getInstance(input.instanceId);
       if (!instance?.snapshotForCwd) return providers;
+      // ViewCode: a workspace probe never launches a missing executable.
+      if ((yield* providerLaunchBlockReason(instance)) !== null) return providers;
       const claimed = yield* Ref.modify(workspaceRefreshesRef, (refreshes) => {
         const current = refreshes.get(instance);
         if (current?.has(input.cwd)) return [false, refreshes] as const;

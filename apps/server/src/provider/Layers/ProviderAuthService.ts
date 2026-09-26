@@ -8,6 +8,7 @@ import * as ProviderAuthService from "../Services/ProviderAuthService.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderService } from "../Services/ProviderService.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
+import { providerSelectionPendingNow } from "../providerLaunch.ts";
 
 export const makeProviderAuthService = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry;
@@ -27,6 +28,16 @@ export const makeProviderAuthService = Effect.gen(function* () {
         detail: instance
           ? "This provider does not support sign-in in ViewCode."
           : "This provider instance is no longer available.",
+      });
+    }
+    // ViewCode: sign-in launches the provider, so nothing signs in before the
+    // first-run provider choice. (Antigravity, the only controller, resolves
+    // its executable on the filesystem before it spawns.)
+    if (!instance.enabled && (yield* providerSelectionPendingNow)) {
+      return yield* new ProviderSetupError({
+        instanceId,
+        operation,
+        detail: "Choose your agents first, then sign in.",
       });
     }
     return instance.auth;

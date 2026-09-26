@@ -6,6 +6,7 @@ import { TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "../provider/ProviderDriver.ts";
+import { providerLaunchBlockReason } from "../provider/providerLaunch.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as ThreadTitleLinks from "./ThreadTitleLinks.ts";
 import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
@@ -123,13 +124,23 @@ const resolveInstance = (
   registry.getInstance(instanceId).pipe(
     Effect.flatMap((instance) =>
       instance
-        ? Effect.succeed(instance.textGeneration)
+        ? requireLaunchable(operation, instance)
         : Effect.fail(
             new TextGenerationError({
               operation,
               detail: `No provider instance registered for id '${instanceId}'.`,
             }),
           ),
+    ),
+  );
+
+// ViewCode: never launch a disabled, unchosen or missing provider for text.
+const requireLaunchable = (operation: TextGenerationOp, instance: ProviderInstance) =>
+  providerLaunchBlockReason(instance).pipe(
+    Effect.flatMap((reason) =>
+      reason === null
+        ? Effect.succeed(instance.textGeneration)
+        : Effect.fail(new TextGenerationError({ operation, detail: reason })),
     ),
   );
 

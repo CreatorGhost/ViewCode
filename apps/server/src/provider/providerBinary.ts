@@ -14,8 +14,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
-import { ChildProcessSpawner } from "effect/unstable/process";
-import type { ChildProcess } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
 
 import { OpenCodeRuntimeError, type OpenCodeRuntimeShape } from "./opencodeRuntime.ts";
@@ -56,7 +56,8 @@ export const resolveProviderBinary = (
 
 /**
  * Wrap the spawner a provider health check uses so a command that doesn't
- * exist fails like ENOENT instead of being executed.
+ * exist fails like ENOENT instead of being executed. A command that resolves
+ * runs by its resolved path (POSIX), so what was checked is what runs.
  */
 export function guardMissingProviderBinary(
   spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
@@ -67,23 +68,30 @@ export function guardMissingProviderBinary(
     if (command._tag !== "StandardCommand" || !isGuardable(command)) {
       return spawner.spawn(command);
     }
-    return resolveProviderBinary(command.command, commandLookupEnv(command.options)).pipe(
-      Effect.provideService(FileSystem.FileSystem, fileSystem),
-      Effect.provideService(Path.Path, path),
-      Effect.flatMap((resolved) =>
-        resolved === null
-          ? Effect.fail(
-              PlatformError.systemError({
-                _tag: "NotFound",
-                module: "ChildProcess",
-                method: "spawn",
-                pathOrDescriptor: command.command,
-                description: `Provider command not found; not executed: ${command.command}`,
-              }),
-            )
-          : spawner.spawn(command),
-      ),
-    );
+    return Effect.gen(function* () {
+      const resolved = yield* resolveProviderBinary(
+        command.command,
+        commandLookupEnv(command.options),
+      ).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      );
+      if (resolved === null) {
+        return yield* PlatformError.systemError({
+          _tag: "NotFound",
+          module: "ChildProcess",
+          method: "spawn",
+          pathOrDescriptor: command.command,
+          description: `Provider command not found; not executed: ${command.command}`,
+        });
+      }
+      const platform = yield* HostProcessPlatform;
+      return yield* spawner.spawn(
+        platform === "win32" || resolved === command.command
+          ? command
+          : ChildProcess.make(resolved, command.args, command.options),
+      );
+    });
   });
 }
 

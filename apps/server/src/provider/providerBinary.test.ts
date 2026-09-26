@@ -104,7 +104,8 @@ describe("guardMissingProviderBinary", () => {
         ),
       );
       yield* Effect.scoped(guard.spawn(ChildProcess.make(file, ["--version"])));
-      assert.deepStrictEqual(spawned, ["t3-present-provider-cli", file]);
+      // Both run by their resolved path, so what was checked is what runs.
+      assert.deepStrictEqual(spawned, [file, file]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

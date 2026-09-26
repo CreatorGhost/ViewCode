@@ -1088,6 +1088,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
         automaticGitFetchInterval: 10_000,
+        // ViewCode: a fresh environment waits for the first-run provider choice.
+        providerSelection: "pending",
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
@@ -1121,7 +1123,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
       const original =
-        '{"providerInstances":{"codex_personal":{"driver":"codex","environment":[{"name":"API_TOKEN","value":"inline-test-token","sensitive":true}],"config":{}}}}';
+        '{"providerInstances":{"codex_personal":{"driver":"codex","environment":[{"name":"API_TOKEN","value":"inline-test-token","sensitive":true}],"config":{}}},"providerSelection":"chosen"}';
       yield* fs.writeFileString(config.settingsPath, original);
       const error = yield* Effect.flip(
         service.updateSettings({
