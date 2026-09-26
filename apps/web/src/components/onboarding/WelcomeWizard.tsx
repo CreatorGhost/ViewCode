@@ -95,6 +95,9 @@ const AGENT_ONBOARDING_THREAD_ID = ThreadId.make("onboarding-agent-setup");
 const ONBOARDING_STAGES = ["Connect", "Agents", "Projects"] as const;
 const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some projects or conversations may be missing.";
 
+/** Hidden until import comes from T3 Code instead of provider session files. */
+const SHOW_SESSION_IMPORT_STEP = false;
+
 export function WelcomeWizard({
   localAvailable,
   onDone,
@@ -1113,6 +1116,13 @@ function ImportStep({
     });
     if (added.length === 0) {
       void onDone();
+      return;
+    }
+    // The per-project "bring in past conversations" step is hidden for now:
+    // importing Claude/Codex session files mostly brought in agent plumbing.
+    // Projects open empty; the step returns with an import from T3 Code.
+    if (!SHOW_SESSION_IMPORT_STEP) {
+      finishWithProjects();
       return;
     }
     setAddedProjects(added);

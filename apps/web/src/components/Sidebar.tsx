@@ -2848,16 +2848,13 @@ export default function Sidebar() {
             [
               { id: "new-thread", label: "New thread", icon: "message-square-plus" },
               { id: "copy-path", label: "Copy path" },
-              {
-                id: "import-sessions",
-                label: "Import past sessions…",
-                icon: "clock",
-                separatorBefore: true,
-              },
+              // Importing Claude/Codex session files is hidden for now (it
+              // mostly brought in agent plumbing); clean-up stays available.
               {
                 id: "remove-imported-sessions",
                 label: "Remove imported sessions…",
                 icon: "archive",
+                separatorBefore: true,
               },
               {
                 id: "project-settings",

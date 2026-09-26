@@ -60,32 +60,15 @@ Codex scratch directories under `Documents/Codex`, and anything under
 A large or malformed history can reach the scan limit. T3 Code keeps the
 projects it found and warns when projects or conversations may be missing.
 
-Adding a project does not bring in its past conversations. After adding, select
-**Choose sessions…** beside a project to pick the ones you want, or **Done** to
-skip.
+Adding a project does not bring in its past conversations.
 
-## Import past sessions
+## Remove imported sessions
 
-Open a project's menu in the sidebar and select **Import past sessions…** to
-pick Claude Code and Codex conversations from the last 30 days. Nothing is
-checked for you. Sub-agent runs, sessions another agent started, and short
-fragments are hidden; select **Show hidden** to see them with the reason.
-Sessions you already imported are marked **Imported**. You can continue
-imported conversations in T3 Code.
-
-To clean up, select **Remove imported sessions…** in the same menu. Imported
-threads you have not continued are checked; confirming archives them. Restore
-archived threads from **Settings → Archive**.
-
-Import is best effort. T3 Code keeps the first user prompt and the newest
-remaining visible user and assistant messages, with 200 messages total. It
-omits tool activity and attachments. For Codex, it omits generated setup
-context only when a canonical user event and a valid shared turn ID identify the
-same user turn. Ambiguous legacy or response-only context stays in the imported
-conversation so T3 Code does not remove user text. It reads one conversation at
-a time and skips files larger than 16 MiB. It ignores malformed records and
-skips unreadable or unparseable conversations. Each listing reads up to 100
-conversation files per project.
+Importing Claude Code and Codex conversations is turned off for now. If you
+imported some earlier, open a project's menu in the sidebar and select
+**Remove imported sessions…**. Imported threads you have not continued are
+checked; confirming archives them. Restore archived threads from
+**Settings → Archive**.
 
 You can continue without configuring agents or adding projects, or return to an earlier step
 using the setup progress bar. Navigation pauses while projects are being added.

@@ -1783,7 +1783,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             buildTargetedItem("rename", "Rename"),
             buildTargetedItem("grouping", "Group into..."),
             buildTargetedItem("copy-path", "Copy Path"),
-            { id: "import-sessions", label: "Import past sessions…", icon: "clock" },
             {
               id: "remove-imported-sessions",
               label: "Remove imported sessions…",

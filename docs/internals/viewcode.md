@@ -111,10 +111,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ### Session import
 
-- Nothing is imported by default. Onboarding only adds projects; sessions are
-  picked one by one in the "Import past sessions" dialog (onboarding, or a
-  project's sidebar menu). Imports used to pull in every recent transcript, and
-  most of those were agent plumbing.
+- **Hidden for now.** The "Import past sessions" menu items are removed and the
+  onboarding step is off (`SHOW_SESSION_IMPORT_STEP` in
+  `onboarding/WelcomeWizard.tsx`). Provider session files mostly brought in
+  agent plumbing; the intended replacement is importing threads from a T3 Code
+  install (see `docs/HANDOFF.md`). "Remove imported sessions…" stays so users
+  can clean up earlier imports. The server RPCs and dialog code remain.
+- When shown, nothing is imported by default: sessions are picked one by one.
 - `agentSessions.list` reads the recent transcripts without writing and marks
   junk `hidden` with a reason (`classifyAgentSession`): Codex sub-agent and
   internal rollouts, sessions opened by an agent message (Traycer or
