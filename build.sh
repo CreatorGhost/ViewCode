@@ -4,6 +4,10 @@
 #   ./build.sh            pull, install, build, open the desktop app
 #   ./build.sh --no-pull  build what is checked out
 #   ./build.sh --web      run server + web UI in dev mode instead (open the printed URL)
+#   ./build.sh --managed  for locked-down machines: only Claude and Cursor are
+#                         enabled, so ViewCode never launches Codex, OpenCode,
+#                         Grok, Antigravity or Command Code
+#                         (docs/operations/managed-mode-plan.md)
 #
 # Run from anywhere; it works in the folder this script lives in.
 set -euo pipefail
@@ -12,12 +16,14 @@ cd "$(dirname "$0")"
 
 pull=1
 mode=desktop
+managed=0
 for arg in "$@"; do
   case "$arg" in
     --no-pull) pull=0 ;;
     --web) mode=web ;;
+    --managed) managed=1 ;;
     -h | --help)
-      sed -n '2,8p' "$0"
+      sed -n '2,12p' "$0"
       exit 0
       ;;
     *)
@@ -105,6 +111,30 @@ echo "At $(git log -1 --format='%h %s')"
 
 step "Installing dependencies"
 pnpm install --frozen-lockfile --config.confirmModulesPurge=false
+
+if [ "$managed" = 1 ]; then
+  step "Managed mode: enabling only Claude and Cursor"
+  # Merges into the desktop app's settings; other settings are kept.
+  state_dir=userdata
+  [ "$mode" = web ] && state_dir=dev # `pnpm dev` keeps its state in dev/
+  settings_file="${T3CODE_HOME:-$HOME/.viewcode}/$state_dir/settings.json"
+  SETTINGS_FILE="$settings_file" node -e '
+    const fs = require("node:fs"), path = require("node:path");
+    const file = process.env.SETTINGS_FILE;
+    let settings = {};
+    try { settings = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
+    const off = { enabled: false }, on = { enabled: true };
+    const wanted = { codex: off, claudeAgent: on, cursor: on, grok: off,
+      opencode: off, antigravity: off, commandCode: off };
+    settings.providers = settings.providers ?? {};
+    for (const [key, value] of Object.entries(wanted))
+      settings.providers[key] = { ...settings.providers[key], ...value };
+    settings.defaultAutoPull = false;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+    console.log("Wrote " + file);
+  '
+fi
 
 if [ "$mode" = web ]; then
   step "Starting server + web UI (Ctrl+C to stop)"

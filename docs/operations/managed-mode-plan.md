@@ -47,6 +47,27 @@ global limit, so all enabled probes start together during layer construction.
 only from `spawn` failing with ENOENT (`resolveSpawnCommand`,
 `packages/shared/src/shell.ts:628-636`, does no lookup on macOS/Linux).
 
+## Result from the laptop (2026-09-26)
+
+The experiment ladder ([`managed-mac-experiments.md`](managed-mac-experiments.md))
+ran `npx t3 serve` three times with Codex, OpenCode, Grok and Antigravity
+**off**: no providers, Claude only, Claude + Cursor. **All three survived 180s**
+with the port listening. The login shell, `scutil`, `ioreg`, the
+`t3-resource-monitor` sidecar, both Claude launches, and Cursor's probe
+(including its `security find-generic-password` keychain reads and a
+`npx typescript-language-server` it starts) all ran without a kill.
+
+So assumptions 2 and 3 below are **ruled out** on this machine, and the
+trigger is one of the providers that were off: `codex app-server` and
+`opencode` (both installed via npm under nvm there; `opencode` is ad-hoc
+signed) or the attempt to run the missing `grok`. Which one is still
+unknown (optional round 2 in the experiments doc).
+
+**Working setup today:** `./build.sh --managed` writes these provider settings
+into the desktop app's `settings.json` before launching. M1 (allow-list) and M2
+(don't exec missing binaries) are now the items that matter; M5–M7 are
+nice-to-haves, no longer needed to survive.
+
 ## Assumptions, most likely first
 
 1. **Executing blocked or unknown provider binaries** (`codex app-server`,

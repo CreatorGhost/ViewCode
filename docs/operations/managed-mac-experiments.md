@@ -103,3 +103,25 @@ process with a synchronous write, so the last line before a kill survives.
 | A lives, B dies | Something in the Claude probe (e.g. the SDK `claude --output-format stream-json` launch or MCP config)                                    | Q4 tells whether `claude` alone is killed; if not, it's how we launch it |
 | B lives, C dies | The Cursor probe (`cursor-agent about` / `cursor-agent acp`)                                                                              | Same, for Cursor                                                         |
 | All live        | The kill needs Codex/OpenCode/Grok probes, i.e. the defaults. The settings above are a working setup today, and M1–M3 make it the default | Use the settings from the plan on the desktop app                        |
+
+---
+
+## Round 1 result and optional round 2
+
+Round 1 (2026-09-26): runs A, B and C all survived, so the kill needs a
+provider that was off. Notes from running it: macOS has no `timeout` binary
+(use a `perl -e 'alarm shift; exec @ARGV'` shim), and `kill "$PID"` only stops
+the `npx` wrapper; stop the server's own PID from the spawn-trace too.
+
+Round 2 is optional: it tells which provider is the trigger, but each run
+that dies **will raise a real Terminate alert** that the security team sees.
+Only run it if that's acceptable. Same `run` function, one provider at a time:
+
+```bash
+run D "{\"codex\":{\"enabled\":true},\"claudeAgent\":$OFF,\"cursor\":$OFF,\"grok\":$OFF,\"opencode\":$OFF,\"antigravity\":$OFF}"
+run E "{\"codex\":$OFF,\"claudeAgent\":$OFF,\"cursor\":$OFF,\"grok\":$OFF,\"opencode\":{\"enabled\":true},\"antigravity\":$OFF}"
+run F "{\"codex\":$OFF,\"claudeAgent\":$OFF,\"cursor\":$OFF,\"grok\":{\"enabled\":true},\"opencode\":$OFF,\"antigravity\":$OFF}"
+```
+
+D = Codex, E = OpenCode, F = Grok (not installed). Report ALIVE/DEAD and the
+last spawn for each.

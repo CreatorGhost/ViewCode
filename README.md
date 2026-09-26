@@ -78,6 +78,7 @@ cd ViewCode
 ./build.sh              # later runs: just ./build.sh again
 ./build.sh --no-pull    # build what you have checked out
 ./build.sh --web        # server + web UI instead of the desktop app
+./build.sh --managed    # locked-down work laptops: only Claude and Cursor are enabled
 ```
 
 Or step by step:
