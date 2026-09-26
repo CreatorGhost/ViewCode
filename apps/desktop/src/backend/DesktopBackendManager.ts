@@ -25,6 +25,7 @@
 
 import * as Brand from "effect/Brand";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -51,6 +52,7 @@ import {
 import { waitForHttpReady as waitForHttpReadyShared } from "@t3tools/shared/httpReadiness";
 
 import * as DesktopObservability from "../app/DesktopObservability.ts";
+import { makeAbruptExitTracker } from "./backendRestartCap.ts";
 import { withBackendHttpClient } from "./DesktopLocalBackendSocket.ts";
 import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
@@ -304,6 +306,8 @@ export interface BackendInstanceSpec {
   // retries. Returns true when the callback changed configuration and the
   // manager should resolve once more; false stops the failed instance.
   readonly onPreflightFailed?: (failure: PreflightFailure) => Effect.Effect<boolean>;
+  // ViewCode: fired when repeated abrupt exits stopped the restart loop.
+  readonly onRestartsExhausted?: (reason: string) => Effect.Effect<void>;
 }
 
 interface ActiveBackendRun {
@@ -661,6 +665,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   const httpClient = yield* HttpClient.HttpClient;
   const state = yield* Ref.make(initialState);
   const mutex = yield* Semaphore.make(1);
+  const abruptExits = makeAbruptExitTracker();
 
   const { logWarning: logInstanceWarning, logError: logInstanceError } =
     DesktopObservability.makeComponentLogger(`desktop-backend-instance:${spec.id}`);
@@ -904,7 +909,22 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
               }
 
               if (isCurrentRun && nextState.desiredRunning) {
-                yield* scheduleRestart(reason);
+                // ViewCode: a backend killed again and again is not restarted forever.
+                if (
+                  exitObserved &&
+                  !stopRequested &&
+                  abruptExits.record(yield* Clock.currentTimeMillis)
+                ) {
+                  yield* logInstanceError("backend keeps exiting; not restarting it", { reason });
+                  yield* Ref.update(state, (latest) => ({
+                    ...latest,
+                    desiredRunning: false,
+                    ready: false,
+                  }));
+                  yield* spec.onRestartsExhausted?.(reason) ?? Effect.void;
+                } else {
+                  yield* scheduleRestart(reason);
+                }
               }
             }),
           );

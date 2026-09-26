@@ -301,6 +301,11 @@ export const layer = Layer.effect(
         ),
       onShutdown: () => desktopWindow.handleBackendNotReady,
       onPreflightFailed: handlePrimaryPreflightFailure,
+      onRestartsExhausted: (reason) =>
+        electronDialog.showErrorBox(
+          "The ViewCode server keeps stopping",
+          `${reason}\n\nIt stopped 3 times within 2 minutes, so it will not be restarted automatically. Help > Open Logs Folder shows server-child.log and spawn-trace.log. Quit and reopen ViewCode to try again.`,
+        ),
     });
 
     const instancesRef = yield* SynchronizedRef.make<
