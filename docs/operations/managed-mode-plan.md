@@ -11,15 +11,17 @@ changes how security software sees the app.
 
 ## Status
 
-| Item                                                                                | Planned  | Committed                                                                   | Verified in a DMG on the laptop                 |
-| ----------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------- | ----------------------------------------------- |
-| Provider selection gate (Phase 1)                                                   | yes      | in progress                                                                 | no                                              |
-| Launch guard on every execution path                                                | yes      | partial: health checks only (`bfbb442b4`), being reworked (see Guard below) | no                                              |
-| Onboarding picker                                                                   | yes      | no                                                                          | no                                              |
-| Claude enterprise-policy fix                                                        | yes      | no                                                                          | no                                              |
-| `./build.sh --managed` (writes the provider choice)                                 | yes      | yes                                                                         | equivalent settings verified (Round 3)          |
-| Offline desktop build (vendored SPDX), `vp` resolution, `ViewCode-*` artifact names | yes      | yes (`b04d42085`)                                                           | build verified on the laptop before this change |
-| Phase 2 startup diet                                                                | optional | no                                                                          | no                                              |
+| Item                                                                  | Committed                                   | Verified in a DMG on the laptop   |
+| --------------------------------------------------------------------- | ------------------------------------------- | --------------------------------- |
+| Provider selection gate + migration (Phase 1)                         | yes (`a43586d98`, `4073c8a3e`)              | no                                |
+| Launch guard on every execution path, fail closed                     | yes (`ca369b153`)                           | no                                |
+| Onboarding picker, Settings picker, pending notice                    | yes (`a2cbacff8`, `39b18e52d`, `9ce2ced45`) | no (web screenshots only)         |
+| Claude enterprise-policy fix                                          | yes (`52fbf8f1f`)                           | no                                |
+| Built-in spawn trace + Help → Open Logs Folder                        | yes (`1303196a1`)                           | no                                |
+| Backend restart cap, title-generation retry stop                      | yes (`35260ecd7`)                           | no                                |
+| `./build.sh --managed` (instance level + selection chosen), `--fresh` | yes (`224b954c6`, `8fe5ba86c`)              | no                                |
+| Offline desktop build, `vp` resolution, `ViewCode-*` names            | yes (`b04d42085`)                           | build verified before this change |
+| Phase 2 startup diet                                                  | no (optional)                               | —                                 |
 
 ## What the evidence shows
 
