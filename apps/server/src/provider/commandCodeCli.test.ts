@@ -344,6 +344,7 @@ describe("parseCommandCodeModelList", () => {
       ],
     );
     NodeAssert.equal(models[0]?.name, "Default (deepseek/deepseek-v4-flash)");
+    NodeAssert.equal(models[0]?.shortName, "Default · deepseek-v4-flash");
   });
 });
 

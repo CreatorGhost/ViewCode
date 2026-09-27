@@ -666,7 +666,7 @@ export function commandCodeModelsFromList(
     {
       slug: COMMAND_CODE_DEFAULT_MODEL,
       name: cliDefault ? `Default (${cliDefault})` : "Default",
-      shortName: "Default",
+      shortName: cliDefault ? `Default · ${cliDefault.split("/").at(-1)}` : "Default",
       isCustom: false,
       isDefault: true,
       capabilities: null,
