@@ -6,7 +6,7 @@ machine. That machine must stay running and reachable while you work.
 ## Connect your phone
 
 Install **T3 Code** from the App Store or Google Play; it works with ViewCode.
-No account or T3 Connect is needed.
+Local network pairing needs no account or T3 Connect.
 
 1. On the computer, choose **Connect phone** in the sidebar footer, the command
    palette, or at the top of **Settings → Connections**.
@@ -14,18 +14,26 @@ No account or T3 Connect is needed.
    once and reopens on the code.
 3. In the mobile app, tap **Add environment** and scan the code.
 
-The phone must be on the same Wi-Fi. Away from home, install
-[Tailscale](https://tailscale.com) on both devices; the dialog then offers the
-tailnet address. Each code works once for five minutes; choose **New code** for
-another phone. **Turn off phone access** in the same dialog restarts ViewCode
+Local network pairing requires the same Wi-Fi, or
+[Tailscale](https://tailscale.com) on both devices. To connect over mobile data
+without Tailscale, choose **Anywhere · T3 Connect** in the same dialog. Sign in
+and turn it on; ViewCode links this computer and sets up its connection helper.
+If network access is off, the dialog first offers a restart. Wait for active
+work to finish before restarting. On your phone, sign in to the same T3 Connect
+account and select the computer. Keep the computer awake, online and ViewCode running.
+
+Each local pairing code works once for five minutes; choose **New code** for
+another phone. **Turn off local network access** in the same dialog restarts ViewCode
 with no network port again. Phones you already paired stay listed under
 **Settings → Connections → Authorized clients**, where you can revoke them.
 
 ## T3 Connect
 
 T3 Connect makes an environment available to your other devices without setting
-up router forwarding. In the desktop app on the host, open **Settings →
-Connections**, sign in, and enable **T3 Connect** for that environment.
+up router forwarding. In the desktop app on the host, open **Connect phone →
+Anywhere · T3 Connect**, then choose **Sign in and turn on T3 Connect**. You can
+also manage it in **Settings → Connections**. Builds without T3 Connect
+configuration explain that requirement in the dialog and still support local pairing.
 
 For a command-line host, run:
 

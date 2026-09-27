@@ -207,6 +207,17 @@ export const ManagedRelayClientError = Schema.Union([
 ]);
 export type ManagedRelayClientError = typeof ManagedRelayClientError.Type;
 
+const isManagedRelayRequestFailed = Schema.is(ManagedRelayRequestFailedError);
+
+/** Retry the entire handshake: link challenges and proofs are single-use. */
+export function isRetryableEnvironmentLinkFailure(error: unknown): boolean {
+  return (
+    isManagedRelayRequestFailed(error) &&
+    error.relayError?._tag === "RelayEnvironmentLinkUnavailableError" &&
+    error.relayError.reason === "managed_endpoint_provisioning_failed"
+  );
+}
+
 type RelayHttpRequestError =
   | RelayProtectedErrorType
   | HttpClientError.HttpClientError
@@ -223,6 +234,9 @@ export class ManagedRelayDpopSigner extends Context.Service<
 >()("@t3tools/client-runtime/relay/managedRelay/ManagedRelayDpopSigner") {}
 
 export const MANAGED_RELAY_REQUEST_TIMEOUT_MS = 10_000;
+// Creating a tunnel can involve several Cloudflare requests. Match the server's
+// provisioning budget; ordinary relay reads should still fail promptly.
+const MANAGED_RELAY_PROVISION_TIMEOUT_MS = 120_000;
 
 export interface ManagedRelayAccessTokenCacheEntry {
   readonly accountId: string;
@@ -333,12 +347,15 @@ function isRejectedDpopAccessToken(error: ManagedRelayClientError): boolean {
   );
 }
 
-function timeoutRelayRequest(activity: ManagedRelayRequestActivity) {
+function timeoutRelayRequest(
+  activity: ManagedRelayRequestActivity,
+  timeoutMs = MANAGED_RELAY_REQUEST_TIMEOUT_MS,
+) {
   return <A, E, R>(
     effect: Effect.Effect<A, E, R>,
   ): Effect.Effect<A, E | ManagedRelayClientError, R> =>
     effect.pipe(
-      Effect.timeoutOption(Duration.millis(MANAGED_RELAY_REQUEST_TIMEOUT_MS)),
+      Effect.timeoutOption(Duration.millis(timeoutMs)),
       Effect.flatMap(
         Option.match({
           onNone: () =>
@@ -349,7 +366,7 @@ function timeoutRelayRequest(activity: ManagedRelayRequestActivity) {
                 Effect.fail(
                   new ManagedRelayRequestTimeoutError({
                     activity,
-                    timeoutMs: MANAGED_RELAY_REQUEST_TIMEOUT_MS,
+                    timeoutMs,
                     traceId,
                   }),
                 ),
@@ -762,7 +779,7 @@ export const make = Effect.fn("ManagedRelayClient.make")(function* (
           })
           .pipe(
             Effect.mapError(relayRequestError("link relay environment")),
-            timeoutRelayRequest("Relay environment linking"),
+            timeoutRelayRequest("Relay environment linking", MANAGED_RELAY_PROVISION_TIMEOUT_MS),
           );
       },
       Effect.withSpan("clientRuntime.managedRelay.linkEnvironment"),

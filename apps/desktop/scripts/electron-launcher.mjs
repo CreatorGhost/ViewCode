@@ -15,12 +15,12 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "ViewCode (Dev)" : "ViewCode (Alpha)";
 const APP_BUNDLE_ID = isDevelopment
-  ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
-  : "com.t3tools.t3code";
+  ? `dev.viewcode.app.dev.${devBundleIdSuffix || "local"}`
+  : "dev.viewcode.app";
 const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
-const LAUNCHER_VERSION = 19;
+const LAUNCHER_VERSION = 20;
 const developmentMacIconPngPath = NodePath.join(
   repoRoot,
   "assets",

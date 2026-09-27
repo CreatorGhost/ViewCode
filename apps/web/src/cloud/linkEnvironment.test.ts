@@ -152,6 +152,59 @@ afterEach(() => {
 });
 
 describe("web cloud link environment client", () => {
+  it.effect("preserves recovery guidance when the relay link response is unreadable", () =>
+    Effect.gen(function* () {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json({ challenge: "challenge", expiresAt: "2026-06-06T00:05:00.000Z" }),
+        )
+        .mockResolvedValueOnce(Response.json("signed-proof"))
+        .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = yield* withServices(
+        linkPrimaryEnvironmentToCloud({ target: TARGET, clerkToken: "clerk-token" }),
+      ).pipe(Effect.flip);
+
+      expect(error.message).toContain("Could not turn on T3 Connect.");
+      expect(error.message).toContain("Try again.");
+      expect(error.message).not.toContain("/v1/client/");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    }),
+  );
+
+  it.effect("keeps the relay rejection reason and trace ID in the setup error", () =>
+    Effect.gen(function* () {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json({ challenge: "challenge", expiresAt: "2026-06-06T00:05:00.000Z" }),
+        )
+        .mockResolvedValueOnce(Response.json("signed-proof"))
+        .mockResolvedValueOnce(
+          Response.json(
+            {
+              _tag: "RelayEnvironmentLinkProofInvalidError",
+              code: "environment_link_proof_invalid",
+              reason: "origin_not_allowed",
+              traceId: "relay-trace-123",
+            },
+            { status: 400 },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = yield* withServices(
+        linkPrimaryEnvironmentToCloud({ target: TARGET, clerkToken: "clerk-token" }),
+      ).pipe(Effect.flip);
+
+      expect(error.message).toContain("origin_not_allowed");
+      expect(error.traceId).toBe("relay-trace-123");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    }),
+  );
+
   it.effect("reads primary cloud link state from the explicit target", () =>
     Effect.gen(function* () {
       const fetchMock = vi.fn().mockResolvedValue(
@@ -296,6 +349,92 @@ describe("web cloud link environment client", () => {
           wsBaseUrl: TARGET.wsBaseUrl,
         },
       });
+    }),
+  );
+
+  it.effect("retries provisioning once with a fresh challenge and proof", () =>
+    Effect.gen(function* () {
+      let challenges = 0;
+      let links = 0;
+      const proofs: string[] = [];
+      const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url).endsWith("/environment-link-challenges")) {
+          challenges += 1;
+          return Response.json({
+            challenge: `challenge-${challenges}`,
+            expiresAt: "2026-06-06T00:05:00.000Z",
+          });
+        }
+        if (String(url).endsWith("/link-proof")) {
+          const payload = JSON.parse(bodyText(init?.body));
+          return Response.json(`proof-for-${payload.challenge}`);
+        }
+        if (String(url).endsWith("/environment-links")) {
+          links += 1;
+          proofs.push(JSON.parse(bodyText(init?.body)).proof);
+          if (links === 1) {
+            return Response.json(
+              {
+                _tag: "RelayEnvironmentLinkUnavailableError",
+                code: "environment_link_unavailable",
+                reason: "managed_endpoint_provisioning_failed",
+                traceId: "first-attempt",
+              },
+              { status: 503 },
+            );
+          }
+          return Response.json({
+            ok: true,
+            environmentId: TARGET.environmentId,
+            cloudUserId: "user-1",
+            endpoint: {
+              httpBaseUrl: "https://desktop.example.test",
+              wsBaseUrl: "wss://desktop.example.test",
+              providerKind: "cloudflare_tunnel",
+            },
+            endpointRuntime: null,
+            relayIssuer: "https://relay.example.test",
+            environmentCredential: "credential",
+            cloudMintPublicKey: "key",
+          });
+        }
+        return Response.json({ ok: true, endpointRuntimeStatus: { status: "configured" } });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      yield* withServices(
+        linkPrimaryEnvironmentToCloud({ target: TARGET, clerkToken: "clerk-token" }),
+      );
+      expect(proofs).toEqual(["proof-for-challenge-1", "proof-for-challenge-2"]);
+      expect(fetchMock).toHaveBeenCalledTimes(7);
+    }),
+  );
+
+  it.effect("stops after two provisioning attempts and preserves the final trace", () =>
+    Effect.gen(function* () {
+      let attempts = 0;
+      const fetchMock = vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/environment-link-challenges")) {
+          return Response.json({ challenge: "challenge", expiresAt: "2026-06-06T00:05:00.000Z" });
+        }
+        if (String(url).endsWith("/link-proof")) return Response.json("proof");
+        attempts += 1;
+        return Response.json(
+          {
+            _tag: "RelayEnvironmentLinkUnavailableError",
+            code: "environment_link_unavailable",
+            reason: "managed_endpoint_provisioning_failed",
+            traceId: `attempt-${attempts}`,
+          },
+          { status: 503 },
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const error = yield* withServices(
+        linkPrimaryEnvironmentToCloud({ target: TARGET, clerkToken: "clerk-token" }),
+      ).pipe(Effect.flip);
+      expect(attempts).toBe(2);
+      expect(error.traceId).toBe("attempt-2");
+      expect(fetchMock).toHaveBeenCalledTimes(6);
     }),
   );
 

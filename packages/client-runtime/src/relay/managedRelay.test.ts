@@ -539,6 +539,48 @@ describe("ManagedRelayClient", () => {
     }).pipe(Effect.provide(Layer.merge(TestClock.layer(), managedRelayTestLayer(fetchFn))));
   });
 
+  it.effect("allows tunnel provisioning to finish after the normal request timeout", () => {
+    let complete: (response: Response) => void = () => undefined;
+    const response = new Promise<Response>((resolve) => {
+      complete = resolve;
+    });
+    const fetchFn = (() => response) satisfies typeof globalThis.fetch;
+    return Effect.gen(function* () {
+      const relayClient = yield* ManagedRelay.ManagedRelayClient;
+      const fiber = yield* relayClient
+        .linkEnvironment({
+          clerkToken: "clerk-token",
+          payload: {
+            proof: "proof",
+            notificationsEnabled: true,
+            liveActivitiesEnabled: true,
+            managedTunnelsEnabled: true,
+          },
+        })
+        .pipe(Effect.result, Effect.forkScoped);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.seconds(20));
+      complete(
+        Response.json({
+          ok: true,
+          environmentId: "env-1",
+          cloudUserId: "user-1",
+          relayIssuer: "https://relay.example.test",
+          environmentCredential: "credential",
+          cloudMintPublicKey: "key",
+          endpoint: {
+            httpBaseUrl: "https://desktop.example.test",
+            wsBaseUrl: "wss://desktop.example.test",
+            providerKind: "cloudflare_tunnel",
+          },
+          endpointRuntime: null,
+        }),
+      );
+      const result = yield* Fiber.join(fiber);
+      expect(result._tag).toBe("Success");
+    }).pipe(Effect.provide(Layer.merge(TestClock.layer(), managedRelayTestLayer(fetchFn))));
+  });
+
   it.effect("suggests checking network filtering when fetch fails without a response", () => {
     const fetchFn = (() =>
       Promise.reject(new TypeError("Failed to fetch"))) satisfies typeof globalThis.fetch;

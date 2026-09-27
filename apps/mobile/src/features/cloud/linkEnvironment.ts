@@ -171,50 +171,64 @@ export function linkEnvironmentToCloudWithPreference(
       Effect.mapError(cloudEnvironmentLinkError("Could not load the mobile device id.")),
     );
     const liveActivitiesEnabled = input.liveActivitiesEnabled;
-    const challenge = yield* relayClient
-      .createEnvironmentLinkChallenge({
-        clerkToken: input.clerkToken,
-        payload: {
-          notificationsEnabled: true,
-          liveActivitiesEnabled,
-          managedTunnelsEnabled: true,
-        },
-      })
-      .pipe(
-        Effect.mapError(
-          decodedRelayClientError(`${relayUrl}/v1/client/environment-link-challenges failed`),
-        ),
-      );
     const environmentClient = yield* makeEnvironmentHttpApiClient(input.connection.httpBaseUrl);
-    const proof = yield* environmentClient.connect
-      .linkProof({
-        headers: { authorization: `Bearer ${localBearerToken}` },
-        payload: {
-          challenge: challenge.challenge,
-          relayIssuer: relayUrl,
-          endpoint: {
-            httpBaseUrl: input.connection.httpBaseUrl,
-            wsBaseUrl: input.connection.wsBaseUrl,
-            providerKind: MANAGED_ENDPOINT_PROVIDER_KIND,
+    // Provisioning can race tunnel cleanup. Repeat the handshake once; a proof
+    // consumed by the relay cannot be reused, and local config is applied only
+    // after a successful link.
+    const link = yield* Effect.gen(function* () {
+      const challenge = yield* relayClient
+        .createEnvironmentLinkChallenge({
+          clerkToken: input.clerkToken,
+          payload: {
+            notificationsEnabled: true,
+            liveActivitiesEnabled,
+            managedTunnelsEnabled: true,
           },
-          origin: endpointOrigin(input.connection.httpBaseUrl),
-        },
-      })
-      .pipe(Effect.mapError(cloudEnvironmentLinkError("Could not obtain environment link proof.")));
-    const link = yield* relayClient
-      .linkEnvironment({
-        clerkToken: input.clerkToken,
-        payload: {
-          deviceId,
-          proof,
-          notificationsEnabled: true,
-          liveActivitiesEnabled,
-          managedTunnelsEnabled: true,
-        },
-      })
-      .pipe(
-        Effect.mapError(decodedRelayClientError(`${relayUrl}/v1/client/environment-links failed`)),
-      );
+        })
+        .pipe(
+          Effect.mapError(
+            decodedRelayClientError(`${relayUrl}/v1/client/environment-link-challenges failed`),
+          ),
+        );
+      const proof = yield* environmentClient.connect
+        .linkProof({
+          headers: { authorization: `Bearer ${localBearerToken}` },
+          payload: {
+            challenge: challenge.challenge,
+            relayIssuer: relayUrl,
+            endpoint: {
+              httpBaseUrl: input.connection.httpBaseUrl,
+              wsBaseUrl: input.connection.wsBaseUrl,
+              providerKind: MANAGED_ENDPOINT_PROVIDER_KIND,
+            },
+            origin: endpointOrigin(input.connection.httpBaseUrl),
+          },
+        })
+        .pipe(
+          Effect.mapError(cloudEnvironmentLinkError("Could not obtain environment link proof.")),
+        );
+      return yield* relayClient
+        .linkEnvironment({
+          clerkToken: input.clerkToken,
+          payload: {
+            deviceId,
+            proof,
+            notificationsEnabled: true,
+            liveActivitiesEnabled,
+            managedTunnelsEnabled: true,
+          },
+        })
+        .pipe(
+          Effect.mapError(
+            decodedRelayClientError(`${relayUrl}/v1/client/environment-links failed`),
+          ),
+        );
+    }).pipe(
+      Effect.retry({
+        times: 1,
+        while: (error) => ManagedRelay.isRetryableEnvironmentLinkFailure(error.cause),
+      }),
+    );
     yield* ensureLinkedEnvironmentMatches({
       expectedEnvironmentId: input.connection.environmentId,
       expectedProviderKind: MANAGED_ENDPOINT_PROVIDER_KIND,

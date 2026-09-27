@@ -117,10 +117,20 @@ function decodedRelayClientError(message: string) {
   return (cause: ManagedRelay.ManagedRelayClientError) => {
     const relayError =
       cause._tag === "ManagedRelayRequestFailedError" ? cause.relayError : undefined;
-    const traceId = cause._tag === "ManagedRelayRequestFailedError" ? cause.traceId : undefined;
-    const detail = relayError ? relayProtectedErrorMessage(relayError) : null;
+    const traceId =
+      cause._tag === "ManagedRelayRequestFailedError" ||
+      cause._tag === "ManagedRelayRequestTimeoutError"
+        ? cause.traceId
+        : undefined;
+    // A browser can hide a relay error response behind CORS. Keep recovery
+    // guidance even when there is no typed response to decode.
+    const detail = relayError
+      ? relayProtectedErrorMessage(relayError)
+      : cause._tag === "ManagedRelayRequestFailedError" && cause.transportFailed
+        ? "The relay response could not be read. Try again. If it keeps failing, check your internet connection or try another network."
+        : cause.message;
     return new CloudEnvironmentLinkError({
-      message: detail ? `${message}: ${detail}` : message,
+      message: `${message} ${detail}`,
       cause,
       ...(traceId ? { traceId } : {}),
     });
@@ -279,52 +289,52 @@ export function linkPrimaryEnvironmentToCloud(input: {
       yield* ensureRelayClientAvailable(EnvironmentId.make(input.target.environmentId));
     }
 
-    const challenge = yield* relayClient
-      .createEnvironmentLinkChallenge({
-        clerkToken: input.clerkToken,
-        payload: {
-          notificationsEnabled: true,
-          liveActivitiesEnabled: true,
-          managedTunnelsEnabled,
-        },
-      })
-      .pipe(
-        Effect.mapError(
-          decodedRelayClientError(
-            `${configuredRelayUrl}/v1/client/environment-link-challenges failed`,
-          ),
-        ),
-      );
-    const proof = yield* environmentClient.connect
-      .linkProof({
-        headers: {},
-        payload: {
-          challenge: challenge.challenge,
-          relayIssuer: configuredRelayUrl,
-          endpoint: {
-            httpBaseUrl: input.target.httpBaseUrl,
-            wsBaseUrl: input.target.wsBaseUrl,
-            providerKind,
+    // Provisioning can race tunnel cleanup. Repeat the handshake once; a proof
+    // consumed by the relay cannot be reused, and local config is applied only
+    // after a successful link.
+    const link = yield* Effect.gen(function* () {
+      const challenge = yield* relayClient
+        .createEnvironmentLinkChallenge({
+          clerkToken: input.clerkToken,
+          payload: {
+            notificationsEnabled: true,
+            liveActivitiesEnabled: true,
+            managedTunnelsEnabled,
           },
-          origin: endpointOrigin(input.target.httpBaseUrl),
-        },
-      })
-      .pipe(Effect.mapError(environmentApiError("Could not obtain environment link proof.")));
-    const link = yield* relayClient
-      .linkEnvironment({
-        clerkToken: input.clerkToken,
-        payload: {
-          proof,
-          notificationsEnabled: true,
-          liveActivitiesEnabled: true,
-          managedTunnelsEnabled,
-        },
-      })
-      .pipe(
-        Effect.mapError(
-          decodedRelayClientError(`${configuredRelayUrl}/v1/client/environment-links failed`),
-        ),
-      );
+        })
+        .pipe(Effect.mapError(decodedRelayClientError("Could not start T3 Connect setup.")));
+      const proof = yield* environmentClient.connect
+        .linkProof({
+          headers: {},
+          payload: {
+            challenge: challenge.challenge,
+            relayIssuer: configuredRelayUrl,
+            endpoint: {
+              httpBaseUrl: input.target.httpBaseUrl,
+              wsBaseUrl: input.target.wsBaseUrl,
+              providerKind,
+            },
+            origin: endpointOrigin(input.target.httpBaseUrl),
+          },
+        })
+        .pipe(Effect.mapError(environmentApiError("Could not obtain environment link proof.")));
+      return yield* relayClient
+        .linkEnvironment({
+          clerkToken: input.clerkToken,
+          payload: {
+            proof,
+            notificationsEnabled: true,
+            liveActivitiesEnabled: true,
+            managedTunnelsEnabled,
+          },
+        })
+        .pipe(Effect.mapError(decodedRelayClientError("Could not turn on T3 Connect.")));
+    }).pipe(
+      Effect.retry({
+        times: 1,
+        while: (error) => ManagedRelay.isRetryableEnvironmentLinkFailure(error.cause),
+      }),
+    );
     yield* ensureLinkedEnvironmentMatches({
       expectedEnvironmentId: input.target.environmentId,
       expectedProviderKind: providerKind,

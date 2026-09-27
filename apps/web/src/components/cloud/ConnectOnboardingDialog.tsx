@@ -13,6 +13,7 @@ import { usePrimarySessionState } from "~/environments/primary";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useEnvironments, usePrimaryEnvironment } from "~/state/environments";
 import { CloudEnvironmentConnectRows } from "./CloudEnvironmentConnectList";
+import { useConnectPhoneDialogOpen } from "../connectPhone/ConnectPhoneDialog";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Dialog } from "../ui/dialog";
@@ -38,6 +39,7 @@ export function ConnectOnboardingDialog() {
 type OnboardingStep = "publish" | "devices";
 
 function ConfiguredConnectOnboardingDialog() {
+  const phoneSetupOpen = useConnectPhoneDialogOpen();
   // Mirrors ManagedRelayAuthProvider: a pending Clerk session must not read as
   // signed-out, or its later activation would look like a fresh sign-in.
   const { isLoaded, isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false });
@@ -95,10 +97,16 @@ function ConfiguredConnectOnboardingDialog() {
     const previousAccount = observedAccountRef.current;
     const nextAccount = isSignedIn && userId ? userId : null;
     observedAccountRef.current = nextAccount;
-    if (previousAccount !== undefined && previousAccount !== nextAccount && nextAccount !== null) {
+    // Connect phone owns its sign-in and setup; do not open a competing wizard.
+    if (
+      !phoneSetupOpen &&
+      previousAccount !== undefined &&
+      previousAccount !== nextAccount &&
+      nextAccount !== null
+    ) {
       setRequestedAccount(nextAccount);
     }
-  }, [isLoaded, isSignedIn, userId]);
+  }, [isLoaded, isSignedIn, phoneSetupOpen, userId]);
 
   // A manageable session implies a primary environment, so when the scopes
   // allow publishing, wait for the connection target too — otherwise the

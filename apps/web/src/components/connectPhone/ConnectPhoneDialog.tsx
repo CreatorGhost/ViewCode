@@ -1,7 +1,7 @@
 import { AuthAccessWriteScope, type AuthPairingCredentialResult } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { CheckIcon, CopyIcon, SmartphoneIcon, TriangleAlertIcon } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -35,6 +35,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group"
 import { QRCodeSvg } from "../ui/qr-code";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { T3ConnectPhone } from "./T3ConnectPhone";
 import {
   CONNECT_PHONE_RESUME_KEY,
   type ConnectPhoneState,
@@ -44,16 +46,26 @@ import {
   shouldResumeConnectPhone,
 } from "./connectPhone.logic";
 
-const useConnectPhoneDialogStore = create<{ open: boolean }>(() => ({ open: false }));
+type ConnectionMode = "local" | "cloud";
+const CONNECT_PHONE_MODE_KEY = "viewcode:connect-phone-mode";
+const useConnectPhoneDialogStore = create<{ open: boolean; mode: ConnectionMode }>(() => ({
+  open: false,
+  mode: "local",
+}));
 
 /** Opens the Connect phone dialog from anywhere (sidebar, command palette, settings). */
 export function openConnectPhoneDialog(): void {
   useConnectPhoneDialogStore.setState({ open: true });
 }
 
+export function useConnectPhoneDialogOpen(): boolean {
+  return useConnectPhoneDialogStore((state) => state.open);
+}
+
 function writeResumeFlag(): void {
   try {
     window.localStorage.setItem(CONNECT_PHONE_RESUME_KEY, String(Date.now()));
+    window.localStorage.setItem(CONNECT_PHONE_MODE_KEY, useConnectPhoneDialogStore.getState().mode);
   } catch {
     // Without storage the relaunched app just doesn't reopen the dialog.
   }
@@ -64,7 +76,12 @@ function takeResumeFlag(): boolean {
     const stored = window.localStorage.getItem(CONNECT_PHONE_RESUME_KEY);
     if (stored === null) return false;
     window.localStorage.removeItem(CONNECT_PHONE_RESUME_KEY);
-    return shouldResumeConnectPhone(stored, Date.now());
+    const resume = shouldResumeConnectPhone(stored, Date.now());
+    if (resume && window.localStorage.getItem(CONNECT_PHONE_MODE_KEY) === "cloud") {
+      useConnectPhoneDialogStore.setState({ mode: "cloud" });
+    }
+    window.localStorage.removeItem(CONNECT_PHONE_MODE_KEY);
+    return resume;
   } catch {
     return false;
   }
@@ -73,6 +90,7 @@ function takeResumeFlag(): boolean {
 function clearResumeFlag(): void {
   try {
     window.localStorage.removeItem(CONNECT_PHONE_RESUME_KEY);
+    window.localStorage.removeItem(CONNECT_PHONE_MODE_KEY);
   } catch {
     // Nothing to clear.
   }
@@ -81,6 +99,7 @@ function clearResumeFlag(): void {
 /** Mounted once at the app root. Reopens the dialog after a "Turn on and restart" relaunch. */
 export function ConnectPhoneDialogHost() {
   const open = useConnectPhoneDialogStore((state) => state.open);
+  const authContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (takeResumeFlag()) openConnectPhoneDialog();
   }, []);
@@ -90,8 +109,10 @@ export function ConnectPhoneDialogHost() {
       onOpenChange={(next) => useConnectPhoneDialogStore.setState({ open: next })}
     >
       {/* The popup mounts its content only while open, so nothing below runs when closed. */}
-      <DialogPopup className="max-w-md">
-        <ConnectPhoneDialogContent />
+      <DialogPopup className="max-w-md has-[[data-phone-auth-container]:not(:empty)]:h-[min(620px,calc(100dvh-2rem))]">
+        <ConnectPhoneDialogContent authContainerRef={authContainerRef} />
+        {/* Outside the scrolling panel, inside the dialog's focus scope. */}
+        <div ref={authContainerRef} data-phone-auth-container="" />
       </DialogPopup>
     </Dialog>
   );
@@ -141,8 +162,13 @@ function useConnectPhoneState(): ConnectPhoneState {
   return resolveConnectPhoneState({ desktop: null, web });
 }
 
-function ConnectPhoneDialogContent() {
+function ConnectPhoneDialogContent({
+  authContainerRef,
+}: {
+  authContainerRef: RefObject<HTMLDivElement | null>;
+}) {
   const state = useConnectPhoneState();
+  const mode = useConnectPhoneDialogStore((value) => value.mode);
   const [pendingMode, setPendingMode] = useState<"on" | "off" | null>(null);
   const [confirmingTurnOff, setConfirmingTurnOff] = useState(false);
   const [exposureError, setExposureError] = useState<string | null>(null);
@@ -171,8 +197,40 @@ function ConnectPhoneDialogContent() {
       <DialogHeader>
         <DialogTitle>Connect phone</DialogTitle>
         <DialogDescription>Control ViewCode from the T3 Code mobile app.</DialogDescription>
+        <ToggleGroup
+          aria-label="Phone connection method"
+          value={[mode]}
+          disabled={pendingMode !== null}
+          onValueChange={(values) => {
+            const next = values[0];
+            if (next === "local" || next === "cloud") {
+              useConnectPhoneDialogStore.setState({ mode: next });
+            }
+          }}
+        >
+          <Toggle value="local">Local network</Toggle>
+          <Toggle value="cloud">Anywhere · T3 Connect</Toggle>
+        </ToggleGroup>
       </DialogHeader>
-      {state.kind === "ready" ? (
+      {mode === "cloud" ? (
+        <DialogPanel>
+          <T3ConnectPhone
+            authContainerRef={authContainerRef}
+            isLoading={state.kind === "loading"}
+            needsNetworkAccess={
+              state.kind === "needs-network-access" ||
+              (Boolean(window.desktopBridge) && state.kind === "ready" && !state.canTurnOff)
+            }
+            isRestarting={pendingMode !== null}
+            onEnableNetworkAccess={() => void setNetworkAccess(true)}
+          />
+          {exposureError ? (
+            <Alert variant="error">
+              <AlertDescription>{exposureError}</AlertDescription>
+            </Alert>
+          ) : null}
+        </DialogPanel>
+      ) : state.kind === "ready" ? (
         <ReadyBody endpoints={state.endpoints}>
           {exposureError ? (
             <Alert variant="error">
@@ -190,7 +248,7 @@ function ConnectPhoneDialogContent() {
           ) : null}
         </DialogPanel>
       )}
-      {state.kind === "needs-network-access" ? (
+      {mode === "cloud" ? null : state.kind === "needs-network-access" ? (
         <DialogFooter>
           <Button disabled={pendingMode !== null} onClick={() => void setNetworkAccess(true)}>
             {pendingMode === "on" ? <Spinner size="sm" /> : null}
@@ -202,7 +260,7 @@ function ConnectPhoneDialogContent() {
           {confirmingTurnOff ? (
             <>
               <p className="self-center text-xs text-muted-foreground">
-                Phones stop connecting. ViewCode restarts.
+                Local-network connections will stop. ViewCode restarts.
               </p>
               <div className="flex flex-col-reverse gap-2 sm:flex-row">
                 <Button
@@ -224,7 +282,7 @@ function ConnectPhoneDialogContent() {
             </>
           ) : (
             <Button variant="ghost-destructive" onClick={() => setConfirmingTurnOff(true)}>
-              Turn off phone access
+              Turn off local network access
             </Button>
           )}
         </DialogFooter>
@@ -521,8 +579,8 @@ function ReadyBody({
           )}
         </div>
         <p>
-          Works when your phone is on the same Wi-Fi. Away from home, install Tailscale on both
-          devices. No account or T3 Connect needed.
+          Local addresses work on the same Wi-Fi; Tailscale addresses work on your tailnet. Choose
+          Anywhere · T3 Connect above to use mobile data without Tailscale.
         </p>
       </div>
       {children}
