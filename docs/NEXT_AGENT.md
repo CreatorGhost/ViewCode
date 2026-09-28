@@ -31,8 +31,8 @@ reference them).
 - Clean start. No junk imported from provider session files. Import only from
   T3 Code (or ViewCode itself) when the user asks.
 - Use each vendor's own subscription (GPT via Codex, not via Command Code).
-- Command Code credits may be read from `~/.commandcode/auth.json`, local only,
-  opt-in, every read logged, the key never logged.
+- Command Code usage reads the existing local login by default for enabled
+  providers, with an explicit off switch. Every read is logged, never the key.
 
 ## Run it
 

@@ -18,6 +18,66 @@ import {
 const checkedAt = "2026-09-26T00:00:00.000Z";
 
 describe("commandCodeUsageToLimits", () => {
+  it("uses measured monthly spend and includes the five-hour and weekly API limits", () => {
+    const limits = commandCodeUsageToLimits(
+      {
+        credits: {
+          credits: { monthlyCredits: 20, purchasedCredits: 50, freeCredits: 10 },
+          windowLimits: {
+            fiveHour: { used: 7, cap: 14, resetAt: 1790546400000 },
+            weekly: { used: 21, cap: 35, resetAt: 1790546400 },
+          },
+        },
+        subscription: {
+          data: {
+            planId: "individual-goat",
+            status: "active",
+            currentPeriodEnd: "2026-10-01T00:00:00Z",
+          },
+        },
+        summary: { totalCost: 60 },
+      },
+      checkedAt,
+    );
+    expect(limits.windows).toMatchObject([
+      { id: "fiveHour", kind: "session", usedPercent: 50, resetsAt: "2026-09-27T22:00:00.000Z" },
+      { id: "weekly", kind: "weekly", usedPercent: 60, resetsAt: "2026-09-27T22:00:00.000Z" },
+      { id: "credits", kind: "monthly", usedPercent: 75, label: "GOAT monthly · $20.00 left" },
+    ]);
+  });
+
+  it("does not invent monthly usage when billing reads fail", () => {
+    const limits = commandCodeUsageToLimits(
+      {
+        credits: null,
+        subscription: { data: { planId: "individual-goat", status: "active" } },
+        summary: null,
+      },
+      checkedAt,
+    );
+    expect(limits.unavailable?.reason).toBe("probeFailed");
+    expect(limits.windows).toEqual([]);
+  });
+
+  it("omits zero-cap windows and absent reset timestamps", () => {
+    const limits = commandCodeUsageToLimits(
+      {
+        credits: {
+          credits: { monthlyCredits: 0 },
+          windowLimits: {
+            fiveHour: { used: 1, cap: 0, resetAt: 0 },
+            weekly: { used: 0, cap: 35, resetAt: 0 },
+          },
+        },
+        subscription: null,
+        summary: { totalCost: 0 },
+      },
+      checkedAt,
+    );
+    expect(limits.windows).toEqual([
+      { id: "weekly", kind: "weekly", label: "Weekly", usedPercent: 0, windowDurationMins: 10080 },
+    ]);
+  });
   it("reports dollars left and the share of an active plan already used", () => {
     const limits = commandCodeUsageToLimits(
       {
@@ -34,7 +94,7 @@ describe("commandCodeUsageToLimits", () => {
       checkedAt,
     );
     const [window] = limits.windows;
-    expect(window?.label).toBe("Pro credits · $7.50 left");
+    expect(window?.label).toBe("Pro monthly · $7.50 left");
     expect(window?.usedPercent).toBe(75);
     expect(window?.resetsAt).toBe("2026-10-01T00:00:00.000Z");
   });
@@ -42,14 +102,14 @@ describe("commandCodeUsageToLimits", () => {
   it("uses spend plus balance without an active plan, and reports failure without data", () => {
     const limits = commandCodeUsageToLimits(
       {
-        credits: { credits: { monthlyCredits: 0, purchasedCredits: 5, freeCredits: 0 } },
+        credits: { credits: { monthlyCredits: 5, purchasedCredits: 10, freeCredits: 0 } },
         subscription: null,
         summary: { totalCost: 15 },
       },
       checkedAt,
     );
     expect(limits.windows[0]?.usedPercent).toBe(75);
-    expect(limits.windows[0]?.label).toBe("Credits · $5.00 left");
+    expect(limits.windows[0]?.label).toBe("Monthly · $5.00 left");
     expect(
       commandCodeUsageToLimits({ credits: null, subscription: null, summary: null }, checkedAt)
         .unavailable?.reason,
@@ -59,9 +119,8 @@ describe("commandCodeUsageToLimits", () => {
   it("matches plan ids by their longest prefix", () => {
     expect(commandCodePlan("individual-pro-v1-annual")).toEqual({
       name: "Pro",
-      monthlyCredits: 80,
     });
-    expect(commandCodePlan("INDIVIDUAL_MAX")).toEqual({ name: "Max", monthlyCredits: 150 });
+    expect(commandCodePlan("INDIVIDUAL_MAX")).toEqual({ name: "Max" });
     expect(commandCodePlan("enterprise")).toBeNull();
   });
 });
@@ -114,11 +173,90 @@ const writeAuthFile = (contents: string | undefined) =>
     return home;
   });
 
-const CREDENTIAL_LOG = "Command Code credits: read credential file (opt-in)";
-const BILLING_LOG = "Command Code credits: read billing API (opt-in)";
+const CREDENTIAL_LOG = "Command Code credits: read credential file (enabled)";
+const BILLING_LOG = "Command Code credits: read billing API (enabled)";
 
 it.layer(NodeServices.layer)("readCommandCodeUsageLimits", (it) => {
-  it.effect("reuses a fresh reading without opening the key file again", () => {
+  it.effect("stops after a rejected identity read instead of querying an unknown account", () =>
+    Effect.gen(function* () {
+      const home = yield* writeAuthFile(`{ "apiKey": "${SECRET_KEY}" }`);
+      const requests: string[] = [];
+      const client = HttpClient.make((request) => {
+        requests.push(request.url);
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response(null, { status: 401 })),
+        );
+      });
+      const limits = yield* readCommandCodeUsageLimits({ HOME: home }).pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      expect(limits.unavailable?.message).toContain("Sign in");
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toContain("/whoami");
+    }),
+  );
+
+  it.effect("honors a rate-limit cooldown without making another billing request", () =>
+    Effect.gen(function* () {
+      const home = yield* writeAuthFile('{ "apiKey": "rate-limited-cc-account" }');
+      const requests: string[] = [];
+      const client = HttpClient.make((request) => {
+        requests.push(request.url);
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(null, { status: 429, headers: { "Retry-After": "120" } }),
+          ),
+        );
+      });
+      const read = readCommandCodeUsageLimits({ HOME: home }).pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      expect((yield* read).unavailable?.message).toContain("limiting usage requests");
+      yield* TestClock.adjust("60 seconds");
+      yield* read;
+      expect(requests).toHaveLength(1);
+      yield* TestClock.adjust("60 seconds");
+      yield* read;
+      expect(requests).toHaveLength(2);
+    }),
+  );
+
+  it.effect("reads API windows with desktop headers and a numeric billing period", () =>
+    Effect.gen(function* () {
+      const home = yield* writeAuthFile(`{ "apiKey": "${SECRET_KEY}" }`);
+      const requests: Array<string> = [];
+      const client = HttpClient.make((request) => {
+        expect(request.headers["user-agent"]).toBe("command-code-desktop");
+        expect(request.headers["x-command-code-version"]).toBe("desktop");
+        expect(request.headers.authorization).toBe(`Bearer ${SECRET_KEY}`);
+        requests.push(request.url);
+        const body = request.url.includes("/subscriptions")
+          ? { planId: "individual-goat", currentPeriodStart: 1790546400 }
+          : request.url.includes("/credits")
+            ? {
+                credits: { monthlyCredits: 20 },
+                windowLimits: { fiveHour: { used: 7, cap: 14, resetAt: 0 } },
+              }
+            : request.url.includes("/summary")
+              ? { totalCost: 60 }
+              : { org: { id: "org-1" } };
+        return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body)));
+      });
+      const limits = yield* readCommandCodeUsageLimits({ HOME: home }).pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      expect(limits.windows.map((window) => [window.id, window.usedPercent])).toEqual([
+        ["fiveHour", 50],
+        ["credits", 75],
+      ]);
+      const summary = new URL(requests.find((url) => url.includes("/summary"))!);
+      expect(summary.searchParams.get("orgId")).toBe("org-1");
+      expect(summary.searchParams.get("since")).toBe("2026-09-27T22:00:00.000Z");
+    }),
+  );
+
+  it.effect("reuses a fresh reading while checking the current login", () => {
     const logs = captureLogs();
     const http = countingHttpClient();
     return Effect.gen(function* () {
@@ -132,10 +270,28 @@ it.layer(NodeServices.layer)("readCommandCodeUsageLimits", (it) => {
 
       const second = yield* readCommandCodeUsageLimits({ HOME: home });
       expect(second).toEqual(first);
-      expect(logs.find(CREDENTIAL_LOG)).toHaveLength(1);
+      expect(logs.find(CREDENTIAL_LOG)).toHaveLength(2);
       expect(http.requests).toHaveLength(requestsAfterFirst);
       expect(logText(logs.entries)).not.toContain(SECRET_KEY);
     }).pipe(Effect.provideService(HttpClient.HttpClient, http.client), Effect.provide(logs.layer));
+  });
+
+  it.effect("does not reuse another account's cached usage after login changes or signout", () => {
+    const http = countingHttpClient();
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* writeAuthFile('{ "apiKey": "old-account" }');
+      yield* readCommandCodeUsageLimits({ HOME: home });
+      const count = http.requests.length;
+      yield* fs.writeFileString(`${home}/.commandcode/auth.json`, '{ "apiKey": "new-account" }');
+      yield* readCommandCodeUsageLimits({ HOME: home });
+      expect(http.requests.length).toBe(count * 2);
+      yield* fs.remove(`${home}/.commandcode/auth.json`);
+      expect((yield* readCommandCodeUsageLimits({ HOME: home })).unavailable?.message).toContain(
+        "Sign in",
+      );
+      expect(http.requests.length).toBe(count * 2);
+    }).pipe(Effect.provideService(HttpClient.HttpClient, http.client));
   });
 
   it.effect("logs a missing or unreadable key file and calls nothing", () => {
@@ -147,7 +303,7 @@ it.layer(NodeServices.layer)("readCommandCodeUsageLimits", (it) => {
       const noKeyHome = yield* writeAuthFile("{}");
       for (const home of [missingHome, malformedHome, noKeyHome]) {
         const limits = yield* readCommandCodeUsageLimits({ HOME: home });
-        expect(limits.unavailable?.reason).toBe("unsupported");
+        expect(limits.unavailable?.reason).toBe("probeFailed");
       }
       expect(logs.find(CREDENTIAL_LOG).map((entry) => entry.outcome)).toEqual([
         "missing",
@@ -175,7 +331,8 @@ it.layer(NodeServices.layer)("readCommandCodeUsageLimits", (it) => {
       expect(limits.unavailable?.reason).toBe("probeFailed");
       expect(logs.find(CREDENTIAL_LOG).map((entry) => entry.outcome)).toEqual(["found"]);
       const [billing] = logs.find(BILLING_LOG);
-      expect(billing?.timedOut).toBe(true);
+      expect(billing?.result).toBe("unavailable (probeFailed)");
+      expect(limits.unavailable?.message).toMatch(/could not be reached|could not read/);
       expect(billing?.keySource).toBe(`${home}/.commandcode/auth.json`);
       expect(logText(logs.entries)).not.toContain(SECRET_KEY);
     }).pipe(Effect.provide(logs.layer));

@@ -20,6 +20,7 @@ import {
   elapsedShare,
   formatResetsIn,
   limitsNotice,
+  usageRefreshNotice,
   paceOf,
   providersWithLimits,
   remainingPercent,
@@ -79,6 +80,16 @@ describe("pace", () => {
 });
 
 describe("limitsNotice", () => {
+  it("labels cached readings without hiding their usable windows", () => {
+    const limits = {
+      checkedAt: "2026-09-03T11:00:00.000Z",
+      windows: [window],
+      refreshError: "Sign in again.",
+    };
+    expect(limitsNotice(limits)).toBeNull();
+    expect(usageRefreshNotice(limits)).toBe("Showing last known usage. Sign in again.");
+    expect(usageRefreshNotice({ checkedAt: limits.checkedAt, windows: [window] })).toBeNull();
+  });
   it("explains empty bars and passes provider messages through", () => {
     const checkedAt = "2026-09-03T11:00:00.000Z";
     expect(limitsNotice({ checkedAt, windows: [window] })).toBeNull();

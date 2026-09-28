@@ -140,8 +140,48 @@ it.effect("keeps Go entitlement absence distinct from failed or malformed usage 
       );
       NodeAssert.equal(limits.unavailable?.reason, reason);
       NodeAssert.deepEqual(limits.windows, []);
+      if (status === 401) NodeAssert.match(limits.unavailable?.message ?? "", /Go subscription/);
     }
   }),
+);
+
+it.effect(
+  "honors Go rate limits and recognizes a changed account without retrying the old key",
+  () =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const client = HttpClient.make((request) => {
+        calls++;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(null, {
+              status: 429,
+              headers: { "Retry-After": "120" },
+            }),
+          ),
+        );
+      });
+      const read = (key: string) =>
+        readOpenCodeGoUsageLimits({
+          enabled: true,
+          serverUrl: "",
+          environment: {
+            OPENCODE_AUTH_CONTENT: JSON.stringify({ "opencode-go": { type: "api", key } }),
+          },
+        }).pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
+          Effect.provide(NodeServices.layer),
+        );
+      NodeAssert.match((yield* read("go-rate-a")).unavailable?.message ?? "", /cooldown/);
+      yield* read("go-rate-a");
+      NodeAssert.equal(calls, 1);
+      yield* read("go-rate-b");
+      NodeAssert.equal(calls, 2);
+      yield* TestClock.adjust("120 seconds");
+      yield* read("go-rate-a");
+      NodeAssert.equal(calls, 3);
+    }),
 );
 
 /**

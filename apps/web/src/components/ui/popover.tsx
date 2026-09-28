@@ -53,6 +53,7 @@ function PopoverPopup({
   tooltipStyle = false,
   keepMounted = false,
   anchor,
+  collisionAvoidance,
   variant = "default",
   ...props
 }: PopoverPrimitive.Popup.Props & {
@@ -66,6 +67,7 @@ function PopoverPopup({
   keepMounted?: PopoverPrimitive.Portal.Props["keepMounted"];
   anchor?: PopoverPrimitive.Positioner.Props["anchor"];
   width?: keyof typeof popoverPopupWidthClassName;
+  collisionAvoidance?: PopoverPrimitive.Positioner.Props["collisionAvoidance"];
 }) {
   // Viewport rekeys its children when the active trigger clears on close. Persistent
   // single-trigger forms need a stable container to retain drafts and submit guards.
@@ -76,6 +78,7 @@ function PopoverPopup({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
+        collisionAvoidance={collisionAvoidance}
         className="z-[130] h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-transform data-instant:transition-none"
         data-slot="popover-positioner"
         side={side}

@@ -53,7 +53,11 @@ import { useIsMobile } from "~/hooks/useMediaQuery";
 import { Button } from "../ui/button";
 import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 
+import type { ProviderInstanceEntry } from "../../providerInstances";
+import { AccountUsagePopover } from "./ComposerUsageLimitsPopover";
+
 interface ChatHeaderProps {
+  providerInstanceEntries: ReadonlyArray<ProviderInstanceEntry>;
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   draftId?: DraftId;
@@ -124,6 +128,7 @@ export function shouldShowOpenInPicker(input: {
 }
 
 export const ChatHeader = memo(function ChatHeader({
+  providerInstanceEntries,
   activeThreadEnvironmentId,
   activeThreadId,
   draftId,
@@ -522,6 +527,10 @@ export const ChatHeader = memo(function ChatHeader({
             {createPortal(headerActions, actionsContainer)}
           </MenuPopup>
         </Menu>
+        <AccountUsagePopover
+          environmentId={activeThreadEnvironmentId}
+          instanceEntries={providerInstanceEntries}
+        />
       </div>
     </div>
   );

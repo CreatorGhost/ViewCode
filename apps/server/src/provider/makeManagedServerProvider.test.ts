@@ -603,9 +603,14 @@ describe("makeManagedServerProvider", () => {
           checkProvider: Ref.updateAndGet(refreshCount, (count) => count + 1).pipe(
             Effect.map((count) =>
               count === 1
-                ? { ...refreshedSnapshot, usageLimits: probedLimits }
+                ? {
+                    ...refreshedSnapshot,
+                    auth: { status: "authenticated", email: "same@example.com" },
+                    usageLimits: probedLimits,
+                  }
                 : {
                     ...refreshedSnapshotSecond,
+                    auth: { status: "authenticated", email: "same@example.com" },
                     usageLimits: {
                       checkedAt: "2026-04-10T00:00:03.000Z",
                       windows: [],
@@ -654,5 +659,76 @@ describe("makeManagedServerProvider", () => {
         assert.deepStrictEqual(refreshed.usageLimits?.windows, [liveWindow]);
       }),
     ).pipe(Effect.provide(AlwaysRunTestLayer)),
+  );
+
+  it.effect("retains failed-probe usage only for unchanged authenticated account metadata", () =>
+    Effect.gen(function* () {
+      const oldAuth = { status: "authenticated", type: "oauth", email: "a@example.com" } as const;
+      const previousLimits = {
+        checkedAt: "2026-04-10T00:00:01.000Z",
+        windows: [{ id: "weekly", kind: "weekly", label: "Weekly", usedPercent: 70 }],
+      } as const;
+      const failedLimits = {
+        checkedAt: "2026-04-10T00:00:03.000Z",
+        windows: [],
+        unavailable: { reason: "probeFailed", message: "Sign in again." },
+      } as const;
+      const cases: ReadonlyArray<{
+        auth: ServerProvider["auth"];
+        previousAuth?: ServerProvider["auth"];
+        retain: boolean;
+        enabled?: boolean;
+      }> = [
+        { auth: oldAuth, retain: true },
+        { auth: { ...oldAuth, email: " A@Example.COM " }, retain: true },
+        { auth: { ...oldAuth, email: "b@example.com" }, retain: false },
+        { auth: { status: "authenticated", type: "oauth" }, retain: false },
+        { auth: { ...oldAuth, type: "api_key" }, retain: false },
+        { auth: { status: "unauthenticated" }, retain: false },
+        { auth: { status: "unknown" }, retain: false },
+        { auth: oldAuth, retain: false, enabled: false },
+        {
+          previousAuth: { status: "authenticated", type: "cached_token" },
+          auth: { status: "authenticated", type: "cached_token" },
+          retain: false,
+        },
+        { previousAuth: { status: "unknown" }, auth: { status: "unknown" }, retain: false },
+      ];
+      for (const scenario of cases) {
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const baseline = {
+              ...refreshedSnapshot,
+              auth: scenario.previousAuth ?? oldAuth,
+              usageLimits: previousLimits,
+            };
+            const next = yield* Ref.make<ServerProvider>(baseline);
+            const provider = yield* makeManagedServerProvider<TestSettings>({
+              resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+              getSettings: Effect.succeed({ enabled: true }),
+              streamSettings: Stream.empty,
+              haveSettingsChanged: (previous, updated) => previous.enabled !== updated.enabled,
+              initialSnapshot: () => Effect.succeed(initialSnapshot),
+              checkProvider: Ref.get(next),
+              refreshOnInterval: false,
+            });
+            yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+            yield* Ref.set(next, {
+              ...baseline,
+              enabled: scenario.enabled ?? true,
+              auth: scenario.auth,
+              usageLimits: failedLimits,
+            });
+            const snapshot = yield* provider.refresh;
+            assert.deepStrictEqual(
+              snapshot.usageLimits,
+              scenario.retain
+                ? { ...previousLimits, refreshError: "Sign in again." }
+                : failedLimits,
+            );
+          }),
+        );
+      }
+    }).pipe(Effect.provide(AlwaysRunTestLayer)),
   );
 });

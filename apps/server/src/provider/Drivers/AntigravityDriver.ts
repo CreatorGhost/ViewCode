@@ -14,6 +14,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import type { AcpError } from "effect-acp/errors";
 
@@ -49,6 +50,7 @@ import {
 import { ProviderDriverError } from "../Errors.ts";
 import { makeAntigravityAdapter } from "../Layers/AntigravityAdapter.ts";
 import { makeAntigravityProvider } from "../Layers/AntigravityProvider.ts";
+import { makeAntigravityUsageReader } from "../Layers/antigravityUsageLimits.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import {
@@ -70,6 +72,7 @@ export type AntigravityDriverEnv =
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
   | FileSystem.FileSystem
+  | HttpClient.HttpClient
   | ModelManifest.ModelManifest
   | Path.Path
   | ProviderEventLoggers
@@ -86,6 +89,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
     Effect.gen(function* () {
       const crypto = yield* Crypto.Crypto;
       const fileSystem = yield* FileSystem.FileSystem;
+      const httpClient = yield* HttpClient.HttpClient;
       const path = yield* Path.Path;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const serverConfig = yield* ServerConfig;
@@ -119,6 +123,10 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         ),
       );
       const profileDirectory = directories.profile;
+      const readUsage = makeAntigravityUsageReader({
+        profileDirectory,
+        authMethod: auth.authMethod,
+      });
       // No process of this instance exists yet, so every runtime temp
       // directory it owns is an orphan from a killed server. Older builds
       // unpacked inside the profile.
@@ -376,6 +384,11 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         stampIdentity: classifyModels,
         probe,
         auth: { type: auth.authMethod, label: antigravityAuthLabel(auth.authMethod) },
+        usageLimits: readUsage().pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+          Effect.provideService(HttpClient.HttpClient, httpClient),
+        ),
         supportsTextGeneration: isAntigravityTextGenerationAvailable(profileDirectory).pipe(
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.provideService(Path.Path, path),

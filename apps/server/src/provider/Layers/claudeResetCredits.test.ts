@@ -62,23 +62,25 @@ describe("claudeResetCreditsToContract", () => {
         NOW,
       ),
     ).toEqual({
-      availableCount: 2,
+      availableCount: 5,
+      canRedeem: true,
       nextCreditId: "grant_a",
       nextExpiresAt: "2026-10-01T00:00:00.000Z",
     });
   });
 
-  it("offers nothing to redeem without a usable next grant or an eligible account", () => {
+  it("counts banked grants without allowing redemption before they are usable", () => {
     expect(
       ClaudeResetCredits.claudeResetCreditsToContract(
         { eligible: true, next_grant_id: "grant_a", grants: [grant({ usable_now: false })] },
         NOW,
       ),
-    ).toEqual({ availableCount: 0 });
+    ).toEqual({ availableCount: 1, canRedeem: false });
     expect(
       ClaudeResetCredits.claudeResetCreditsToContract({ eligible: true, grants: [grant({})] }, NOW),
     ).toEqual({
-      availableCount: 0,
+      availableCount: 1,
+      canRedeem: false,
     });
     expect(
       ClaudeResetCredits.claudeResetCreditsToContract(
@@ -87,6 +89,30 @@ describe("claudeResetCreditsToContract", () => {
       ),
     ).toBeUndefined();
     expect(ClaudeResetCredits.claudeResetCreditsToContract(undefined, NOW)).toBeUndefined();
+  });
+  it("excludes future, expired, malformed, and paused grants but keeps a reset banked for later", () => {
+    expect(
+      ClaudeResetCredits.claudeResetCreditsToContract(
+        {
+          eligible: true,
+          next_grant_id: "future",
+          grants: [
+            grant({
+              id: "banked",
+              starts_at: "2026-09-22T12:00:00Z",
+              ends_at: "2026-10-01T00:00:00Z",
+              usable_now: false,
+            }),
+            grant({ id: "future", starts_at: "2026-09-23T00:00:00Z" }),
+            grant({ id: "invalid", starts_at: "2026-02-30T00:00:00Z" }),
+            grant({ id: "expired", ends_at: "2026-09-22T12:00:00Z" }),
+            grant({ id: "paused", paused: true }),
+            grant({ id: "used", resets_left: 0 }),
+          ],
+        },
+        NOW,
+      ),
+    ).toEqual({ availableCount: 1, canRedeem: false });
   });
 });
 
@@ -114,8 +140,27 @@ effectIt.layer(NodeServices.layer)("readClaudeResetCredits", (it) => {
         Effect.provideService(HostProcessPlatform, "linux"),
         Effect.provideService(HttpClient.HttpClient, client),
       );
-      expect(credits).toEqual({ availableCount: 1, nextCreditId: "grant_a" });
+      expect(credits).toEqual({ availableCount: 1, canRedeem: true, nextCreditId: "grant_a" });
     }),
+  );
+
+  it.effect("does not read local Desktop cache for an instance with another HOME", () =>
+    ClaudeResetCredits.readClaudeResetCredits(
+      "/instance/claude",
+      "2.1.283",
+      "/local/.claude.json",
+      { HOME: "/different-instance-home" },
+    ).pipe(
+      Effect.provideService(HostProcessPlatform, "darwin"),
+      Effect.provideService(
+        FileSystem.FileSystem,
+        FileSystem.makeNoop({
+          readFileString: () => Effect.die("must not read another HOME's account"),
+        }),
+      ),
+      Effect.provideService(HttpClient.HttpClient, refuseRequests),
+      Effect.tap((credits) => Effect.sync(() => expect(credits).toBeUndefined())),
+    ),
   );
 
   it.effect("reads nothing from keychain logins or failed requests", () =>

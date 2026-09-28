@@ -8,13 +8,17 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import * as Result from "effect/Result";
+import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import {
   clampPercent,
   makeUnavailableUsageLimits,
   makeUsageLimits,
 } from "../providerUsageLimits.ts";
 import { readMacCursorAccessToken } from "../cursorCredentialStore.ts";
+import { makeUsageHttpReader, UsageHttpError } from "../usageHttp.ts";
+
+const requestUsage = makeUsageHttpReader();
 
 const CursorCredentials = Schema.Struct({ accessToken: Schema.optional(Schema.String) });
 const DEFAULT_CURSOR_API_ENDPOINT = "https://api2.cursor.sh";
@@ -63,7 +67,9 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
   settings: Pick<CursorSettings, "apiEndpoint">,
   environment: NodeJS.ProcessEnv = process.env,
   allowKeychain = false,
-  keychainToken: () => Promise<string | null> = readMacCursorAccessToken,
+  keychainToken: (() => Promise<string | null>) & {
+    rejectToken?: (token: string) => void;
+  } = readMacCursorAccessToken,
 ) {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   return yield* Effect.gen(function* () {
@@ -76,6 +82,7 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
       DEFAULT_CURSOR_API_ENDPOINT
     ).replace(/\/$/, "");
     let token = environment.CURSOR_AUTH_TOKEN?.trim();
+    let usedKeychain = false;
     // An explicit API key can name a different account from the stored login.
     if (!token && environment.CURSOR_API_KEY?.trim()) {
       return makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
@@ -103,7 +110,25 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
           message: "Cursor account usage requires the default Cursor endpoint when using Keychain.",
         });
       }
-      token = (yield* Effect.tryPromise(keychainToken))?.trim();
+      if (environment.HOME && path.resolve(environment.HOME) !== path.resolve(NodeOS.homedir())) {
+        return makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "unsupported",
+          message:
+            "This Cursor instance uses a custom home directory. Configure CURSOR_AUTH_TOKEN or AGENT_CLI_CREDENTIAL_STORE=file for its own account usage; the system Keychain login may belong to another account.",
+        });
+      }
+      const credential = yield* Effect.tryPromise(keychainToken).pipe(Effect.result);
+      if (Result.isFailure(credential)) {
+        return makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "probeFailed",
+          message:
+            "Cursor Keychain login could not be read. Sign in with cursor-agent, then turn Cursor account usage off and on in Settings to retry. ViewCode will not repeatedly ask for Keychain access.",
+        });
+      }
+      token = credential.success?.trim();
+      usedKeychain = true;
     } else if (!token) {
       const home =
         (platform === "win32" ? environment.USERPROFILE : environment.HOME) || NodeOS.homedir();
@@ -122,10 +147,21 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
       );
       token = credentials.accessToken?.trim();
     }
-    if (!token) return makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
-    const client = yield* HttpClient.HttpClient;
-    const response = yield* client.execute(
-      HttpClientRequest.post(`${endpoint}/aiserver.v1.DashboardService/GetCurrentPeriodUsage`).pipe(
+    if (!token)
+      return makeUnavailableUsageLimits({
+        checkedAt,
+        reason: "probeFailed",
+        message: usedKeychain
+          ? "No Cursor CLI login was found. Sign in with cursor-agent, then turn Cursor account usage off and on in Settings to retry."
+          : "No Cursor CLI login was found. Sign in with cursor-agent, then refresh usage.",
+      });
+    const response = yield* requestUsage({
+      provider: "Cursor",
+      credential: token,
+      allowedStatuses: [401, 403],
+      request: HttpClientRequest.post(
+        `${endpoint}/aiserver.v1.DashboardService/GetCurrentPeriodUsage`,
+      ).pipe(
         HttpClientRequest.bearerToken(token),
         HttpClientRequest.setHeaders({
           "connect-protocol-version": "1",
@@ -133,13 +169,30 @@ export const readCursorUsageLimits = Effect.fn("readCursorUsageLimits")(function
         }),
         HttpClientRequest.bodyJsonUnsafe({}),
       ),
-    );
+    });
+    if (response.status === 401 || response.status === 403) {
+      if (usedKeychain) keychainToken.rejectToken?.(token);
+      return yield* new UsageHttpError({
+        kind: "authentication",
+        status: response.status,
+        message: environment.CURSOR_AUTH_TOKEN?.trim()
+          ? "Cursor rejected CURSOR_AUTH_TOKEN. Update this provider's token, then refresh usage."
+          : usedKeychain
+            ? "Cursor rejected the saved CLI sign-in. Sign in with cursor-agent again, then turn Cursor account usage off and on in Settings to retry."
+            : "Cursor rejected the saved CLI sign-in. Sign in with cursor-agent again, then refresh usage.",
+      });
+    }
     const body = yield* HttpClientResponse.schemaBodyJson(CursorUsageResponse)(
       yield* HttpClientResponse.filterStatusOk(response),
     );
     return cursorUsageResponseToLimits(body, checkedAt);
   }).pipe(
     Effect.timeout("10 seconds"),
+    Effect.catchTag("UsageHttpError", (error) =>
+      Effect.succeed(
+        makeUnavailableUsageLimits({ checkedAt, reason: "probeFailed", message: error.message }),
+      ),
+    ),
     Effect.orElseSucceed(() =>
       makeUnavailableUsageLimits({
         checkedAt,

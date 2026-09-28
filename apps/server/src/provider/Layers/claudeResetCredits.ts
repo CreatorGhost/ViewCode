@@ -2,8 +2,8 @@
  * Claude banked resets (the CLI's `cedar_ember` program). The CLI reads the
  * grants from the OAuth usage endpoint and claims one against the
  * organization; this module does the same with the credentials the CLI keeps
- * in its config directory. macOS keeps them in the keychain, so there the
- * feature is not offered.
+ * in its config directory. macOS keeps them in the keychain; there only a fresh, account-matched
+ * Desktop cache may supply a read-only count without prompting.
  *
  * @module provider/Layers/claudeResetCredits
  */
@@ -20,6 +20,8 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+
+import { readClaudeDesktopResetCache } from "./claudeDesktopResetCache.ts";
 
 const API_BASE = "https://api.anthropic.com";
 const PROGRAM = "cedar_ember";
@@ -38,6 +40,7 @@ const Config = Schema.Struct({
 const Grant = Schema.Struct({
   id: Schema.String.check(Schema.isPattern(GRANT_ID)),
   resets_left: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  starts_at: Schema.optional(Schema.NullOr(Schema.String)),
   ends_at: Schema.optional(Schema.NullOr(Schema.String)),
   paused: Schema.optional(Schema.Boolean),
   usable_now: Schema.optional(Schema.Boolean),
@@ -110,7 +113,7 @@ const isFutureTimestamp = (value: string, nowMs: number) => {
   );
 };
 
-/** Grants that are paused or past `ends_at` cannot be claimed and do not count. */
+/** Banked grants count before a limit is reached; only the next usable grant may be redeemed. */
 export function claudeResetCreditsToContract(
   block: unknown,
   nowMs: number,
@@ -122,13 +125,19 @@ export function claudeResetCreditsToContract(
     .filter(
       (grant) =>
         !grant.paused &&
-        grant.usable_now &&
+        grant.resets_left > 0 &&
+        (grant.starts_at == null ||
+          (isFutureTimestamp(grant.starts_at, Number.NEGATIVE_INFINITY) &&
+            Date.parse(grant.starts_at) <= nowMs)) &&
         (grant.ends_at == null || isFutureTimestamp(grant.ends_at, nowMs)),
     );
-  const next = live.find((grant) => grant.id === parsed.value.next_grant_id);
+  const next = live.find((grant) => grant.usable_now && grant.id === parsed.value.next_grant_id);
+  const availableCount = live.reduce((sum, grant) => sum + grant.resets_left, 0);
+  if (!Number.isSafeInteger(availableCount)) return undefined;
   const nextExpiresAt = next?.ends_at ? DateTime.make(next.ends_at) : Option.none();
   return {
-    availableCount: next ? live.reduce((sum, grant) => sum + grant.resets_left, 0) : 0,
+    availableCount,
+    canRedeem: !!next,
     ...(Option.isSome(nextExpiresAt)
       ? { nextExpiresAt: DateTime.formatIso(nextExpiresAt.value) }
       : {}),
@@ -164,11 +173,40 @@ const withClaudeHeaders = (token: string, version: string) =>
   });
 
 /**
- * Reads the banked resets for the login in `configDir`. Any failure reads as
- * "no resets" so the usage bars never break on this optional extra.
+ * Reads banked resets for the selected account. Failure or missing evidence
+ * returns unknown, never an invented zero, without interrupting usage windows.
  */
 export const readClaudeResetCredits = Effect.fn("readClaudeResetCredits")(
-  function* (configDir: string, version: string) {
+  function* (
+    configDir: string,
+    version: string,
+    accountConfigPath?: string,
+    environment: NodeJS.ProcessEnv = process.env,
+  ) {
+    if ((yield* HostProcessPlatform) === "darwin") {
+      if (!accountConfigPath) return undefined;
+      const path = yield* Path.Path;
+      // Desktop belongs to this OS user; a provider running under another HOME
+      // must not inherit its cached account even when the default config path matches.
+      const instanceHome = environment.HOME || environment.USERPROFILE || NodeOS.homedir();
+      if (path.resolve(instanceHome) !== path.resolve(NodeOS.homedir())) return undefined;
+      const cached = yield* readClaudeDesktopResetCache({
+        accountConfigPath,
+        cacheDirectory: path.join(
+          NodeOS.homedir(),
+          "Library",
+          "Application Support",
+          "Claude",
+          "Cache",
+          "Cache_Data",
+        ),
+      });
+      const credits = cached
+        ? claudeResetCreditsToContract(cached.block, DateTime.toEpochMillis(yield* DateTime.now))
+        : undefined;
+      // A cached observation can display a count, never authorize spending a reset.
+      return credits ? { availableCount: credits.availableCount, canRedeem: false } : undefined;
+    }
     const token = yield* readAccessToken(configDir);
     if (!token) return undefined;
     const client = yield* HttpClient.HttpClient;

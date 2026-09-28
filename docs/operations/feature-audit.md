@@ -127,7 +127,7 @@ sub-agent is killed?
 **Command Code.** Headless CLI adapter (`cmd -p --output-format json`,
 `--resume`). MCP only via files, so no agents toolkit; works as a worker.
 Credits read from `~/.commandcode/auth.json` only when
-`readAccountCredits` is on (default off), cached 5 min, every read logged
+`readAccountCredits` is on (default on; explicit opt-out is preserved), cached 5 min, every read logged
 (never the key). Code: `provider/commandCodeCli.ts`,
 `provider/Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`,
 `Layers/commandCodeUsageLimits.ts`.

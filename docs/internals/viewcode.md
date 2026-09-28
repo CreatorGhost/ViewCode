@@ -122,11 +122,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   project `.mcp.json`, `~/.commandcode/mcp.json`); there is no flag, env var or
   mod API for a per-run config. So Command Code agents do not get the agents
   toolkit; they work as workers (receive tasks, their answers route back).
-- Credits: Command Code documents usage only via its `/usage` overlay and
-  commandcode.ai, and asks tools not to read its stored key. Reading
-  `~/.commandcode/auth.json` + its `/alpha/billing/*` endpoints is therefore an
-  explicit per-instance opt-in (`readAccountCredits`), cached 5 minutes, and
-  every read is logged (key source, endpoints, statuses — never the key).
+- Usage reads Command Code's existing login and `/alpha/billing/*` endpoints
+  for enabled, installed instances. `readAccountCredits` defaults on; an explicit
+  off setting still prevents credential and billing reads. Successful readings
+  are cached for five minutes. Monthly percentages use reported spend plus
+  remaining monthly credits, not a plan-price table; five-hour and weekly caps
+  come from `windowLimits`. Logs contain key source and request statuses, never keys.
 
 ### Desktop local mode and phone access
 
@@ -173,6 +174,19 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   reduced motion. Anything wider or always-on needs a maintainer's sign-off.
 - Compact names drop the "Claude " prefix ("Opus 5.5"); the provider is shown
   beside them. Handoff is shown once per provider list, not on every row.
+
+### Account usage
+
+- Account limits live in the chat header; the composer ring stays scoped to the
+  selected provider and thread context. Header reads use the active environment,
+  including remote servers, rather than the desktop's local credentials.
+- Opening either usage panel reuses readings less than a minute old. A shared
+  per-environment, per-instance guard coalesces in-flight probes and limits retry
+  attempts after failure. Closing the panel stops UI updates, not the server probe.
+- Claude's macOS reset count can come from a recent Claude Desktop usage-cache
+  response for the selected CLI organization. This avoids Keychain prompts.
+  Cache-only counts cannot authorize redemption; missing or stale data means
+  unknown, not zero. A banked credit can exist before it is usable immediately.
 
 ### Session import
 

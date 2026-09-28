@@ -1,5 +1,5 @@
 import type { EnvironmentId, UsageLimitsReport } from "@t3tools/contracts";
-import { limitsNotice } from "@t3tools/shared/usageLimits";
+import { limitsNotice, usageRefreshNotice } from "@t3tools/shared/usageLimits";
 import { GaugeIcon } from "lucide-react";
 
 import { getDriverOption } from "../settings/providerDriverMeta";
@@ -102,6 +102,11 @@ function UsageLimitsBannerBody({
                   now={now}
                 />
               )}
+              {usageRefreshNotice(account.limits) ? (
+                <span className="text-xs text-muted-foreground">
+                  {usageRefreshNotice(account.limits)}
+                </span>
+              ) : null}
               {resetCreditInput && account.limits.resetCredits ? (
                 <ResetCredits
                   environmentId={environmentId}

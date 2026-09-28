@@ -34,6 +34,8 @@ export type ServerProviderUsageWindow = typeof ServerProviderUsageWindow.Type;
  */
 export const ServerProviderResetCredits = Schema.Struct({
   availableCount: NonNegativeInt,
+  /** False for banked credits this connection can display but cannot currently redeem. */
+  canRedeem: Schema.optional(Schema.Boolean),
   nextExpiresAt: Schema.optional(IsoDateTime),
   /** Pins hub redemption to the displayed credit, including retries from another client. */
   nextCreditId: Schema.optional(TrimmedNonEmptyString),
@@ -51,6 +53,8 @@ export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
   resetCredits: Schema.optional(ServerProviderResetCredits),
+  /** Last refresh failed; windows and checkedAt still describe the last successful reading. */
+  refreshError: Schema.optional(TrimmedNonEmptyString),
   unavailable: Schema.optional(
     Schema.Struct({
       reason: Schema.Literals(["unsupported", "probeFailed"]),

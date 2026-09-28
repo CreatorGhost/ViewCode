@@ -1139,6 +1139,53 @@ describe("Cursor usage limits", () => {
     expect(limits.windows[0]?.usedPercent).toBe(42);
   });
 
+  it("never uses the system Keychain for a custom-home instance but accepts its explicit token", async () => {
+    for (const token of [undefined, "custom-home-token"]) {
+      const limits = await runNode(
+        readCursorUsageLimits(
+          { apiEndpoint: "" },
+          {
+            HOME: `${NodeOS.homedir()}/isolated-cursor-account`,
+            ...(token ? { CURSOR_AUTH_TOKEN: token } : {}),
+          },
+          true,
+          async () => {
+            throw new Error("must not read another home's Keychain account");
+          },
+        ).pipe(
+          Effect.provideService(HostProcessPlatform, "darwin"),
+          Effect.provideService(
+            FileSystem.FileSystem,
+            FileSystem.makeNoop({
+              readFileString: () => Effect.die("must not fall back to an unrelated file"),
+            }),
+          ),
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make((request) => {
+              expect(token).toBe("custom-home-token");
+              expect(request.headers.authorization).toBe("Bearer custom-home-token");
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({
+                    planUsage: { totalPercentUsed: 35 },
+                  }),
+                ),
+              );
+            }),
+          ),
+        ),
+      );
+      if (token) expect(limits.windows[0]?.usedPercent).toBe(35);
+      else {
+        expect(limits.unavailable?.reason).toBe("unsupported");
+        expect(limits.unavailable?.message).toContain("custom home directory");
+        expect(limits.unavailable?.message).toContain("AGENT_CLI_CREDENTIAL_STORE=file");
+      }
+    }
+  });
+
   it("reports a Keychain initialization failure without failing the provider refresh", async () => {
     const limits = await runNode(
       readCursorUsageLimits({ apiEndpoint: "" }, {}, true, async () => {
@@ -1195,8 +1242,70 @@ describe("Cursor usage limits", () => {
     );
     expect(limits.unavailable).toEqual({
       reason: "probeFailed",
-      message: "Cursor could not read usage limits.",
+      message:
+        "Cursor rejected CURSOR_AUTH_TOKEN. Update this provider's token, then refresh usage.",
     });
+  });
+
+  it("invalidates a rejected Keychain credential without retrying the secret read immediately", async () => {
+    const rejected: string[] = [];
+    let reads = 0;
+    const keychain = Object.assign(
+      async () => {
+        reads++;
+        return "old-login";
+      },
+      {
+        rejectToken: (token: string) => {
+          rejected.push(token);
+        },
+      },
+    );
+    const limits = await runNode(
+      readCursorUsageLimits({ apiEndpoint: "" }, {}, true, keychain).pipe(
+        Effect.provideService(HostProcessPlatform, "darwin"),
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(request, new Response(null, { status: 403 })),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(reads).toBe(1);
+    expect(rejected).toEqual(["old-login"]);
+    expect(limits.unavailable?.message).toContain("Sign in with cursor-agent again");
+  });
+
+  it("reports rate limiting separately and avoids a second request during the cooldown", async () => {
+    let requests = 0;
+    const read = readCursorUsageLimits(
+      { apiEndpoint: "" },
+      { CURSOR_AUTH_TOKEN: "rate-limit-account" },
+    ).pipe(
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make((request) => {
+          requests++;
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              new Response(null, {
+                status: 429,
+                headers: { "retry-after": "600" },
+              }),
+            ),
+          );
+        }),
+      ),
+    );
+    const first = await runNode(read);
+    const second = await runNode(read);
+    expect(first.unavailable?.message).toContain("limiting usage requests");
+    expect(second.unavailable?.message).toContain("cooldown");
+    expect(requests).toBe(1);
   });
 
   it("does not use a stored login for an explicit API key", async () => {

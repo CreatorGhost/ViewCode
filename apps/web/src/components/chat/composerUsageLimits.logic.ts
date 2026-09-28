@@ -5,7 +5,7 @@ import type {
   ServerProviderUsageLimits,
   ServerProviderUsageWindow,
 } from "@t3tools/contracts";
-import { limitsNotice } from "@t3tools/shared/usageLimits";
+import { limitsNotice, usageRefreshNotice } from "@t3tools/shared/usageLimits";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -62,12 +62,24 @@ export function orderUsageWindows(
   return windows.toSorted((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
 }
 
-/** The most-used window's percent, which the composer ring draws; null when nothing is known. */
-export function peakUsedPercent(limits: ServerProviderUsageLimits | undefined): number | null {
+/** A full all-model week takes precedence over a newly reset session. */
+export function planUsageWindow(
+  limits: ServerProviderUsageLimits | undefined,
+  driver: ProviderDriverKind,
+): ServerProviderUsageWindow | null {
   if (!limits || limits.unavailable?.reason === "unsupported" || limits.windows.length === 0) {
     return null;
   }
-  return Math.max(...limits.windows.map((window) => window.usedPercent));
+  // Claude's additional model buckets do not describe the whole account.
+  const windows = limits.windows.filter(
+    (window) => driver !== "claudeAgent" || window.id === "five_hour" || window.id === "seven_day",
+  );
+  return (
+    windows.find((window) => window.kind === "weekly" && window.usedPercent >= 100) ??
+    windows.find((window) => window.kind === "session") ??
+    windows.toSorted((a, b) => b.usedPercent - a.usedPercent)[0] ??
+    null
+  );
 }
 
 export type UsageProviderInput = {
@@ -80,7 +92,7 @@ export type UsageProviderInput = {
 
 export type UsageSection = {
   key: string;
-  role: "lead" | "agents";
+  role: "lead" | "agents" | "account";
   title: string;
   subtitle: string;
   instanceId: ProviderInstanceId;
@@ -104,7 +116,10 @@ function toSection(
   return {
     key: `${role}:${provider.instanceId}`,
     role,
-    title: `${role === "lead" ? "Lead" : "Agents"} · ${provider.displayName}`,
+    title:
+      role === "account"
+        ? provider.displayName
+        : `${role === "lead" ? "Lead" : "Agents"} · ${provider.displayName}`,
     subtitle: provider.plan
       ? `Plan usage limits · ${shortPlanName(provider.plan)}`
       : "Plan usage limits",
@@ -114,7 +129,9 @@ function toSection(
     message:
       status === "message"
         ? (notice ?? `${provider.displayName} doesn't report plan limits.`)
-        : null,
+        : limits
+          ? usageRefreshNotice(limits)
+          : null,
     windows: limits && !notice ? orderUsageWindows(limits.windows) : [],
     resetCredits: limits?.resetCredits ?? null,
   };
@@ -187,16 +204,30 @@ export function usageRingTone(percent: number): UsageTone {
   return "normal";
 }
 
-/** What the ring draws: the thread's context window, or the plan's busiest window without one. */
+/** Exhausted plan allowance wins; otherwise show context, falling back to the plan headline. */
 export function resolveUsageRing(input: {
   contextPercent: number | null;
-  planPeakPercent: number | null;
+  planPercent: number | null;
 }): { source: "context" | "plan"; percent: number } | null {
+  if (input.planPercent !== null && input.planPercent >= 100) {
+    return { source: "plan", percent: 100 };
+  }
   if (input.contextPercent !== null && Number.isFinite(input.contextPercent)) {
     return { source: "context", percent: Math.max(0, Math.min(100, input.contextPercent)) };
   }
-  if (input.planPeakPercent !== null) {
-    return { source: "plan", percent: Math.max(0, Math.min(100, input.planPeakPercent)) };
+  if (input.planPercent !== null && Number.isFinite(input.planPercent)) {
+    return { source: "plan", percent: Math.max(0, Math.min(100, input.planPercent)) };
   }
   return null;
+}
+
+/** Accounts keep instance identity even when two logins use the same driver. */
+export function buildAccountUsageSections(
+  providers: ReadonlyArray<UsageProviderInput>,
+  refreshing: ReadonlySet<ProviderInstanceId>,
+): ReadonlyArray<UsageSection> {
+  const unique = new Map(providers.map((provider) => [provider.instanceId, provider]));
+  return [...unique.values()].map((provider) =>
+    toSection("account", provider, refreshing.has(provider.instanceId)),
+  );
 }

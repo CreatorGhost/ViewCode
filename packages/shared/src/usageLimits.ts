@@ -257,7 +257,9 @@ export function collectLimitNotices(presentations: LimitPresentations): readonly
       // An account that can never report (API key) is left out; one that
       // failed, or reported nothing at all, is worth a line.
       if (provider.usageLimits?.unavailable?.reason === "unsupported") continue;
-      const notice = provider.usageLimits ? limitsNotice(provider.usageLimits) : null;
+      const notice = provider.usageLimits
+        ? (limitsNotice(provider.usageLimits) ?? usageRefreshNotice(provider.usageLimits))
+        : null;
       const name = provider.displayName?.trim() || String(provider.driver);
       if (notice) notices.push(`${label(environmentLabel, name)}: ${notice}`);
     }
@@ -427,6 +429,11 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
     };
   });
   return pools.sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind]);
+}
+
+/** A failed refresh must not make cached bars look like a fresh reading. */
+export function usageRefreshNotice(limits: ServerProviderUsageLimits): string | null {
+  return limits.refreshError ? `Showing last known usage. ${limits.refreshError}` : null;
 }
 
 /** The one-line status under a provider heading when there are no bars to draw. */

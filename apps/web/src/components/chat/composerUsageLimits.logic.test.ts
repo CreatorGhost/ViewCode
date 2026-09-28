@@ -8,13 +8,14 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildUsageSections,
+  buildAccountUsageSections,
   formatBankedResets,
   formatContextWindowSummary,
   formatTokenCount,
   formatUsageReset,
   formatUsedPercent,
   orderUsageWindows,
-  peakUsedPercent,
+  planUsageWindow,
   resolveUsageRing,
   shortPlanName,
   shouldRefreshUsage,
@@ -89,7 +90,7 @@ describe("usageTone", () => {
   });
 });
 
-describe("orderUsageWindows / peakUsedPercent", () => {
+describe("orderUsageWindows / planUsageWindow", () => {
   it("puts the session window before weekly ones and keeps provider order within a kind", () => {
     const ordered = orderUsageWindows([
       window("weekly-all", "weekly", 10),
@@ -99,17 +100,36 @@ describe("orderUsageWindows / peakUsedPercent", () => {
     expect(ordered.map(({ id }) => id)).toEqual(["five-hour", "weekly-all", "weekly-fable"]);
   });
 
-  it("draws the busiest window, and nothing when limits are unknown", () => {
-    expect(peakUsedPercent(limits([window("a", "session", 40), window("b", "weekly", 90)]))).toBe(
-      90,
-    );
-    expect(peakUsedPercent(undefined)).toBeNull();
-    expect(peakUsedPercent(limits([], { unavailable: { reason: "unsupported" } }))).toBeNull();
+  it("uses the session until the all-model weekly allowance is exhausted", () => {
+    const session = window("five_hour", "session", 0);
+    const weekly = window("seven_day", "weekly", 100);
+    const scoped = window("seven_day_fable", "weekly", 100);
+    const driver = ProviderDriverKind.make("claudeAgent");
+    expect(planUsageWindow(limits([session, weekly, scoped]), driver)).toEqual(weekly);
+    expect(
+      planUsageWindow(limits([session, { ...weekly, usedPercent: 99 }, scoped]), driver),
+    ).toEqual(session);
+    expect(planUsageWindow(undefined, driver)).toBeNull();
+    expect(
+      planUsageWindow(limits([], { unavailable: { reason: "unsupported" } }), driver),
+    ).toBeNull();
   });
 });
 
 describe("buildUsageSections", () => {
   const noRefresh = new Set<ProviderInstanceId>();
+
+  it("keeps cached bars visible with their refresh failure", () => {
+    const reading = limits([window("weekly", "weekly", 40)], { refreshError: "Sign in again." });
+    const [section] = buildUsageSections({
+      lead: provider("codex", reading),
+      agentProviders: [],
+      refreshingInstanceIds: noRefresh,
+    });
+    expect(section?.status).toBe("ready");
+    expect(section?.windows).toEqual(reading.windows);
+    expect(section?.message).toBe("Showing last known usage. Sign in again.");
+  });
 
   it("titles the lead and each other agent provider once", () => {
     const lead = provider("claudeAgent", limits([window("five-hour", "session", 12)]), "Max");
@@ -205,16 +225,22 @@ describe("context window formatting", () => {
 });
 
 describe("resolveUsageRing", () => {
-  it("draws the context window, falling back to the plan's busiest window", () => {
-    expect(resolveUsageRing({ contextPercent: 8, planPeakPercent: 90 })).toEqual({
+  it("shows an exhausted plan even when the context window is mostly empty", () => {
+    expect(resolveUsageRing({ contextPercent: 8, planPercent: 100 })).toEqual({
+      source: "plan",
+      percent: 100,
+    });
+  });
+  it("draws the context window, falling back to the plan headline", () => {
+    expect(resolveUsageRing({ contextPercent: 8, planPercent: 90 })).toEqual({
       source: "context",
       percent: 8,
     });
-    expect(resolveUsageRing({ contextPercent: null, planPeakPercent: 90 })).toEqual({
+    expect(resolveUsageRing({ contextPercent: null, planPercent: 90 })).toEqual({
       source: "plan",
       percent: 90,
     });
-    expect(resolveUsageRing({ contextPercent: null, planPeakPercent: null })).toBeNull();
+    expect(resolveUsageRing({ contextPercent: null, planPercent: null })).toBeNull();
   });
 
   it("warns amber from 80% and red from 95%", () => {
@@ -239,4 +265,12 @@ describe("shouldRefreshUsage", () => {
     ).toBe(false);
     expect(shouldRefreshUsage(undefined, checkedAt)).toBe(false);
   });
+});
+
+it("lists accounts once per instance without lead or child-agent roles", () => {
+  const codex = provider("codex", limits([window("primary", "session", 20)]));
+  const claude = provider("claudeAgent", limits([], { resetCredits: { availableCount: 1 } }));
+  const sections = buildAccountUsageSections([codex, claude, codex], new Set());
+  expect(sections.map((section) => section.title)).toEqual([codex.displayName, claude.displayName]);
+  expect(sections[1]?.resetCredits?.availableCount).toBe(1);
 });

@@ -116,6 +116,7 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
   const initialProbe = yield* Deferred.make<EffectAcpSchema.InitializeResponse, ProbeError>();
   const probeCalls = yield* Ref.make(0);
   const safetyCalls = yield* Ref.make(0);
+  const usageCalls = yield* Ref.make(0);
   const probe = yield* Ref.make<Effect.Effect<EffectAcpSchema.InitializeResponse, ProbeError>>(
     Deferred.await(initialProbe),
   );
@@ -131,6 +132,12 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
       supportsTextGeneration: Ref.update(safetyCalls, (count) => count + 1).pipe(
         Effect.andThen(Ref.get(safety)),
         Effect.flatten,
+      ),
+      usageLimits: Ref.update(usageCalls, (count) => count + 1).pipe(
+        Effect.as({
+          checkedAt: "2026-09-28T00:00:00.000Z",
+          windows: [{ id: "weekly", kind: "weekly" as const, label: "Weekly", usedPercent: 25 }],
+        }),
       ),
     },
   );
@@ -149,6 +156,7 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
     probeCalls,
     safety,
     safetyCalls,
+    usageCalls,
     initialProbe,
     initialUpdate,
     initialize,
@@ -230,6 +238,7 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
         });
         expect(yield* Ref.get(harness.probeCalls)).toBe(0);
         expect(yield* Ref.get(harness.safetyCalls)).toBe(0);
+        expect(yield* Ref.get(harness.usageCalls)).toBe(0);
       }),
     ),
   );
@@ -360,6 +369,7 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
           yield* harness.provider.onSessionStarted(started, "/workspace");
           yield* harness.provider.onAvailableCommands(commands, "/workspace");
           yield* clear;
+          expect((yield* harness.provider.snapshot.getSnapshot).usageLimits).toBeUndefined();
           expect(yield* harness.provider.snapshot.getSnapshot).toMatchObject({
             installed: true,
             status: "warning",
@@ -378,6 +388,7 @@ it.layer(testLayer)("Antigravity provider snapshots", (it) => {
         const refreshed = yield* harness.provider.snapshot.refresh;
         expect(refreshed.auth.status).toBe("unauthenticated");
         expect(refreshed.supportsTextGeneration).toBe(false);
+        expect(refreshed.usageLimits).toBeUndefined();
       }),
     ),
   );

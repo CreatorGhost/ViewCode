@@ -299,7 +299,7 @@ export function ResetCredits({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
       <span className="tabular-nums">{resetCreditsSummary(credits, now)}</span>
-      {credits.availableCount > 0 ? (
+      {credits.availableCount > 0 && credits.canRedeem !== false ? (
         <Button size="xs" variant="outline" disabled={busy} onClick={() => setConfirming(true)}>
           {busy ? "Using…" : "Use reset"}
         </Button>

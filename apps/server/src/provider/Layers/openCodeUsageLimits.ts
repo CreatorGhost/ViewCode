@@ -7,13 +7,17 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import {
   clampPercent,
   makeUnavailableUsageLimits,
   makeUsageLimits,
 } from "../providerUsageLimits.ts";
+
+import { makeUsageHttpReader } from "../usageHttp.ts";
+
+const readUsageHttp = makeUsageHttpReader();
 
 const AuthFile = Schema.Struct({ "opencode-go": Schema.optionalKey(Schema.Unknown) });
 const ApiAuth = Schema.Struct({ type: Schema.Literal("api"), key: Schema.String });
@@ -59,12 +63,17 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
     const apiKey = (Option.isSome(apiAuth) ? apiAuth.value.key : env.OPENCODE_API_KEY)?.trim();
     if (!apiKey) return unsupported;
 
-    const client = yield* HttpClient.HttpClient;
-    const response = yield* client.execute(
-      HttpClientRequest.get("https://opencode.ai/zen/go/v1/usage").pipe(
+    const response = yield* readUsageHttp({
+      provider: "OpenCode Go",
+      credential: apiKey,
+      authMessage:
+        "OpenCode Go could not verify this key or its Go subscription. Sign in to OpenCode again and check that the account has a Go plan.",
+      allowedStatuses: [403],
+      request: HttpClientRequest.get("https://opencode.ai/zen/go/v1/usage").pipe(
         HttpClientRequest.bearerToken(apiKey),
+        HttpClientRequest.setHeader("Accept", "application/json"),
       ),
-    );
+    });
     // A valid Zen key can exist without a Go subscription.
     if (response.status === 403) return unsupported;
     const body = yield* HttpClientResponse.filterStatusOk(response).pipe(
@@ -98,11 +107,26 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
     return makeUsageLimits({ checkedAt, windows });
   }).pipe(
     Effect.timeout("5 seconds"),
+    Effect.catchTag("TimeoutError", () =>
+      Effect.succeed(
+        makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "probeFailed",
+          message: "OpenCode Go usage request timed out. Check your connection and try again.",
+        }),
+      ),
+    ),
+    Effect.catchTag("UsageHttpError", (error) =>
+      Effect.succeed(
+        makeUnavailableUsageLimits({ checkedAt, reason: "probeFailed", message: error.message }),
+      ),
+    ),
     Effect.orElseSucceed(() =>
       makeUnavailableUsageLimits({
         checkedAt,
         reason: "probeFailed",
-        message: "OpenCode Go could not read usage.",
+        message:
+          "OpenCode Go could not read its credentials or usage response. Sign in again, then refresh usage.",
       }),
     ),
   );

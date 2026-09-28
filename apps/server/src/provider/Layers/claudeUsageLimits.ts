@@ -20,12 +20,18 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import { claudeResetCreditsToContract } from "./claudeResetCredits.ts";
 
 import {
   clampPercent,
   makeUnavailableUsageLimits,
   makeUsageLimits,
 } from "../providerUsageLimits.ts";
+
+const decodeUsageExtras = Schema.decodeUnknownOption(
+  Schema.Struct({ cedar_ember: Schema.optional(Schema.Unknown) }),
+);
 
 const SESSION_MINS = 5 * 60;
 const WEEK_MINS = 7 * 24 * 60;
@@ -183,8 +189,22 @@ export function claudeUsageResponseToLimits(input: {
     // skipped would let a mid-turn event open a row the probe never showed.
     overageIncluded ??= entry.display_name;
   }
+  // CLI 2.1.283 forwards the raw usage payload through get_usage. This opt-in
+  // block is not in SDK types and may be absent; absence never means zero resets.
+  const extras = decodeUsageExtras(response.rate_limits);
+  const observedAt = DateTime.make(checkedAt);
+  const resetCredits =
+    Option.isSome(extras) && Option.isSome(observedAt)
+      ? claudeResetCreditsToContract(
+          extras.value.cedar_ember,
+          DateTime.toEpochMillis(observedAt.value),
+        )
+      : undefined;
   return {
-    limits: makeUsageLimits({ checkedAt, windows }),
+    limits: {
+      ...makeUsageLimits({ checkedAt, windows }),
+      ...(resetCredits ? { resetCredits: { ...resetCredits, canRedeem: false } } : {}),
+    },
     names: { overageIncluded },
   };
 }

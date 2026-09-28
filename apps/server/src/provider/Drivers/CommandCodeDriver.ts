@@ -113,9 +113,8 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
       const textGeneration = yield* makeCommandCodeTextGeneration(effectiveConfig, processEnv);
 
       const checkProvider = checkCommandCodeProviderStatus(effectiveConfig, processEnv).pipe(
-        // Command Code documents usage only through its /usage overlay and
-        // commandcode.ai/usage, so its credits are read only when the user
-        // opts in; otherwise the popover points there.
+        // Only enabled, installed instances may read billing data. An explicit
+        // usage opt-out is independent of the provider's launch gate.
         Effect.filterOrElse(
           (snapshot) => !(effectiveConfig.enabled && snapshot.installed),
           (snapshot) =>

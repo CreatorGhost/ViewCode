@@ -87,6 +87,8 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-
   }
 
   html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="sidebar-inset"] {
+    /* Fixed chat controls share the inset sheet header's vertical origin. */
+    --workspace-sheet-inset-top: var(--vc-sheet-inset);
     height: calc(100dvh - 2 * var(--vc-sheet-inset));
     margin: var(--vc-sheet-inset) var(--vc-sheet-inset) var(--vc-sheet-inset) 0;
     overflow: hidden;

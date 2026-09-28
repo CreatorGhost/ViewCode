@@ -6,12 +6,16 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import {
   clampPercent,
   makeUnavailableUsageLimits,
   makeUsageLimits,
 } from "../providerUsageLimits.ts";
+
+import { makeUsageHttpReader } from "../usageHttp.ts";
+
+const readUsageHttp = makeUsageHttpReader();
 
 const GrokCredentials = Schema.Record(
   Schema.String,
@@ -157,19 +161,44 @@ export const readGrokAccount = Effect.fn("readGrokAccount")(function* (
   }
   // A failed quota request still knows which account it asked about.
   const usageLimits = yield* Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient;
-    const response = yield* client.execute(
-      HttpClientRequest.get("https://cli-chat-proxy.grok.com/v1/billing?format=credits").pipe(
+    const response = yield* readUsageHttp({
+      provider: "Grok",
+      credential: token,
+      request: HttpClientRequest.get(
+        "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+      ).pipe(
         HttpClientRequest.bearerToken(token),
+        HttpClientRequest.setHeader("X-XAI-Token-Auth", "xai-grok-cli"),
+        HttpClientRequest.setHeader("Accept", "application/json"),
       ),
-    );
+    });
     const body = yield* HttpClientResponse.schemaBodyJson(GrokUsageResponse)(
       yield* HttpClientResponse.filterStatusOk(response),
     );
     return grokUsageResponseToLimits(body, checkedAt);
   }).pipe(
     Effect.timeout("10 seconds"),
-    Effect.orElseSucceed(() => probeFailed),
+    Effect.catchTag("TimeoutError", () =>
+      Effect.succeed(
+        makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "probeFailed",
+          message: "Grok usage request timed out. Check your connection and try again.",
+        }),
+      ),
+    ),
+    Effect.catchTag("UsageHttpError", (error) =>
+      Effect.succeed(
+        makeUnavailableUsageLimits({ checkedAt, reason: "probeFailed", message: error.message }),
+      ),
+    ),
+    Effect.orElseSucceed(() =>
+      makeUnavailableUsageLimits({
+        checkedAt,
+        reason: "probeFailed",
+        message: "Grok returned an unreadable usage response. Try refreshing usage later.",
+      }),
+    ),
   );
   return { email, usageLimits };
 });

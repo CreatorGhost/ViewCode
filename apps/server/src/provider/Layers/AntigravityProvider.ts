@@ -6,6 +6,7 @@ import {
   type ServerProvider,
   type ServerProviderModel,
   type ServerProviderSlashCommand,
+  type ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import * as DateTime from "effect/DateTime";
@@ -123,6 +124,7 @@ interface AntigravityProviderOptions {
     EffectAcpErrors.AcpError | ProviderSetupError
   >;
   readonly supportsTextGeneration: Effect.Effect<boolean>;
+  readonly usageLimits?: Effect.Effect<ServerProviderUsageLimits>;
   readonly maintenanceCapabilities?: ProviderMaintenanceCapabilities;
   /** Auth type and label published once a session authenticates. */
   readonly auth?: { readonly type: string; readonly label: string };
@@ -192,6 +194,12 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
               : `Antigravity did not respond to its local health check within ${HEALTH_CHECK_TIMEOUT}.`;
     const supportsTextGeneration =
       initialized !== undefined ? yield* options.supportsTextGeneration : false;
+    const usageLimits =
+      initialized !== undefined &&
+      before.draft.auth.status !== "unauthenticated" &&
+      options.usageLimits
+        ? yield* options.usageLimits
+        : undefined;
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     const next = yield* SubscriptionRef.updateAndGet(metadata, (state) => {
       if (state.authRevision !== before.authRevision) return state;
@@ -212,6 +220,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
           version: initialized?.agentInfo?.version || draft.version,
           status: errorMessage ? "error" : authenticated ? "ready" : "warning",
           checkedAt: updatedAt,
+          ...(usageLimits ? { usageLimits } : {}),
           ...(missingInstallation
             ? {
                 models: [],
@@ -367,6 +376,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
             skills: [],
             workspaceSnapshots: [],
             supportsTextGeneration: false,
+            usageLimits: undefined,
           },
         }) satisfies AntigravityProviderState,
     );

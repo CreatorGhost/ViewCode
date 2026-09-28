@@ -1,28 +1,25 @@
-import type { EnvironmentId, ProviderInstanceId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpRightIcon } from "lucide-react";
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUpRightIcon, GaugeIcon } from "lucide-react";
+import { Fragment, memo, useState } from "react";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
-import { useThreadShells } from "../../state/entities";
-import { serverEnvironment } from "../../state/server";
-import { useAtomCommand } from "../../state/use-atom-command";
 import type { ContextWindowSnapshot } from "~/lib/contextWindow";
 import { cn } from "~/lib/utils";
-import { collectChildAgents, resolveChildAgentStatus } from "../agents/childAgents.logic";
+import { useUsageRefreshOnOpen } from "./useUsageRefreshOnOpen";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useComposerMenuProps } from "./composerEventScope";
 import {
   buildUsageSections,
+  buildAccountUsageSections,
   formatBankedResets,
   formatContextWindowSummary,
   formatUsageReset,
   formatUsedPercent,
-  peakUsedPercent,
+  planUsageWindow,
   resolveUsageRing,
-  shouldRefreshUsage,
   type UsageProviderInput,
   type UsageSection,
   type UsageTone,
@@ -58,13 +55,11 @@ function toneFillClassName(tone: UsageTone) {
 
 /**
  * The composer's usage ring: a static arc of the thread's context window (or,
- * before one is known, the lead provider's busiest plan window) that opens the
+ * before one is known, the lead provider's plan usage) that opens the
  * context window and plan limits before sending.
  */
 export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopover(props: {
   environmentId: EnvironmentId;
-  /** The started thread, whose child agents add sections; absent for drafts. */
-  threadRef: ScopedThreadRef | null;
   leadInstanceId: ProviderInstanceId;
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
   /** The thread's latest context window reading, when known. */
@@ -75,9 +70,10 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
   const leadEntry =
     props.instanceEntries.find((entry) => entry.instanceId === props.leadInstanceId) ?? null;
   if (!leadEntry) return null;
+  const planWindow = planUsageWindow(leadEntry.snapshot.usageLimits, leadEntry.driverKind);
   const ring = resolveUsageRing({
     contextPercent: props.contextWindow?.usedPercentage ?? null,
-    planPeakPercent: peakUsedPercent(leadEntry.snapshot.usageLimits),
+    planPercent: planWindow?.usedPercent ?? null,
   });
   const peak = ring?.percent ?? null;
   const tone = ring === null ? null : usageRingTone(ring.percent);
@@ -86,7 +82,7 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
       ? "Usage"
       : ring.source === "context"
         ? `Usage, context window ${formatUsedPercent(ring.percent)} used`
-        : `Usage, ${formatUsedPercent(ring.percent)} of the busiest plan window used`;
+        : `Usage, ${planWindow?.label ?? "plan"} ${formatUsedPercent(ring.percent)} used`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -132,87 +128,130 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
         padding="none"
         variant="floating"
       >
-        <UsageLimitsPanel
-          environmentId={props.environmentId}
-          threadRef={props.threadRef}
-          leadEntry={leadEntry}
-          instanceEntries={props.instanceEntries}
-          contextWindow={props.contextWindow}
-          onClose={() => setOpen(false)}
-        />
+        {open ? (
+          <UsageLimitsPanel
+            key={`${props.environmentId}:${leadEntry.instanceId}`}
+            environmentId={props.environmentId}
+            instanceEntries={[leadEntry]}
+            scope="selected"
+            contextWindow={props.contextWindow}
+            onClose={() => setOpen(false)}
+          />
+        ) : null}
       </PopoverPopup>
     </Popover>
   );
 });
 
-/** Mounted only while open, so the thread list and probes are read on demand. */
+/** All enabled accounts in this chat's environment, separate from its context window. */
+export const AccountUsagePopover = memo(function AccountUsagePopover(props: {
+  environmentId: EnvironmentId;
+  instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
+}) {
+  const [open, setOpen] = useState(false);
+  const entries = props.instanceEntries.filter((entry) => entry.enabled && entry.isAvailable);
+  const headlines = entries
+    .flatMap((entry) => {
+      const window = planUsageWindow(entry.snapshot.usageLimits, entry.driverKind);
+      return window
+        ? [{ ...window, providerName: entry.displayName, instanceId: entry.instanceId }]
+        : [];
+    })
+    .toSorted((a, b) => b.usedPercent - a.usedPercent)
+    .slice(0, 2);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={<Button variant="outline" size="sm" aria-label="Account usage" />}
+            />
+          }
+        >
+          <GaugeIcon aria-hidden="true" className="size-4" />
+          <span className="flex w-4 flex-col gap-1" aria-hidden="true">
+            {[0, 1].map((index) => {
+              const percent = headlines[index]?.usedPercent ?? 0;
+              return (
+                <span key={index} className="h-1 overflow-hidden rounded-full bg-foreground/15">
+                  <span
+                    className={cn(
+                      "block h-full rounded-full",
+                      toneFillClassName(usageTone(percent)),
+                    )}
+                    style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
+                  />
+                </span>
+              );
+            })}
+          </span>
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">
+          <div className="flex flex-col gap-1">
+            <span>Account usage and resets</span>
+            {headlines.map((window) => (
+              <span key={window.instanceId}>
+                {window.providerName}: {formatUsedPercent(window.usedPercent)} used
+              </span>
+            ))}
+          </div>
+        </TooltipPopup>
+      </Tooltip>
+      <PopoverPopup
+        side="bottom"
+        align="end"
+        sideOffset={10}
+        padding="none"
+        variant="floating"
+        collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+      >
+        {open ? (
+          <UsageLimitsPanel
+            key={props.environmentId}
+            environmentId={props.environmentId}
+            instanceEntries={entries}
+            scope="accounts"
+            contextWindow={null}
+            onClose={() => setOpen(false)}
+          />
+        ) : null}
+      </PopoverPopup>
+    </Popover>
+  );
+});
+
+/** Mounted only while open; opening uses cached readings and refreshes stale ones. */
 function UsageLimitsPanel(props: {
   environmentId: EnvironmentId;
-  threadRef: ScopedThreadRef | null;
-  leadEntry: ProviderInstanceEntry;
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
+  scope: "selected" | "accounts";
   contextWindow: ContextWindowSnapshot | null;
   onClose: () => void;
 }) {
-  const { environmentId, threadRef, leadEntry, instanceEntries, contextWindow } = props;
+  const { environmentId, instanceEntries, contextWindow } = props;
   const navigate = useNavigate();
-  const threads = useThreadShells();
-  const agentEntries = useMemo(() => {
-    if (!threadRef) return [];
-    const entries: ProviderInstanceEntry[] = [];
-    for (const agent of collectChildAgents(threads, threadRef)) {
-      if (resolveChildAgentStatus(agent.thread) === "failed") continue;
-      const entry = instanceEntries.find(
-        (candidate) => candidate.instanceId === agent.thread.modelSelection.instanceId,
-      );
-      if (entry && !entries.includes(entry)) entries.push(entry);
-    }
-    return entries;
-  }, [instanceEntries, threadRef, threads]);
-
-  // Probe once per opening for any provider whose last read is stale.
-  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
-    reportFailure: false,
-  });
-  const [refreshing, setRefreshing] = useState<ReadonlySet<ProviderInstanceId>>(new Set());
-  const [openedAt] = useState(() => Date.now());
-  const staleInstanceIds = useMemo(
-    () =>
-      [leadEntry, ...agentEntries]
-        .filter((entry) => shouldRefreshUsage(entry.snapshot.usageLimits, openedAt))
-        .map((entry) => entry.instanceId),
-    [agentEntries, leadEntry, openedAt],
-  );
-  const probedRef = useRef(false);
-  useEffect(() => {
-    // Probe once per opening; later reads arrive through the provider snapshots.
-    if (probedRef.current || staleInstanceIds.length === 0) return;
-    probedRef.current = true;
-    setRefreshing(new Set(staleInstanceIds));
-    for (const instanceId of staleInstanceIds) {
-      void refreshProviders({ environmentId, input: { instanceId } }).finally(() => {
-        setRefreshing((current) => {
-          const next = new Set(current);
-          next.delete(instanceId);
-          return next;
-        });
-      });
-    }
-  }, [environmentId, refreshProviders, staleInstanceIds]);
-
-  const sections = buildUsageSections({
-    lead: usageProviderInput(leadEntry),
-    agentProviders: agentEntries.map(usageProviderInput),
-    refreshingInstanceIds: refreshing,
-  });
+  const { refreshing, openedAt, error } = useUsageRefreshOnOpen(environmentId, instanceEntries);
+  const sections =
+    props.scope === "accounts"
+      ? buildAccountUsageSections(instanceEntries.map(usageProviderInput), refreshing)
+      : instanceEntries[0]
+        ? buildUsageSections({
+            lead: usageProviderInput(instanceEntries[0]),
+            agentProviders: [],
+            refreshingInstanceIds: refreshing,
+          }).map((section) => ({ ...section, title: instanceEntries[0]!.displayName }))
+        : [];
   // Reset times read from the moment the panel opened; a ticking clock would repaint it.
   const now = openedAt;
   const entryById = new Map(instanceEntries.map((entry) => [entry.instanceId, entry]));
 
   return (
-    <div className="flex w-82.5 max-w-[calc(100vw-2rem)] flex-col pt-3 pb-1">
+    <div className="flex max-h-[min(70vh,var(--available-height))] w-82.5 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto pt-3 pb-1">
       <div className="flex items-center justify-between gap-2 px-4">
-        <span className="font-semibold text-muted-foreground text-sm">Usage</span>
+        <span className="font-semibold text-muted-foreground text-sm">
+          {props.scope === "accounts" ? "Account usage" : "Context and usage"}
+        </span>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -232,6 +271,16 @@ function UsageLimitsPanel(props: {
           <TooltipPopup side="top">Open usage</TooltipPopup>
         </Tooltip>
       </div>
+      {error ? (
+        <p role="status" className="px-4 pt-2 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {sections.length === 0 ? (
+        <p className="px-4 py-3 text-xs text-muted-foreground">
+          No enabled providers in this environment.
+        </p>
+      ) : null}
       {contextWindow ? (
         <>
           <section className="flex flex-col gap-1.5 px-4 py-3" aria-label="Context window">
@@ -297,6 +346,9 @@ function UsageSectionView(props: {
           <span className="shrink-0 text-muted-foreground text-xs">Checking…</span>
         ) : null}
       </div>
+      {section.status === "ready" && section.message ? (
+        <span className="text-muted-foreground text-xs">{section.message}</span>
+      ) : null}
       {section.status === "checking" ? (
         <span className="text-muted-foreground text-xs">Checking…</span>
       ) : section.status === "message" ? (
@@ -321,16 +373,20 @@ function UsageSectionView(props: {
               </li>
             );
           })}
-          {section.resetCredits ? (
-            <li className="flex items-baseline gap-2 border-border/70 border-t pt-3 text-xs">
-              <span className="min-w-0 flex-1 truncate">Banked resets</span>
-              <span className="shrink-0 text-muted-foreground tabular-nums">
-                {formatBankedResets(section.resetCredits)}
-              </span>
-            </li>
-          ) : null}
         </ul>
       )}
+      {section.resetCredits ? (
+        <div className="flex items-baseline gap-2 border-border/70 border-t pt-3 text-xs">
+          <span className="min-w-0 flex-1">Banked reset credits</span>
+          <span className="shrink-0 text-muted-foreground tabular-nums">
+            {formatBankedResets(section.resetCredits)}
+          </span>
+        </div>
+      ) : section.driver === "claudeAgent" ? (
+        <p className="text-xs text-muted-foreground">
+          Reset credits are not reported by this Claude connection.
+        </p>
+      ) : null}
     </section>
   );
 }

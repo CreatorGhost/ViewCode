@@ -13,6 +13,7 @@ import {
   formatDuration,
   formatResetsIn,
   limitsNotice,
+  usageRefreshNotice,
   paceOf,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
@@ -172,6 +173,9 @@ export function AccountLimits(props: {
         </View>
       )}
       {props.footer}
+      {usageRefreshNotice(limits) ? (
+        <Text className="text-sm text-foreground-muted">{usageRefreshNotice(limits)}</Text>
+      ) : null}
     </View>
   );
 }
@@ -244,7 +248,7 @@ export function ResetCredits(props: {
   return (
     <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
       <Text className="text-xs tabular-nums text-foreground-tertiary">{summary}</Text>
-      {credits.availableCount > 0 ? (
+      {credits.availableCount > 0 && credits.canRedeem !== false ? (
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ disabled: busy }}

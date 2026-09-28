@@ -36,6 +36,25 @@ function withUsageLimits(
   return usageLimits ? { ...rest, usageLimits } : rest;
 }
 
+function canRetainUsageForAccount(previous: ServerProvider, next: ServerProvider): boolean {
+  // Never relabel another account's last successful quota after a failed probe.
+  // Without an account identifier, a failed refresh cannot prove these windows
+  // still belong to the current login. Prefer its error to another account's quota.
+  const previousEmail = previous.auth.email?.trim().toLowerCase();
+  const nextEmail = next.auth.email?.trim().toLowerCase();
+  return (
+    previous.enabled &&
+    next.enabled &&
+    previous.instanceId === next.instanceId &&
+    previous.driver === next.driver &&
+    previous.auth.status === "authenticated" &&
+    next.auth.status === "authenticated" &&
+    previous.auth.type === next.auth.type &&
+    !!previousEmail &&
+    previousEmail === nextEmail
+  );
+}
+
 export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(function* <
   Settings,
 >(input: {
@@ -162,7 +181,9 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         const snapshot = withUsageLimits(
           probedSnapshot,
           resolveUsageLimitsAfterProbe({
-            published: state.snapshot.usageLimits,
+            published: canRetainUsageForAccount(state.snapshot, probedSnapshot)
+              ? state.snapshot.usageLimits
+              : undefined,
             probed: probedSnapshot.usageLimits,
           }),
         );

@@ -82,8 +82,30 @@ describe("resolveUsageLimitsAfterProbe", () => {
   it("keeps the last good windows through a failed probe but not an unsupported one", () => {
     const failed = { checkedAt, windows: [], unavailable: { reason: "probeFailed" as const } };
     const unsupported = { checkedAt, windows: [], unavailable: { reason: "unsupported" as const } };
-    expect(resolveUsageLimitsAfterProbe({ published, probed: failed })).toBe(published);
+    expect(resolveUsageLimitsAfterProbe({ published, probed: failed })).toEqual({
+      ...published,
+      refreshError: "Could not refresh usage.",
+    });
     expect(resolveUsageLimitsAfterProbe({ published, probed: unsupported })).toBe(unsupported);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
+  });
+
+  it("keeps the original reading time across failures and clears the warning on recovery", () => {
+    const probed = {
+      checkedAt: "2026-09-03T12:10:00.000Z",
+      windows: [],
+      unavailable: { reason: "probeFailed" as const, message: "Sign in again." },
+    };
+    const stale = resolveUsageLimitsAfterProbe({ published, probed });
+    expect(stale).toEqual({ ...published, refreshError: "Sign in again." });
+    expect(resolveUsageLimitsAfterProbe({ published: stale, probed })).toEqual(stale);
+    expect(resolveUsageLimitsAfterProbe({ published: stale, probed: published })).toBe(published);
+    expect(
+      applyUsageLimitsUpdate({
+        previous: stale,
+        checkedAt: probed.checkedAt,
+        update: { windows: [session, weekly] },
+      }),
+    ).toEqual({ ...published, checkedAt: probed.checkedAt });
   });
 });

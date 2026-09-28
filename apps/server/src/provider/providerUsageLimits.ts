@@ -88,7 +88,12 @@ export function applyUsageLimitsUpdate(input: {
       changed = true;
     }
   }
-  if (!changed && previous !== undefined && previous.unavailable === undefined) {
+  if (
+    !changed &&
+    previous !== undefined &&
+    previous.unavailable === undefined &&
+    previous.refreshError === undefined
+  ) {
     return previous;
   }
   return {
@@ -128,7 +133,7 @@ export function resolveUsageLimitsAfterProbe(input: {
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
-    return published;
+    return { ...published, refreshError: probed.unavailable.message ?? "Could not refresh usage." };
   }
   return probed;
 }

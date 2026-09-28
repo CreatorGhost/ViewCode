@@ -20,6 +20,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import { FetchHttpClient } from "effect/unstable/http";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
@@ -251,6 +252,7 @@ const testLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-antigravity-driver-config-",
 }).pipe(
   Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(FetchHttpClient.layer),
   Layer.provideMerge(ServerSettingsService.layerTest()),
   Layer.provideMerge(
     Layer.mock(BackgroundPolicy.BackgroundPolicy)({

@@ -7,6 +7,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { GrokSettings } from "@t3tools/contracts";
 
@@ -605,6 +606,8 @@ it.layer(NodeServices.layer)("readGrokAccount", (it) => {
             expect(request.method).toBe("GET");
             expect(request.url).toBe("https://cli-chat-proxy.grok.com/v1/billing?format=credits");
             expect(request.headers.authorization).toBe("Bearer session-token");
+            expect(request.headers["x-xai-token-auth"]).toBe("xai-grok-cli");
+            expect(request.headers.accept).toBe("application/json");
             return Effect.succeed(
               HttpClientResponse.fromWeb(
                 request,
@@ -760,6 +763,37 @@ it.layer(NodeServices.layer)("readGrokAccount", (it) => {
       }),
   );
 
+  it.effect("honors the billing cooldown while allowing another account to refresh", () =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const client = HttpClient.make((request) => {
+        calls++;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(null, {
+              status: 429,
+              headers: { "Retry-After": "300" },
+            }),
+          ),
+        );
+      });
+      const read = (token: string) =>
+        readGrokAccount({
+          HOME: "/definitely/not/a/grok-home",
+          GROK_AUTH: JSON.stringify({ "https://accounts.x.ai/sign-in": { key: token } }),
+        }).pipe(Effect.provideService(HttpClient.HttpClient, client));
+      expect((yield* read("grok-rate-a")).usageLimits.unavailable?.message).toContain("cooldown");
+      yield* read("grok-rate-a");
+      expect(calls).toBe(1);
+      yield* read("grok-rate-b");
+      expect(calls).toBe(2);
+      yield* TestClock.adjust("300 seconds");
+      yield* read("grok-rate-a");
+      expect(calls).toBe(3);
+    }),
+  );
+
   it.effect("sanitizes HTTP failures and malformed billing responses, keeping the account", () =>
     Effect.gen(function* () {
       for (const response of [
@@ -782,7 +816,10 @@ it.layer(NodeServices.layer)("readGrokAccount", (it) => {
         expect(limits.windows).toEqual([]);
         expect(limits.unavailable).toEqual({
           reason: "probeFailed",
-          message: "Grok could not read usage limits.",
+          message:
+            response.status === 401
+              ? "Grok rejected the saved sign-in. Sign in to Grok again, then refresh usage."
+              : "Grok returned an unreadable usage response. Try refreshing usage later.",
         });
       }
     }),

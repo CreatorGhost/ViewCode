@@ -86,6 +86,40 @@ describe("claudeUsageResponseToLimits", () => {
     ).toEqual({ overageIncluded: "Fable" });
   });
 
+  it("maps banked resets only when get_usage includes the confirmed cedar_ember block", () => {
+    for (const [cedar, count] of [
+      [
+        {
+          eligible: true,
+          grants: [
+            {
+              id: "banked",
+              resets_left: 1,
+              usable_now: false,
+              starts_at: "2026-07-01T00:00:00Z",
+              ends_at: "2026-08-01T00:00:00Z",
+            },
+          ],
+        },
+        1,
+      ],
+      [{ eligible: true, grants: [] }, 0],
+      [{ eligible: false, ineligible_reason: "surface" }, undefined],
+      [{ eligible: "broken" }, undefined],
+      [undefined, undefined],
+    ] as const) {
+      const rateLimits = { five_hour: { utilization: 20, resets_at: null }, cedar_ember: cedar };
+      const { limits } = claudeUsageResponseToLimits({
+        checkedAt,
+        response: { rate_limits_available: true, rate_limits: rateLimits },
+      });
+      expect(limits.windows[0]?.usedPercent).toBe(20);
+      expect(limits.resetCredits?.availableCount).toBe(count);
+      expect(limits.resetCredits?.nextCreditId).toBeUndefined();
+      if (count !== undefined) expect(limits.resetCredits?.canRedeem).toBe(false);
+    }
+  });
+
   it("reports API key and Bedrock accounts as unsupported", () => {
     expect(
       claudeUsageResponseToLimits({

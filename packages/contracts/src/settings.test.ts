@@ -6,6 +6,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  CommandCodeSettings,
   DEFAULT_SERVER_SETTINGS,
   resolveProviderInstanceEnabled,
   ServerSettings,
@@ -19,6 +20,14 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
+
+describe("Command Code usage settings", () => {
+  it("reads account usage by default and preserves an explicit opt-out", () => {
+    const decode = Schema.decodeUnknownSync(CommandCodeSettings);
+    expect(decode({}).readAccountCredits).toBe(true);
+    expect(decode({ readAccountCredits: false }).readAccountCredits).toBe(false);
+  });
+});
 
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {

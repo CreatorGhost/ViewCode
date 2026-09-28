@@ -11,12 +11,13 @@
  *
  * @module provider/Drivers/CursorDriver
  */
-import { CursorSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { CursorSettings, ProviderDriverKind, type ServerSettings } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
@@ -24,6 +25,7 @@ import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { makeCursorTextGeneration } from "../../textGeneration/CursorTextGeneration.ts";
+import { readMacCursorAccessToken } from "../cursorCredentialStore.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeCursorAdapter } from "../Layers/CursorAdapter.ts";
 import { readCursorUsageLimits } from "../Layers/cursorUsageLimits.ts";
@@ -52,7 +54,6 @@ import {
 } from "../providerMaintenance.ts";
 import {
   haveProviderSnapshotSettingsChanged,
-  makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
 import { discoverCursorSkills, probeCursorSkills } from "./CursorSkills.ts";
@@ -166,9 +167,28 @@ export const CursorDriver: ProviderDriver<CursorSettings, CursorDriverEnv> = {
         Effect.provideService(Path.Path, path),
       );
 
-      const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
+      let previousKeychainUsageEnabled: boolean | undefined;
+      const toSnapshotSettings = (settings: ServerSettings) => {
+        const enabled = settings.cursorKeychainUsageEnabled;
+        if (
+          previousKeychainUsageEnabled !== undefined &&
+          previousKeychainUsageEnabled !== enabled
+        ) {
+          readMacCursorAccessToken.invalidate();
+        }
+        previousKeychainUsageEnabled = enabled;
+        return {
+          provider: effectiveConfig,
+          enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+          cursorKeychainUsageEnabled: enabled,
+        };
+      };
+      const snapshotSettings = {
+        getSettings: serverSettings.getSettings.pipe(Effect.map(toSnapshotSettings)),
+        streamSettings: serverSettings.streamChanges.pipe(Stream.map(toSnapshotSettings)),
+      };
       const managedSnapshot = yield* makeManagedServerProvider<
-        ProviderSnapshotSettings<CursorSettings>
+        ProviderSnapshotSettings<CursorSettings> & { readonly cursorKeychainUsageEnabled: boolean }
       >({
         resolveMaintenance,
         getSettings: snapshotSettings.getSettings,

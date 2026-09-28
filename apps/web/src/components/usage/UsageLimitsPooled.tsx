@@ -197,15 +197,17 @@ function SegmentPopover({
         <div className="border-t border-border/60 pt-2.5 text-muted-foreground">
           <span className="flex items-center gap-3">
             <span className="tabular-nums">{resetCreditsSummary(credits, now, true)}</span>
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={redeem.busy}
-              className="ms-auto"
-              onClick={onRedeem}
-            >
-              {redeem.busy ? "Using…" : "Use reset"}
-            </Button>
+            {credits.canRedeem !== false ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={redeem.busy}
+                className="ms-auto"
+                onClick={onRedeem}
+              >
+                {redeem.busy ? "Using…" : "Use reset"}
+              </Button>
+            ) : null}
           </span>
         </div>
       ) : null}
