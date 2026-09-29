@@ -5,6 +5,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
@@ -89,6 +90,8 @@ function makeEnvironmentLayer(baseDir: string, env: Record<string, string | unde
 function makeLayer(input: {
   readonly baseDir: string;
   readonly networkInterfaces?: DesktopNetworkInterfaces.NetworkInterfaces;
+  /** Overrides `networkInterfaces` with a read that can change during a test. */
+  readonly networkRead?: Effect.Effect<DesktopNetworkInterfaces.NetworkInterfaces>;
   readonly env?: Record<string, string | undefined>;
   readonly spawnerLayer?: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>;
   readonly desktopSettingsLayer?: Layer.Layer<DesktopAppSettings.DesktopAppSettings>;
@@ -96,7 +99,7 @@ function makeLayer(input: {
   const env = { T3CODE_HOME: input.baseDir, ...input.env };
   const environmentLayer = makeEnvironmentLayer(input.baseDir, env);
   const networkLayer = Layer.succeed(DesktopNetworkInterfaces.DesktopNetworkInterfaces, {
-    read: Effect.succeed(input.networkInterfaces ?? emptyNetworkInterfaces),
+    read: input.networkRead ?? Effect.succeed(input.networkInterfaces ?? emptyNetworkInterfaces),
   });
 
   return DesktopServerExposure.layer.pipe(
@@ -124,6 +127,7 @@ const withHarness = <A, E, R>(
   env: Record<string, string | undefined> = {},
   spawnerLayer?: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>,
   desktopSettingsLayer?: Layer.Layer<DesktopAppSettings.DesktopAppSettings>,
+  networkRead?: Effect.Effect<DesktopNetworkInterfaces.NetworkInterfaces>,
 ) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -138,12 +142,115 @@ const withHarness = <A, E, R>(
           env,
           ...(spawnerLayer ? { spawnerLayer } : {}),
           ...(desktopSettingsLayer ? { desktopSettingsLayer } : {}),
+          ...(networkRead ? { networkRead } : {}),
         }),
       ),
     );
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
 
+describe("classifyLanReachability", () => {
+  it("names a blocked LAN address only when loopback still answers", () => {
+    assert.equal(
+      DesktopServerExposure.classifyLanReachability({
+        lanResponded: true,
+        loopbackResponded: true,
+      }),
+      "ok",
+    );
+    assert.equal(
+      DesktopServerExposure.classifyLanReachability({
+        lanResponded: false,
+        loopbackResponded: true,
+      }),
+      "lan-blocked",
+    );
+    assert.equal(
+      DesktopServerExposure.classifyLanReachability({
+        lanResponded: false,
+        loopbackResponded: false,
+      }),
+      "unreachable",
+    );
+  });
+});
+
 describe("DesktopServerExposure", () => {
+  it.effect("re-resolves the advertised LAN address each time the snapshot is read", () =>
+    Effect.gen(function* () {
+      const interfaces = yield* Ref.make(lanNetworkInterfaces);
+      yield* withHarness(
+        emptyNetworkInterfaces,
+        Effect.gen(function* () {
+          const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+          const settings = yield* DesktopAppSettings.DesktopAppSettings;
+          yield* settings.load;
+          yield* serverExposure.configureFromSettings({ port: 4173 });
+          yield* serverExposure.setMode("network-accessible");
+
+          assert.equal((yield* serverExposure.getState).endpointUrl, "http://192.168.1.20:4173");
+
+          // Joined a VPN or another Wi-Fi network.
+          yield* Ref.set(interfaces, {
+            en0: [{ address: "10.4.0.7", family: "IPv4", internal: false }],
+          });
+          const state = yield* serverExposure.getState;
+          assert.equal(state.advertisedHost, "10.4.0.7");
+          assert.equal(state.endpointUrl, "http://10.4.0.7:4173");
+          const lan = (yield* serverExposure.getAdvertisedEndpoints).find(
+            (endpoint) => endpoint.reachability === "lan",
+          );
+          assert.equal(lan?.httpBaseUrl, "http://10.4.0.7:4173/");
+
+          // Off the network entirely: no stale address is advertised.
+          yield* Ref.set(interfaces, emptyNetworkInterfaces);
+          assert.equal((yield* serverExposure.getState).endpointUrl, null);
+        }),
+        {},
+        undefined,
+        undefined,
+        Ref.get(interfaces),
+      );
+    }),
+  );
+
+  it.effect("keeps a T3CODE_DESKTOP_LAN_HOST override when the network changes", () =>
+    Effect.gen(function* () {
+      const interfaces = yield* Ref.make(lanNetworkInterfaces);
+      yield* withHarness(
+        emptyNetworkInterfaces,
+        Effect.gen(function* () {
+          const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+          const settings = yield* DesktopAppSettings.DesktopAppSettings;
+          yield* settings.load;
+          yield* serverExposure.configureFromSettings({ port: 4173 });
+          yield* serverExposure.setMode("network-accessible");
+          yield* Ref.set(interfaces, {
+            en0: [{ address: "10.4.0.7", family: "IPv4", internal: false }],
+          });
+          assert.equal((yield* serverExposure.getState).endpointUrl, "http://my-mac.local:4173");
+        }),
+        { T3CODE_DESKTOP_LAN_HOST: "my-mac.local" },
+        undefined,
+        undefined,
+        Ref.get(interfaces),
+      );
+    }),
+  );
+
+  it.effect("skips the LAN self-test when no LAN address is served", () =>
+    withHarness(
+      lanNetworkInterfaces,
+      Effect.gen(function* () {
+        const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+        yield* serverExposure.configureFromSettings({ port: 4173 });
+        assert.deepEqual(yield* serverExposure.checkLanReachability, {
+          status: "not-applicable",
+          url: null,
+        });
+      }),
+    ),
+  );
+
   it.effect("falls back to local-only without losing the requested network preference", () =>
     withHarness(
       emptyNetworkInterfaces,

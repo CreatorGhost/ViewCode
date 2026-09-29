@@ -10,6 +10,7 @@ import {
   AuthTerminalOperateScope,
   EnvironmentAuthInvalidError,
   type EnvironmentAuthInvalidReason,
+  type EnvironmentPairingProblem,
   EnvironmentHttpApi,
   EnvironmentInternalError,
   type EnvironmentInternalErrorReason,
@@ -98,6 +99,7 @@ export function annotateEnvironmentRequest(endpoint: string) {
 export function failEnvironmentAuthInvalid(
   reason: EnvironmentAuthInvalidReason,
   dpopFailureReason?: DpopFailureReason,
+  pairingProblem?: EnvironmentPairingProblem,
 ) {
   return currentEnvironmentTraceId.pipe(
     Effect.flatMap((traceId) =>
@@ -106,6 +108,7 @@ export function failEnvironmentAuthInvalid(
           code: "auth_invalid",
           reason,
           ...(dpopFailureReason === undefined ? {} : { dpopFailureReason }),
+          ...(pairingProblem === undefined ? {} : { pairingProblem }),
           traceId,
         }),
       ),
@@ -302,6 +305,7 @@ export const authHttpApiLayer = HttpApiBuilder.group(
             failEnvironmentAuthInvalid(
               EnvironmentAuth.serverAuthCredentialReason(error),
               EnvironmentAuth.serverAuthDpopFailureReason(error),
+              EnvironmentAuth.serverAuthPairingProblem(error),
             ),
           ),
           Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
@@ -373,6 +377,7 @@ export const authHttpApiLayer = HttpApiBuilder.group(
             failEnvironmentAuthInvalid(
               EnvironmentAuth.serverAuthCredentialReason(error),
               EnvironmentAuth.serverAuthDpopFailureReason(error),
+              EnvironmentAuth.serverAuthPairingProblem(error),
             ),
           ),
           Effect.catchIf(EnvironmentAuth.isServerAuthInvalidRequestError, (error) =>

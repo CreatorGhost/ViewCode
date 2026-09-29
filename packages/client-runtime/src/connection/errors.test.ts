@@ -104,6 +104,22 @@ describe("mapRemoteDpopEnvironmentError", () => {
     });
   });
 
+  it("tells the person why a pairing code was refused", () => {
+    const reject = (pairingProblem?: "expired" | "used") =>
+      mapRemoteEnvironmentError(
+        new EnvironmentAuthInvalidError({
+          code: "auth_invalid",
+          reason: "invalid_credential",
+          ...(pairingProblem ? { pairingProblem } : {}),
+          traceId: "trace-1",
+        }),
+      );
+
+    expect(reject("expired")).toMatchObject({ detail: expect.stringContaining("has expired") });
+    expect(reject("used")).toMatchObject({ detail: expect.stringContaining("already used") });
+    expect(reject()).toMatchObject({ detail: "The environment credential is invalid." });
+  });
+
   it("does not present a generic environment auth error as confirmed clock skew", () => {
     const mapped = mapRemoteDpopEnvironmentError(
       new EnvironmentAuthInvalidError({

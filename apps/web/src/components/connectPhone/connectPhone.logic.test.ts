@@ -2,10 +2,16 @@ import type { AdvertisedEndpoint } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  CONNECT_PHONE_CODE_TTL_SECONDS,
+  describeLanReachability,
+  formatPairingExpiry,
+  LAN_BLOCKED_MESSAGE,
+  LAN_UNREACHABLE_MESSAGE,
   resolveConnectPhoneState,
   resolvePairingCodeStatus,
   selectPhoneEndpoints,
   shouldResumeConnectPhone,
+  shouldRunLanSelfTest,
 } from "./connectPhone.logic";
 
 function endpoint(
@@ -157,5 +163,47 @@ describe("resolvePairingCodeStatus", () => {
   it("calls it expired when it disappears at or after expiry", () => {
     expect(resolvePairingCodeStatus({ ...base, seenInSnapshot: true, nowMs: 100 })).toBe("expired");
     expect(resolvePairingCodeStatus({ ...base, inSnapshot: true, nowMs: 150 })).toBe("expired");
+  });
+});
+
+describe("LAN self-test", () => {
+  const shown = "http://192.168.1.5:3773/";
+
+  it("warns only about the address on screen", () => {
+    expect(describeLanReachability({ status: "lan-blocked", url: shown }, shown)).toBe(
+      LAN_BLOCKED_MESSAGE,
+    );
+    expect(describeLanReachability({ status: "unreachable", url: shown }, shown)).toBe(
+      LAN_UNREACHABLE_MESSAGE,
+    );
+    expect(
+      describeLanReachability(
+        { status: "lan-blocked", url: "http://10.0.0.9:3773" },
+        "http://192.168.1.5:3773",
+      ),
+    ).toBeNull();
+  });
+
+  it("is quiet when the LAN address works or there is nothing to test", () => {
+    expect(describeLanReachability({ status: "ok", url: shown }, shown)).toBeNull();
+    expect(describeLanReachability({ status: "not-applicable", url: null }, shown)).toBeNull();
+    expect(describeLanReachability(null, shown)).toBeNull();
+  });
+
+  it("runs only on the desktop shell for the LAN address", () => {
+    expect(shouldRunLanSelfTest({ canCheck: true, endpoint: { lan: true } })).toBe(true);
+    expect(shouldRunLanSelfTest({ canCheck: true, endpoint: { lan: false } })).toBe(false);
+    expect(shouldRunLanSelfTest({ canCheck: false, endpoint: { lan: true } })).toBe(false);
+    expect(shouldRunLanSelfTest({ canCheck: true, endpoint: undefined })).toBe(false);
+  });
+});
+
+describe("pairing code lifetime", () => {
+  it("mints dialog codes for fifteen minutes", () => {
+    expect(CONNECT_PHONE_CODE_TTL_SECONDS).toBe(900);
+  });
+
+  it("shows a clock time, not a countdown", () => {
+    expect(formatPairingExpiry(Date.UTC(2026, 0, 1, 15, 42), "en-US")).toMatch(/\d{1,2}:\d{2}/);
   });
 });

@@ -339,9 +339,14 @@ export const AuthRevokeClientSessionInput = Schema.Struct({
 });
 export type AuthRevokeClientSessionInput = typeof AuthRevokeClientSessionInput.Type;
 
+/** The longest a requested pairing-code lifetime may be; the server clamps to it. */
+export const AUTH_PAIRING_CREDENTIAL_MAX_TTL_SECONDS = 15 * 60;
+
 export const AuthCreatePairingCredentialInput = Schema.Struct({
   label: Schema.optionalKey(TrimmedNonEmptyString),
   scopes: Schema.optionalKey(AuthEnvironmentScopes),
+  /** Requested lifetime. Omitted means the server default (5 minutes). */
+  ttlSeconds: Schema.optionalKey(Schema.Number),
 });
 export type AuthCreatePairingCredentialInput = typeof AuthCreatePairingCredentialInput.Type;
 

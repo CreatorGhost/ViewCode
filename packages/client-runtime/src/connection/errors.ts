@@ -112,6 +112,15 @@ export function mapManagedRelayError(error: ManagedRelayClientError): Connection
   }
 }
 
+/** What to tell someone whose pairing code was refused for a nameable reason. */
+export function pairingRejectionMessage(problem: unknown): string | undefined {
+  if (problem === "expired") return "This pairing code has expired. Make a new one and try again.";
+  if (problem === "used") {
+    return "This pairing code was already used. Make a new one and try again.";
+  }
+  return undefined;
+}
+
 export function mapRemoteEnvironmentError(
   error: RemoteEnvironmentAuthError,
   connectionMethod: ClientConnectionMethod = "direct",
@@ -121,7 +130,8 @@ export function mapRemoteEnvironmentError(
     case "EnvironmentAuthInvalidError":
       return new ConnectionBlockedError({
         reason: "authentication",
-        detail: "The environment credential is invalid.",
+        detail:
+          pairingRejectionMessage(error.pairingProblem) ?? "The environment credential is invalid.",
         traceId: error.traceId,
       });
     case "EnvironmentScopeRequiredError":

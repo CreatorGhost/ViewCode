@@ -532,6 +532,18 @@ export const DesktopServerExposureStateSchema = Schema.Struct({
   tailscaleServePort: Schema.Number,
 });
 
+/**
+ * Result of the desktop calling its own advertised LAN address over HTTP.
+ * `lan-blocked`: loopback answers but the LAN address does not (a firewall or
+ * security software drops inbound connections). `unreachable`: neither
+ * answers. `not-applicable`: no LAN address is being served.
+ */
+export const DesktopLanReachabilitySchema = Schema.Struct({
+  status: Schema.Literals(["ok", "lan-blocked", "unreachable", "not-applicable"]),
+  url: Schema.NullOr(Schema.String),
+});
+export type DesktopLanReachability = typeof DesktopLanReachabilitySchema.Type;
+
 export interface PickFolderOptions {
   initialPath?: string | null;
   // When set, the desktop dialog opens against the named backend's
@@ -1229,6 +1241,8 @@ export interface DesktopBridge {
     readonly port?: number;
   }) => Promise<DesktopServerExposureState>;
   getAdvertisedEndpoints: () => Promise<readonly AdvertisedEndpoint[]>;
+  /** Optional while older desktop shells can host a newer web client. */
+  checkLanReachability?: () => Promise<DesktopLanReachability>;
   getWslState: () => Promise<DesktopWslState>;
   setWslBackendEnabled: (enabled: boolean) => Promise<DesktopWslState>;
   setWslDistro: (distro: string | null) => Promise<DesktopWslState>;

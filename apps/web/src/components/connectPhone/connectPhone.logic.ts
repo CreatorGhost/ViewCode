@@ -1,4 +1,12 @@
-import type { AdvertisedEndpoint, DesktopServerExposureMode } from "@t3tools/contracts";
+import {
+  AUTH_PAIRING_CREDENTIAL_MAX_TTL_SECONDS,
+  type AdvertisedEndpoint,
+  type DesktopLanReachability,
+  type DesktopServerExposureMode,
+} from "@t3tools/contracts";
+
+/** How long a code minted by the dialog lives; the server caps it at the same value. */
+export const CONNECT_PHONE_CODE_TTL_SECONDS = AUTH_PAIRING_CREDENTIAL_MAX_TTL_SECONDS;
 
 /** An address the phone can dial, and how the dialog names it. */
 export interface PhoneEndpoint {
@@ -7,6 +15,8 @@ export interface PhoneEndpoint {
   readonly httpBaseUrl: string;
   /** Only this computer can open it: a QR for it would make the phone dial itself. */
   readonly loopback: boolean;
+  /** Same-network address the desktop app itself serves, the one a firewall can block. */
+  readonly lan: boolean;
 }
 
 export type ConnectPhoneState =
@@ -65,6 +75,7 @@ export function selectPhoneEndpoints(input: {
       label: endpoint.label,
       httpBaseUrl: endpoint.httpBaseUrl,
       loopback: false,
+      lan: endpoint.reachability === "lan",
     }));
 }
 
@@ -108,6 +119,7 @@ export function resolveConnectPhoneState(input: {
         label: new URL(web.origin).host,
         httpBaseUrl: web.origin,
         loopback: web.originIsLoopback,
+        lan: false,
       },
     ],
     canTurnOff: false,
@@ -149,4 +161,53 @@ export function resolvePairingCodeStatus(input: {
     return input.nowMs < input.expiresAtMs ? "paired" : "expired";
   }
   return input.nowMs < input.expiresAtMs ? "active" : "expired";
+}
+
+/** The static "Expires at" text: clock time only, so nothing repaints per second. */
+export function formatPairingExpiry(expiresAtMs: number, locale?: string): string {
+  return new Date(expiresAtMs).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+}
+
+/**
+ * Whether to ask the desktop to call its own LAN address. Only the desktop
+ * shell can (web and `npx t3` clients skip it), and only for the address the
+ * desktop itself serves.
+ */
+export function shouldRunLanSelfTest(input: {
+  readonly canCheck: boolean;
+  readonly endpoint: Pick<PhoneEndpoint, "lan"> | undefined;
+}): boolean {
+  return input.canCheck && input.endpoint?.lan === true;
+}
+
+export const LAN_BLOCKED_MESSAGE =
+  "This computer is blocking incoming connections to ViewCode (macOS firewall or security software). Local-network pairing won't work until IT allows ViewCode; running the server with `npx t3` / node may be allowed.";
+
+export const LAN_UNREACHABLE_MESSAGE =
+  "The ViewCode server is not reachable, even from this computer. Restart ViewCode and open this again.";
+
+/**
+ * The warning for a self-test result, or null when there is nothing to warn
+ * about. A result for another address (the network changed mid-test) says
+ * nothing about the address on screen.
+ */
+export function describeLanReachability(
+  result: DesktopLanReachability | null,
+  shownBaseUrl: string,
+): string | null {
+  if (result === null || result.url === null) return null;
+  try {
+    if (new URL(result.url).origin !== new URL(shownBaseUrl).origin) return null;
+  } catch {
+    return null;
+  }
+  switch (result.status) {
+    case "lan-blocked":
+      return LAN_BLOCKED_MESSAGE;
+    case "unreachable":
+      return LAN_UNREACHABLE_MESSAGE;
+    case "ok":
+    case "not-applicable":
+      return null;
+  }
 }

@@ -1,4 +1,5 @@
 import {
+  AUTH_PAIRING_CREDENTIAL_MAX_TTL_SECONDS,
   AuthAccessTokenType,
   AuthAccessWriteScope,
   AuthAdministrativeScopes,
@@ -372,6 +373,20 @@ export const serverAuthCredentialReason = (
 ): "missing_credential" | "invalid_credential" =>
   error._tag === "ServerAuthMissingCredentialError" ? "missing_credential" : "invalid_credential";
 
+/** Which pairing-code failure a rejected exchange was, if it was one worth naming. */
+export const serverAuthPairingProblem = (
+  error: ServerAuthCredentialError,
+): "expired" | "used" | undefined => {
+  if (error._tag !== "ServerAuthInvalidCredentialError") return undefined;
+  const cause: unknown = error.cause;
+  const tag = typeof cause === "object" && cause !== null ? Reflect.get(cause, "_tag") : undefined;
+  return tag === "ExpiredBootstrapCredentialError"
+    ? "expired"
+    : tag === "ConsumedBootstrapCredentialError"
+      ? "used"
+      : undefined;
+};
+
 export const serverAuthDpopFailureReason = (
   error: ServerAuthCredentialError,
 ): DpopFailureReasonType | undefined =>
@@ -527,6 +542,12 @@ const bySessionPriority = (left: AuthClientSession, right: AuthClientSession) =>
   }
   return right.issuedAt.epochMilliseconds - left.issuedAt.epochMilliseconds;
 };
+
+/** A client may ask for a longer or shorter code, never past the cap or below one minute. */
+export function clampPairingCredentialTtl(ttlSeconds: number): Duration.Duration {
+  const seconds = Number.isFinite(ttlSeconds) ? ttlSeconds : 0;
+  return Duration.seconds(Math.min(Math.max(seconds, 60), AUTH_PAIRING_CREDENTIAL_MAX_TTL_SECONDS));
+}
 
 export function toBootstrapExchangeError(
   cause: PairingGrantStore.BootstrapCredentialError,
@@ -863,10 +884,12 @@ export const make = Effect.gen(function* () {
     readonly subject: string;
     readonly label?: string;
     readonly purpose?: "startup";
+    readonly ttl?: Duration.Duration;
   }) =>
     createPairingLink({
       scopes: input.scopes,
       subject: input.subject,
+      ...(input.ttl ? { ttl: input.ttl } : {}),
       ...(input.label ? { label: input.label } : {}),
       ...(input.purpose ? { purpose: input.purpose } : {}),
     }).pipe(
@@ -984,6 +1007,9 @@ export const make = Effect.gen(function* () {
       scopes: input?.scopes ?? AuthStandardClientScopes,
       subject: "one-time-token",
       ...(input?.label ? { label: input.label } : {}),
+      ...(input?.ttlSeconds !== undefined
+        ? { ttl: clampPairingCredentialTtl(input.ttlSeconds) }
+        : {}),
     }).pipe(Effect.withSpan("EnvironmentAuth.issuePairingCredential"));
 
   const issueStartupPairingCredential: EnvironmentAuth["Service"]["issueStartupPairingCredential"] =

@@ -47,6 +47,16 @@ export class ExpiredBootstrapCredentialError extends Schema.TaggedError<ExpiredB
   }
 }
 
+/** The code was valid once, but a device already used it. */
+export class ConsumedBootstrapCredentialError extends Schema.TaggedError<ConsumedBootstrapCredentialError>()(
+  "ConsumedBootstrapCredentialError",
+  {},
+) {
+  override get message(): string {
+    return "Bootstrap credential was already used.";
+  }
+}
+
 export class BootstrapCredentialProofKeyMismatchError extends Schema.TaggedError<BootstrapCredentialProofKeyMismatchError>()(
   "BootstrapCredentialProofKeyMismatchError",
   {},
@@ -68,6 +78,7 @@ export class UnavailableBootstrapCredentialError extends Schema.TaggedError<Unav
 export const BootstrapCredentialInvalidError = Schema.Union([
   UnknownBootstrapCredentialError,
   ExpiredBootstrapCredentialError,
+  ConsumedBootstrapCredentialError,
   BootstrapCredentialProofKeyMismatchError,
   UnavailableBootstrapCredentialError,
 ]);
@@ -544,7 +555,7 @@ export const make = Effect.gen(function* () {
       }
 
       if (matching.value.consumedAt !== null) {
-        return yield* new UnknownBootstrapCredentialError({});
+        return yield* new ConsumedBootstrapCredentialError({});
       }
 
       if (DateTime.isGreaterThanOrEqualTo(now, matching.value.expiresAt)) {

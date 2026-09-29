@@ -6,10 +6,15 @@ import {
   DesktopServerExposureModeSchema,
   type AdvertisedEndpoint,
   type AdvertisedEndpointProvider,
+  type DesktopLanReachability,
   type DesktopServerExposureMode,
   type DesktopServerExposureState,
 } from "@t3tools/contracts";
-import { isTailscaleIpv4Address, readTailscaleStatus } from "@t3tools/tailscale";
+import {
+  isTailscaleIpv4Address,
+  probeTailscaleHttpsEndpoint,
+  readTailscaleStatus,
+} from "@t3tools/tailscale";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -26,6 +31,9 @@ import * as DesktopNetworkInterfaces from "./DesktopNetworkInterfaces.ts";
 import { resolveTailscaleAdvertisedEndpoints } from "./tailscaleEndpointProvider.ts";
 
 const TAILSCALE_STATUS_CACHE_TTL = Duration.seconds(60);
+
+// A blocked LAN address hangs or resets; the dialog must not wait longer than this to say so.
+const LAN_REACHABILITY_TIMEOUT = Duration.seconds(3);
 
 const DESKTOP_LOOPBACK_HOST = "127.0.0.1";
 const DESKTOP_LAN_BIND_HOST = "0.0.0.0";
@@ -105,6 +113,17 @@ const resolveLanAdvertisedHost = (
 
   return null;
 };
+
+/**
+ * Names why the LAN address failed. Loopback answering while the LAN address
+ * does not means something between this machine's network stack and the app
+ * (macOS Application Firewall, security software) drops inbound connections.
+ */
+export const classifyLanReachability = (input: {
+  readonly lanResponded: boolean;
+  readonly loopbackResponded: boolean;
+}): Exclude<DesktopLanReachability["status"], "not-applicable"> =>
+  input.lanResponded ? "ok" : input.loopbackResponded ? "lan-blocked" : "unreachable";
 
 type SocketBackendSettings = Pick<
   DesktopAppSettings.DesktopSettings,
@@ -322,6 +341,8 @@ export class DesktopServerExposure extends Context.Service<
       readonly port?: number;
     }) => Effect.Effect<DesktopServerExposureChange, DesktopTailscaleServePersistenceError>;
     readonly getAdvertisedEndpoints: Effect.Effect<readonly AdvertisedEndpoint[]>;
+    /** Real HTTP requests to this machine's own LAN address, on demand. */
+    readonly checkLanReachability: Effect.Effect<DesktopLanReachability>;
   }
 >()("@t3tools/desktop/backend/DesktopServerExposure") {}
 
@@ -482,7 +503,34 @@ export const make = Effect.gen(function* () {
 
   const readNetworkInterfaces = networkInterfaces.read;
 
-  const getState = Ref.get(stateRef).pipe(Effect.map(toContractState));
+  /**
+   * Re-resolves the advertised LAN address from the current interfaces. The
+   * address at launch goes stale when Wi-Fi or a VPN changes, so every read
+   * of the exposure snapshot calls this instead of trusting the cached value.
+   * Only a backend already bound to all interfaces can serve a new address.
+   */
+  const refreshLanEndpoint = Effect.gen(function* () {
+    const current = yield* Ref.get(stateRef);
+    if (current.mode !== "network-accessible") return current;
+    const currentNetworkInterfaces = yield* readNetworkInterfaces;
+    const advertisedHost = resolveLanAdvertisedHost(
+      currentNetworkInterfaces,
+      Option.getOrUndefined(config.desktopLanHostOverride),
+    );
+    return yield* Ref.updateAndGet(stateRef, (latest) =>
+      latest.mode !== "network-accessible"
+        ? latest
+        : {
+            ...latest,
+            endpointUrl: Option.fromNullishOr(
+              advertisedHost ? `http://${advertisedHost}:${latest.port}` : null,
+            ),
+            advertisedHost: Option.fromNullishOr(advertisedHost),
+          },
+    );
+  });
+
+  const getState = refreshLanEndpoint.pipe(Effect.map(toContractState));
   const backendConfig = Ref.get(stateRef).pipe(Effect.map(toBackendConfig));
 
   const configureFromSettings = Effect.fn("desktop.serverExposure.configureFromSettings")(
@@ -580,7 +628,7 @@ export const make = Effect.gen(function* () {
   );
 
   const getAdvertisedEndpoints = Effect.gen(function* () {
-    const state = yield* Ref.get(stateRef);
+    const state = yield* refreshLanEndpoint;
     const currentNetworkInterfaces = yield* readNetworkInterfaces;
     const coreEndpoints = resolveDesktopCoreAdvertisedEndpoints({
       port: state.port,
@@ -608,6 +656,24 @@ export const make = Effect.gen(function* () {
     return [...coreEndpoints, ...tailscaleEndpoints];
   }).pipe(Effect.withSpan("desktop.serverExposure.getAdvertisedEndpoints"));
 
+  const checkLanReachability = Effect.gen(function* () {
+    const state = yield* refreshLanEndpoint;
+    const lanUrl = Option.getOrNull(state.endpointUrl);
+    if (state.mode !== "network-accessible" || state.listenOnSocket || lanUrl === null) {
+      return { status: "not-applicable", url: null } satisfies DesktopLanReachability;
+    }
+    const probe = (baseUrl: string) =>
+      probeTailscaleHttpsEndpoint({ baseUrl, timeout: LAN_REACHABILITY_TIMEOUT }).pipe(
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      );
+    const lanResponded = yield* probe(lanUrl);
+    const loopbackResponded = lanResponded ? true : yield* probe(state.localHttpUrl);
+    return {
+      status: classifyLanReachability({ lanResponded, loopbackResponded }),
+      url: lanUrl,
+    } satisfies DesktopLanReachability;
+  }).pipe(Effect.withSpan("desktop.serverExposure.checkLanReachability"));
+
   return DesktopServerExposure.of({
     getState,
     backendConfig,
@@ -615,6 +681,7 @@ export const make = Effect.gen(function* () {
     setMode,
     setTailscaleServeEnabled,
     getAdvertisedEndpoints,
+    checkLanReachability,
   });
 });
 

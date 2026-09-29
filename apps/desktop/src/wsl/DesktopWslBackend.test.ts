@@ -64,6 +64,7 @@ const serverExposureLayer = Layer.succeed(DesktopServerExposure.DesktopServerExp
   setMode: () => Effect.die("unexpected setMode"),
   setTailscaleServeEnabled: () => Effect.die("unexpected setTailscaleServeEnabled"),
   getAdvertisedEndpoints: Effect.succeed([]),
+  checkLanReachability: Effect.succeed({ status: "not-applicable", url: null }),
 } satisfies DesktopServerExposure.DesktopServerExposure["Service"]);
 
 const backendConfigurationLayer = Layer.succeed(

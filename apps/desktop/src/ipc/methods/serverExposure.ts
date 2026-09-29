@@ -1,5 +1,6 @@
 import {
   AdvertisedEndpoint,
+  DesktopLanReachabilitySchema,
   DesktopServerExposureModeSchema,
   DesktopServerExposureStateSchema,
 } from "@t3tools/contracts";
@@ -65,5 +66,15 @@ export const getAdvertisedEndpoints = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.serverExposure.getAdvertisedEndpoints")(function* () {
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     return yield* serverExposure.getAdvertisedEndpoints;
+  }),
+});
+
+export const checkLanReachability = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.CHECK_LAN_REACHABILITY_CHANNEL,
+  payload: Schema.Void,
+  result: DesktopLanReachabilitySchema,
+  handler: Effect.fn("desktop.ipc.serverExposure.checkLanReachability")(function* () {
+    const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+    return yield* serverExposure.checkLanReachability;
   }),
 });

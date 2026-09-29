@@ -76,6 +76,13 @@ export const EnvironmentAuthInvalidReason = Schema.Literals([
 ]);
 export type EnvironmentAuthInvalidReason = typeof EnvironmentAuthInvalidReason.Type;
 
+/**
+ * Why a pairing code was refused, when the server can say so without helping a
+ * guesser: the code existed but is past its expiry or already used.
+ */
+export const EnvironmentPairingProblem = Schema.Literals(["expired", "used"]);
+export type EnvironmentPairingProblem = typeof EnvironmentPairingProblem.Type;
+
 export const EnvironmentOperationForbiddenReason = Schema.Literals([
   "current_session_revoke_not_allowed",
 ]);
@@ -124,6 +131,8 @@ export class EnvironmentAuthInvalidError extends Schema.TaggedError<EnvironmentA
     reason: EnvironmentAuthInvalidReason,
     // Older servers do not send a DPoP failure category.
     dpopFailureReason: Schema.optionalKey(DpopFailureReason),
+    // Older servers do not say why a pairing code was refused.
+    pairingProblem: Schema.optionalKey(EnvironmentPairingProblem),
     traceId: TrimmedNonEmptyString,
   },
   { httpApiStatus: 401 },

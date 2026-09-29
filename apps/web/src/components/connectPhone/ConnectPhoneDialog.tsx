@@ -1,4 +1,8 @@
-import { AuthAccessWriteScope, type AuthPairingCredentialResult } from "@t3tools/contracts";
+import {
+  AuthAccessWriteScope,
+  type AuthPairingCredentialResult,
+  type DesktopLanReachability,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { CheckIcon, CopyIcon, SmartphoneIcon, TriangleAlertIcon } from "lucide-react";
 import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
@@ -38,12 +42,16 @@ import { Spinner } from "../ui/spinner";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { T3ConnectPhone } from "./T3ConnectPhone";
 import {
+  CONNECT_PHONE_CODE_TTL_SECONDS,
   CONNECT_PHONE_RESUME_KEY,
   type ConnectPhoneState,
+  describeLanReachability,
+  formatPairingExpiry,
   type PhoneEndpoint,
   resolveConnectPhoneState,
   resolvePairingCodeStatus,
   shouldResumeConnectPhone,
+  shouldRunLanSelfTest,
 } from "./connectPhone.logic";
 
 type ConnectionMode = "local" | "cloud";
@@ -169,6 +177,11 @@ function ConnectPhoneDialogContent({
 }) {
   const state = useConnectPhoneState();
   const mode = useConnectPhoneDialogStore((value) => value.mode);
+  // The advertised address goes stale when Wi-Fi or a VPN changes, so each
+  // open asks the desktop for a fresh snapshot instead of trusting the cache.
+  useEffect(() => {
+    if (window.desktopBridge) refreshDesktopNetworkAccessState();
+  }, []);
   const [pendingMode, setPendingMode] = useState<"on" | "off" | null>(null);
   const [confirmingTurnOff, setConfirmingTurnOff] = useState(false);
   const [exposureError, setExposureError] = useState<string | null>(null);
@@ -355,10 +368,12 @@ function revokeUnused(code: PairingCode | null): void {
  * Creates a one-time pairing code on mount and on each `createCode`, and
  * tracks it until a device uses it or it expires.
  */
-function usePairingCode() {
-  const [request, setRequest] = useState(0);
+function usePairingCode(endpointId: string) {
+  const [counter, setCounter] = useState(0);
+  // A new address (the network changed) gets a fresh code, like a manual refresh.
+  const request = `${counter}:${endpointId}`;
   const [result, setResult] = useState<{
-    readonly request: number;
+    readonly request: string;
     readonly code: PairingCode | null;
     readonly error: string | null;
   } | null>(null);
@@ -370,7 +385,10 @@ function usePairingCode() {
 
   useEffect(() => {
     let cancelled = false;
-    createServerPairingCredential({ label: "Phone" }).then(
+    createServerPairingCredential({
+      label: "Phone",
+      ttlSeconds: CONNECT_PHONE_CODE_TTL_SECONDS,
+    }).then(
       (created) => {
         const next = toPairingCode(created);
         if (cancelled) {
@@ -440,13 +458,51 @@ function usePairingCode() {
     return () => window.clearTimeout(timer);
   }, [code]);
 
-  const createCode = useCallback(() => setRequest((current) => current + 1), []);
+  const createCode = useCallback(() => setCounter((current) => current + 1), []);
   return {
+    counter,
     code,
     status,
     error: result?.error ?? null,
     isCreating: result?.request !== request,
     createCode,
+  };
+}
+
+/**
+ * Asks the desktop to call its own LAN address over HTTP. Runs once per dialog
+ * open, per new code, and when the address changes; never on a timer. Web and
+ * `npx t3` clients have no desktop bridge and skip it.
+ */
+function useLanSelfTest(input: {
+  readonly endpoint: PhoneEndpoint | undefined;
+  readonly run: number;
+}) {
+  const check = window.desktopBridge?.checkLanReachability;
+  const enabled = shouldRunLanSelfTest({ canCheck: check !== undefined, endpoint: input.endpoint });
+  const key = `${input.endpoint?.httpBaseUrl ?? ""}#${input.run}`;
+  const [settled, setSettled] = useState<{
+    readonly key: string;
+    readonly value: DesktopLanReachability | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    window.desktopBridge?.checkLanReachability?.().then(
+      (value) => {
+        if (!cancelled) setSettled({ key, value });
+      },
+      () => {
+        if (!cancelled) setSettled({ key, value: null });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, key]);
+  return {
+    checking: enabled && settled?.key !== key,
+    result: enabled && settled?.key === key ? settled.value : null,
   };
 }
 
@@ -457,12 +513,25 @@ function ReadyBody({
   endpoints: ReadonlyArray<PhoneEndpoint>;
   children?: ReactNode;
 }) {
-  const { code, status, error, isCreating, createCode } = usePairingCode();
   const [endpointId, setEndpointId] = useState<string | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "pairing link" });
   const endpoint = endpoints.find((candidate) => candidate.id === endpointId) ?? endpoints[0];
+  const {
+    counter,
+    code,
+    status,
+    error,
+    isCreating,
+    createCode: createFreshCode,
+  } = usePairingCode(endpoint?.id ?? "");
+  const lanTest = useLanSelfTest({ endpoint, run: counter });
+  const createCode = useCallback(() => {
+    if (window.desktopBridge) refreshDesktopNetworkAccessState();
+    createFreshCode();
+  }, [createFreshCode]);
   if (!endpoint) return null;
   const pairingUrl = code ? resolveDesktopPairingUrl(endpoint.httpBaseUrl, code.credential) : null;
+  const lanWarning = describeLanReachability(lanTest.result, endpoint.httpBaseUrl);
 
   return (
     <DialogPanel>
@@ -513,6 +582,23 @@ function ReadyBody({
           </div>
         )}
 
+        {lanWarning ? (
+          <Alert variant="warning">
+            <TriangleAlertIcon />
+            <AlertDescription>{lanWarning}</AlertDescription>
+          </Alert>
+        ) : lanTest.checking ? (
+          <p className="text-xs text-muted-foreground">
+            Checking that phones can reach this computer…
+          </p>
+        ) : null}
+
+        {code && status === "active" && !endpoint.loopback ? (
+          <p className="text-center text-xs text-muted-foreground">
+            This code works once. Expires at {formatPairingExpiry(code.expiresAtMs)}.
+          </p>
+        ) : null}
+
         {!endpoint.loopback && (status === "expired" || status === "paired" || error) ? (
           <Button size="sm" disabled={isCreating} onClick={createCode}>
             {isCreating ? <Spinner size="sm" /> : null}
@@ -542,14 +628,7 @@ function ReadyBody({
               </Button>
             </InputGroupAddon>
           </InputGroup>
-          <p className="text-xs text-muted-foreground">
-            Works once, until{" "}
-            {new Date(code.expiresAtMs).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-            . Treat it like a password.
-          </p>
+          <p className="text-xs text-muted-foreground">Treat this link like a password.</p>
         </div>
       ) : null}
 
