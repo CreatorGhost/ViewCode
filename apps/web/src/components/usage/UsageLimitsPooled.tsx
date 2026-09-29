@@ -21,7 +21,7 @@ import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { RedactedSensitiveText } from "../settings/RedactedSensitiveText";
 import { Button } from "../ui/button";
-import { Alert, AlertTitle } from "../ui/alert";
+import { Alert, AlertAction, AlertTitle } from "../ui/alert";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
   PaceIcon,
@@ -568,10 +568,13 @@ export function UsageLimitsPooled({
   presentations,
   now,
   cursorPrompt,
+  onRetry,
 }: {
   readonly presentations: Parameters<typeof collectLimitAccounts>[0];
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
+  /** Re-probes providers through the page's existing refresh. */
+  readonly onRetry?: () => void;
 }) {
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
@@ -594,13 +597,19 @@ export function UsageLimitsPooled({
         </Fragment>
       ))}
       {cursorPromptAt === pools.length ? cursorPrompt : null}
-      <LimitNotices notices={notices} />
+      <LimitNotices notices={notices} onRetry={onRetry} />
     </div>
   );
 }
 
 /** Sources and providers that could not be read, so a missing bar is not mistaken for a full one. */
-function LimitNotices({ notices }: { readonly notices: readonly string[] }) {
+function LimitNotices({
+  notices,
+  onRetry,
+}: {
+  readonly notices: readonly string[];
+  readonly onRetry: (() => void) | undefined;
+}) {
   if (notices.length === 0) return null;
   return (
     <Alert variant="warning" controlAlignment="first-line">
@@ -610,6 +619,13 @@ function LimitNotices({ notices }: { readonly notices: readonly string[] }) {
           {notice}
         </AlertTitle>
       ))}
+      {onRetry ? (
+        <AlertAction>
+          <Button size="compact" variant="outline" onClick={onRetry}>
+            Retry
+          </Button>
+        </AlertAction>
+      ) : null}
     </Alert>
   );
 }

@@ -444,7 +444,7 @@ export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
   if (limits.unavailable?.reason === "probeFailed") {
     return limits.unavailable.message ?? "Could not read limits.";
   }
-  return limits.windows.length === 0 ? "No limits reported." : null;
+  return limits.windows.length === 0 ? "No usage recorded yet." : null;
 }
 
 /** Quota left in the window, 0..100. Bars and labels show what remains, as Codex does. */

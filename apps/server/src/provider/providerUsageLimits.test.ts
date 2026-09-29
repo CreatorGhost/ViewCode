@@ -90,6 +90,18 @@ describe("resolveUsageLimitsAfterProbe", () => {
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
   });
 
+  it("keeps existing windows through an empty successful read", () => {
+    const empty = { checkedAt: "2026-09-03T12:10:00.000Z", windows: [] };
+    expect(resolveUsageLimitsAfterProbe({ published, probed: empty })).toEqual(published);
+    expect(
+      resolveUsageLimitsAfterProbe({
+        published: { ...published, refreshError: "x" },
+        probed: empty,
+      }),
+    ).toEqual(published);
+    expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: empty })).toBe(empty);
+  });
+
   it("keeps the original reading time across failures and clears the warning on recovery", () => {
     const probed = {
       checkedAt: "2026-09-03T12:10:00.000Z",

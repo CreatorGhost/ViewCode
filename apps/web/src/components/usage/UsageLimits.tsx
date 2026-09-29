@@ -323,15 +323,24 @@ export function UsageLimitsSection({
   selectedEnvironmentIds,
   now,
   cursorPrompt,
+  onRetry,
 }: {
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
+  readonly onRetry?: () => void;
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const selected =
     selectedEnvironmentIds === null
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
-  return <UsageLimitsPooled presentations={selected} now={now} cursorPrompt={cursorPrompt} />;
+  return (
+    <UsageLimitsPooled
+      presentations={selected}
+      now={now}
+      cursorPrompt={cursorPrompt}
+      {...(onRetry ? { onRetry } : {})}
+    />
+  );
 }

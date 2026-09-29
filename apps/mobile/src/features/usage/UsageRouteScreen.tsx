@@ -287,6 +287,7 @@ export function UsageRouteScreen() {
             <UsageLimitsSection
               now={limits.now}
               failedLabels={limits.failedLabels}
+              onRetry={() => void limits.refresh()}
               selectedEnvironmentIds={selectedEnvironmentIds}
               cursorPrompt={
                 cursorAccessEnvironments.length > 0 ? (

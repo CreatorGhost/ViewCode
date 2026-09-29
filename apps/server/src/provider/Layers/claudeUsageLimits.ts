@@ -165,9 +165,17 @@ export function claudeUsageResponseToLimits(input: {
   readonly checkedAt: string;
 }): { readonly limits: ServerProviderUsageLimits; readonly names: ClaudeScopedLimitNames } {
   const { response, checkedAt } = input;
-  if (!response.rate_limits_available || !response.rate_limits) {
+  if (!response.rate_limits_available) {
     return {
       limits: makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" }),
+      names: { overageIncluded: undefined },
+    };
+  }
+  // Available with no `rate_limits` means no window is active yet, not that the
+  // account has none: an empty, re-readable snapshot rather than `unsupported`.
+  if (!response.rate_limits) {
+    return {
+      limits: makeUsageLimits({ checkedAt, windows: [] }),
       names: { overageIncluded: undefined },
     };
   }

@@ -135,5 +135,18 @@ export function resolveUsageLimitsAfterProbe(input: {
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
     return { ...published, refreshError: probed.unavailable.message ?? "Could not refresh usage." };
   }
+  // A successful read with no windows means none is active yet; it must not
+  // wipe bars a turn event already established.
+  if (
+    probed &&
+    !probed.unavailable &&
+    probed.windows.length === 0 &&
+    published &&
+    !published.unavailable &&
+    published.windows.length > 0
+  ) {
+    const { refreshError: _cleared, ...rest } = published;
+    return rest;
+  }
   return probed;
 }

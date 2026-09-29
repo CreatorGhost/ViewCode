@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { claudeRateLimitEventToUpdate, claudeUsageResponseToLimits } from "./claudeUsageLimits.ts";
+import { applyUsageLimitsUpdate } from "../providerUsageLimits.ts";
 
 const checkedAt = "2026-07-18T10:00:00.000Z";
 const noNames = { overageIncluded: undefined } as const;
@@ -127,6 +128,35 @@ describe("claudeUsageResponseToLimits", () => {
         response: { rate_limits_available: false, rate_limits: null },
       }).limits,
     ).toEqual({ checkedAt, windows: [], unavailable: { reason: "unsupported" } });
+  });
+
+  it("treats available limits with no active window as empty, not unsupported, and re-readable", () => {
+    const { limits } = claudeUsageResponseToLimits({
+      checkedAt,
+      response: { rate_limits_available: true, rate_limits: null },
+    });
+    expect(limits).toEqual({ checkedAt, windows: [] });
+    const populated = applyUsageLimitsUpdate({
+      previous: limits,
+      checkedAt,
+      update: { windows: [{ id: "five_hour", kind: "session", label: "Session", usedPercent: 5 }] },
+    });
+    expect(populated?.windows).toHaveLength(1);
+    expect(populated?.unavailable).toBeUndefined();
+    // The not-available case stays sticky.
+    const unsupported = claudeUsageResponseToLimits({
+      checkedAt,
+      response: { rate_limits_available: false, rate_limits: null },
+    }).limits;
+    expect(
+      applyUsageLimitsUpdate({
+        previous: unsupported,
+        checkedAt,
+        update: {
+          windows: [{ id: "five_hour", kind: "session", label: "Session", usedPercent: 5 }],
+        },
+      }),
+    ).toBe(unsupported);
   });
 
   it("skips a window the endpoint reports without a utilization", () => {

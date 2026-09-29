@@ -93,7 +93,7 @@ describe("limitsNotice", () => {
   it("explains empty bars and passes provider messages through", () => {
     const checkedAt = "2026-09-03T11:00:00.000Z";
     expect(limitsNotice({ checkedAt, windows: [window] })).toBeNull();
-    expect(limitsNotice({ checkedAt, windows: [] })).toBe("No limits reported.");
+    expect(limitsNotice({ checkedAt, windows: [] })).toBe("No usage recorded yet.");
     expect(limitsNotice({ checkedAt, windows: [], unavailable: { reason: "unsupported" } })).toBe(
       "This account has no subscription limits.",
     );
@@ -788,7 +788,7 @@ describe("collectLimitNotices", () => {
     ]);
     expect(collectLimitNotices(one)).toEqual([
       "Claude Max: Could not read limits.",
-      "codex: No limits reported.",
+      "codex: No usage recorded yet.",
       "hub: No accounts reported.",
       "down: ECONNREFUSED",
     ]);

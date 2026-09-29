@@ -246,6 +246,8 @@ type ClaudeCapabilitiesProbe = {
    * otherwise successful response mean the account has none (API key).
    */
   readonly usage?: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits">;
+  /** Short reason the `get_usage` request failed, shown beside its Retry. */
+  readonly usageError?: string;
   /** Why the probe failed; the other fields are then empty. */
   readonly probeError?: string;
 };
@@ -381,6 +383,9 @@ const probeClaudeCapabilities = (
               rate_limits: usageResult.success.rate_limits,
             }
           : undefined;
+        const usageError = Result.isFailure(usageResult)
+          ? describeClaudeProbeFailure(usageResult.failure)
+          : undefined;
         const account = init.account as
           | {
               readonly email?: string;
@@ -396,6 +401,7 @@ const probeClaudeCapabilities = (
           apiProvider: account?.apiProvider,
           slashCommands: parseClaudeInitializationCommands(init.commands),
           ...(usage ? { usage } : {}),
+          ...(usageError ? { usageError } : {}),
         } satisfies ClaudeCapabilitiesProbe;
       }),
     ),
@@ -413,20 +419,26 @@ const probeClaudeCapabilities = (
   );
 };
 
-function failedClaudeProbe(cause: unknown): ClaudeCapabilitiesProbe {
+/** A bounded single-line reason for the status line; the SDK error text is not passed through whole. */
+function describeClaudeProbeFailure(cause: unknown, timeoutMessage?: string): string {
   const inner = Predicate.hasProperty(cause, "cause") ? cause.cause : cause;
   const message = Predicate.isTagged(cause, "TimeoutError")
-    ? "Timed out waiting for Claude to initialize."
+    ? (timeoutMessage ?? "Timed out waiting for Claude.")
     : inner instanceof Error
       ? inner.message
       : String(inner);
+  return message.trim().replace(/\s+/g, " ").slice(0, 300) || "Unknown error.";
+}
+
+function failedClaudeProbe(cause: unknown): ClaudeCapabilitiesProbe {
+  const message = describeClaudeProbeFailure(cause, "Timed out waiting for Claude to initialize.");
   return {
     email: undefined,
     subscriptionType: undefined,
     tokenSource: undefined,
     apiProvider: undefined,
     slashCommands: [],
-    probeError: message.trim().slice(0, 300) || "Unknown error.",
+    probeError: message,
   };
 }
 
@@ -627,7 +639,11 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
             ...(authMetadata ? authMetadata : {}),
           },
           message: `Signed in (from \`claude auth status\`). Claude's capability check failed: ${probeError}`,
-          usageLimits: makeUnavailableUsageLimits({ checkedAt, reason: "probeFailed" }),
+          usageLimits: makeUnavailableUsageLimits({
+            checkedAt,
+            reason: "probeFailed",
+            ...(probeError ? { message: probeError } : {}),
+          }),
         },
       });
     }
@@ -656,7 +672,11 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       authMethod: capabilities.tokenSource,
     }) ?? apiProviderAuthMetadata(capabilities.apiProvider);
   const usageLimits = !capabilities.usage
-    ? makeUnavailableUsageLimits({ checkedAt, reason: "probeFailed" })
+    ? makeUnavailableUsageLimits({
+        checkedAt,
+        reason: "probeFailed",
+        message: capabilities.usageError ?? "Claude did not return usage limits.",
+      })
     : scopedLimitNames
       ? yield* recordClaudeUsageResponse(scopedLimitNames, {
           response: capabilities.usage,

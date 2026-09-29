@@ -204,9 +204,12 @@ export function UsageLimitsSection({
   failedLabels,
   selectedEnvironmentIds,
   cursorPrompt,
+  onRetry,
 }: {
   readonly now: number;
   readonly failedLabels: readonly string[];
+  /** Re-probes providers through the screen's existing refresh. */
+  readonly onRetry?: () => void;
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
   readonly cursorPrompt?: ReactNode;
 }) {
@@ -290,6 +293,16 @@ export function UsageLimitsSection({
               </Text>
             ) : null}
           </View>
+          {onRetry ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading limits"
+              className="active:opacity-60"
+              onPress={onRetry}
+            >
+              <Text className="text-sm font-t3-medium text-warning-foreground">Retry</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>
