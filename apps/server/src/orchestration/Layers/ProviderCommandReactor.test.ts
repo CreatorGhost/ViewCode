@@ -178,6 +178,7 @@ describe("ProviderCommandReactor", () => {
     readonly requiresNewThreadForModelChange?: boolean;
     readonly unreadableHistory?: boolean;
     readonly titleRegenerationCompletionDispatchFailures?: number;
+    readonly failAcceptedReceiptDispatch?: boolean;
     readonly titleRegenerationBeforeStart?: "one" | "two";
     readonly serverActivation?: Effect.Effect<void>;
     readonly beforeReadySessionDispatch?: () => Effect.Effect<void>;
@@ -439,6 +440,13 @@ describe("ProviderCommandReactor", () => {
               ) {
                 return Effect.die(new Error("Injected title regeneration completion failure"));
               }
+            }
+            if (
+              input?.failAcceptedReceiptDispatch === true &&
+              command.type === "thread.activity.append" &&
+              command.activity.kind === "provider.turn.start.accepted"
+            ) {
+              return Effect.die(new Error("Injected accepted receipt failure"));
             }
             const isReplay =
               command.type === "thread.turn.start" &&
@@ -980,6 +988,50 @@ describe("ProviderCommandReactor", () => {
                 turnId: "turn-1",
                 payload: { requestId: "accepted-message" },
               },
+            },
+          });
+        }),
+      );
+    }),
+  );
+
+  effectIt.effect("reports a failed start when the accepted receipt cannot be recorded", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({ failAcceptedReceiptDispatch: true }),
+      );
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const events = yield* harness.engine.subscribeDomainEvents;
+          const failure = yield* events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "thread.activity-appended" &&
+                event.payload.activity.kind === "provider.turn.start.failed",
+            ),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+          yield* harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-lost-receipt"),
+            threadId: ThreadId.make("thread-1"),
+            message: {
+              messageId: MessageId.make("lost-receipt-message"),
+              role: "user",
+              text: "Audit the code",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          });
+          const reported = yield* Fiber.join(failure);
+          expect([...reported][0]).toMatchObject({
+            payload: {
+              threadId: "thread-1",
+              activity: { payload: { requestId: "lost-receipt-message" } },
             },
           });
         }),

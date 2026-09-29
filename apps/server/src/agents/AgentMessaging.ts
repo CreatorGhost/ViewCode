@@ -165,6 +165,10 @@ interface OwnTurn {
   turnId: TurnId | null;
   /** The receiver already answered with an explicit reply. */
   replied: boolean;
+  /** The latest session state seen since this turn was requested. */
+  lastSession: OrchestrationSession | null;
+  /** The user stopped the agent before this turn bound; we interrupted it when it did. */
+  stopIssued: boolean;
 }
 
 interface Pause {
@@ -173,6 +177,8 @@ interface Pause {
   readonly interrupted: boolean;
   /** The stopped turn this service started; Resume continues it. */
   readonly held: OwnTurn | null;
+  /** The session state the held turn ended with. */
+  readonly heldSession?: OrchestrationSession | undefined;
 }
 
 type Job =
@@ -183,6 +189,7 @@ type Job =
       readonly session: OrchestrationSession;
     }
   | { readonly kind: "idle"; readonly threadId: ThreadId }
+  | { readonly kind: "hold-turn"; readonly threadId: ThreadId; readonly turn: OwnTurn }
   | { readonly kind: "stopped"; readonly threadId: ThreadId; readonly interrupted: boolean }
   | { readonly kind: "user-prompt"; readonly threadId: ThreadId };
 
@@ -433,6 +440,8 @@ const make = Effect.gen(function* () {
       ended: new Map(),
       turnId: null,
       replied: false,
+      lastSession: null,
+      stopIssued: false,
     });
     const modelSelection = pendingModels.get(threadId);
     pendingModels.delete(threadId);
@@ -850,6 +859,10 @@ const make = Effect.gen(function* () {
     } else {
       paused.delete(thread.id);
       yield* publishControl;
+      // A held turn that finished normally: its answer is due now.
+      if (pause.action === "resume" && pause.held && pause.heldSession) {
+        yield* routeReply({ ...thread, session: pause.heldSession }, pause.held, false);
+      }
       yield* drainQueue(thread.id);
     }
   });
@@ -868,13 +881,49 @@ const make = Effect.gen(function* () {
         // its answer still goes to the requester.
         const pause = paused.get(job.threadId);
         if (pause?.action === "discard" || (pause && !hitLimit)) {
-          paused.set(job.threadId, { ...pause, interrupted: true, held: job.turn });
+          // A turn that bound after the Stop and still finished normally was
+          // not cut short: Resume delivers its answer instead of continuing.
+          const latest = thread.latestTurn;
+          const cutShort =
+            !job.turn.stopIssued ||
+            job.session.status !== "ready" ||
+            (latest?.turnId === job.turn.turnId && latest.state === "interrupted");
+          paused.set(job.threadId, {
+            ...pause,
+            interrupted: cutShort,
+            held: job.turn,
+            heldSession: job.session,
+          });
           yield* publishControl;
           yield* finishPause(thread);
           return;
         }
         yield* routeReply(endedThread, job.turn, hitLimit);
         yield* drainQueue(job.threadId);
+        return;
+      }
+      case "hold-turn": {
+        // The agent was stopped while this turn was still being sent.
+        if (ownTurns.get(job.threadId) !== job.turn || job.turn.finishing) return;
+        if (!paused.has(job.threadId) || job.turn.turnId === null) return;
+        job.turn.stopIssued = true;
+        const commandId = CommandId.make(`server:agent-stop:${yield* uuid}`);
+        ownStopCommands.add(commandId);
+        yield* engine
+          .dispatch({
+            type: "thread.turn.interrupt",
+            commandId,
+            threadId: job.threadId,
+            turnId: job.turn.turnId,
+            createdAt: yield* nowIso,
+          })
+          .pipe(
+            Effect.onError(() =>
+              Effect.sync(() => {
+                ownStopCommands.delete(commandId);
+              }),
+            ),
+          );
         return;
       }
       case "idle": {
@@ -956,6 +1005,7 @@ const make = Effect.gen(function* () {
           else active.delete(threadId);
           const own = ownTurns.get(threadId);
           if (own) {
+            own.lastSession = session;
             const previous = own.observedTurnId;
             if (
               previous &&
@@ -990,8 +1040,15 @@ const make = Effect.gen(function* () {
           if (!own || own.finishing || payload.requestId !== own.messageId) return Effect.void;
           if (activity.kind === "provider.turn.start.accepted" && activity.turnId !== null) {
             own.turnId = activity.turnId;
-            const session = own.ended.get(own.turnId);
-            if (!session) return Effect.void;
+            // Stopped or finished before the receipt: the turn is already over.
+            const last = own.lastSession;
+            const session =
+              own.ended.get(own.turnId) ?? (last && !isLive(last.status) ? last : undefined);
+            if (!session) {
+              return paused.has(threadId)
+                ? worker.enqueue({ kind: "hold-turn", threadId, turn: own })
+                : Effect.void;
+            }
             own.finishing = true;
             return worker.enqueue({ kind: "turn-ended", threadId, turn: own, session });
           }

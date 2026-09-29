@@ -1796,7 +1796,21 @@ const make = Effect.gen(function* () {
             createdAt,
           });
         }).pipe(
-          Effect.ignoreCause({ log: true, message: "failed to record accepted provider turn" }),
+          // Agent messaging binds a delivery to this receipt; without it the
+          // turn would never end, so a lost receipt is reported as a failed start.
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to record accepted provider turn", {
+              cause: Cause.pretty(cause),
+            }).pipe(
+              Effect.andThen(
+                appendTurnStartFailure(
+                  "Provider turn could not be tracked",
+                  "The provider accepted the turn but its receipt could not be recorded.",
+                ),
+              ),
+              Effect.ignoreCause({ log: true, message: "failed to report lost turn receipt" }),
+            ),
+          ),
         ),
       ),
       Effect.asVoid,

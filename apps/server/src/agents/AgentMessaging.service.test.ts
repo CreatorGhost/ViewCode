@@ -423,6 +423,31 @@ describe("AgentMessaging", () => {
     ),
   );
 
+  it.effect(
+    "finishes an own turn stopped before it was observed running once its receipt arrives",
+    () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          harness.delayedStarts.add(CHILD);
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "First", replyExpected: true });
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Second" });
+          const request = (yield* harness.starts)[0]!;
+          // The provider stops before any running session was seen for the turn.
+          yield* harness.endTurn(CHILD, undefined, "interrupted");
+          yield* settle;
+          assert.equal((yield* harness.starts).length, 1);
+          yield* harness.acceptTurn(CHILD, request.message.messageId, "turn-never-seen");
+          yield* settle;
+          const starts = yield* harness.starts;
+          assert.equal(
+            bodyOf(starts.find((start) => start.threadId === LEAD)),
+            "(finished without a written answer)",
+          );
+          assert.equal(bodyOf(starts.findLast((start) => start.threadId === CHILD)), "Second");
+        }),
+      ),
+  );
+
   it.effect("matches failed starts by request id and releases queued work", () =>
     withMessaging((harness, messaging, settle) =>
       Effect.gen(function* () {
@@ -779,6 +804,46 @@ describe("AgentMessaging", () => {
           assert.equal(bodyOf((yield* harness.starts)[1]), "Audit the parser.");
         }),
       ),
+    );
+
+    it.effect(
+      "Stop during the send window interrupts the turn once it binds and Resume delivers a completed answer",
+      () =>
+        withMessaging((harness, messaging, settle) =>
+          Effect.gen(function* () {
+            harness.delayedStarts.add(CHILD);
+            yield* messaging.sendMessage(LEAD, {
+              to: CHILD,
+              message: "Audit the parser.",
+              replyExpected: true,
+            });
+            const request = (yield* harness.starts)[0]!;
+            yield* messaging.stop({ threadId: CHILD, scope: "thread" });
+            const turnId = yield* harness.runTurn(
+              CHILD,
+              request.message.messageId,
+              request.message.text,
+            );
+            yield* settle;
+            const before = (yield* Ref.get(harness.interrupts)).length;
+            yield* harness.acceptTurn(CHILD, request.message.messageId, turnId);
+            yield* settle;
+            assert.equal((yield* Ref.get(harness.interrupts)).length, before + 1);
+
+            // The turn finished normally despite the stop: its answer is held.
+            yield* harness.endTurn(CHILD, "The full audit");
+            yield* settle;
+            assert.equal((yield* harness.starts).length, 1);
+
+            yield* messaging.resume({ threadId: CHILD, scope: "thread" });
+            yield* settle;
+            const starts = yield* harness.starts;
+            assert.equal(starts.length, 2);
+            assert.equal(starts[1]!.threadId, LEAD);
+            assert.equal(bodyOf(starts[1]), "The full audit");
+            assert.isFalse(starts.some((start) => start.message.text === AGENT_CONTINUE_PROMPT));
+          }),
+        ),
     );
 
     it.effect("a user Stop pauses a child agent until the user prompts it", () =>
