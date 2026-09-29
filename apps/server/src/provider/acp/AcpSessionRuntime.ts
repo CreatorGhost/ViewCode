@@ -100,6 +100,11 @@ export interface AcpSessionRuntimeOptions {
   /** Provider name used in diagnostics, e.g. the MCP transport warning. */
   readonly provider?: string;
   readonly mcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
+  /** Called during start when configured MCP servers were dropped because the agent does not
+   * advertise their transport, so the adapter can tell the user. */
+  readonly onMcpServersDropped?: (info: {
+    readonly unsupportedTransports: ReadonlyArray<string>;
+  }) => Effect.Effect<void>;
   /** Extra workspace roots the agent may read and write besides `cwd`. */
   readonly additionalDirectories?: ReadonlyArray<string>;
   /** Transforms provider stdout before protocol parsing and protocol logging. */
@@ -760,6 +765,7 @@ export const make = (
             mcpCapabilities: initializeResult.agentCapabilities?.mcpCapabilities ?? null,
           },
         );
+        yield* options.onMcpServersDropped?.({ unsupportedTransports }) ?? Effect.void;
       }
 
       const authenticatePayload = {

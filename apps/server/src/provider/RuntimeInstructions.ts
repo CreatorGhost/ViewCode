@@ -12,6 +12,7 @@ ViewCode agents are separate agents the user sees in the ViewCode sidebar: each 
     ? "use them when the user explicitly asks for built-in, inline or in-chat sub-agents, or as a fallback when viewcode_spawn_agent is unavailable or fails. Explain the failure and that you are using native tasks, then proceed without an extra confirmation. Native tasks appear inside the current chat; they are not separate ViewCode chats with an independent model picker. If the user requires a particular provider/model or a separate child chat that native tasks cannot provide, report that limitation instead of silently substituting."
     : "use them only when the user explicitly asks for built-in, inline or in-chat sub-agents, and say which kind you used. If viewcode_spawn_agent is unavailable or fails, do not fall back on your own: tell the user what failed and ask whether to use your built-in sub-agents instead."
 }
+If the viewcode_* tools are missing from your tool list, say so plainly to the user instead of working around it silently. Name the likely causes (for example, the provider's MCP policy: "Cursor team policy may block MCP servers") and offer to continue with child agents the user creates from the ViewCode sidebar.
 </viewcode_agents>`;
 
 /**

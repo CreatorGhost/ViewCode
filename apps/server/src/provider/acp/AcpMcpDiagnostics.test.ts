@@ -5,6 +5,7 @@ import {
   partitionMcpServers,
   summarizeMcpServers,
   unsupportedMcpTransports,
+  viewcodeToolsUnavailableWarning,
 } from "./AcpMcpDiagnostics.ts";
 
 const stdio: EffectAcpSchema.McpServer = {
@@ -64,5 +65,19 @@ describe("ACP MCP diagnostics", () => {
       unsupportedTransports: [],
       supportedServers: [http],
     });
+  });
+
+  it("words the user-facing warning and keeps the reason in the detail", () => {
+    const dropped = viewcodeToolsUnavailableWarning("Cursor", {
+      kind: "unsupported-transport",
+      unsupportedTransports: ["http"],
+    });
+    expect(dropped.message).toBe(
+      "ViewCode tools aren't available in this chat (Cursor didn't accept the tool connection). Child agents and agent messaging won't work here; you can still create child agents from the sidebar.",
+    );
+    expect(dropped.detail).toContain("http");
+    expect(viewcodeToolsUnavailableWarning("Grok", { kind: "not-issued" }).detail).toContain(
+      "did not issue",
+    );
   });
 });

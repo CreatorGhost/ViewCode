@@ -46,6 +46,13 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).not.toContain("ask whether to use your built-in sub-agents instead");
   });
 
+  it("tells the agent to report missing viewcode tools instead of falling back silently", () => {
+    const instructions = buildRuntimeInstructions({ harness: "Cursor" });
+    expect(instructions).toContain("If the viewcode_* tools are missing");
+    expect(instructions).toContain("Cursor team policy may block MCP servers");
+    expect(instructions).toContain("sidebar");
+  });
+
   it("names the model by display name and slug when they differ", () => {
     expect(
       buildRuntimeInstructions({ harness: "Codex", model: "gpt-5.4", modelName: "GPT-5.4" }),

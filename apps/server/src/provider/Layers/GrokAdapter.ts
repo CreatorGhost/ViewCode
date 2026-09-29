@@ -42,6 +42,7 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { viewcodeToolsUnavailableWarning } from "../acp/AcpMcpDiagnostics.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -994,6 +995,19 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           });
 
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+
+          const warnViewcodeToolsMissing = (
+            reason: Parameters<typeof viewcodeToolsUnavailableWarning>[1],
+          ) =>
+            Effect.gen(function* () {
+              yield* offerRuntimeEvent({
+                type: "runtime.warning",
+                ...(yield* makeEventStamp()),
+                provider: PROVIDER,
+                threadId: input.threadId,
+                payload: viewcodeToolsUnavailableWarning("Grok", reason),
+              });
+            }).pipe(Effect.ignore);
           const acp = yield* makeGrokAcpRuntime({
             grokSettings,
             ...(options?.environment || mcpSession?.agentDeviceEnvironment
@@ -1015,6 +1029,8 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                   mcpServers: [McpProviderSession.acpMcpServerConfig(mcpSession)],
                 }
               : {}),
+            onMcpServersDropped: ({ unsupportedTransports }) =>
+              warnViewcodeToolsMissing({ kind: "unsupported-transport", unsupportedTransports }),
             ...acpNativeLoggers,
           }).pipe(
             Effect.provideService(Crypto.Crypto, crypto),
@@ -1226,7 +1242,9 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 }),
               ),
             );
-            return yield* acp.start();
+            const startResult = yield* acp.start();
+            if (!mcpSession) yield* warnViewcodeToolsMissing({ kind: "not-issued" });
+            return startResult;
           }).pipe(
             Effect.mapError((error) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, "session/start", error),

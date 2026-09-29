@@ -130,7 +130,8 @@ exception, or touches the EDR.
    Report to the user; don't work around the policy.
 5. **Positive control (the missing experiment),** only with the user's go-ahead:
    run each CLI alone with a timeout and note which raises an alert:
-   `perl -e 'alarm shift @ARGV; exec @ARGV' 15 codex --version` (replace the
+   `perl -e 'alarm shift @ARGV; exec @ARGV' 15 codex --version` (a foreground
+   alarm, not a detach; replace the
    executable and arguments for each allowed CLI). Stock macOS has neither
    `timeout` nor `gtimeout`.
    **Never** run `opencode --version` without a timeout: it opens a TUI and
@@ -157,6 +158,17 @@ MCP. Cursor's native Task agents are a separate path; the agent explains the
 fallback and can proceed without another confirmation, unless a required
 provider/model or separate chat cannot be supplied. Cursor's team-policy result does
 not establish whether Claude's separate SDK/MCP path is blocked.
+
+## Known environment blockers
+
+Each is an IT request. Never circumvent the control.
+
+| Blocker                                                                    | Symptom                                                            | Fix                                                                  |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat | Ask the Cursor team admin to allow `t3-code` (see above)             |
+| macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path |
+| Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                          |
+| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                     |
 
 ## Building the installer on the managed Mac
 
@@ -189,16 +201,25 @@ pnpm dist:desktop:dmg:arm64                # output in release/
 - No `sudo`; the EPM tool blocks elevation. `eslogger`, `log show` and
   `cytool` need privileges you don't have. Don't plan around them.
 - Node fails TLS with `SELF_SIGNED_CERT_IN_CHAIN`; `curl` works (keychain).
-  Use `NODE_OPTIONS=--use-system-ca` with Node 24, or an approved
-  `NODE_EXTRA_CA_CERTS` bundle; never disable certificate verification.
-- A source launch from `./build.sh` runs as Electron, so `pgrep -x ViewCode`
-  does not establish whether it is alive. An observation-only check such as
-  `pgrep -f 'electron-runtime.*dist-electron/main.cjs'` finds that launcher;
-  inspect the result's command and cwd to distinguish other checkouts. Never
-  use a pattern match as a list of processes to kill.
-- For an agent-harness experiment, `nohup ... &` alone may not outlive process
-  group teardown. Use the [macOS detachment procedure](managed-mac-experiments.md#running-experiments-correctly-on-macos)
-  and retain the spawned PID before attributing an unexplained exit to EDR.
+  `NODE_OPTIONS=--use-system-ca` (Node 24) is the fix for TLS inspection, or an
+  approved `NODE_EXTRA_CA_CERTS` bundle. Never set
+  `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+- A source launch from `./build.sh` runs as Electron with argv ending
+  `dist-electron/main.cjs`, so `pgrep -x ViewCode` does not match it. Use
+  `pgrep -f 'dist-electron/main.cjs'` for observation only, and inspect the
+  result's command and cwd to distinguish other checkouts. Never use a pattern
+  match as a list of processes to kill.
+- `.electron-runtime/ViewCode (Alpha).app` is the bare Electron shell; launching
+  it directly starts Electron's `default_app.asar`, not ViewCode. Start the app
+  with `node apps/desktop/scripts/start-electron.mjs` or `./build.sh`.
+- Logs are OpenTelemetry spans in `server.trace.ndjson` and
+  `desktop.trace.ndjson` under `~/.viewcode/userdata/logs/`, not
+  `server-child.log`.
+- Don't detach processes with `setsid`, `perl` `POSIX::setsid` or other fork
+  tricks. On EDR-managed machines that pattern triggers Behavioral Threat
+  Protection alerts under the user's name and contaminates the experiment.
+  Run in the foreground, or keep the harness's own process and retain its PID
+  before attributing an unexplained exit to EDR.
 - `ps` output inflates shell counts: one `zsh -ilc` whose `.zshrc` runs command
   substitutions (nvm, starship) shows as up to 4 processes with the same argv.
 - **Line not to cross:** don't inspect or call the EDR's own helper binaries to

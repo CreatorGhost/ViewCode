@@ -199,12 +199,28 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
             ),
             () =>
               Effect.gen(function* () {
-                const start = adapter.startSession({
+                const warningFiber = yield* adapter.streamEvents.pipe(
+                  Stream.filter((event) => event.type === "runtime.warning"),
+                  Stream.take(1),
+                  Stream.runCollect,
+                  Effect.forkChild,
+                );
+                yield* Effect.yieldNow;
+                yield* adapter.startSession({
                   threadId,
                   cwd: process.cwd(),
                   runtimeMode: "full-access",
                 });
-                yield* start;
+                if (transport === "http") {
+                  const [warning] = Array.from(yield* Fiber.join(warningFiber));
+                  assert.equal(warning?.type, "runtime.warning");
+                  if (warning?.type === "runtime.warning") {
+                    assert.include(warning.payload.message, "ViewCode tools aren't available");
+                    assert.include(warning.payload.detail, "http");
+                  }
+                } else {
+                  yield* Fiber.interrupt(warningFiber);
+                }
                 yield* adapter.stopSession(threadId);
                 const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
                 const created = requests.filter((entry) => entry.method === "session/new");
@@ -286,7 +302,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       const wrapperPath = yield* Effect.promise(() => makeMockAgentWrapper());
       yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 9).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 10).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -315,6 +331,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       const types = runtimeEvents.map((e) => e.type);
 
       for (const t of [
+        "runtime.warning",
         "session.started",
         "session.state.changed",
         "thread.started",
@@ -1483,11 +1500,11 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       const wrapperPath = yield* Effect.promise(() => makeMockAgentWrapper());
       yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
 
-      const firstConsumer = yield* Stream.take(adapter.streamEvents, 3).pipe(
+      const firstConsumer = yield* Stream.take(adapter.streamEvents, 4).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
-      const secondConsumer = yield* Stream.take(adapter.streamEvents, 3).pipe(
+      const secondConsumer = yield* Stream.take(adapter.streamEvents, 4).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -1505,11 +1522,11 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
 
       assert.deepStrictEqual(
         firstEvents.map((event) => event.type),
-        ["session.started", "session.state.changed", "thread.started"],
+        ["runtime.warning", "session.started", "session.state.changed", "thread.started"],
       );
       assert.deepStrictEqual(
         secondEvents.map((event) => event.type),
-        ["session.started", "session.state.changed", "thread.started"],
+        ["runtime.warning", "session.started", "session.state.changed", "thread.started"],
       );
 
       yield* adapter.stopSession(threadId);

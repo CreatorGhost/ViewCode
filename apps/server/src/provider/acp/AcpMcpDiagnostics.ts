@@ -39,3 +39,25 @@ export function partitionMcpServers(
     ),
   };
 }
+
+/** Why ViewCode's own MCP server is missing from an ACP chat. */
+export type ViewcodeToolsMissingReason =
+  | { readonly kind: "not-issued" }
+  | {
+      readonly kind: "unsupported-transport";
+      readonly unsupportedTransports: ReadonlyArray<string>;
+    };
+
+/** Payload of the `runtime.warning` a chat gets when it starts without ViewCode tools. */
+export function viewcodeToolsUnavailableWarning(
+  providerLabel: string,
+  reason: ViewcodeToolsMissingReason,
+) {
+  return {
+    message: `ViewCode tools aren't available in this chat (${providerLabel} didn't accept the tool connection). Child agents and agent messaging won't work here; you can still create child agents from the sidebar.`,
+    detail:
+      reason.kind === "not-issued"
+        ? "ViewCode did not issue an MCP session for this chat."
+        : `${providerLabel} does not advertise MCP transport: ${reason.unsupportedTransports.join(", ")}.`,
+  };
+}

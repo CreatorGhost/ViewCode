@@ -129,12 +129,12 @@ last spawn for each.
 ## Running experiments correctly on macOS
 
 - **No `timeout` on a stock Mac.** Use `perl -e 'alarm shift; exec @ARGV' 20 <cmd>`.
-- **Detach fully.** Agent harnesses can tear down the process group when a
-  tool call returns, which leaves a dead server with no shutdown log, the same
-  signature as an EDR kill. macOS has no `setsid` command; start servers with
-  `perl -MPOSIX -e 'POSIX::setsid() or die; exec @ARGV' npx -y t3 serve ...`
-  and confirm PPID 1. A process that died without a log is not by itself
-  evidence of the EDR; check for a Terminate alert at that time.
+- **Don't detach.** No `setsid`, `perl` `POSIX::setsid` or fork tricks: on
+  EDR-managed machines they trigger Behavioral Threat Protection alerts under
+  the user's name and contaminate the experiment. Run the server in the
+  foreground (or the harness's normal background job) and keep its PID. A
+  process that died without a log is not by itself evidence of the EDR; check
+  for a Terminate alert at that time.
 - **Stop what you started:** the `npx` wrapper PID is not the server; stop the
   server PID from the spawn-trace as well.
 
@@ -177,7 +177,7 @@ them. Paste to the laptop agent:
 >    for 180s record whether the packaged app remains alive (observe only).
 >    `pgrep -x ViewCode` applies to that packaged executable, not a source
 >    launch from `./build.sh`. For the latter, inspect
->    `pgrep -f 'electron-runtime.*dist-electron/main.cjs'` and its cwd to
+>    `pgrep -f 'dist-electron/main.cjs'` and its cwd to
 >    distinguish other checkouts. Never kill processes selected by a pattern.
 > 5. Record: ALIVE/DEAD and time of death; last 30 lines of
 >    `~/.viewcode/userdata/logs/server.trace.ndjson` and `desktop.trace.ndjson`

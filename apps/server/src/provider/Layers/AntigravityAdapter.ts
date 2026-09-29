@@ -38,6 +38,7 @@ import type * as EffectAcpSchema from "effect-acp/schema";
 import { ServerConfig } from "../../config.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { viewcodeToolsUnavailableWarning } from "../acp/AcpMcpDiagnostics.ts";
 import type { AntigravityAuth } from "../AntigravityAuth.ts";
 import {
   ProviderAdapterRequestError,
@@ -786,6 +787,18 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
             stopOwned,
             Effect.gen(function* () {
               const mcp = McpProviderSession.readMcpProviderSession(input.threadId);
+              const warnViewcodeToolsMissing = (
+                reason: Parameters<typeof viewcodeToolsUnavailableWarning>[1],
+              ) =>
+                Effect.gen(function* () {
+                  yield* emit({
+                    type: "runtime.warning",
+                    ...(yield* stamp),
+                    provider: PROVIDER,
+                    threadId: input.threadId,
+                    payload: viewcodeToolsUnavailableWarning("Antigravity", reason),
+                  });
+                }).pipe(Effect.ignore);
               // The attachments dir grant lets the agent read pasted files at
               // the paths ProviderService injects into the turn text. It is a
               // leaf directory holding only uploads.
@@ -800,6 +813,11 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                 additionalDirectories: [serverConfig.attachmentsDir],
                 ...(Option.isSome(cursor) ? { resumeSessionId: cursor.value.sessionId } : {}),
                 mcpServers: mcp ? [McpProviderSession.acpMcpServerConfig(mcp)] : [],
+                onMcpServersDropped: ({ unsupportedTransports }) =>
+                  warnViewcodeToolsMissing({
+                    kind: "unsupported-transport",
+                    unsupportedTransports,
+                  }),
                 ...makeNativeLoggers({
                   nativeEventLogger: options.nativeEventLogger,
                   provider: PROVIDER,
@@ -833,6 +851,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                     } satisfies NativePermissionResponse),
               );
               const started = yield* runtime.start();
+              if (!mcp) yield* warnViewcodeToolsMissing({ kind: "not-issued" });
               const model = yield* applyAntigravityAcpModelSelection({
                 runtime,
                 model: input.modelSelection?.model,
