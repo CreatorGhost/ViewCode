@@ -33,6 +33,7 @@ import {
 const PRESENTATION = {
   displayName: "Command Code",
   supportsConversationRollback: false,
+  supportsTurnSteering: false,
   badgeLabel: "Early Access",
   showInteractionModeToggle: false,
 } as const;

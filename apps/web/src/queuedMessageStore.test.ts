@@ -128,6 +128,26 @@ describe("queued message dispatch timing", () => {
     );
   });
 
+  it("waits for the whole turn when the provider cannot accept steering", () => {
+    const message = { queuedAfterToolActivityId: "a2" };
+    expect(
+      isQueuedMessageDue({
+        message,
+        phase: "running",
+        latestToolActivityId: "a4",
+        supportsTurnSteering: false,
+      }),
+    ).toBe(false);
+    expect(
+      isQueuedMessageDue({
+        message,
+        phase: "ready",
+        latestToolActivityId: "a4",
+        supportsTurnSteering: false,
+      }),
+    ).toBe(true);
+  });
+
   it("never auto-sends a message held for user action", () => {
     const message = { queuedAfterToolActivityId: null, holdUntilUserAction: true };
     expect(isQueuedMessageDue({ message, phase: "ready", latestToolActivityId: "a4" })).toBe(false);

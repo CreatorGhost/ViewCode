@@ -117,7 +117,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ### Command Code
 
-- Headless CLI adapter (`cmd -p --output-format json`, `--resume <id>`).
+- Headless CLI adapter (`cmd -p --output-format json`, `--resume <id>`). Its stdin
+  closes after the initial prompt, so it cannot accept mid-turn steering. Clients
+  queue follow-ups until completion, including after a provider handoff; tool
+  completion alone is not a safe send boundary. A rejected follow-up must not
+  mark the existing live turn as failed, since agent messaging uses that state
+  to decide when to deliver queued work and return results.
 - Its CLI loads MCP servers **only** from files (`~/.commandcode/projects/<slug>/mcp.json`,
   project `.mcp.json`, `~/.commandcode/mcp.json`); there is no flag, env var or
   mod API for a per-run config. So Command Code agents do not get the agents

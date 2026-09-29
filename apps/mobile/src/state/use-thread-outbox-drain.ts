@@ -1169,18 +1169,24 @@ export function useThreadOutboxDrain(): void {
         (candidate) => candidate.environmentId === nextQueuedMessage.environmentId,
       );
       const shellStatus = shellStatuses.get(nextQueuedMessage.environmentId) ?? "empty";
+      const serverConfig = serverConfigs.get(nextQueuedMessage.environmentId);
+      const activeProvider = serverConfig?.providers.find(
+        (provider) => provider.instanceId === thread?.session?.providerInstanceId,
+      );
       const deliveryAction = resolveThreadOutboxDeliveryAction({
         isCreation: creation !== undefined,
         threadExists: thread !== undefined,
         shellStatus,
         environmentConnected: environment?.connectionState === "connected",
         threadBusy: thread?.session?.status === "running" || thread?.session?.status === "starting",
+        supportsTurnSteering:
+          activeProvider?.supportsTurnSteering ??
+          (activeProvider?.driver ?? thread?.session?.providerName) !== "commandCode",
       });
       // The delivery action resolves first; capability checks apply only to
       // a message that will send. Checking earlier would restore a
       // creation whose startTurn already made the thread as a duplicate draft
       // instead of removing it.
-      const serverConfig = serverConfigs.get(nextQueuedMessage.environmentId);
       const dispatchStep = resolveThreadOutboxDispatchStep({
         deliveryAction,
         fileAttachments: nextQueuedMessage.attachments.filter(
@@ -1282,12 +1288,18 @@ export function useThreadOutboxDrain(): void {
           );
           const liveThreadBusy =
             liveThread?.session?.status === "running" || liveThread?.session?.status === "starting";
+          const liveProvider = serverConfig?.providers.find(
+            (provider) => provider.instanceId === liveThread?.session?.providerInstanceId,
+          );
           const liveDeliveryAction = resolveThreadOutboxDeliveryAction({
             isCreation: creation !== undefined,
             threadExists: liveThread !== undefined,
             shellStatus,
             environmentConnected: environment?.connectionState === "connected",
             threadBusy: liveThreadBusy,
+            supportsTurnSteering:
+              liveProvider?.supportsTurnSteering ??
+              (liveProvider?.driver ?? liveThread?.session?.providerName) !== "commandCode",
           });
           if (liveDeliveryAction !== "send") {
             return true;

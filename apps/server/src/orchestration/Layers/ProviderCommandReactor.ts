@@ -498,6 +498,33 @@ const make = Effect.gen(function* () {
       return;
     }
     const session = thread.session;
+    // A rejected follow-up is not a failure of the turn already in flight.
+    // Restore from the adapter if an earlier rejection left the projection stale.
+    const activeSession = (yield* providerService.listSessions()).find(
+      (candidate) => candidate.threadId === input.threadId,
+    );
+    if (
+      session?.status !== "stopped" &&
+      !stoppingThreadIds.has(input.threadId) &&
+      activeSession?.status === "running" &&
+      activeSession.activeTurnId
+    ) {
+      yield* setThreadSession({
+        threadId: input.threadId,
+        session: {
+          threadId: input.threadId,
+          providerName: activeSession.provider,
+          providerInstanceId: activeSession.providerInstanceId,
+          runtimeMode: activeSession.runtimeMode,
+          status: "running",
+          activeTurnId: activeSession.activeTurnId,
+          lastError: null,
+          updatedAt: input.createdAt,
+        },
+        createdAt: input.createdAt,
+      });
+      return;
+    }
     yield* setThreadSession({
       threadId: input.threadId,
       session: {

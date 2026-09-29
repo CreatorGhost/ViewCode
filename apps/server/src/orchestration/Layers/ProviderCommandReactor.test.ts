@@ -269,7 +269,7 @@ describe("ProviderCommandReactor", () => {
         ),
       );
     });
-    const sendTurn = vi.fn((_: unknown) =>
+    const sendTurn = vi.fn<ProviderServiceShape["sendTurn"]>((_input) =>
       Effect.succeed({
         threadId: ThreadId.make("thread-1"),
         turnId: asTurnId("turn-1"),
@@ -852,6 +852,93 @@ describe("ProviderCommandReactor", () => {
           ...(attachments.length > 0 ? { attachments } : {}),
         }),
       );
+    }),
+  );
+
+  effectIt.effect("keeps a live turn running when a follow-up is rejected", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = ThreadId.make("thread-1");
+      const instanceId = ProviderInstanceId.make("codex");
+      const turnId = asTurnId("still-running");
+      const now = "2026-01-01T00:00:00.000Z";
+      harness.runtimeSessions.push({
+        threadId,
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: instanceId,
+        status: "running",
+        activeTurnId: turnId,
+        runtimeMode: "approval-required",
+        model: "gpt-5-codex",
+        createdAt: now,
+        updatedAt: now,
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("seed-live-turn"),
+        threadId,
+        session: {
+          threadId,
+          providerName: "codex",
+          providerInstanceId: instanceId,
+          status: "running",
+          activeTurnId: turnId,
+          runtimeMode: "approval-required",
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      });
+      harness.sendTurn.mockImplementation(() =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "codex",
+            method: "sendTurn",
+            detail: "Provider is still working",
+          }),
+        ),
+      );
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const events = yield* harness.engine.subscribeDomainEvents;
+          const receipt = yield* events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "thread.activity-appended" &&
+                event.payload.activity.kind === "provider.turn.start.failed",
+            ),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+          yield* harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("rejected-follow-up"),
+            threadId,
+            message: {
+              messageId: asMessageId("follow-up"),
+              role: "user",
+              text: "go on",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: now,
+          });
+          yield* Fiber.join(receipt);
+        }),
+      );
+      yield* Effect.promise(() => harness.drain());
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (t) => t.id === threadId,
+      );
+      expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+      expect(thread?.session).toMatchObject({
+        status: "running",
+        activeTurnId: turnId,
+        lastError: null,
+      });
+      expect(yield* Effect.promise(() => harness.readPendingTurnStarts())).toEqual([]);
     }),
   );
 

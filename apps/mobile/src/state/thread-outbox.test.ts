@@ -1340,6 +1340,18 @@ describe("thread outbox", () => {
     ).toBe("wait");
   });
 
+  it("holds a non-steerable provider's follow-up until its active turn ends", () => {
+    const input = {
+      isCreation: false,
+      threadExists: true,
+      shellStatus: "live" as const,
+      environmentConnected: true,
+      supportsTurnSteering: false,
+    };
+    expect(resolveThreadOutboxDeliveryAction({ ...input, threadBusy: true })).toBe("wait");
+    expect(resolveThreadOutboxDeliveryAction({ ...input, threadBusy: false })).toBe("send");
+  });
+
   it("sends queued creations once connected and live, removing already-created ones", () => {
     expect(
       resolveThreadOutboxDeliveryAction({

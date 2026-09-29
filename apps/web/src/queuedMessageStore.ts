@@ -189,10 +189,12 @@ export function isQueuedMessageDue(input: {
   message: Pick<QueuedComposerMessage, "queuedAfterToolActivityId" | "holdUntilUserAction">;
   phase: "connecting" | "running" | "ready" | "disconnected";
   latestToolActivityId: string | null;
+  supportsTurnSteering?: boolean;
 }): boolean {
   if (input.message.holdUntilUserAction) return false;
   if (input.phase === "connecting") return false;
   if (input.phase !== "running") return true;
+  if (input.supportsTurnSteering === false) return false;
   return input.latestToolActivityId !== input.message.queuedAfterToolActivityId;
 }
 

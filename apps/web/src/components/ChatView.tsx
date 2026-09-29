@@ -2908,6 +2908,9 @@ export default function ChatView(props: ChatViewProps) {
   const supportsConversationRollback =
     conversationProviderStatus !== null &&
     conversationProviderStatus.supportsConversationRollback !== false;
+  const supportsTurnSteering =
+    conversationProviderStatus?.supportsTurnSteering ??
+    (conversationProviderStatus?.driver ?? activeThread?.session?.providerName) !== "commandCode";
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const latestCheckpointCompletedAt = activeThread?.checkpoints.at(-1)?.completedAt ?? null;
@@ -7369,6 +7372,10 @@ export default function ChatView(props: ChatViewProps) {
       notifyDirectAnnotationAttached();
       return;
     }
+    if (phase === "running" && !supportsTurnSteering && (queuedMessage || directAnnotation)) {
+      notifyDirectAnnotationAttached();
+      return;
+    }
     if (needsLoadBalancing) {
       toastManager.add({
         type: "warning",
@@ -7679,7 +7686,8 @@ export default function ChatView(props: ChatViewProps) {
       !directAnnotation &&
       phase === "running" &&
       activeThreadKey &&
-      (settings.followUpBehavior === "queue") !== (submissionIntent === "alternate")
+      (!supportsTurnSteering ||
+        (settings.followUpBehavior === "queue") !== (submissionIntent === "alternate"))
     ) {
       if (composerRef.current?.validateProviderInput(promptForSend) === false) {
         return;
@@ -8684,7 +8692,15 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!nextQueuedMessage || isSendBusy || queueBlockedByPendingRequest || queueSendGate) return;
     if (sendInFlightRef.current) return;
-    if (!isQueuedMessageDue({ message: nextQueuedMessage, phase, latestToolActivityId })) return;
+    if (
+      !isQueuedMessageDue({
+        message: nextQueuedMessage,
+        phase,
+        latestToolActivityId,
+        supportsTurnSteering,
+      })
+    )
+      return;
     sendQueuedMessage(nextQueuedMessage);
   }, [
     isSendBusy,
@@ -8693,6 +8709,7 @@ export default function ChatView(props: ChatViewProps) {
     phase,
     queueBlockedByPendingRequest,
     queueSendGate,
+    supportsTurnSteering,
   ]);
 
   // The row handlers are read from refs at call-time so their identity stays
@@ -8704,7 +8721,13 @@ export default function ChatView(props: ChatViewProps) {
   queuedMessageActionsRef.current = {
     steer: (id) => {
       const message = queuedMessages.find((entry) => entry.id === id);
-      if (!message || sendInFlightRef.current || queueBlockedByPendingRequest) return;
+      if (
+        !message ||
+        sendInFlightRef.current ||
+        queueBlockedByPendingRequest ||
+        (phase === "running" && !supportsTurnSteering)
+      )
+        return;
       void onSend(undefined, message.submissionIntent, undefined, message);
     },
     remove: (id) => {
@@ -9982,6 +10005,7 @@ export default function ChatView(props: ChatViewProps) {
                 topFadeEnabled={!hasTimelineTopBanner}
                 loadEarlier={paintOnlyDisplayedTimeline ? null : loadEarlierTurns}
                 queuedMessages={paintOnlyDisplayedTimeline ? EMPTY_QUEUED_MESSAGES : queuedMessages}
+                canSteerQueuedMessages={phase !== "running" || supportsTurnSteering}
                 onSteerQueuedMessage={onSteerQueuedMessage}
                 steerQueuedMessageShortcutLabel={shortcutLabelForCommand(
                   keybindings,
