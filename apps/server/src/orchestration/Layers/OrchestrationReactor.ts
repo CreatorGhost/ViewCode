@@ -15,6 +15,7 @@ import * as ThreadPullRequestReactor from "../ThreadPullRequestReactor.ts";
 import * as AgentAwarenessRelay from "../../relay/AgentAwarenessRelay.ts";
 import * as StorageCleanup from "../../storageCleanup.ts";
 import * as AgentMessaging from "../../agents/AgentMessaging.ts";
+import * as UsageResume from "../../agents/UsageResume.ts";
 
 export const makeOrchestrationReactor = Effect.gen(function* () {
   const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
@@ -27,6 +28,7 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
   const agentAwarenessRelay = yield* AgentAwarenessRelay.AgentAwarenessRelay;
   const storageCleanup = yield* StorageCleanup.StorageCleanup;
   const agentMessaging = yield* Effect.serviceOption(AgentMessaging.AgentMessaging);
+  const usageResume = yield* Effect.serviceOption(UsageResume.UsageResume);
 
   const start: OrchestrationReactorShape["start"] = Effect.fn("start")(function* () {
     yield* providerRuntimeIngestion.start();
@@ -39,6 +41,7 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
     yield* agentAwarenessRelay.start();
     yield* storageCleanup.start();
     if (agentMessaging._tag === "Some") yield* agentMessaging.value.start();
+    if (usageResume._tag === "Some") yield* usageResume.value.start();
   });
 
   return {

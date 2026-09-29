@@ -91,6 +91,7 @@ import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
+import { UsageResumeCard } from "./UsageResumeCard";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
@@ -134,6 +135,14 @@ export interface ThreadDetailScreenProps {
     | { readonly kind: "preparing"; readonly preparingWorktree: boolean }
     | { readonly kind: "failed"; readonly reason: string; readonly onEditTask: () => void }
     | null;
+  /** A usage limit stopped the thread; null when it did not. */
+  readonly usageResume?: {
+    readonly text: string;
+    readonly canCancel: boolean;
+    readonly busy: boolean;
+    readonly onCancel: () => void;
+    readonly onResumeNow: () => void;
+  } | null;
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
   readonly activePendingUserInput: PendingUserInput | null;
@@ -1000,6 +1009,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       environmentId={props.environmentId}
                       onClose={dismissUsageLimits}
                     />
+                  </Animated.View>
+                ) : null}
+                {props.usageResume ? (
+                  <Animated.View
+                    className="shrink-0 px-4 pb-3"
+                    entering={FadeInDown.duration(220)}
+                    exiting={FadeOut.duration(140)}
+                  >
+                    <UsageResumeCard {...props.usageResume} />
                   </Animated.View>
                 ) : null}
                 {props.creationState?.kind === "failed" ? (

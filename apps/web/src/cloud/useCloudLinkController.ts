@@ -12,6 +12,7 @@ import { relayEnvironmentDiscovery } from "../state/relay";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
   linkPrimaryEnvironment as linkPrimaryEnvironmentAtom,
+  retryPrimaryEnvironmentTunnel as retryPrimaryEnvironmentTunnelAtom,
   unlinkPrimaryEnvironment as unlinkPrimaryEnvironmentAtom,
   updatePrimaryEnvironmentPreferences as updatePrimaryEnvironmentPreferencesAtom,
 } from "./linkEnvironmentAtoms";
@@ -47,6 +48,9 @@ export function useCloudLinkController() {
     updatePrimaryEnvironmentPreferencesAtom,
     { reportFailure: false },
   );
+  const retryPrimaryEnvironmentTunnel = useAtomCommand(retryPrimaryEnvironmentTunnelAtom, {
+    reportFailure: false,
+  });
   const primaryCloudLinkState = usePrimaryCloudLinkState();
   const [operationError, setOperationError] = useState<string | null>(null);
 
@@ -151,8 +155,20 @@ export function useCloudLinkController() {
     return true;
   };
 
+  /** Starts the tunnel again after it paused because the network blocks it. */
+  const retryTunnel = async (): Promise<void> => {
+    setOperationError(null);
+    const target = primaryCloudLinkState.target;
+    if (!target) return;
+    const result = await retryPrimaryEnvironmentTunnel({ target });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      reportUpdateFailure(squashAtomCommandFailure(result));
+    }
+  };
+
   return {
     isSignedIn,
+    retryTunnel,
     linkState: primaryCloudLinkState,
     linked,
     managedTunnelActive,

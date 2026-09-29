@@ -1,16 +1,24 @@
 import { ClerkFailed, ClerkLoading, useAuth, useClerk } from "@clerk/react";
 import { AuthRelayWriteScope } from "@t3tools/contracts";
-import { GlobeIcon } from "lucide-react";
-import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
+import { GlobeIcon, TriangleAlertIcon } from "lucide-react";
+import { type ReactNode, type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useCloudLinkController } from "~/cloud/useCloudLinkController";
 import { usePrimarySessionState } from "~/environments/primary";
 import { isElectron } from "~/env";
+import { authEnvironment } from "~/state/auth";
+import { usePrimaryEnvironmentId } from "~/state/environments";
+import { useEnvironmentQuery } from "~/state/query";
 import { resolveClerkSignInProps } from "../clerk/authRedirect";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
+import {
+  resolveAnywhereView,
+  TUNNEL_BLOCKED_MESSAGE,
+  TUNNEL_UNSTABLE_MESSAGE,
+} from "./connectPhone.logic";
 
 interface Props {
   readonly authContainerRef: RefObject<HTMLDivElement | null>;
@@ -18,21 +26,16 @@ interface Props {
   readonly needsNetworkAccess: boolean;
   readonly isRestarting: boolean;
   readonly onEnableNetworkAccess: () => void;
+  /** The pairing QR for the tunnel's address; shown only while the tunnel is connected. */
+  readonly renderQr: (baseUrl: string, host: string) => ReactNode;
 }
 
-/** Keeps Clerk hooks out of builds where cloud identity is not configured. */
+/**
+ * Keeps Clerk hooks out of builds where cloud identity is not configured. The
+ * dialog does not offer this tab then, so there is no "not configured" state here.
+ */
 export function T3ConnectPhone(props: Props) {
-  if (!hasCloudPublicConfig()) {
-    return (
-      <Alert>
-        <AlertDescription>
-          T3 Connect is not configured in this build. Install a build with T3 Connect enabled to
-          connect from anywhere. Local network pairing is still available.
-        </AlertDescription>
-      </Alert>
-    );
-  }
-  return <ConfiguredT3ConnectPhone {...props} />;
+  return hasCloudPublicConfig() ? <ConfiguredT3ConnectPhone {...props} /> : null;
 }
 
 function ConfiguredT3ConnectPhone({
@@ -41,6 +44,7 @@ function ConfiguredT3ConnectPhone({
   needsNetworkAccess,
   isRestarting,
   onEnableNetworkAccess,
+  renderQr,
 }: Props) {
   const { isLoaded } = useAuth();
   const clerk = useClerk();
@@ -51,7 +55,20 @@ function ConfiguredT3ConnectPhone({
     publishAgentActivity,
     operationError,
     reconcileCloudState,
+    retryTunnel,
   } = useCloudLinkController();
+  // The host pushes the tunnel's state on the access stream; nothing polls.
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const access = useEnvironmentQuery(
+    managedTunnelActive && primaryEnvironmentId !== null
+      ? authEnvironment.accessChanges({ environmentId: primaryEnvironmentId, input: null })
+      : null,
+  );
+  const view = resolveAnywhereView({
+    managedTunnelActive,
+    tunnel: access.data?.type === "snapshot" ? (access.data.payload.managedTunnel ?? null) : null,
+  });
+  const [isRetrying, setIsRetrying] = useState(false);
   const session = usePrimarySessionState();
   const canManage =
     session.data?.authenticated === true &&
@@ -135,33 +152,36 @@ function ConfiguredT3ConnectPhone({
     void updateConnection(true);
   };
 
+  const tryAgain = async () => {
+    setIsRetrying(true);
+    try {
+      await retryTunnel();
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  const stopButton = (
+    <Button variant="outline" disabled={busy} onClick={() => void updateConnection(false)}>
+      {isUpdating ? <Spinner size="sm" /> : null}
+      {isUpdating ? "Updating connection…" : "Turn off T3 Connect"}
+    </Button>
+  );
+
   return (
     <>
-      <div className="flex items-start gap-3">
-        <GlobeIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-        <div className="space-y-1">
-          <p className="text-sm font-medium">
-            {managedTunnelActive ? "T3 Connect is turned on" : "Connect from anywhere"}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Use your phone on mobile data or another Wi-Fi network. ViewCode sets up and runs the
-            connection for you. No terminal commands or Tailscale needed.
-          </p>
+      {view.kind === "off" ? (
+        <div className="flex items-start gap-3">
+          <GlobeIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Connect from anywhere</p>
+            <p className="text-sm text-muted-foreground">
+              Use your phone on mobile data or another Wi-Fi network. ViewCode sets up the
+              connection and shows a code to scan. Nothing to sign in to on your phone.
+            </p>
+          </div>
         </div>
-      </div>
-
-      {managedTunnelActive ? (
-        <ol className="list-inside list-decimal space-y-2 text-sm">
-          <li>Open the T3 Code app on your phone.</li>
-          <li>Sign in to the same T3 Connect account used here.</li>
-          <li>Select {linkState.target?.label ?? "this computer"} from your environments.</li>
-        </ol>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Sign in once. ViewCode links this computer to your account and installs its connection
-          helper if needed. Then sign in to the same account on your phone.
-        </p>
-      )}
+      ) : null}
 
       {error ? (
         <Alert variant="error">
@@ -178,7 +198,7 @@ function ConfiguredT3ConnectPhone({
         <Alert variant="error">
           <AlertDescription>
             T3 Connect sign-in could not load. Check your internet connection and reopen ViewCode.
-            If you are using a local browser address, try the desktop app. Local pairing is still
+            If you are using a local browser address, try the desktop app. Same Wi-Fi is still
             available.
           </AlertDescription>
         </Alert>
@@ -204,21 +224,15 @@ function ConfiguredT3ConnectPhone({
             Enable network access and restart
           </Button>
         </>
-      ) : (
+      ) : view.kind === "off" ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={managedTunnelActive ? "outline" : "default"}
-            disabled={busy || (managedTunnelActive && !isSignedIn)}
-            onClick={() => (managedTunnelActive ? void updateConnection(false) : enable())}
-          >
+          <Button disabled={busy} onClick={enable}>
             {isUpdating ? <Spinner size="sm" /> : null}
             {isUpdating
-              ? "Updating connection…"
-              : managedTunnelActive
-                ? "Turn off T3 Connect"
-                : isSignedIn
-                  ? "Turn on T3 Connect"
-                  : "Sign in and turn on T3 Connect"}
+              ? "Turning on…"
+              : isSignedIn
+                ? "Turn on T3 Connect"
+                : "Sign in and turn on T3 Connect"}
           </Button>
           {waitingForSignIn && !isSignedIn ? (
             <Button
@@ -233,10 +247,54 @@ function ConfiguredT3ConnectPhone({
             </Button>
           ) : null}
         </div>
+      ) : (
+        <>
+          {view.kind === "connecting" || view.kind === "unstable-reconnecting" ? (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner size="sm" />
+              {view.kind === "connecting" ? "Connecting to T3 Connect…" : "Reconnecting…"}
+            </p>
+          ) : null}
+          {view.kind === "unstable-reconnecting" ? (
+            <Alert variant="warning">
+              <TriangleAlertIcon />
+              <AlertDescription>{TUNNEL_UNSTABLE_MESSAGE}</AlertDescription>
+            </Alert>
+          ) : null}
+          {view.kind === "blocked" ? (
+            <>
+              <Alert variant="warning">
+                <TriangleAlertIcon />
+                <AlertDescription>{TUNNEL_BLOCKED_MESSAGE}</AlertDescription>
+              </Alert>
+              <Button disabled={busy || isRetrying} onClick={() => void tryAgain()}>
+                {isRetrying ? <Spinner size="sm" /> : null}
+                Try again
+              </Button>
+            </>
+          ) : null}
+          {view.kind === "needs-relink" ? (
+            <p className="text-sm text-muted-foreground">
+              T3 Connect was set up before phone codes were available. Turn it off, then on again.
+            </p>
+          ) : null}
+          {view.kind === "ready" ? (
+            <>
+              {view.unstable ? (
+                <Alert variant="warning">
+                  <TriangleAlertIcon />
+                  <AlertDescription>{TUNNEL_UNSTABLE_MESSAGE}</AlertDescription>
+                </Alert>
+              ) : null}
+              {renderQr(view.baseUrl, view.host)}
+            </>
+          ) : null}
+          <div>{stopButton}</div>
+        </>
       )}
       <p className="text-xs text-muted-foreground">
-        Keep this computer awake, online and ViewCode running. Turning off T3 Connect leaves local
-        network pairing unchanged.
+        Keep this computer awake, online and ViewCode running. Turning off T3 Connect leaves same
+        Wi-Fi pairing unchanged.
       </p>
     </>
   );

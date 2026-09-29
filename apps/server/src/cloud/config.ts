@@ -11,6 +11,7 @@ import type * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 export const CLOUD_MINT_PUBLIC_KEY = "cloud-mint-ed25519-public-key";
 export const CLOUD_ENDPOINT_RUNTIME_CONFIG = "cloud-endpoint-runtime-config";
 export const CLOUD_ENDPOINT_CONFIRMED_ORIGIN = "cloud-endpoint-confirmed-origin";
+export const CLOUD_ENDPOINT_HTTP_BASE_URL = "cloud-endpoint-http-base-url";
 export const CLOUD_LINKED_USER_ID = "cloud-linked-user-id";
 export const RELAY_URL_SECRET = "cloud-relay-url";
 export const RELAY_ISSUER_SECRET = "cloud-relay-issuer";
@@ -73,3 +74,19 @@ export const readAgentActivityPublishingActive = (
       environmentCredential !== ""
     );
   }).pipe(Effect.orElseSucceed(() => false));
+
+/**
+ * The managed tunnel's public origin, kept only when it is a plain https
+ * origin: the phone is sent to it, so anything else is dropped.
+ */
+export function normalizeTunnelHttpBaseUrl(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.username === "" && url.password === ""
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}

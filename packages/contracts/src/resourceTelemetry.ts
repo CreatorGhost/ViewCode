@@ -355,7 +355,20 @@ export const DesktopTelemetryCancelDesktopUpdate = Schema.Struct({
 });
 export type DesktopTelemetryCancelDesktopUpdate = typeof DesktopTelemetryCancelDesktopUpdate.Type;
 
+/**
+ * Server -> desktop main: hold (or release) the OS assertion that keeps the
+ * computer from suspending, because a usage-limit resume is scheduled. One
+ * message per change; the desktop releases it when the backend goes away.
+ */
+export const DesktopTelemetrySetKeepAwake = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("setKeepAwake"),
+  enabled: Schema.Boolean,
+});
+export type DesktopTelemetrySetKeepAwake = typeof DesktopTelemetrySetKeepAwake.Type;
+
 export const DesktopTelemetryControlMessage = Schema.Union([
+  DesktopTelemetrySetKeepAwake,
   DesktopTelemetrySetDiagnosticsDemand,
   DesktopTelemetrySetHostPowerIntervals,
   DesktopTelemetryRequestDesktopUpdate,

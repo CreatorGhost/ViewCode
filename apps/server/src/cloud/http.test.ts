@@ -242,6 +242,7 @@ describe("reconcileDesiredCloudLink", () => {
           recoveryRequests: Stream.empty,
           requestRecovery: () => Effect.void,
           withLinkStateLock: (effect) => effect,
+          ...ManagedEndpointRuntime.noManagedTunnelControl,
         } satisfies ManagedEndpointRuntime.CloudManagedEndpointRuntime["Service"]),
       ),
       Effect.provideService(
@@ -401,6 +402,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
             recoveryRequests: Stream.empty,
             requestRecovery: () => Effect.void,
             withLinkStateLock: (effect) => effect,
+            ...ManagedEndpointRuntime.noManagedTunnelControl,
           }),
         ),
         Effect.provideService(

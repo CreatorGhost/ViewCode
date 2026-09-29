@@ -64,6 +64,7 @@ describe("DesktopTelemetryPublisher", () => {
           ),
           getSystemIdleState: () => Effect.succeed("active"),
           getCurrentThermalState: Effect.succeed("nominal"),
+          setKeepAwake: () => Effect.void,
           onSimpleEvent: () => Effect.void,
           onThermalStateChange: () => Effect.void,
           onSpeedLimitChange: () => Effect.void,
@@ -120,6 +121,7 @@ describe("DesktopTelemetryPublisher", () => {
           getSystemIdleState: () =>
             beforeSystemIdleState.pipe(Effect.andThen(Ref.get(systemIdleState))),
           getCurrentThermalState: Effect.succeed("nominal"),
+          setKeepAwake: () => Effect.void,
           onSimpleEvent: (eventName, listener) =>
             Effect.sync(() => {
               simpleListeners.set(eventName, listener);
@@ -398,6 +400,7 @@ describe("DesktopTelemetryPublisher", () => {
           getSystemIdleTime: Effect.succeed(0),
           getSystemIdleState: () => Effect.succeed("active"),
           getCurrentThermalState: Effect.succeed("nominal"),
+          setKeepAwake: () => Effect.void,
           onSimpleEvent: () => Effect.void,
           onThermalStateChange: () => Effect.void,
           onSpeedLimitChange: () => Effect.void,
@@ -462,6 +465,40 @@ describe("DesktopTelemetryPublisher", () => {
         }
         assert.equal(replayedReport.outcome, "up-to-date");
         assert.equal(replayedReport.state.currentVersion, "1.2.3");
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("holds the keep-awake assertion until every backend has released it", () =>
+    Effect.gen(function* () {
+      const changes = yield* Ref.make<ReadonlyArray<boolean>>([]);
+      const powerLayer = Layer.succeed(
+        ElectronPowerMonitor.ElectronPowerMonitor,
+        ElectronPowerMonitor.ElectronPowerMonitor.of({
+          isOnBatteryPower: Effect.succeed(false),
+          getSystemIdleTime: Effect.succeed(0),
+          getSystemIdleState: () => Effect.succeed("active"),
+          getCurrentThermalState: Effect.succeed("nominal"),
+          setKeepAwake: (enabled) => Ref.update(changes, (all) => [...all, enabled]),
+          onSimpleEvent: () => Effect.void,
+          onThermalStateChange: () => Effect.void,
+          onSpeedLimitChange: () => Effect.void,
+        }),
+      );
+      const layer = DesktopTelemetryPublisher.layer.pipe(
+        Layer.provide(Layer.mergeAll(makeElectronAppLayer([]), powerLayer)),
+      );
+
+      yield* Effect.gen(function* () {
+        const publisher = yield* DesktopTelemetryPublisher.DesktopTelemetryPublisher;
+        const keepAwake = (enabled: boolean) =>
+          ({ version: 1, type: "setKeepAwake", enabled }) as const;
+        yield* publisher.handleControlForSource("primary-backend", keepAwake(true));
+        yield* publisher.handleControlForSource("secondary-backend", keepAwake(true));
+        yield* publisher.handleControlForSource("primary-backend", keepAwake(false));
+        // The last holder going away, e.g. its backend exiting, releases it.
+        yield* publisher.removeControlSource("secondary-backend");
+        assert.deepEqual(yield* Ref.get(changes), [true, true, true, false]);
       }).pipe(Effect.provide(layer));
     }),
   );

@@ -172,6 +172,8 @@ export class DesktopTelemetryReceiver extends Context.Service<
     readonly setDiagnosticsDemand: (
       enabled: boolean,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
+    /** Holds or releases the desktop's keep-the-computer-awake assertion. */
+    readonly setKeepAwake: (enabled: boolean) => Effect.Effect<void, DesktopTelemetryControlError>;
     /** Asks the desktop app supervising this server to update itself. The
         desktop answers with desktopUpdateStatus reports carrying the same
         requestId. */
@@ -646,6 +648,7 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
     health: Ref.get(health),
     subscribeHealth: subscribeBeforeSnapshotWithoutMutex(healthChanges, Ref.get(health)),
     setDiagnosticsDemand,
+    setKeepAwake: (enabled) => sendControlMessage({ version: 1, type: "setKeepAwake", enabled }),
     requestDesktopUpdate: (requestId) =>
       sendControlMessage({
         version: 1,
@@ -704,6 +707,7 @@ export const layerTest = (
           })),
         ),
       setDiagnosticsDemand: () => Effect.void,
+      setKeepAwake: () => Effect.void,
       requestDesktopUpdate: () => Effect.void,
       commitDesktopUpdate: () => Effect.void,
       cancelDesktopUpdate: () => Effect.void,

@@ -28,6 +28,20 @@ const ModelId = Schema.optional(
   }),
 );
 
+const Effort = Schema.optional(
+  TrimmedNonEmptyString.annotate({
+    description:
+      'Reasoning effort, e.g. "high" for "set to High". Must be one of the model\'s effortLevels from viewcode_list_models. Omit to keep the default.',
+  }),
+);
+
+const FastMode = Schema.optional(
+  Schema.Boolean.annotate({
+    description:
+      "Turn fast mode on or off. Only for models where viewcode_list_models shows fastMode: true.",
+  }),
+);
+
 const AgentEntry = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -66,7 +80,7 @@ const ListAgentsTool = Tool.make("viewcode_list_agents", {
 
 const ListModelsTool = Tool.make("viewcode_list_models", {
   description:
-    "List the providers and models available for viewcode_spawn_agent and viewcode_configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
+    "List the providers and models available for viewcode_spawn_agent and viewcode_configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Each model lists its effortLevels (reasoning effort ids for the effort parameter) and fastMode when supported. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
   success: Schema.Struct({
     providers: Schema.Array(
       Schema.Struct({
@@ -75,7 +89,22 @@ const ListModelsTool = Tool.make("viewcode_list_models", {
         driver: Schema.String,
         usable: Schema.Boolean,
         note: Schema.optional(Schema.String),
-        models: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+        models: Schema.Array(
+          Schema.Struct({
+            id: Schema.String,
+            name: Schema.String,
+            effortLevels: Schema.optional(
+              Schema.Array(
+                Schema.Struct({
+                  id: Schema.String,
+                  label: Schema.String,
+                  isDefault: Schema.optional(Schema.Boolean),
+                }),
+              ),
+            ),
+            fastMode: Schema.optional(Schema.Boolean),
+          }),
+        ),
       }),
     ),
   }),
@@ -90,7 +119,7 @@ const ListModelsTool = Tool.make("viewcode_list_models", {
 
 const SpawnAgentTool = Tool.make("viewcode_spawn_agent", {
   description:
-    "Start a child agent: a separate, full ViewCode agent with its own chat, transcript and model that the user can open, follow and prompt. It works in the same project and checkout as you. Give it a short name and a self-contained prompt. By default its final answer is sent back to you as a message when it finishes, which starts a new turn for you; you do not need to poll. Prefer this over in-session sub-agents when the user asks for agents they can see.",
+    "Start a child agent: a separate, full ViewCode agent with its own chat, transcript and model that the user can open, follow and prompt. It works in the same project and checkout as you. Give it a short name and a self-contained prompt. By default its final answer is sent back to you as a message when it finishes, which starts a new turn for you; you do not need to poll. Set effort (and fast_mode) here when the user asks for a reasoning level such as High; do not ask the user to set it. Prefer this over in-session sub-agents when the user asks for agents they can see.",
   parameters: Schema.Struct({
     name: TrimmedNonEmptyString.annotate({
       description: 'Short display name, e.g. "Frontend audit".',
@@ -100,6 +129,8 @@ const SpawnAgentTool = Tool.make("viewcode_spawn_agent", {
     }),
     provider_id: ProviderId,
     model: ModelId,
+    effort: Effort,
+    fast_mode: FastMode,
     reply_expected: Schema.optional(
       Schema.Boolean.annotate({
         description: "Send the child's final answer back to you. Default true.",
@@ -184,17 +215,19 @@ const SearchHistoryTool = Tool.make("viewcode_search_history", {
 
 const ConfigureAgentTool = Tool.make("viewcode_configure_agent", {
   description:
-    "Switch the model (and optionally provider) another agent uses from its next turn. Switching provider hands its context off automatically.",
+    "Change another agent's model, provider, reasoning effort or fast mode from its next turn; a running turn is not interrupted. Pass only effort to keep its model. Switching provider hands its context off automatically.",
   parameters: Schema.Struct({
     agent: AgentRef,
     provider_id: ProviderId,
-    model: TrimmedNonEmptyString,
+    model: Schema.optional(TrimmedNonEmptyString),
+    effort: Effort,
+    fast_mode: FastMode,
   }),
   success: Schema.Struct({ agentId: Schema.String, appliesTo: Schema.Literal("next-turn") }),
   failure: AgentToolError,
   dependencies,
 })
-  .annotate(Tool.Title, "Configure agent model")
+  .annotate(Tool.Title, "Configure agent")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)

@@ -65,6 +65,9 @@ export const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mod
 export const SET_TAILSCALE_SERVE_ENABLED_CHANNEL = "desktop:set-tailscale-serve-enabled";
 export const GET_ADVERTISED_ENDPOINTS_CHANNEL = "desktop:get-advertised-endpoints";
 export const CHECK_LAN_REACHABILITY_CHANNEL = "desktop:check-lan-reachability";
+export const GET_TAILSCALE_PHONE_ACCESS_CHANNEL = "desktop:get-tailscale-phone-access";
+export const SET_TAILSCALE_PHONE_ACCESS_AUTOMATIC_CHANNEL =
+  "desktop:set-tailscale-phone-access-automatic";
 export const GET_WSL_STATE_CHANNEL = "desktop:get-wsl-state";
 export const SET_WSL_BACKEND_ENABLED_CHANNEL = "desktop:set-wsl-backend-enabled";
 export const SET_WSL_DISTRO_CHANNEL = "desktop:set-wsl-distro";

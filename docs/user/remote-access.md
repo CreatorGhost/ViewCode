@@ -6,26 +6,27 @@ machine. That machine must stay running and reachable while you work.
 ## Connect your phone
 
 Install **T3 Code** from the App Store or Google Play; it works with ViewCode.
-Local network pairing needs no account or T3 Connect.
+Your phone needs no account. On the computer, choose **Connect phone** (sidebar
+footer, command palette, or the top of **Settings → Connections**), pick how the
+phone will reach it, and scan the code from the app's **Add environment**.
 
-1. On the computer, choose **Connect phone** in the sidebar footer, the command
-   palette, or at the top of **Settings → Connections**.
-2. If phone access is off, choose **Turn on and restart**. ViewCode restarts
-   once and reopens on the code.
-3. In the mobile app, tap **Add environment** and scan the code.
+- **Same Wi-Fi.** Choose **Turn on and restart** if asked; ViewCode restarts once
+  and reopens on the code. Works only on the same network.
+- **Tailscale.** Shown when Tailscale is installed. **Turn on Tailscale** enables
+  Tailscale HTTPS and restarts once. Works wherever your phone is on your tailnet.
+  **Settings → Connections** can turn it on at every launch; that is off by
+  default because some security software stops Tailscale.
+- **Anywhere · T3 Connect.** Works on mobile data. Sign in on the computer once
+  and turn it on; the code appears when the connection is up. If the network
+  blocks it (common on corporate networks and VPNs), ViewCode says so and offers
+  **Try again**; Same Wi-Fi still works. **Turn off T3 Connect** stops it. This
+  option is hidden in builds without T3 Connect configuration.
 
-Local network pairing requires the same Wi-Fi, or
-[Tailscale](https://tailscale.com) on both devices. To connect over mobile data
-without Tailscale, choose **Anywhere · T3 Connect** in the same dialog. Sign in
-and turn it on; ViewCode links this computer and sets up its connection helper.
-If network access is off, the dialog first offers a restart. Wait for active
-work to finish before restarting. On your phone, sign in to the same T3 Connect
-account and select the computer. Keep the computer awake, online and ViewCode running.
-
-Each local pairing code works once for five minutes; choose **New code** for
-another phone. **Turn off local network access** in the same dialog restarts ViewCode
-with no network port again. Phones you already paired stay listed under
-**Settings → Connections → Authorized clients**, where you can revoke them.
+Each code works once for five minutes; choose **New code** for another phone. Keep
+the computer awake and ViewCode running. **Turn off local network access** in the
+dialog restarts ViewCode with no network port again. Phones you already paired
+stay listed under **Settings → Connections → Authorized clients**, where you can
+revoke them.
 
 ## T3 Connect
 
@@ -33,7 +34,7 @@ T3 Connect makes an environment available to your other devices without setting
 up router forwarding. In the desktop app on the host, open **Connect phone →
 Anywhere · T3 Connect**, then choose **Sign in and turn on T3 Connect**. You can
 also manage it in **Settings → Connections**. Builds without T3 Connect
-configuration explain that requirement in the dialog and still support local pairing.
+configuration hide the option and still support local pairing.
 
 For a command-line host, run:
 

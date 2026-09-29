@@ -602,6 +602,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
         ? ["Continue threads after restarts"]
         : []),
+      ...(settings.resumeAfterUsageLimit !== DEFAULT_UNIFIED_SETTINGS.resumeAfterUsageLimit
+        ? ["Resume after usage limits"]
+        : []),
+      ...(settings.keepAwakeForUsageResume !== DEFAULT_UNIFIED_SETTINGS.keepAwakeForUsageResume
+        ? ["Keep the computer awake"]
+        : []),
       ...(isBackgroundActivityDirty ? ["Background activity"] : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
@@ -673,6 +679,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.responseStreamingMode,
       settings.enableProviderUpdateChecks,
       settings.continueThreadsAfterServerUpdate,
+      settings.resumeAfterUsageLimit,
+      settings.keepAwakeForUsageResume,
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
       settings.sidebarProjectGroupingMode,
@@ -777,6 +785,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
+      resumeAfterUsageLimit: DEFAULT_UNIFIED_SETTINGS.resumeAfterUsageLimit,
+      keepAwakeForUsageResume: DEFAULT_UNIFIED_SETTINGS.keepAwakeForUsageResume,
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
       backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -2800,6 +2810,67 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        <SettingsRow
+          {...searchableSetting("resume-after-usage-limit")}
+          serverScoped
+          settingKeys={["resumeAfterUsageLimit"]}
+          description="When a provider's usage limit stops a thread, continue it about a minute after the limit resets, even if you are away. Off still shows the reset time."
+          resetAction={
+            settings.resumeAfterUsageLimit !== DEFAULT_UNIFIED_SETTINGS.resumeAfterUsageLimit ? (
+              <SettingResetButton
+                label="resume after usage limits"
+                onClick={() =>
+                  updateSettings({
+                    resumeAfterUsageLimit: DEFAULT_UNIFIED_SETTINGS.resumeAfterUsageLimit,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["resumeAfterUsageLimit"]}
+              checked={settings.resumeAfterUsageLimit}
+              onCheckedChange={(checked) =>
+                updateSettings({ resumeAfterUsageLimit: Boolean(checked) })
+              }
+              aria-label="Resume automatically after usage limits reset"
+            />
+          }
+        />
+
+        {isElectron ? (
+          <SettingsRow
+            {...searchableSetting("keep-awake-for-usage-resume")}
+            serverScoped
+            settingKeys={["keepAwakeForUsageResume"]}
+            description="Stops the computer from sleeping while a resume is waiting. The screen may still turn off. The computer must stay on and not sleep, and a closed laptop lid may still put it to sleep."
+            resetAction={
+              settings.keepAwakeForUsageResume !==
+              DEFAULT_UNIFIED_SETTINGS.keepAwakeForUsageResume ? (
+                <SettingResetButton
+                  label="keep the computer awake"
+                  onClick={() =>
+                    updateSettings({
+                      keepAwakeForUsageResume: DEFAULT_UNIFIED_SETTINGS.keepAwakeForUsageResume,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <ScopedSwitch
+                settingKeys={["keepAwakeForUsageResume"]}
+                checked={settings.keepAwakeForUsageResume}
+                onCheckedChange={(checked) =>
+                  updateSettings({ keepAwakeForUsageResume: Boolean(checked) })
+                }
+                aria-label="Keep the computer awake until then"
+              />
+            }
+          />
+        ) : null}
 
         <SettingsRow
           serverScoped

@@ -229,6 +229,8 @@ export const RelayEnvironmentConfigRequest = Schema.Struct({
   environmentCredential: Schema.String,
   cloudMintPublicKey: Schema.String,
   endpointRuntime: Schema.NullOr(RelayManagedEndpointRuntimeConfig),
+  /** ViewCode: the tunnel's public origin (`link.endpoint.httpBaseUrl`), kept so the host can offer a pairing QR on it. */
+  endpointHttpBaseUrl: Schema.optional(Schema.String),
 });
 export type RelayEnvironmentConfigRequest = typeof RelayEnvironmentConfigRequest.Type;
 

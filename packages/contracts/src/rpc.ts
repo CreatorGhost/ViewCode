@@ -263,6 +263,8 @@ import {
   AgentControlResult,
   AgentControlSnapshot,
   AgentControlSubscribeInput,
+  UsageResumeInput,
+  UsageResumeResult,
 } from "./agentControl.ts";
 import {
   ProjectCloneActionInput,
@@ -447,6 +449,8 @@ export const WS_METHODS = {
   agentsResume: "agents.resume",
   agentsDiscard: "agents.discard",
   subscribeAgentControl: "subscribeAgentControl",
+  usageResumeCancel: "usageResume.cancel",
+  usageResumeNow: "usageResume.now",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -967,6 +971,18 @@ const WsAgentsResumeRpc = Rpc.make(WS_METHODS.agentsResume, {
 const WsAgentsDiscardRpc = Rpc.make(WS_METHODS.agentsDiscard, {
   payload: AgentControlInput,
   success: AgentControlResult,
+  error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
+});
+
+const WsUsageResumeCancelRpc = Rpc.make(WS_METHODS.usageResumeCancel, {
+  payload: UsageResumeInput,
+  success: UsageResumeResult,
+  error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
+});
+
+const WsUsageResumeNowRpc = Rpc.make(WS_METHODS.usageResumeNow, {
+  payload: UsageResumeInput,
+  success: UsageResumeResult,
   error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
 });
 
@@ -1539,6 +1555,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsAgentsResumeRpc,
   WsAgentsDiscardRpc,
   WsSubscribeAgentControlRpc,
+  WsUsageResumeCancelRpc,
+  WsUsageResumeNowRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,

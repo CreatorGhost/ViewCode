@@ -224,6 +224,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   setTailscaleServeEnabled: (input) =>
     ipcRenderer.invoke(IpcChannels.SET_TAILSCALE_SERVE_ENABLED_CHANNEL, input),
   getAdvertisedEndpoints: () => ipcRenderer.invoke(IpcChannels.GET_ADVERTISED_ENDPOINTS_CHANNEL),
+  getTailscalePhoneAccess: () => ipcRenderer.invoke(IpcChannels.GET_TAILSCALE_PHONE_ACCESS_CHANNEL),
+  setTailscalePhoneAccessAutomatic: (automatic) =>
+    ipcRenderer.invoke(IpcChannels.SET_TAILSCALE_PHONE_ACCESS_AUTOMATIC_CHANNEL, automatic),
   checkLanReachability: () => ipcRenderer.invoke(IpcChannels.CHECK_LAN_REACHABILITY_CHANNEL),
   getWslState: () => ipcRenderer.invoke(IpcChannels.GET_WSL_STATE_CHANNEL),
   setWslBackendEnabled: (enabled) =>

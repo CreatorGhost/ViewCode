@@ -103,6 +103,10 @@
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
     },
+    "./usage-resume": {
+      "types": "./src/usageResume.ts",
+      "default": "./src/usageResume.ts"
+    },
     "./state/agent-control": {
       "types": "./src/state/agentControl.ts",
       "default": "./src/state/agentControl.ts"

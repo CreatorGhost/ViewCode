@@ -7,6 +7,7 @@ import {
   ClientWebDeployment,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { ManagedTunnelState } from "./remoteAccess.ts";
 
 /**
  * Declares the server's overall authentication posture.
@@ -256,6 +257,12 @@ export type AuthClientSession = typeof AuthClientSession.Type;
 export const AuthAccessSnapshot = Schema.Struct({
   pairingLinks: Schema.Array(AuthPairingLink),
   clientSessions: Schema.Array(AuthClientSession),
+  /**
+   * ViewCode: the managed T3 Connect tunnel, present while one is configured.
+   * Rides this stream so the Connect phone dialog needs no polling; a change
+   * arrives as a fresh snapshot event.
+   */
+  managedTunnel: Schema.optional(ManagedTunnelState),
 });
 export type AuthAccessSnapshot = typeof AuthAccessSnapshot.Type;
 

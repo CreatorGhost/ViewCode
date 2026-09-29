@@ -15,6 +15,12 @@ export class ElectronPowerMonitor extends Context.Service<
     readonly getSystemIdleTime: Effect.Effect<number>;
     readonly getSystemIdleState: (idleThresholdSeconds: number) => Effect.Effect<ElectronIdleState>;
     readonly getCurrentThermalState: Effect.Effect<ElectronThermalState>;
+    /**
+     * Holds or releases an assertion that keeps the computer from suspending
+     * (the display may still sleep). It cannot wake a computer that already
+     * sleeps, e.g. one whose lid is closed.
+     */
+    readonly setKeepAwake: (enabled: boolean) => Effect.Effect<void>;
     readonly onSimpleEvent: (
       eventName: "lock-screen" | "unlock-screen" | "on-ac" | "on-battery" | "suspend" | "resume",
       listener: () => void,
@@ -75,6 +81,17 @@ const onSpeedLimitChange: ElectronPowerMonitor["Service"]["onSpeedLimitChange"] 
   ).pipe(Effect.asVoid);
 };
 
+let keepAwakeBlockerId: number | null = null;
+const setKeepAwake: ElectronPowerMonitor["Service"]["setKeepAwake"] = (enabled) =>
+  Effect.sync(() => {
+    if (enabled && keepAwakeBlockerId === null) {
+      keepAwakeBlockerId = Electron.powerSaveBlocker.start("prevent-app-suspension");
+    } else if (!enabled && keepAwakeBlockerId !== null) {
+      Electron.powerSaveBlocker.stop(keepAwakeBlockerId);
+      keepAwakeBlockerId = null;
+    }
+  });
+
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = ElectronPowerMonitor.of({
   isOnBatteryPower: Effect.sync(() => Electron.powerMonitor.isOnBatteryPower()),
@@ -82,6 +99,7 @@ export const make = ElectronPowerMonitor.of({
   getSystemIdleState: (idleThresholdSeconds) =>
     Effect.sync(() => Electron.powerMonitor.getSystemIdleState(idleThresholdSeconds)),
   getCurrentThermalState: Effect.sync(() => Electron.powerMonitor.getCurrentThermalState()),
+  setKeepAwake,
   onSimpleEvent,
   onThermalStateChange,
   onSpeedLimitChange,

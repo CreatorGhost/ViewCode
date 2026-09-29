@@ -395,6 +395,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "resume-after-usage-limit",
+    title: "Resume automatically after usage limits reset",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: [
+      "quota rate limit five hour 5-hour weekly continue resume reset away claude codex",
+    ],
+  },
+  {
+    id: "keep-awake-for-usage-resume",
+    title: "Keep the computer awake until then",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["sleep suspend power usage limit resume desktop lid"],
+  },
+  {
     id: "background-activity",
     title: "Background activity",
     to: "/settings/general",

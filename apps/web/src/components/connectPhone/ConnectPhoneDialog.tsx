@@ -5,7 +5,15 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { CheckIcon, CopyIcon, SmartphoneIcon, TriangleAlertIcon } from "lucide-react";
-import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { create } from "zustand";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -40,23 +48,28 @@ import { QRCodeSvg } from "../ui/qr-code";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { T3ConnectPhone } from "./T3ConnectPhone";
+import { TailscalePhone } from "./TailscalePhone";
 import {
   CONNECT_PHONE_CODE_TTL_SECONDS,
   CONNECT_PHONE_RESUME_KEY,
+  type ConnectMode,
   type ConnectPhoneState,
   describeLanReachability,
   formatPairingExpiry,
   type PhoneEndpoint,
+  resolveConnectModes,
   resolveConnectPhoneState,
   resolvePairingCodeStatus,
+  resolveSelectedMode,
   shouldResumeConnectPhone,
   shouldRunLanSelfTest,
 } from "./connectPhone.logic";
+import { useTailscalePhoneAccess } from "./useTailscalePhoneAccess";
 
-type ConnectionMode = "local" | "cloud";
 const CONNECT_PHONE_MODE_KEY = "viewcode:connect-phone-mode";
-const useConnectPhoneDialogStore = create<{ open: boolean; mode: ConnectionMode }>(() => ({
+const useConnectPhoneDialogStore = create<{ open: boolean; mode: ConnectMode }>(() => ({
   open: false,
   mode: "local",
 }));
@@ -85,8 +98,9 @@ function takeResumeFlag(): boolean {
     if (stored === null) return false;
     window.localStorage.removeItem(CONNECT_PHONE_RESUME_KEY);
     const resume = shouldResumeConnectPhone(stored, Date.now());
-    if (resume && window.localStorage.getItem(CONNECT_PHONE_MODE_KEY) === "cloud") {
-      useConnectPhoneDialogStore.setState({ mode: "cloud" });
+    const storedMode = window.localStorage.getItem(CONNECT_PHONE_MODE_KEY);
+    if (resume && (storedMode === "cloud" || storedMode === "tailscale")) {
+      useConnectPhoneDialogStore.setState({ mode: storedMode });
     }
     window.localStorage.removeItem(CONNECT_PHONE_MODE_KEY);
     return resume;
@@ -125,6 +139,12 @@ export function ConnectPhoneDialogHost() {
     </Dialog>
   );
 }
+
+const MODE_LABELS: Record<ConnectMode, string> = {
+  local: "Same Wi-Fi",
+  tailscale: "Tailscale",
+  cloud: "Anywhere · T3 Connect",
+};
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -176,7 +196,15 @@ function ConnectPhoneDialogContent({
   authContainerRef: RefObject<HTMLDivElement | null>;
 }) {
   const state = useConnectPhoneState();
-  const mode = useConnectPhoneDialogStore((value) => value.mode);
+  const tailscale = useTailscalePhoneAccess();
+  const modes = resolveConnectModes({
+    cloudConfigured: hasCloudPublicConfig(),
+    tailscaleInstalled: tailscale.access?.installed === true,
+  });
+  const mode = resolveSelectedMode(
+    useConnectPhoneDialogStore((value) => value.mode),
+    modes,
+  );
   // The advertised address goes stale when Wi-Fi or a VPN changes, so each
   // open asks the desktop for a fresh snapshot instead of trusting the cache.
   useEffect(() => {
@@ -216,19 +244,50 @@ function ConnectPhoneDialogContent({
           disabled={pendingMode !== null}
           onValueChange={(values) => {
             const next = values[0];
-            if (next === "local" || next === "cloud") {
+            if (next === "local" || next === "tailscale" || next === "cloud") {
               useConnectPhoneDialogStore.setState({ mode: next });
             }
           }}
         >
-          <Toggle value="local">Local network</Toggle>
-          <Toggle value="cloud">Anywhere · T3 Connect</Toggle>
+          {modes.map((value) => (
+            <Toggle key={value} value={value}>
+              {MODE_LABELS[value]}
+            </Toggle>
+          ))}
         </ToggleGroup>
       </DialogHeader>
-      {mode === "cloud" ? (
+      {mode === "tailscale" ? (
+        <DialogPanel>
+          <TailscalePhone
+            onBeforeRestart={writeResumeFlag}
+            renderQr={(endpoint) => (
+              <ReadyBody
+                bare
+                endpoints={[endpoint]}
+                note="Works while this computer and your phone are both on your tailnet."
+              />
+            )}
+          />
+        </DialogPanel>
+      ) : mode === "cloud" ? (
         <DialogPanel>
           <T3ConnectPhone
             authContainerRef={authContainerRef}
+            renderQr={(baseUrl, host) => (
+              <ReadyBody
+                bare
+                endpoints={[
+                  {
+                    id: "t3-connect",
+                    label: host,
+                    httpBaseUrl: baseUrl,
+                    loopback: false,
+                    lan: false,
+                  },
+                ]}
+                note="Works on mobile data or any Wi-Fi while T3 Connect stays on."
+              />
+            )}
             isLoading={state.kind === "loading"}
             needsNetworkAccess={
               state.kind === "needs-network-access" ||
@@ -261,7 +320,7 @@ function ConnectPhoneDialogContent({
           ) : null}
         </DialogPanel>
       )}
-      {mode === "cloud" ? null : state.kind === "needs-network-access" ? (
+      {mode !== "local" ? null : state.kind === "needs-network-access" ? (
         <DialogFooter>
           <Button disabled={pendingMode !== null} onClick={() => void setNetworkAccess(true)}>
             {pendingMode === "on" ? <Spinner size="sm" /> : null}
@@ -509,9 +568,14 @@ function useLanSelfTest(input: {
 function ReadyBody({
   endpoints,
   children,
+  bare = false,
+  note = "Works on the same Wi-Fi as this computer.",
 }: {
   endpoints: ReadonlyArray<PhoneEndpoint>;
   children?: ReactNode;
+  /** Render inside a panel the caller already provides. */
+  bare?: boolean;
+  note?: string;
 }) {
   const [endpointId, setEndpointId] = useState<string | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "pairing link" });
@@ -533,8 +597,9 @@ function ReadyBody({
   const pairingUrl = code ? resolveDesktopPairingUrl(endpoint.httpBaseUrl, code.credential) : null;
   const lanWarning = describeLanReachability(lanTest.result, endpoint.httpBaseUrl);
 
+  const Panel = bare ? Fragment : DialogPanel;
   return (
-    <DialogPanel>
+    <Panel>
       <ol className="space-y-1.5 text-sm">
         <Step n={1}>Install T3 Code from the App Store or Google Play.</Step>
         <Step n={2}>Open it and tap Add environment.</Step>
@@ -657,13 +722,10 @@ function ReadyBody({
             <span className="min-w-0 truncate">Uses {describeEndpoint(endpoint)}</span>
           )}
         </div>
-        <p>
-          Local addresses work on the same Wi-Fi; Tailscale addresses work on your tailnet. Choose
-          Anywhere · T3 Connect above to use mobile data without Tailscale.
-        </p>
+        <p>{note}</p>
       </div>
       {children}
-    </DialogPanel>
+    </Panel>
   );
 }
 

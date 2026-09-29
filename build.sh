@@ -233,6 +233,23 @@ if [ "$mode" = web ]; then
   exec pnpm dev
 fi
 
+# T3 Connect (Anywhere in Connect phone) is compiled in from three values in the
+# gitignored repo .env (docs/operations/connect-setup.md). This only reports
+# whether they are present; it never prints them.
+step "Checking T3 Connect configuration"
+"$state_node" --input-type=module -e '
+  import { resolvePublicConfig, loadRepoEnv } from "./scripts/lib/public-config.ts";
+  const config = resolvePublicConfig(loadRepoEnv());
+  const missing = [
+    ["T3CODE_CLERK_PUBLISHABLE_KEY", config.clerkPublishableKey],
+    ["T3CODE_CLERK_JWT_TEMPLATE", config.clerkJwtTemplate],
+    ["T3CODE_RELAY_URL", config.relayUrl],
+  ].filter(([, value]) => !value).map(([name]) => name);
+  console.log(missing.length === 0
+    ? "T3 Connect: configured. The Anywhere tab will be available."
+    : "T3 Connect: not configured (missing " + missing.join(", ") + "). The Anywhere tab will be hidden; Same Wi-Fi and Tailscale still work. See docs/operations/connect-setup.md.");
+'
+
 step "Building the desktop app"
 pnpm build:desktop
 

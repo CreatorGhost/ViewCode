@@ -79,6 +79,7 @@ import {
   WORKTREE_SETUP_ACTIVITY_KIND,
   worktreeSetupActivityId,
   type WorktreeSetupSnapshot,
+  AgentControlError,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -148,6 +149,7 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import { AgentMessaging } from "./agents/AgentMessaging.ts";
+import { UsageResume } from "./agents/UsageResume.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
@@ -166,6 +168,7 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
+import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -560,6 +563,7 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
+      const cloudEndpointRuntime = yield* CloudManagedEndpointRuntime.CloudManagedEndpointRuntime;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -629,6 +633,7 @@ const makeWsRpcLayer = (
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
       const agentMessaging = yield* AgentMessaging;
+      const usageResume = yield* UsageResume;
       const repositoryIdentityResolver =
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       // Clone hooks run on the tracker's fiber, outside any RPC, so the
@@ -3087,6 +3092,21 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.agentsDiscard, agentMessaging.discard(input), {
             "rpc.aggregate": "agents",
           }),
+        [WS_METHODS.usageResumeCancel]: ({ threadId }) =>
+          observeRpcEffect(
+            WS_METHODS.usageResumeCancel,
+            usageResume.cancel(threadId).pipe(Effect.map((changed) => ({ changed }))),
+            { "rpc.aggregate": "agents" },
+          ),
+        [WS_METHODS.usageResumeNow]: ({ threadId }) =>
+          observeRpcEffect(
+            WS_METHODS.usageResumeNow,
+            usageResume.resumeNow(threadId).pipe(
+              Effect.map((changed) => ({ changed })),
+              Effect.mapError((cause) => new AgentControlError({ detail: cause.reason })),
+            ),
+            { "rpc.aggregate": "agents" },
+          ),
         [WS_METHODS.subscribeAgentControl]: () =>
           observeRpcStream(WS_METHODS.subscribeAgentControl, agentMessaging.controlChanges, {
             "rpc.aggregate": "agents",
@@ -3804,7 +3824,7 @@ const makeWsRpcLayer = (
                 PairingGrantStore.BootstrapCredentialChange | SessionStore.SessionCredentialChange
               > = Stream.merge(bootstrapCredentials.streamChanges, sessions.streamChanges);
 
-              const liveEvents: Stream.Stream<AuthAccessStreamEvent> = accessChanges.pipe(
+              const credentialEvents: Stream.Stream<AuthAccessStreamEvent> = accessChanges.pipe(
                 Stream.mapEffect((change) =>
                   Ref.updateAndGet(revisionRef, (revision) => revision + 1).pipe(
                     Effect.map((revision) =>
@@ -3813,15 +3833,43 @@ const makeWsRpcLayer = (
                   ),
                 ),
               );
+              // ViewCode: the managed tunnel's state rides this stream as a whole new
+              // snapshot, so clients need no new event type. The runtime replays its
+              // current state on subscribe, which repeats the opening snapshot: harmless.
+              const currentTunnel = yield* Stream.runHead(cloudEndpointRuntime.tunnelState);
+              const tunnelEvents: Stream.Stream<AuthAccessStreamEvent> =
+                cloudEndpointRuntime.tunnelState.pipe(
+                  Stream.mapEffect((managedTunnel) =>
+                    Effect.all([
+                      loadAuthAccessSnapshot().pipe(Effect.orElseSucceed(() => initialSnapshot)),
+                      Ref.updateAndGet(revisionRef, (revision) => revision + 1),
+                    ]).pipe(
+                      Effect.map(([snapshot, revision]) => ({
+                        version: 1 as const,
+                        revision,
+                        type: "snapshot" as const,
+                        payload: {
+                          ...snapshot,
+                          ...(managedTunnel === null ? {} : { managedTunnel }),
+                        },
+                      })),
+                    ),
+                  ),
+                );
 
               return Stream.concat(
                 Stream.make({
                   version: 1 as const,
                   revision: 1,
                   type: "snapshot" as const,
-                  payload: initialSnapshot,
+                  payload: {
+                    ...initialSnapshot,
+                    ...(Option.isSome(currentTunnel) && currentTunnel.value !== null
+                      ? { managedTunnel: currentTunnel.value }
+                      : {}),
+                  },
                 }),
-                liveEvents,
+                Stream.merge(credentialEvents, tunnelEvents),
               );
             }),
             { "rpc.aggregate": "auth" },

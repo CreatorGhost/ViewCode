@@ -49,6 +49,7 @@ import * as DesktopLinuxUrlHandler from "./app/DesktopLinuxUrlHandler.ts";
 import * as DesktopShutdown from "./app/DesktopShutdown.ts";
 import * as DesktopObservability from "./app/DesktopObservability.ts";
 import * as DesktopServerExposure from "./backend/DesktopServerExposure.ts";
+import * as DesktopTailscalePhoneAccess from "./backend/DesktopTailscalePhoneAccess.ts";
 import * as DesktopClientSettings from "./settings/DesktopClientSettings.ts";
 import * as DesktopSavedEnvironments from "./settings/DesktopSavedEnvironments.ts";
 import * as DesktopSnapShot from "./snapShot/DesktopSnapShot.ts";
@@ -197,6 +198,7 @@ const desktopLocalEnvironmentAuthLayer = DesktopLocalEnvironmentAuth.layer.pipe(
 
 const desktopApplicationLayer = Layer.mergeAll(
   DesktopLifecycle.layer,
+  DesktopTailscalePhoneAccess.layer,
   desktopAppActivationLayer,
   DesktopApplicationMenu.layer,
   DesktopLinuxUrlHandler.layer,

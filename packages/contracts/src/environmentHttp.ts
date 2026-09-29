@@ -603,6 +603,14 @@ class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     }).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(
+    // ViewCode: restart a managed tunnel that paused because the network blocks it.
+    HttpApiEndpoint.post("retryTunnel", "/api/connect/tunnel/retry", {
+      headers: OptionalBearerHeaders,
+      success: EnvironmentCloudRelayConfigResult,
+      error: EnvironmentHttpCloudErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
     HttpApiEndpoint.post("health", "/api/t3-connect/health", {
       payload: RelayCloudEnvironmentHealthRequest,
       success: RelayEnvironmentHealthResponse,

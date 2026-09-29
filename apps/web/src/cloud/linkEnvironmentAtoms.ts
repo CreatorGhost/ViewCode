@@ -6,6 +6,7 @@ import {
 import { connectionAtomRuntime } from "../connection/runtime";
 import {
   linkPrimaryEnvironmentToCloud,
+  retryPrimaryManagedTunnel,
   type CloudLinkMode,
   type CloudLinkTarget,
   unlinkPrimaryEnvironmentFromCloud,
@@ -43,4 +44,11 @@ export const updatePrimaryEnvironmentPreferences = createRuntimeCommand(connecti
   concurrency: cloudLinkConcurrency,
   execute: (input: { readonly target: CloudLinkTarget; readonly publishAgentActivity: boolean }) =>
     updatePrimaryCloudPreferences(input),
+});
+
+export const retryPrimaryEnvironmentTunnel = createRuntimeCommand(connectionAtomRuntime, {
+  label: "web:cloud:retry-primary-environment-tunnel",
+  scheduler: cloudLinkScheduler,
+  concurrency: cloudLinkConcurrency,
+  execute: (input: { readonly target: CloudLinkTarget }) => retryPrimaryManagedTunnel(input),
 });

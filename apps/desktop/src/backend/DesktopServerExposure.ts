@@ -339,6 +339,8 @@ export class DesktopServerExposure extends Context.Service<
     readonly setTailscaleServeEnabled: (input: {
       readonly enabled: boolean;
       readonly port?: number;
+      /** ViewCode: the launch-time opt-in; see DesktopSettings.tailscaleAutoServe. */
+      readonly automatic?: boolean;
     }) => Effect.Effect<DesktopServerExposureChange, DesktopTailscaleServePersistenceError>;
     readonly getAdvertisedEndpoints: Effect.Effect<readonly AdvertisedEndpoint[]>;
     /** Real HTTP requests to this machine's own LAN address, on demand. */
@@ -593,7 +595,11 @@ export const make = Effect.gen(function* () {
   });
 
   const setTailscaleServeEnabled = Effect.fn("desktop.serverExposure.setTailscaleServeEnabled")(
-    function* (input: { readonly enabled: boolean; readonly port?: number }) {
+    function* (input: {
+      readonly enabled: boolean;
+      readonly port?: number;
+      readonly automatic?: boolean;
+    }) {
       yield* Effect.annotateCurrentSpan({
         enabled: input.enabled,
         ...(input.port === undefined ? {} : { port: input.port }),
@@ -602,6 +608,7 @@ export const make = Effect.gen(function* () {
         .setTailscaleServe({
           enabled: input.enabled,
           port: Option.fromNullishOr(input.port),
+          ...(input.automatic === undefined ? {} : { automatic: input.automatic }),
         })
         .pipe(
           Effect.mapError(
@@ -614,6 +621,7 @@ export const make = Effect.gen(function* () {
           ),
         );
 
+      const previous = yield* Ref.get(stateRef);
       const nextState = yield* Ref.updateAndGet(stateRef, (current) => ({
         ...current,
         tailscaleServeEnabled: result.settings.tailscaleServeEnabled,
@@ -622,7 +630,11 @@ export const make = Effect.gen(function* () {
 
       return {
         state: toContractState(nextState),
-        requiresRelaunch: result.changed,
+        // The launch-time opt-in alone needs no restart.
+        requiresRelaunch:
+          result.changed &&
+          (previous.tailscaleServeEnabled !== nextState.tailscaleServeEnabled ||
+            previous.tailscaleServePort !== nextState.tailscaleServePort),
       };
     },
   );

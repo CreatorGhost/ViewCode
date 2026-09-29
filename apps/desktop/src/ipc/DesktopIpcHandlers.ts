@@ -20,6 +20,10 @@ import {
   setTailscaleServeEnabled,
 } from "./methods/serverExposure.ts";
 import {
+  getTailscalePhoneAccess,
+  setTailscalePhoneAccessAutomatic,
+} from "./methods/tailscalePhoneAccess.ts";
+import {
   bootstrapSshBearerSession,
   disconnectSshEnvironment,
   discoverSshHosts,
@@ -123,6 +127,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(setServerExposureMode);
   yield* ipc.handle(setTailscaleServeEnabled);
   yield* ipc.handle(getAdvertisedEndpoints);
+  yield* ipc.handle(getTailscalePhoneAccess);
+  yield* ipc.handle(setTailscalePhoneAccessAutomatic);
   yield* ipc.handle(checkLanReachability);
 
   yield* ipc.handle(getWslState);

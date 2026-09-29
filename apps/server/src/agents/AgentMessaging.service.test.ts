@@ -4,6 +4,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationThread,
   type OrchestrationThreadShell,
+  MessageId,
   ThreadId,
 } from "@t3tools/contracts";
 import { parseAgentMessage } from "@t3tools/shared/agentMessages";
@@ -120,8 +121,17 @@ const makeHarness = Effect.gen(function* () {
       },
     });
   const delayedStarts = new Set<string>();
+  /** Model selections written by thread.create and thread.meta.update, in order. */
+  const selections: Array<{ type: string; threadId: string; modelSelection?: unknown }> = [];
 
   const dispatch = (command: OrchestrationCommand) => {
+    if (command.type === "thread.create" || command.type === "thread.meta.update") {
+      selections.push({
+        type: command.type,
+        threadId: command.threadId,
+        modelSelection: command.modelSelection,
+      });
+    }
     switch (command.type) {
       case "thread.turn.start":
         return Ref.update(turnStarts, (all) => [...all, command]).pipe(
@@ -240,11 +250,47 @@ const makeHarness = Effect.gen(function* () {
       getProviders: Effect.succeed([
         {
           instanceId: "claudeAgent",
+          driver: "claudeAgent",
+          enabled: true,
+          status: "ready",
           models: [{ slug: "claude-sonnet-4-6", name: "Sonnet" }],
         },
         {
           instanceId: "codex",
-          models: [{ slug: "gpt-5.4", name: "GPT-5.4", isDefault: true }],
+          driver: "codex",
+          enabled: true,
+          status: "ready",
+          models: [
+            {
+              slug: "gpt-5.4",
+              name: "GPT-5.4",
+              isDefault: true,
+              capabilities: {
+                optionDescriptors: [
+                  {
+                    id: "reasoningEffort",
+                    label: "Reasoning",
+                    type: "select",
+                    options: [
+                      { id: "low", label: "Low" },
+                      { id: "medium", label: "Medium", isDefault: true },
+                      { id: "high", label: "High" },
+                      { id: "xhigh", label: "Extra High" },
+                    ],
+                  },
+                  {
+                    id: "serviceTier",
+                    label: "Service tier",
+                    type: "select",
+                    options: [
+                      { id: "default", label: "Standard", isDefault: true },
+                      { id: "priority", label: "Fast" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
         },
       ] as never),
     }),
@@ -312,6 +358,7 @@ const makeHarness = Effect.gen(function* () {
     runTurn,
     errors,
     models,
+    selections,
     interrupts,
     starts,
     endTurn,
@@ -558,6 +605,116 @@ describe("AgentMessaging", () => {
       }),
     ),
   );
+
+  it.effect("continueAfterLimit continues the stopped work, then delivers the queued mail", () =>
+    withMessaging((harness, messaging, settle) =>
+      Effect.gen(function* () {
+        yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task one." });
+        yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task two." });
+        yield* Ref.update(harness.errors, (map) =>
+          new Map(map).set(CHILD, "You have hit your usage limit."),
+        );
+        yield* harness.endTurn(CHILD, undefined, "error");
+        yield* settle;
+
+        yield* Ref.update(harness.errors, () => new Map());
+        assert.isTrue(yield* messaging.continueAfterLimit(CHILD, MessageId.make("resume-1")));
+        yield* settle;
+        const resumed = (yield* harness.starts).at(-1)!;
+        assert.equal(resumed.threadId, CHILD);
+        assert.equal(resumed.message.text, AGENT_CONTINUE_PROMPT);
+
+        // A busy thread is left alone.
+        assert.isFalse(yield* messaging.continueAfterLimit(CHILD, MessageId.make("resume-2")));
+
+        yield* harness.endTurn(CHILD, "Done.");
+        yield* settle;
+        assert.equal(bodyOf((yield* harness.starts).at(-1)), "Task two.");
+      }),
+    ),
+  );
+
+  describe("reasoning effort", () => {
+    it.effect("list_models offers the effort levels and fast mode", () =>
+      withMessaging((_harness, messaging) =>
+        Effect.gen(function* () {
+          const providers = yield* messaging.listModels();
+          const model = providers.find((p) => p.providerId === "codex")!.models[0]!;
+          assert.deepEqual(
+            model.effortLevels?.map((level) => level.id),
+            ["low", "medium", "high", "xhigh"],
+          );
+          assert.equal(model.fastMode, true);
+          assert.isUndefined(
+            providers.find((p) => p.providerId === "claudeAgent")!.models[0]!.effortLevels,
+          );
+        }),
+      ),
+    );
+
+    it.effect("spawn puts effort and fast mode on the child's model selection", () =>
+      withMessaging((harness, messaging) =>
+        Effect.gen(function* () {
+          // The mocked projection has no child thread, so delivery fails after
+          // the thread is created; the created selection is what matters.
+          yield* messaging
+            .spawnAgent(LEAD, {
+              name: "Helper",
+              prompt: "Go.",
+              providerId: "codex",
+              effort: "High",
+              fastMode: true,
+            })
+            .pipe(Effect.ignore);
+          const created = harness.selections.find((entry) => entry.type === "thread.create")!;
+          assert.deepEqual(created.modelSelection, {
+            instanceId: "codex",
+            model: "gpt-5.4",
+            options: [
+              { id: "reasoningEffort", value: "high" },
+              { id: "serviceTier", value: "priority" },
+            ],
+          });
+        }),
+      ),
+    );
+
+    it.effect("rejects an invalid effort with the valid levels", () =>
+      withMessaging((harness, messaging) =>
+        Effect.gen(function* () {
+          const error = yield* messaging
+            .spawnAgent(LEAD, { name: "Helper", prompt: "Go.", providerId: "codex", effort: "max" })
+            .pipe(Effect.flip);
+          assert.include(error.message, "low, medium, high, xhigh");
+          assert.equal(harness.selections.length, 0);
+        }),
+      ),
+    );
+
+    it.effect("configure changes effort for the next turn without interrupting", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Work." });
+          yield* settle;
+          yield* messaging.configureAgent(LEAD, {
+            agent: CHILD,
+            providerId: "codex",
+            effort: "xhigh",
+          });
+          const update = harness.selections.find((entry) => entry.type === "thread.meta.update")!;
+          assert.deepEqual(update.modelSelection, {
+            instanceId: "codex",
+            model: "gpt-5.4",
+            options: [
+              { id: "reasoningEffort", value: "xhigh" },
+              { id: "serviceTier", value: "default" },
+            ],
+          });
+          assert.deepEqual(yield* Ref.get(harness.interrupts), []);
+        }),
+      ),
+    );
+  });
 
   it.effect("queues a message for a busy receiver until its turn ends", () =>
     withMessaging((harness, messaging, settle) =>
@@ -918,6 +1075,8 @@ describe("isLimitError", () => {
       "This model is not available on your plan",
       "You have run out of credits",
       "Insufficient balance",
+      "You've hit your limit · resets 8pm (UTC)",
+      "5-hour limit reached ∙ resets 3pm",
     ]) {
       assert.isTrue(isLimitError(message), message);
     }
@@ -926,6 +1085,7 @@ describe("isLimitError", () => {
   it("does not treat context-length or other failures as a quota problem", () => {
     for (const message of [
       "Context window exceeded",
+      "Context limit reached",
       "context_length_exceeded: this model's maximum context length is 200000 tokens",
       "prompt is too long: 210000 tokens > 200000 maximum",
       "Request exceeded max_tokens",

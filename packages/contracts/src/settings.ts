@@ -1134,6 +1134,18 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
   /**
+   * Continue a thread automatically once the provider's usage limit resets
+   * (about a minute later), even when nobody is at the computer. Off still
+   * shows the reset time but schedules nothing.
+   */
+  resumeAfterUsageLimit: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /**
+   * Desktop only: while a usage-limit resume is scheduled, ask the OS not to
+   * suspend the computer. The display may still sleep. There is no scheduled
+   * wake, so a closed laptop lid can still put it to sleep.
+   */
+  keepAwakeForUsageResume: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /**
    * Whether agents may drive the in-app preview browser. Turning this off
    * withholds the MCP credential, so the `t3-code` server (and with it every
    * `preview_*` tool) is never attached to a provider session, and the prompt
@@ -1525,6 +1537,8 @@ export const ServerSettingsPatch = Schema.Struct({
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
+  resumeAfterUsageLimit: Schema.optionalKey(Schema.Boolean),
+  keepAwakeForUsageResume: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(Schema.Boolean)),

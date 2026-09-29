@@ -223,6 +223,18 @@ export function updatePrimaryCloudPreferences(input: {
   }).pipe(Effect.provide(primaryEnvironmentHttpLayer));
 }
 
+/** Starts a managed tunnel that paused because the network blocks it. */
+export function retryPrimaryManagedTunnel(input: {
+  readonly target: CloudLinkTarget;
+}): Effect.Effect<void, CloudEnvironmentLinkError, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    const client = yield* makeEnvironmentHttpApiClient(input.target.httpBaseUrl);
+    yield* client.connect
+      .retryTunnel({ headers: {} })
+      .pipe(Effect.mapError(environmentApiError("Could not restart the T3 Connect tunnel.")));
+  }).pipe(Effect.provide(primaryEnvironmentHttpLayer));
+}
+
 export function unlinkPrimaryEnvironmentFromCloud(input: {
   readonly target: CloudLinkTarget;
   readonly clerkToken: string | null;
@@ -351,6 +363,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
           environmentCredential: link.environmentCredential,
           cloudMintPublicKey: link.cloudMintPublicKey,
           endpointRuntime: link.endpointRuntime,
+          endpointHttpBaseUrl: link.endpoint.httpBaseUrl,
         },
       })
       .pipe(Effect.mapError(environmentApiError("Could not configure environment relay access.")));

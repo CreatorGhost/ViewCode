@@ -27,6 +27,7 @@ import * as DesktopObservability from "./DesktopObservability.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
+import * as DesktopTailscalePhoneAccess from "../backend/DesktopTailscalePhoneAccess.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopShellEnvironment from "../shell/DesktopShellEnvironment.ts";
 import * as DesktopState from "./DesktopState.ts";
@@ -203,11 +204,15 @@ const bootstrap = Effect.gen(function* () {
     return yield* new DesktopDevelopmentBackendPortRequiredError();
   }
 
+  // ViewCode: the opt-in setting may turn Tailscale Serve on, which moves the backend to TCP.
+  yield* (yield* DesktopTailscalePhoneAccess.DesktopTailscalePhoneAccess).applyAtStartup;
+  const backendSettings = yield* desktopSettings.get;
+
   // A socket backend binds no port, so skip the scan: probing binds every
   // interface, which is the kind of listener locked-down machines refuse.
   const desktopConfig = yield* DesktopConfig.DesktopConfig;
   const startsSocketBackend = DesktopServerExposure.startsSocketBackend({
-    settings,
+    settings: backendSettings,
     forceTcp: desktopConfig.desktopBackendTcp,
   });
   const backendPortSelection = startsSocketBackend

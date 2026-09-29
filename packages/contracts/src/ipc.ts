@@ -544,6 +544,17 @@ export const DesktopLanReachabilitySchema = Schema.Struct({
 });
 export type DesktopLanReachability = typeof DesktopLanReachabilitySchema.Type;
 
+/**
+ * ViewCode: what the Connect phone dialog needs to know about Tailscale.
+ * `installed` is a search for the CLI on disk; nothing was started to find out.
+ */
+export const DesktopTailscalePhoneAccessSchema = Schema.Struct({
+  installed: Schema.Boolean,
+  /** Turn Tailscale Serve on at launch. Off unless the user opted in. */
+  automatic: Schema.Boolean,
+});
+export type DesktopTailscalePhoneAccess = typeof DesktopTailscalePhoneAccessSchema.Type;
+
 export interface PickFolderOptions {
   initialPath?: string | null;
   // When set, the desktop dialog opens against the named backend's
@@ -1241,6 +1252,10 @@ export interface DesktopBridge {
     readonly port?: number;
   }) => Promise<DesktopServerExposureState>;
   getAdvertisedEndpoints: () => Promise<readonly AdvertisedEndpoint[]>;
+  /** ViewCode. Optional while older desktop shells can host a newer web client. */
+  getTailscalePhoneAccess?: () => Promise<DesktopTailscalePhoneAccess>;
+  /** ViewCode. Takes effect at the next launch; no restart. */
+  setTailscalePhoneAccessAutomatic?: (automatic: boolean) => Promise<DesktopTailscalePhoneAccess>;
   /** Optional while older desktop shells can host a newer web client. */
   checkLanReachability?: () => Promise<DesktopLanReachability>;
   getWslState: () => Promise<DesktopWslState>;

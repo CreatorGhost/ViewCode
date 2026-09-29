@@ -3,6 +3,7 @@ import {
   type AdvertisedEndpoint,
   type DesktopLanReachability,
   type DesktopServerExposureMode,
+  type ManagedTunnelState,
 } from "@t3tools/contracts";
 
 /** How long a code minted by the dialog lives; the server caps it at the same value. */
@@ -48,22 +49,20 @@ function isTailscaleHttpsEndpoint(endpoint: AdvertisedEndpoint): boolean {
 }
 
 /**
- * The addresses a phone can use, best first. Plain network endpoints only
- * listen while network access is on; Tailscale HTTPS is its own route and
- * counts whenever it is up. Same-Wi-Fi addresses lead because that is the
- * setup most people have.
+ * The same-Wi-Fi addresses a phone can use, best first. They only listen while
+ * network access is on. Tailscale HTTPS is its own tab.
  */
 export function selectPhoneEndpoints(input: {
   readonly endpoints: ReadonlyArray<AdvertisedEndpoint>;
   readonly exposureMode: DesktopServerExposureMode;
 }): PhoneEndpoint[] {
   return input.endpoints
-    .filter((endpoint) =>
-      isTailscaleHttpsEndpoint(endpoint)
-        ? endpoint.status === "available"
-        : input.exposureMode === "network-accessible" &&
-          endpoint.status !== "unavailable" &&
-          endpoint.reachability !== "loopback",
+    .filter(
+      (endpoint) =>
+        !isTailscaleHttpsEndpoint(endpoint) &&
+        input.exposureMode === "network-accessible" &&
+        endpoint.status !== "unavailable" &&
+        endpoint.reachability !== "loopback",
     )
     .toSorted(
       (left, right) =>
@@ -78,6 +77,115 @@ export function selectPhoneEndpoints(input: {
       lan: endpoint.reachability === "lan",
     }));
 }
+
+export type ConnectMode = "local" | "tailscale" | "cloud";
+
+/**
+ * The tabs to offer. Same Wi-Fi is always there. T3 Connect needs the build's
+ * relay configuration; a tab that could only say "not configured" is worse
+ * than none. Tailscale needs the desktop to have found the Tailscale CLI on
+ * disk (found is not running; that check waits until the user turns it on).
+ */
+export function resolveConnectModes(input: {
+  readonly cloudConfigured: boolean;
+  readonly tailscaleInstalled: boolean;
+}): ReadonlyArray<ConnectMode> {
+  return [
+    "local",
+    ...(input.tailscaleInstalled ? (["tailscale"] as const) : []),
+    ...(input.cloudConfigured ? (["cloud"] as const) : []),
+  ];
+}
+
+/** A remembered tab that is no longer offered falls back to the first one. */
+export function resolveSelectedMode(
+  selected: ConnectMode,
+  modes: ReadonlyArray<ConnectMode>,
+): ConnectMode {
+  return modes.includes(selected) ? selected : (modes[0] ?? "local");
+}
+
+export type TailscaleView =
+  /** Serve is up: the QR uses this address. */
+  | { readonly kind: "ready"; readonly endpoint: PhoneEndpoint }
+  /** Serve is on, but Tailscale gave no address: not running or not signed in. */
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "off" };
+
+export function resolveTailscaleView(input: {
+  readonly serveEnabled: boolean;
+  readonly endpoints: ReadonlyArray<AdvertisedEndpoint>;
+}): TailscaleView {
+  const endpoint = input.endpoints.find(
+    (candidate) => isTailscaleHttpsEndpoint(candidate) && candidate.status === "available",
+  );
+  if (endpoint) {
+    return {
+      kind: "ready",
+      endpoint: {
+        id: endpoint.id,
+        label: endpoint.label,
+        httpBaseUrl: endpoint.httpBaseUrl,
+        loopback: false,
+        lan: false,
+      },
+    };
+  }
+  return input.serveEnabled ? { kind: "unavailable" } : { kind: "off" };
+}
+
+export type AnywhereView =
+  /** Not linked: offer the one button. */
+  | { readonly kind: "off" }
+  | { readonly kind: "connecting" }
+  /** The network refused the tunnel repeatedly; retries are paused. */
+  | { readonly kind: "blocked" }
+  /** Registrations keep dying; reconnecting, so no QR yet. */
+  | { readonly kind: "unstable-reconnecting" }
+  /** Linked before the tunnel address was kept; turning it off and on fixes it. */
+  | { readonly kind: "needs-relink" }
+  | {
+      readonly kind: "ready";
+      readonly baseUrl: string;
+      readonly host: string;
+      /** Registrations have been dying within a minute: warn before the QR. */
+      readonly unstable: boolean;
+    };
+
+/** What the Anywhere tab shows. The QR appears only while the tunnel is registered. */
+export function resolveAnywhereView(input: {
+  readonly managedTunnelActive: boolean;
+  readonly tunnel: ManagedTunnelState | null;
+}): AnywhereView {
+  if (!input.managedTunnelActive) return { kind: "off" };
+  const tunnel = input.tunnel;
+  if (tunnel === null) return { kind: "connecting" };
+  if (tunnel.status === "blocked-by-network") return { kind: "blocked" };
+  if (!tunnel.registered) {
+    return tunnel.status === "unstable"
+      ? { kind: "unstable-reconnecting" }
+      : { kind: "connecting" };
+  }
+  if (tunnel.httpBaseUrl === undefined) return { kind: "needs-relink" };
+  let host: string;
+  try {
+    host = new URL(tunnel.httpBaseUrl).host;
+  } catch {
+    return { kind: "needs-relink" };
+  }
+  return {
+    kind: "ready",
+    baseUrl: tunnel.httpBaseUrl,
+    host,
+    unstable: tunnel.status === "unstable",
+  };
+}
+
+export const TUNNEL_BLOCKED_MESSAGE =
+  "This network blocks tunnel connections (common on corporate networks or VPNs). Same Wi-Fi still works.";
+
+export const TUNNEL_UNSTABLE_MESSAGE =
+  "This connection keeps dropping. The phone may connect and then lose the computer. Same Wi-Fi is more reliable on this network.";
 
 export function resolveConnectPhoneState(input: {
   /** Null outside the desktop app. */

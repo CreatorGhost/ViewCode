@@ -1,3 +1,4 @@
+import type { ManagedTunnelState } from "@t3tools/contracts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import * as Clock from "effect/Clock";
@@ -12,8 +13,18 @@ import * as Result from "effect/Result";
 import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+
+import {
+  classifyTunnelSignal,
+  initialTunnelHealth,
+  reduceTunnelHealth,
+  SHORT_REGISTRATION_MS,
+  type TunnelHealth,
+  type TunnelHealthEvent,
+} from "./managedTunnelHealth.ts";
 
 export type CloudManagedEndpointRuntimeStatus =
   | {
@@ -48,8 +59,28 @@ export class CloudManagedEndpointRuntime extends Context.Service<
     readonly recoveryRequests: Stream.Stream<RelayManagedEndpointRuntimeConfig>;
     readonly requestRecovery: (config: RelayManagedEndpointRuntimeConfig) => Effect.Effect<void>;
     readonly withLinkStateLock: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
-  }
+  } & ManagedTunnelControl
 >()("t3/cloud/ManagedEndpointRuntime/CloudManagedEndpointRuntime") {}
+
+/**
+ * ViewCode: what the connector's output says about the tunnel, for the Connect
+ * phone dialog. `null` means no managed tunnel is configured.
+ */
+export interface ManagedTunnelControl {
+  /** The current state, then every change. */
+  readonly tunnelState: Stream.Stream<ManagedTunnelState | null>;
+  /** The tunnel's public origin from the link response; cleared by `applyConfig(null)`. */
+  readonly setEndpointHttpBaseUrl: (httpBaseUrl: string | null) => Effect.Effect<void>;
+  /** Starts the connector again after it paused because the network blocks it. */
+  readonly retryTunnel: Effect.Effect<CloudManagedEndpointRuntimeStatus>;
+}
+
+/** For tests that stand in for the runtime without a tunnel. */
+export const noManagedTunnelControl: ManagedTunnelControl = {
+  tunnelState: Stream.make(null),
+  setEndpointHttpBaseUrl: () => Effect.void,
+  retryTunnel: Effect.succeed({ status: "disabled" }),
+};
 
 interface ActiveConnector {
   readonly child: ChildProcessSpawner.ChildProcessHandle;
@@ -137,7 +168,35 @@ export const make = Effect.gen(function* () {
   const reconcileSemaphore = yield* Semaphore.make(1);
   const restartDelayRef = yield* Ref.make(0);
   const linkStateSemaphore = yield* Semaphore.make(1);
+  const runtimeScope = yield* Effect.scope;
+  const healthRef = yield* Ref.make<TunnelHealth>(initialTunnelHealth);
+  const endpointUrlRef = yield* Ref.make<string | null>(null);
+  const tunnelStateRef = yield* SubscriptionRef.make<ManagedTunnelState | null>(null);
   let reconcileConfig: CloudManagedEndpointRuntime["Service"]["applyConfig"];
+
+  // Recomputes the state clients see. Runs on every input change; nothing polls.
+  const publishTunnelState = Effect.gen(function* () {
+    const desired = yield* Ref.get(desiredConfigRef);
+    const health = yield* Ref.get(healthRef);
+    const httpBaseUrl = yield* Ref.get(endpointUrlRef);
+    const next: ManagedTunnelState | null =
+      desired?.providerKind === "cloudflare_tunnel"
+        ? {
+            status: health.status,
+            registered: health.registered,
+            ...(httpBaseUrl === null ? {} : { httpBaseUrl }),
+          }
+        : null;
+    yield* SubscriptionRef.update(tunnelStateRef, (current) =>
+      JSON.stringify(current) === JSON.stringify(next) ? current : next,
+    );
+  });
+
+  const applyHealthEvent = (event: TunnelHealthEvent) =>
+    Ref.modify(healthRef, (current) => {
+      const next = reduceTunnelHealth(current, event);
+      return [{ previous: current, next }, next] as const;
+    }).pipe(Effect.tap(() => publishTunnelState));
 
   const stopActive = Effect.gen(function* () {
     const active = yield* Ref.getAndSet(activeRef, null);
@@ -155,6 +214,7 @@ export const make = Effect.gen(function* () {
         return;
       }
       const uptimeMillis = (yield* Clock.currentTimeMillis) - connector.startedAtMillis;
+      yield* applyHealthEvent({ type: "exited", nowMs: yield* Clock.currentTimeMillis });
       // The first crash restarts immediately; every further crash inside the
       // stable-uptime window doubles the wait, up to the cap. The delay runs
       // before the semaphore so a user config change is never blocked behind
@@ -191,6 +251,8 @@ export const make = Effect.gen(function* () {
           }
           yield* Ref.set(activeRef, null);
           yield* stopConnector(connector);
+          // A blocked network pauses retries until the user asks again.
+          if ((yield* Ref.get(healthRef)).status === "blocked-by-network") return;
 
           const desiredConfig = yield* Ref.get(desiredConfigRef);
           if (
@@ -217,8 +279,82 @@ export const make = Effect.gen(function* () {
       Effect.catchCause((cause) => Effect.logWarning("Relay client supervisor failed", { cause })),
     );
 
+  // Blocks are decided by the output observer, which lives in the connector's
+  // scope, so the stop runs in the runtime's scope instead of cutting itself off.
+  const pauseIfBlocked = (connector: ActiveConnector, status: TunnelHealth["status"]) =>
+    status !== "blocked-by-network"
+      ? Effect.void
+      : Effect.logWarning("Network blocks the tunnel connection; pausing relay client retries", {
+          tunnelId: connector.config.tunnelId,
+          tunnelName: connector.config.tunnelName,
+        }).pipe(
+          Effect.andThen(
+            reconcileSemaphore
+              .withPermits(1)(
+                Effect.gen(function* () {
+                  const active = yield* Ref.get(activeRef);
+                  if (active?.child.pid === connector.child.pid) yield* stopActive;
+                }),
+              )
+              .pipe(Effect.forkIn(runtimeScope)),
+          ),
+          Effect.asVoid,
+        );
+
+  // One-shot per registration: after SHORT_REGISTRATION_MS a registration that is
+  // still up proves the tunnel healthy, which clears an "unstable" verdict.
+  const confirmStableRegistration = (connector: ActiveConnector) =>
+    Effect.sleep(Duration.millis(SHORT_REGISTRATION_MS)).pipe(
+      Effect.andThen(Clock.currentTimeMillis),
+      Effect.flatMap((nowMs) => applyHealthEvent({ type: "stable", nowMs })),
+      Effect.asVoid,
+      Effect.forkIn(connector.scope),
+    );
+
   const observeConnectorOutput = (connector: ActiveConnector) => {
     let rejectedRegistrations = 0;
+
+    const logLine = (line: string, attributes: Record<string, unknown>) => {
+      switch (classifyRelayClientOutput(line)) {
+        case "connected":
+          rejectedRegistrations = 0;
+          return Effect.logInfo("Relay client tunnel connection registered", attributes);
+        case "warning":
+          if (isRejectedRelayClientTunnelOutput(line)) {
+            rejectedRegistrations += 1;
+            if (rejectedRegistrations >= TUNNEL_AUTHORIZATION_FAILURES_BEFORE_RECOVERY) {
+              rejectedRegistrations = 0;
+              return Effect.logWarning(
+                "Relay client tunnel was rejected; requesting recovery",
+                attributes,
+              ).pipe(
+                Effect.andThen(Queue.offer(recoveryRequests, connector.config)),
+                Effect.asVoid,
+              );
+            }
+          }
+          return Effect.logWarning("Relay client reported a transport warning", attributes);
+        case "debug":
+          return Effect.logDebug("Relay client output", attributes);
+      }
+    };
+
+    const trackHealth = (line: string) => {
+      const signal = classifyTunnelSignal(line);
+      if (signal === null) return Effect.void;
+      return Clock.currentTimeMillis.pipe(
+        Effect.flatMap((nowMs) => applyHealthEvent({ type: signal, nowMs })),
+        Effect.flatMap(({ previous, next }) =>
+          Effect.all([
+            pauseIfBlocked(connector, next.status),
+            signal === "registered" && !previous.registered
+              ? confirmStableRegistration(connector)
+              : Effect.void,
+          ]),
+        ),
+        Effect.asVoid,
+      );
+    };
 
     return connector.child.all.pipe(
       Stream.decodeText(),
@@ -233,28 +369,7 @@ export const make = Effect.gen(function* () {
           tunnelName: connector.config.tunnelName,
           output,
         };
-        switch (classifyRelayClientOutput(line)) {
-          case "connected":
-            rejectedRegistrations = 0;
-            return Effect.logInfo("Relay client tunnel connection registered", attributes);
-          case "warning":
-            if (isRejectedRelayClientTunnelOutput(line)) {
-              rejectedRegistrations += 1;
-              if (rejectedRegistrations >= TUNNEL_AUTHORIZATION_FAILURES_BEFORE_RECOVERY) {
-                rejectedRegistrations = 0;
-                return Effect.logWarning(
-                  "Relay client tunnel was rejected; requesting recovery",
-                  attributes,
-                ).pipe(
-                  Effect.andThen(Queue.offer(recoveryRequests, connector.config)),
-                  Effect.asVoid,
-                );
-              }
-            }
-            return Effect.logWarning("Relay client reported a transport warning", attributes);
-          case "debug":
-            return Effect.logDebug("Relay client output", attributes);
-        }
+        return trackHealth(line).pipe(Effect.andThen(logLine(line, attributes)));
       }),
       Effect.catchCause((cause) =>
         Effect.logWarning("Relay client output observer failed", {
@@ -366,6 +481,7 @@ export const make = Effect.gen(function* () {
         startedAtMillis: yield* Clock.currentTimeMillis,
       } satisfies ActiveConnector;
       yield* Ref.set(activeRef, connector);
+      yield* applyHealthEvent({ type: "spawned", nowMs: connector.startedAtMillis });
       yield* Effect.forkIn(observeConnectorOutput(connector), connectorScope);
       yield* Effect.forkIn(superviseConnector(connector), connectorScope);
       return {
@@ -401,15 +517,30 @@ export const make = Effect.gen(function* () {
             runtimeConfigKey(desired) === runtimeConfigKey(config);
           if (!unchanged) {
             yield* Ref.set(restartDelayRef, 0);
+            yield* Ref.set(healthRef, initialTunnelHealth);
           }
+          if (config === null) yield* Ref.set(endpointUrlRef, null);
           yield* Ref.set(desiredConfigRef, config);
+          yield* publishTunnelState;
           return yield* reconcileConfig(config);
         }),
       ),
   );
 
+  const retryTunnel = reconcileSemaphore.withPermits(1)(
+    Effect.gen(function* () {
+      yield* Ref.set(restartDelayRef, 0);
+      yield* applyHealthEvent({ type: "retry", nowMs: yield* Clock.currentTimeMillis });
+      return yield* reconcileConfig(yield* Ref.get(desiredConfigRef));
+    }),
+  );
+
   const runtime = CloudManagedEndpointRuntime.of({
     applyConfig,
+    tunnelState: SubscriptionRef.changes(tunnelStateRef),
+    setEndpointHttpBaseUrl: (httpBaseUrl) =>
+      Ref.set(endpointUrlRef, httpBaseUrl).pipe(Effect.andThen(publishTunnelState)),
+    retryTunnel,
     recoveryRequests: Stream.fromQueue(recoveryRequests),
     requestRecovery: (config) => Queue.offer(recoveryRequests, config).pipe(Effect.asVoid),
     withLinkStateLock: linkStateSemaphore.withPermits(1),

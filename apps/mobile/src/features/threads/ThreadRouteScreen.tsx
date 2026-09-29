@@ -72,6 +72,8 @@ import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetailScreen";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { agentControlEnvironment } from "../../state/agentControl";
+import { deriveUsageResumeNotice } from "@t3tools/client-runtime/usage-resume";
 import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
 import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
 import { useSelectedThreadRequests } from "../../state/use-selected-thread-requests";
@@ -952,6 +954,27 @@ function ThreadRouteContent(
           connectionState: routeConnectionState,
         });
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
+  const cancelUsageResume = useAtomCommand(agentControlEnvironment.cancelUsageResume);
+  const resumeUsageNow = useAtomCommand(agentControlEnvironment.resumeUsageNow);
+  const [usageResumeBusy, setUsageResumeBusy] = useState(false);
+  const usageResumeNotice = deriveUsageResumeNotice({
+    activities: selectedThreadDetail?.activities ?? [],
+    session: selectedThread?.session ?? null,
+    latestTurn: selectedThreadDetail?.latestTurn ?? null,
+    nowMs: Date.now(),
+  });
+  const runUsageResume = (command: typeof cancelUsageResume) => async () => {
+    if (selectedThread === null) return;
+    setUsageResumeBusy(true);
+    try {
+      await command({
+        environmentId: selectedThread.environmentId,
+        input: { threadId: selectedThread.id },
+      });
+    } finally {
+      setUsageResumeBusy(false);
+    }
+  };
   const renderThreadRouteBody = () => (
     <>
       <GitActionProgressOverlay progress={gitActionProgress} onDismiss={dismissGitActionResult} />
@@ -960,6 +983,17 @@ function ThreadRouteContent(
         <ThreadDetailScreen
           selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
           contentPresentation={contentPresentation}
+          usageResume={
+            usageResumeNotice
+              ? {
+                  text: usageResumeNotice.text,
+                  canCancel: usageResumeNotice.canCancel,
+                  busy: usageResumeBusy,
+                  onCancel: runUsageResume(cancelUsageResume),
+                  onResumeNow: runUsageResume(resumeUsageNow),
+                }
+              : null
+          }
           screenTone={connectionTone(routeConnectionState)}
           connectionError={routeConnectionError}
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}

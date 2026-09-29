@@ -128,6 +128,7 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import * as AgentMessaging from "./agents/AgentMessaging.ts";
+import * as UsageResume from "./agents/UsageResume.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore.ts";
@@ -1016,6 +1017,10 @@ const buildAppUnderTest = (options?: {
             start: () => Effect.void,
             drain: Effect.void,
           }),
+          Layer.mock(UsageResume.UsageResume)({
+            start: () => Effect.void,
+            drain: Effect.void,
+          }),
         ),
       ),
       Layer.provide(
@@ -1185,6 +1190,7 @@ const buildAppUnderTest = (options?: {
             recoveryRequests: Stream.empty,
             requestRecovery: () => Effect.void,
             withLinkStateLock: (effect) => effect,
+            ...CloudManagedEndpointRuntime.noManagedTunnelControl,
             ...options?.layers?.cloudManagedEndpointRuntime,
           }),
         ),

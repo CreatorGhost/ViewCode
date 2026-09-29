@@ -169,6 +169,8 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
   const powerEvents = yield* Queue.unbounded<PowerEvent>();
   const sampleTriggers = yield* Queue.sliding<void>(1);
   const diagnosticsDemandSources = yield* Ref.make<ReadonlySet<string>>(new Set());
+  // Backends that asked the computer to stay awake for a scheduled usage-limit resume.
+  const keepAwakeSources = yield* Ref.make<ReadonlySet<string>>(new Set());
   const latest = yield* Ref.make(Option.none<DesktopHostTelemetrySnapshot>());
   const changes = yield* PubSub.sliding<DesktopHostTelemetrySnapshot>(8);
   const sequence = yield* Ref.make(0);
@@ -315,6 +317,14 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
     }
   }).pipe(Effect.forkScoped);
 
+  const updateKeepAwake = (sourceId: string, enabled: boolean) =>
+    Ref.modify(keepAwakeSources, (sources) => {
+      const next = new Set(sources);
+      if (enabled) next.add(sourceId);
+      else next.delete(sourceId);
+      return [next.size > 0, next] as const;
+    }).pipe(Effect.flatMap(powerMonitor.setKeepAwake));
+
   const handleControlForSource: DesktopTelemetryPublisher["Service"]["handleControlForSource"] = (
     sourceId,
     message,
@@ -337,6 +347,8 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
               : Queue.offer(sampleTriggers, undefined).pipe(Effect.asVoid),
           ),
         );
+      case "setKeepAwake":
+        return updateKeepAwake(sourceId, message.enabled);
       case "setHostPowerIntervals":
         return Ref.set(hostPowerIntervals, {
           active: Duration.millis(message.activeIntervalMs),
@@ -353,12 +365,15 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
   const removeControlSource: DesktopTelemetryPublisher["Service"]["removeControlSource"] = (
     sourceId,
   ) =>
-    Ref.modify(diagnosticsDemandSources, (sources) => {
-      const previous = sources.size > 0;
-      const next = new Set(sources);
-      next.delete(sourceId);
-      return [[previous, next.size > 0] as const, next] as const;
-    }).pipe(
+    updateKeepAwake(sourceId, false).pipe(
+      Effect.andThen(
+        Ref.modify(diagnosticsDemandSources, (sources) => {
+          const previous = sources.size > 0;
+          const next = new Set(sources);
+          next.delete(sourceId);
+          return [[previous, next.size > 0] as const, next] as const;
+        }),
+      ),
       Effect.flatMap(([previous, enabled]) =>
         previous === enabled
           ? Effect.void

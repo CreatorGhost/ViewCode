@@ -7,8 +7,12 @@ import {
   formatPairingExpiry,
   LAN_BLOCKED_MESSAGE,
   LAN_UNREACHABLE_MESSAGE,
+  resolveAnywhereView,
+  resolveConnectModes,
   resolveConnectPhoneState,
   resolvePairingCodeStatus,
+  resolveSelectedMode,
+  resolveTailscaleView,
   selectPhoneEndpoints,
   shouldResumeConnectPhone,
   shouldRunLanSelfTest,
@@ -39,13 +43,13 @@ const tailnetHttps = endpoint({
 });
 
 describe("selectPhoneEndpoints", () => {
-  it("offers nothing but Tailscale HTTPS while network access is off", () => {
+  it("offers nothing while network access is off", () => {
     expect(
       selectPhoneEndpoints({
         endpoints: [loopback, lan, tailnetHttps],
         exposureMode: "local-only",
-      }).map((entry) => entry.id),
-    ).toEqual([tailnetHttps.id]);
+      }),
+    ).toEqual([]);
   });
 
   it("drops loopback and unavailable addresses and puts same-Wi-Fi first", () => {
@@ -71,13 +75,13 @@ describe("selectPhoneEndpoints", () => {
     ).toBe(tailnetIp.id);
   });
 
-  it("skips Tailscale HTTPS until it is up", () => {
+  it("leaves Tailscale HTTPS to its own tab", () => {
     expect(
       selectPhoneEndpoints({
-        endpoints: [{ ...tailnetHttps, status: "unknown" }],
+        endpoints: [tailnetHttps, lan],
         exposureMode: "network-accessible",
-      }),
-    ).toEqual([]);
+      }).map((entry) => entry.id),
+    ).toEqual([lan.id]);
   });
 });
 
@@ -98,11 +102,10 @@ describe("resolveConnectPhoneState", () => {
     });
   });
 
-  it("uses Tailscale HTTPS without network access, and offers no turn-off", () => {
-    expect(resolveConnectPhoneState(desktop("local-only", [tailnetHttps]))).toMatchObject({
-      kind: "ready",
-      canTurnOff: false,
-    });
+  it("does not treat Tailscale HTTPS as a same-Wi-Fi address", () => {
+    expect(resolveConnectPhoneState(desktop("local-only", [tailnetHttps])).kind).toBe(
+      "needs-network-access",
+    );
   });
 
   it("reports a missing address instead of a dead QR code", () => {
@@ -205,5 +208,111 @@ describe("pairing code lifetime", () => {
 
   it("shows a clock time, not a countdown", () => {
     expect(formatPairingExpiry(Date.UTC(2026, 0, 1, 15, 42), "en-US")).toMatch(/\d{1,2}:\d{2}/);
+  });
+});
+
+describe("resolveConnectModes", () => {
+  it("always offers same Wi-Fi and hides what is not available", () => {
+    expect(resolveConnectModes({ cloudConfigured: false, tailscaleInstalled: false })).toEqual([
+      "local",
+    ]);
+  });
+
+  it("offers Tailscale only when the CLI was found, T3 Connect only when configured", () => {
+    expect(resolveConnectModes({ cloudConfigured: false, tailscaleInstalled: true })).toEqual([
+      "local",
+      "tailscale",
+    ]);
+    expect(resolveConnectModes({ cloudConfigured: true, tailscaleInstalled: true })).toEqual([
+      "local",
+      "tailscale",
+      "cloud",
+    ]);
+  });
+
+  it("falls back to the first tab when a remembered one is gone", () => {
+    expect(resolveSelectedMode("cloud", ["local", "tailscale"])).toBe("local");
+    expect(resolveSelectedMode("tailscale", ["local", "tailscale"])).toBe("tailscale");
+  });
+});
+
+describe("resolveTailscaleView", () => {
+  it("shows the QR address once Serve is up", () => {
+    expect(
+      resolveTailscaleView({ serveEnabled: true, endpoints: [lan, tailnetHttps] }),
+    ).toMatchObject({ kind: "ready", endpoint: { httpBaseUrl: "https://machine.ts.net" } });
+  });
+
+  it("offers Turn on while Serve is off, and explains a Serve that has no address", () => {
+    expect(resolveTailscaleView({ serveEnabled: false, endpoints: [lan] }).kind).toBe("off");
+    expect(
+      resolveTailscaleView({
+        serveEnabled: true,
+        endpoints: [{ ...tailnetHttps, status: "unavailable" }],
+      }).kind,
+    ).toBe("unavailable");
+  });
+});
+
+describe("resolveAnywhereView", () => {
+  const tunnel = (
+    overrides: Partial<NonNullable<Parameters<typeof resolveAnywhereView>[0]["tunnel"]>>,
+  ) => ({
+    status: "connected" as const,
+    registered: true,
+    httpBaseUrl: "https://abc.example.test",
+    ...overrides,
+  });
+
+  it("offers the button while T3 Connect is off, whatever the tunnel says", () => {
+    expect(resolveAnywhereView({ managedTunnelActive: false, tunnel: tunnel({}) })).toEqual({
+      kind: "off",
+    });
+  });
+
+  it("shows the QR only while the tunnel is registered", () => {
+    expect(resolveAnywhereView({ managedTunnelActive: true, tunnel: null }).kind).toBe(
+      "connecting",
+    );
+    expect(
+      resolveAnywhereView({
+        managedTunnelActive: true,
+        tunnel: tunnel({ status: "connecting", registered: false }),
+      }).kind,
+    ).toBe("connecting");
+    expect(resolveAnywhereView({ managedTunnelActive: true, tunnel: tunnel({}) })).toEqual({
+      kind: "ready",
+      baseUrl: "https://abc.example.test",
+      host: "abc.example.test",
+      unstable: false,
+    });
+  });
+
+  it("pauses on a blocked network, even if a stale registration flag lingers", () => {
+    expect(
+      resolveAnywhereView({
+        managedTunnelActive: true,
+        tunnel: tunnel({ status: "blocked-by-network" }),
+      }).kind,
+    ).toBe("blocked");
+  });
+
+  it("warns before the QR when the tunnel is unstable, and hides it while reconnecting", () => {
+    expect(
+      resolveAnywhereView({ managedTunnelActive: true, tunnel: tunnel({ status: "unstable" }) }),
+    ).toMatchObject({ kind: "ready", unstable: true });
+    expect(
+      resolveAnywhereView({
+        managedTunnelActive: true,
+        tunnel: tunnel({ status: "unstable", registered: false }),
+      }).kind,
+    ).toBe("unstable-reconnecting");
+  });
+
+  it("asks to turn T3 Connect off and on when the tunnel address was never kept", () => {
+    const { httpBaseUrl: _omitted, ...withoutUrl } = tunnel({});
+    expect(resolveAnywhereView({ managedTunnelActive: true, tunnel: withoutUrl }).kind).toBe(
+      "needs-relink",
+    );
   });
 });

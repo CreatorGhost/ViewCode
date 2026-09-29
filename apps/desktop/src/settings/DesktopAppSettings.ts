@@ -32,6 +32,12 @@ export interface DesktopSettings {
   readonly serverExposureMode: DesktopServerExposureMode;
   readonly tailscaleServeEnabled: boolean;
   readonly tailscaleServePort: number;
+  /**
+   * ViewCode: turn Tailscale Serve on at launch when the Tailscale CLI is
+   * installed. Absent means off, and it stays off unless the user opts in
+   * (security software on managed laptops kills tailscaled).
+   */
+  readonly tailscaleAutoServe?: true;
   readonly updateChannel: DesktopUpdateChannel;
   readonly updateChannelConfiguredByUser: boolean;
   // Was a "local" | "wsl" swap mode in an earlier iteration of the WSL
@@ -103,6 +109,7 @@ const DesktopSettingsDocument = Schema.Struct({
   serverExposureMode: Schema.optionalKey(DesktopServerExposureModeSchema),
   tailscaleServeEnabled: Schema.optionalKey(Schema.Boolean),
   tailscaleServePort: Schema.optionalKey(Schema.Number),
+  tailscaleAutoServe: Schema.optionalKey(Schema.Boolean),
   updateChannel: Schema.optionalKey(DesktopUpdateChannelSchema),
   updateChannelConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   // Newer form of the WSL toggle. `wslMode` is still accepted on load so
@@ -168,6 +175,8 @@ export class DesktopAppSettings extends Context.Service<
     readonly setTailscaleServe: (input: {
       readonly enabled: boolean;
       readonly port: Option.Option<number>;
+      /** ViewCode: the launch-time opt-in; left as it is when omitted. */
+      readonly automatic?: boolean;
     }) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
     readonly setUpdateChannel: (
       channel: DesktopUpdateChannel,
@@ -238,6 +247,7 @@ function normalizeDesktopSettingsDocument(
       parsed.serverExposureMode === "network-accessible" ? "network-accessible" : "local-only",
     tailscaleServeEnabled: parsed.tailscaleServeEnabled === true,
     tailscaleServePort: normalizeTailscaleServePort(parsed.tailscaleServePort),
+    ...(parsed.tailscaleAutoServe === true ? { tailscaleAutoServe: true as const } : {}),
     updateChannel: updateChannelConfiguredByUser
       ? Option.getOrElse(parsedUpdateChannel, () => defaultSettings.updateChannel)
       : defaultSettings.updateChannel,
@@ -275,6 +285,9 @@ function toDesktopSettingsDocument(
   }
   if (settings.tailscaleServePort !== defaults.tailscaleServePort) {
     document.tailscaleServePort = settings.tailscaleServePort;
+  }
+  if (settings.tailscaleAutoServe === true) {
+    document.tailscaleAutoServe = true;
   }
   if (settings.updateChannel !== defaults.updateChannel) {
     document.updateChannel = settings.updateChannel;
@@ -323,21 +336,38 @@ function setMainWindowBounds(
       };
 }
 
+/**
+ * Turning Serve off also turns the launch-time opt-in off, so ViewCode never
+ * turns it back on behind the user's back; `automatic` sets it explicitly.
+ */
 function setTailscaleServe(
   settings: DesktopSettings,
-  input: { readonly enabled: boolean; readonly port: Option.Option<number> },
+  input: {
+    readonly enabled: boolean;
+    readonly port: Option.Option<number>;
+    readonly automatic?: boolean;
+  },
 ): DesktopSettings {
   const port = Option.match(input.port, {
     onNone: () => settings.tailscaleServePort,
     onSome: normalizeTailscaleServePort,
   });
-  return settings.tailscaleServeEnabled === input.enabled && settings.tailscaleServePort === port
-    ? settings
-    : {
-        ...settings,
-        tailscaleServeEnabled: input.enabled,
-        tailscaleServePort: port,
-      };
+  const automatic =
+    input.automatic ?? (input.enabled ? settings.tailscaleAutoServe === true : false);
+  if (
+    settings.tailscaleServeEnabled === input.enabled &&
+    settings.tailscaleServePort === port &&
+    (settings.tailscaleAutoServe === true) === automatic
+  ) {
+    return settings;
+  }
+  const { tailscaleAutoServe: _previous, ...rest } = settings;
+  return {
+    ...rest,
+    tailscaleServeEnabled: input.enabled,
+    tailscaleServePort: port,
+    ...(automatic ? { tailscaleAutoServe: true as const } : {}),
+  };
 }
 
 function setUpdateChannel(

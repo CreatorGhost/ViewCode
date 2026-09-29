@@ -40,6 +40,20 @@ export function createAgentControlEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    /** Drops a scheduled resume after a usage limit. */
+    cancelUsageResume: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:usage-resume:cancel",
+      tag: WS_METHODS.usageResumeCancel,
+      scheduler,
+      concurrency,
+    }),
+    /** Continues a thread that stopped on a usage limit, without waiting for the reset. */
+    resumeUsageNow: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:usage-resume:now",
+      tag: WS_METHODS.usageResumeNow,
+      scheduler,
+      concurrency,
+    }),
     /** Agents that are paused or hold queued messages; empty when none. */
     control: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:agents:control",

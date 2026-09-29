@@ -34,6 +34,23 @@ Copy `infra/relay/.env.example` to `infra/relay/.env` for relay deployment setti
 Deploy `prod` before personal stages because it owns the retained database that their branches
 depend on. The stack's `PublishClientConfig` action writes the resulting relay URL back to the root `.env`.
 
+## ViewCode source builds
+
+ViewCode's Connect phone dialog offers **Anywhere · T3 Connect** only when the build knows three
+values. Put them in the repository-root `.env`, which is gitignored (`.env*` is ignored except
+`.env.example`) and must never be committed:
+
+```dotenv
+T3CODE_CLERK_PUBLISHABLE_KEY=<publishable key>
+T3CODE_CLERK_JWT_TEMPLATE=<JWT template name>
+T3CODE_RELAY_URL=https://relay.example.com
+```
+
+You supply them; the repository does not ship working values for ViewCode. `./build.sh` reports
+whether they were found (never their values) and the web, server and desktop builds compile them
+in, so rebuild after changing them. Without all three, the Anywhere tab is hidden and Settings →
+Connections says why. Same Wi-Fi and Tailscale do not need them.
+
 ## CLI OAuth application
 
 In Clerk's OAuth applications settings:

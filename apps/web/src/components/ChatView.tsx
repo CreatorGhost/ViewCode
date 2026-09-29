@@ -510,6 +510,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ServerUpdateAction } from "./ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
+import { useUsageResumeBanner } from "./chat/useUsageResumeBanner";
 import {
   ComposerServerUpdateIcon,
   ComposerServerUpdateStatus,
@@ -6532,6 +6533,12 @@ export default function ChatView(props: ChatViewProps) {
       ) : null,
     [activeThreadRef, isServerThread, providerStatuses],
   );
+  const usageResumeBannerItem = useUsageResumeBanner({
+    threadRef: isServerThread ? activeThreadRef : null,
+    activities: threadActivities,
+    session: activeThread?.session ?? null,
+    latestTurn: activeLatestTurn,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
@@ -6541,10 +6548,12 @@ export default function ChatView(props: ChatViewProps) {
     const parkedThreadItems = parkedThreadBannerItem === null ? [] : [parkedThreadBannerItem];
     // The user asked for this one, so it leads the notice tier instead of trailing it.
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
+    const usageResumeItems = usageResumeBannerItem === null ? [] : [usageResumeBannerItem];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
+        ...usageResumeItems,
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
@@ -6556,6 +6565,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     return [
       ...feedbackBannerItems,
+      ...usageResumeItems,
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
@@ -6615,6 +6625,7 @@ export default function ChatView(props: ChatViewProps) {
     showBranchMismatchBanner,
     systemComposerBannerItems,
     usageLimitsBanner,
+    usageResumeBannerItem,
     wokeThreadBannerItem,
   ]);
   useEffect(() => {

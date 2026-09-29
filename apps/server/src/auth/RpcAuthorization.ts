@@ -111,6 +111,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.agentsStop]: AuthOrchestrationOperateScope,
   [WS_METHODS.agentsResume]: AuthOrchestrationOperateScope,
   [WS_METHODS.agentsDiscard]: AuthOrchestrationOperateScope,
+  [WS_METHODS.usageResumeCancel]: AuthOrchestrationOperateScope,
+  [WS_METHODS.usageResumeNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.subscribeAgentControl]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsListEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsReadFile]: AuthOrchestrationReadScope,

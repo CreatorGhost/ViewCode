@@ -115,6 +115,18 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   which also starts its queued work on the new model. Configure writes the
   thread's model too, so the user's next prompt uses it unless the composer
   already has another model picked.
+- Resume after a usage limit (`agents/UsageResume.ts`, any thread, not only agents): a limit
+  error schedules "Continue where you left off." for the reset plus 60s, taken from the
+  exhausted usage window, else parsed from the error text (`agents/usageResetTime.ts`); no time
+  means no schedule. Schedules are JSON files in `<stateDir>/usage-resume/` (like pending
+  handoffs) so they survive a restart; overdue ones run 5s after boot. One sleeping fiber
+  waits for the earliest, woken on changes. A user turn, model switch or Cancel drops it; a
+  second limit failure reschedules once, then stops. The state clients show is a
+  `viewcode.usage-resume` activity (latest wins). The server tells the desktop to hold
+  `powerSaveBlocker("prevent-app-suspension")` over the telemetry control fd (`setKeepAwake`)
+  while any schedule exists. There is deliberately no scheduled wake: `pmset schedule wake`
+  needs admin, which managed laptops lack, so the computer must stay awake and a closed lid may
+  still sleep.
 - `viewcode_list_models` lists every enabled provider with `usable` and a `note`, and
   tells agents to use a vendor's own provider (GPT → Codex) over resellers
   (Command Code, OpenCode, Cursor) unless the user names the reseller.
@@ -154,12 +166,29 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   returns to socket-only. `pnpm dev:desktop` is development mode and always
   uses a Vite port.
 - Connect phone (`web/src/components/connectPhone/`) is the user-facing path to
-  that toggle. The relaunch kills the open dialog, so it leaves a timestamped
-  `viewcode:open-connect-phone` localStorage flag first and the root host
-  reopens the dialog on boot. That works only because the packaged renderer
-  keeps its `t3code://app` origin across socket and TCP modes; a mode-dependent
-  origin would lose the flag. The flag goes stale after two minutes so a
-  relaunch that never happened can't pop the dialog later.
+  that toggle, and every mode ends in a pairing QR the stock T3 Code app scans
+  (no phone sign-in). Tabs come from `resolveConnectModes`: Same Wi-Fi always;
+  Tailscale only when the desktop finds the `tailscale` CLI on disk (a PATH
+  search, never a spawn; `DesktopTailscalePhoneAccess.ts`), whose "Turn on"
+  reuses `setTailscaleServeEnabled`, and whose launch-time opt-in
+  (`tailscaleAutoServe`) defaults off because managed laptops' security
+  software kills tailscaled; Anywhere only when the build has the Clerk key,
+  JWT template and relay URL. The QR for Anywhere is a normal
+  `https://<tunnel-host>/pair#token=` on the managed tunnel: the relay link
+  response's `endpoint.httpBaseUrl` is kept in the `cloud-endpoint-http-base-url`
+  secret (passed in `RelayEnvironmentConfigRequest.endpointHttpBaseUrl`).
+  Tunnel honesty lives in `cloud/managedTunnelHealth.ts`: cloudflared's output
+  is classified (TLS refused x3 in a row -> `blocked-by-network`, connector
+  stopped until the user's Try again; a registration dying within 60s twice ->
+  `unstable`), and the state rides the auth-access stream as `managedTunnel`
+  in a fresh snapshot event, so there is no polling and no new event type.
+  The QR shows only while a registration is up. The relaunch kills the open
+  dialog, so it leaves a timestamped `viewcode:open-connect-phone`
+  localStorage flag (plus the tab) first and the root host reopens the dialog
+  on boot. That works only because the packaged renderer keeps its
+  `t3code://app` origin across socket and TCP modes; a mode-dependent origin
+  would lose the flag. The flag goes stale after two minutes so a relaunch that
+  never happened can't pop the dialog later.
 - ViewCode's desktop identity must never match T3 Code's: profile folder
   `viewcode`, app id `dev.viewcode.app`, WM class `viewcode`. Sharing T3's
   profile shared its IndexedDB lock and cached projects, which stalls first run

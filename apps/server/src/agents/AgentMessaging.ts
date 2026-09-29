@@ -1,4 +1,5 @@
 import { type HistoryMatch, searchThreadHistory } from "./searchHistory.ts";
+import { applyModelTuning, describeModelTuning, type ModelTuning } from "./modelOptions.ts";
 import {
   AgentControlError,
   type AgentControlInput,
@@ -70,10 +71,10 @@ import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
  * narrow; a context-length error is a different failure (see below).
  */
 const LIMIT_ERROR_PATTERN =
-  /usage[ _-]?limit|rate[ _-]?limit|quota|plan limit|MODEL_NOT_IN_PLAN|not (?:in|available on) (?:your )?plan|\bcredits?\b|insufficient (?:credit|balance|funds)|\b429\b|too many requests/i;
+  /usage[ _-]?limit|rate[ _-]?limit|quota|plan limit|MODEL_NOT_IN_PLAN|not (?:in|available on) (?:your )?plan|\bcredits?\b|insufficient (?:credit|balance|funds)|\b429\b|too many requests|limit reached|hit your (?:\w+ )?limit|(?:5-hour|five-hour|weekly|daily) limit/i;
 /** "Context window exceeded" and friends: the conversation is too long, the account is fine. */
 const CONTEXT_LENGTH_PATTERN =
-  /context[ _-]?(?:window|length)|maximum context|prompt is too long|too many tokens|max(?:imum)?[ _-]tokens/i;
+  /context[ _-]?(?:window|length|limit)|maximum context|prompt is too long|too many tokens|max(?:imum)?[ _-]tokens/i;
 
 export function isLimitError(message: string | null | undefined): message is string {
   return (
@@ -116,7 +117,7 @@ export interface ProviderModels {
   readonly driver: string;
   readonly usable: boolean;
   readonly note?: string;
-  readonly models: ReadonlyArray<{ readonly id: string; readonly name: string }>;
+  readonly models: ReadonlyArray<{ readonly id: string; readonly name: string } & ModelTuning>;
 }
 
 export interface SendResult {
@@ -205,6 +206,8 @@ export interface AgentMessagingShape {
       readonly prompt: string;
       readonly providerId?: string | undefined;
       readonly model?: string | undefined;
+      readonly effort?: string | undefined;
+      readonly fastMode?: boolean | undefined;
       readonly replyExpected?: boolean | undefined;
     },
   ) => Effect.Effect<SpawnResult, AgentMessagingError>;
@@ -234,7 +237,9 @@ export interface AgentMessagingShape {
     input: {
       readonly agent: string;
       readonly providerId?: string | undefined;
-      readonly model: string;
+      readonly model?: string | undefined;
+      readonly effort?: string | undefined;
+      readonly fastMode?: boolean | undefined;
     },
   ) => Effect.Effect<
     { readonly agentId: string; readonly appliesTo: "next-turn" },
@@ -250,6 +255,15 @@ export interface AgentMessagingShape {
   readonly discard: (
     input: AgentControlInput,
   ) => Effect.Effect<AgentControlResult, AgentControlError>;
+  /**
+   * Starts "Continue where you left off." on a thread whose usage limit has
+   * reset, clearing its out-of-quota mark. Mail queued for the agent follows
+   * when that turn ends. False when the thread is gone, paused or busy.
+   */
+  readonly continueAfterLimit: (
+    threadId: ThreadId,
+    messageId: MessageId,
+  ) => Effect.Effect<boolean, AgentMessagingError>;
   /** Paused agents and queue lengths: the current value, then every change. */
   readonly controlChanges: Stream.Stream<AgentControlSnapshot>;
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
@@ -571,9 +585,11 @@ const make = Effect.gen(function* () {
     providerId: string | undefined,
     model: string | undefined,
     fallback: ModelSelection,
+    tuning: { readonly effort?: string | undefined; readonly fastMode?: boolean | undefined } = {},
   ) =>
     Effect.gen(function* () {
-      if (providerId === undefined && model === undefined) return fallback;
+      const tuned = tuning.effort !== undefined || tuning.fastMode !== undefined;
+      if (providerId === undefined && model === undefined && !tuned) return fallback;
       const providers = yield* providerRegistry.getProviders;
       const instanceId = providerId ?? String(fallback.instanceId);
       const provider = providers.find((entry) => entry.instanceId === instanceId);
@@ -582,8 +598,10 @@ const make = Effect.gen(function* () {
           `Unknown provider "${instanceId}". Call viewcode_list_models for valid ids.`,
         );
       }
-      const slug =
-        model === undefined
+      const keepModel = providerId === undefined && model === undefined;
+      const slug = keepModel
+        ? fallback.model
+        : model === undefined
           ? (provider.models.find((entry) => entry.isDefault)?.slug ?? provider.models[0]?.slug)
           : provider.models.find(
               (entry) =>
@@ -596,9 +614,28 @@ const make = Effect.gen(function* () {
           `Unknown model "${model}" for ${instanceId}. Call viewcode_list_models for valid ids.`,
         );
       }
+      const unchanged = String(fallback.instanceId) === instanceId && fallback.model === slug;
+      if (!tuned) {
+        return unchanged
+          ? fallback
+          : ({
+              instanceId: ProviderInstanceId.make(instanceId),
+              model: slug,
+            } satisfies ModelSelection);
+      }
+      const applied = applyModelTuning({
+        driver: String(provider.driver),
+        model: slug,
+        capabilities: provider.models.find((entry) => entry.slug === slug)?.capabilities,
+        existing: unchanged ? fallback.options : undefined,
+        effort: tuning.effort,
+        fastMode: tuning.fastMode,
+      });
+      if ("error" in applied) return yield* fail(applied.error);
       return {
         instanceId: ProviderInstanceId.make(instanceId),
         model: slug,
+        ...(applied.options ? { options: applied.options } : {}),
       } satisfies ModelSelection;
     });
 
@@ -612,6 +649,7 @@ const make = Effect.gen(function* () {
         input.providerId,
         input.model,
         self.modelSelection,
+        { effort: input.effort, fastMode: input.fastMode },
       );
       const childId = ThreadId.make(yield* uuid);
       const createdAt = yield* nowIso;
@@ -685,7 +723,11 @@ const make = Effect.gen(function* () {
               ...(note ? { note } : {}),
               models: provider.models
                 .filter((model) => model.isLegacy !== true)
-                .map((model) => ({ id: model.slug, name: model.name })),
+                .map((model) => ({
+                  id: model.slug,
+                  name: model.name,
+                  ...describeModelTuning(String(provider.driver), model.capabilities),
+                })),
             };
           }),
       ),
@@ -734,6 +776,7 @@ const make = Effect.gen(function* () {
         input.providerId,
         input.model,
         target.modelSelection,
+        { effort: input.effort, fastMode: input.fastMode },
       );
       // Agent-started turns pass the model explicitly (the provider reactor
       // otherwise reuses the last model a turn asked for); the thread's own
@@ -1170,6 +1213,17 @@ const make = Effect.gen(function* () {
       return { threadIds: changed };
     }).pipe(Effect.mapError(controlError));
 
+  const continueAfterLimit: AgentMessagingShape["continueAfterLimit"] = (threadId, messageId) =>
+    Effect.gen(function* () {
+      const thread = (yield* shells).find((entry) => entry.id === threadId);
+      if (!thread || paused.has(threadId) || ownTurns.has(threadId) || isBusy(thread)) return false;
+      limited.delete(threadId);
+      yield* startTurn(thread, AGENT_CONTINUE_PROMPT, null, messageId).pipe(
+        Effect.mapError((cause) => new AgentMessagingError({ reason: String(cause) })),
+      );
+      return true;
+    });
+
   const start: AgentMessagingShape["start"] = Effect.fn("AgentMessaging.start")(function* () {
     const events = yield* engine.subscribeDomainEvents;
     yield* forkParked(Stream.runForEach(events, processEvent));
@@ -1186,6 +1240,7 @@ const make = Effect.gen(function* () {
     stop,
     resume,
     discard,
+    continueAfterLimit,
     controlChanges: SubscriptionRef.changes(control),
     start,
     drain: worker.drain,

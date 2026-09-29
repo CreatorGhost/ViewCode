@@ -288,6 +288,57 @@ describe("CloudManagedEndpointRuntime", () => {
     }),
   );
 
+  it.effect("pauses the connector when the network refuses its TLS, and restarts on retry", () =>
+    Effect.gen(function* () {
+      const output = yield* Queue.unbounded<Uint8Array>();
+      const stopped = yield* Deferred.make<void>();
+      let spawnCount = 0;
+      const spawner = ChildProcessSpawner.make(() =>
+        Effect.gen(function* () {
+          spawnCount += 1;
+          const handle = makeHandle({
+            pid: 700 + spawnCount,
+            onKill: () => {
+              if (spawnCount === 1) Deferred.doneUnsafe(stopped, Effect.void);
+            },
+            output: Stream.fromQueue(output),
+          });
+          yield* Effect.addFinalizer(() => handle.kill().pipe(Effect.ignore));
+          return handle;
+        }),
+      );
+      const runtime = yield* buildCloudManagedEndpointRuntime(spawner);
+      const tlsRefused =
+        'ERR Unable to establish connection with Cloudflare edge error="tls: failed to verify certificate: x509: certificate signed by unknown authority"\n';
+
+      yield* runtime.setEndpointHttpBaseUrl("https://tunnel.example.test");
+      yield* runtime.applyConfig({ providerKind: "cloudflare_tunnel", connectorToken: "token" });
+      expect(Option.getOrNull(yield* Stream.runHead(runtime.tunnelState))).toEqual({
+        status: "connecting",
+        registered: false,
+        httpBaseUrl: "https://tunnel.example.test",
+      });
+
+      yield* Queue.offer(output, new TextEncoder().encode(tlsRefused.repeat(3)));
+      const blocked = yield* runtime.tunnelState.pipe(
+        Stream.filter((state) => state?.status === "blocked-by-network"),
+        Stream.runHead,
+      );
+      expect(Option.getOrNull(blocked)?.registered).toBe(false);
+      yield* Deferred.await(stopped);
+      expect(spawnCount).toBe(1);
+
+      yield* runtime.retryTunnel;
+      expect(spawnCount).toBe(2);
+      expect(Option.getOrNull(yield* Stream.runHead(runtime.tunnelState))?.status).toBe(
+        "connecting",
+      );
+
+      yield* runtime.applyConfig(null);
+      expect(Option.getOrNull(yield* Stream.runHead(runtime.tunnelState))).toBeNull();
+    }),
+  );
+
   it.effect("starts, deduplicates, rotates, and stops the Cloudflare connector", () =>
     Effect.gen(function* () {
       const spawned: Array<ChildProcess.StandardCommand> = [];

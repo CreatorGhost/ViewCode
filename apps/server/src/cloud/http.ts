@@ -78,6 +78,8 @@ import {
 import {
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
+  CLOUD_ENDPOINT_HTTP_BASE_URL,
+  normalizeTunnelHttpBaseUrl,
   decodeConfirmedOrigin,
   CLOUD_LINKED_USER_ID,
   CLOUD_MINT_PUBLIC_KEY,
@@ -520,6 +522,12 @@ const activateManagedTunnel = Effect.fn("environment.cloud.activateManagedTunnel
       if (Option.isNone(currentConfig) || bytesToString(currentConfig.value) !== input.configJson) {
         return null;
       }
+      const storedUrl = yield* dependencies.secrets.get(CLOUD_ENDPOINT_HTTP_BASE_URL);
+      yield* dependencies.endpointRuntime.setEndpointHttpBaseUrl(
+        normalizeTunnelHttpBaseUrl(
+          Option.isSome(storedUrl) ? bytesToString(storedUrl.value) : undefined,
+        ),
+      );
       const status = yield* dependencies.endpointRuntime.applyConfig(input.config);
       if (status.status !== "running") {
         return yield* new EnvironmentCloudEndpointUnavailableError({
@@ -603,6 +611,12 @@ export const startManagedCloudTunnelIfOriginConfirmed = Effect.fn(
           return false;
         }
       }
+      const storedUrl = yield* dependencies.secrets.get(CLOUD_ENDPOINT_HTTP_BASE_URL);
+      yield* dependencies.endpointRuntime.setEndpointHttpBaseUrl(
+        normalizeTunnelHttpBaseUrl(
+          Option.isSome(storedUrl) ? bytesToString(storedUrl.value) : undefined,
+        ),
+      );
       const status = yield* dependencies.endpointRuntime.applyConfig(config);
       if (status.status !== "running") {
         return yield* new EnvironmentCloudEndpointUnavailableError({
@@ -661,6 +675,15 @@ const applyCloudRelayConfig = Effect.fn("environment.cloud.applyRelayConfig")(fu
       CLOUD_MINT_PUBLIC_KEY,
       stringToBytes(payload.cloudMintPublicKey),
     );
+    const tunnelHttpBaseUrl = normalizeTunnelHttpBaseUrl(payload.endpointHttpBaseUrl);
+    if (payload.endpointRuntime && tunnelHttpBaseUrl !== null) {
+      yield* dependencies.secrets.set(
+        CLOUD_ENDPOINT_HTTP_BASE_URL,
+        stringToBytes(tunnelHttpBaseUrl),
+      );
+    } else {
+      yield* dependencies.secrets.remove(CLOUD_ENDPOINT_HTTP_BASE_URL);
+    }
     if (payload.endpointRuntime) {
       const endpointRuntimeJson = yield* encodeEndpointRuntimeConfigJson(payload.endpointRuntime);
       yield* dependencies.secrets.set(
@@ -676,6 +699,7 @@ const applyCloudRelayConfig = Effect.fn("environment.cloud.applyRelayConfig")(fu
         endpointRuntimeStatus: { status: "disabled" },
       } satisfies EnvironmentCloudRelayConfigResult;
     }
+    yield* dependencies.endpointRuntime.setEndpointHttpBaseUrl(tunnelHttpBaseUrl);
     const endpointRuntimeStatus = yield* dependencies.endpointRuntime.applyConfig(
       payload.endpointRuntime,
     );
@@ -847,6 +871,7 @@ const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesi
         environmentCredential: link.environmentCredential,
         cloudMintPublicKey: link.cloudMintPublicKey,
         endpointRuntime: link.endpointRuntime,
+        endpointHttpBaseUrl: link.endpoint.httpBaseUrl,
       },
       {
         lockHeld: true,
@@ -1259,6 +1284,7 @@ export const releaseManagedTunnelOnShutdown = Effect.fn(
   ) {
     yield* dependencies.secrets.remove(CLOUD_ENDPOINT_RUNTIME_CONFIG);
     yield* dependencies.secrets.remove(CLOUD_ENDPOINT_CONFIRMED_ORIGIN);
+    yield* dependencies.secrets.remove(CLOUD_ENDPOINT_HTTP_BASE_URL);
   }
   return true;
 });
@@ -1317,9 +1343,10 @@ const cloudUnlinkHandler = Effect.fn("environment.cloud.unlink")(
             dependencies.secrets.remove(CLOUD_MINT_PUBLIC_KEY),
             dependencies.secrets.remove(CLOUD_ENDPOINT_RUNTIME_CONFIG),
             dependencies.secrets.remove(CLOUD_ENDPOINT_CONFIRMED_ORIGIN),
+            dependencies.secrets.remove(CLOUD_ENDPOINT_HTTP_BASE_URL),
             dependencies.secrets.remove(PUBLISH_AGENT_ACTIVITY_SECRET),
           ],
-          { concurrency: 8 },
+          { concurrency: 9 },
         );
         yield* setCliDesiredCloudLink(false);
         return { ok: true, endpointRuntimeStatus } satisfies EnvironmentCloudRelayConfigResult;
@@ -1349,6 +1376,16 @@ const cloudPreferencesHandler = Effect.fn("environment.cloud.preferences")(
     failEnvironmentCloudInternalError("Could not persist environment cloud preferences."),
   ),
 );
+
+const cloudRetryTunnelHandler = Effect.fn("environment.cloud.retryTunnel")(function* (
+  dependencies: CloudHttpDependencies,
+) {
+  yield* requireEnvironmentScope(AuthRelayWriteScope);
+  const endpointRuntimeStatus = yield* dependencies.endpointRuntime.withLinkStateLock(
+    dependencies.endpointRuntime.retryTunnel,
+  );
+  return { ok: true, endpointRuntimeStatus } satisfies EnvironmentCloudRelayConfigResult;
+});
 
 const cloudEnvironmentHealthHandler = Effect.fn("environment.cloud.health")(
   function* (dependencies: CloudHttpDependencies, request: RelayCloudEnvironmentHealthRequest) {
@@ -1600,6 +1637,7 @@ export const connectHttpApiLayer = HttpApiBuilder.group(
       .handle("linkState", () => cloudLinkStateHandler(dependencies))
       .handle("unlink", () => cloudUnlinkHandler(dependencies))
       .handle("preferences", ({ payload }) => cloudPreferencesHandler(dependencies, payload))
+      .handle("retryTunnel", () => cloudRetryTunnelHandler(dependencies))
       .handle("health", ({ payload }) => cloudEnvironmentHealthHandler(dependencies, payload))
       .handle("mintCredential", ({ payload }) => cloudMintCredentialHandler(dependencies, payload))
       .handle("t3MintCredential", ({ payload }) =>

@@ -102,6 +102,24 @@ or endpoint configurations do not report subscription limits.
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 
+## Resume after a limit resets
+
+When a provider's usage limit stops a thread, the thread shows when work will continue, for
+example "Out of usage · resumes automatically at 6:01 AM". ViewCode continues the thread with
+"Continue where you left off" about a minute after the limit resets, even if you are away.
+Choose **Cancel** to stop the wait or **Resume now** to try immediately. Typing in the thread or
+switching its model also cancels the wait. If the provider is still limited, ViewCode tries once
+more from the new reset time and then stops.
+
+ViewCode takes the reset time from the provider's usage windows, or from the error message. When
+it cannot tell, the thread says so and nothing is scheduled.
+
+Turn this off with **Resume automatically after usage limits reset** in **Settings → General**;
+the reset time is still shown. On the desktop app, **Keep the computer awake until then** stops
+the computer from sleeping while a resume is waiting. The screen can still turn off. ViewCode
+cannot wake a sleeping computer, so it must stay on, and a closed laptop lid may still put it to
+sleep. Waiting resumes survive a restart of the app.
+
 ## Connect a CLIProxyAPI hub
 
 To see pooled accounts, open **Settings → Providers → Usage providers → Add hub**. Choose the
