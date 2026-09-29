@@ -23,7 +23,7 @@ import type * as EffectAcpProtocol from "effect-acp/protocol";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./AcpStderr.ts";
-import { unsupportedMcpTransports } from "./AcpMcpDiagnostics.ts";
+import { partitionMcpServers } from "./AcpMcpDiagnostics.ts";
 import {
   collectSessionConfigOptionValues,
   decideToolCallUpdateEmission,
@@ -97,6 +97,8 @@ export interface AcpSessionRuntimeOptions {
     readonly version: string;
   };
   readonly authMethodId: string;
+  /** Provider name used in diagnostics, e.g. the MCP transport warning. */
+  readonly provider?: string;
   readonly mcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   /** Extra workspace roots the agent may read and write besides `cwd`. */
   readonly additionalDirectories?: ReadonlyArray<string>;
@@ -743,16 +745,21 @@ export const make = (
 
     const startOnce = Effect.gen(function* () {
       const initializeResult = yield* sendInitialize;
-      const unsupportedTransports = unsupportedMcpTransports(
+      // A CLI that cannot take our MCP transport (HTTP without a stdio bridge)
+      // still chats; it just runs without the ViewCode MCP server.
+      const { unsupportedTransports, supportedServers: mcpServers } = partitionMcpServers(
         options.mcpServers ?? [],
         initializeResult.agentCapabilities?.mcpCapabilities,
       );
       if (unsupportedTransports.length > 0) {
-        return yield* new EffectAcpErrors.AcpRequestError({
-          code: -32602,
-          method: "initialize",
-          errorMessage: `The ACP agent does not advertise support for the configured MCP transport: ${unsupportedTransports.join(", ")}. Update the provider CLI or use a supported MCP transport before starting this session.`,
-        });
+        yield* Effect.logWarning(
+          "ACP agent does not advertise the configured MCP transport; starting without the ViewCode MCP server",
+          {
+            provider: options.provider ?? options.clientInfo.name,
+            unsupportedTransports,
+            mcpCapabilities: initializeResult.agentCapabilities?.mcpCapabilities ?? null,
+          },
+        );
       }
 
       const authenticatePayload = {
@@ -781,7 +788,7 @@ export const make = (
         const resumePayload = {
           sessionId: options.resumeSessionId,
           cwd: options.cwd,
-          mcpServers: options.mcpServers ?? [],
+          mcpServers,
           ...(options.additionalDirectories && options.additionalDirectories.length > 0
             ? { additionalDirectories: options.additionalDirectories }
             : {}),
@@ -809,7 +816,7 @@ export const make = (
         const loadPayload = {
           sessionId: options.resumeSessionId,
           cwd: options.cwd,
-          mcpServers: options.mcpServers ?? [],
+          mcpServers,
         } satisfies EffectAcpSchema.LoadSessionRequest;
         const sessionLoadTimeout = Duration.fromInputUnsafe(
           options.sessionLoadTimeout ?? defaultSessionLoadTimeout,
@@ -879,7 +886,7 @@ export const make = (
       } else {
         const createPayload = {
           cwd: options.cwd,
-          mcpServers: options.mcpServers ?? [],
+          mcpServers,
           ...(options.additionalDirectories && options.additionalDirectories.length > 0
             ? { additionalDirectories: options.additionalDirectories }
             : {}),

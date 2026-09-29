@@ -1009,6 +1009,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             runtimeMode: input.runtimeMode,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
+            provider: PROVIDER,
             ...(mcpSession
               ? {
                   mcpServers: [McpProviderSession.acpMcpServerConfig(mcpSession)],

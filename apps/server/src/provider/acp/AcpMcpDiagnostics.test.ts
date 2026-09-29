@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
-import { summarizeMcpServers, unsupportedMcpTransports } from "./AcpMcpDiagnostics.ts";
+import {
+  partitionMcpServers,
+  summarizeMcpServers,
+  unsupportedMcpTransports,
+} from "./AcpMcpDiagnostics.ts";
 
 const stdio: EffectAcpSchema.McpServer = {
   name: "private-server",
@@ -41,5 +45,24 @@ describe("ACP MCP diagnostics", () => {
     expect(unsupportedMcpTransports([http, http, sse], { http: true })).toEqual(["sse"]);
     expect(unsupportedMcpTransports([http, sse], { http: false, sse: true })).toEqual(["http"]);
     expect(unsupportedMcpTransports([stdio, http, sse], { http: true, sse: true })).toEqual([]);
+  });
+
+  it("drops HTTP when mcpCapabilities is absent so the session can still start", () => {
+    expect(partitionMcpServers([stdio, http], undefined)).toEqual({
+      unsupportedTransports: ["http"],
+      supportedServers: [stdio],
+    });
+    expect(partitionMcpServers([http], null).supportedServers).toEqual([]);
+  });
+
+  it("drops HTTP when the agent explicitly reports http: false", () => {
+    expect(partitionMcpServers([http], { http: false })).toEqual({
+      unsupportedTransports: ["http"],
+      supportedServers: [],
+    });
+    expect(partitionMcpServers([http], { http: true })).toEqual({
+      unsupportedTransports: [],
+      supportedServers: [http],
+    });
   });
 });

@@ -45,22 +45,27 @@ function resultText(tool: AcpToolCallState): string | undefined {
 export class CursorSubagentEvents {
   private readonly tasks = new Map<string, { title: string; terminal: boolean }>();
 
-  cancelActive(): TaskUpdate[] {
+  /** Ends every task the turn left open and forgets all tasks, so the map
+   * lives one turn rather than the whole session. Cancellation is a
+   * `task.updated` (matching the tool-level cancel path); other outcomes are
+   * `task.completed` with the given status. */
+  settleTurn(outcome: "cancelled" | "completed" | "failed"): TaskUpdate[] {
     const events: TaskUpdate[] = [];
     for (const [toolCallId, task] of this.tasks) {
       if (task.terminal) continue;
-      task.terminal = true;
-      events.push({
-        type: "task.updated",
-        payload: {
-          taskId: RuntimeTaskId.make(toolCallId),
-          toolUseId: toolCallId,
-          taskType: "subagent",
-          title: task.title,
-          status: "cancelled",
-        },
-      });
+      const linkage = {
+        taskId: RuntimeTaskId.make(toolCallId),
+        toolUseId: toolCallId,
+        taskType: "subagent" as const,
+        title: task.title,
+      };
+      events.push(
+        outcome === "cancelled"
+          ? { type: "task.updated", payload: { ...linkage, status: "cancelled" } }
+          : { type: "task.completed", payload: { ...linkage, status: outcome } },
+      );
     }
+    this.tasks.clear();
     return events;
   }
 
@@ -82,7 +87,7 @@ export class CursorSubagentEvents {
     if (terminal) {
       // Some ACP agents report cancellation as a failed tool with this detail.
       // Keep that cancellation distinct from a failed child.
-      if (tool.status === "failed" && tool.detail === "Cancelled.") {
+      if (tool.status === "failed" && tool.detail?.trim().toLowerCase() === "cancelled.") {
         return { type: "task.updated", payload: { ...linkage, status: "cancelled" } };
       }
       return {

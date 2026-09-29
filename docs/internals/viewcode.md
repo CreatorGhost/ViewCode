@@ -95,7 +95,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   RPC (Stop all = whole tree). While paused, messages and replies to it queue,
   senders are told it is paused, and a stopped turn's pending reply is held.
   `agents.resume` sends "Continue where you left off." when a turn was cut
-  short (its answer still goes to the original requester) and drains the queue;
+  short (its answer still goes to the original requester) and drains the queue.
+  A Stop that lands before a delivery's turn is bound interrupts it once it
+  binds; if it still finished normally, Resume delivers its answer instead of
+  continuing. A delivery whose receipt is lost or arrives after the session
+  already ended is finished, never left blocking the queue.
   `agents.discard` drops the held work. Resume and Discard requested while an
   interruption is pending wait for it to settle; its partial answer must not
   be forwarded as the requested result. Typing a prompt into a paused agent
@@ -133,6 +137,10 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   are cached for five minutes. Monthly percentages use reported spend plus
   remaining monthly credits, not a plan-price table; five-hour and weekly caps
   come from `windowLimits`. Logs contain key source and request statuses, never keys.
+
+### ACP and the ViewCode MCP server
+
+- An ACP agent that does not advertise the configured MCP transport (`mcpCapabilities.http` absent or false, for the HTTP config used without a stdio bridge) still starts: `AcpSessionRuntime` logs a warning with the provider and drops that server, so the chat works without ViewCode agent tools. Never fail `initialize` over it.
 
 ### Desktop local mode and phone access
 

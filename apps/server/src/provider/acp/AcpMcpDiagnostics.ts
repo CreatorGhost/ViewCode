@@ -24,3 +24,18 @@ export function unsupportedMcpTransports(
     ),
   ];
 }
+
+/** Splits configured servers into those the agent can take and the transports it cannot.
+ * Absent and explicit `false` capabilities are treated alike. */
+export function partitionMcpServers(
+  servers: ReadonlyArray<EffectAcpSchema.McpServer>,
+  capabilities: EffectAcpSchema.McpCapabilities | null | undefined,
+) {
+  const unsupportedTransports = unsupportedMcpTransports(servers, capabilities);
+  return {
+    unsupportedTransports,
+    supportedServers: servers.filter(
+      (server) => !("type" in server && unsupportedTransports.includes(server.type)),
+    ),
+  };
+}

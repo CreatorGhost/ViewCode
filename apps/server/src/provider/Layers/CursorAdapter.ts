@@ -568,6 +568,7 @@ export function makeCursorAdapter(
             runtimeMode: input.runtimeMode,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
+            provider: PROVIDER,
             ...(mcpSession
               ? {
                   mcpServers: [McpProviderSession.acpMcpServerConfig(mcpSession)],
@@ -1100,6 +1101,19 @@ export function makeCursorAdapter(
             });
           }
 
+          const settleSubagentTasks = (outcome: "cancelled" | "completed" | "failed") =>
+            Effect.gen(function* () {
+              for (const task of ctx.subagentEvents.settleTurn(outcome)) {
+                yield* offerRuntimeEvent({
+                  ...task,
+                  ...(yield* makeEventStamp()),
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                  turnId,
+                });
+              }
+            });
+
           // ACP commands parse the complete text. Extra context can turn an exact
           // command into an ordinary model prompt or change its arguments.
           const result = yield* ctx.acp
@@ -1119,6 +1133,11 @@ export function makeCursorAdapter(
                   ],
             })
             .pipe(
+              Effect.tapError(() =>
+                ctx.promptsInFlight === 1
+                  ? Effect.ignore(settleSubagentTasks("failed"))
+                  : Effect.void,
+              ),
               Effect.mapError((error) =>
                 mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),
               ),
@@ -1127,6 +1146,7 @@ export function makeCursorAdapter(
           yield* ctx.acp.drainEvents;
           const failure = ctx.assistantReply.failure;
           if (ctx.promptsInFlight === 1 && result.stopReason !== "cancelled" && failure) {
+            yield* settleSubagentTasks("failed");
             return yield* new ProviderAdapterRequestError({
               provider: PROVIDER,
               method: "session/prompt",
@@ -1152,17 +1172,16 @@ export function makeCursorAdapter(
           // superseded prompt resolving (usually cancelled) while another is
           // in flight or pending must leave the merged turn running.
           if (ctx.promptsInFlight === 1) {
-            if (result.stopReason === "cancelled") {
-              for (const task of ctx.subagentEvents.cancelActive()) {
-                yield* offerRuntimeEvent({
-                  ...task,
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId,
-                });
-              }
-            }
+            yield* settleSubagentTasks(
+              result.stopReason === "cancelled"
+                ? "cancelled"
+                : // end_turn means the agent finished normally, so a task it never
+                  // reported failing completed. refusal, max_tokens and the like
+                  // ended the turn abnormally, so an unfinished task did not succeed.
+                  result.stopReason === "end_turn"
+                  ? "completed"
+                  : "failed",
+            );
             yield* offerRuntimeEvent({
               type: "turn.completed",
               ...(yield* makeEventStamp()),

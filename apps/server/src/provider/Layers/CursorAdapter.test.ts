@@ -165,7 +165,7 @@ const cursorAdapterTestLayer = it.layer(
 
 cursorAdapterTestLayer("CursorAdapterLive", (it) => {
   it.effect(
-    "rejects unsupported HTTP MCP before session creation but accepts mandatory stdio",
+    "starts without the MCP server when HTTP is not advertised and keeps mandatory stdio",
     () =>
       Effect.gen(function* () {
         const adapter = yield* CursorAdapter;
@@ -204,19 +204,14 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
                   cwd: process.cwd(),
                   runtimeMode: "full-access",
                 });
-                if (transport === "http") {
-                  const error = yield* start.pipe(Effect.flip);
-                  assert.include(error.message, "does not advertise support");
-                  assert.include(error.message, "http");
-                } else {
-                  yield* start;
-                  yield* adapter.stopSession(threadId);
-                }
+                yield* start;
+                yield* adapter.stopSession(threadId);
                 const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
-                assert.equal(
-                  requests.filter((entry) => entry.method === "session/new").length,
-                  transport === "stdio" ? 1 : 0,
-                );
+                const created = requests.filter((entry) => entry.method === "session/new");
+                assert.equal(created.length, 1);
+                const mcpServers = (created[0] as { params?: { mcpServers?: unknown[] } }).params
+                  ?.mcpServers;
+                assert.equal(mcpServers?.length, transport === "stdio" ? 1 : 0);
               }),
             () => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
           );

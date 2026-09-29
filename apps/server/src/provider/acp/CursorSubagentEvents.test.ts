@@ -101,13 +101,36 @@ describe("CursorSubagentEvents", () => {
     const mapper = new CursorSubagentEvents();
     mapper.update({ toolCallId: "a", title: "Task: Audit", status: "pending", data: {} });
     mapper.update({ toolCallId: "b", title: "Task: Audit", status: "completed", data: {} });
-    expect(mapper.cancelActive()).toMatchObject([
+    expect(mapper.settleTurn("cancelled")).toMatchObject([
       { type: "task.updated", payload: { taskId: "a", status: "cancelled" } },
     ]);
-    expect(mapper.cancelActive()).toEqual([]);
-    expect(mapper.update({ toolCallId: "a", status: "inProgress", data: {} })).toEqual({
-      type: "task.updated",
-      payload: { taskId: "a", toolUseId: "a", taskType: "subagent", title: "Audit" },
-    });
+    expect(mapper.settleTurn("cancelled")).toEqual([]);
+  });
+
+  it("gives a task left open at end of turn a terminal event and then forgets it", () => {
+    const mapper = new CursorSubagentEvents();
+    mapper.update({ toolCallId: "a", title: "Task: Audit", status: "inProgress", data: {} });
+    expect(mapper.settleTurn("completed")).toMatchObject([
+      { type: "task.completed", payload: { taskId: "a", title: "Audit", status: "completed" } },
+    ]);
+    mapper.update({ toolCallId: "b", title: "Task: Fix", status: "pending", data: {} });
+    expect(mapper.settleTurn("failed")).toMatchObject([
+      { type: "task.completed", payload: { taskId: "b", status: "failed" } },
+    ]);
+    // Pruned: a sparse update for a forgotten task is no longer a task.
+    expect(mapper.update({ toolCallId: "a", status: "inProgress", data: {} })).toBeUndefined();
+  });
+
+  it("treats a failed tool whose detail is a cancellation as cancelled regardless of case", () => {
+    const mapper = new CursorSubagentEvents();
+    mapper.update({ toolCallId: "a", title: "Task: Audit", status: "pending", data: {} });
+    expect(
+      mapper.update({
+        toolCallId: "a",
+        status: "failed",
+        detail: "  cancelled. ",
+        data: {},
+      } as never),
+    ).toMatchObject({ type: "task.updated", payload: { status: "cancelled" } });
   });
 });
