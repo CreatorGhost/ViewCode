@@ -116,6 +116,7 @@ import {
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { spawnAndCollect } from "../providerSnapshot.ts";
+import { isStaleProviderSessionCause } from "../staleSession.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
@@ -420,6 +421,13 @@ interface ClaudeSessionContext {
    * effort override inherit this. */
   currentEffort: string | undefined;
   resumeSessionId: string | undefined;
+  /**
+   * Whether the CLI has shown that `resumeSessionId` exists on disk. A session
+   * id ViewCode generates is only persisted as `resume` once the CLI reports it:
+   * saving it earlier left threads resuming a transcript that was never written
+   * ("No conversation found with session ID").
+   */
+  nativeSessionConfirmed: boolean;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<{
@@ -2187,7 +2195,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     const resumeCursor = {
       threadId,
-      ...(context.resumeSessionId ? { resume: context.resumeSessionId } : {}),
+      ...(context.resumeSessionId && context.nativeSessionConfirmed
+        ? { resume: context.resumeSessionId }
+        : {}),
       ...(context.lastAssistantUuid ? { resumeSessionAt: context.lastAssistantUuid } : {}),
       turnCount: context.turnStartMessageIds.length,
       turnStartMessageIds: [...context.turnStartMessageIds],
@@ -2455,6 +2465,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
     const nextThreadId = message.session_id;
     context.resumeSessionId = message.session_id;
+    context.nativeSessionConfirmed = true;
     yield* updateResumeCursor(context);
 
     if (context.lastThreadStartedId !== nextThreadId) {
@@ -3472,7 +3483,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       yield* backfillAssistantTextBlocksFromSnapshot(context, message);
     }
 
-    context.lastAssistantUuid = message.uuid;
+    // A synthetic API-error reply is not guaranteed to be in the transcript,
+    // so it never becomes the saved resume point.
+    if (message.error === undefined) context.lastAssistantUuid = message.uuid;
     yield* updateResumeCursor(context);
   });
 
@@ -4240,6 +4253,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           Cause.isFailReason(reason) ? [reason.error] : [],
         );
         const message = failures[0]?.detail ?? "Claude runtime stream failed.";
+        // A resume the CLI refuses at startup also fails the pending sendTurn,
+        // and the orchestration reactor recovers from that with a fresh
+        // session and a recap. An error row here would contradict the recovery.
+        if (!context.turnState && isStaleProviderSessionCause(exit.cause)) {
+          yield* Effect.logWarning("claude.session.resume-rejected", {
+            threadId: context.session.threadId,
+            resumeSessionId: context.resumeSessionId,
+          });
+          yield* stopSessionInternal(context, { emitExitEvent: true });
+          return;
+        }
         yield* emitRuntimeError(context, message, {
           failureCount: failures.length,
           failureTags: failures.map((failure) => failure._tag),
@@ -4411,7 +4435,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }
 
       const startedAt = yield* nowIso;
-      const resumeState = readClaudeResumeState(input.resumeCursor);
+      const parsedResumeState = readClaudeResumeState(input.resumeCursor);
+      // Turn bookkeeping only describes the native session it came with; a
+      // cursor without a session id starts a new one.
+      const resumeState = parsedResumeState?.resume !== undefined ? parsedResumeState : undefined;
       const threadId = input.threadId;
       const existingResumeSessionId = resumeState?.resume;
       const newSessionId = existingResumeSessionId === undefined ? yield* randomUUIDv4 : undefined;
@@ -5020,7 +5047,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(threadId ? { threadId } : {}),
         resumeCursor: {
           ...(threadId ? { threadId } : {}),
-          ...(sessionId ? { resume: sessionId } : {}),
+          ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
           ...(resumeState?.resumeSessionAt ? { resumeSessionAt: resumeState.resumeSessionAt } : {}),
           turnCount: resumeState?.turnCount ?? 0,
           ...(resumeState?.turnStartMessageIds
@@ -5045,6 +5072,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         currentApiModelId: apiModelId,
         currentEffort: effectiveEffort ?? undefined,
         resumeSessionId: sessionId,
+        nativeSessionConfirmed: existingResumeSessionId !== undefined,
         pendingApprovals,
         pendingUserInputs,
         turns: [],
