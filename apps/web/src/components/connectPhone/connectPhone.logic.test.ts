@@ -1,15 +1,17 @@
-import type { AdvertisedEndpoint } from "@t3tools/contracts";
+import type { AdvertisedEndpoint, ViewCodeRelayState } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   CONNECT_PHONE_CODE_TTL_SECONDS,
   describeLanReachability,
+  describeQuickConnectStatus,
   formatPairingExpiry,
   LAN_BLOCKED_MESSAGE,
   LAN_UNREACHABLE_MESSAGE,
   resolveAnywhereView,
   resolveConnectModes,
   resolveConnectPhoneState,
+  resolveQuickConnectView,
   resolvePairingCodeStatus,
   resolveSelectedMode,
   resolveTailscaleView,
@@ -212,27 +214,108 @@ describe("pairing code lifetime", () => {
 });
 
 describe("resolveConnectModes", () => {
-  it("always offers same Wi-Fi and hides what is not available", () => {
+  it("always offers same Wi-Fi and Quick connect, and hides what is not available", () => {
     expect(resolveConnectModes({ cloudConfigured: false, tailscaleInstalled: false })).toEqual([
       "local",
+      "quick",
     ]);
   });
 
-  it("offers Tailscale only when the CLI was found, T3 Connect only when configured", () => {
+  it("puts Quick connect before T3 Connect and Tailscale, which appear only when available", () => {
     expect(resolveConnectModes({ cloudConfigured: false, tailscaleInstalled: true })).toEqual([
       "local",
+      "quick",
       "tailscale",
     ]);
     expect(resolveConnectModes({ cloudConfigured: true, tailscaleInstalled: true })).toEqual([
       "local",
-      "tailscale",
+      "quick",
       "cloud",
+      "tailscale",
     ]);
   });
 
   it("falls back to the first tab when a remembered one is gone", () => {
-    expect(resolveSelectedMode("cloud", ["local", "tailscale"])).toBe("local");
-    expect(resolveSelectedMode("tailscale", ["local", "tailscale"])).toBe("tailscale");
+    expect(resolveSelectedMode("cloud", ["local", "quick"])).toBe("local");
+    expect(resolveSelectedMode("quick", ["local", "quick"])).toBe("quick");
+  });
+});
+
+describe("resolveQuickConnectView", () => {
+  const relay = (
+    partial: Partial<ViewCodeRelayState> & Pick<ViewCodeRelayState, "status">,
+  ): ViewCodeRelayState => ({
+    configured: true,
+    ...partial,
+  });
+
+  it("waits for the state, then asks for setup when nothing is stored", () => {
+    expect(resolveQuickConnectView(null)).toEqual({ kind: "loading" });
+    expect(resolveQuickConnectView({ status: "off", configured: false })).toEqual({
+      kind: "not-set-up",
+    });
+  });
+
+  it("says what the connection is doing, with its reason", () => {
+    expect(resolveQuickConnectView(relay({ status: "off" }))).toEqual({ kind: "off" });
+    expect(resolveQuickConnectView(relay({ status: "connecting" }))).toEqual({
+      kind: "connecting",
+    });
+    expect(resolveQuickConnectView(relay({ status: "reconnecting", reason: "dropped" }))).toEqual({
+      kind: "reconnecting",
+      reason: "dropped",
+    });
+    expect(resolveQuickConnectView(relay({ status: "blocked", reason: "cert" }))).toEqual({
+      kind: "blocked",
+      reason: "cert",
+    });
+    expect(resolveQuickConnectView(relay({ status: "auth-failed" }))).toEqual({
+      kind: "auth-failed",
+      reason: null,
+    });
+  });
+
+  it("shows the QR address only while connected, and never without an address", () => {
+    expect(
+      resolveQuickConnectView(
+        relay({ status: "connected", httpBaseUrl: "https://viewcode-relay.me.workers.dev" }),
+      ),
+    ).toEqual({
+      kind: "ready",
+      baseUrl: "https://viewcode-relay.me.workers.dev",
+      host: "viewcode-relay.me.workers.dev",
+    });
+    expect(resolveQuickConnectView(relay({ status: "connected" }))).toEqual({ kind: "connecting" });
+    expect(
+      resolveQuickConnectView(relay({ status: "connected", httpBaseUrl: "nonsense" })),
+    ).toEqual({
+      kind: "not-set-up",
+    });
+  });
+});
+
+describe("describeQuickConnectStatus", () => {
+  it("gives Settings one honest line per state", () => {
+    expect(describeQuickConnectStatus({ kind: "not-set-up" })).toContain(
+      "node scripts/viewcode-relay.ts deploy",
+    );
+    expect(describeQuickConnectStatus({ kind: "off" })).toBe("Off.");
+    expect(
+      describeQuickConnectStatus({ kind: "reconnecting", reason: "The connection dropped." }),
+    ).toBe("Reconnecting. The connection dropped.");
+    expect(describeQuickConnectStatus({ kind: "reconnecting", reason: null })).toBe(
+      "Reconnecting to your relay…",
+    );
+    expect(describeQuickConnectStatus({ kind: "blocked", reason: "cert not trusted" })).toBe(
+      "cert not trusted",
+    );
+    expect(
+      describeQuickConnectStatus({
+        kind: "ready",
+        baseUrl: "https://r.a.workers.dev",
+        host: "r.a.workers.dev",
+      }),
+    ).toBe("Connected through r.a.workers.dev.");
   });
 });
 

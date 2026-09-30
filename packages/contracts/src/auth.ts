@@ -7,7 +7,7 @@ import {
   ClientWebDeployment,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { ManagedTunnelState } from "./remoteAccess.ts";
+import { ManagedTunnelState, ViewCodeRelayState } from "./remoteAccess.ts";
 
 /**
  * Declares the server's overall authentication posture.
@@ -263,6 +263,8 @@ export const AuthAccessSnapshot = Schema.Struct({
    * arrives as a fresh snapshot event.
    */
   managedTunnel: Schema.optional(ManagedTunnelState),
+  /** ViewCode: the Quick connect relay connection, always present. */
+  viewcodeRelay: Schema.optional(ViewCodeRelayState),
 });
 export type AuthAccessSnapshot = typeof AuthAccessSnapshot.Type;
 

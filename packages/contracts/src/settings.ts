@@ -1346,6 +1346,16 @@ export const ServerSettings = Schema.Struct({
    * bypass it.
    */
   providerSelection: Schema.optionalKey(ProviderSelectionState),
+  /**
+   * ViewCode Quick connect: dial out to the user's own relay Worker so the
+   * phone can reach this computer. `url` is the relay's https origin, written
+   * by `scripts/viewcode-relay.ts deploy`; the host secret lives in the
+   * secret store, never here. `enabled` is what Connect phone toggles.
+   */
+  viewcodeRelay: Schema.Struct({
+    enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+    url: Schema.optionalKey(TrimmedNonEmptyString),
+  }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1631,6 +1641,8 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   /** Closes a pending provider selection; prefer `server.chooseProviders`. */
   providerSelection: Schema.optionalKey(Schema.Literal("chosen")),
+  /** Only the switch; the relay URL comes from `scripts/viewcode-relay.ts`. */
+  viewcodeRelay: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

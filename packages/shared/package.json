@@ -351,6 +351,10 @@
       "types": "./src/cliRelease.ts",
       "import": "./src/cliRelease.ts"
     },
+    "./viewcodeRelayProtocol": {
+      "types": "./src/viewcodeRelayProtocol.ts",
+      "import": "./src/viewcodeRelayProtocol.ts"
+    },
     "./gitPatchPath": {
       "types": "./src/gitPatchPath.ts",
       "import": "./src/gitPatchPath.ts"

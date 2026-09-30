@@ -169,6 +169,7 @@ import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
+import * as ViewCodeRelayConnector from "./relay/ViewCodeRelayConnector.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -564,6 +565,7 @@ const makeWsRpcLayer = (
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const cloudEndpointRuntime = yield* CloudManagedEndpointRuntime.CloudManagedEndpointRuntime;
+      const viewCodeRelay = yield* ViewCodeRelayConnector.ViewCodeRelayConnector;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -3833,27 +3835,43 @@ const makeWsRpcLayer = (
                   ),
                 ),
               );
-              // ViewCode: the managed tunnel's state rides this stream as a whole new
-              // snapshot, so clients need no new event type. The runtime replays its
-              // current state on subscribe, which repeats the opening snapshot: harmless.
+              // ViewCode: the managed tunnel's and the Quick connect relay's state ride this
+              // stream as a whole new snapshot, so clients need no new event type. Each source
+              // replays its current state on subscribe, which repeats the opening snapshot: harmless.
               const currentTunnel = yield* Stream.runHead(cloudEndpointRuntime.tunnelState);
+              const latestTunnelRef = yield* Ref.make(
+                Option.isSome(currentTunnel) ? currentTunnel.value : null,
+              );
+              const latestRelayRef = yield* Ref.make(yield* viewCodeRelay.currentState);
+              const stateSnapshotEvent = Effect.all([
+                loadAuthAccessSnapshot().pipe(Effect.orElseSucceed(() => initialSnapshot)),
+                Ref.updateAndGet(revisionRef, (revision) => revision + 1),
+                Ref.get(latestTunnelRef),
+                Ref.get(latestRelayRef),
+              ]).pipe(
+                Effect.map(([snapshot, revision, managedTunnel, relay]) => ({
+                  version: 1 as const,
+                  revision,
+                  type: "snapshot" as const,
+                  payload: {
+                    ...snapshot,
+                    ...(managedTunnel === null ? {} : { managedTunnel }),
+                    viewcodeRelay: relay,
+                  },
+                })),
+              );
               const tunnelEvents: Stream.Stream<AuthAccessStreamEvent> =
                 cloudEndpointRuntime.tunnelState.pipe(
                   Stream.mapEffect((managedTunnel) =>
-                    Effect.all([
-                      loadAuthAccessSnapshot().pipe(Effect.orElseSucceed(() => initialSnapshot)),
-                      Ref.updateAndGet(revisionRef, (revision) => revision + 1),
-                    ]).pipe(
-                      Effect.map(([snapshot, revision]) => ({
-                        version: 1 as const,
-                        revision,
-                        type: "snapshot" as const,
-                        payload: {
-                          ...snapshot,
-                          ...(managedTunnel === null ? {} : { managedTunnel }),
-                        },
-                      })),
+                    Ref.set(latestTunnelRef, managedTunnel).pipe(
+                      Effect.andThen(stateSnapshotEvent),
                     ),
+                  ),
+                );
+              const relayEvents: Stream.Stream<AuthAccessStreamEvent> =
+                viewCodeRelay.stateChanges.pipe(
+                  Stream.mapEffect((relay) =>
+                    Ref.set(latestRelayRef, relay).pipe(Effect.andThen(stateSnapshotEvent)),
                   ),
                 );
 
@@ -3867,9 +3885,12 @@ const makeWsRpcLayer = (
                     ...(Option.isSome(currentTunnel) && currentTunnel.value !== null
                       ? { managedTunnel: currentTunnel.value }
                       : {}),
+                    viewcodeRelay: yield* Ref.get(latestRelayRef),
                   },
                 }),
-                Stream.merge(credentialEvents, tunnelEvents),
+                Stream.mergeAll([credentialEvents, tunnelEvents, relayEvents], {
+                  concurrency: "unbounded",
+                }),
               );
             }),
             { "rpc.aggregate": "auth" },

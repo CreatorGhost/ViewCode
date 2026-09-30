@@ -50,14 +50,19 @@ import { Spinner } from "../ui/spinner";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { T3ConnectPhone } from "./T3ConnectPhone";
+import { QuickConnectPhone } from "./QuickConnectPhone";
 import { TailscalePhone } from "./TailscalePhone";
 import {
   CONNECT_PHONE_CODE_TTL_SECONDS,
   CONNECT_PHONE_RESUME_KEY,
+  type AnywhereMode,
   type ConnectMode,
   type ConnectPhoneState,
+  ANYWHERE_MODES,
   describeLanReachability,
   formatPairingExpiry,
+  isAnywhereMode,
+  QUICK_CONNECT_STABLE_NOTE,
   type PhoneEndpoint,
   resolveConnectModes,
   resolveConnectPhoneState,
@@ -69,10 +74,20 @@ import {
 import { useTailscalePhoneAccess } from "./useTailscalePhoneAccess";
 
 const CONNECT_PHONE_MODE_KEY = "viewcode:connect-phone-mode";
-const useConnectPhoneDialogStore = create<{ open: boolean; mode: ConnectMode }>(() => ({
+const useConnectPhoneDialogStore = create<{
+  open: boolean;
+  mode: ConnectMode;
+  /** The last method picked under Anywhere, restored when switching back from Same Wi-Fi. */
+  anywhere: AnywhereMode;
+}>(() => ({
   open: false,
   mode: "local",
+  anywhere: "quick",
 }));
+
+function selectConnectMode(mode: ConnectMode): void {
+  useConnectPhoneDialogStore.setState(isAnywhereMode(mode) ? { mode, anywhere: mode } : { mode });
+}
 
 /** Opens the Connect phone dialog from anywhere (sidebar, command palette, settings). */
 export function openConnectPhoneDialog(): void {
@@ -100,7 +115,7 @@ function takeResumeFlag(): boolean {
     const resume = shouldResumeConnectPhone(stored, Date.now());
     const storedMode = window.localStorage.getItem(CONNECT_PHONE_MODE_KEY);
     if (resume && (storedMode === "cloud" || storedMode === "tailscale")) {
-      useConnectPhoneDialogStore.setState({ mode: storedMode });
+      selectConnectMode(storedMode);
     }
     window.localStorage.removeItem(CONNECT_PHONE_MODE_KEY);
     return resume;
@@ -142,8 +157,9 @@ export function ConnectPhoneDialogHost() {
 
 const MODE_LABELS: Record<ConnectMode, string> = {
   local: "Same Wi-Fi",
+  quick: "Quick connect",
+  cloud: "T3 Connect",
   tailscale: "Tailscale",
-  cloud: "Anywhere · T3 Connect",
 };
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -205,6 +221,11 @@ function ConnectPhoneDialogContent({
     useConnectPhoneDialogStore((value) => value.mode),
     modes,
   );
+  const anywhereModes = ANYWHERE_MODES.filter((value) => modes.includes(value));
+  const rememberedAnywhere = useConnectPhoneDialogStore((value) => value.anywhere);
+  const anywhereMode = anywhereModes.includes(rememberedAnywhere)
+    ? rememberedAnywhere
+    : (anywhereModes[0] ?? "quick");
   // The advertised address goes stale when Wi-Fi or a VPN changes, so each
   // open asks the desktop for a fresh snapshot instead of trusting the cache.
   useEffect(() => {
@@ -239,24 +260,63 @@ function ConnectPhoneDialogContent({
         <DialogTitle>Connect phone</DialogTitle>
         <DialogDescription>Control ViewCode from the T3 Code mobile app.</DialogDescription>
         <ToggleGroup
-          aria-label="Phone connection method"
-          value={[mode]}
+          aria-label="Phone connection"
+          value={[mode === "local" ? "local" : "anywhere"]}
           disabled={pendingMode !== null}
           onValueChange={(values) => {
             const next = values[0];
-            if (next === "local" || next === "tailscale" || next === "cloud") {
-              useConnectPhoneDialogStore.setState({ mode: next });
-            }
+            if (next === "local") selectConnectMode("local");
+            else if (next === "anywhere") selectConnectMode(anywhereMode);
           }}
         >
-          {modes.map((value) => (
-            <Toggle key={value} value={value}>
-              {MODE_LABELS[value]}
-            </Toggle>
-          ))}
+          <Toggle value="local">Same Wi-Fi</Toggle>
+          <Toggle value="anywhere">Anywhere</Toggle>
         </ToggleGroup>
+        {anywhereModes.length > 1 && mode !== "local" ? (
+          <ToggleGroup
+            aria-label="Anywhere method"
+            value={[mode]}
+            disabled={pendingMode !== null}
+            onValueChange={(values) => {
+              const next = values[0];
+              if (next === "quick" || next === "tailscale" || next === "cloud") {
+                selectConnectMode(next);
+              }
+            }}
+          >
+            {anywhereModes.map((value) => (
+              <Toggle key={value} value={value}>
+                {MODE_LABELS[value]}
+              </Toggle>
+            ))}
+          </ToggleGroup>
+        ) : null}
       </DialogHeader>
-      {mode === "tailscale" ? (
+      {mode === "quick" ? (
+        <DialogPanel>
+          {state.kind === "no-server" || state.kind === "no-permission" ? (
+            <NotReadyBody state={state} />
+          ) : (
+            <QuickConnectPhone
+              renderQr={(baseUrl, host) => (
+                <ReadyBody
+                  bare
+                  endpoints={[
+                    {
+                      id: "quick-connect",
+                      label: host,
+                      httpBaseUrl: baseUrl,
+                      loopback: false,
+                      lan: false,
+                    },
+                  ]}
+                  note={QUICK_CONNECT_STABLE_NOTE}
+                />
+              )}
+            />
+          )}
+        </DialogPanel>
+      ) : mode === "tailscale" ? (
         <DialogPanel>
           <TailscalePhone
             onBeforeRestart={writeResumeFlag}

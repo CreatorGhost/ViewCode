@@ -89,3 +89,30 @@ export const ManagedTunnelState = Schema.Struct({
   httpBaseUrl: Schema.optional(TrimmedNonEmptyString),
 });
 export type ManagedTunnelState = typeof ManagedTunnelState.Type;
+
+/**
+ * ViewCode Quick connect: how the outbound connection to the user's own
+ * relay Worker is doing. `blocked`: the network's TLS inspection presents a
+ * certificate this computer does not trust, repeatedly. `auth-failed`: the
+ * relay refused the host secret; retrying cannot help until it is fixed.
+ */
+export const ViewCodeRelayStatus = Schema.Literals([
+  "off",
+  "connecting",
+  "connected",
+  "reconnecting",
+  "auth-failed",
+  "blocked",
+]);
+export type ViewCodeRelayStatus = typeof ViewCodeRelayStatus.Type;
+
+export const ViewCodeRelayState = Schema.Struct({
+  status: ViewCodeRelayStatus,
+  /** A relay URL and host secret are stored, so it can be turned on. */
+  configured: Schema.Boolean,
+  /** Why it is reconnecting or blocked, in words for the person. */
+  reason: Schema.optional(TrimmedNonEmptyString),
+  /** The relay's https origin: what the phone's pairing QR points at. */
+  httpBaseUrl: Schema.optional(TrimmedNonEmptyString),
+});
+export type ViewCodeRelayState = typeof ViewCodeRelayState.Type;

@@ -9,6 +9,11 @@
 #                         ViewCode never launches Codex, OpenCode, Grok,
 #                         Antigravity or Command Code
 #                         (docs/operations/managed-mode-plan.md)
+#   ./build.sh --relay    set up "Quick connect" first: deploys a small relay Worker
+#                         to YOUR Cloudflare account (signs you in with wrangler if
+#                         needed) and stores its address and a secret for ViewCode.
+#                         Undo with: node scripts/viewcode-relay.ts remove
+#                         (docs/operations/viewcode-relay.md)
 #   ./build.sh --fresh    start as a brand-new install: moves your ViewCode data
 #                         (~/.viewcode) and the desktop app's profile aside, with a
 #                         timestamp, so onboarding and the provider picker show again.
@@ -23,15 +28,17 @@ cd "$(dirname "$0")"
 pull=1
 mode=desktop
 managed=0
+relay=0
 fresh=0
 for arg in "$@"; do
   case "$arg" in
     --no-pull) pull=0 ;;
     --web) mode=web ;;
     --managed) managed=1 ;;
+    --relay) relay=1 ;;
     --fresh) fresh=1 ;;
     -h | --help)
-      sed -n '2,18p' "$0"
+      sed -n '2,23p' "$0"
       exit 0
       ;;
     *)
@@ -226,6 +233,15 @@ if [ "$managed" = 1 ]; then
     fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
     console.log("Wrote " + file);
   '
+fi
+
+if [ "$relay" = 1 ]; then
+  step "Quick connect: setting up your relay Worker"
+  # Uses the same data folder as above, so the app reads what it stores. A failed
+  # setup (closed sign-in, no network) does not stop the build; run it again with
+  # node scripts/viewcode-relay.ts deploy
+  "$state_node" scripts/viewcode-relay.ts deploy --mode "$mode" ||
+    echo "Quick connect setup did not finish; continuing without it. Re-run: node scripts/viewcode-relay.ts deploy" >&2
 fi
 
 if [ "$mode" = web ]; then
