@@ -85,6 +85,8 @@ concurrency:
 
 jobs:
   production:
+    # ViewCode: store builds and OTA belong to upstream's Expo account.
+    if: github.repository == 'pingdotgg/t3code'
     name: EAS ${{ inputs.profile || 'production' }} ${{ github.event_name == 'push' && 'auto' || inputs.mode }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     permissions:
