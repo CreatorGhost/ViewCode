@@ -88,6 +88,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   message id in an acceptance receipt. Lifecycle events can precede that
   receipt; the next running session alone cannot identify the request, since
   an earlier user prompt may still be starting.
+- Archive, unarchive, snooze and unsnooze of a thread cascade to its child
+  agents in the decider (the per-thread commands carry `cascade: false`), so
+  every client and entry point moves a tree as one. The sidebar floats a child
+  whose parent is hidden to the top level, which read as a stray chat. Snooze
+  skips children blocked on the user (pending request or queued turn) rather
+  than failing. Settle and pin do not cascade.
 - Agents can reach only their own tree (root thread and all descendants). A hop
   limit (24) stops ping-pong loops; spawning counts as a hop too.
 - Stopping an agent that belongs to a tree **pauses** it (user decision): any

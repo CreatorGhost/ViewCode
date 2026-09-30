@@ -80,6 +80,32 @@ export const describeModelTuning = (
   };
 };
 
+/** The effort an agent's stored model options select, or undefined for the model default. */
+export const selectedEffort = (
+  options: ReadonlyArray<ProviderOptionSelection> | undefined,
+): string | undefined => {
+  for (const id of EFFORT_DESCRIPTOR_IDS) {
+    const value = options?.find((option) => option.id === id)?.value;
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+};
+
+/** The selection with its effort choice removed, so the model default applies. */
+export const withoutEffort = <
+  S extends { readonly options?: ReadonlyArray<ProviderOptionSelection> },
+>(
+  selection: S,
+): S => {
+  if (!selection.options) return selection;
+  const options = selection.options.filter(
+    (option) => !(EFFORT_DESCRIPTOR_IDS as ReadonlyArray<string>).includes(option.id),
+  );
+  if (options.length === selection.options.length) return selection;
+  const { options: _dropped, ...rest } = selection;
+  return (options.length > 0 ? { ...rest, options } : rest) as S;
+};
+
 const validLevels = (levels: ReadonlyArray<EffortLevel>) => levels.map(({ id }) => id).join(", ");
 
 /**
