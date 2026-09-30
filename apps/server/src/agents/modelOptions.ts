@@ -91,6 +91,21 @@ export const selectedEffort = (
   return undefined;
 };
 
+/** The selection with its effort choice removed, so the model default applies. */
+export const withoutEffort = <
+  S extends { readonly options?: ReadonlyArray<ProviderOptionSelection> },
+>(
+  selection: S,
+): S => {
+  if (!selection.options) return selection;
+  const options = selection.options.filter(
+    (option) => !(EFFORT_DESCRIPTOR_IDS as ReadonlyArray<string>).includes(option.id),
+  );
+  if (options.length === selection.options.length) return selection;
+  const { options: _dropped, ...rest } = selection;
+  return (options.length > 0 ? { ...rest, options } : rest) as S;
+};
+
 const validLevels = (levels: ReadonlyArray<EffortLevel>) => levels.map(({ id }) => id).join(", ");
 
 /**

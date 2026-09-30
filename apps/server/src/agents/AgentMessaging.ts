@@ -3,6 +3,7 @@ import {
   applyModelTuning,
   describeModelTuning,
   selectedEffort,
+  withoutEffort,
   type ModelTuning,
 } from "./modelOptions.ts";
 import {
@@ -768,9 +769,12 @@ const make = Effect.gen(function* () {
               fastMode: input.fastMode,
             }).pipe(
               Effect.catch(() =>
-                resolveModelSelection(input.providerId, input.model, self.modelSelection, {
-                  fastMode: input.fastMode,
-                }),
+                resolveModelSelection(
+                  input.providerId,
+                  input.model,
+                  withoutEffort(self.modelSelection),
+                  { fastMode: input.fastMode },
+                ),
               ),
             );
       const childId = ThreadId.make(yield* uuid);

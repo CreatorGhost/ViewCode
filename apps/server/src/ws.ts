@@ -1908,16 +1908,22 @@ const makeWsRpcLayer = (
               // cascades to child agents in the decider, so their sessions
               // and terminals close here too.
               const archivedThreads = archiveCommand
-                ? yield* projectionSnapshotQuery.getShellSnapshot().pipe(
-                    Effect.map((snapshot) => {
-                      const byParent = new Map<string, (typeof snapshot.threads)[number][]>();
-                      for (const thread of snapshot.threads) {
+                ? yield* Effect.all([
+                    projectionSnapshotQuery.getShellSnapshot(),
+                    projectionSnapshotQuery.getArchivedShellSnapshot(),
+                  ]).pipe(
+                    Effect.map(([active, archived]) => {
+                      // Walk through already-archived children too: an active
+                      // grandchild below one is archived by this command.
+                      const threads = [...active.threads, ...archived.threads];
+                      const byParent = new Map<string, (typeof threads)[number][]>();
+                      for (const thread of threads) {
                         if (!thread.parentThreadId) continue;
                         const siblings = byParent.get(thread.parentThreadId);
                         if (siblings) siblings.push(thread);
                         else byParent.set(thread.parentThreadId, [thread]);
                       }
-                      const root = snapshot.threads.find(
+                      const root = active.threads.find(
                         (thread) => thread.id === archiveCommand.threadId,
                       );
                       if (root === undefined) return [];
@@ -1930,10 +1936,13 @@ const makeWsRpcLayer = (
                           tree.push(child);
                         }
                       }
-                      return tree.map((thread) => ({
-                        threadId: thread.id,
-                        stopSession: thread.session !== null && thread.session.status !== "stopped",
-                      }));
+                      return tree
+                        .filter((thread) => thread.archivedAt === null)
+                        .map((thread) => ({
+                          threadId: thread.id,
+                          stopSession:
+                            thread.session !== null && thread.session.status !== "stopped",
+                        }));
                     }),
                     Effect.catchCause((cause) =>
                       Effect.logWarning(
