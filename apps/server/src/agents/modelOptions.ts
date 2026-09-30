@@ -80,6 +80,17 @@ export const describeModelTuning = (
   };
 };
 
+/** The effort an agent's stored model options select, or undefined for the model default. */
+export const selectedEffort = (
+  options: ReadonlyArray<ProviderOptionSelection> | undefined,
+): string | undefined => {
+  for (const id of EFFORT_DESCRIPTOR_IDS) {
+    const value = options?.find((option) => option.id === id)?.value;
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+};
+
 const validLevels = (levels: ReadonlyArray<EffortLevel>) => levels.map(({ id }) => id).join(", ");
 
 /**

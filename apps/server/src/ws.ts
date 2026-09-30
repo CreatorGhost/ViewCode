@@ -1904,24 +1904,47 @@ const makeWsRpcLayer = (
                 normalizedCommand.type === "thread.archive" ? normalizedCommand : undefined;
               // Best-effort on purpose: the user's archive must not
               // fail because this cleanup read blipped, so a failed read
-              // logs and skips the stop instead of propagating.
-              const shouldStopSessionAfterCommand = archiveCommand
-                ? yield* projectionSnapshotQuery.getThreadShellById(archiveCommand.threadId).pipe(
-                    Effect.map(
-                      Option.match({
-                        onNone: () => false,
-                        onSome: (thread) =>
-                          thread.session !== null && thread.session.status !== "stopped",
-                      }),
-                    ),
+              // logs and cleans up only the archived thread itself. Archive
+              // cascades to child agents in the decider, so their sessions
+              // and terminals close here too.
+              const archivedThreads = archiveCommand
+                ? yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+                    Effect.map((snapshot) => {
+                      const byParent = new Map<string, (typeof snapshot.threads)[number][]>();
+                      for (const thread of snapshot.threads) {
+                        if (!thread.parentThreadId) continue;
+                        const siblings = byParent.get(thread.parentThreadId);
+                        if (siblings) siblings.push(thread);
+                        else byParent.set(thread.parentThreadId, [thread]);
+                      }
+                      const root = snapshot.threads.find(
+                        (thread) => thread.id === archiveCommand.threadId,
+                      );
+                      if (root === undefined) return [];
+                      const tree = [root];
+                      const seen = new Set<string>([root.id]);
+                      for (let index = 0; index < tree.length; index += 1) {
+                        for (const child of byParent.get(tree[index]!.id) ?? []) {
+                          if (seen.has(child.id)) continue;
+                          seen.add(child.id);
+                          tree.push(child);
+                        }
+                      }
+                      return tree.map((thread) => ({
+                        threadId: thread.id,
+                        stopSession: thread.session !== null && thread.session.status !== "stopped",
+                      }));
+                    }),
                     Effect.catchCause((cause) =>
                       Effect.logWarning(
                         "failed to read thread session state before session-stop check",
                         { threadId: archiveCommand.threadId, cause },
-                      ).pipe(Effect.as(false)),
+                      ).pipe(
+                        Effect.as([{ threadId: archiveCommand.threadId, stopSession: false }]),
+                      ),
                     ),
                   )
-                : false;
+                : [];
               const result = yield* dispatchNormalizedCommand(normalizedCommand).pipe(
                 Effect.tapError(() => cleanupFailedUploadedAttachments(command, normalizedCommand)),
               );
@@ -1931,38 +1954,42 @@ const makeWsRpcLayer = (
                 normalizedCommand,
               );
               if (archiveCommand) {
-                if (shouldStopSessionAfterCommand) {
-                  yield* Effect.gen(function* () {
-                    const stopCommand = yield* normalizeDispatchCommand({
-                      type: "thread.session.stop",
-                      commandId: CommandId.make(
-                        `session-stop-for-archive:${archiveCommand.commandId}`,
-                      ),
-                      threadId: archiveCommand.threadId,
-                      createdAt: yield* nowIso,
-                    });
+                for (const archived of archivedThreads) {
+                  if (archived.stopSession) {
+                    yield* Effect.gen(function* () {
+                      const stopCommand = yield* normalizeDispatchCommand({
+                        type: "thread.session.stop",
+                        commandId: CommandId.make(
+                          archived.threadId === archiveCommand.threadId
+                            ? `session-stop-for-archive:${archiveCommand.commandId}`
+                            : `session-stop-for-archive:${archiveCommand.commandId}:${archived.threadId}`,
+                        ),
+                        threadId: archived.threadId,
+                        createdAt: yield* nowIso,
+                      });
 
-                    yield* dispatchNormalizedCommand(stopCommand);
-                  }).pipe(
-                    Effect.catchCause((cause) =>
-                      Effect.logWarning("failed to stop provider session during archive", {
-                        threadId: archiveCommand.threadId,
-                        cause,
+                      yield* dispatchNormalizedCommand(stopCommand);
+                    }).pipe(
+                      Effect.catchCause((cause) =>
+                        Effect.logWarning("failed to stop provider session during archive", {
+                          threadId: archived.threadId,
+                          cause,
+                        }),
+                      ),
+                    );
+                  }
+
+                  // Archive removes the thread from view, so its user-opened
+                  // terminal panes close with it.
+                  yield* terminalManager.close({ threadId: archived.threadId }).pipe(
+                    Effect.catch((error) =>
+                      Effect.logWarning("failed to close thread terminals after archive", {
+                        threadId: archived.threadId,
+                        error: error.message,
                       }),
                     ),
                   );
                 }
-
-                // Archive removes the thread from view, so its user-opened
-                // terminal panes close with it.
-                yield* terminalManager.close({ threadId: archiveCommand.threadId }).pipe(
-                  Effect.catch((error) =>
-                    Effect.logWarning("failed to close thread terminals after archive", {
-                      threadId: archiveCommand.threadId,
-                      error: error.message,
-                    }),
-                  ),
-                );
               }
               return result;
             }).pipe(

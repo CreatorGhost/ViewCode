@@ -174,6 +174,32 @@ type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
   | ReadonlyArray<PlannedOrchestrationEvent>;
 
+/**
+ * Every live child agent below `threadId`, parents before children. Archive,
+ * unarchive, snooze and unsnooze of a lead cascade over this list so a tree
+ * moves as one: a child left behind would float to the top level of the
+ * sidebar as if the user had started it.
+ */
+function listDescendantThreads(
+  readModel: OrchestrationReadModel,
+  threadId: OrchestrationThread["id"],
+): OrchestrationThread[] {
+  const descendants: OrchestrationThread[] = [];
+  const seen = new Set<string>([threadId]);
+  const queue: string[] = [threadId];
+  while (queue.length > 0) {
+    const parentId = queue.shift();
+    for (const thread of readModel.threads) {
+      if (thread.deletedAt !== null || thread.parentThreadId !== parentId) continue;
+      if (seen.has(thread.id)) continue;
+      seen.add(thread.id);
+      descendants.push(thread);
+      queue.push(thread.id);
+    }
+  }
+  return descendants;
+}
+
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
   readModel,
@@ -446,6 +472,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const archiveChildren = listDescendantThreads(readModel, command.threadId).filter(
+        (thread) => thread.archivedAt === null,
+      );
+      if (command.cascade !== false && archiveChildren.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [command.threadId, ...archiveChildren.map((child) => child.id)].map(
+            (threadId): Extract<OrchestrationCommand, { type: "thread.archive" }> => ({
+              type: "thread.archive",
+              commandId: command.commandId,
+              threadId,
+              cascade: false,
+            }),
+          ),
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -469,6 +511,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const unarchiveChildren = listDescendantThreads(readModel, command.threadId).filter(
+        (thread) => thread.archivedAt !== null,
+      );
+      if (command.cascade !== false && unarchiveChildren.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [command.threadId, ...unarchiveChildren.map((child) => child.id)].map(
+            (threadId): Extract<OrchestrationCommand, { type: "thread.unarchive" }> => ({
+              type: "thread.unarchive",
+              commandId: command.commandId,
+              threadId,
+              cascade: false,
+            }),
+          ),
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -643,6 +701,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // Children blocked on the user (pending approval, queued turn) stay
+      // visible rather than failing the lead's snooze.
+      const snoozeCheckedAt = yield* nowIso;
+      const snoozeChildren = listDescendantThreads(readModel, command.threadId).filter(
+        (child) =>
+          child.archivedAt === null &&
+          openRequests(child).size === 0 &&
+          !hasQueuedTurnStartForThread(child, snoozeCheckedAt),
+      );
+      if (command.cascade !== false && snoozeChildren.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [command.threadId, ...snoozeChildren.map((child) => child.id)].map(
+            (threadId): Extract<OrchestrationCommand, { type: "thread.snooze" }> => ({
+              type: "thread.snooze",
+              commandId: command.commandId,
+              threadId,
+              snoozedUntil: command.snoozedUntil,
+              cascade: false,
+            }),
+          ),
+        });
+      }
       const occurredAt = yield* nowIso;
       // A wake time in the past would create a thread that is snoozed and
       // woken at once — the row would never leave the inbox but still carry
@@ -707,6 +788,23 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const unsnoozeChildren = listDescendantThreads(readModel, command.threadId).filter(
+        (child) => child.archivedAt === null && child.snoozedUntil != null,
+      );
+      if (command.cascade !== false && unsnoozeChildren.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [command.threadId, ...unsnoozeChildren.map((child) => child.id)].map(
+            (threadId): Extract<OrchestrationCommand, { type: "thread.unsnooze" }> => ({
+              type: "thread.unsnooze",
+              commandId: command.commandId,
+              threadId,
+              reason: command.reason,
+              cascade: false,
+            }),
+          ),
+        });
+      }
       // Idempotent by re-emission (see thread.settle): waking a thread that
       // is not snoozed lands on the same null state without churning
       // updatedAt.
