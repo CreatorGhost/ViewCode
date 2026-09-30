@@ -58,6 +58,10 @@ import {
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
+import {
+  ProviderSessionDirectory,
+  type ProviderRuntimeBinding,
+} from "../../provider/Services/ProviderSessionDirectory.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { TerminalManager } from "../../terminal/Manager.ts";
@@ -194,6 +198,10 @@ describe("ProviderCommandReactor", () => {
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderServiceError>;
     readonly tryHandlePromptCommandEffect?: ProviderAuthService["Service"]["tryHandlePromptCommand"];
+    /** Provider sessions already live when the reactor starts (e.g. recovered after a restart). */
+    readonly initialRuntimeSessions?: ReadonlyArray<ProviderSession>;
+    /** The thread binding ProviderService persisted before a restart. */
+    readonly persistedBinding?: ProviderRuntimeBinding;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -206,7 +214,7 @@ describe("ProviderCommandReactor", () => {
       input?.tryHandlePromptCommandEffect ?? (() => Effect.succeed(false)),
     );
     let nextSessionIndex = 1;
-    const runtimeSessions: Array<ProviderSession> = [];
+    const runtimeSessions: Array<ProviderSession> = [...(input?.initialRuntimeSessions ?? [])];
     const modelSelection = input?.threadModelSelection ?? {
       instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5-codex",
@@ -480,6 +488,16 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(projectionSnapshotLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
       Layer.provide(Layer.mock(ProviderAuthService, { tryHandlePromptCommand })),
+      Layer.provide(
+        Layer.mock(ProviderSessionDirectory)({
+          getBinding: (threadId) =>
+            Effect.succeed(
+              input?.persistedBinding !== undefined && input.persistedBinding.threadId === threadId
+                ? Option.some(input.persistedBinding)
+                : Option.none(),
+            ),
+        }),
+      ),
       Layer.provideMerge(makeProviderRegistryLayer(providerSnapshots as never)),
       Layer.provideMerge(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
@@ -3924,6 +3942,282 @@ describe("ProviderCommandReactor", () => {
       expect(sentInput(after, 0).endsWith("after restart")).toBe(true);
       expect(NodeFS.existsSync(pendingFile(after))).toBe(false);
     });
+
+    describe("stale native session", () => {
+      const staleSessionError = () =>
+        new ProviderAdapterRequestError({
+          provider: "claudeAgent",
+          method: "turn/setPermissionMode",
+          detail: "turn/setPermissionMode failed",
+          cause: new Error(
+            "Claude Code process exited with code 1. stderr: No conversation found with session ID: ec8ee806-2e9a-4450-a253-a23527795b27",
+          ),
+        });
+      const rejectNextResume = (harness: Harness) =>
+        harness.sendTurn.mockImplementationOnce(() => Effect.fail(staleSessionError()) as never);
+      const threadActivities = async (harness: Harness) =>
+        (await harness.readModel()).threads.find((entry) => entry.id === ThreadId.make("thread-1"))
+          ?.activities ?? [];
+      const startCall = (harness: Harness, index: number) =>
+        harness.startSession.mock.calls[index]?.[1] as
+          | { resumeCursor?: unknown; freshSession?: boolean; providerInstanceId?: string }
+          | undefined;
+      const fallbackActivityKind = "viewcode.session.resume-fallback";
+
+      it("replaces a session Claude cannot resume, sends a recap and the message", async () => {
+        const harness = await createHarness({ threadModelSelection: claude });
+        await startTurn(harness, "first", "Remember PINEAPPLE.");
+        await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+        await harness.drain();
+
+        rejectNextResume(harness);
+        await startTurn(harness, "second", "Continue.");
+        await waitFor(async () =>
+          (await threadActivities(harness)).some((entry) => entry.kind === fallbackActivityKind),
+        );
+        await harness.drain();
+
+        expect(harness.sendTurn).toHaveBeenCalledTimes(3);
+        expect(sentInput(harness, 1)).not.toContain("<handoff>");
+        expect(sentInput(harness, 2)).toContain("<handoff>");
+        expect(sentInput(harness, 2)).toContain("Remember PINEAPPLE.");
+        expect(sentInput(harness, 2).endsWith("Continue.")).toBe(true);
+        const fresh = startCall(harness, harness.startSession.mock.calls.length - 1);
+        expect(fresh?.freshSession).toBe(true);
+        expect(fresh?.resumeCursor).toBeUndefined();
+        expect(fresh?.providerInstanceId).toBe("claudeAgent");
+
+        const activities = await threadActivities(harness);
+        const notices = activities.filter((entry) => entry.kind === fallbackActivityKind);
+        expect(notices).toHaveLength(1);
+        expect(notices[0]?.tone).toBe("info");
+        expect(notices[0]?.summary).toBe(
+          "Couldn't reopen the previous Claude session; continued with a recap of this conversation",
+        );
+        expect(activities.some((entry) => entry.tone === "error")).toBe(false);
+        expect(activities.some((entry) => entry.kind === "viewcode.handoff")).toBe(false);
+        const thread = (await harness.readModel()).threads.find(
+          (entry) => entry.id === ThreadId.make("thread-1"),
+        );
+        expect(thread?.session?.status).not.toBe("error");
+        expect(thread?.messages.map((entry) => entry.text)).toContain("Remember PINEAPPLE.");
+        expect(NodeFS.existsSync(pendingFile(harness))).toBe(false);
+
+        await startTurn(harness, "third", "Next.");
+        await waitFor(() => harness.sendTurn.mock.calls.length === 4);
+        expect(sentInput(harness, 3)).toBe("Next.");
+      });
+
+      it("recovers a thread whose persisted resume cursor is stale on the next send", async () => {
+        const harness = await createHarness({ threadModelSelection: claude });
+        await startTurn(harness, "first", "Remember PINEAPPLE.");
+        await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+        await harness.drain();
+        // The provider process is gone (app restart): only the projected
+        // session and the persisted binding remain.
+        await harness.runEffect(harness.stopSession({ threadId: ThreadId.make("thread-1") }));
+        const startsBefore = harness.startSession.mock.calls.length;
+
+        rejectNextResume(harness);
+        await startTurn(harness, "second", "Continue.");
+        await waitFor(async () =>
+          (await threadActivities(harness)).some((entry) => entry.kind === fallbackActivityKind),
+        );
+        await harness.drain();
+
+        // The first start resumes from persisted state; the second replaces it.
+        expect(startCall(harness, startsBefore)?.freshSession).toBeUndefined();
+        expect(startCall(harness, startsBefore + 1)?.freshSession).toBe(true);
+        expect(harness.startSession).toHaveBeenCalledTimes(startsBefore + 2);
+        expect(sentInput(harness, 2)).toContain("<handoff>");
+        expect(sentInput(harness, 2).endsWith("Continue.")).toBe(true);
+        expect(
+          (await threadActivities(harness)).some(
+            (entry) => entry.kind === "provider.turn.start.failed",
+          ),
+        ).toBe(false);
+      });
+
+      it("recovers when the provider refuses to load the session at start", async () => {
+        // Armed after the first turn: the next start (a resume) is refused once.
+        let rejectNextStart = false;
+        let rejected = false;
+        const harness = await createHarness({
+          threadModelSelection: claude,
+          startSessionEffect: (session) =>
+            !rejectNextStart
+              ? Effect.succeed(session)
+              : Effect.sync(() => {
+                  rejectNextStart = false;
+                  rejected = true;
+                }).pipe(
+                  Effect.andThen(
+                    Effect.fail(
+                      new ProviderAdapterRequestError({
+                        provider: "cursor",
+                        method: "session/load",
+                        detail: "Session abc123 not found",
+                      }),
+                    ),
+                  ),
+                ),
+        });
+        await startTurn(harness, "first", "Remember PINEAPPLE.");
+        await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+        await harness.drain();
+        await harness.runEffect(harness.stopSession({ threadId: ThreadId.make("thread-1") }));
+        rejectNextStart = true;
+
+        await startTurn(harness, "second", "Continue.");
+        await waitFor(async () =>
+          (await threadActivities(harness)).some((entry) => entry.kind === fallbackActivityKind),
+        );
+        expect(rejected).toBe(true);
+        expect(harness.sendTurn).toHaveBeenCalledTimes(2);
+        expect(sentInput(harness, 1)).toContain("<handoff>");
+      });
+
+      it("reports one error without looping when the fresh session fails the same way", async () => {
+        const harness = await createHarness({ threadModelSelection: claude });
+        await startTurn(harness, "first", "Remember PINEAPPLE.");
+        await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+        await harness.drain();
+
+        rejectNextResume(harness);
+        rejectNextResume(harness);
+        await startTurn(harness, "second", "Continue.");
+        await waitFor(async () =>
+          (await threadActivities(harness)).some(
+            (entry) => entry.kind === "provider.turn.start.failed",
+          ),
+        );
+        await harness.drain();
+
+        expect(harness.sendTurn).toHaveBeenCalledTimes(3);
+        const activities = await threadActivities(harness);
+        expect(
+          activities.filter((entry) => entry.kind === "provider.turn.start.failed"),
+        ).toHaveLength(1);
+        expect(activities.some((entry) => entry.kind === fallbackActivityKind)).toBe(false);
+        // The recap is kept for the next attempt; history is untouched.
+        expect(NodeFS.existsSync(pendingFile(harness))).toBe(true);
+        const thread = (await harness.readModel()).threads.find(
+          (entry) => entry.id === ThreadId.make("thread-1"),
+        );
+        expect(thread?.messages.map((entry) => entry.text)).toEqual(
+          expect.arrayContaining(["Remember PINEAPPLE.", "Continue."]),
+        );
+      });
+
+      it("never resumes Claude with the Codex cursor after Claude -> Codex -> Claude", async () => {
+        const harness = await createHarness({ threadModelSelection: claude });
+        const codex = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" };
+        await startTurn(harness, "claude-1", "one");
+        await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+        await startTurn(harness, "codex", "two", codex);
+        await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+        await startTurn(harness, "claude-2", "three", claude);
+        await waitFor(() => harness.sendTurn.mock.calls.length === 3);
+
+        const starts = harness.startSession.mock.calls.map(
+          (call) =>
+            call[1] as {
+              providerInstanceId?: string;
+              resumeCursor?: unknown;
+              freshSession?: boolean;
+            },
+        );
+        const lastClaudeStart = starts.at(-1);
+        expect(lastClaudeStart?.providerInstanceId).toBe("claudeAgent");
+        expect(lastClaudeStart?.freshSession).toBe(true);
+        expect(lastClaudeStart?.resumeCursor).toBeUndefined();
+        expect(sentInput(harness, 2)).toContain("<handoff>");
+      });
+    });
+
+    it("resumes the original session when switching back before the handoff was delivered", async () => {
+      const harness = await createHarness({ threadModelSelection: claude });
+      const codex = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" };
+      await startTurn(harness, "claude-1", "one");
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      const claudeCursor = (harness.startSession.mock.calls[0]?.[1] as { resumeCursor?: unknown })
+        ?.resumeCursor;
+
+      failNextSend(harness);
+      await startTurn(harness, "codex", "two", codex);
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+      await harness.drain();
+      expect(NodeFS.existsSync(pendingFile(harness))).toBe(true);
+
+      await startTurn(harness, "claude-2", "three", claude);
+      await waitFor(() => harness.sendTurn.mock.calls.length === 3);
+      await harness.drain();
+
+      const lastStart = harness.startSession.mock.calls.at(-1)?.[1] as
+        | { providerInstanceId?: string; resumeCursor?: unknown; freshSession?: boolean }
+        | undefined;
+      expect(lastStart?.providerInstanceId).toBe("claudeAgent");
+      expect(lastStart?.freshSession).toBeUndefined();
+      expect(lastStart?.resumeCursor).toEqual({ opaque: "resume-1" });
+      expect(claudeCursor).toBeUndefined();
+      expect(sentInput(harness, 2)).toBe("three");
+      expect(NodeFS.existsSync(pendingFile(harness))).toBe(false);
+      expect(await handoffActivities(harness)).toHaveLength(0);
+    });
+
+    it.each([
+      ["keeps", true],
+      ["restarts without", false],
+    ] as const)(
+      "%s the live Claude session after a restart when the persisted selection is unchanged",
+      async (_label, persisted) => {
+        const liveSession: ProviderSession = {
+          provider: ProviderDriverKind.make("claudeAgent"),
+          providerInstanceId: claude.instanceId,
+          status: "ready",
+          runtimeMode: "approval-required",
+          model: claude.model,
+          cwd: "/tmp/provider-project",
+          threadId: ThreadId.make("thread-1"),
+          resumeCursor: { resume: "live-session" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        const harness = await createHarness({
+          threadModelSelection: claude,
+          initialRuntimeSessions: [liveSession],
+          persistedBinding: {
+            threadId: ThreadId.make("thread-1"),
+            provider: ProviderDriverKind.make("claudeAgent"),
+            providerInstanceId: claude.instanceId,
+            resumeCursor: { resume: "live-session" },
+            runtimePayload: persisted ? { modelSelection: claude } : {},
+          },
+        });
+        await harness.runEffect(
+          harness.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.make("cmd-session-set-restored"),
+            threadId: ThreadId.make("thread-1"),
+            session: {
+              threadId: ThreadId.make("thread-1"),
+              status: "ready",
+              providerName: "claudeAgent",
+              providerInstanceId: claude.instanceId,
+              runtimeMode: "approval-required",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+            createdAt: "2026-01-01T00:00:00.000Z",
+          }),
+        );
+
+        await startTurn(harness, "after-restart", "hello", claude);
+        await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+        expect(harness.startSession).toHaveBeenCalledTimes(persisted ? 0 : 1);
+      },
+    );
 
     describe("input limit", () => {
       const handOffWithLongHistory = async (messageText: string, historyRepeats = 8_000) => {

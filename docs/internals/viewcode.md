@@ -31,9 +31,22 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 ### Handoff (switching provider or account mid-chat)
 
 - The projected transcript is the source of truth; provider sessions are only a
-  resume cache. Same continuation key → the native session continues. Different
-  key → the new session starts with `freshSession: true` and the first turn gets
-  a `<handoff>` prelude.
+  resume cache. A thread has one persisted binding, so a resume cursor belongs to
+  the instance that wrote it and is never handed to another. Same continuation
+  key → the native session continues. Different key → the new session starts
+  with `freshSession: true` and the first turn gets a `<handoff>` prelude.
+  Switching back before that turn is delivered (A → B → A) resumes A's native
+  session, whose cursor the pending handoff keeps, and drops the recap.
+  Claude's cursor carries `resume` only once the CLI has reported the session
+  (`nativeSessionConfirmed` in `ClaudeAdapter.ts`); saving the id ViewCode
+  generates before that pointed threads at a transcript that was never written,
+  and every later send failed with "No conversation found with session ID". A
+  provider that still refuses to resume (`provider/staleSession.ts`) never
+  strands a thread: once per send the reactor replaces the session with a fresh
+  one on the same model, hands the conversation over as a recap, resends the
+  message and records one info row in place of the handoff card. A second
+  failure is reported as an ordinary error. Codex and OpenCode already fall back
+  to a fresh native thread inside their adapters, without a recap.
 - A model's context-window variant (Claude's 200k / 1M `contextWindow`
   option, which picks the `[1m]` API id) is a model option, not a separate
   model. Changing it keeps the thread's instance and model, so it never hands

@@ -3,11 +3,13 @@ import {
   type ChatAttachment,
   CommandId,
   EventId,
-  type ModelSelection,
+  ModelSelection,
   type OrchestrationEvent,
+  PROVIDER_DISPLAY_NAMES,
   PROVIDER_HANDOFF_MAX_INPUT_CHARS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderDriverKind,
+  ProviderInstanceId,
   type ProjectId,
   type OrchestrationSession,
   ThreadId,
@@ -44,10 +46,12 @@ import {
   ProviderWorkspaceMissingError,
 } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
+import { isStaleProviderSessionCause } from "../../provider/staleSession.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -221,6 +225,10 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
   return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
 }
 
+// Info row recorded when a turn went out on a fresh session because the
+// provider could no longer resume the saved one.
+const STALE_SESSION_RECOVERY_ACTIVITY_KIND = "viewcode.session.resume-fallback";
+
 // Exchanges carried verbatim across a cross-provider handoff.
 const HANDOFF_RECENT_EXCHANGES = 3;
 // Room kept back from the provider input limit for the separator between the
@@ -231,8 +239,18 @@ const HANDOFF_ATTACHMENT_CONTEXT_CHARS = 400;
 
 const HandoffEndpointSchema = Schema.Struct({ instanceId: Schema.String, model: Schema.String });
 const PendingHandoffJson = Schema.fromJsonString(
-  Schema.Struct({ from: HandoffEndpointSchema, to: HandoffEndpointSchema }),
+  Schema.Struct({
+    from: HandoffEndpointSchema,
+    to: HandoffEndpointSchema,
+    // Set when the handoff replaces a native session the provider could no
+    // longer resume (the provider's display name, for the recovery notice).
+    staleSessionProvider: Schema.optional(Schema.String),
+    // The `from` instance's native resume cursor when the switch happened.
+    // Switching back before the handoff is delivered resumes that session.
+    fromResumeCursor: Schema.optional(Schema.Unknown),
+  }),
 );
+const isModelSelection = Schema.is(ModelSelection);
 type PendingHandoff = typeof PendingHandoffJson.Type;
 /** Reads a pending handoff persisted by the reactor; None when unreadable. */
 const decodePendingHandoff = Schema.decodeUnknownOption(PendingHandoffJson);
@@ -245,6 +263,7 @@ const make = Effect.gen(function* () {
   const providerAuthService = yield* ProviderAuthService;
   const providerService = yield* ProviderService;
   const providerRegistry = yield* ProviderRegistry;
+  const sessionDirectory = yield* Effect.serviceOption(ProviderSessionDirectory);
   const gitWorkflow = yield* GitWorkflowService;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -674,12 +693,31 @@ const make = Effect.gen(function* () {
     );
   });
 
+  /** The thread's persisted provider binding when it belongs to `instanceId`. */
+  const persistedBindingFor = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    instanceId: ProviderInstanceId | null | undefined,
+  ) {
+    if (Option.isNone(sessionDirectory) || instanceId == null) return undefined;
+    const binding = yield* sessionDirectory.value
+      .getBinding(threadId)
+      .pipe(Effect.orElseSucceed(() => Option.none()));
+    return Option.isSome(binding) && binding.value.providerInstanceId === instanceId
+      ? binding.value
+      : undefined;
+  });
+
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
     threadId: ThreadId,
     createdAt: string,
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly pendingTurnStart?: boolean;
+      /**
+       * The provider refused to resume the thread's saved native session.
+       * Start a fresh one on the same model and hand the conversation over.
+       */
+      readonly staleSessionRecovery?: boolean;
     },
   ) {
     const thread = yield* resolveThreadShell(threadId);
@@ -870,26 +908,94 @@ const make = Effect.gen(function* () {
         });
       });
 
-    if (needsHandoff) {
-      if (activeSession !== undefined) {
+    const staleSessionRecovery = options?.staleSessionRecovery === true;
+    if (needsHandoff || staleSessionRecovery) {
+      yield* loadPendingHandoffs;
+      const earlierHandoff = pendingHandoffs.get(threadId);
+      // Switching back (A -> B -> A) before the handoff to B was delivered:
+      // A's own native session is still the conversation, so resume it and
+      // drop the recap instead of handing A a summary of itself.
+      if (!staleSessionRecovery && earlierHandoff?.fromResumeCursor != null) {
+        const fromInfo = yield* providerService
+          .getInstanceInfo(ProviderInstanceId.make(earlierHandoff.from.instanceId))
+          .pipe(Effect.orElseSucceed(() => undefined));
+        const returningToFrom =
+          fromInfo !== undefined &&
+          !selectionNeedsHandoff({
+            currentDriverKind: fromInfo.driverKind,
+            desiredDriverKind: desiredInfo.driverKind,
+            currentContinuationKey: fromInfo.continuationIdentity.continuationKey,
+            desiredContinuationKey: desiredInfo.continuationIdentity.continuationKey,
+          }) &&
+          !(yield* startedThreadModelChangeRequiresNewSession({
+            currentModelSelection: {
+              ...desiredModelSelection,
+              instanceId: fromInfo.instanceId,
+              model: earlierHandoff.from.model,
+            },
+            requestedModelSelection: desiredModelSelection,
+          }));
+        if (returningToFrom) {
+          if (activeSession !== undefined) {
+            yield* providerService
+              .stopSession({ threadId })
+              .pipe(Effect.ignoreCause({ log: true }));
+          }
+          yield* Effect.logInfo("provider command reactor resuming the pre-handoff session", {
+            threadId,
+            fromInstanceId: boundInstanceId,
+            toInstanceId: desiredInstanceId,
+          });
+          const resumedSession = yield* startProviderSession({
+            resumeCursor: earlierHandoff.fromResumeCursor,
+          });
+          yield* bindSessionToThread(resumedSession);
+          pendingHandoffs.delete(threadId);
+          yield* forgetPendingHandoffFile(threadId);
+          return resumedSession.threadId;
+        }
+      }
+      // Captured before the stop below: the native session being left.
+      const leavingResumeCursor = staleSessionRecovery
+        ? undefined
+        : (activeSession?.resumeCursor ??
+          (yield* persistedBindingFor(threadId, boundInstanceId))?.resumeCursor ??
+          undefined);
+      if (activeSession !== undefined || staleSessionRecovery) {
         yield* providerService.stopSession({ threadId }).pipe(Effect.ignoreCause({ log: true }));
       }
-      yield* Effect.logInfo("provider command reactor handing thread off to a new provider", {
-        threadId,
-        fromInstanceId: boundInstanceId,
-        toInstanceId: desiredInstanceId,
-      });
+      yield* Effect.logInfo(
+        staleSessionRecovery
+          ? "provider command reactor replacing a native session the provider could not resume"
+          : "provider command reactor handing thread off to a new provider",
+        {
+          threadId,
+          fromInstanceId: boundInstanceId,
+          toInstanceId: desiredInstanceId,
+        },
+      );
       const handedOffSession = yield* startProviderSession({ freshSession: true });
       yield* bindSessionToThread(handedOffSession);
-      yield* loadPendingHandoffs;
       // A second switch before any turn went out still hands over from the
       // model that actually ran the conversation.
+      const fromResumeCursor = earlierHandoff
+        ? earlierHandoff.fromResumeCursor
+        : leavingResumeCursor;
       yield* rememberPendingHandoff(threadId, {
-        from: pendingHandoffs.get(threadId)?.from ?? {
+        from: earlierHandoff?.from ?? {
           instanceId: String(boundInstanceId ?? currentInstanceId),
           model: activeSession?.model ?? thread.modelSelection.model,
         },
         to: { instanceId: String(desiredInstanceId), model: desiredModelSelection.model },
+        ...(fromResumeCursor != null ? { fromResumeCursor } : {}),
+        ...(staleSessionRecovery
+          ? {
+              staleSessionProvider:
+                desiredInfo.displayName ??
+                PROVIDER_DISPLAY_NAMES[desiredDriverKind] ??
+                String(desiredDriverKind),
+            }
+          : {}),
       });
       return handedOffSession.threadId;
     }
@@ -908,7 +1014,20 @@ const make = Effect.gen(function* () {
         requestedModelSelection !== undefined &&
         activeSession?.providerInstanceId !== requestedModelSelection.instanceId;
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "unsupported";
-      const previousModelSelection = threadModelSelections.get(threadId);
+      // After a server restart the in-memory map is empty; the binding keeps
+      // the selection of the last turn, so an unchanged selection does not
+      // restart (and re-resume) the live session.
+      const persistedRuntimePayload = threadModelSelections.has(threadId)
+        ? undefined
+        : (yield* persistedBindingFor(threadId, activeSession?.providerInstanceId))?.runtimePayload;
+      const persistedModelSelection =
+        persistedRuntimePayload !== null &&
+        typeof persistedRuntimePayload === "object" &&
+        "modelSelection" in persistedRuntimePayload &&
+        isModelSelection(persistedRuntimePayload.modelSelection)
+          ? persistedRuntimePayload.modelSelection
+          : undefined;
+      const previousModelSelection = threadModelSelections.get(threadId) ?? persistedModelSelection;
       const shouldRestartForModelSelectionChange =
         preferredProvider === "claudeAgent" &&
         requestedModelSelection !== undefined &&
@@ -1037,6 +1156,7 @@ const make = Effect.gen(function* () {
       if (!pendingHandoffs.has(input.threadId)) {
         yield* forgetPendingHandoffFile(input.threadId);
       }
+      const staleProvider = pending.staleSessionProvider;
       yield* orchestrationEngine.dispatch({
         type: "thread.activity.append",
         commandId: yield* serverCommandId("handoff"),
@@ -1044,8 +1164,14 @@ const make = Effect.gen(function* () {
         activity: {
           id: yield* serverEventId(),
           tone: "info",
-          kind: HANDOFF_ACTIVITY_KIND,
-          summary: `Context handed off from ${describeModel(pending.from)} to ${describeModel(pending.to)}`,
+          kind:
+            staleProvider === undefined
+              ? HANDOFF_ACTIVITY_KIND
+              : STALE_SESSION_RECOVERY_ACTIVITY_KIND,
+          summary:
+            staleProvider === undefined
+              ? `Context handed off from ${describeModel(pending.from)} to ${describeModel(pending.to)}`
+              : `Couldn't reopen the previous ${staleProvider} session; continued with a recap of this conversation`,
           payload: {
             from: pending.from,
             to: pending.to,
@@ -1088,6 +1214,7 @@ const make = Effect.gen(function* () {
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
     readonly createdAt: string;
+    readonly staleSessionRecovery?: boolean;
   }) {
     const thread = yield* resolveThreadShell(input.threadId);
     if (!thread) {
@@ -1098,6 +1225,7 @@ const make = Effect.gen(function* () {
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       pendingTurnStart: true,
+      ...(input.staleSessionRecovery === true ? { staleSessionRecovery: true } : {}),
     });
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
@@ -1743,19 +1871,39 @@ const make = Effect.gen(function* () {
       turnsAfterCompaction.set(event.payload.threadId, queued);
       return;
     }
-    const sendTurnRequest = yield* buildSendTurnRequestForThread({
-      threadId: event.payload.threadId,
-      messageText: projectComposerContextForProvider({
-        text: message.text,
-        records: message.context?.records ?? [],
-      }),
-      ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
-      ...(event.payload.modelSelection !== undefined
-        ? { modelSelection: event.payload.modelSelection }
-        : {}),
-      interactionMode: event.payload.interactionMode,
-      createdAt: event.payload.createdAt,
-    }).pipe(
+    const buildTurnRequest = (staleSessionRecovery: boolean) =>
+      buildSendTurnRequestForThread({
+        threadId: event.payload.threadId,
+        messageText: projectComposerContextForProvider({
+          text: message.text,
+          records: message.context?.records ?? [],
+        }),
+        ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+        ...(event.payload.modelSelection !== undefined
+          ? { modelSelection: event.payload.modelSelection }
+          : {}),
+        interactionMode: event.payload.interactionMode,
+        createdAt: event.payload.createdAt,
+        ...(staleSessionRecovery ? { staleSessionRecovery: true } : {}),
+      });
+    // A provider that can no longer resume the thread's saved native session
+    // (deleted, never written, other config dir) must not leave the thread
+    // unusable: replace the session once per send with a fresh one on the same
+    // model, carry the conversation over as a handoff recap, and send the
+    // message again. A failure after that is reported like any other.
+    const recoveredTurnRequest = (cause: Cause.Cause<unknown>) =>
+      Effect.gen(function* () {
+        yield* Effect.logWarning("provider could not resume the saved session; starting fresh", {
+          threadId: event.payload.threadId,
+          cause: Cause.pretty(cause),
+        });
+        return yield* buildTurnRequest(true);
+      });
+    const sendTurnRequest = yield* buildTurnRequest(false).pipe(
+      Effect.map((request) => ({ request, recovered: false })),
+      Effect.catchCauseIf(isStaleProviderSessionCause, (cause) =>
+        recoveredTurnRequest(cause).pipe(Effect.map((request) => ({ request, recovered: true }))),
+      ),
       Effect.asSome,
       Effect.catchCause((cause) => handleTurnStartFailure(cause).pipe(Effect.as(Option.none()))),
     );
@@ -1764,51 +1912,62 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const { pendingHandoff: handoff, ...turnRequest } = sendTurnRequest.value;
-    const send = providerService.sendTurn(turnRequest).pipe(
-      Effect.onError(() => handoff?.rejected ?? Effect.void),
-      Effect.tap(() =>
-        (handoff?.accepted ?? Effect.void).pipe(
-          Effect.ignoreCause({ log: true, message: "failed to finalize accepted handoff" }),
+    const sendBuiltTurn = (
+      request: Effect.Success<ReturnType<typeof buildSendTurnRequestForThread>>,
+    ) => {
+      const { pendingHandoff: handoff, ...turnRequest } = request;
+      return providerService.sendTurn(turnRequest).pipe(
+        Effect.onError(() => handoff?.rejected ?? Effect.void),
+        Effect.tap(() =>
+          (handoff?.accepted ?? Effect.void).pipe(
+            Effect.ignoreCause({ log: true, message: "failed to finalize accepted handoff" }),
+          ),
         ),
-      ),
-      Effect.tap((result) =>
-        Effect.gen(function* () {
-          const createdAt = DateTime.formatIso(yield* DateTime.now);
-          yield* orchestrationEngine.dispatch({
-            type: "thread.activity.append",
-            commandId: yield* serverCommandId("provider-turn-accepted"),
-            threadId: event.payload.threadId,
-            activity: {
-              id: yield* serverEventId(),
-              tone: "info",
-              kind: "provider.turn.start.accepted",
-              summary: "Provider accepted turn",
-              payload: { requestId: event.payload.messageId },
-              turnId: result.turnId,
+        Effect.tap((result) =>
+          Effect.gen(function* () {
+            const createdAt = DateTime.formatIso(yield* DateTime.now);
+            yield* orchestrationEngine.dispatch({
+              type: "thread.activity.append",
+              commandId: yield* serverCommandId("provider-turn-accepted"),
+              threadId: event.payload.threadId,
+              activity: {
+                id: yield* serverEventId(),
+                tone: "info",
+                kind: "provider.turn.start.accepted",
+                summary: "Provider accepted turn",
+                payload: { requestId: event.payload.messageId },
+                turnId: result.turnId,
+                createdAt,
+              },
               createdAt,
-            },
-            createdAt,
-          });
-        }).pipe(
-          // Agent messaging binds a delivery to this receipt; without it the
-          // turn would never end, so a lost receipt is reported as a failed start.
-          Effect.catchCause((cause) =>
-            Effect.logWarning("failed to record accepted provider turn", {
-              cause: Cause.pretty(cause),
-            }).pipe(
-              Effect.andThen(
-                appendTurnStartFailure(
-                  "Provider turn could not be tracked",
-                  "The provider accepted the turn but its receipt could not be recorded.",
+            });
+          }).pipe(
+            // Agent messaging binds a delivery to this receipt; without it the
+            // turn would never end, so a lost receipt is reported as a failed start.
+            Effect.catchCause((cause) =>
+              Effect.logWarning("failed to record accepted provider turn", {
+                cause: Cause.pretty(cause),
+              }).pipe(
+                Effect.andThen(
+                  appendTurnStartFailure(
+                    "Provider turn could not be tracked",
+                    "The provider accepted the turn but its receipt could not be recorded.",
+                  ),
                 ),
+                Effect.ignoreCause({ log: true, message: "failed to report lost turn receipt" }),
               ),
-              Effect.ignoreCause({ log: true, message: "failed to report lost turn receipt" }),
             ),
           ),
         ),
+        Effect.asVoid,
+      );
+    };
+    // A retry runs inside the forked send, like the send it replaces.
+    const send = sendBuiltTurn(sendTurnRequest.value.request).pipe(
+      Effect.catchCauseIf(
+        (cause) => !sendTurnRequest.value.recovered && isStaleProviderSessionCause(cause),
+        (cause) => recoveredTurnRequest(cause).pipe(Effect.flatMap(sendBuiltTurn)),
       ),
-      Effect.asVoid,
       Effect.catchCause(recoverTurnStartFailure),
     );
     // The forked send settles `sent` from here on, so drop the entry the post-processing hook uses.

@@ -1658,6 +1658,46 @@ routing.layer("ProviderServiceLive routing", (it) => {
       }),
   );
 
+  it.effect("keeps resume cursors per instance across Claude -> Codex -> Claude", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-claude-codex-claude");
+      const claudeCursor = { resume: "claude-native-session" };
+      yield* provider.startSession(threadId, {
+        provider: CLAUDE_AGENT_DRIVER,
+        providerInstanceId: claudeAgentInstanceId,
+        threadId,
+        resumeCursor: claudeCursor,
+        runtimeMode: "full-access",
+      });
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        freshSession: true,
+        runtimeMode: "full-access",
+      });
+      routing.claude.startSession.mockClear();
+
+      // Back on Claude without an explicit cursor: the persisted binding now
+      // belongs to Codex, so nothing may be passed to Claude as resume state.
+      yield* provider.startSession(threadId, {
+        provider: CLAUDE_AGENT_DRIVER,
+        providerInstanceId: claudeAgentInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      assert.equal(routing.claude.startSession.mock.calls.length, 1);
+      assert.isUndefined(routing.claude.startSession.mock.calls[0]?.[0].resumeCursor);
+
+      yield* provider.stopSession({ threadId });
+      routing.claude.startSession.mockClear();
+      routing.claude.stopSession.mockClear();
+      routing.codex.startSession.mockClear();
+      routing.codex.stopSession.mockClear();
+    }),
+  );
+
   it.effect("allows promptless continuation only for capable providers", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

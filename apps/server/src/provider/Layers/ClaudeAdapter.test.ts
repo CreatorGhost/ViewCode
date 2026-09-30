@@ -6442,6 +6442,11 @@ describe("ClaudeAdapterLive", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
+      const threadStarted = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "thread.started"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
 
       const session = yield* adapter.startSession({
         threadId: THREAD_ID,
@@ -6450,20 +6455,134 @@ describe("ClaudeAdapterLive", () => {
       });
 
       const createInput = harness.getLastCreateQueryInput();
+      const generatedSessionId = createInput?.options.sessionId ?? "";
+      assert.match(
+        generatedSessionId,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      assert.equal(createInput?.options.resume, undefined);
+      // The CLI writes no transcript until it runs, so the id is not resumable yet.
       const sessionResumeCursor = session.resumeCursor as {
         threadId?: string;
         resume?: string;
         turnCount?: number;
       };
       assert.equal(sessionResumeCursor.threadId, THREAD_ID);
-      assert.equal(typeof sessionResumeCursor.resume, "string");
+      assert.equal(sessionResumeCursor.resume, undefined);
       assert.equal(sessionResumeCursor.turnCount, 0);
-      assert.match(
-        sessionResumeCursor.resume ?? "",
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+
+      harness.query.emit({
+        type: "system",
+        subtype: "init",
+        apiKeySource: "none",
+        claude_code_version: "test",
+        cwd: "/tmp/claude-adapter-test",
+        tools: [],
+        mcp_servers: [],
+        model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+        permissionMode: "bypassPermissions",
+        slash_commands: [],
+        output_style: "default",
+        skills: [],
+        plugins: [],
+        session_id: generatedSessionId,
+        uuid: "fresh-init",
+      } as unknown as SDKMessage);
+      yield* Fiber.join(threadStarted);
+      const confirmedCursor = (yield* adapter.listSessions())[0]?.resumeCursor as
+        | { readonly resume?: string }
+        | undefined;
+      assert.equal(confirmedCursor?.resume, generatedSessionId);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("never saves a synthetic API-error reply as the resume point", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const completed = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "turn.completed"),
+        Stream.runHead,
+        Effect.forkChild,
       );
-      assert.equal(createInput?.options.resume, undefined);
-      assert.equal(createInput?.options.sessionId, sessionResumeCursor.resume);
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "hello", attachments: [] });
+      harness.query.emit({
+        type: "assistant",
+        session_id: "sdk-session-1",
+        uuid: "assistant-real",
+        parent_tool_use_id: null,
+        message: { id: "assistant-message-1", content: [{ type: "text", text: "Hi" }] },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "assistant",
+        session_id: "sdk-session-1",
+        uuid: "assistant-synthetic",
+        parent_tool_use_id: null,
+        error: "rate_limit",
+        is_api_error_message: true,
+        message: {
+          id: "assistant-message-2",
+          model: "<synthetic>",
+          content: [{ type: "text", text: "API Error: rate limited" }],
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-1",
+        uuid: "result-1",
+      } as unknown as SDKMessage);
+      yield* Fiber.join(completed);
+
+      const cursor = (yield* adapter.listSessions())[0]?.resumeCursor as
+        | { readonly resume?: string; readonly resumeSessionAt?: string }
+        | undefined;
+      assert.equal(cursor?.resume, "sdk-session-1");
+      assert.equal(cursor?.resumeSessionAt, "assistant-real");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("ends a session whose resume the CLI rejects without a runtime error", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const staleSessionId = "550e8400-e29b-41d4-a716-446655440000";
+      const exited = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "session.exited"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        resumeCursor: { threadId: THREAD_ID, resume: staleSessionId, turnCount: 4 },
+        runtimeMode: "full-access",
+      });
+      assert.equal(harness.getLastCreateQueryInput()?.options.resume, staleSessionId);
+      harness.query.fail(
+        new Error(
+          `Claude Code process exited with code 1. stderr: No conversation found with session ID: ${staleSessionId}`,
+        ),
+      );
+
+      const events = Array.from(yield* Fiber.join(exited));
+      assert.equal(events.at(-1)?.type, "session.exited");
+      assert.isFalse(events.some((event) => event.type === "runtime.error"));
+      assert.deepEqual(yield* adapter.listSessions(), []);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
