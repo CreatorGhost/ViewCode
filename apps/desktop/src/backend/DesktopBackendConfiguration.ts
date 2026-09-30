@@ -577,7 +577,11 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       // prod app it is often run from. `--require` rather than NODE_COMPILE_CACHE,
       // so the setting does not leak into the provider and terminal processes
       // the backend starts.
+      // `--use-system-ca` trusts the OS certificate store as well as Node's bundled
+      // roots, so the backend's own outbound HTTPS (Quick connect's relay socket,
+      // provider auth, updates) works behind a TLS-inspecting corporate proxy.
       args: [
+        "--use-system-ca",
         ...(environment.isPackaged ? ["--require", environment.compileCachePath] : []),
         environment.backendEntryPath,
         "--bootstrap-fd",

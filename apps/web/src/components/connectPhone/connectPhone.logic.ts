@@ -4,6 +4,7 @@ import {
   type DesktopLanReachability,
   type DesktopServerExposureMode,
   type ManagedTunnelState,
+  type ViewCodeRelayState,
 } from "@t3tools/contracts";
 
 /** How long a code minted by the dialog lives; the server caps it at the same value. */
@@ -78,13 +79,27 @@ export function selectPhoneEndpoints(input: {
     }));
 }
 
-export type ConnectMode = "local" | "tailscale" | "cloud";
+/**
+ * `quick`, `cloud` and `tailscale` are the three ways to reach this computer
+ * from anywhere; the dialog shows them under one "Anywhere" tab, Quick connect
+ * first.
+ */
+export type ConnectMode = "local" | "quick" | "cloud" | "tailscale";
+
+/** The methods under the Anywhere tab, in the order they are offered. */
+export const ANYWHERE_MODES = ["quick", "cloud", "tailscale"] as const;
+export type AnywhereMode = (typeof ANYWHERE_MODES)[number];
+
+export function isAnywhereMode(mode: ConnectMode): mode is AnywhereMode {
+  return mode !== "local";
+}
 
 /**
- * The tabs to offer. Same Wi-Fi is always there. T3 Connect needs the build's
- * relay configuration; a tab that could only say "not configured" is worse
- * than none. Tailscale needs the desktop to have found the Tailscale CLI on
- * disk (found is not running; that check waits until the user turns it on).
+ * The methods to offer. Same Wi-Fi and Quick connect are always there (Quick
+ * connect explains its own setup). T3 Connect needs the build's relay
+ * configuration; a tab that could only say "not configured" is worse than
+ * none. Tailscale needs the desktop to have found the Tailscale CLI on disk
+ * (found is not running; that check waits until the user turns it on).
  */
 export function resolveConnectModes(input: {
   readonly cloudConfigured: boolean;
@@ -92,8 +107,9 @@ export function resolveConnectModes(input: {
 }): ReadonlyArray<ConnectMode> {
   return [
     "local",
-    ...(input.tailscaleInstalled ? (["tailscale"] as const) : []),
+    "quick",
     ...(input.cloudConfigured ? (["cloud"] as const) : []),
+    ...(input.tailscaleInstalled ? (["tailscale"] as const) : []),
   ];
 }
 
@@ -180,6 +196,78 @@ export function resolveAnywhereView(input: {
     unstable: tunnel.status === "unstable",
   };
 }
+
+export type QuickConnectView =
+  /** The connection state has not arrived yet. */
+  | { readonly kind: "loading" }
+  /** No relay address and secret are stored: show the setup command. */
+  | { readonly kind: "not-set-up" }
+  /** Set up but switched off. */
+  | { readonly kind: "off" }
+  | { readonly kind: "connecting" }
+  | { readonly kind: "reconnecting"; readonly reason: string | null }
+  /** The network refuses the relay's certificate; retries continue quietly. */
+  | { readonly kind: "blocked"; readonly reason: string | null }
+  /** The relay refused this computer's secret; only setup again helps. */
+  | { readonly kind: "auth-failed"; readonly reason: string | null }
+  | { readonly kind: "ready"; readonly baseUrl: string; readonly host: string };
+
+/** What the Quick connect tab shows. The QR appears only while the relay connection is up. */
+export function resolveQuickConnectView(relay: ViewCodeRelayState | null): QuickConnectView {
+  if (relay === null) return { kind: "loading" };
+  if (!relay.configured) return { kind: "not-set-up" };
+  const reason = relay.reason ?? null;
+  switch (relay.status) {
+    case "off":
+      return { kind: "off" };
+    case "connecting":
+      return { kind: "connecting" };
+    case "reconnecting":
+      return { kind: "reconnecting", reason };
+    case "blocked":
+      return { kind: "blocked", reason };
+    case "auth-failed":
+      return { kind: "auth-failed", reason };
+    case "connected": {
+      if (relay.httpBaseUrl === undefined) return { kind: "connecting" };
+      try {
+        return { kind: "ready", baseUrl: relay.httpBaseUrl, host: new URL(relay.httpBaseUrl).host };
+      } catch {
+        return { kind: "not-set-up" };
+      }
+    }
+  }
+}
+
+/** One line for Settings → Connections. */
+export function describeQuickConnectStatus(view: QuickConnectView): string {
+  switch (view.kind) {
+    case "loading":
+      return "Checking…";
+    case "not-set-up":
+      return `Not set up. Run ${QUICK_CONNECT_SETUP_COMMAND} in the ViewCode folder.`;
+    case "off":
+      return "Off.";
+    case "connecting":
+      return "Connecting to your relay…";
+    case "reconnecting":
+      return view.reason ? `Reconnecting. ${view.reason}` : "Reconnecting to your relay…";
+    case "blocked":
+      return view.reason ?? "This network's certificate is not trusted; still trying.";
+    case "auth-failed":
+      return view.reason ?? "The relay did not accept this computer's secret.";
+    case "ready":
+      return `Connected through ${view.host}.`;
+  }
+}
+
+export const QUICK_CONNECT_SETUP_COMMAND = "node scripts/viewcode-relay.ts deploy";
+
+export const QUICK_CONNECT_STABLE_NOTE = "Stable address: pair once, reconnects automatically.";
+
+/** Shown wherever a Quick connect code is: the relay is not end-to-end encrypted. */
+export const QUICK_CONNECT_TRAFFIC_NOTE =
+  "Traffic passes through your own Cloudflare Worker, which can read it, and your company's network may inspect it. It is not end-to-end encrypted. Check your company's policy on remote-access tools before using this on a work computer.";
 
 export const TUNNEL_BLOCKED_MESSAGE =
   "This network blocks tunnel connections (common on corporate networks or VPNs). Same Wi-Fi still works.";

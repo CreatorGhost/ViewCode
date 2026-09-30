@@ -140,6 +140,8 @@ import {
 import { serverRelayBrokerTracingLayer } from "./cloud/relayTracing.ts";
 import { shouldRetryCloudLink } from "./cloud/relayResponse.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
+import * as ViewCodeRelayConnector from "./relay/ViewCodeRelayConnector.ts";
+import { resolveLocalTarget } from "./relay/viewCodeRelayHealth.ts";
 import {
   MANAGED_TUNNEL_FIRST_REGISTRATION_JITTER,
   MANAGED_TUNNEL_RECOVERY_COOLDOWN,
@@ -472,6 +474,11 @@ const AuthLayerLive = EnvironmentAuth.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
 );
 
+const ViewCodeRelayConnectorLive = ViewCodeRelayConnector.layer.pipe(
+  Layer.provide(ServerSecretStore.layer),
+  Layer.provide(ServerSettingsLayerLive),
+);
+
 const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
   RelayClientLive,
   CloudManagedEndpointRuntime.layer.pipe(
@@ -575,6 +582,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
         Layer.provide(ExternalLauncher.layer),
       ),
       CloudManagedEndpointRuntimeLive,
+      ViewCodeRelayConnectorLive,
     ),
   ),
 );
@@ -967,6 +975,31 @@ const makeServerLayer = Layer.unwrap(
       ).pipe(Effect.asVoid),
     }).pipe(Layer.provideMerge(RuntimeDependenciesLive), Layer.provide(launcherLayer));
 
+    // ViewCode Quick connect: dial out to the user's own relay Worker once the server is
+    // active. The forwarder reaches this server where it listens: its TCP port, or the
+    // desktop's Unix socket, so no-port mode works too. A resume from sleep is the
+    // network-change signal: the old socket is dead, so reconnect now.
+    const viewCodeRelayLayer = Layer.effectDiscard(
+      Effect.gen(function* () {
+        const server = yield* HttpServer.HttpServer;
+        const connector = yield* ViewCodeRelayConnector.ViewCodeRelayConnector;
+        const hostPower = yield* HostPowerMonitor.HostPowerMonitor;
+        let wasSuspended = false;
+        yield* forkParked(
+          hostPower.streamChanges.pipe(
+            Stream.filter((snapshot) => {
+              const resumed = wasSuspended && !snapshot.suspended;
+              wasSuspended = snapshot.suspended;
+              return resumed;
+            }),
+            Stream.runForEach(() => connector.networkChanged),
+          ),
+        );
+        yield* forkParked(connector.run(resolveLocalTarget(server.address)));
+      }),
+      // Layers are memoized by reference, so this is the instance BackgroundPolicy reads.
+    ).pipe(Layer.provide(HostPowerMonitorLayerLive));
+
     const routesLayer = HttpRouter.serve(makeRoutesLayer.pipe(Layer.provide(launcherLayer)), {
       disableLogger: !config.logWebSocketEvents,
       routerConfig: HTTP_ROUTER_CONFIG,
@@ -977,6 +1010,7 @@ const makeServerLayer = Layer.unwrap(
       runtimeStateLayer.pipe(Layer.provide(launcherLayer)),
       tailscaleServeLayer,
       cloudDesiredLinkReconcileLayer,
+      viewCodeRelayLayer,
     );
 
     return serverApplicationLayer.pipe(

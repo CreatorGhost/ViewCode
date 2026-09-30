@@ -591,6 +591,33 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  it.effect("reads the Quick connect relay a setup script wrote and toggles only the switch", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        // Off by default, with no relay address.
+        assert.deepEqual(DEFAULT_SERVER_SETTINGS.viewcodeRelay, { enabled: false });
+
+        yield* fileSystem.writeFileString(
+          serverConfig.settingsPath,
+          '{"viewcodeRelay":{"enabled":true,"url":"https://viewcode-relay.me.workers.dev"}}',
+        );
+        assert.deepEqual((yield* serverSettings.getSettings).viewcodeRelay, {
+          enabled: true,
+          url: "https://viewcode-relay.me.workers.dev",
+        });
+
+        const updated = yield* serverSettings.updateSettings({ viewcodeRelay: { enabled: false } });
+        assert.deepEqual(updated.viewcodeRelay, {
+          enabled: false,
+          url: "https://viewcode-relay.me.workers.dev",
+        });
+      }),
+    ).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("enables previously used providers from sparse settings files", () =>
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig.ServerConfig;

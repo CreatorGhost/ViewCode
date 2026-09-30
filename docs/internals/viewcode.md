@@ -191,13 +191,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   uses a Vite port.
 - Connect phone (`web/src/components/connectPhone/`) is the user-facing path to
   that toggle, and every mode ends in a pairing QR the stock T3 Code app scans
-  (no phone sign-in). Tabs come from `resolveConnectModes`: Same Wi-Fi always;
-  Tailscale only when the desktop finds the `tailscale` CLI on disk (a PATH
+  (no phone sign-in). Modes come from `resolveConnectModes`: Same Wi-Fi and Quick
+  connect always (Quick connect, T3 Connect and Tailscale sit under one Anywhere tab,
+  Quick connect first); Tailscale only when the desktop finds the `tailscale` CLI on disk (a PATH
   search, never a spawn; `DesktopTailscalePhoneAccess.ts`), whose "Turn on"
   reuses `setTailscaleServeEnabled`, and whose launch-time opt-in
   (`tailscaleAutoServe`) defaults off because managed laptops' security
-  software kills tailscaled; Anywhere only when the build has the Clerk key,
-  JWT template and relay URL. The QR for Anywhere is a normal
+  software kills tailscaled; T3 Connect only when the build has the Clerk key,
+  JWT template and relay URL. The QR for T3 Connect is a normal
   `https://<tunnel-host>/pair#token=` on the managed tunnel: the relay link
   response's `endpoint.httpBaseUrl` is kept in the `cloud-endpoint-http-base-url`
   secret (passed in `RelayEnvironmentConfigRequest.endpointHttpBaseUrl`).
@@ -213,6 +214,20 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `t3code://app` origin across socket and TCP modes; a mode-dependent origin
   would lose the flag. The flag goes stale after two minutes so a relaunch that
   never happened can't pop the dialog later.
+- Quick connect (`apps/server/src/relay/`, `infra/viewcode-relay/`) is the recommended
+  "Anywhere" path because the server dials **out** over one WSS connection on 443 to a
+  Worker on the user's own Cloudflare account. On the managed Mac Tailscale is killed and
+  cloudflared is blocked by TLS inspection plus an always-on VPN, but ordinary HTTPS to
+  `*.workers.dev` and a long-lived WebSocket both work, so an outbound WebSocket through a
+  plain HTTPS origin works where tunnels do not. The stock phone app only keeps an origin
+  and speaks plain HTTP/WS, so the relay is TLS to the relay plus ViewCode's own pairing and
+  session auth; it is not end-to-end encrypted and the docs and UI say so. The frame format
+  (`packages/shared/src/viewcodeRelayProtocol.ts`) has a `sealed` flag for a future
+  ViewCode-aware client, unused today. The forwarder reaches the server on its TCP port or
+  its Unix socket, so desktop no-port mode needs no relaunch. State rides the auth-access
+  stream as `viewcodeRelay`, like `managedTunnel`; the switch is the `viewcodeRelay.enabled`
+  server setting and the host secret lives only in the secret store. The desktop backend is
+  spawned with `--use-system-ca` so corporate TLS inspection does not break the socket.
 - ViewCode's desktop identity must never match T3 Code's: profile folder
   `viewcode`, app id `dev.viewcode.app`, WM class `viewcode`. Sharing T3's
   profile shared its IndexedDB lock and cached projects, which stalls first run

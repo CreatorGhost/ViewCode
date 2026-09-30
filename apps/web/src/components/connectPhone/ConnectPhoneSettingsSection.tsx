@@ -1,16 +1,23 @@
 import { SmartphoneIcon } from "lucide-react";
 
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
+import { useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
+import { describeQuickConnectStatus, resolveQuickConnectView } from "./connectPhone.logic";
 import { openConnectPhoneDialog } from "./ConnectPhoneDialog";
+import { useViewCodeRelayState } from "./QuickConnectPhone";
 import { useTailscalePhoneAccess } from "./useTailscalePhoneAccess";
 
 /** Top of Settings → Connections: the one-step way to pair the mobile app. */
 export function ConnectPhoneSettingsSection() {
   const tailscale = useTailscalePhoneAccess();
   const cloudConfigured = hasCloudPublicConfig();
+  const quickView = resolveQuickConnectView(useViewCodeRelayState());
+  const updateSettings = useUpdatePrimarySettings();
+  const quickOn =
+    quickView.kind !== "off" && quickView.kind !== "not-set-up" && quickView.kind !== "loading";
   return (
     <SettingsSection
       title="Phone"
@@ -28,6 +35,20 @@ export function ConnectPhoneSettingsSection() {
           <Button size="sm" onClick={openConnectPhoneDialog}>
             Connect phone
           </Button>
+        }
+      />
+      <SettingsRow
+        title="Quick connect"
+        description={describeQuickConnectStatus(quickView)}
+        control={
+          <Switch
+            checked={quickOn}
+            disabled={quickView.kind === "not-set-up" || quickView.kind === "loading"}
+            onCheckedChange={(checked) =>
+              updateSettings({ viewcodeRelay: { enabled: checked === true } })
+            }
+            aria-label="Quick connect"
+          />
         }
       />
       {tailscale.access?.installed ? (

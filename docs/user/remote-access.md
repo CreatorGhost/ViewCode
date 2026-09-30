@@ -10,13 +10,16 @@ Your phone needs no account. On the computer, choose **Connect phone** (sidebar
 footer, command palette, or the top of **Settings → Connections**), pick how the
 phone will reach it, and scan the code from the app's **Add environment**.
 
+- **Anywhere · Quick connect.** The recommended way to reach the computer over the
+  internet, including on networks where tunnels are blocked. See
+  [Quick connect](#quick-connect).
 - **Same Wi-Fi.** Choose **Turn on and restart** if asked; ViewCode restarts once
   and reopens on the code. Works only on the same network.
 - **Tailscale.** Shown when Tailscale is installed. **Turn on Tailscale** enables
   Tailscale HTTPS and restarts once. Works wherever your phone is on your tailnet.
   **Settings → Connections** can turn it on at every launch; that is off by
   default because some security software stops Tailscale.
-- **Anywhere · T3 Connect.** Works on mobile data. Sign in on the computer once
+- **Anywhere · T3 Connect.** An alternative to Quick connect. Works on mobile data. Sign in on the computer once
   and turn it on; the code appears when the connection is up. If the network
   blocks it (common on corporate networks and VPNs), ViewCode says so and offers
   **Try again**; Same Wi-Fi still works. **Turn off T3 Connect** stops it. This
@@ -27,6 +30,44 @@ the computer awake and ViewCode running. **Turn off local network access** in th
 dialog restarts ViewCode with no network port again. Phones you already paired
 stay listed under **Settings → Connections → Authorized clients**, where you can
 revoke them.
+
+## Quick connect
+
+Quick connect lets your phone reach this computer over the internet without a
+tunnel or an open port. ViewCode connects **out** to a small relay that runs on
+your own Cloudflare account, and the phone reaches the computer through it. It
+uses ordinary HTTPS to a `workers.dev` address, so it usually works on corporate
+networks that block tunnels. You pair once; the phone keeps the same address and
+reconnects on its own.
+
+Set it up once, from the ViewCode folder on the computer:
+
+```bash
+node scripts/viewcode-relay.ts deploy
+```
+
+If you build with `./build.sh`, `./build.sh --relay` does the same before
+building. It signs you in to Cloudflare if needed (a free account is enough),
+deploys the relay, and stores its address and a secret here. Then open **Connect
+phone → Anywhere → Quick connect**, and scan the code with the T3 Code app.
+**Turn off Quick connect** (also in **Settings → Connections**) stops it, and
+`node scripts/viewcode-relay.ts remove` deletes the relay and clears the
+settings.
+
+What can see your traffic: the relay is **not** end-to-end encrypted. The T3
+Code phone app can't add its own encryption, so your Cloudflare Worker sees the
+requests it forwards, and so does any TLS-inspecting firewall between the
+computer or phone and Cloudflare. Nobody else can connect: every request still
+needs the phone to be paired with a code from this computer.
+
+Check your company's policy on remote-access tools before using Quick connect on
+a work computer.
+
+If the network's certificate is not trusted by the computer, ViewCode says so and
+keeps trying. The desktop app already trusts the operating system's certificate
+store; when running `npx t3` yourself, start it with
+`NODE_OPTIONS=--use-system-ca`. More in the
+[Quick connect runbook](../operations/viewcode-relay.md).
 
 ## T3 Connect
 
