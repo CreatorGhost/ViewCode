@@ -66,8 +66,9 @@ Agents talk through the `t3-code` MCP toolkit, **all tools prefixed
 turn whose text starts with a `<viewcode-agent-message …>` envelope; an idle
 receiver starts at once, a busy one queues; `reply_expected` routes the
 receiver's final answer **from that turn** back. Scope: the caller's own tree.
-Hop limit 24. A usage/plan-limit error marks the agent out of quota: the
-sender is told once, further sends are refused. `viewcode_list_models` says to
+Hop limit 24. A usage/plan-limit error marks the agent out of usage: the
+sender is told when it resets, further sends queue and are delivered then, and the lead is
+told when a child is back. `viewcode_list_models` says to
 prefer the vendor's own provider unless the user names a reseller.
 
 **Recent fix to check.** Codex ships a built-in tool named `spawn_agent`;

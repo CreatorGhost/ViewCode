@@ -54,6 +54,17 @@ const AgentEntry = Schema.Struct({
       "paused: the user stopped this agent. Messages to it wait in its queue until the user resumes it.",
   }),
   queuedMessages: Schema.Int,
+  outOfUsage: Schema.optional(
+    Schema.Struct({
+      summary: Schema.String,
+      resetsAt: Schema.optional(Schema.String),
+      retryAfter: Schema.String,
+      lastCheckedAt: Schema.String,
+    }).annotate({
+      description:
+        "Present while this agent's provider usage limit is known to hold. Messages sent to it are queued and delivered automatically at retryAfter; once resetsAt has passed, just send the message.",
+    }),
+  ),
 });
 
 const SendResult = Schema.Struct({
@@ -67,7 +78,7 @@ const SendResult = Schema.Struct({
 
 const ListAgentsTool = Tool.make("viewcode_list_agents", {
   description:
-    "List the ViewCode agents in your agent tree (your root agent and all of its descendants), with their model and status. Use the ids with viewcode_send_message, viewcode_read_transcript and viewcode_configure_agent.",
+    "List the ViewCode agents in your agent tree (your root agent and all of its descendants), with their model and status, including outOfUsage when an agent's provider is out of usage and when it resets. Use the ids with viewcode_send_message, viewcode_read_transcript and viewcode_configure_agent.",
   success: Schema.Struct({ agents: Schema.Array(AgentEntry) }),
   failure: AgentToolError,
   dependencies,
@@ -80,7 +91,7 @@ const ListAgentsTool = Tool.make("viewcode_list_agents", {
 
 const ListModelsTool = Tool.make("viewcode_list_models", {
   description:
-    "List the providers and models available for viewcode_spawn_agent and viewcode_configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Each model lists its effortLevels (reasoning effort ids for the effort parameter) and fastMode when supported. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
+    "List the providers and models available for viewcode_spawn_agent and viewcode_configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Each model lists its effortLevels (reasoning effort ids for the effort parameter) and fastMode when supported. Check usage.exhausted before choosing a provider for long work. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
   success: Schema.Struct({
     providers: Schema.Array(
       Schema.Struct({
@@ -89,6 +100,16 @@ const ListModelsTool = Tool.make("viewcode_list_models", {
         driver: Schema.String,
         usable: Schema.Boolean,
         note: Schema.optional(Schema.String),
+        usage: Schema.optional(
+          Schema.Struct({
+            exhausted: Schema.Boolean,
+            resetsAt: Schema.optional(Schema.String),
+            checkedAt: Schema.String,
+          }).annotate({
+            description:
+              "The provider's own usage windows at checkedAt: exhausted means a window is at least 95% used, and resetsAt is when it resets.",
+          }),
+        ),
         models: Schema.Array(
           Schema.Struct({
             id: Schema.String,

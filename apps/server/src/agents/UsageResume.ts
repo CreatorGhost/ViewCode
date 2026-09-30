@@ -35,13 +35,21 @@ import { DesktopTelemetryReceiver } from "../resourceTelemetry/DesktopTelemetryR
 import { forkParked } from "../serverActivation.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { AgentMessaging, AgentMessagingError, isLimitError } from "./AgentMessaging.ts";
-import { parseResetTime } from "./usageResetTime.ts";
+import {
+  USAGE_RESET_MARGIN_MS,
+  mergeRateLimitSignal,
+  pickResetTime,
+  rateLimitSignalReset,
+} from "./usageResetTime.ts";
 
 /**
  * Continues a thread by itself once its provider's usage limit resets.
  *
- * A turn that ends with a limit error schedules "Continue where you left off."
- * for the reset time plus a minute. The schedule is one JSON file per thread
+ * A turn that ends with a limit error schedules the usage-reset continue
+ * prompt for the reset time plus a minute (at least five seconds out). The
+ * reset time comes from the provider's own signal recorded during the turn,
+ * else the error text, else its most-used usage window. Child agents are left
+ * to their lead (see AgentMessaging); every other thread resumes here. The schedule is one JSON file per thread
  * under `<stateDir>/usage-resume/`, so it survives a restart; one sleeping
  * fiber waits for the earliest schedule and is woken whenever the set changes.
  * Any user turn, a model switch, Cancel or Resume now drops it. A resume that
@@ -52,15 +60,15 @@ import { parseResetTime } from "./usageResetTime.ts";
  */
 
 /** Wait past the reset so the provider has certainly cleared the window. */
-export const USAGE_RESUME_DELAY_MS = 60_000;
+export const USAGE_RESUME_DELAY_MS = USAGE_RESET_MARGIN_MS;
+/** A resume is never scheduled closer than this, even when the reset is already past. */
+export const USAGE_RESUME_MIN_DELAY_MS = 5_000;
 /** Resumes attempted for one stretch of being out of usage before giving up. */
 export const USAGE_RESUME_MAX_ATTEMPTS = 2;
 /** An overdue schedule found at startup runs this long after boot. */
 export const USAGE_RESUME_STARTUP_GRACE_MS = 5_000;
 /** A reset further away than this is more likely a misread than a limit. */
 const MAX_RESET_HORIZON_MS = 14 * 24 * 60 * 60 * 1000;
-/** A window at or above this share of its allowance counts as exhausted. */
-const EXHAUSTED_PERCENT = 99.5;
 
 const ScheduleJson = Schema.fromJsonString(
   Schema.Struct({
@@ -79,7 +87,13 @@ const encodePayloadKey = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.U
 const modelKeyOf = (selection: ModelSelection) => `${selection.instanceId}/${selection.model}`;
 
 type Job =
-  | { readonly kind: "limit"; readonly threadId: ThreadId; readonly error: string }
+  | {
+      readonly kind: "limit";
+      readonly threadId: ThreadId;
+      readonly error: string;
+      /** The provider's own reset time seen during the turn; null when the signal had none. */
+      readonly recorded: number | null | undefined;
+    }
   | { readonly kind: "ready"; readonly threadId: ThreadId }
   | { readonly kind: "user-turn"; readonly threadId: ThreadId }
   | { readonly kind: "model"; readonly threadId: ThreadId; readonly modelKey: string }
@@ -97,19 +111,6 @@ export interface UsageResumeShape {
 export class UsageResume extends Context.Service<UsageResume, UsageResumeShape>()(
   "t3/agents/UsageResume",
 ) {}
-
-export function selectExhaustedReset(
-  windows: ReadonlyArray<{ readonly usedPercent: number; readonly resetsAt?: string | undefined }>,
-  nowMs: number,
-): number | null {
-  let latest: number | null = null;
-  for (const window of windows) {
-    if (window.usedPercent < EXHAUSTED_PERCENT || window.resetsAt === undefined) continue;
-    const at = Date.parse(window.resetsAt);
-    if (Number.isFinite(at) && at > nowMs && (latest === null || at > latest)) latest = at;
-  }
-  return latest;
-}
 
 const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
@@ -132,6 +133,8 @@ const make = Effect.gen(function* () {
   // Resume turns this service started, so they are not mistaken for the user.
   const ours = new Set<string>();
   const lastNote = new Map<string, string>();
+  // The provider's own rate-limit signal seen during each thread's running turn.
+  const signals = new Map<string, number | null>();
   const changed = yield* Queue.sliding<void>(1);
   let awakeHeld = false;
 
@@ -202,42 +205,56 @@ const make = Effect.gen(function* () {
       .remove(fileOf(threadId), { force: true })
       .pipe(warn("failed to remove the usage-limit resume schedule"));
 
-  /** When the limit resets: an exhausted usage window first, else the error text. */
+  /** When the limit resets: the recorded signal, else the error text, else a spent usage window. */
   const resolveReset = Effect.fnUntraced(function* (
     thread: OrchestrationThreadShell,
     error: string,
+    recorded: number | null | undefined,
     nowMs: number,
   ) {
     const providers = yield* registry.getProviders;
     const instanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
     const windows = providers.find((entry) => entry.instanceId === instanceId)?.usageLimits
       ?.windows;
-    const fromWindows = selectExhaustedReset(windows ?? [], nowMs);
-    return fromWindows ?? parseResetTime(error, nowMs);
+    return pickResetTime({ recorded, text: error, windows: windows ?? [], nowMs });
   });
 
-  const handleLimit = Effect.fnUntraced(function* (threadId: ThreadId, error: string) {
+  /** What the control stream tells clients: stopped on a limit, with a resume time when scheduled. */
+  const publishState = (threadId: ThreadId, state: { readonly resumeAt?: string } | null) =>
+    messaging.setUsageResume(threadId, state).pipe(warn("failed to publish the usage-limit state"));
+
+  const handleLimit = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    error: string,
+    recorded: number | null | undefined,
+  ) {
     if (schedules.has(threadId)) return;
     const thread = yield* findThread(threadId);
     if (!thread || thread.archivedAt !== null) return;
     const nowMs = yield* now;
-    const resetsAt = yield* resolveReset(thread, error, nowMs);
+    const resetsAt = yield* resolveReset(thread, error, recorded, nowMs);
+    // A child is left to its lead, who is told when it resets (see AgentMessaging).
+    // The banner still says when, and Resume now still works.
+    const leftToLead = thread.parentThreadId != null;
     if (resetsAt === null || resetsAt - nowMs > MAX_RESET_HORIZON_MS) {
+      if (!leftToLead) yield* publishState(threadId, {});
       return yield* note(
         threadId,
         { state: "unknown" },
         "Out of usage; ViewCode can't tell when it resets.",
       );
     }
-    const resumeAt = resetsAt + USAGE_RESUME_DELAY_MS;
+    const resumeAt = Math.max(resetsAt + USAGE_RESUME_DELAY_MS, nowMs + USAGE_RESUME_MIN_DELAY_MS);
     const times = { resetsAt: iso(resetsAt), resumeAt: iso(resumeAt) };
     const settings = yield* settingsService.getSettings;
-    if (!settings.resumeAfterUsageLimit) {
+    if (leftToLead || !settings.resumeAfterUsageLimit) {
+      if (!leftToLead) yield* publishState(threadId, {});
       return yield* note(threadId, { state: "reset-known", ...times }, "Out of usage.");
     }
     const done = attempts.get(threadId) ?? 0;
     if (done >= USAGE_RESUME_MAX_ATTEMPTS) {
       attempts.delete(threadId);
+      yield* publishState(threadId, {});
       return yield* note(
         threadId,
         { state: "gave-up", ...times },
@@ -252,6 +269,7 @@ const make = Effect.gen(function* () {
     };
     schedules.set(threadId, schedule);
     yield* persist(threadId, schedule);
+    yield* publishState(threadId, { resumeAt: times.resumeAt });
     yield* note(threadId, { state: "scheduled", ...times }, "Out of usage; resumes automatically.");
     yield* syncAwake;
     yield* wake;
@@ -262,6 +280,7 @@ const make = Effect.gen(function* () {
     attempts.delete(threadId);
     const schedule = schedules.get(threadId);
     schedules.delete(threadId);
+    yield* publishState(threadId, null);
     if (schedule) {
       yield* forget(threadId);
       yield* syncAwake;
@@ -280,6 +299,7 @@ const make = Effect.gen(function* () {
   const fire = Effect.fnUntraced(function* (threadId: ThreadId, manual: boolean) {
     const schedule = schedules.get(threadId);
     schedules.delete(threadId);
+    yield* publishState(threadId, null);
     if (schedule) {
       yield* forget(threadId);
       yield* syncAwake;
@@ -302,9 +322,10 @@ const make = Effect.gen(function* () {
   const handleJob = Effect.fnUntraced(function* (job: Job) {
     switch (job.kind) {
       case "limit":
-        return yield* handleLimit(job.threadId, job.error);
+        return yield* handleLimit(job.threadId, job.error, job.recorded);
       case "ready":
         attempts.delete(job.threadId);
+        yield* publishState(job.threadId, null);
         return;
       case "user-turn":
         yield* drop(job.threadId, false);
@@ -343,7 +364,12 @@ const make = Effect.gen(function* () {
           if (isLiveStatus(session)) return Effect.void;
           if (session.status === "error" || session.status === "ready") {
             if (isLimitError(session.lastError)) {
-              return worker.enqueue({ kind: "limit", threadId, error: session.lastError });
+              return worker.enqueue({
+                kind: "limit",
+                threadId,
+                error: session.lastError,
+                recorded: signals.get(threadId),
+              });
             }
             if (session.status === "ready") return worker.enqueue({ kind: "ready", threadId });
           }
@@ -351,14 +377,28 @@ const make = Effect.gen(function* () {
         }
         case "thread.activity-appended": {
           const { threadId, activity } = event.payload;
-          if (activity.kind !== "provider.turn.start.failed") return Effect.void;
           const detail = (activity.payload as { readonly detail?: unknown } | null)?.detail;
+          if (activity.kind === "runtime.warning") {
+            // A rejected usage window carries the provider's own reset time.
+            const reset = rateLimitSignalReset(detail);
+            if (reset !== undefined) {
+              signals.set(threadId, mergeRateLimitSignal(signals.get(threadId), reset));
+            }
+            return Effect.void;
+          }
+          if (activity.kind !== "provider.turn.start.failed") return Effect.void;
           return isLimitError(typeof detail === "string" ? detail : null)
-            ? worker.enqueue({ kind: "limit", threadId, error: detail as string })
+            ? worker.enqueue({
+                kind: "limit",
+                threadId,
+                error: detail as string,
+                recorded: signals.get(threadId),
+              })
             : Effect.void;
         }
         case "thread.turn-start-requested": {
           const messageId = String(event.payload.messageId);
+          signals.delete(event.payload.threadId);
           if (ours.delete(messageId)) return Effect.void;
           return worker.enqueue({ kind: "user-turn", threadId: event.payload.threadId });
         }
@@ -425,6 +465,7 @@ const make = Effect.gen(function* () {
         resumeAt: Math.max(schedule.resumeAt, nowMs + USAGE_RESUME_STARTUP_GRACE_MS),
       });
       attempts.set(threadId, schedule.attempts);
+      yield* publishState(ThreadId.make(threadId), { resumeAt: iso(schedule.resumeAt) });
     }
   }).pipe(warn("failed to load usage-limit resume schedules"));
 

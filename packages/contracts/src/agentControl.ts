@@ -31,13 +31,20 @@ export const AgentControlState = Schema.Struct({
   paused: Schema.Boolean,
   /** Agent messages and replies waiting for this agent. */
   queued: NonNegativeInt,
+  /**
+   * Present while a usage limit stopped this thread and the server has decided
+   * what happens next: `resumeAt` when an automatic resume is scheduled, absent
+   * when the user has to continue it. Clients notify from this, not from the
+   * turn's failure.
+   */
+  usageResume: Schema.optional(Schema.Struct({ resumeAt: Schema.optional(IsoDateTime) })),
 });
 export type AgentControlState = typeof AgentControlState.Type;
 
 export const AgentControlSubscribeInput = Schema.Struct({});
 export type AgentControlSubscribeInput = typeof AgentControlSubscribeInput.Type;
 
-/** Every agent that is paused or has queued messages. Sent first, then after every change. */
+/** Every agent that is paused, has queued messages or is stopped on a usage limit. Sent first, then after every change. */
 export const AgentControlSnapshot = Schema.Array(AgentControlState);
 export type AgentControlSnapshot = typeof AgentControlSnapshot.Type;
 

@@ -1,8 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { usageLimitNotificationBody } from "@t3tools/client-runtime/usage-resume";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { isLimitError } from "@t3tools/shared/usageLimit";
 import * as Option from "effect/Option";
 import {
+  AlarmClockIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   MessageCircleQuestionIcon,
@@ -11,6 +14,7 @@ import {
 import { useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
+import { useAgentControl } from "../state/agentControl";
 import { useEnvironments } from "../state/environments";
 import { environmentShell } from "../state/shell";
 import {
@@ -103,13 +107,141 @@ function EnvironmentNotifications({
   const { environmentId: activeEnvironmentId, threadId: activeThreadId } = useParams({
     strict: false,
   });
+  const control = useAgentControl(environmentId);
   const previous = useRef(
     new Map<ThreadId, { attention: string | null; completion: number | null }>(),
   );
+  // Threads that just failed on a usage limit. Their failure is not announced;
+  // once the server says what happens next (a resume time or "send a message")
+  // the limit notification goes out instead.
+  const awaitingLimit = useRef(new Map<ThreadId, string>());
+
+  /**
+   * One notification for a thread: a sound, then an in-app toast when the app
+   * is focused on another thread, or a desktop notification when it is not
+   * focused at all. Nothing when the user is looking at that thread.
+   */
+  const present = useCallback(
+    (input: {
+      readonly threadId: ThreadId;
+      readonly sound: "completion" | "input";
+      readonly toastType: "success" | "error" | "warning";
+      readonly icon: "completion" | "approval" | "failed" | "input" | "limit";
+      readonly title: string;
+      readonly description: string;
+      readonly desktopTitle: string;
+      readonly desktopBody: string;
+    }) => {
+      if (hasNotificationSound(mode)) {
+        void playNotificationSound(input.sound, () =>
+          hasNotificationSound(getClientSettings().notificationMode),
+        );
+      }
+      if (
+        inAppNotificationsEnabled &&
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        (activeEnvironmentId !== environmentId || activeThreadId !== input.threadId)
+      ) {
+        const toastId = toastManager.add({
+          type: input.toastType,
+          title: input.title,
+          description: input.description,
+          data: {
+            hideCopyButton: true,
+            leadingIcon:
+              input.icon === "completion" ? (
+                <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
+              ) : input.icon === "approval" ? (
+                <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
+              ) : input.icon === "failed" ? (
+                <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
+              ) : input.icon === "limit" ? (
+                <AlarmClockIcon aria-hidden className="size-4 text-warning-foreground" />
+              ) : (
+                <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
+              ),
+          },
+          actionProps: {
+            children: "Open thread",
+            onClick: () => {
+              toastManager.close(toastId);
+              void navigate({
+                to: "/$environmentId/$threadId",
+                params: { environmentId, threadId: input.threadId },
+              });
+            },
+          },
+        });
+        return;
+      }
+      if (
+        !hasDesktopNotifications(mode) ||
+        (document.visibilityState === "visible" && document.hasFocus()) ||
+        typeof Notification === "undefined" ||
+        Notification.permission !== "granted"
+      )
+        return;
+      try {
+        const notification = new Notification(input.desktopTitle, {
+          body: input.desktopBody,
+          tag: `${environmentId}:${input.threadId}`,
+          silent: true,
+        });
+        onNotification(environmentId, notification);
+        notification.addEventListener("click", () => {
+          notification.close();
+          window.focus();
+          void navigate({
+            to: "/$environmentId/$threadId",
+            params: { environmentId, threadId: input.threadId },
+          });
+        });
+      } catch {
+        // Some browsers expose Notification but reject desktop presentation.
+      }
+    },
+    [
+      activeEnvironmentId,
+      activeThreadId,
+      environmentId,
+      inAppNotificationsEnabled,
+      mode,
+      navigate,
+      onNotification,
+    ],
+  );
+
+  // The control stream and the shell stream arrive independently, so both
+  // effects look for a thread that has finished waiting.
+  const controlRef = useRef(control);
+  useEffect(() => {
+    controlRef.current = control;
+  }, [control]);
+  const flushLimits = useCallback(() => {
+    for (const [threadId, title] of awaitingLimit.current) {
+      const usageResume = controlRef.current.get(threadId)?.usageResume;
+      if (!usageResume) continue;
+      awaitingLimit.current.delete(threadId);
+      const body = usageLimitNotificationBody(usageResume.resumeAt, Date.now());
+      present({
+        threadId,
+        sound: "input",
+        toastType: "warning",
+        icon: "limit",
+        title: body,
+        description: title,
+        desktopTitle: title,
+        desktopBody: body,
+      });
+    }
+  }, [present]);
+  useEffect(flushLimits, [control, flushLimits]);
 
   useEffect(() => {
     if (shell.status !== "live" || Option.isNone(shell.snapshot)) {
       previous.current.clear();
+      awaitingLimit.current.clear();
       return;
     }
     const next = new Map<ThreadId, { attention: string | null; completion: number | null }>();
@@ -129,6 +261,14 @@ function EnvironmentNotifications({
           ? completedAt
           : (prior?.completion ?? null);
       next.set(thread.id, { attention, completion });
+      // A child agent's limit failure is still a failure: its lead handles the
+      // rest. Every other thread that stops on a usage limit resumes or waits
+      // for the user, which the limit notification says.
+      const stoppedOnLimit =
+        status === "failed" &&
+        thread.parentThreadId == null &&
+        isLimitError(thread.session?.lastError);
+      if (!stoppedOnLimit) awaitingLimit.current.delete(thread.id);
       if (!prior || thread.archivedAt !== null) continue;
       const kind =
         attention && attention !== prior.attention
@@ -137,6 +277,10 @@ function EnvironmentNotifications({
             ? "completion"
             : null;
       if (!kind) continue;
+      if (stoppedOnLimit) {
+        awaitingLimit.current.set(thread.id, thread.title);
+        continue;
+      }
       const title =
         kind === "completion"
           ? "Thread completed"
@@ -145,84 +289,27 @@ function EnvironmentNotifications({
             : status === "failed"
               ? "Thread failed"
               : "Input needed";
-      if (hasNotificationSound(mode)) {
-        void playNotificationSound(kind, () =>
-          hasNotificationSound(getClientSettings().notificationMode),
-        );
-      }
-      if (
-        inAppNotificationsEnabled &&
-        document.visibilityState === "visible" &&
-        document.hasFocus() &&
-        (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
-      ) {
-        const toastId = toastManager.add({
-          type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
-          title,
-          description: thread.title,
-          data: {
-            hideCopyButton: true,
-            leadingIcon:
-              kind === "completion" ? (
-                <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
-              ) : status === "approval" ? (
-                <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
-              ) : status === "failed" ? (
-                <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
-              ) : (
-                <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
-              ),
-          },
-          actionProps: {
-            children: "Open thread",
-            onClick: () => {
-              toastManager.close(toastId);
-              void navigate({
-                to: "/$environmentId/$threadId",
-                params: { environmentId, threadId: thread.id },
-              });
-            },
-          },
-        });
-        continue;
-      }
-      if (
-        !hasDesktopNotifications(mode) ||
-        (document.visibilityState === "visible" && document.hasFocus()) ||
-        typeof Notification === "undefined" ||
-        Notification.permission !== "granted"
-      )
-        continue;
-      try {
-        const notification = new Notification(title, {
-          body: thread.title,
-          tag: `${environmentId}:${thread.id}`,
-          silent: true,
-        });
-        onNotification(environmentId, notification);
-        notification.addEventListener("click", () => {
-          notification.close();
-          window.focus();
-          void navigate({
-            to: "/$environmentId/$threadId",
-            params: { environmentId, threadId: thread.id },
-          });
-        });
-      } catch {
-        // Some browsers expose Notification but reject desktop presentation.
-      }
+      present({
+        threadId: thread.id,
+        sound: kind,
+        toastType: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
+        icon:
+          kind === "completion"
+            ? "completion"
+            : status === "approval"
+              ? "approval"
+              : status === "failed"
+                ? "failed"
+                : "input",
+        title,
+        description: thread.title,
+        desktopTitle: title,
+        desktopBody: thread.title,
+      });
     }
     previous.current = next;
-  }, [
-    activeEnvironmentId,
-    activeThreadId,
-    environmentId,
-    inAppNotificationsEnabled,
-    mode,
-    navigate,
-    onNotification,
-    shell,
-  ]);
+    flushLimits();
+  }, [flushLimits, present, shell]);
 
   return null;
 }

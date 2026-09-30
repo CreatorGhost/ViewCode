@@ -30,6 +30,7 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import { AgentMessaging } from "./AgentMessaging.ts";
 import {
   USAGE_RESUME_DELAY_MS,
+  USAGE_RESUME_MIN_DELAY_MS,
   USAGE_RESUME_STARTUP_GRACE_MS,
   UsageResume,
   layer,
@@ -70,11 +71,15 @@ const makeHarness = (
     const continues = yield* Queue.unbounded<{ threadId: string; messageId: string }>();
     const awake = yield* Ref.make<ReadonlyArray<boolean>>([]);
     const windows = yield* Ref.make<ReadonlyArray<Window>>([]);
+    const parent = yield* Ref.make<string | null>(null);
+    /** What the service published to the control stream, in order (null clears). */
+    const published = yield* Ref.make<ReadonlyArray<{ resumeAt?: string } | null>>([]);
     const publish = (event: unknown) => PubSub.publish(events, event as OrchestrationEvent);
 
     const shell = {
       id: THREAD,
       archivedAt: null,
+      parentThreadId: null,
       modelSelection: { instanceId: "claudeAgent", model: "sonnet" },
       session: { status: "error", providerInstanceId: "claudeAgent", lastError: LIMIT_TEXT },
     } as unknown as OrchestrationThreadShell;
@@ -82,12 +87,14 @@ const makeHarness = (
     const dependencies = Layer.mergeAll(
       Layer.mock(ProjectionSnapshotQuery)({
         getShellSnapshot: () =>
-          Effect.succeed({
-            snapshotSequence: 1,
-            projects: [],
-            threads: [shell],
-            updatedAt: "2026-01-01T00:00:00.000Z",
-          }),
+          Ref.get(parent).pipe(
+            Effect.map((parentThreadId) => ({
+              snapshotSequence: 1,
+              projects: [],
+              threads: [{ ...shell, parentThreadId } as OrchestrationThreadShell],
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            })),
+          ),
       }),
       Layer.mock(OrchestrationEngineService)({
         dispatch: (command) =>
@@ -112,6 +119,7 @@ const makeHarness = (
       Layer.mock(AgentMessaging)({
         continueAfterLimit: (threadId, messageId) =>
           Queue.offer(continues, { threadId, messageId }).pipe(Effect.as(true)),
+        setUsageResume: (_threadId, state) => Ref.update(published, (all) => [...all, state]),
       }),
       ServerSettingsService.layerTest(settings),
       DesktopTelemetryReceiver.layerTest({
@@ -127,6 +135,8 @@ const makeHarness = (
     return {
       publish,
       windows,
+      parent,
+      published,
       continues,
       states,
       activities,
@@ -136,6 +146,15 @@ const makeHarness = (
         publish({
           type: "thread.session-set",
           payload: { threadId: THREAD, session: { status: "error", lastError } },
+        }),
+      /** The provider reports a rejected usage window during the turn. */
+      rejected: (info: unknown) =>
+        publish({
+          type: "thread.activity-appended",
+          payload: {
+            threadId: THREAD,
+            activity: { kind: "runtime.warning", payload: { message: "limit", detail: info } },
+          },
         }),
       /** The engine reports a turn start, as it does for the user's prompt or for our resume. */
       turnStart: (messageId: string) =>
@@ -454,6 +473,148 @@ describe("UsageResume", () => {
           yield* TestClock.adjust(Duration.millis(24 * HOUR));
           yield* settle;
           assert.equal(yield* Queue.size(harness.continues), 0);
+        }),
+      ),
+    ),
+  );
+
+  describe("where the reset time comes from", () => {
+    const firstActivity = (harness: Harness) =>
+      Ref.get(harness.activities).pipe(Effect.map((all) => all[0]));
+
+    it.effect("uses the provider's signal from the turn before the error text or the windows", () =>
+      scoped((stateDir) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+            yield* harness.rejected({ status: "rejected", resetsAt: 3 * 3600 });
+            yield* harness.fail(`${LIMIT_TEXT} · resets 8pm (UTC)`);
+            yield* settle;
+            const scheduled = yield* firstActivity(harness);
+            assert.equal(scheduled?.resetsAt, iso(3 * HOUR));
+            assert.equal(scheduled?.resumeAt, iso(3 * HOUR + USAGE_RESUME_DELAY_MS));
+          }),
+        ),
+      ),
+    );
+
+    it.effect("lets a later signal with a time beat an earlier one without", () =>
+      scoped((stateDir) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* harness.rejected({ status: "rejected" });
+            yield* harness.rejected({ status: "rejected", resetsAtSeconds: 2 * 3600 });
+            // A signal without a time afterwards does not erase it.
+            yield* harness.rejected({ status: "rejected" });
+            yield* harness.fail();
+            yield* settle;
+            assert.equal((yield* firstActivity(harness))?.resetsAt, iso(2 * HOUR));
+          }),
+        ),
+      ),
+    );
+
+    it.effect("forgets the signal when a new turn starts", () =>
+      scoped((stateDir) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* harness.rejected({ status: "rejected", resetsAt: 3 * 3600 });
+            yield* harness.turnStart("user-message");
+            yield* harness.fail(`${LIMIT_TEXT} · resets 8pm (UTC)`);
+            yield* settle;
+            assert.equal((yield* firstActivity(harness))?.resetsAt, iso(20 * HOUR));
+          }),
+        ),
+      ),
+    );
+
+    it.effect("reads a usage window only when it is at least 95% used", () =>
+      scoped((stateDir) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* Ref.set(harness.windows, [{ ...fiveHourWindow(HOUR), usedPercent: 94 }]);
+            yield* harness.fail();
+            yield* settle;
+            assert.deepEqual(yield* harness.states, ["unknown"]);
+
+            yield* Ref.set(harness.windows, [{ ...fiveHourWindow(HOUR), usedPercent: 96 }]);
+            yield* harness.fail(`${LIMIT_TEXT} again`);
+            yield* settle;
+            assert.deepEqual(yield* harness.states, ["unknown", "scheduled"]);
+          }),
+        ),
+      ),
+    );
+
+    it.effect("never resumes sooner than five seconds from now", () =>
+      scoped((stateDir) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* TestClock.adjust(Duration.millis(10 * HOUR));
+            // The provider's reset is already an hour past.
+            yield* harness.rejected({ status: "rejected", resetsAt: 9 * 3600 });
+            yield* harness.fail();
+            yield* settle;
+            assert.equal(
+              (yield* firstActivity(harness))?.resumeAt,
+              iso(10 * HOUR + USAGE_RESUME_MIN_DELAY_MS),
+            );
+            yield* TestClock.adjust(Duration.millis(USAGE_RESUME_MIN_DELAY_MS));
+            yield* Queue.take(harness.continues);
+          }),
+        ),
+      ),
+    );
+  });
+
+  it.effect("leaves a child agent to its lead: shows the reset, schedules nothing", () =>
+    scoped((stateDir, [file]) =>
+      withResume(stateDir, {}, (harness, resume, settle) =>
+        Effect.gen(function* () {
+          yield* Ref.set(harness.parent, "lead");
+          yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+          yield* harness.fail();
+          yield* settle;
+          assert.deepEqual(yield* harness.states, ["reset-known"]);
+          assert.isFalse(yield* exists(file!));
+          assert.deepEqual(yield* harness.awake, []);
+          assert.deepEqual(yield* Ref.get(harness.published), []);
+
+          yield* TestClock.adjust(Duration.millis(2 * HOUR));
+          yield* settle;
+          assert.equal(yield* Queue.size(harness.continues), 0);
+          // The user can still continue it by hand.
+          assert.isTrue(yield* resume.resumeNow(THREAD));
+        }),
+      ),
+    ),
+  );
+
+  it.effect("tells the control stream when a resume is scheduled and clears it on resume", () =>
+    scoped((stateDir) =>
+      withResume(stateDir, {}, (harness, _resume, settle) =>
+        Effect.gen(function* () {
+          yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+          yield* harness.fail();
+          yield* settle;
+          assert.deepEqual(yield* Ref.get(harness.published), [
+            { resumeAt: iso(HOUR + USAGE_RESUME_DELAY_MS) },
+          ]);
+          yield* TestClock.adjust(Duration.millis(HOUR + USAGE_RESUME_DELAY_MS));
+          yield* Queue.take(harness.continues);
+          assert.deepEqual((yield* Ref.get(harness.published)).at(-1), null);
+        }),
+      ),
+    ),
+  );
+
+  it.effect("tells the control stream a limit with no time needs the user", () =>
+    scoped((stateDir) =>
+      withResume(stateDir, {}, (harness, _resume, settle) =>
+        Effect.gen(function* () {
+          yield* harness.fail("429 too many requests");
+          yield* settle;
+          assert.deepEqual(yield* Ref.get(harness.published), [{}]);
         }),
       ),
     ),

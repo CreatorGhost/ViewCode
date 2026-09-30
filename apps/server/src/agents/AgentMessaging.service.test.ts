@@ -12,12 +12,14 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -27,6 +29,8 @@ import {
   AGENT_CONTINUE_PROMPT,
   AGENT_MESSAGE_MAX_HOPS,
   AgentMessaging,
+  UNKNOWN_RESET_RETRY_MS,
+  USAGE_RESET_CONTINUE_PROMPT,
   isLimitError,
   layer,
 } from "./AgentMessaging.ts";
@@ -64,6 +68,17 @@ const makeHarness = Effect.gen(function* () {
   const messages = yield* Ref.make(new Map<string, ReadonlyArray<Message>>());
   const errors = yield* Ref.make(new Map<string, string>());
   const models = yield* Ref.make(new Map<string, string>());
+  /** Provider instance per thread; claudeAgent unless a test moves one. */
+  const instances = yield* Ref.make(new Map<string, string>());
+  /** The claudeAgent instance's usage windows, once a test publishes a reading. */
+  const usage = yield* Ref.make<
+    | {
+        readonly checkedAt: string;
+        readonly windows: ReadonlyArray<{ usedPercent: number; resetsAt?: string }>;
+      }
+    | undefined
+  >(undefined);
+  const providerChanges = yield* PubSub.unbounded<ReadonlyArray<unknown>>();
   const turnStarts = yield* Ref.make<ReadonlyArray<TurnStart>>([]);
   const interrupts = yield* Ref.make<ReadonlyArray<string>>([]);
   const events = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -181,30 +196,31 @@ const makeHarness = Effect.gen(function* () {
     turnId: string | undefined,
     lastError: string | undefined,
     model: string | undefined,
+    instanceId = "claudeAgent",
   ) =>
     ({
       id,
       projectId: "project",
       title: id === LEAD ? "Lead" : id === CHILD ? "Child" : "Loner",
-      modelSelection: { instanceId: "claudeAgent", model: model ?? "claude-sonnet-4-6" },
+      modelSelection: { instanceId, model: model ?? "claude-sonnet-4-6" },
       runtimeMode: "full-access",
       branch: null,
       worktreePath: null,
       parentThreadId,
-      latestTurn: null,
+      latestTurn: turnId || lastError ? null : { turnId: "earlier-turn", state: "completed" },
       session: turnId
         ? {
             threadId: id,
             status: "running",
             activeTurnId: turnId,
-            providerInstanceId: "claudeAgent",
+            providerInstanceId: instanceId,
             lastError: null,
           }
         : {
             threadId: id,
             status: lastError ? "error" : "ready",
             activeTurnId: null,
-            providerInstanceId: "claudeAgent",
+            providerInstanceId: instanceId,
             lastError: lastError ?? null,
           },
     }) as unknown as OrchestrationThreadShell;
@@ -212,14 +228,40 @@ const makeHarness = Effect.gen(function* () {
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
       getShellSnapshot: () =>
-        Effect.all([Ref.get(activeTurn), Ref.get(errors), Ref.get(models)]).pipe(
-          Effect.map(([turns, failed, chosen]) => ({
+        Effect.all([
+          Ref.get(activeTurn),
+          Ref.get(errors),
+          Ref.get(models),
+          Ref.get(instances),
+        ]).pipe(
+          Effect.map(([turns, failed, chosen, where]) => ({
             snapshotSequence: 1,
             projects: [],
             threads: [
-              shell(LEAD, null, turns.get(LEAD), failed.get(LEAD), chosen.get(LEAD)),
-              shell(CHILD, LEAD, turns.get(CHILD), failed.get(CHILD), chosen.get(CHILD)),
-              shell(LONER, null, turns.get(LONER), failed.get(LONER), chosen.get(LONER)),
+              shell(
+                LEAD,
+                null,
+                turns.get(LEAD),
+                failed.get(LEAD),
+                chosen.get(LEAD),
+                where.get(LEAD),
+              ),
+              shell(
+                CHILD,
+                LEAD,
+                turns.get(CHILD),
+                failed.get(CHILD),
+                chosen.get(CHILD),
+                where.get(CHILD),
+              ),
+              shell(
+                LONER,
+                null,
+                turns.get(LONER),
+                failed.get(LONER),
+                chosen.get(LONER),
+                where.get(LONER),
+              ),
             ],
             updatedAt: "2026-01-01T00:00:00.000Z",
           })),
@@ -247,52 +289,63 @@ const makeHarness = Effect.gen(function* () {
       latestSequence: Effect.succeed(0),
     }),
     Layer.mock(ProviderRegistry)({
-      getProviders: Effect.succeed([
-        {
-          instanceId: "claudeAgent",
-          driver: "claudeAgent",
-          enabled: true,
-          status: "ready",
-          models: [{ slug: "claude-sonnet-4-6", name: "Sonnet" }],
-        },
-        {
-          instanceId: "codex",
-          driver: "codex",
-          enabled: true,
-          status: "ready",
-          models: [
-            {
-              slug: "gpt-5.4",
-              name: "GPT-5.4",
-              isDefault: true,
-              capabilities: {
-                optionDescriptors: [
+      streamChanges: Stream.unwrap(
+        PubSub.subscribe(providerChanges).pipe(
+          Effect.map((subscription) => Stream.fromSubscription(subscription)),
+        ),
+      ) as never,
+      getProviders: Ref.get(usage).pipe(
+        Effect.map(
+          (reading) =>
+            [
+              {
+                instanceId: "claudeAgent",
+                driver: "claudeAgent",
+                enabled: true,
+                status: "ready",
+                ...(reading ? { usageLimits: reading } : {}),
+                models: [{ slug: "claude-sonnet-4-6", name: "Sonnet" }],
+              },
+              {
+                instanceId: "codex",
+                driver: "codex",
+                enabled: true,
+                status: "ready",
+                models: [
                   {
-                    id: "reasoningEffort",
-                    label: "Reasoning",
-                    type: "select",
-                    options: [
-                      { id: "low", label: "Low" },
-                      { id: "medium", label: "Medium", isDefault: true },
-                      { id: "high", label: "High" },
-                      { id: "xhigh", label: "Extra High" },
-                    ],
-                  },
-                  {
-                    id: "serviceTier",
-                    label: "Service tier",
-                    type: "select",
-                    options: [
-                      { id: "default", label: "Standard", isDefault: true },
-                      { id: "priority", label: "Fast" },
-                    ],
+                    slug: "gpt-5.4",
+                    name: "GPT-5.4",
+                    isDefault: true,
+                    capabilities: {
+                      optionDescriptors: [
+                        {
+                          id: "reasoningEffort",
+                          label: "Reasoning",
+                          type: "select",
+                          options: [
+                            { id: "low", label: "Low" },
+                            { id: "medium", label: "Medium", isDefault: true },
+                            { id: "high", label: "High" },
+                            { id: "xhigh", label: "Extra High" },
+                          ],
+                        },
+                        {
+                          id: "serviceTier",
+                          label: "Service tier",
+                          type: "select",
+                          options: [
+                            { id: "default", label: "Standard", isDefault: true },
+                            { id: "priority", label: "Fast" },
+                          ],
+                        },
+                      ],
+                    },
                   },
                 ],
               },
-            },
-          ],
-        },
-      ] as never),
+            ] as never,
+        ),
+      ),
     }),
     Layer.succeed(ServerActivation, undefined),
     Layer.succeed(Crypto.Crypto, crypto),
@@ -358,6 +411,19 @@ const makeHarness = Effect.gen(function* () {
     runTurn,
     errors,
     models,
+    instances,
+    /** A fresh usage reading for claudeAgent reaches the service. */
+    publishUsage: (
+      windows: ReadonlyArray<{ usedPercent: number; resetsAt?: string }>,
+      checkedAt = "2026-01-01T00:00:00.000Z",
+    ) =>
+      Ref.set(usage, { checkedAt, windows }).pipe(
+        Effect.andThen(
+          PubSub.publish(providerChanges, [
+            { instanceId: "claudeAgent", usageLimits: { checkedAt, windows } },
+          ]),
+        ),
+      ),
     selections,
     interrupts,
     starts,
@@ -543,32 +609,208 @@ describe("AgentMessaging", () => {
     ),
   );
 
-  it.effect("tells the sender when a receiver runs out of quota and refuses further messages", () =>
-    withMessaging((harness, messaging, settle) =>
-      Effect.gen(function* () {
-        yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Run the Python suite." });
-        yield* Ref.update(harness.errors, (map) =>
-          new Map(map).set(
-            CHILD,
-            "Claude usage limit reached. Send the message again once the limit resets.",
-          ),
-        );
-        yield* harness.endTurn(CHILD, undefined, "error");
-        yield* settle;
+  const KNOWN_LIMIT = "Claude usage limit reached. Try again in 2h.";
+  const UNKNOWN_LIMIT = "Claude usage limit reached. Send the message again once the limit resets.";
+  const TWO_HOURS = 2 * 3_600_000;
+  const MARGIN = 60_000;
+  const setError = (harness: Harness, threadId: ThreadId, message: string | undefined) =>
+    Ref.update(harness.errors, (map) => {
+      const next = new Map(map);
+      if (message === undefined) next.delete(threadId);
+      else next.set(threadId, message);
+      return next;
+    });
 
-        const starts = yield* harness.starts;
-        assert.equal(starts.length, 2);
-        assert.equal(starts[1]!.threadId, LEAD);
-        assert.include(bodyOf(starts[1]) ?? "", "Do not message it again");
+  describe("out of usage", () => {
+    it.effect("tells the lead when the child resets and queues messages instead of refusing", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Run the Python suite." });
+          yield* setError(harness, CHILD, KNOWN_LIMIT);
+          yield* harness.endTurn(CHILD, undefined, "error");
+          yield* settle;
 
-        const refused = yield* messaging
-          .sendMessage(LEAD, { to: CHILD, message: "Are you still going?" })
-          .pipe(Effect.flip);
-        assert.include(refused.message, "out of quota");
-        assert.equal((yield* harness.starts).length, 2);
-      }),
-    ),
-  );
+          const starts = yield* harness.starts;
+          assert.equal(starts.length, 2);
+          assert.equal(starts[1]!.threadId, LEAD);
+          const failure = bodyOf(starts[1]) ?? "";
+          assert.include(failure, "is out of claudeAgent usage until");
+          assert.include(failure, "delivered automatically");
+          assert.notInclude(failure, "Do not");
+          assert.notInclude(failure, "wait for it");
+
+          const queued = yield* messaging.sendMessage(LEAD, {
+            to: CHILD,
+            message: "Are you still going?",
+          });
+          assert.equal(queued.delivery, "queued");
+          assert.include(queued.note ?? "", "out of usage until");
+          assert.include(queued.note ?? "", "last checked");
+          assert.include(queued.note ?? "", "delivered automatically");
+          assert.notInclude(queued.note ?? "", "Do not");
+          assert.equal((yield* harness.starts).length, 2);
+
+          const agent = (yield* messaging.listAgents(LEAD)).find((entry) => entry.id === CHILD);
+          assert.include(agent?.outOfUsage?.summary ?? "", "out of usage until");
+          assert.isDefined(agent?.outOfUsage?.resetsAt);
+        }),
+      ),
+    );
+
+    it.effect("clears the mark when the reset passes and delivers the queue", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task one." });
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task two." });
+          yield* setError(harness, CHILD, KNOWN_LIMIT);
+          yield* harness.endTurn(CHILD, undefined, "error");
+          yield* settle;
+          assert.isFalse((yield* harness.starts).some((start) => bodyOf(start) === "Task two."));
+
+          yield* setError(harness, CHILD, undefined);
+          yield* TestClock.adjust(Duration.millis(TWO_HOURS + MARGIN - 1));
+          yield* settle;
+          assert.isFalse((yield* harness.starts).some((start) => bodyOf(start) === "Task two."));
+          yield* TestClock.adjust(Duration.millis(1));
+          yield* settle;
+
+          assert.equal(bodyOf((yield* harness.starts).at(-1)), "Task two.");
+          const agent = (yield* messaging.listAgents(LEAD)).find((entry) => entry.id === CHILD);
+          assert.isUndefined(agent?.outOfUsage);
+        }),
+      ),
+    );
+
+    it.effect(
+      "wakes a lead on another provider when the child's reset passes with nothing queued",
+      () =>
+        withMessaging((harness, messaging, settle) =>
+          Effect.gen(function* () {
+            yield* Ref.update(harness.instances, (map) => new Map(map).set(LEAD, "codex"));
+            yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Audit." });
+            yield* setError(harness, CHILD, KNOWN_LIMIT);
+            yield* harness.endTurn(CHILD, undefined, "error");
+            yield* settle;
+            // The failure note started a lead turn; the lead finishes it.
+            yield* harness.endTurn(LEAD, "Waiting.");
+            yield* settle;
+            const before = (yield* harness.starts).length;
+
+            yield* setError(harness, CHILD, undefined);
+            yield* TestClock.adjust(Duration.millis(TWO_HOURS + MARGIN));
+            yield* settle;
+
+            const starts = yield* harness.starts;
+            assert.equal(starts.length, before + 1);
+            const notice = starts.at(-1)!;
+            assert.equal(notice.threadId, LEAD);
+            const body = bodyOf(notice) ?? "";
+            assert.include(body, "usage is back");
+            assert.include(body, "Child stopped mid-task on the limit");
+            assert.include(body, "viewcode_send_message");
+            // The child itself is not continued.
+            assert.isFalse(starts.slice(before).some((start) => start.threadId === CHILD));
+          }),
+        ),
+    );
+
+    it.effect("clears every mark on the instance after a successful turn there", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task one." });
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task two." });
+          yield* setError(harness, CHILD, UNKNOWN_LIMIT);
+          yield* harness.endTurn(CHILD, undefined, "error");
+          yield* settle;
+          assert.isFalse((yield* harness.starts).some((start) => bodyOf(start) === "Task two."));
+
+          // Another thread on the same provider instance works.
+          yield* harness.userPrompt(LONER, "Hello");
+          yield* harness.endTurn(LONER, "Hi.");
+          yield* settle;
+
+          assert.equal(bodyOf((yield* harness.starts).at(-1)), "Task two.");
+          const agent = (yield* messaging.listAgents(LEAD)).find((entry) => entry.id === CHILD);
+          assert.isUndefined(agent?.outOfUsage);
+        }),
+      ),
+    );
+
+    it.effect("clears the marks when a fresh usage reading shows no spent window", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task one." });
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task two." });
+          yield* setError(harness, CHILD, UNKNOWN_LIMIT);
+          yield* harness.endTurn(CHILD, undefined, "error");
+          yield* settle;
+          yield* Effect.yieldNow;
+
+          // Still spent: the mark stays, and learns when the window resets.
+          yield* harness.publishUsage([{ usedPercent: 97, resetsAt: "1970-01-01T05:00:00.000Z" }]);
+          yield* settle;
+          const held = (yield* messaging.listAgents(LEAD)).find((entry) => entry.id === CHILD);
+          assert.equal(held?.outOfUsage?.resetsAt, "1970-01-01T05:00:00.000Z");
+          assert.isFalse((yield* harness.starts).some((start) => bodyOf(start) === "Task two."));
+
+          yield* harness.publishUsage([{ usedPercent: 40, resetsAt: "1970-01-01T05:00:00.000Z" }]);
+          yield* settle;
+          assert.equal(bodyOf((yield* harness.starts).at(-1)), "Task two.");
+        }),
+      ),
+    );
+
+    it.effect(
+      "holds an unknown reset for ten minutes, then delivers the oldest message as the probe",
+      () =>
+        withMessaging((harness, messaging, settle) =>
+          Effect.gen(function* () {
+            yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task one." });
+            yield* setError(harness, CHILD, UNKNOWN_LIMIT);
+            yield* harness.endTurn(CHILD, undefined, "error");
+            yield* settle;
+            const failure = bodyOf((yield* harness.starts)[1]) ?? "";
+            assert.include(failure, "reset time is unknown; retry after");
+
+            const queued = yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Probe me." });
+            assert.equal(queued.delivery, "queued");
+            assert.include(queued.note ?? "", "retrying after");
+            assert.include(queued.note ?? "", "last checked");
+            const held = (yield* messaging.listAgents(LEAD)).find((entry) => entry.id === CHILD);
+            assert.include(held?.outOfUsage?.summary ?? "", "retrying after");
+
+            yield* TestClock.adjust(Duration.millis(UNKNOWN_RESET_RETRY_MS - 1));
+            yield* settle;
+            assert.isFalse((yield* harness.starts).some((start) => bodyOf(start) === "Probe me."));
+            yield* TestClock.adjust(Duration.millis(1));
+            yield* settle;
+            const probe = (yield* harness.starts).at(-1)!;
+            assert.equal(probe.threadId, CHILD);
+            assert.equal(bodyOf(probe), "Probe me.");
+
+            // The probe fails with the limit again: the agent is marked afresh.
+            yield* harness.endTurn(CHILD, undefined, "error");
+            yield* settle;
+            const again = yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Later." });
+            assert.equal(again.delivery, "queued");
+            assert.include(again.note ?? "", "retrying after");
+          }),
+        ),
+    );
+
+    it.effect("list_models reports each provider's usage reading", () =>
+      withMessaging((harness, messaging) =>
+        Effect.gen(function* () {
+          yield* harness.publishUsage([{ usedPercent: 99, resetsAt: "2999-01-01T00:00:00.000Z" }]);
+          const providers = yield* messaging.listModels();
+          const claude = providers.find((entry) => entry.providerId === "claudeAgent");
+          assert.isTrue(claude?.usage?.exhausted);
+          assert.equal(claude?.usage?.resetsAt, "2999-01-01T00:00:00.000Z");
+          assert.isUndefined(providers.find((entry) => entry.providerId === "codex")?.usage);
+        }),
+      ),
+    );
+  });
 
   it.effect("moving an out-of-quota agent to another model starts its queued work", () =>
     withMessaging((harness, messaging, settle) =>
@@ -622,7 +864,11 @@ describe("AgentMessaging", () => {
         yield* settle;
         const resumed = (yield* harness.starts).at(-1)!;
         assert.equal(resumed.threadId, CHILD);
-        assert.equal(resumed.message.text, AGENT_CONTINUE_PROMPT);
+        assert.equal(resumed.message.text, USAGE_RESET_CONTINUE_PROMPT);
+        assert.equal(
+          USAGE_RESET_CONTINUE_PROMPT,
+          "The usage limit has reset. Continue exactly where you left off and finish the task.",
+        );
 
         // A busy thread is left alone.
         assert.isFalse(yield* messaging.continueAfterLimit(CHILD, MessageId.make("resume-2")));

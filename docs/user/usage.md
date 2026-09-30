@@ -105,14 +105,25 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 ## Resume after a limit resets
 
 When a provider's usage limit stops a thread, the thread shows when work will continue, for
-example "Out of usage · resumes automatically at 6:01 AM". ViewCode continues the thread with
-"Continue where you left off" about a minute after the limit resets, even if you are away.
-Choose **Cancel** to stop the wait or **Resume now** to try immediately. Typing in the thread or
-switching its model also cancels the wait. If the provider is still limited, ViewCode tries once
-more from the new reset time and then stops.
+example "Out of usage · resumes automatically at 6:01 AM" or "… tomorrow at 9:00 AM". ViewCode
+continues the thread with "The usage limit has reset. Continue exactly where you left off and
+finish the task." about a minute after the limit resets, even if you are away. Choose **Cancel**
+to stop the wait or **Resume now** to try immediately. Typing in the thread or switching its
+model also cancels the wait. If the provider is still limited, ViewCode tries once more from the
+new reset time and then stops.
 
-ViewCode takes the reset time from the provider's usage windows, or from the error message. When
-it cannot tell, the thread says so and nothing is scheduled.
+ViewCode takes the reset time from the provider's own limit signal during the turn when it sends
+one, else from the error message, else from the most-used usage window if that is nearly spent.
+When it cannot tell, the thread says so and nothing is scheduled: send a message to continue.
+
+If you are in another thread or another app, ViewCode sends a desktop notification instead of a
+"Thread failed" one: "Usage limit reached. Continuing at 3:31 PM." It follows your
+notification setting.
+
+Child agents are left to their lead. The lead is told when the child's provider resets, and
+again when it is back; messages sent to the child in the meantime wait and are delivered then.
+The lead decides whether to continue the child. A lead on another provider is woken by that
+message, so it does not need to poll.
 
 Turn this off with **Resume automatically after usage limits reset** in **Settings → General**;
 the reset time is still shown. On the desktop app, **Keep the computer awake until then** stops

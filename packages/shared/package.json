@@ -339,6 +339,10 @@
       "types": "./src/hostClassification.ts",
       "import": "./src/hostClassification.ts"
     },
+    "./usageLimit": {
+      "types": "./src/usageLimit.ts",
+      "import": "./src/usageLimit.ts"
+    },
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"

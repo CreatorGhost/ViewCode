@@ -15,6 +15,7 @@ import {
   type OrchestrationSessionStatus,
   type OrchestrationThreadShell,
   ProviderInstanceId,
+  type ServerProvider,
   ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
@@ -24,19 +25,31 @@ import {
   formatAgentMessage,
 } from "@t3tools/shared/agentMessages";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { formatResumeAt, formatResumeTime, isLimitError } from "@t3tools/shared/usageLimit";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as Duration from "effect/Duration";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import { forkParked } from "../serverActivation.ts";
+import {
+  USAGE_RESET_MARGIN_MS,
+  mergeRateLimitSignal,
+  pickResetTime,
+  rateLimitSignalReset,
+  selectSpentWindowReset,
+  SPENT_WINDOW_PERCENT,
+} from "./usageResetTime.ts";
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
@@ -65,29 +78,20 @@ import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
  * other busy forever without the user.
  */
 
-/**
- * Provider errors that retrying cannot fix until a quota or plan changes.
- * Providers report these only as text on the session, so the match stays
- * narrow; a context-length error is a different failure (see below).
- */
-const LIMIT_ERROR_PATTERN =
-  /usage[ _-]?limit|rate[ _-]?limit|quota|plan limit|MODEL_NOT_IN_PLAN|not (?:in|available on) (?:your )?plan|\bcredits?\b|insufficient (?:credit|balance|funds)|\b429\b|too many requests|limit reached|hit your (?:\w+ )?limit|(?:5-hour|five-hour|weekly|daily) limit/i;
-/** "Context window exceeded" and friends: the conversation is too long, the account is fine. */
-const CONTEXT_LENGTH_PATTERN =
-  /context[ _-]?(?:window|length|limit)|maximum context|prompt is too long|too many tokens|max(?:imum)?[ _-]tokens/i;
+export { isLimitError };
 
-export function isLimitError(message: string | null | undefined): message is string {
-  return (
-    typeof message === "string" &&
-    LIMIT_ERROR_PATTERN.test(message) &&
-    !CONTEXT_LENGTH_PATTERN.test(message)
-  );
-}
+/** A reset further away than this is more likely a misread than a limit. */
+const MAX_RESET_HORIZON_MS = 14 * 24 * 60 * 60 * 1000;
+/** With no reset time, an out-of-usage agent is tried again this long after the failure. */
+export const UNKNOWN_RESET_RETRY_MS = 10 * 60_000;
 
 export const AGENT_MESSAGE_MAX_HOPS = 24;
 const TRANSCRIPT_MAX_CHARS = 24_000;
 /** The turn Resume sends to an agent whose turn the user stopped. */
 export const AGENT_CONTINUE_PROMPT = "Continue where you left off.";
+/** The turn that picks a thread back up after its usage limit reset. */
+export const USAGE_RESET_CONTINUE_PROMPT =
+  "The usage limit has reset. Continue exactly where you left off and finish the task.";
 
 const hopLimitReason = `Stopped: this conversation between agents reached ${AGENT_MESSAGE_MAX_HOPS} automatic hops. Summarize the state for the user instead.`;
 
@@ -109,6 +113,14 @@ export interface AgentSummary {
   readonly model: string;
   readonly status: "running" | "idle" | "error" | "stopped" | "new" | "paused";
   readonly queuedMessages: number;
+  /** Set while the agent's provider usage limit is known to hold. */
+  readonly outOfUsage?: {
+    /** Ready to relay, e.g. "out of usage until 9:00 AM (last checked 7:42 AM)". */
+    readonly summary: string;
+    readonly resetsAt?: string;
+    readonly retryAfter: string;
+    readonly lastCheckedAt: string;
+  };
 }
 
 export interface ProviderModels {
@@ -117,6 +129,12 @@ export interface ProviderModels {
   readonly driver: string;
   readonly usable: boolean;
   readonly note?: string;
+  /** The provider's own usage windows, when it reports them. */
+  readonly usage?: {
+    readonly exhausted: boolean;
+    readonly resetsAt?: string;
+    readonly checkedAt: string;
+  };
   readonly models: ReadonlyArray<{ readonly id: string; readonly name: string } & ModelTuning>;
 }
 
@@ -149,6 +167,24 @@ const decodeTurnStartReceipt = Schema.decodeUnknownOption(
     detail: Schema.optional(Schema.String),
   }),
 );
+
+/**
+ * An agent whose last turn hit a usage limit. It blocks deliveries until
+ * `retryAfter`; after that the next delivery is the probe, and a turn that
+ * succeeds anywhere on the same provider instance clears every mark on it.
+ */
+interface LimitMark {
+  readonly reason: string;
+  readonly instanceId: string;
+  /** Epoch ms the provider says the limit resets; null when nothing said. */
+  resetsAt: number | null;
+  /** Nothing is delivered before this: the reset plus a minute, or ten minutes on when unknown. */
+  retryAfter: number;
+  /** When the limit was last seen to hold: the failure, or a usage reading that still showed it. */
+  lastCheckedAt: number;
+  /** The timer has released the queue at `retryAfter`; the mark stays as status until a turn succeeds. */
+  released: boolean;
+}
 
 /** A turn this service started, from dispatch until the provider turn it became ends. */
 interface OwnTurn {
@@ -188,8 +224,13 @@ type Job =
       readonly threadId: ThreadId;
       readonly turn: OwnTurn;
       readonly session: OrchestrationSession;
+      readonly signal: number | null | undefined;
     }
-  | { readonly kind: "idle"; readonly threadId: ThreadId }
+  | {
+      readonly kind: "idle";
+      readonly threadId: ThreadId;
+      readonly signal: number | null | undefined;
+    }
   | { readonly kind: "hold-turn"; readonly threadId: ThreadId; readonly turn: OwnTurn }
   | { readonly kind: "stopped"; readonly threadId: ThreadId; readonly interrupted: boolean }
   | { readonly kind: "user-prompt"; readonly threadId: ThreadId };
@@ -256,7 +297,7 @@ export interface AgentMessagingShape {
     input: AgentControlInput,
   ) => Effect.Effect<AgentControlResult, AgentControlError>;
   /**
-   * Starts "Continue where you left off." on a thread whose usage limit has
+   * Starts the usage-reset continue prompt on a thread whose usage limit has
    * reset, clearing its out-of-quota mark. Mail queued for the agent follows
    * when that turn ends. False when the thread is gone, paused or busy.
    */
@@ -264,6 +305,15 @@ export interface AgentMessagingShape {
     threadId: ThreadId,
     messageId: MessageId,
   ) => Effect.Effect<boolean, AgentMessagingError>;
+  /**
+   * Records what happens to a thread stopped on a usage limit (`resumeAt` when
+   * an automatic resume is scheduled), or clears it with null. Clients read it
+   * from `controlChanges`.
+   */
+  readonly setUsageResume: (
+    threadId: ThreadId,
+    state: { readonly resumeAt?: string } | null,
+  ) => Effect.Effect<void>;
   /** Paused agents and queue lengths: the current value, then every change. */
   readonly controlChanges: Stream.Stream<AgentControlSnapshot>;
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
@@ -340,10 +390,34 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
 
   const queues = new Map<string, Delivery[]>();
-  // Agents whose last turn hit a usage/plan limit. Messages to them are
-  // refused until a turn succeeds or viewcode_configure_agent moves them to
-  // another model.
-  const limited = new Map<string, string>();
+  // Agents whose last turn hit a usage/plan limit. Messages to them queue
+  // until the mark's retryAfter, then the next one is delivered as the probe.
+  const limited = new Map<string, LimitMark>();
+  // The provider's own rate-limit signal seen during the running turn, by thread.
+  const signals = new Map<string, number | null>();
+  const usageStates = new Map<string, { readonly resumeAt?: string }>();
+  const limitChanged = yield* Queue.sliding<void>(1);
+  const now = Clock.currentTimeMillis;
+  /** Whether deliveries to the agent are held back right now. */
+  const blocks = (id: string, nowMs: number) => {
+    const mark = limited.get(id);
+    return mark !== undefined && nowMs < mark.retryAfter;
+  };
+  /** The mark while it still describes the agent; a known reset that has passed no longer does. */
+  const activeMark = (id: string, nowMs: number) => {
+    const mark = limited.get(id);
+    return mark !== undefined && (mark.resetsAt === null || nowMs < mark.retryAfter)
+      ? mark
+      : undefined;
+  };
+  const isoOf = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
+  const clockText = (ms: number, nowMs: number) => formatResumeTime(ms, nowMs);
+  const clockAt = (ms: number, nowMs: number) => formatResumeAt(ms, nowMs);
+  /** e.g. "out of usage until 9:00 AM (last checked 7:42 AM)". */
+  const describeMark = (mark: LimitMark, nowMs: number) =>
+    mark.resetsAt !== null
+      ? `out of usage until ${clockText(mark.resetsAt, nowMs)} (last checked ${clockText(mark.lastCheckedAt, nowMs)})`
+      : `out of usage; last checked ${clockText(mark.lastCheckedAt, nowMs)}, retrying after ${clockText(mark.retryAfter, nowMs)}`;
   // The turn this service started on each thread, until it ends.
   const ownTurns = new Map<string, OwnTurn>();
   // Agents the user stopped; nothing wakes them until resumed.
@@ -360,13 +434,22 @@ const make = Effect.gen(function* () {
   const fail = (reason: string) => Effect.fail(new AgentMessagingError({ reason }));
 
   const publishControl = Effect.suspend(() => {
-    const ids = new Set<string>([...paused.keys(), ...queues.keys()]);
-    const next: AgentControlState[] = [...ids].toSorted().map((id) => ({
-      threadId: ThreadId.make(id),
-      paused: paused.has(id),
-      queued: queues.get(id)?.length ?? 0,
-    }));
-    const key = next.map((entry) => `${entry.threadId}:${entry.paused}:${entry.queued}`).join(",");
+    const ids = new Set<string>([...paused.keys(), ...queues.keys(), ...usageStates.keys()]);
+    const next: AgentControlState[] = [...ids].toSorted().map((id) => {
+      const usage = usageStates.get(id);
+      return {
+        threadId: ThreadId.make(id),
+        paused: paused.has(id),
+        queued: queues.get(id)?.length ?? 0,
+        ...(usage ? { usageResume: usage } : {}),
+      };
+    });
+    const key = next
+      .map(
+        (entry) =>
+          `${entry.threadId}:${entry.paused}:${entry.queued}:${entry.usageResume ? (entry.usageResume.resumeAt ?? "-") : "x"}`,
+      )
+      .join(",");
     if (key === controlKey) return Effect.void;
     controlKey = key;
     return SubscriptionRef.set(control, next);
@@ -493,9 +576,10 @@ const make = Effect.gen(function* () {
     const target = threads.find((thread) => thread.id === delivery.toThreadId);
     if (!target) return yield* fail("The receiving agent no longer exists.");
     const to = delivery.toThreadId;
+    const nowMs = yield* now;
     if (
       paused.has(to) ||
-      limited.has(to) ||
+      blocks(to, nowMs) ||
       isBusy(target) ||
       (queues.get(to)?.length ?? 0) > 0 ||
       ownTurns.has(to)
@@ -514,7 +598,7 @@ const make = Effect.gen(function* () {
   const drainQueue = Effect.fnUntraced(function* (threadId: ThreadId) {
     const messageId = MessageId.make(yield* uuid);
     const threads = yield* shells;
-    if (paused.has(threadId) || limited.has(threadId) || ownTurns.has(threadId)) return;
+    if (paused.has(threadId) || blocks(threadId, yield* now) || ownTurns.has(threadId)) return;
     const thread = threads.find((entry) => entry.id === threadId);
     if (!thread || isBusy(thread)) return;
     const queue = queues.get(threadId);
@@ -532,6 +616,25 @@ const make = Effect.gen(function* () {
   const pausedNote = (name: string) =>
     `${name} was stopped by the user. Your message is queued and will be delivered when the user resumes it; do not wait for it or resend.`;
 
+  /** What the sender is told when the receiver's provider is out of usage. */
+  const limitNote = (
+    title: string,
+    id: string,
+    delivery: "started" | "queued",
+    nowMs: number,
+  ): string | null => {
+    const mark = activeMark(id, nowMs);
+    if (!mark) return null;
+    const move = "or use viewcode_configure_agent to move it to another provider";
+    if (delivery === "started") {
+      return `${title} hit its usage limit earlier (${describeMark(mark, nowMs)}). This message was delivered as a check; you will be told if the limit still applies.`;
+    }
+    if (nowMs >= mark.retryAfter) {
+      return `${title} hit its usage limit earlier (${describeMark(mark, nowMs)}). Your message is queued behind its current work.`;
+    }
+    return `${title} is ${describeMark(mark, nowMs)}. Your message is queued and will be delivered automatically ${clockAt(mark.retryAfter, nowMs)}; ${move}.`;
+  };
+
   const sendMessage: AgentMessagingShape["sendMessage"] = (caller, input) =>
     Effect.gen(function* () {
       const { self, tree } = yield* resolveCaller(caller);
@@ -542,12 +645,6 @@ const make = Effect.gen(function* () {
         );
       }
       if (target.id === self.id) return yield* fail("An agent cannot message itself.");
-      const limitReason = limited.get(target.id);
-      if (limitReason !== undefined) {
-        return yield* fail(
-          `${target.title} is out of quota and cannot take messages: ${limitReason} Do not retry. Use viewcode_configure_agent to move it to a model on another provider, viewcode_spawn_agent a new agent on another provider, or tell the user.`,
-        );
-      }
       const request = ownTurns.get(caller);
       const isReply =
         input.responseId !== undefined &&
@@ -574,10 +671,14 @@ const make = Effect.gen(function* () {
       };
       const status = yield* deliver(delivery);
       yield* recordSent(delivery, target.title, "message", status);
+      const notes = [
+        paused.has(target.id) ? pausedNote(target.title) : null,
+        limitNote(target.title, target.id, status, yield* now),
+      ].filter((note) => note !== null);
       return {
         messageId: delivery.messageId,
         delivery: status,
-        ...(paused.has(target.id) ? { note: pausedNote(target.title) } : {}),
+        ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
       };
     });
 
@@ -693,21 +794,35 @@ const make = Effect.gen(function* () {
   const listAgents: AgentMessagingShape["listAgents"] = (caller) =>
     Effect.gen(function* () {
       const { self, tree } = yield* resolveCaller(caller);
-      return tree.map((thread) => ({
-        id: thread.id,
-        name: thread.title,
-        parentId: thread.parentThreadId ?? null,
-        relation: relationOf(thread, self),
-        provider: String(thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
-        model: thread.modelSelection.model,
-        status: paused.has(thread.id) ? "paused" : statusOf(thread),
-        queuedMessages: queues.get(thread.id)?.length ?? 0,
-      }));
+      const nowMs = yield* now;
+      return tree.map((thread): AgentSummary => {
+        const mark = activeMark(thread.id, nowMs);
+        return {
+          id: thread.id,
+          name: thread.title,
+          parentId: thread.parentThreadId ?? null,
+          relation: relationOf(thread, self),
+          provider: String(thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
+          model: thread.modelSelection.model,
+          status: paused.has(thread.id) ? "paused" : statusOf(thread),
+          queuedMessages: queues.get(thread.id)?.length ?? 0,
+          ...(mark
+            ? {
+                outOfUsage: {
+                  summary: describeMark(mark, nowMs),
+                  ...(mark.resetsAt !== null ? { resetsAt: isoOf(mark.resetsAt) } : {}),
+                  retryAfter: isoOf(mark.retryAfter),
+                  lastCheckedAt: isoOf(mark.lastCheckedAt),
+                },
+              }
+            : {}),
+        };
+      });
     });
 
   const listModels: AgentMessagingShape["listModels"] = () =>
-    providerRegistry.getProviders.pipe(
-      Effect.map((providers) =>
+    Effect.all([providerRegistry.getProviders, now]).pipe(
+      Effect.map(([providers, nowMs]) =>
         // Unusable providers stay listed with the reason, so an agent asked
         // for "GPT" learns Codex needs attention instead of silently picking
         // another provider's copy of the model.
@@ -715,12 +830,36 @@ const make = Effect.gen(function* () {
           .filter((provider) => provider.enabled && provider.status !== "disabled")
           .map((provider): ProviderModels => {
             const note = provider.message ?? provider.unavailableReason;
+            const usage = provider.usageLimits;
+            const reading =
+              usage && usage.unavailable === undefined && usage.windows.length > 0
+                ? {
+                    exhausted: usage.windows.some(
+                      (window) =>
+                        window.usedPercent >= SPENT_WINDOW_PERCENT &&
+                        (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
+                    ),
+                    resetsAt: selectSpentWindowReset(usage.windows, nowMs),
+                    checkedAt: usage.checkedAt,
+                  }
+                : undefined;
             return {
               providerId: String(provider.instanceId),
               name: provider.displayName ?? String(provider.driver),
               driver: String(provider.driver),
               usable: provider.status !== "error" && provider.availability !== "unavailable",
               ...(note ? { note } : {}),
+              ...(reading
+                ? {
+                    usage: {
+                      exhausted: reading.exhausted,
+                      ...(reading.exhausted && reading.resetsAt !== null
+                        ? { resetsAt: isoOf(reading.resetsAt) }
+                        : {}),
+                      checkedAt: reading.checkedAt,
+                    },
+                  }
+                : {}),
               models: provider.models
                 .filter((model) => model.isLegacy !== true)
                 .map((model) => ({
@@ -832,8 +971,15 @@ const make = Effect.gen(function* () {
           message.text.trim().length > 0,
       )?.text;
     }
+    const mark = hitLimit ? limited.get(thread.id) : undefined;
+    const nowMs = yield* now;
+    const label = mark ? yield* providerLabel(mark.instanceId) : "provider";
+    const move =
+      "To keep going now, use viewcode_configure_agent to move it to a model on another provider.";
     const limitNotice = hitLimit
-      ? `[Usage limit reached: ${lastError} This agent stops here. Do not message it again or wait for it; use viewcode_configure_agent to move it to a model on another provider, or finish without it.]`
+      ? mark?.resetsAt != null
+        ? `[Usage limit reached: ${lastError} ${thread.title} is out of ${label} usage until ${clockText(mark.resetsAt, nowMs)}. ViewCode will tell you when it is back; messages you send it before then are queued and delivered automatically ${clockAt(mark.retryAfter, nowMs)}. ${move}]`
+        : `[Usage limit reached: ${lastError} ${thread.title} is out of ${label} usage and its reset time is unknown; retry after ${clockText(mark?.retryAfter ?? nowMs, nowMs)}. Messages you send it are queued and delivered automatically then, and ViewCode will tell you when it is back. ${move}]`
       : null;
     const body =
       limitNotice !== null
@@ -866,12 +1012,206 @@ const make = Effect.gen(function* () {
     yield* recordSent(reply, to.title, "message", status);
   });
 
-  const updateLimit = (thread: OrchestrationThreadShell) => {
+  const instanceOf = (thread: OrchestrationThreadShell) =>
+    String(thread.session?.providerInstanceId ?? thread.modelSelection.instanceId);
+
+  const usageWindows = (instanceId: string) =>
+    providerRegistry.getProviders.pipe(
+      Effect.map(
+        (providers) =>
+          providers.find((entry) => String(entry.instanceId) === instanceId)?.usageLimits
+            ?.windows ?? [],
+      ),
+      Effect.orElseSucceed(() => []),
+    );
+
+  const wakeLimits = Queue.offer(limitChanged, undefined).pipe(Effect.asVoid);
+
+  /**
+   * Marks or unmarks the agent from how its turn ended. A limit failure is
+   * always a fresh observation of the limit; an idle event without a new turn
+   * keeps the mark it has, so re-reading the same error does not push its
+   * retry time back.
+   */
+  const updateLimit = Effect.fnUntraced(function* (
+    thread: OrchestrationThreadShell,
+    signal: number | null | undefined,
+    fresh: boolean,
+  ) {
     const lastError = thread.session?.lastError ?? null;
-    if (isLimitError(lastError)) limited.set(thread.id, lastError);
-    else limited.delete(thread.id);
-    return isLimitError(lastError);
-  };
+    if (!isLimitError(lastError)) {
+      limited.delete(thread.id);
+      return false;
+    }
+    if (!fresh && limited.get(thread.id)?.reason === lastError) return true;
+    const nowMs = yield* now;
+    const instanceId = instanceOf(thread);
+    const resetsAt = pickResetTime({
+      recorded: signal,
+      text: lastError,
+      windows: yield* usageWindows(instanceId),
+      nowMs,
+    });
+    const known = resetsAt !== null && resetsAt - nowMs <= MAX_RESET_HORIZON_MS;
+    limited.set(thread.id, {
+      reason: lastError,
+      instanceId,
+      resetsAt: known ? resetsAt : null,
+      retryAfter: known
+        ? Math.max(resetsAt + USAGE_RESET_MARGIN_MS, nowMs + 5_000)
+        : nowMs + UNKNOWN_RESET_RETRY_MS,
+      lastCheckedAt: nowMs,
+      released: false,
+    });
+    yield* wakeLimits;
+    return true;
+  });
+
+  const providerLabel = (instanceId: string) =>
+    providerRegistry.getProviders.pipe(
+      Effect.map((providers) => {
+        const provider = providers.find((entry) => String(entry.instanceId) === instanceId);
+        return provider?.displayName ?? String(provider?.driver ?? instanceId);
+      }),
+      Effect.orElseSucceed(() => instanceId),
+    );
+
+  /**
+   * An agent's limit no longer holds. Messages already queued for it were sent
+   * on purpose, so they go out now. With none queued, a child is not continued
+   * on its own (its lead may have moved the work): the lead is told instead,
+   * which starts a turn for it like any other agent message.
+   */
+  const releaseMark = Effect.fnUntraced(function* (id: string, mark: LimitMark) {
+    const threadId = ThreadId.make(id);
+    const hadQueue = (queues.get(id)?.length ?? 0) > 0;
+    yield* drainQueue(threadId);
+    if (hadQueue) return;
+    const threads = yield* shells;
+    const child = threads.find((entry) => entry.id === threadId);
+    if (!child?.parentThreadId || isBusy(child) || ownTurns.has(id)) return;
+    const lead = threads.find((entry) => entry.id === child.parentThreadId);
+    if (!lead) return;
+    const nowMs = yield* now;
+    const label = yield* providerLabel(mark.instanceId);
+    const reset = mark.resetsAt !== null ? ` (reset ${clockText(mark.resetsAt, nowMs)})` : "";
+    const request: Delivery = {
+      messageId: yield* uuid,
+      chainId: yield* uuid,
+      hop: 0,
+      fromThreadId: lead.id,
+      fromName: lead.title,
+      toThreadId: child.id,
+      body: "",
+      replyExpected: false,
+      inReplyTo: null,
+    };
+    yield* sendAutomatic(
+      child,
+      lead,
+      request,
+      `${label} usage is back${reset}. ${child.title} stopped mid-task on the limit and is available again. Resume it with viewcode_send_message (for example "continue where you left off"), or leave it if you have moved the work.`,
+    );
+  });
+
+  const releaseSafely = (id: string, mark: LimitMark) =>
+    releaseMark(id, mark).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("agent messaging failed to release an agent after its limit cleared", {
+          threadId: id,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+
+  /** A turn worked on this provider instance, so its limit is not holding anyone: release them all. */
+  const clearInstance = Effect.fnUntraced(function* (instanceId: string) {
+    const cleared = [...limited].filter(([, mark]) => mark.instanceId === instanceId);
+    if (cleared.length === 0) return;
+    for (const [id] of cleared) limited.delete(id);
+    yield* wakeLimits;
+    for (const [id, mark] of cleared) yield* releaseSafely(id, mark);
+  });
+
+  /**
+   * Sleeps to the earliest retry time. A known reset that has passed drops the
+   * mark; an unknown one is released so the oldest queued message goes out as
+   * the probe. Woken whenever the marks change; there is no polling.
+   */
+  const limitTimer = Effect.gen(function* () {
+    while (true) {
+      const nowMs = yield* now;
+      let next: number | null = null;
+      for (const [id, mark] of [...limited]) {
+        if (mark.released) continue;
+        if (mark.retryAfter <= nowMs) {
+          if (mark.resetsAt !== null) {
+            limited.delete(id);
+            yield* releaseSafely(id, mark);
+          } else {
+            // Unknown reset: the oldest queued message goes out as the probe.
+            mark.released = true;
+            yield* drainQueue(ThreadId.make(id)).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("agent messaging failed to release a queue at its retry time", {
+                  threadId: id,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
+          }
+        } else if (next === null || mark.retryAfter < next) {
+          next = mark.retryAfter;
+        }
+      }
+      if (next === null) {
+        yield* Queue.take(limitChanged);
+      } else {
+        // @effect-diagnostics-next-line raceFirstWithSleepToTimeout:off - one sleep to the earliest retry, cut short when the marks change
+        yield* Effect.raceFirst(
+          Queue.take(limitChanged),
+          Effect.sleep(Duration.millis(next - nowMs)),
+        );
+      }
+    }
+  });
+
+  /** A fresh usage reading for a provider instance: clears its marks, or refines the reset time. */
+  const onProvidersChanged = Effect.fnUntraced(function* (
+    providers: ReadonlyArray<ServerProvider>,
+  ) {
+    if (limited.size === 0) return;
+    const nowMs = yield* now;
+    for (const provider of providers) {
+      const usage = provider.usageLimits;
+      if (!usage || usage.unavailable !== undefined || usage.refreshError !== undefined) continue;
+      if (usage.windows.length === 0) continue;
+      const instanceId = String(provider.instanceId);
+      if (![...limited.values()].some((mark) => mark.instanceId === instanceId)) continue;
+      const checkedAt = Date.parse(usage.checkedAt);
+      const spent = usage.windows.some(
+        (window) =>
+          window.usedPercent >= SPENT_WINDOW_PERCENT &&
+          (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
+      );
+      if (!spent) {
+        yield* clearInstance(instanceId);
+        continue;
+      }
+      const reset = selectSpentWindowReset(usage.windows, nowMs);
+      for (const mark of limited.values()) {
+        if (mark.instanceId !== instanceId) continue;
+        if (Number.isFinite(checkedAt))
+          mark.lastCheckedAt = Math.max(mark.lastCheckedAt, checkedAt);
+        if (mark.resetsAt === null && reset !== null && reset - nowMs <= MAX_RESET_HORIZON_MS) {
+          mark.resetsAt = reset;
+          mark.retryAfter = reset + USAGE_RESET_MARGIN_MS;
+          mark.released = false;
+        }
+      }
+      yield* wakeLimits;
+    }
+  });
 
   /** Keep the in-flight delivery until its terminal event and acceptance agree. */
   const pauseThread = (threadId: ThreadId, interrupted: boolean) => {
@@ -918,7 +1258,7 @@ const make = Effect.gen(function* () {
       case "turn-ended": {
         if (ownTurns.get(job.threadId) === job.turn) ownTurns.delete(job.threadId);
         const endedThread = { ...thread, session: job.session };
-        const hitLimit = updateLimit(endedThread);
+        const hitLimit = yield* updateLimit(endedThread, job.signal, true);
         // Stopped by the user (providers report an interrupted turn as
         // "interrupted" or as an ordinary "ready"): Resume continues it, and
         // its answer still goes to the requester.
@@ -942,6 +1282,9 @@ const make = Effect.gen(function* () {
           return;
         }
         yield* routeReply(endedThread, job.turn, hitLimit);
+        if (!hitLimit && job.session.status === "ready" && !job.session.lastError) {
+          yield* clearInstance(instanceOf(thread));
+        }
         yield* drainQueue(job.threadId);
         return;
       }
@@ -971,7 +1314,14 @@ const make = Effect.gen(function* () {
       }
       case "idle": {
         if (ownTurns.has(job.threadId)) return;
-        updateLimit(thread);
+        yield* updateLimit(thread, job.signal, false);
+        if (
+          thread.session?.status === "ready" &&
+          !thread.session.lastError &&
+          thread.latestTurn?.state === "completed"
+        ) {
+          yield* clearInstance(instanceOf(thread));
+        }
         yield* finishPause(thread);
         yield* drainQueue(job.threadId);
         return;
@@ -1029,6 +1379,7 @@ const make = Effect.gen(function* () {
     Effect.suspend(() => {
       switch (event.type) {
         case "thread.turn-start-requested": {
+          signals.delete(event.payload.threadId);
           const own = ownTurns.get(event.payload.threadId);
           if (own && own.messageId === event.payload.messageId) {
             return Effect.void;
@@ -1064,13 +1415,26 @@ const make = Effect.gen(function* () {
                 threadId,
                 turn: own,
                 session: own.ended.get(own.turnId)!,
+                signal: signals.get(threadId),
               });
             }
           }
-          return live ? Effect.void : worker.enqueue({ kind: "idle", threadId });
+          return live
+            ? Effect.void
+            : worker.enqueue({ kind: "idle", threadId, signal: signals.get(threadId) });
         }
         case "thread.activity-appended": {
           const { threadId, activity } = event.payload;
+          if (activity.kind === "runtime.warning") {
+            // A rejected usage window carries the provider's own reset time.
+            const reset = rateLimitSignalReset(
+              (activity.payload as { readonly detail?: unknown } | null)?.detail,
+            );
+            if (reset !== undefined) {
+              signals.set(threadId, mergeRateLimitSignal(signals.get(threadId), reset));
+            }
+            return Effect.void;
+          }
           if (
             activity.kind !== "provider.turn.start.accepted" &&
             activity.kind !== "provider.turn.start.failed"
@@ -1093,7 +1457,13 @@ const make = Effect.gen(function* () {
                 : Effect.void;
             }
             own.finishing = true;
-            return worker.enqueue({ kind: "turn-ended", threadId, turn: own, session });
+            return worker.enqueue({
+              kind: "turn-ended",
+              threadId,
+              turn: own,
+              session,
+              signal: signals.get(threadId),
+            });
           }
           if (activity.kind === "provider.turn.start.failed") {
             own.finishing = true;
@@ -1101,6 +1471,7 @@ const make = Effect.gen(function* () {
               kind: "turn-ended",
               threadId,
               turn: own,
+              signal: signals.get(threadId),
               session: {
                 threadId,
                 status: "error",
@@ -1218,7 +1589,7 @@ const make = Effect.gen(function* () {
       const thread = (yield* shells).find((entry) => entry.id === threadId);
       if (!thread || paused.has(threadId) || ownTurns.has(threadId) || isBusy(thread)) return false;
       limited.delete(threadId);
-      yield* startTurn(thread, AGENT_CONTINUE_PROMPT, null, messageId).pipe(
+      yield* startTurn(thread, USAGE_RESET_CONTINUE_PROMPT, null, messageId).pipe(
         Effect.mapError((cause) => new AgentMessagingError({ reason: String(cause) })),
       );
       return true;
@@ -1226,8 +1597,33 @@ const make = Effect.gen(function* () {
 
   const start: AgentMessagingShape["start"] = Effect.fn("AgentMessaging.start")(function* () {
     const events = yield* engine.subscribeDomainEvents;
+    const providerChanges = providerRegistry.streamChanges;
     yield* forkParked(Stream.runForEach(events, processEvent));
+    yield* forkParked(
+      Effect.all(
+        [
+          limitTimer,
+          Stream.runForEach(providerChanges, (providers) =>
+            onProvidersChanged(providers).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("agent messaging failed to read a usage snapshot", {
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            ),
+          ),
+        ],
+        { concurrency: "unbounded", discard: true },
+      ),
+    );
   });
+
+  const setUsageResume: AgentMessagingShape["setUsageResume"] = (threadId, state) =>
+    Effect.suspend(() => {
+      if (state === null) usageStates.delete(threadId);
+      else usageStates.set(threadId, state);
+      return publishControl;
+    });
 
   return {
     listAgents,
@@ -1241,6 +1637,7 @@ const make = Effect.gen(function* () {
     resume,
     discard,
     continueAfterLimit,
+    setUsageResume,
     controlChanges: SubscriptionRef.changes(control),
     start,
     drain: worker.drain,

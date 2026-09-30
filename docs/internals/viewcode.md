@@ -106,23 +106,41 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   resumes it. Pause and queues live in server memory only
   (`subscribeAgentControl` streams them); a restart forgets them. Mobile can
   stop and prompt but has no Resume/Discard buttons yet.
-- A turn that ends with a usage/plan/rate-limit/credit error marks the agent
-  "out of quota": the sender is told once ("do not message it again"), further
-  sends are refused, queued messages wait. Providers only report this as text,
-  so `isLimitError` is a narrow pattern that explicitly excludes context-length
-  errors ("context window exceeded" is not a quota problem). Cleared by a
-  successful turn, or by `viewcode_configure_agent` moving it to another model,
-  which also starts its queued work on the new model. Configure writes the
-  thread's model too, so the user's next prompt uses it unless the composer
-  already has another model picked.
-- Resume after a usage limit (`agents/UsageResume.ts`, any thread, not only agents): a limit
-  error schedules "Continue where you left off." for the reset plus 60s, taken from the
-  exhausted usage window, else parsed from the error text (`agents/usageResetTime.ts`); no time
-  means no schedule. Schedules are JSON files in `<stateDir>/usage-resume/` (like pending
-  handoffs) so they survive a restart; overdue ones run 5s after boot. One sleeping fiber
-  waits for the earliest, woken on changes. A user turn, model switch or Cancel drops it; a
-  second limit failure reschedules once, then stops. The state clients show is a
-  `viewcode.usage-resume` activity (latest wins). The server tells the desktop to hold
+- A turn that ends with a usage/plan/rate-limit/credit error marks the agent out of usage in
+  AgentMessaging (`limited`, a `LimitMark`). Providers only report this as text, so
+  `isLimitError` (`packages/shared/src/usageLimit.ts`, shared with the web notification) is a
+  narrow pattern that excludes context-length errors. The mark never refuses a send: messages
+  queue until `retryAfter` (the reset plus 60s; ten minutes on when no reset time is known),
+  and the sender is told when they will be delivered and when the limit was last checked. One
+  timer wakes at the earliest `retryAfter`. A known reset deletes the mark and drains the queue;
+  an unknown one releases the queue so the oldest queued message is the probe (no separate
+  provider test call: that would launch the CLI). A successful turn on the same provider
+  instance, or a usage snapshot showing no window at 95%, clears every mark on that instance;
+  a probe that fails re-marks. Clearing a child's mark delivers its queued mail, else messages
+  the lead (a new lead turn, whatever its provider) that the child stopped mid-task and is
+  available: the child itself is not continued, so a lead that moved the work does not get
+  double work. `viewcode_list_agents` (`outOfUsage`) and `viewcode_list_models` (`usage`) show
+  the state so agents check instead of guessing. `viewcode_configure_agent` moving the agent to
+  another model also clears its mark and starts its queued work.
+- Resume after a usage limit (`agents/UsageResume.ts`, top-level threads and leads; not child
+  agents, which are left to their lead): a limit error schedules "The usage limit has reset.
+  Continue exactly where you left off and finish the task." at `max(resetsAt + 60s, now + 5s)`.
+  The reset time comes from, in order: the provider's own signal recorded during the turn (a
+  `runtime.warning` activity whose detail is Claude's rejected `rate_limit_event` info; the
+  later signal with a time wins; cleared when a turn starts), the error text
+  (`agents/usageResetTime.ts`, including `usage limit reached|<unix>`), then the most-used usage
+  window with a future reset if it is at least 95% used. Codex reports only the failed turn's
+  error text. Schedules are JSON files in `<stateDir>/usage-resume/` (like pending handoffs) so
+  they survive a restart; overdue ones run 5s after boot. One sleeping fiber waits for the
+  earliest, woken on changes. A user turn, model switch or Cancel drops it; a second limit
+  failure reschedules once, then stops. The state clients show is a `viewcode.usage-resume`
+  activity (latest wins). The desktop notification comes from the agent-control stream, not the
+  failure: `AgentControlState.usageResume` is set (with `resumeAt` when scheduled) once the
+  server has decided, and `ThreadNotificationCoordinator` skips its "Thread failed" alert for a
+  top-level limit failure and sends "Usage limit reached. Continuing at 3:31 PM." (or "Send a
+  message to continue.") when that entry arrives. Times are worded by `formatResumeTime` in
+  `packages/shared/src/usageLimit.ts`, which web, mobile, the notification and the server's
+  messages to agents all use. The server tells the desktop to hold
   `powerSaveBlocker("prevent-app-suspension")` over the telemetry control fd (`setKeepAwake`)
   while any schedule exists. There is deliberately no scheduled wake: `pmset schedule wake`
   needs admin, which managed laptops lack, so the computer must stay awake and a closed lid may

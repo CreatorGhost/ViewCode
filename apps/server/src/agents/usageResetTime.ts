@@ -2,8 +2,14 @@
 /**
  * Reads when a usage limit resets out of a provider's error text, e.g.
  * "You've hit your limit · resets 8pm (UTC)", "resets Sep 29, 10am (UTC)",
- * "try again in 2h 30m" or an ISO timestamp. Providers report this only as
- * prose, so the parser is tolerant and answers null when it is not sure.
+ * "try again in 2h 30m", "usage limit reached|1757865600" (Unix seconds, or
+ * milliseconds above 1e11, after a bar) or an ISO timestamp. Providers report
+ * this only as prose, so the parser is tolerant and answers null when it is
+ * not sure. The messages it reads are the ones `isLimitError` accepts
+ * (`@t3tools/shared/usageLimit`); keep the two in step.
+ *
+ * This file also picks the best reset time among the sources a limit leaves
+ * behind (see `pickResetTime`).
  */
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -172,8 +178,19 @@ function parseClock(text: string, nowMs: number): number | null {
   return candidate;
 }
 
+/** "usage limit reached|1757865600": Unix seconds after a bar, or milliseconds when huge. */
+function parseBarTimestamp(text: string): number | null {
+  const match = /\|\s*(\d{9,})\b/.exec(text);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  return value > 1e11 ? value : value * 1000;
+}
+
 /** Epoch milliseconds of the reset the text names, or null when it names none. */
 export function parseResetTime(text: string, nowMs: number): number | null {
+  const stamped = parseBarTimestamp(text);
+  if (stamped !== null) return stamped;
   const iso = /\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2}))/.exec(
     text,
   );
@@ -185,4 +202,71 @@ export function parseResetTime(text: string, nowMs: number): number | null {
   if (relative !== null) return relative;
   const clock = parseClock(text, nowMs);
   return clock !== null && Number.isFinite(clock) ? clock : null;
+}
+
+/** A window at or above this share of its allowance counts as spent. */
+export const SPENT_WINDOW_PERCENT = 95;
+/** Wait past the reset so the provider has certainly cleared the window. */
+export const USAGE_RESET_MARGIN_MS = 60_000;
+
+/**
+ * The reset time inside a `runtime.warning` activity's detail when that detail
+ * is a provider rate-limit signal (Claude's `rate_limit_event` info, which the
+ * adapter reports for a rejected window). `undefined` when it is not one;
+ * `null` when the signal carries no time. Claude writes `resetsAt` in epoch
+ * seconds; a value above 1e11 is milliseconds.
+ */
+export function rateLimitSignalReset(detail: unknown): number | null | undefined {
+  if (typeof detail !== "object" || detail === null) return undefined;
+  const info = detail as Record<string, unknown>;
+  if (info.status !== "rejected") return undefined;
+  const raw = info.resetsAt ?? info.resetsAtSeconds;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return null;
+  return raw > 1e11 ? raw : raw * 1000;
+}
+
+/** A later signal with a time beats an earlier one without. */
+export function mergeRateLimitSignal(
+  previous: number | null | undefined,
+  next: number | null,
+): number | null {
+  return next ?? previous ?? null;
+}
+
+/** The reset of the most-used window that has one in the future, if it is spent. */
+export function selectSpentWindowReset(
+  windows: ReadonlyArray<{ readonly usedPercent: number; readonly resetsAt?: string | undefined }>,
+  nowMs: number,
+): number | null {
+  let spent: { readonly usedPercent: number; readonly at: number } | null = null;
+  for (const window of windows) {
+    if (window.resetsAt === undefined) continue;
+    const at = Date.parse(window.resetsAt);
+    if (!Number.isFinite(at) || at <= nowMs) continue;
+    if (spent === null || window.usedPercent > spent.usedPercent) {
+      spent = { usedPercent: window.usedPercent, at };
+    }
+  }
+  return spent !== null && spent.usedPercent >= SPENT_WINDOW_PERCENT ? spent.at : null;
+}
+
+/**
+ * When a limit resets, from the best source that has one: the provider's own
+ * signal recorded during the turn, then the error text, then the provider's
+ * usage windows.
+ */
+export function pickResetTime(input: {
+  readonly recorded: number | null | undefined;
+  readonly text: string;
+  readonly windows: ReadonlyArray<{
+    readonly usedPercent: number;
+    readonly resetsAt?: string | undefined;
+  }>;
+  readonly nowMs: number;
+}): number | null {
+  return (
+    input.recorded ??
+    parseResetTime(input.text, input.nowMs) ??
+    selectSpentWindowReset(input.windows, input.nowMs)
+  );
 }
