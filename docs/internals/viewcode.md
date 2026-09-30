@@ -9,7 +9,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 | Feature                                  | Main files                                                                                                                                                                                      |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mid-chat model/provider switch + handoff | `apps/server/src/orchestration/Handoff.ts`, `orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`, `observedContextTokens`)                                                    |
+| Mid-chat model/provider switch + handoff | `apps/server/src/orchestration/Handoff.ts`, `orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`)                                                                             |
 | Child agents                             | `parentThreadId` on threads (contracts `orchestration.ts`, migration `055_ProjectionThreadsParentThreadId`), web `components/agents/*`, sidebar `components/sidebar/sidebarThreadTree.ts`       |
 | Agent-to-agent messaging                 | `apps/server/src/agents/AgentMessaging.ts`, `agents/searchHistory.ts`, MCP toolkit `apps/server/src/mcp/toolkits/agents/`, envelope in `packages/shared/src/agentMessages.ts`                   |
 | Command Code provider                    | `apps/server/src/provider/commandCodeCli.ts`, `Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`, `Layers/commandCodeUsageLimits.ts`                                                      |
@@ -34,20 +34,21 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   resume cache. Same continuation key → the native session continues. Different
   key → the new session starts with `freshSession: true` and the first turn gets
   a `<handoff>` prelude.
-- Size is decided by the **incoming** model's context window: the latest
-  `context-window.updated` activity (`maxTokens`) stamped with that same model
-  and instance (ingestion stamps rows from the running session), on a thread
-  currently set to that model. Unstamped rows and rows from other models are
-  ignored; 128k is assumed until the model has reported once.
-- The budget is 25% of that window, hard-capped at the provider's per-turn
-  input limit (`PROVIDER_SEND_TURN_MAX_INPUT_CHARS`) minus the user's message,
-  a 2k margin and 400 per attachment (`maxChars`), and covers the **whole
-  rendered prelude** (header, recap, omission note). A prelude that still does
-  not fit (tiny room, or a transcript path longer than the reserved 400
-  characters) becomes a minimal one: header plus "the full transcript is at
-  <path>; search it". The reactor re-checks the combined input, shrinks the
-  prelude (down to none) and logs a warning; the user's message is never
-  trimmed and the turn never fails because of the handoff.
+- A model's context-window variant (Claude's 200k / 1M `contextWindow`
+  option, which picks the `[1m]` API id) is a model option, not a separate
+  model. Changing it keeps the thread's instance and model, so it never hands
+  off: the reactor restarts the Claude session with its resume cursor on the
+  new API id, and the conversation continues natively. The composer trigger
+  names the variant ("High · 1M" on web, "Opus 5.5 · 1M" on mobile) because it
+  is part of what runs.
+- The recap has one fixed budget for every incoming model,
+  `HANDOFF_BUDGET_TOKENS` (50k tokens, ~200k characters), covering the **whole
+  rendered prelude** (header, recap, omission note). It is not a share of the
+  target's window on purpose: only Codex (at runtime, after the model has run)
+  and Claude (through its model catalog) report one, and a fixed size keeps the
+  handoff predictable. 50k is about a quarter of a 250k window, leaves a ~120k
+  model under half full, and does not matter to a 1M model; the transcript
+  file and `viewcode_search_history` cover everything older.
   If everything fits, it is carried verbatim ("full"). Otherwise ("compact") the
   budget is filled in priority order: the user's messages newest first in full,
   then older user messages clipped to 300 characters, then replies newest first
@@ -57,6 +58,19 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   transcript file. The user's words are prioritized but not guaranteed whole: a
   message too large for the budget is clipped, and on a very long thread older
   messages are left out.
+- That budget does not fit the 120k-character user input limit, so a turn that
+  carries a prelude is sent with `handoff: true` and held to
+  `PROVIDER_HANDOFF_MAX_INPUT_CHARS` (240k) instead (`ProviderSendTurnInput`
+  and `ProviderService.sendTurn`). The user's own message keeps the 120k limit:
+  a longer one is sent without the flag and fails as it would anyway. Every
+  adapter takes the input over stdin, JSON-RPC or HTTP, never argv. Within the
+  240k the recap gets what the message leaves (minus a 2k margin and 400 per
+  attachment, `maxChars`). A prelude that still does not fit (tiny room, or a
+  transcript path longer than the reserved 400 characters) becomes a minimal
+  one: header plus "the full transcript is at <path>; search it". The reactor
+  re-checks the combined input, shrinks the prelude (down to none) and logs a
+  warning; the user's message is never trimmed and the turn never fails
+  because of the handoff.
 - Key facts (links, PR/issue numbers, branches, file paths including root-level
   names and Windows paths, and hex hashes only next to a git word such as
   `commit`/`sha`/`git show`) are extracted deterministically from messages and

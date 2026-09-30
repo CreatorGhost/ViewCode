@@ -22,7 +22,7 @@ import {
   type ChatImageAttachment,
   type SnapShotAccessibility,
   type SnapShotAccessibilityNode,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  providerSendTurnMaxInputChars,
   ProviderSessionStartInput,
   ProviderStopSessionInput,
   ProviderUploadFeedbackInput,
@@ -1600,6 +1600,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
 
+    // A handoff turn carries a prelude and has its own, larger limit.
+    const maxInputChars = providerSendTurnMaxInputChars(parsed);
     const inputTextWithCitations =
       parsed.input === undefined ? undefined : expandAssistantCitationsForProvider(parsed.input);
     if (inputTextWithCitations !== parsed.input) {
@@ -1608,6 +1610,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         schema: ProviderSendTurnInput.fields.input,
         payload: inputTextWithCitations,
       });
+      if ((inputTextWithCitations?.length ?? 0) > maxInputChars) {
+        return yield* toValidationError(
+          "ProviderService.sendTurn",
+          `Input exceeds the ${maxInputChars} character limit`,
+        );
+      }
     }
 
     // Every attachment gets an on-disk path in the prompt so the model's tools
@@ -1623,7 +1631,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const candidate = inputTextWithAttachmentContext
         ? `${inputTextWithAttachmentContext}\n\n${context}`
         : context;
-      if (candidate.length <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
+      if (candidate.length <= maxInputChars) {
         inputTextWithAttachmentContext = candidate;
         return true;
       }
@@ -1648,7 +1656,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       if (isPastedText && !appended) {
         return yield* toValidationError(
           "ProviderService.sendTurn",
-          `Input plus pasted-text attachment context exceeds the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS} character limit`,
+          `Input plus pasted-text attachment context exceeds the ${maxInputChars} character limit`,
         );
       }
     }

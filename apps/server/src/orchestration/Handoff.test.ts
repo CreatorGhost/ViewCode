@@ -1,7 +1,7 @@
 import type { OrchestrationThread } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
-import { buildHandoff, estimateTokens, extractKeyFacts } from "./Handoff.ts";
+import { buildHandoff, estimateTokens, extractKeyFacts, HANDOFF_BUDGET_TOKENS } from "./Handoff.ts";
 
 function message(role: "user" | "assistant", text: string, index: number) {
   const at = `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`;
@@ -28,7 +28,7 @@ const from = { instanceId: "claudeAgent", model: "claude-opus-4-6" };
 const to = { instanceId: "codex", model: "gpt-5-codex" };
 
 describe("buildHandoff", () => {
-  it("carries the whole conversation when it fits in a quarter of the new model's window", () => {
+  it("carries the whole conversation when it fits the handoff budget", () => {
     const thread = threadWith([
       message("user", "Remember the codeword PINEAPPLE and refactor auth.", 0),
       message("assistant", "Noted. Starting with the session store.", 1),
@@ -49,7 +49,7 @@ describe("buildHandoff", () => {
     expect(handoff.summary).toContain("Carried the whole conversation");
   });
 
-  it("compacts a long conversation for a small window, keeping key facts and asking the model to search", () => {
+  it("compacts a long conversation for little room, keeping key facts and asking the model to search", () => {
     const filler = "Context about the release process. ".repeat(600);
     const thread = threadWith([
       message(
@@ -69,7 +69,7 @@ describe("buildHandoff", () => {
       from,
       to,
       recentExchanges: 2,
-      targetContextTokens: 8_000,
+      maxChars: 8_000,
     });
     const prelude = handoff.prelude("/tmp/t.md");
 
@@ -78,7 +78,7 @@ describe("buildHandoff", () => {
     expect(prelude).toContain("search_history");
     expect(prelude).toContain("### 3. User\nThe one from earlier.");
     expect(prelude).toContain("### 3. Assistant\nOn it.");
-    expect(prelude.length).toBeLessThan(8_000 * 4 * 0.25 + 4_000);
+    expect(prelude.length).toBeLessThanOrEqual(8_000);
     expect(handoff.summary).toContain("The new model summarizes the rest itself");
   });
 
@@ -95,25 +95,27 @@ describe("buildHandoff", () => {
       );
     const path = "/tmp/state/transcripts/thread-1/handoff.md";
 
-    it("keeps a huge window's prelude within maxChars", () => {
-      const uncapped = buildHandoff({
-        thread: long(),
-        from,
-        to,
-        recentExchanges: 3,
-        targetContextTokens: 400_000,
-      });
+    it("holds any conversation to the fixed budget, whatever the target", () => {
+      const handoff = buildHandoff({ thread: long(), from, to, recentExchanges: 3 });
+      const prelude = handoff.prelude(path);
+      expect(handoff.mode).toBe("compact");
+      expect(handoff.budgetTokens).toBe(HANDOFF_BUDGET_TOKENS);
+      expect(estimateTokens(prelude)).toBeLessThanOrEqual(HANDOFF_BUDGET_TOKENS);
+      expect(prelude).toContain("## Not shown here");
+      expect(prelude).toContain("Turn 118.");
+    });
+
+    it("keeps the prelude within maxChars when less room is left", () => {
       const capped = buildHandoff({
         thread: long(),
         from,
         to,
         recentExchanges: 3,
-        targetContextTokens: 400_000,
         maxChars: 20_000,
       });
-      expect(uncapped.prelude(path).length).toBeGreaterThan(120_000);
       const prelude = capped.prelude(path);
       expect(capped.mode).toBe("compact");
+      expect(capped.budgetTokens).toBe(5_000);
       expect(prelude.length).toBeLessThanOrEqual(20_000);
       expect(prelude).toContain("## Not shown here");
       expect(prelude).toContain(path);
@@ -215,14 +217,14 @@ describe("buildHandoff", () => {
 
   describe("budget invariant: the whole prelude fits the budget", () => {
     const path = "/home/user/.t3/userdata/transcripts/thread-1/handoff-2026-01-01T00-00-00-000Z.md";
-    const window = 8_000; // 2,000-token budget
+    const maxChars = 8_000; // 2,000-token budget
     const check = (thread: OrchestrationThread) => {
       const handoff = buildHandoff({
         thread,
         from,
         to,
         recentExchanges: 3,
-        targetContextTokens: window,
+        maxChars,
       });
       const prelude = handoff.prelude(path);
       expect(handoff.budgetTokens).toBe(2_000);
@@ -299,19 +301,6 @@ describe("buildHandoff", () => {
         ),
       );
       expect(prelude).toContain("Run the tests");
-    });
-
-    it("a window too small for the header carries only the header and the omission note", () => {
-      const handoff = buildHandoff({
-        thread: threadWith([message("user", "x".repeat(10_000), 0), message("assistant", "ok", 1)]),
-        from,
-        to,
-        recentExchanges: 3,
-        targetContextTokens: 1_000,
-      });
-      const prelude = handoff.prelude(path);
-      expect(prelude).toContain("1 of the user's 1 messages are left out");
-      expect(estimateTokens(prelude)).toBeLessThan(600);
     });
 
     it("one huge user message is clipped, never summarized, and points at the rest", () => {

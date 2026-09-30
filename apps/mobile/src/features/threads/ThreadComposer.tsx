@@ -88,7 +88,7 @@ import {
 } from "../../lib/modelOptions";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import type { RemoteClientConnectionState } from "../../lib/connection";
-import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
+import { modelChipLabel, resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
 import {
@@ -964,7 +964,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         renderIcon={(size) => (
                           <ProviderIcon provider={currentModelOption?.providerDriver} size={size} />
                         )}
-                        label={currentModelOption?.label ?? currentModelSelection.model}
+                        label={modelChipLabel({
+                          label: currentModelOption?.label ?? currentModelSelection.model,
+                          capabilities: currentModelOption?.capabilities,
+                          selections: currentModelSelection.options,
+                        })}
                         maxWidth="100%"
                         onPress={openSettings}
                       />

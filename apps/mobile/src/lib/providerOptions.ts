@@ -5,6 +5,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   buildProviderOptionSelectionsFromDescriptors,
+  getProviderOptionCurrentLabel,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
 
@@ -19,6 +20,22 @@ export function resolveProviderOptionDescriptors(input: {
     caps: input.capabilities,
     selections: input.selections,
   });
+}
+
+/**
+ * The composer's model chip label: the model name, followed by its context
+ * window variant (Claude's 200k / 1M) when the model offers one, since that
+ * is part of which model runs.
+ */
+export function modelChipLabel(input: {
+  readonly label: string;
+  readonly capabilities: ModelCapabilities | null | undefined;
+  readonly selections: ReadonlyArray<ProviderOptionSelection> | null | undefined;
+}): string {
+  const contextWindow = getProviderOptionCurrentLabel(
+    resolveProviderOptionDescriptors(input).find((descriptor) => descriptor.id === "contextWindow"),
+  );
+  return contextWindow ? `${input.label} · ${contextWindow}` : input.label;
 }
 
 /**

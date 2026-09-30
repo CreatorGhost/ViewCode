@@ -8,10 +8,12 @@ import {
   ProviderRuntimeEvent,
   ProviderSession,
   ProviderDriverKind,
+  PROVIDER_HANDOFF_MAX_INPUT_CHARS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderInstanceId,
   ProviderSetupError,
 } from "@t3tools/contracts";
+import { estimateTokens, HANDOFF_BUDGET_TOKENS } from "../Handoff.ts";
 import { createModelSelection } from "@t3tools/shared/model";
 import {
   ApprovalRequestId,
@@ -3923,103 +3925,52 @@ describe("ProviderCommandReactor", () => {
       expect(NodeFS.existsSync(pendingFile(after))).toBe(false);
     });
 
-    const handOffWithReportedWindow = async (reportedBy: { model: string; instanceId: string }) => {
-      const harness = await createHarness();
-      // ~15k tokens: whole under the 128k default, compact under a 20k window.
-      await startTurn(
-        harness,
-        "first",
-        `${"Background detail. ".repeat(3_200)}Remember PINEAPPLE.`,
-      );
-      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-      // Another thread now set to the incoming model; its last report may come
-      // from the model it ran before the switch.
-      await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.make("cmd-thread-create-window"),
-          threadId: ThreadId.make("thread-window"),
-          projectId: asProjectId("project-1"),
-          title: "Window source",
-          modelSelection: claude,
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-          runtimeMode: "approval-required",
-          branch: null,
-          worktreePath: null,
-          createdAt: "2026-01-01T00:00:00.000Z",
-        }),
-      );
-      await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.activity.append",
-          commandId: CommandId.make("cmd-context-window"),
-          threadId: ThreadId.make("thread-window"),
-          activity: {
-            id: EventId.make("activity-context-window"),
-            tone: "info",
-            kind: "context-window.updated",
-            summary: "Context window updated",
-            payload: { usedTokens: 1_000, maxTokens: 20_000, ...reportedBy },
-            turnId: null,
-            createdAt: "2026-01-01T00:00:00.000Z",
-          },
-          createdAt: "2026-01-01T00:00:00.000Z",
-        }),
-      );
-      await startTurn(harness, "second", "second", claude);
-      await waitFor(async () => (await handoffActivities(harness)).length === 1);
-      return (await handoffActivities(harness))[0]?.payload as { mode?: string };
-    };
-
     describe("input limit", () => {
-      const handOffWithLongHistory = async (messageText: string, historyRepeats = 6_200) => {
+      const handOffWithLongHistory = async (messageText: string, historyRepeats = 8_000) => {
         const harness = await createHarness();
-        // Enough history that even the default window would overflow the input limit.
+        // "Background detail. " is 19 characters: 8,000 repeats (~152k) is over the
+        // user input limit and within the handoff budget.
         await startTurn(harness, "first", "Background detail. ".repeat(historyRepeats));
         await waitFor(() => harness.sendTurn.mock.calls.length === 1);
         await startTurn(harness, "second", messageText, claude);
         await waitFor(() => harness.sendTurn.mock.calls.length === 2);
-        return sentInput(harness, 1);
+        return harness.sendTurn.mock.calls[1]![0] as { input?: string; handoff?: boolean };
       };
 
-      it("keeps prelude plus message within the provider limit and leaves the message intact", async () => {
+      it("carries up to the fixed budget under the handoff limit and leaves the message intact", async () => {
         const message = "Please continue with the refactor.";
-        const input = await handOffWithLongHistory(message);
+        const request = await handOffWithLongHistory(message);
+        const input = request.input ?? "";
+        expect(request.handoff).toBe(true);
         expect(input).toContain("<handoff>");
-        expect(input.length).toBeLessThanOrEqual(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+        expect(input.length).toBeGreaterThan(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+        expect(input.length).toBeLessThanOrEqual(PROVIDER_HANDOFF_MAX_INPUT_CHARS);
+        expect(estimateTokens(input.slice(0, -message.length))).toBeLessThanOrEqual(
+          HANDOFF_BUDGET_TOKENS,
+        );
         expect(input.endsWith(message)).toBe(true);
       });
 
       it("shrinks the prelude for a long user message", async () => {
-        // ~57k chars of history fits whole beside a short message, not beside a long one.
-        const short = await handOffWithLongHistory("short", 3_000);
+        // ~180k characters of history fits whole beside a short message, not beside a long one.
+        const short = await handOffWithLongHistory("short", 9_500);
         const message = `${"Long request. ".repeat(5_000)}End.`;
-        const input = await handOffWithLongHistory(message, 3_000);
-        expect(input.length).toBeLessThanOrEqual(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+        const long = await handOffWithLongHistory(message, 9_500);
+        const input = long.input ?? "";
+        expect(input.length).toBeLessThanOrEqual(PROVIDER_HANDOFF_MAX_INPUT_CHARS);
         expect(input.endsWith(message)).toBe(true);
-        expect(input.length - message.length).toBeLessThan(short.length - "short".length);
+        expect(input.length - message.length).toBeLessThan(
+          (short.input ?? "").length - "short".length,
+        );
       });
 
-      it("sends a minimal prelude when the message leaves almost no room", async () => {
-        const message = "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS - 1_000);
-        const input = await handOffWithLongHistory(message);
-        expect(input.length).toBeLessThanOrEqual(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
-        expect(input.endsWith(message)).toBe(true);
-        expect(input).toContain("<handoff>");
-        expect(input).not.toContain("## Conversation so far");
+      it("leaves an oversized user message on the user input limit", async () => {
+        const message = "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS + 1);
+        const request = await handOffWithLongHistory(message);
+        // Without the handoff flag, ProviderService rejects the turn as it would any other.
+        expect(request.handoff).toBeUndefined();
+        expect(request.input?.endsWith(message)).toBe(true);
       });
-    });
-
-    it("sizes the handoff by a window the incoming model itself reported", async () => {
-      expect(
-        await handOffWithReportedWindow({ model: "claude-opus-4-6", instanceId: "claudeAgent" }),
-      ).toMatchObject({ mode: "compact" });
-    });
-
-    it("ignores a window reported by a different model", async () => {
-      expect(
-        await handOffWithReportedWindow({ model: "gpt-5-codex", instanceId: "codex" }),
-      ).toMatchObject({ mode: "full" });
     });
   });
 

@@ -5,6 +5,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  PROVIDER_HANDOFF_MAX_INPUT_CHARS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderDriverKind,
   type ProjectId,
@@ -967,49 +968,6 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * The incoming model's context window, as its provider last reported it.
-   * Only context-window activities stamped with that same model and instance
-   * count (ProviderRuntimeIngestion stamps them from the running session), so
-   * a window reported by another model on the same thread is never borrowed.
-   * Undefined when the model has not reported yet; the handoff then assumes a
-   * conservative default.
-   */
-  const observedContextTokens = Effect.fnUntraced(function* (to: HandoffEndpoint) {
-    const snapshot = yield* projectionSnapshotQuery
-      .getShellSnapshot()
-      .pipe(Effect.orElseSucceed(() => undefined));
-    const candidates = (snapshot?.threads ?? [])
-      .filter(
-        (entry) =>
-          String(entry.modelSelection.instanceId) === to.instanceId &&
-          entry.modelSelection.model === to.model,
-      )
-      .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, 5);
-    for (const candidate of candidates) {
-      const detail = yield* projectionSnapshotQuery
-        .getThreadDetailById(candidate.id, { activityKinds: ["context-window.updated"] })
-        .pipe(
-          Effect.map(Option.getOrUndefined),
-          Effect.orElseSucceed(() => undefined),
-        );
-      for (const activity of (detail?.activities ?? []).toReversed()) {
-        const payload = activity.payload as {
-          maxTokens?: unknown;
-          model?: unknown;
-          instanceId?: unknown;
-        } | null;
-        if (payload?.model !== to.model || payload.instanceId !== to.instanceId) continue;
-        const maxTokens = payload.maxTokens;
-        if (typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens > 0) {
-          return maxTokens;
-        }
-      }
-    }
-    return undefined;
-  });
-
-  /**
    * Builds the prelude for a pending handoff and writes the full transcript
    * under the state dir (null when no handoff is pending). The pending entry
    * leaves the in-memory map while the turn is in flight: `accepted` records
@@ -1044,7 +1002,6 @@ const make = Effect.gen(function* () {
       lastMessage?.role === "user" && lastMessage.text === input.messageText
         ? { ...detail, messages: detail.messages.slice(0, -1) }
         : detail;
-    const targetContextTokens = yield* observedContextTokens(pending.to);
     const handoff = buildHandoff({
       thread,
       from: pending.from,
@@ -1053,12 +1010,11 @@ const make = Effect.gen(function* () {
       // The user's message is never trimmed, so the recap gets what is left.
       maxChars: Math.max(
         0,
-        PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+        PROVIDER_HANDOFF_MAX_INPUT_CHARS -
           input.messageText.length -
           HANDOFF_INPUT_MARGIN_CHARS -
           HANDOFF_ATTACHMENT_CONTEXT_CHARS * input.attachmentCount,
       ),
-      ...(targetContextTokens !== undefined ? { targetContextTokens } : {}),
     });
     const config = yield* Effect.serviceOption(ServerConfig);
     let transcriptPath: string | null = null;
@@ -1109,7 +1065,7 @@ const make = Effect.gen(function* () {
     // Belt and braces: the turn must not fail because of the handoff, so if the
     // combined input would still be too long, shrink the prelude, never the message.
     const room =
-      PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+      PROVIDER_HANDOFF_MAX_INPUT_CHARS -
       input.messageText.length -
       HANDOFF_ATTACHMENT_CONTEXT_CHARS * input.attachmentCount;
     let prelude = handoff.prelude(transcriptPath);
@@ -1186,8 +1142,15 @@ const make = Effect.gen(function* () {
     );
 
     return {
-      handoff,
+      pendingHandoff: handoff,
       threadId: input.threadId,
+      // The prelude rides under the handoff input limit; the user's own
+      // message keeps the ordinary one, so an oversized message still fails.
+      ...(handoff !== null &&
+      handoff.prelude !== "" &&
+      input.messageText.length <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS
+        ? { handoff: true }
+        : {}),
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
@@ -1801,7 +1764,7 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const { handoff, ...turnRequest } = sendTurnRequest.value;
+    const { pendingHandoff: handoff, ...turnRequest } = sendTurnRequest.value;
     const send = providerService.sendTurn(turnRequest).pipe(
       Effect.onError(() => handoff?.rejected ?? Effect.void),
       Effect.tap(() =>

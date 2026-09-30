@@ -13,16 +13,15 @@ import type { OrchestrationThread } from "@t3tools/contracts";
  * the outgoing provider is out of quota, so it cannot be asked to summarize.
  *
  * Budget: the whole rendered prelude (header, recap, omission note) fits in
- * HANDOFF_CONTEXT_SHARE of the incoming model's window. The only overrun is a
- * transcript path longer than TRANSCRIPT_PATH_ALLOWANCE, or a window so small
- * that the fixed header alone exceeds it. When everything does not fit, the
- * user's own messages win over the model's replies, and the prelude says what
- * was left out and how to recover it.
+ * HANDOFF_BUDGET_TOKENS, whatever the incoming model is. The only overrun is a
+ * transcript path longer than TRANSCRIPT_PATH_ALLOWANCE. When everything does
+ * not fit, the user's own messages win over the model's replies, and the
+ * prelude says what was left out and how to recover it.
  *
- * Hard cap: `maxChars` (the provider's per-turn input limit minus the user's
- * message) bounds the budget regardless of the window. A prelude that still
- * would not fit, for instance because the room is nearly gone, degrades to
- * `minimalPrelude`, which only points at the transcript.
+ * Hard cap: `maxChars` (the handoff turn's input limit minus the user's
+ * message) can only shrink the budget. A prelude that still would not fit,
+ * for instance because the room is nearly gone, degrades to `minimalPrelude`,
+ * which only points at the transcript.
  */
 
 export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
@@ -57,10 +56,17 @@ const MAX_KEY_FACT_CHARS = 200;
 /** Header room reserved for the transcript path; a longer path overruns the budget by the excess. */
 export const TRANSCRIPT_PATH_ALLOWANCE = 400;
 
-/** Share of the incoming model's context window the carried conversation may use. */
-export const HANDOFF_CONTEXT_SHARE = 0.25;
-/** Assumed window when the incoming model has never reported one: small enough to be safe. */
-export const DEFAULT_HANDOFF_CONTEXT_TOKENS = 128_000;
+/**
+ * What the carried conversation may use, for every incoming model: about a
+ * quarter of a 250k window. Fixed rather than a share of the target's window,
+ * because a window is mostly unknown before a model first runs (only Claude's
+ * catalog and Codex's runtime reports carry one) and a fixed size keeps the
+ * handoff predictable. Even a ~120k-window model starts under half full, with
+ * the rest left for its system prompt, tools, reply and the next turns; a 1M
+ * model is unaffected. Anything older stays one `viewcode_search_history`
+ * call or transcript read away.
+ */
+export const HANDOFF_BUDGET_TOKENS = 50_000;
 
 /** Rough token count for mixed prose and code; ~4 characters per token. */
 export function estimateTokens(text: string): number {
@@ -345,8 +351,6 @@ export function buildHandoff(input: {
   readonly from: HandoffEndpoint;
   readonly to: HandoffEndpoint;
   readonly recentExchanges: number;
-  /** Context window of the incoming model, in tokens. */
-  readonly targetContextTokens?: number;
   /** Hard cap on the rendered prelude, in characters; applied on top of the token budget. */
   readonly maxChars?: number;
 }): HandoffDocument & { readonly mode: HandoffMode; readonly budgetTokens: number } {
@@ -358,9 +362,9 @@ export function buildHandoff(input: {
     ...thread.messages.map((message) => message.text),
     ...thread.activities.flatMap((activity) => payloadText(activity.payload)),
   ]);
-  const windowTokens = input.targetContextTokens ?? DEFAULT_HANDOFF_CONTEXT_TOKENS;
-  const budgetTokens = Math.floor(windowTokens * HANDOFF_CONTEXT_SHARE);
-  const budgetChars = Math.max(0, Math.min(budgetTokens * 4, input.maxChars ?? Infinity));
+  const budgetChars = Math.max(0, Math.min(HANDOFF_BUDGET_TOKENS * 4, input.maxChars ?? Infinity));
+  // What the prelude may actually use, after the input limit.
+  const budgetTokens = Math.floor(budgetChars / 4);
   const userTotal = exchanges.filter((exchange) => exchange.user.trim()).length;
   const conversationTokens = exchanges.reduce(
     (total, exchange) =>
@@ -584,7 +588,7 @@ export function buildHandoff(input: {
     `Thread "${thread.title}" moved from ${describeModel(input.from)} to ${describeModel(input.to)}.`,
     mode === "full"
       ? `Carried the whole conversation (${exchanges.length} exchange${exchanges.length === 1 ? "" : "s"}, ~${conversationTokens.toLocaleString("en-US")} tokens) and ${keyFacts.length} key facts.`
-      : `Conversation (~${conversationTokens.toLocaleString("en-US")} tokens) exceeds ${Math.round(HANDOFF_CONTEXT_SHARE * 100)}% of the new model's window; carried ${userTotal - omissions.userClipped - omissions.userOmitted} of your ${userTotal} messages in full${omissions.userClipped > 0 ? `, ${omissions.userClipped} clipped` : ""}, ${verbatimReplies} replies verbatim and ${selection.facts.length} key facts. The new model summarizes the rest itself and can search the full history.`,
+      : `Conversation (~${conversationTokens.toLocaleString("en-US")} tokens) exceeds the ~${budgetTokens.toLocaleString("en-US")}-token handoff budget; carried ${userTotal - omissions.userClipped - omissions.userOmitted} of your ${userTotal} messages in full${omissions.userClipped > 0 ? `, ${omissions.userClipped} clipped` : ""}, ${verbatimReplies} replies verbatim and ${selection.facts.length} key facts. The new model summarizes the rest itself and can search the full history.`,
   ];
   if (edits.length > 0)
     summaryLines.push(

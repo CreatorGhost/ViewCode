@@ -41,6 +41,14 @@ Claude Code's verbose mode can stay enabled when you use Claude for text generat
 thread titles, branch names, commit messages, and pull request descriptions. On a remote connection,
 T3 Code uses the Claude configuration on the connected server.
 
+## Context window
+
+Models that offer both a 200k and a 1M context window show a **Context Window**
+choice under the effort slider in the model picker (in model settings on mobile).
+The picker shows the current one next to the effort, for example "High · 1M".
+Switching it mid-conversation keeps the conversation: Claude resumes the same
+session with the new window.
+
 ## Compact long conversations
 
 Set **Auto-compact after** in the Claude provider settings to an integer between
