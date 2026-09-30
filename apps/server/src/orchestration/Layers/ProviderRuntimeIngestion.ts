@@ -341,13 +341,20 @@ function reasoningSegmentBaseKeyFromEvent(
   return `${stream}:${assistantSegmentBaseKeyFromEvent(event)}`;
 }
 
+/**
+ * The usage row, stamped with the provider instance that reported it: after a
+ * handoff the thread's last row still describes the previous provider's
+ * session, which clients must not offer to compact.
+ */
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
-): ThreadTokenUsageSnapshot | undefined {
+): (ThreadTokenUsageSnapshot & { readonly providerInstanceId?: string }) | undefined {
   if (event.type !== "thread.token-usage.updated" || event.payload.usage.usedTokens < 0) {
     return undefined;
   }
-  return event.payload.usage;
+  return event.providerInstanceId === undefined
+    ? event.payload.usage
+    : { ...event.payload.usage, providerInstanceId: event.providerInstanceId };
 }
 
 function compactedTokenCountsFromActivities(
@@ -1911,9 +1918,17 @@ const make = Effect.gen(function* () {
             : event.type === "turn.completed" &&
                 normalizeRuntimeTurnState(event.payload.state) === "failed"
               ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
-              : status === "ready" || status === "interrupted"
-                ? null
-                : (thread.session?.lastError ?? null);
+              : // A provider going idle after a failed turn (Claude's CLI reports
+                // idle after the result) is not a new outcome: keep the failure,
+                // which usage-limit handling and notifications still read. A new
+                // turn passes through "running" first and clears it on success.
+                event.type === "session.state.changed" &&
+                  status === "ready" &&
+                  thread.session?.status === "error"
+                ? (thread.session.lastError ?? null)
+                : status === "ready" || status === "interrupted"
+                  ? null
+                  : (thread.session?.lastError ?? null);
 
         if (shouldApplyThreadLifecycle) {
           if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {

@@ -2628,11 +2628,29 @@ describe("ClaudeAdapterLive", () => {
     uuid: "result-limit",
   };
 
+  const assistantLimitText = "You've hit your session limit";
+  const proxyThrottleText =
+    "API Error: Server is temporarily limiting requests (not your usage limit) · litellm.RateLimitError: rate_limit_error. Please try again later";
+
   it.effect.each([
     {
+      // Without a rejected window event the response's own words stand.
       name: "an assistant-only rate limit",
       messages: [rateLimitAssistant],
-      expected: usageLimitMessage,
+      expected: assistantLimitText,
+    },
+    {
+      name: "a proxy's transient 429",
+      messages: [
+        {
+          ...rateLimitAssistant,
+          message: {
+            ...rateLimitAssistant.message,
+            content: [{ type: "text", text: proxyThrottleText }],
+          },
+        },
+      ],
+      expected: proxyThrottleText,
     },
     {
       name: "a normal parent response after a rate limit",
@@ -2655,7 +2673,7 @@ describe("ClaudeAdapterLive", () => {
         rateLimitAssistant,
         { ...rateLimitAssistant, error: undefined, parent_tool_use_id: "nested-tool" },
       ],
-      expected: usageLimitMessage,
+      expected: assistantLimitText,
     },
   ])("classifies the terminal API failure after $name", ({ messages, expected }) => {
     const harness = makeHarness();
@@ -2700,7 +2718,8 @@ describe("ClaudeAdapterLive", () => {
       });
       for (const [index, expected] of [
         usageLimitMessage,
-        usageLimitMessage,
+        // No rejected window this turn: the response's own words.
+        assistantLimitText,
         genericApiErrorMessage,
       ].entries()) {
         const eventsFiber = yield* adapter.streamEvents.pipe(

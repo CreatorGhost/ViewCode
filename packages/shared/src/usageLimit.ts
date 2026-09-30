@@ -6,23 +6,54 @@
 
 /**
  * Provider errors that retrying cannot fix until a quota or plan changes.
- * Providers report these only as text on the session, so the match stays
- * narrow; a context-length error is a different failure (see below). The
- * reset-time parser (server `usageResetTime.ts`) reads the same messages, so
- * keep the two in step.
+ * Providers report these only as text, so the match is anchored to their own
+ * phrasing ("usage limit reached", "hit your limit", "5-hour limit", "out of
+ * extra usage", "insufficient credit", "usage limit reached|<unix>") rather
+ * than loose words such as "429", "credits" or "quota", which turn up in
+ * unrelated errors. The reset-time parser (server `usageResetTime.ts`) reads
+ * the same messages, so keep the two in step.
  */
-const LIMIT_ERROR_PATTERN =
-  /usage[ _-]?limit|rate[ _-]?limit|quota|plan limit|MODEL_NOT_IN_PLAN|not (?:in|available on) (?:your )?plan|\bcredits?\b|insufficient (?:credit|balance|funds)|\b429\b|too many requests|limit reached|hit your (?:\w+ )?limit|out of extra usage|(?:5-hour|five-hour|weekly|daily) limit/i;
+const USAGE_LIMIT_PATTERN =
+  /\busage limit\b|usage_limit_(?:reached|exceeded)|hit your (?:\w+ )?limit|limit reached\s*\|\s*\d{9,}|out of (?:extra )?usage|\b(?:5-hour|five-hour|weekly|daily|monthly|session) (?:usage )?limit\b|\bplan limit\b|MODEL_NOT_IN_PLAN|not (?:in|available on) (?:your )?plan|insufficient[ _](?:credits?|balance|funds|quota)|credit balance is too low|out of credits|(?:exceeded|exhausted) (?:your )?(?:current )?quota|quota (?:exceeded|exhausted)/i;
+/**
+ * A server or proxy throttling requests for a moment: HTTP 429 named as such,
+ * "rate limit", overload. Retrying shortly fixes these; the account is fine.
+ */
+const TRANSIENT_LIMIT_PATTERN =
+  /\b429\b[^\n]{0,40}(?:too many requests|rate[ _-]?limit)|too many requests|rate[ _-]limit|ratelimit(?:ed|error)|temporarily (?:limiting|rate[ _-]limited|throttl)|throttl(?:ed|ing)|overloaded|\b529\b/i;
+/** A proxy that says outright the throttle is not the account's usage limit (litellm does). */
+const NOT_USAGE_LIMIT_PATTERN = /not (?:your|a|the) usage limit/i;
 /** "Context window exceeded" and friends: the conversation is too long, the account is fine. */
 const CONTEXT_LENGTH_PATTERN =
   /context[ _-]?(?:window|length|limit)|maximum context|prompt is too long|too many tokens|max(?:imum)?[ _-]tokens/i;
 
+/**
+ * Only the message: a stack trace (`Cause.pretty`) names files and line
+ * numbers such as `UsageLimits.ts:429:7`, which are not the provider speaking.
+ */
+function messageOnly(text: string): string {
+  const frame = /\n\s+at\s/.exec(text);
+  return frame ? text.slice(0, frame.index) : text;
+}
+
+/**
+ * `"usage"` when the provider's quota or plan is spent, `"transient"` when a
+ * server or proxy is throttling for a moment, null for anything else.
+ */
+export function classifyLimitError(
+  message: string | null | undefined,
+): "usage" | "transient" | null {
+  if (typeof message !== "string") return null;
+  const text = messageOnly(message);
+  if (CONTEXT_LENGTH_PATTERN.test(text)) return null;
+  if (NOT_USAGE_LIMIT_PATTERN.test(text)) return "transient";
+  if (USAGE_LIMIT_PATTERN.test(text)) return "usage";
+  return TRANSIENT_LIMIT_PATTERN.test(text) ? "transient" : null;
+}
+
+/** The provider's usage limit is spent (see `classifyLimitError`). */
 export function isLimitError(message: string | null | undefined): message is string {
-  return (
-    typeof message === "string" &&
-    LIMIT_ERROR_PATTERN.test(message) &&
-    !CONTEXT_LENGTH_PATTERN.test(message)
-  );
+  return classifyLimitError(message) === "usage";
 }
 
 const DAY_MS = 86_400_000;

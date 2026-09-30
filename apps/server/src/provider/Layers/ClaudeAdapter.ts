@@ -278,6 +278,8 @@ interface ClaudeTurnState {
   authenticationFailureMessage: string | undefined;
   rejectedRateLimitTypes: Set<string>;
   latestAssistantRateLimited: boolean;
+  /** What that rate-limited response said, e.g. a proxy's "temporarily limiting requests". */
+  latestAssistantRateLimitText?: string | undefined;
   emittedThinkingText: boolean;
   readonly thinkingSnapshotIds: Set<string>;
 }
@@ -3449,6 +3451,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       // Limited retries may only carry an assistant error, without a new window
       // event. Later parent responses replace this evidence if the turn recovers.
       context.turnState.latestAssistantRateLimited = message.error === "rate_limit";
+      context.turnState.latestAssistantRateLimitText =
+        message.error === "rate_limit"
+          ? extractAssistantTextBlocks(message).join("\n").trim() || undefined
+          : undefined;
       // The CLI can report authentication failure before ending the turn as a
       // generic API error, so retain that evidence for the result fallback.
       if (message.error === "authentication_failed") {
@@ -3485,11 +3491,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     const turn = context.turnState;
+    // Only a usage window Claude reported as rejected is the usage limit. A
+    // bare 429 (a proxy or the API throttling for a moment) keeps its own words,
+    // so it is retried rather than reported as out of usage.
     const failureHint =
       turn?.authenticationFailureMessage ??
-      (turn && (turn.rejectedRateLimitTypes.size > 0 || turn.latestAssistantRateLimited)
+      (turn && turn.rejectedRateLimitTypes.size > 0
         ? "Claude usage limit reached. Send the message again once the limit resets."
-        : undefined);
+        : turn?.latestAssistantRateLimited
+          ? (turn.latestAssistantRateLimitText ?? "Claude API rate limited the request (429).")
+          : undefined);
     const { status, errorMessage } = resultOutcome(message, failureHint);
 
     if (status === "failed") {

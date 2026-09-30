@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -30,11 +31,13 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import { AgentMessaging } from "./AgentMessaging.ts";
 import {
   USAGE_RESUME_DELAY_MS,
-  USAGE_RESUME_MIN_DELAY_MS,
+  TRANSIENT_RETRY_DELAYS_MS,
+  USAGE_RESUME_BUSY_RETRY_MS,
   USAGE_RESUME_STARTUP_GRACE_MS,
   UsageResume,
   layer,
 } from "./UsageResume.ts";
+import { parseResetTime } from "./usageResetTime.ts";
 
 const THREAD = ThreadId.make("thread-1");
 const LIMIT_TEXT = "You've hit your limit";
@@ -68,7 +71,17 @@ const makeHarness = (
   Effect.gen(function* () {
     const events = yield* PubSub.unbounded<OrchestrationEvent>();
     const activities = yield* Ref.make<ReadonlyArray<UsageResumePayload>>([]);
-    const continues = yield* Queue.unbounded<{ threadId: string; messageId: string }>();
+    const continues = yield* Queue.unbounded<{
+      threadId: string;
+      messageId: string;
+      reason: "usage" | "transient";
+    }>();
+    /** What AgentMessaging answers when asked to continue the thread. */
+    const outcome = yield* Ref.make<"started" | "busy" | "paused" | "gone">("started");
+    const summaries = yield* Ref.make<ReadonlyArray<string>>([]);
+    /** Every state recorded and every keep-awake change, in order, to wait on. */
+    const noted = yield* Queue.unbounded<UsageResumePayload>();
+    const awakeChanges = yield* Queue.unbounded<boolean>();
     const awake = yield* Ref.make<ReadonlyArray<boolean>>([]);
     const windows = yield* Ref.make<ReadonlyArray<Window>>([]);
     const parent = yield* Ref.make<string | null>(null);
@@ -103,27 +116,44 @@ const makeHarness = (
             ? Ref.update(activities, (all) => [
                 ...all,
                 command.activity.payload as UsageResumePayload,
-              ]).pipe(Effect.as({ sequence: 1 }))
+              ]).pipe(
+                Effect.andThen(Ref.update(summaries, (all) => [...all, command.activity.summary])),
+                Effect.andThen(Queue.offer(noted, command.activity.payload as UsageResumePayload)),
+                Effect.as({ sequence: 1 }),
+              )
             : Effect.succeed({ sequence: 1 }),
         subscribeDomainEvents: PubSub.subscribe(events).pipe(
           Effect.map((subscription) => Stream.fromSubscription(subscription)),
         ),
       }),
       Layer.mock(ProviderRegistry)({
-        getProviders: Ref.get(windows).pipe(
+        // A fresh reading: the service ignores stale ones.
+        getProviders: Effect.all([Ref.get(windows), Clock.currentTimeMillis]).pipe(
           Effect.map(
-            (all) => [{ instanceId: "claudeAgent", usageLimits: { windows: all } }] as never,
+            ([all, nowMs]) =>
+              [
+                { instanceId: "claudeAgent", usageLimits: { checkedAt: iso(nowMs), windows: all } },
+              ] as never,
           ),
         ),
       }),
       Layer.mock(AgentMessaging)({
-        continueAfterLimit: (threadId, messageId) =>
-          Queue.offer(continues, { threadId, messageId }).pipe(Effect.as(true)),
+        continueAfterLimit: (threadId, messageId, reason) =>
+          Ref.get(outcome).pipe(
+            Effect.tap((result) =>
+              result === "started"
+                ? Queue.offer(continues, { threadId, messageId, reason })
+                : Effect.void,
+            ),
+          ),
         setUsageResume: (_threadId, state) => Ref.update(published, (all) => [...all, state]),
       }),
       ServerSettingsService.layerTest(settings),
       DesktopTelemetryReceiver.layerTest({
-        setKeepAwake: (enabled) => Ref.update(awake, (all) => [...all, enabled]),
+        setKeepAwake: (enabled) =>
+          Ref.update(awake, (all) => [...all, enabled]).pipe(
+            Effect.andThen(Queue.offer(awakeChanges, enabled)),
+          ),
       }),
       Layer.succeed(ServerConfig, { stateDir } as never),
       Layer.succeed(ServerActivation, undefined),
@@ -138,14 +168,37 @@ const makeHarness = (
       parent,
       published,
       continues,
+      outcome,
+      summaries,
       states,
       activities,
       awake: Ref.get(awake),
+      /** Waits for the next recorded state that matches, skipping earlier ones. */
+      awaitNote: (matches: (payload: UsageResumePayload) => boolean) =>
+        Effect.gen(function* () {
+          while (true) {
+            const payload = yield* Queue.take(noted);
+            if (matches(payload)) return payload;
+          }
+        }),
+      /** Waits for the desktop to be told to hold (true) or release (false) keep-awake. */
+      awaitAwake: (enabled: boolean) =>
+        Effect.gen(function* () {
+          while ((yield* Queue.take(awakeChanges)) !== enabled) {
+            // earlier changes
+          }
+        }),
       /** The thread's turn ends with an error, or a limit error if none is given. */
       fail: (lastError = LIMIT_TEXT) =>
         publish({
           type: "thread.session-set",
           payload: { threadId: THREAD, session: { status: "error", lastError } },
+        }),
+      /** The session reports idle after the turn, as Claude's CLI does after a result. */
+      idle: (lastError: string | null) =>
+        publish({
+          type: "thread.session-set",
+          payload: { threadId: THREAD, session: { status: "ready", lastError } },
         }),
       /** The provider reports a rejected usage window during the turn. */
       rejected: (info: unknown) =>
@@ -241,7 +294,7 @@ describe("UsageResume", () => {
             yield* TestClock.adjust(Duration.millis(USAGE_RESUME_DELAY_MS));
             const started = yield* Queue.take(harness.continues);
             assert.equal(started.threadId, THREAD);
-            yield* settle;
+            yield* harness.awaitAwake(false);
 
             assert.deepEqual(yield* harness.states, ["scheduled", "resumed"]);
             assert.isFalse(yield* exists(file!));
@@ -272,7 +325,7 @@ describe("UsageResume", () => {
     scoped((stateDir, [file]) =>
       withResume(stateDir, {}, (harness, _resume, settle) =>
         Effect.gen(function* () {
-          yield* harness.fail("429 too many requests");
+          yield* harness.fail();
           yield* settle;
           assert.deepEqual(yield* harness.states, ["unknown"]);
           assert.isFalse(yield* exists(file!));
@@ -346,6 +399,8 @@ describe("UsageResume", () => {
           assert.isTrue(yield* resume.cancel(THREAD));
           assert.isFalse(yield* resume.cancel(THREAD));
 
+          // A new turn fails: a different failure, decided afresh.
+          yield* harness.turnStart("user-message-2");
           yield* harness.fail(`${LIMIT_TEXT} again`);
           yield* settle;
           yield* harness.publish({
@@ -372,11 +427,13 @@ describe("UsageResume", () => {
     scoped((stateDir) =>
       withResume(stateDir, {}, (harness, resume, settle) =>
         Effect.gen(function* () {
-          yield* harness.fail("429 too many requests");
+          yield* harness.fail();
           yield* settle;
           assert.isTrue(yield* resume.resumeNow(THREAD));
           const started = yield* Queue.take(harness.continues);
           assert.equal(started.threadId, THREAD);
+          assert.equal(started.reason, "usage");
+          assert.equal((yield* Ref.get(harness.summaries)).at(-1), "Resumed by you.");
         }),
       ),
     ),
@@ -538,6 +595,8 @@ describe("UsageResume", () => {
             assert.deepEqual(yield* harness.states, ["unknown"]);
 
             yield* Ref.set(harness.windows, [{ ...fiveHourWindow(HOUR), usedPercent: 96 }]);
+            // A new turn fails: a different failure, decided afresh.
+            yield* harness.turnStart("user-message-2");
             yield* harness.fail(`${LIMIT_TEXT} again`);
             yield* settle;
             assert.deepEqual(yield* harness.states, ["unknown", "scheduled"]);
@@ -546,26 +605,289 @@ describe("UsageResume", () => {
       ),
     );
 
-    it.effect("never resumes sooner than five seconds from now", () =>
+    it.effect("never resumes from a reset that has already passed", () =>
       scoped((stateDir) =>
         withResume(stateDir, {}, (harness, _resume, settle) =>
           Effect.gen(function* () {
             yield* TestClock.adjust(Duration.millis(10 * HOUR));
-            // The provider's reset is already an hour past.
+            // The provider's reset is already an hour past, and nothing else names one.
             yield* harness.rejected({ status: "rejected", resetsAt: 9 * 3600 });
             yield* harness.fail();
             yield* settle;
-            assert.equal(
-              (yield* firstActivity(harness))?.resumeAt,
-              iso(10 * HOUR + USAGE_RESUME_MIN_DELAY_MS),
-            );
-            yield* TestClock.adjust(Duration.millis(USAGE_RESUME_MIN_DELAY_MS));
-            yield* Queue.take(harness.continues);
+            assert.deepEqual(yield* harness.states, ["unknown"]);
+            yield* TestClock.adjust(Duration.millis(HOUR));
+            yield* settle;
+            assert.equal(yield* Queue.size(harness.continues), 0);
+          }),
+        ),
+      ),
+    );
+
+    it.effect("falls through a past signal to the usage window the provider rejected", () =>
+      scoped((stateDir) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* TestClock.adjust(Duration.millis(10 * HOUR));
+            yield* Ref.set(harness.windows, [
+              fiveHourWindow(12 * HOUR),
+              { ...fiveHourWindow(40 * HOUR), id: "seven_day", usedPercent: 80 },
+            ]);
+            yield* harness.rejected({
+              status: "rejected",
+              rateLimitType: "seven_day",
+              resetsAt: 9 * 3600,
+            });
+            yield* harness.fail();
+            yield* settle;
+            assert.equal((yield* firstActivity(harness))?.resetsAt, iso(40 * HOUR));
           }),
         ),
       ),
     );
   });
+
+  describe("a real usage limit still resumes by itself", () => {
+    it.effect("from Claude's rejected rate-limit signal with a future reset", () =>
+      scoped((stateDir, [file]) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* harness.turnStart("user-message");
+            yield* harness.rejected({
+              status: "rejected",
+              rateLimitType: "five_hour",
+              resetsAt: 3 * 3600,
+            });
+            // What the Claude adapter reports once a window was rejected.
+            yield* harness.fail(
+              "Claude usage limit reached. Send the message again once the limit resets.",
+            );
+            yield* harness.idle(
+              "Claude usage limit reached. Send the message again once the limit resets.",
+            );
+            yield* settle;
+            const scheduled = (yield* Ref.get(harness.activities))[0];
+            assert.equal(scheduled?.state, "scheduled");
+            assert.equal(scheduled?.resumeAt, iso(3 * HOUR + USAGE_RESUME_DELAY_MS));
+            assert.isTrue(yield* exists(file!));
+
+            yield* TestClock.adjust(Duration.millis(3 * HOUR + USAGE_RESUME_DELAY_MS));
+            const started = yield* Queue.take(harness.continues);
+            assert.equal(started.reason, "usage");
+            yield* harness.awaitNote((payload) => payload.state === "resumed");
+            assert.equal(
+              (yield* Ref.get(harness.summaries)).at(-1),
+              "Trying to continue after the usage limit…",
+            );
+          }),
+        ),
+      ),
+    );
+
+    it.effect("from the error text '5-hour limit reached ∙ resets 3pm' with 3pm ahead", () =>
+      scoped((stateDir) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            const text = "5-hour limit reached ∙ resets 3pm";
+            const resetsAt = parseResetTime(text, yield* Clock.currentTimeMillis)!;
+            assert.isAbove(resetsAt, yield* Clock.currentTimeMillis);
+            yield* harness.fail(text);
+            yield* settle;
+            const scheduled = (yield* Ref.get(harness.activities))[0];
+            assert.equal(scheduled?.state, "scheduled");
+            assert.equal(scheduled?.resumeAt, iso(resetsAt + USAGE_RESUME_DELAY_MS));
+
+            yield* TestClock.adjust(Duration.millis(resetsAt + USAGE_RESUME_DELAY_MS));
+            const started = yield* Queue.take(harness.continues);
+            assert.equal(started.reason, "usage");
+          }),
+        ),
+      ),
+    );
+  });
+
+  describe("one decision per failure", () => {
+    it.effect(
+      "does not turn 'unknown' into a schedule from a later event of the same failure",
+      () =>
+        scoped((stateDir, [file]) =>
+          withResume(stateDir, {}, (harness, _resume, settle) =>
+            Effect.gen(function* () {
+              yield* harness.turnStart("user-message");
+              yield* harness.fail();
+              yield* settle;
+              // Claude also reports the failure as the turn's end and a later idle.
+              yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+              yield* harness.fail();
+              yield* harness.idle(LIMIT_TEXT);
+              yield* settle;
+              assert.deepEqual(yield* harness.states, ["unknown"]);
+              assert.isFalse(yield* exists(file!));
+            }),
+          ),
+        ),
+    );
+
+    it.effect("keeps a schedule and the control state through the idle after the failure", () =>
+      scoped((stateDir, [file]) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+            yield* harness.fail();
+            yield* settle;
+            yield* harness.idle(LIMIT_TEXT);
+            // Even an idle that lost the error does not undo a pending resume.
+            yield* harness.idle(null);
+            yield* settle;
+            assert.deepEqual(yield* harness.states, ["scheduled"]);
+            assert.deepEqual(yield* Ref.get(harness.published), [
+              { resumeAt: iso(HOUR + USAGE_RESUME_DELAY_MS) },
+            ]);
+            assert.isTrue(yield* exists(file!));
+          }),
+        ),
+      ),
+    );
+  });
+
+  describe("a transient throttle", () => {
+    const PROXY_TEXT =
+      "API Error: Server is temporarily limiting requests (not your usage limit) · litellm.RateLimitError: rate_limit_error. Please try again later";
+
+    it.effect("retries after 10s, 30s and 60s with a plain continue, then stops", () =>
+      scoped((stateDir, [file]) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            let request = "user-message";
+            for (const delay of TRANSIENT_RETRY_DELAYS_MS) {
+              yield* harness.turnStart(request);
+              yield* harness.fail(PROXY_TEXT);
+              yield* settle;
+              const latest = yield* harness.awaitNote(
+                (payload) => payload.state === "rate-limited",
+              );
+              assert.equal(latest?.state, "rate-limited");
+              assert.equal(latest?.resumeAt, iso((yield* Clock.currentTimeMillis) + delay));
+              yield* TestClock.adjust(Duration.millis(delay));
+              const retried = yield* Queue.take(harness.continues);
+              assert.equal(retried.reason, "transient");
+              request = retried.messageId;
+            }
+            yield* harness.turnStart(request);
+            yield* harness.fail(PROXY_TEXT);
+            yield* settle;
+            yield* harness.awaitNote((payload) => payload.state === "cancelled");
+            assert.isFalse(yield* exists(file!));
+            // Never reported as a usage limit on the control stream.
+            assert.isTrue((yield* Ref.get(harness.published)).every((state) => state === null));
+            yield* TestClock.adjust(Duration.millis(HOUR));
+            yield* settle;
+            assert.equal(yield* Queue.size(harness.continues), 0);
+          }),
+        ),
+      ),
+    );
+
+    it.effect("waits for a short retry hint instead of reading it as a usage reset", () =>
+      scoped((stateDir) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* harness.fail("Rate limit reached for gpt-5. Please try again in 45s.");
+            yield* settle;
+            const latest = (yield* Ref.get(harness.activities)).at(-1);
+            assert.equal(latest?.state, "rate-limited");
+            assert.equal(latest?.resumeAt, iso(45_000));
+          }),
+        ),
+      ),
+    );
+  });
+
+  describe("when the resume is due", () => {
+    it.effect("waits a minute when the thread is busy, instead of dropping the resume", () =>
+      scoped((stateDir, [file]) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+            yield* harness.fail();
+            yield* settle;
+            yield* Ref.set(harness.outcome, "busy");
+            yield* TestClock.adjust(Duration.millis(HOUR + USAGE_RESUME_DELAY_MS));
+            const later = HOUR + USAGE_RESUME_DELAY_MS + USAGE_RESUME_BUSY_RETRY_MS;
+            const latest = yield* harness.awaitNote((payload) => payload.resumeAt === iso(later));
+            assert.equal(latest.state, "scheduled");
+            assert.deepEqual((yield* Ref.get(harness.published)).at(-1), { resumeAt: iso(later) });
+            assert.isTrue(yield* exists(file!));
+
+            yield* Ref.set(harness.outcome, "started");
+            yield* TestClock.adjust(Duration.millis(USAGE_RESUME_BUSY_RETRY_MS));
+            yield* Queue.take(harness.continues);
+            yield* harness.awaitNote((payload) => payload.state === "resumed");
+            assert.equal(
+              (yield* Ref.get(harness.summaries)).at(-1),
+              "Trying to continue after the usage limit…",
+            );
+          }),
+        ),
+      ),
+    );
+
+    it.effect("cancels, saying so, when the user has the agent stopped", () =>
+      scoped((stateDir, [file]) =>
+        withResume(stateDir, {}, (harness, _resume, settle) =>
+          Effect.gen(function* () {
+            yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+            yield* harness.fail();
+            yield* settle;
+            yield* Ref.set(harness.outcome, "paused");
+            yield* TestClock.adjust(Duration.millis(HOUR + USAGE_RESUME_DELAY_MS));
+            yield* harness.awaitNote((payload) => payload.state === "cancelled");
+            assert.deepEqual(yield* harness.states, ["scheduled", "cancelled"]);
+            assert.isFalse(yield* exists(file!));
+            assert.deepEqual(yield* harness.awake, [true, false]);
+          }),
+        ),
+      ),
+    );
+  });
+
+  it.effect("drops the schedule and releases keep-awake when the thread is archived", () =>
+    scoped((stateDir, [file]) =>
+      withResume(stateDir, {}, (harness, _resume, settle) =>
+        Effect.gen(function* () {
+          yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+          yield* harness.fail();
+          yield* settle;
+          yield* harness.publish({ type: "thread.archived", payload: { threadId: THREAD } });
+          yield* settle;
+          assert.isFalse(yield* exists(file!));
+          assert.deepEqual(yield* harness.awake, [true, false]);
+          assert.deepEqual((yield* Ref.get(harness.published)).at(-1), null);
+          yield* TestClock.adjust(Duration.millis(2 * HOUR));
+          yield* settle;
+          assert.equal(yield* Queue.size(harness.continues), 0);
+        }),
+      ),
+    ),
+  );
+
+  it.effect("drops a due resume for a thread archived since, without running it", () =>
+    scoped((stateDir, [file]) =>
+      withResume(stateDir, {}, (harness, _resume, settle) =>
+        Effect.gen(function* () {
+          yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
+          yield* harness.fail();
+          yield* settle;
+          // AgentMessaging answers "gone" for an archived thread.
+          yield* Ref.set(harness.outcome, "gone");
+          yield* TestClock.adjust(Duration.millis(HOUR + USAGE_RESUME_DELAY_MS));
+          yield* harness.awaitAwake(false);
+          assert.isFalse(yield* exists(file!));
+          assert.deepEqual(yield* harness.awake, [true, false]);
+          assert.deepEqual(yield* harness.states, ["scheduled"]);
+        }),
+      ),
+    ),
+  );
 
   it.effect("leaves a child agent to its lead: shows the reset, schedules nothing", () =>
     scoped((stateDir, [file]) =>
@@ -612,7 +934,7 @@ describe("UsageResume", () => {
     scoped((stateDir) =>
       withResume(stateDir, {}, (harness, _resume, settle) =>
         Effect.gen(function* () {
-          yield* harness.fail("429 too many requests");
+          yield* harness.fail();
           yield* settle;
           assert.deepEqual(yield* Ref.get(harness.published), [{}]);
         }),
