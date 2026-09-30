@@ -262,8 +262,8 @@ step "Checking T3 Connect configuration"
     ["T3CODE_RELAY_URL", config.relayUrl],
   ].filter(([, value]) => !value).map(([name]) => name);
   console.log(missing.length === 0
-    ? "T3 Connect: configured. The Anywhere tab will be available."
-    : "T3 Connect: not configured (missing " + missing.join(", ") + "). The Anywhere tab will be hidden; Same Wi-Fi and Tailscale still work. See docs/operations/connect-setup.md.");
+    ? "T3 Connect: configured. It will show under Connect phone > Anywhere, next to Quick connect."
+    : "T3 Connect: not configured (optional; missing " + missing.join(", ") + "). Connect phone > Anywhere still offers Quick connect. See docs/operations/connect-setup.md.");
 '
 
 step "Building the desktop app"
