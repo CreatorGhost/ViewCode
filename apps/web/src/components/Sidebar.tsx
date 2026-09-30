@@ -1058,7 +1058,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   ) : null;
 
   // Leading badge, one glyph by priority: needs-you (approval or input) >
-  // working spinner > failure > pin > background monitoring > provider.
+  // own working spinner > failure > hidden child work > pin > background monitoring > provider.
   const iconClassName = isChild ? "size-3" : "size-3.5";
   // Collapsed child agents that are still working keep the lead's spinner
   // going, so folding them away never reads as the work being done.
@@ -1070,18 +1070,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         aria-label={status === "approval" ? "Needs approval" : "Needs input"}
         className={cn(iconClassName, "text-warning")}
       />
-    ) : status === "working" || childrenWorkingHidden ? (
-      <Spinner
-        size={isChild ? "xs" : "sm"}
-        tone={status === "working" ? "muted" : "info"}
-        aria-label={status === "working" ? "Working" : "Child agents working"}
-      />
+    ) : status === "working" ? (
+      <Spinner size={isChild ? "xs" : "sm"} tone="muted" aria-label="Working" />
     ) : status === "failed" ? (
       <CircleAlertIcon
         role="img"
         aria-label="Failed"
         className={cn(iconClassName, "text-destructive-foreground")}
       />
+    ) : childrenWorkingHidden ? (
+      <Spinner size={isChild ? "xs" : "sm"} tone="info" aria-label="Child agents working" />
     ) : props.isPinned && !isChild ? (
       <PinIcon
         role="img"
@@ -1207,7 +1205,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         {props.descendantCount > 0 ? (
           <button
             type="button"
-            aria-label={props.childrenExpanded ? "Collapse child agents" : "Expand child agents"}
+            aria-label={
+              props.childrenExpanded
+                ? "Collapse child agents"
+                : props.workingDescendantCount > 0
+                  ? `Expand child agents, ${props.workingDescendantCount} of ${props.descendantCount} working`
+                  : "Expand child agents"
+            }
             onClick={handleToggleChildrenClick}
             onDoubleClick={(event) => event.stopPropagation()}
             className="inline-flex h-5 shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-0.5 text-2xs text-sidebar-muted-foreground hover:text-sidebar-foreground"
@@ -2888,6 +2892,7 @@ export default function Sidebar() {
     },
     [isMobile, primaryEnvironmentId, setOpenMobile],
   );
+  const [iconPickerGroup, setIconPickerGroup] = useState<SidebarProjectSnapshot | null>(null);
   const handleProjectMenu = useCallback(
     (group: SidebarProjectSnapshot, position: { x: number; y: number }) => {
       void (async () => {
@@ -2955,10 +2960,28 @@ export default function Sidebar() {
 
   // Folder icon and color: the same picker as Project settings, saved on every
   // checkout of the group like a settings edit.
-  const [iconPickerGroup, setIconPickerGroup] = useState<SidebarProjectSnapshot | null>(null);
   const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
   const saveProjectIcon = useCallback(
     (group: SidebarProjectSnapshot, projectIcon: ProjectIconOverride) => {
+      const showError = (description: string) =>
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: `Could not change the icon for ${group.displayName}`,
+            description,
+          }),
+        );
+      // Check every checkout first so an offline one can't leave the group half-updated.
+      const unavailable = group.memberProjects.find((member) => {
+        const environment = environments.find((env) => env.environmentId === member.environmentId);
+        return environment?.connection.phase !== "connected" || !environment.serverConfig;
+      });
+      if (unavailable) {
+        showError(
+          `Connect ${unavailable.environmentLabel ?? "the selected environment"} and try again.`,
+        );
+        return;
+      }
       void (async () => {
         for (const member of group.memberProjects) {
           const result = await updateProject({
@@ -2967,19 +2990,13 @@ export default function Sidebar() {
           });
           if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
             const error = squashAtomCommandFailure(result);
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: `Could not change the icon for ${group.displayName}`,
-                description: error instanceof Error ? error.message : "An error occurred.",
-              }),
-            );
+            showError(error instanceof Error ? error.message : "An error occurred.");
             return;
           }
         }
       })();
     },
-    [updateProject],
+    [environments, updateProject],
   );
 
   // Thread jump (cmd+1..9) and prev/next traversal follow the rendered rows.
