@@ -186,6 +186,12 @@ export function HomeRouteScreen() {
               params: { screen: "Settings" },
             })
           }
+          onOpenUsage={() =>
+            navigation.navigate("SettingsSheet", {
+              screen: "SettingsContent",
+              params: { screen: "SettingsUsage" },
+            })
+          }
           onSearchQueryChange={setSearchQuery}
           onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
         />

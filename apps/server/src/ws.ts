@@ -151,6 +151,7 @@ import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import { AgentMessaging } from "./agents/AgentMessaging.ts";
 import { UsageResume } from "./agents/UsageResume.ts";
+import { PushNotifications } from "./notifications/PushNotifications.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
@@ -639,6 +640,7 @@ const makeWsRpcLayer = (
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
       const agentMessaging = yield* AgentMessaging;
       const usageResume = yield* UsageResume;
+      const pushNotifications = yield* PushNotifications;
       const repositoryIdentityResolver =
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       // Clone hooks run on the tracker's fiber, outside any RPC, so the
@@ -3174,6 +3176,20 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.viewcodeRelayRemove, viewCodeRelaySetup.remove(input), {
             "rpc.aggregate": "relay",
           }),
+        [WS_METHODS.pushRegister]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.pushRegister,
+            pushNotifications.register(currentSessionId, input),
+            { "rpc.aggregate": "push" },
+          ),
+        [WS_METHODS.pushUnregister]: () =>
+          observeRpcEffect(
+            WS_METHODS.pushUnregister,
+            pushNotifications.unregister(currentSessionId),
+            {
+              "rpc.aggregate": "push",
+            },
+          ),
         [WS_METHODS.subscribeAgentControl]: () =>
           observeRpcStream(WS_METHODS.subscribeAgentControl, agentMessaging.controlChanges, {
             "rpc.aggregate": "agents",

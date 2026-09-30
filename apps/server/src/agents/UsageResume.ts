@@ -84,6 +84,8 @@ export const USAGE_RESUME_STARTUP_GRACE_MS = 5_000;
 export const USAGE_RESUME_BUSY_RETRY_MS = 60_000;
 /** Waits before each retry of a transiently throttled turn; then it stops. */
 export const TRANSIENT_RETRY_DELAYS_MS = [10_000, 30_000, 60_000] as const;
+/** What a resume after a usage limit reset records; phone notifications key on it. */
+export const USAGE_RESUME_AUTO_SUMMARY = "Trying to continue after the usage limit…";
 /** A reset further away than this is more likely a misread than a limit. */
 const MAX_RESET_HORIZON_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -463,7 +465,7 @@ const make = Effect.gen(function* () {
         ? "Resumed by you."
         : transient
           ? "Retrying after the rate limit…"
-          : "Trying to continue after the usage limit…",
+          : USAGE_RESUME_AUTO_SUMMARY,
     );
     if (schedule) yield* syncAwake;
     return true;

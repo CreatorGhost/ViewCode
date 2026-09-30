@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import { useLinkTo, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId } from "@t3tools/contracts";
 import {
   collectLimitAccounts,
@@ -22,16 +22,39 @@ import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
+import { useAgentControlByThreadKey } from "../../state/agentControl";
+import { useThreadShells } from "../../state/entities";
 import { environmentPresentations } from "../../state/presentation";
 import { ResetCredits } from "./UsageLimitsSection";
 import { useProviderColors } from "./usageProviders";
+import {
+  limitDriverLabel,
+  limitWarnings,
+  providersAwaitingData,
+  usageResumeRows,
+} from "./usageScreenModel";
 
-const DRIVER_LABEL: Partial<Record<string, string>> = { codex: "Codex", claudeAgent: "Claude" };
+type ProviderColors = ReturnType<typeof useProviderColors>;
+
+/** The chart's series colour for a driver; drivers the chart does not know use the neutral one. */
+function driverColor(colors: ProviderColors, driver: string): string {
+  switch (driver) {
+    case "claudeAgent":
+      return colors.claude;
+    case "grok":
+    case "cursor":
+    case "opencode":
+    case "antigravity":
+      return colors[driver];
+    default:
+      return colors.codex;
+  }
+}
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
 
 function accountName(account: LimitAccount) {
   if (account.displayName) return account.displayName;
-  if (!account.email) return DRIVER_LABEL[account.driver] ?? String(account.driver);
+  if (!account.email) return limitDriverLabel(account.driver);
   const [local = "", domain = ""] = account.email.split("@");
   return `${local[0] ?? ""}${domain[0] ?? ""}`.toUpperCase() || "Account";
 }
@@ -219,7 +242,8 @@ export function UsageLimitsSection({
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
   const pools = collectLimitPools(collectLimitAccounts(selected), now);
-  const notices = collectLimitNotices(selected);
+  const notices = limitWarnings(collectLimitNotices(selected));
+  const awaitingData = providersAwaitingData(selected);
   const colors = useProviderColors();
   const cursorPromptAt =
     Math.max(
@@ -228,7 +252,12 @@ export function UsageLimitsSection({
     ) + 1;
   return (
     <View className="gap-6">
-      {pools.length === 0 && notices.length === 0 && failedLabels.length === 0 && !cursorPrompt ? (
+      <UsageResumeSection selectedEnvironmentIds={selectedEnvironmentIds} now={now} />
+      {pools.length === 0 &&
+      notices.length === 0 &&
+      awaitingData.length === 0 &&
+      failedLabels.length === 0 &&
+      !cursorPrompt ? (
         <Text className="py-12 text-center text-base text-foreground-muted">
           {selected.size === 0
             ? "Select an environment to see limits."
@@ -244,7 +273,7 @@ export function UsageLimitsSection({
               <View className="flex-row items-center gap-2 px-1">
                 <ProviderIcon provider={pool.driver} size={18} />
                 <Text className="text-base font-t3-medium text-foreground">
-                  {DRIVER_LABEL[pool.driver] ?? pool.driver}
+                  {limitDriverLabel(pool.driver)}
                 </Text>
               </View>
               {windows.map((window) => {
@@ -254,7 +283,7 @@ export function UsageLimitsSection({
                   <PoolWindowCard
                     key={`${window.kind}:${window.id}`}
                     pool={window}
-                    color={pool.driver === "claudeAgent" ? colors.claude : colors.codex}
+                    color={driverColor(colors, pool.driver)}
                     now={now}
                     environmentIds={
                       selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds]
@@ -269,6 +298,26 @@ export function UsageLimitsSection({
         );
       })}
       {cursorPromptAt === pools.length ? cursorPrompt : null}
+      {awaitingData.length > 0 ? (
+        <View className="rounded-[24px] border-continuous bg-card">
+          {awaitingData.map((provider, index) => (
+            <View
+              key={provider.key}
+              className={
+                index === 0
+                  ? "flex-row items-center gap-2 p-4"
+                  : "flex-row items-center gap-2 border-t border-border-subtle p-4"
+              }
+            >
+              <ProviderIcon provider={provider.driver} size={16} />
+              <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={1}>
+                {provider.label}
+              </Text>
+              <Text className="text-sm text-foreground-muted">No data yet</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
       {notices.length > 0 || failedLabels.length > 0 ? (
         <View
           accessible
@@ -305,6 +354,69 @@ export function UsageLimitsSection({
           ) : null}
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * Threads a usage limit stopped, with when each continues by itself. Read from
+ * the agent-control stream the thread view already follows; tapping a row
+ * opens the thread, where Cancel and Resume now live.
+ */
+function UsageResumeSection({
+  selectedEnvironmentIds,
+  now,
+}: {
+  readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
+  readonly now: number;
+}) {
+  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const threads = useThreadShells();
+  const linkTo = useLinkTo();
+  const connected = [...presentations]
+    .filter(
+      ([environmentId, presentation]) =>
+        presentation.connection.phase === "connected" &&
+        (selectedEnvironmentIds === null || selectedEnvironmentIds.has(environmentId)),
+    )
+    .map(([environmentId]) => environmentId);
+  const control = useAgentControlByThreadKey(connected);
+  const titles = new Map(
+    threads.map((thread) => [`${thread.environmentId}:${thread.id}`, thread.title]),
+  );
+  const rows = usageResumeRows({
+    control,
+    titleOf: (environmentId, threadId) => titles.get(`${environmentId}:${threadId}`) ?? null,
+    nowMs: now,
+  });
+  if (rows.length === 0) return null;
+  return (
+    <View className="gap-3">
+      <Text className="px-1 text-base font-t3-medium text-foreground">Waiting on a limit</Text>
+      <View className="rounded-[24px] border-continuous bg-card">
+        {rows.map((row, index) => (
+          <Pressable
+            key={row.key}
+            accessibilityRole="button"
+            accessibilityHint="Opens the thread"
+            onPress={() =>
+              linkTo(
+                `/threads/${encodeURIComponent(row.environmentId)}/${encodeURIComponent(row.threadId)}`,
+              )
+            }
+            className={
+              index === 0
+                ? "min-h-[44px] gap-0.5 p-4 active:opacity-60"
+                : "min-h-[44px] gap-0.5 border-t border-border-subtle p-4 active:opacity-60"
+            }
+          >
+            <Text className="text-base text-foreground" numberOfLines={1}>
+              {row.title}
+            </Text>
+            <Text className="text-sm tabular-nums text-foreground-muted">{row.text}</Text>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }
@@ -353,7 +465,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
               <View className="flex-row items-center gap-2">
                 <ProviderIcon provider={account.driver} size={24} />
                 <Text className="flex-1 text-xl font-t3-bold text-foreground">
-                  {account.displayName ?? DRIVER_LABEL[account.driver] ?? account.driver}
+                  {account.displayName ?? limitDriverLabel(account.driver)}
                 </Text>
               </View>
               {account.email ? (

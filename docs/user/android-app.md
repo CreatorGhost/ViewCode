@@ -77,6 +77,70 @@ session. Picking a different provider (marked **Handoff**) hands the chat
 over on your next message: your messages carry over word for word, earlier
 replies as a summary.
 
+## Usage
+
+Tap the chart button in the Home header (or **Settings → Usage**). **Limits**
+shows every provider your computers report, Claude, Codex, Cursor, Command Code
+and the rest: each window's share left, when it resets, and banked reset credits
+where the provider has them. A provider that has not reported anything yet says
+**No data yet**. **Waiting on a limit** lists threads a usage limit stopped, with
+when each continues on its own ("Resumes at 9:31 PM"); tap one to open it and
+cancel or resume it now. Opening the screen checks limits; pull down to check
+again. **Usage** shows token use and estimated cost over time.
+
+## Notifications
+
+Your computer can notify the phone when an agent finishes, needs your approval
+or an answer, hits a usage limit, or continues after the limit resets. A child
+agent's notification is titled with the thread that started it. Tap a
+notification to open its thread. Notifications show the thread title and the
+event, never message text; they travel through Expo's push service and Google's
+Firebase.
+
+Turn them on in **Settings → Notifications → Phone notifications** and pick the
+kinds you want. The phone registers with every computer it is connected to;
+removing the phone under the computer's **Connections** stops them. Each
+computer sends its own notifications, so it must be running, but the phone does
+not need to be connected.
+
+### One-time Firebase setup
+
+Android delivers notifications through Firebase, so your build needs your own
+Firebase project. Do this once, before building (see [Build and install](#build-and-install)):
+
+1. In the [Firebase console](https://console.firebase.google.com), create a
+   project, then **Add app → Android** with the package name
+   `com.viewcode.app.preview`. Download `google-services.json`; skip the SDK
+   steps.
+2. Give the file to the build as `T3CODE_ANDROID_GOOGLE_SERVICES_FILE`, the
+   variable the app config reads. For the cloud builder, from `apps/mobile`:
+
+   ```bash
+   eas env:create --environment preview --name T3CODE_ANDROID_GOOGLE_SERVICES_FILE \
+     --type file --value ./google-services.json --visibility secret
+   ```
+
+   For builds and `eas` commands on your machine, also add
+   `T3CODE_ANDROID_GOOGLE_SERVICES_FILE=/absolute/path/to/google-services.json`
+   to the repository's `.env.local`. Keep the file out of git.
+
+3. In Firebase, open **Project settings → Service accounts → Generate new
+   private key**. Upload that key to Expo:
+
+   ```bash
+   eas credentials
+   ```
+
+   Choose **Android → preview → Google Service Account → Manage your Google
+   Service Account Key for Push Notifications (FCM V1) → Upload a new service
+   account key**, and pick the downloaded JSON. Then delete the local copy.
+
+4. Rebuild with `eas build -p android --profile preview` and install the new
+   APK. An update over the air cannot add Firebase to an existing install.
+
+If **Phone notifications** says the build has no Firebase or no EAS project,
+the build was made without step 2 or without `VIEWCODE_EAS_PROJECT_ID`.
+
 ## Updating
 
 Pull the latest ViewCode and run `eas build -p android --profile preview` again,

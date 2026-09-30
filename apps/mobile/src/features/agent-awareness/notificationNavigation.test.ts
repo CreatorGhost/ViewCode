@@ -137,6 +137,19 @@ describe("extractAgentNotificationDeepLink", () => {
     ).toBe("/threads/env/thread");
   });
 
+  it("opens the thread a computer's Expo push names, a child agent included", () => {
+    expect(
+      extractAgentNotificationDeepLink(
+        responseWithData({
+          kind: "needs-approval",
+          environmentId: "env-1",
+          threadId: "child-agent",
+          deepLink: "/threads/env-1/child-agent",
+        }),
+      ),
+    ).toBe("/threads/env-1/child-agent");
+  });
+
   it("ignores malformed or external links", () => {
     expect(
       extractAgentNotificationDeepLink(responseWithData({ deepLink: "https://example.com" })),

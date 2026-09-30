@@ -16,6 +16,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Desktop local mode (no TCP port)         | `apps/server/src/socketListener.ts`, `mcp/McpStdioBridge.ts`, desktop `backend/DesktopLocalBackend*.ts`, web `lib/desktopBackendWebSocket.ts`                                                   |
 | Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                           |
 | Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, web `components/agentSessions/`                                     |
+| Phone notifications (Expo push)          | `apps/server/src/notifications/`, contracts `pushNotifications.ts`, mobile `features/agent-awareness/directPush*.ts` and `useDirectPushRegistration.ts`                                         |
 | Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME`, web-only default), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids) |
 
 ## Decisions
@@ -374,6 +375,33 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   response for the selected CLI organization. This avoids Keychain prompts.
   Cache-only counts cannot authorize redemption; missing or stale data means
   unknown, not zero. A banked credit can exist before it is usable immediately.
+
+### Phone notifications
+
+- Upstream's push path is T3 Connect: the server publishes agent activity to
+  the hosted relay, which sends FCM/APNs after a Clerk sign-in. ViewCode builds
+  have no Clerk, so each environment also sends its own notifications through
+  Expo's push service (`notifications/PushNotifications.ts`). The phone
+  registers its Expo token with `push.register` over its normal connection; the
+  environment keeps it per auth session in `<stateDir>/push-devices.json` and
+  drops it on `clientRemoved`, when the session has expired (checked before
+  every send), on `DeviceNotRegistered` from Expo, or when the same token
+  registers from a new session. A phone with both T3 Connect and direct
+  notifications on would get both; nothing dedupes across the two.
+- Decisions read the thread's current shell, like `AgentAwarenessRelay`, so a
+  turn is "finished" only after the service saw it working; the first sighting
+  and a session booting at "ready" never notify, and a turn notifies once. A
+  turn stopped by a usage limit or a throttle stays quiet: the
+  `viewcode.usage-resume` note says what happens next, and only the automatic
+  resume (`USAGE_RESUME_AUTO_SUMMARY`) notifies as "resumed". Keep that summary
+  constant if the wording changes.
+- Expo has no Android notification group key, so a child agent's notification
+  is titled with its lead instead; the tap still opens the child.
+- On Android the native `AgentMessagingService` (module `t3-agent-notifications`)
+  replaces expo-notifications' Firebase service. It handles relay messages
+  (`t3_kind=agent_activity`) itself and must keep passing everything else to
+  `super`, or Expo pushes stop showing. Expo pushes use the `agent-alerts`
+  channel the app creates when it asks for permission.
 
 ### Session import
 
