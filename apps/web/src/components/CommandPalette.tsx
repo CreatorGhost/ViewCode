@@ -2207,9 +2207,20 @@ function OpenCommandPaletteDialog(props: {
       const cwd = resolveProjectPathForDispatch(rawCwd, input.currentProjectCwd);
       if (cwd.length === 0) return;
 
+      // Projects store absolute roots, so `~/code/app` never matches
+      // `/Users/me/code/app` and the server then rejects the duplicate. Only
+      // the server knows its home directory; its folder listing resolves it.
+      let comparableCwd = cwd;
+      if (cwd.startsWith("~")) {
+        const listing = await loadBrowsePath({
+          environmentId: input.environmentId,
+          input: { partialPath: ensureBrowseDirectoryPath(cwd) },
+        });
+        if (listing._tag === "Success") comparableCwd = listing.value.parentPath;
+      }
       const existing = findProjectByPath(
         projects.filter((project) => project.environmentId === input.environmentId),
-        cwd,
+        comparableCwd,
       );
       if (existing) {
         const latestThread = getLatestThreadForProject(
@@ -2289,6 +2300,7 @@ function OpenCommandPaletteDialog(props: {
       handleNewThread,
       createProject,
       environments,
+      loadBrowsePath,
       navigate,
       primaryEnvironmentId,
       projects,

@@ -32,6 +32,7 @@ import {
 } from "@t3tools/client-runtime/state/filesystem";
 import {
   appendBrowsePathSegment,
+  ensureBrowseDirectoryPath,
   inferProjectTitleFromPath,
   isWindowsPlatform,
 } from "@t3tools/client-runtime/state/projects";
@@ -633,16 +634,32 @@ function openNewTaskDraft(
 function useCreateProject(environment: EnvironmentOption | null) {
   const navigation = useNavigation();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
+  const browse = useAtomQueryRunner(filesystemEnvironment.browse, {
+    reportFailure: false,
+    reportDefect: false,
+  });
   const projects = useProjects();
 
   return useCallback(
     async (workspaceRoot: string) => {
       if (!environment || !canCreateProjectInEnvironment(environment.connectionState)) return;
 
+      // Projects store absolute roots, so `~/code/app` never matches
+      // `/Users/me/code/app` here and the server then rejects the duplicate.
+      // Only the server knows its home directory; its folder listing resolves it.
+      let comparableRoot = workspaceRoot;
+      if (workspaceRoot.trim().startsWith("~")) {
+        const listing = await browse({
+          environmentId: environment.environmentId,
+          input: { partialPath: ensureBrowseDirectoryPath(workspaceRoot) },
+        });
+        if (AsyncResult.isSuccess(listing)) comparableRoot = listing.value.parentPath;
+      }
+
       const existing = findExistingAddProject({
         projects,
         environmentId: environment.environmentId,
-        path: workspaceRoot,
+        path: comparableRoot,
       });
       if (existing) {
         Alert.alert("Project already exists", existing.title);
@@ -695,7 +712,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
       );
       return result;
     },
-    [createProject, environment, projects, navigation],
+    [browse, createProject, environment, projects, navigation],
   );
 }
 
