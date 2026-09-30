@@ -15,6 +15,8 @@ const spinnerVariants = cva("motion-safe:visible-animate-spin", {
     tone: {
       current: "",
       muted: "text-muted-foreground",
+      // Work happening elsewhere, e.g. a collapsed lead's child agents.
+      info: "text-info",
     },
   },
   defaultVariants: { tone: "current" },
