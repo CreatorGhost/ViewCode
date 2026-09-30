@@ -5,7 +5,8 @@ machine. That machine must stay running and reachable while you work.
 
 ## Connect your phone
 
-Install **T3 Code** from the App Store or Google Play; it works with ViewCode.
+Install **T3 Code** from the App Store or Google Play (it works with ViewCode), or
+build the [ViewCode Android app](./android-app.md).
 Your phone needs no account. On the computer, choose **Connect phone** (sidebar
 footer, command palette, or the top of **Settings → Connections**), pick how the
 phone will reach it, and scan the code from the app's **Add environment**.

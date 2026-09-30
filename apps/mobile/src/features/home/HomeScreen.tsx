@@ -38,22 +38,24 @@ import { useQueuedThreadKeys } from "../../state/use-thread-outbox";
 import {
   ThreadListV2PendingRow,
   ThreadListV2Row,
-  ThreadListV2SettledShelfHeader,
-  ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { useThreadRowProviderInstanceResolver } from "../threads/thread-provider-instance";
-import {
-  buildThreadListV2Items,
-  getThreadListV2OrderedSection,
-  buildThreadListV2ListItems,
-  threadListV2ListItemsAreEqual,
-  THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
-  THREAD_LIST_V2_SETTLED_PAGE_COUNT,
-  type ThreadListV2ListItem,
-} from "../threads/threadListV2";
+import { getThreadListV2OrderedSection } from "../threads/threadListV2";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
+import {
+  HomeFolderAgentsToggle,
+  HomeFolderChildRow,
+  HomeFolderHeader,
+  HomeFolderSettledRow,
+} from "./home-folder-rows";
+import {
+  buildHomeFolderList,
+  homeFolderListItemsAreEqual,
+  resolveHomeAgentModelLabel,
+  type HomeFolderListItem,
+} from "./homeFolderList";
 import {
   buildHomeProjectScopes,
   sortHomeProjectScopes,
@@ -203,6 +205,12 @@ function deriveEmptyState(props: {
     detail: "Create a task to start a new coding session in one of your connected projects.",
     loading: false,
   };
+}
+
+function toggleSetKey(keys: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(keys);
+  if (!next.delete(key)) next.add(key);
+  return next;
 }
 
 function HomeTopContentSpacer() {
@@ -402,26 +410,30 @@ export function HomeScreen(props: HomeScreenProps) {
   );
   const handleDeleteThread = props.onDeleteThread;
   const handleUnsettleThread = props.onUnsettleThread;
-  // The settled tail renders in pages; expansion resets when the filter
-  // context changes so environment/search flips never inherit a deep page.
-  const [settledVisibleCount, setSettledVisibleCount] = useState(
-    THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
+  // ViewCode: Home groups threads into project folders (homeFolderList.ts).
+  // Folder, agent and per-folder Settled disclosure live for the session.
+  const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
   );
-  const settledResetKey = `${props.selectedEnvironmentId ?? "all"}:${v2ProjectScopeKey ?? "all"}:${props.searchQuery.trim()}`;
-  const lastSettledResetKeyRef = useRef(settledResetKey);
-  if (lastSettledResetKeyRef.current !== settledResetKey) {
-    lastSettledResetKeyRef.current = settledResetKey;
-    setSettledVisibleCount(THREAD_LIST_V2_SETTLED_INITIAL_COUNT);
-  }
-  const showMoreSettled = useCallback(
-    () => setSettledVisibleCount((count) => count + THREAD_LIST_V2_SETTLED_PAGE_COUNT),
+  const [expandedLeadKeys, setExpandedLeadKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [expandedSettledFolderKeys, setExpandedSettledFolderKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleFolder = useCallback(
+    (key: string) => setCollapsedFolderKeys((keys) => toggleSetKey(keys, key)),
+    [],
+  );
+  const toggleLeadAgents = useCallback(
+    (key: string) => setExpandedLeadKeys((keys) => toggleSetKey(keys, key)),
+    [],
+  );
+  const toggleFolderSettled = useCallback(
+    (key: string) => setExpandedSettledFolderKeys((keys) => toggleSetKey(keys, key)),
     [],
   );
   const {
     loaded: shelfPreferencesLoaded,
-    settledShelfExpanded,
     snoozedShelfExpanded,
-    toggleSettledShelf,
     toggleSnoozedShelf,
   } = useThreadListV2ShelfPreferences();
   // The queued-start and snooze helpers need a clock while the list stays open.
@@ -557,55 +569,6 @@ export function HomeScreen(props: HomeScreenProps) {
     nowMinute,
     snoozeWakeTick,
   ]);
-  const threadListV2Layout = useMemo(() => {
-    // Settled threads are live shells; archived threads keep their original
-    // "hidden from lists" meaning.
-    return buildThreadListV2Items({
-      pendingOrder,
-      threads: props.threads.filter((thread) => thread.archivedAt === null),
-      environmentId: props.selectedEnvironmentId,
-      projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
-      searchQuery: props.searchQuery,
-      matchedThreadKeys,
-      settlementEnvironmentIds,
-      snoozeEnvironmentIds,
-      queuedThreadKeys,
-      settledLimit: settledVisibleCount,
-      now: new Date().toISOString(),
-      snoozedShelfExpanded,
-      settledShelfExpanded,
-      selectedThreadKey: null,
-    });
-  }, [
-    pendingOrder,
-    queuedThreadKeys,
-    nowMinute,
-    snoozeWakeTick,
-    snoozedShelfExpanded,
-    settledShelfExpanded,
-    settledVisibleCount,
-    settlementEnvironmentIds,
-    snoozeEnvironmentIds,
-    props.searchQuery,
-    props.selectedEnvironmentId,
-    props.threads,
-    matchedThreadKeys,
-    v2ScopedProjectGroup,
-  ]);
-  // Re-partition the moment the earliest snooze expires (clamped to the
-  // signed-32-bit setTimeout range; far-future wakes re-arm at the clamp).
-  const nextSnoozeWakeAt = threadListV2Layout.nextSnoozeWakeAt;
-  useEffect(() => {
-    if (nextSnoozeWakeAt === null) return;
-    const wakeAtMs = Date.parse(nextSnoozeWakeAt);
-    if (Number.isNaN(wakeAtMs)) return;
-    const delayMs = Math.min(Math.max(0, wakeAtMs - Date.now()) + 50, 2_147_483_647);
-    const id = setTimeout(() => bumpSnoozeWakeTick((tick) => tick + 1), delayMs);
-    return () => clearTimeout(id);
-    // snoozeWakeTick must re-arm the timer even when nextSnoozeWakeAt is
-    // unchanged: after a clamped fire (wake beyond the 32-bit setTimeout
-    // range) the boundary string is identical and the chain would die.
-  }, [nextSnoozeWakeAt, snoozeWakeTick]);
   // Queued tasks are not thread shells, so the v2 partition never sees them;
   // they are spliced in below the active block and stay visible and deletable
   // while their environment is offline. Same environment scope and search
@@ -626,40 +589,134 @@ export function HomeScreen(props: HomeScreenProps) {
       ),
     [props.pendingTasks, props.selectedEnvironmentId, v2ScopedProjectKeys, v2SearchQuery],
   );
-  const threadListV2Items = useMemo(
+  const folderScopes = useMemo(
+    () => (v2ScopedProjectGroup === null ? v2ScopeProjects : [v2ScopedProjectGroup]),
+    [v2ScopeProjects, v2ScopedProjectGroup],
+  );
+  const folderList = useMemo(
     () =>
-      buildThreadListV2ListItems({
-        items: threadListV2Layout.items,
+      buildHomeFolderList({
+        // Settled threads are live shells; archived threads keep their
+        // original "hidden from lists" meaning.
+        threads: props.threads.filter((thread) => thread.archivedAt === null),
+        scopes: folderScopes,
+        projectScoped: v2ScopedProjectGroup !== null,
         pendingTasks: v2PendingTasks,
-        snoozedCount: threadListV2Layout.snoozedCount,
-        snoozedShelfExpanded,
-        snoozedShelfHeaderIndex: threadListV2Layout.snoozedShelfHeaderIndex,
-        settledCount: threadListV2Layout.settledCount,
-        settledShelfExpanded,
-        settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
-        snoozeLabelNow: `${nowMinute}:00.000Z`,
+        environmentId: props.selectedEnvironmentId,
+        searchQuery: props.searchQuery,
+        matchedThreadKeys,
+        settlementEnvironmentIds,
         snoozeEnvironmentIds,
         queuedThreadKeys,
+        pendingOrder,
+        now: new Date().toISOString(),
+        collapsedFolderKeys,
+        expandedLeadKeys,
+        expandedSettledFolderKeys,
+        snoozedShelfExpanded,
+        snoozeLabelNow: `${nowMinute}:00.000Z`,
         moveAvailability: threadMoveAvailability,
         shelfPreferencesLoading: !shelfPreferencesLoaded,
       }),
     [
+      collapsedFolderKeys,
+      expandedLeadKeys,
+      expandedSettledFolderKeys,
+      folderScopes,
+      v2ScopedProjectGroup,
+      matchedThreadKeys,
       nowMinute,
+      pendingOrder,
+      props.searchQuery,
+      props.selectedEnvironmentId,
+      props.threads,
       queuedThreadKeys,
-      threadMoveAvailability,
-      settledShelfExpanded,
+      settlementEnvironmentIds,
       shelfPreferencesLoaded,
-      snoozedShelfExpanded,
       snoozeEnvironmentIds,
-      threadListV2Layout,
+      snoozeWakeTick,
+      snoozedShelfExpanded,
+      threadMoveAvailability,
       v2PendingTasks,
     ],
   );
+  const folderItems = folderList.items;
+  const leadEntries = useMemo(
+    () => folderItems.flatMap((item) => (item.type === "folder-lead" ? [item.entry] : [])),
+    [folderItems],
+  );
+  const modelLabelOf = useCallback(
+    (thread: EnvironmentThreadShell) => resolveHomeAgentModelLabel(serverConfigs, thread),
+    [serverConfigs],
+  );
+  // Re-partition the moment the earliest snooze expires (clamped to the
+  // signed-32-bit setTimeout range; far-future wakes re-arm at the clamp).
+  const nextSnoozeWakeAt = folderList.nextSnoozeWakeAt;
+  useEffect(() => {
+    if (nextSnoozeWakeAt === null) return;
+    const wakeAtMs = Date.parse(nextSnoozeWakeAt);
+    if (Number.isNaN(wakeAtMs)) return;
+    const delayMs = Math.min(Math.max(0, wakeAtMs - Date.now()) + 50, 2_147_483_647);
+    const id = setTimeout(() => bumpSnoozeWakeTick((tick) => tick + 1), delayMs);
+    return () => clearTimeout(id);
+    // snoozeWakeTick must re-arm the timer even when nextSnoozeWakeAt is
+    // unchanged: after a clamped fire (wake beyond the 32-bit setTimeout
+    // range) the boundary string is identical and the chain would die.
+  }, [nextSnoozeWakeAt, snoozeWakeTick]);
 
-  useThreadJumpShortcuts(threadListV2Items, props.onSelectThread);
+  useThreadJumpShortcuts(leadEntries, props.onSelectThread);
 
   const renderV2Item = useCallback(
-    ({ item }: { readonly item: ThreadListV2ListItem }) => {
+    ({ item: listItem }: { readonly item: HomeFolderListItem }) => {
+      switch (listItem.type) {
+        case "folder-header":
+          return (
+            <HomeFolderHeader
+              folderKey={listItem.folderKey}
+              title={listItem.title}
+              project={listItem.scope.representative}
+              count={listItem.count}
+              workingCount={listItem.workingCount}
+              expanded={listItem.expanded}
+              onToggle={toggleFolder}
+              onNewThread={props.onNewThreadInProject}
+            />
+          );
+        case "folder-agents":
+          return (
+            <HomeFolderAgentsToggle
+              leadKey={listItem.leadKey}
+              agentCount={listItem.agentCount}
+              workingCount={listItem.workingCount}
+              expanded={listItem.expanded}
+              muted={listItem.muted}
+              onToggle={toggleLeadAgents}
+            />
+          );
+        case "folder-child":
+          return (
+            <HomeFolderChildRow
+              thread={listItem.thread}
+              depth={listItem.depth}
+              status={listItem.status}
+              modelLabel={modelLabelOf(listItem.thread)}
+              muted={listItem.muted}
+              onSelectThread={props.onSelectThread}
+            />
+          );
+        case "folder-settled":
+          return (
+            <HomeFolderSettledRow
+              folderKey={listItem.folderKey}
+              count={listItem.count}
+              expanded={listItem.expanded}
+              onToggle={toggleFolderSettled}
+            />
+          );
+      }
+      const item = listItem.type === "folder-lead" ? listItem.entry : listItem;
+      // Inside a folder the row's project line would repeat the folder name.
+      const inFolder = listItem.type === "folder-lead" && listItem.inFolder;
       if (item.type === "v2-pending") {
         const pendingScopeKey = scopedProjectKey(
           item.pendingTask.environmentId,
@@ -694,16 +751,6 @@ export function HomeScreen(props: HomeScreenProps) {
           />
         );
       }
-      if (item.type === "v2-settled-shelf") {
-        return (
-          <ThreadListV2SettledShelfHeader
-            count={item.count}
-            disabled={item.disabled}
-            expanded={item.expanded}
-            onToggle={toggleSettledShelf}
-          />
-        );
-      }
       const thread = item.item.thread;
       return (
         <ThreadListV2Row
@@ -718,11 +765,17 @@ export function HomeScreen(props: HomeScreenProps) {
           timeLabel={item.timeLabel}
           showTrailingDivider={item.showTrailingDivider}
           project={
-            projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null
+            inFolder
+              ? null
+              : (projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null)
           }
-          projectTitle={v2ProjectTitleByProjectKey.get(
-            scopedProjectKey(thread.environmentId, thread.projectId),
-          )}
+          projectTitle={
+            inFolder
+              ? ""
+              : v2ProjectTitleByProjectKey.get(
+                  scopedProjectKey(thread.environmentId, thread.projectId),
+                )
+          }
           providerInstance={resolveProviderInstance(thread)}
           environmentLabel={
             Object.keys(props.savedConnectionsById).length > 1
@@ -798,13 +851,17 @@ export function HomeScreen(props: HomeScreenProps) {
       snoozeEnvironmentIds,
       threadSearchMatchByKey,
       titleRegenerationEnvironmentIds,
-      toggleSettledShelf,
+      toggleFolder,
+      toggleFolderSettled,
+      toggleLeadAgents,
       toggleSnoozedShelf,
+      modelLabelOf,
+      props.onNewThreadInProject,
       v2ProjectTitleByProjectKey,
       props.searchQuery,
     ],
   );
-  const v2KeyExtractor = useCallback((item: ThreadListV2ListItem) => item.key, []);
+  const v2KeyExtractor = useCallback((item: HomeFolderListItem) => item.key, []);
 
   // FlatList/LegendList treat a changed extraData identity as "re-render every
   // visible row", so an inline object literal would invalidate all rows on
@@ -927,7 +984,7 @@ export function HomeScreen(props: HomeScreenProps) {
       />
     );
 
-  if (Platform.OS === "android" && threadListV2Items.length === 0) {
+  if (Platform.OS === "android" && folderItems.length === 0) {
     return (
       <View className="flex-1 bg-header">
         <View
@@ -954,24 +1011,16 @@ export function HomeScreen(props: HomeScreenProps) {
             shell update) from re-rendering untouched rows. */}
         <SwipeableScrollGateProvider enabled={swipeEnabled}>
           <LegendList
-            data={threadListV2Items}
+            data={folderItems}
             renderItem={renderV2Item}
             keyExtractor={v2KeyExtractor}
             getItemType={(item) => item.type}
-            itemsAreEqual={threadListV2ListItemsAreEqual}
+            itemsAreEqual={homeFolderListItemsAreEqual}
             estimatedItemSize={ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT}
             drawDistance={500}
             recycleItems
             extraData={v2ExtraData}
             ListHeaderComponent={v2ListHeader}
-            ListFooterComponent={
-              settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0 ? (
-                <ThreadListV2ShowMoreRow
-                  hiddenCount={threadListV2Layout.hiddenSettledCount}
-                  onPress={showMoreSettled}
-                />
-              ) : null
-            }
             ListEmptyComponent={v2ListEmpty}
             style={{ flex: 1 }}
             automaticallyAdjustsScrollIndicatorInsets={Platform.OS === "ios"}

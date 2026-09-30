@@ -10,7 +10,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Feature                                  | Main files                                                                                                                                                                                      |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Mid-chat model/provider switch + handoff | `apps/server/src/orchestration/Handoff.ts`, `orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`)                                                                             |
-| Child agents                             | `parentThreadId` on threads (contracts `orchestration.ts`, migration `055_ProjectionThreadsParentThreadId`), web `components/agents/*`, sidebar `components/sidebar/sidebarThreadTree.ts`       |
+| Child agents                             | `parentThreadId` on threads (contracts `orchestration.ts`, migration `055_ProjectionThreadsParentThreadId`), web `components/agents/*`, tree client-runtime `state/threadTree.ts`               |
 | Agent-to-agent messaging                 | `apps/server/src/agents/AgentMessaging.ts`, `agents/searchHistory.ts`, MCP toolkit `apps/server/src/mcp/toolkits/agents/`, envelope in `packages/shared/src/agentMessages.ts`                   |
 | Command Code provider                    | `apps/server/src/provider/commandCodeCli.ts`, `Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`, `Layers/commandCodeUsageLimits.ts`                                                      |
 | Desktop local mode (no TCP port)         | `apps/server/src/socketListener.ts`, `mcp/McpStdioBridge.ts`, desktop `backend/DesktopLocalBackend*.ts`, web `lib/desktopBackendWebSocket.ts`                                                   |
@@ -316,6 +316,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `viewcode`, app id `dev.viewcode.app`, WM class `viewcode`. Sharing T3's
   profile shared its IndexedDB lock and cached projects, which stalls first run
   on "Still connecting".
+- The same holds for the mobile app (`apps/mobile/app.config.ts`): package
+  `com.viewcode.app[.dev|.preview]`, schemes `viewcode[-dev|-preview]`, so it
+  installs beside the store T3 Code app without Android asking which app opens
+  a link. Linking still accepts `t3code://` (the Android widget builds that
+  scheme but targets our package explicitly), and QR payloads accept both.
+  The EAS project comes only from `VIEWCODE_EAS_PROJECT_ID`/`VIEWCODE_EAS_OWNER`:
+  the config is dynamic, so `eas init` cannot write the ID itself, and the cloud
+  builder re-evaluates the config, so the ID must also be an EAS environment
+  variable (`docs/user/android-app.md`). Without an ID, OTA updates are off.
 
 ### Composer picker
 
