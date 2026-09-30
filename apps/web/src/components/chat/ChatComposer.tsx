@@ -1359,6 +1359,11 @@ export interface ChatComposerProps {
   sendDisabledReason: string | null;
   isPreparingWorktree: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  /**
+   * Notices that must never fold behind the stack (the usage-limit resume
+   * notice). Each renders as its own always-visible row above the stack.
+   */
+  pinnedBannerItems?: readonly ComposerBannerStackItem[];
   /** Always-attached strip above the banner stack (the child agents bar); renders its own attachment. */
   agentsBar?: ReactNode;
   /** Picking /usage-limits from the menu is the action itself; the draft keeps nothing of it. */
@@ -6242,6 +6247,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           {props.agentsBar}
+          {props.pinnedBannerItems?.map((item) => (
+            <ComposerBannerStack key={item.id} items={[item]} />
+          ))}
           <ComposerBannerStack
             key={activeThreadId}
             className="relative z-0"
