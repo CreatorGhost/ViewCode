@@ -131,7 +131,19 @@ export function createRelayForwarder(options: {
           : { host: target.host, port: target.port }),
         method: head.method,
         path: head.path,
-        headers: { ...toNodeHeaders(head.headers), host: hostHeaderFor(head.headers) },
+        // The relay requests identity from the local server; compression is
+        // owned by the edge. The Cloudflare edge in front of the Worker
+        // re-negotiates `content-encoding` to the phone's Accept-Encoding
+        // without transcoding the body, so a compressed origin body would end
+        // up mislabelled (declared gzip/br/zstd, actually the origin's brotli).
+        // Forcing identity here makes the origin send uncompressed bytes with
+        // no `content-encoding`, and exactly one layer (the edge) compresses,
+        // so what the phone receives is always decodable.
+        headers: {
+          ...toNodeHeaders(head.headers),
+          host: hostHeaderFor(head.headers),
+          "accept-encoding": "identity",
+        },
         agent: false,
       });
     } catch {

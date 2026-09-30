@@ -5,9 +5,12 @@ import {
   classifyDialError,
   describeErrorChain,
   initialRelayHealth,
+  NETWORK_FAILURES_BEFORE_NOTE,
   reconnectDelayMs,
   reduceRelayHealth,
+  RELAY_REASON,
   resolveLocalTarget,
+  type RelayHealth,
 } from "./viewCodeRelayHealth.ts";
 
 describe("reconnectDelayMs", () => {
@@ -34,6 +37,11 @@ describe("classifyDialError", () => {
     expect(classifyDialError("getaddrinfo ENOTFOUND relay.example.workers.dev").kind).toBe(
       "network",
     );
+    // A TLS/connection reset is a network failure, never an untrusted issuer:
+    // it is temporary while a firewall categorises a new hostname.
+    for (const text of ["ECONNRESET", "read ECONNRESET", "socket hang up", "UND_ERR_SOCKET"]) {
+      expect(classifyDialError(text).kind).toBe("network");
+    }
   });
 
   it("reads codes through the cause chain", () => {
@@ -70,6 +78,31 @@ describe("reduceRelayHealth", () => {
       failure: { kind: "auth" },
     });
     expect(reduceRelayHealth(refused, { type: "attempt" }).status).toBe("auth-failed");
+  });
+
+  it("never goes terminal on connection resets, and escalates the note over time", () => {
+    const reset = {
+      type: "dial-failed",
+      failure: { kind: "network", detail: "ECONNRESET" },
+    } as const;
+    let health: RelayHealth = reduceRelayHealth(initialRelayHealth, { type: "attempt" });
+    // Three resets in a row: still reconnecting, never blocked or auth-failed.
+    for (let index = 0; index < 3; index += 1) {
+      health = reduceRelayHealth(health, reset);
+      expect(health.status).toBe("reconnecting");
+      expect(health.reason).toBe(RELAY_REASON.network);
+    }
+    // Keep resetting: once past the threshold the wording escalates, but it is
+    // still reconnecting and still retrying.
+    while (health.networkFailures < NETWORK_FAILURES_BEFORE_NOTE) {
+      health = reduceRelayHealth(health, reset);
+    }
+    expect(health.status).toBe("reconnecting");
+    expect(health.reason).toBe(RELAY_REASON.stillConnecting);
+
+    // A reset followed by a successful dial connects cleanly, note cleared.
+    const connected = reduceRelayHealth(health, { type: "connected" });
+    expect(connected).toMatchObject({ status: "connected", reason: undefined, networkFailures: 0 });
   });
 });
 

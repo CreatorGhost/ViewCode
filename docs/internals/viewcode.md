@@ -228,6 +228,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   stream as `viewcodeRelay`, like `managedTunnel`; the switch is the `viewcodeRelay.enabled`
   server setting and the host secret lives only in the secret store. The desktop backend is
   spawned with `--use-system-ca` so corporate TLS inspection does not break the socket.
+- The relay requests identity from the local server; compression is owned by the edge.
+  Cloudflare's edge rewrites `content-encoding` to the client's Accept-Encoding without
+  transcoding, so a forwarded compressed body is mislabelled (`relayForwarder.ts`).
+- A new relay address can be reset for up to an hour while a firewall categorises it,
+  then work unchanged, so a reset is never terminal for the connector: it keeps retrying
+  and only the wording escalates (`viewCodeRelayHealth.ts`).
 - ViewCode's desktop identity must never match T3 Code's: profile folder
   `viewcode`, app id `dev.viewcode.app`, WM class `viewcode`. Sharing T3's
   profile shared its IndexedDB lock and cached projects, which stalls first run

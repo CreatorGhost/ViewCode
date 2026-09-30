@@ -133,3 +133,74 @@ export function removeRelayState(stateDir: string): void {
 export function wranglerNeedsLogin(whoamiOutput: string, exitCode: number): boolean {
   return exitCode !== 0 || /not authenticated|not logged in|you are not/iu.test(whoamiOutput);
 }
+
+/**
+ * wrangler needs a workers.dev subdomain before a Worker has a public address.
+ * It offers to register one interactively; run non-interactively it answers
+ * "no" itself and deploys a Worker nobody can reach. When that happens the
+ * deploy output mentions the workers.dev subdomain and no `*.workers.dev`
+ * address is printed, so the caller has both signals.
+ */
+export function detectMissingWorkersDevSubdomain(output: string): boolean {
+  return /workers\.dev subdomain/iu.test(output);
+}
+
+/**
+ * Flattens a fetch/undici error and its causes into one short phrase, so an
+ * unreachable probe can say why (reset, TLS, timeout) without a stack trace.
+ */
+export function describeFetchError(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current !== undefined && current !== null; depth += 1) {
+    if (typeof current === "object") {
+      const { name, code, message, cause } = current as {
+        name?: unknown;
+        code?: unknown;
+        message?: unknown;
+        cause?: unknown;
+      };
+      if (typeof code === "string") parts.push(code);
+      else if (typeof name === "string" && parts.length === 0) parts.push(name);
+      if (typeof message === "string" && message !== "") parts.push(message);
+      current = cause;
+    } else {
+      parts.push(String(current));
+      break;
+    }
+  }
+  const joined = parts.join(": ");
+  return joined === "" ? "unknown error" : joined;
+}
+
+/** Reachable: the origin answered HTTP (any status), so the address works. */
+export function formatReachableSetup(origin: string): string {
+  return [
+    `Quick connect is set up: ${origin}`,
+    "Open ViewCode, Connect phone, Anywhere, and scan the QR code with the T3 Code app.",
+    "Keep in mind: the relay is your own Worker, and it (and any network inspection) can see the traffic.",
+  ].join("\n");
+}
+
+/**
+ * Deployed and saved, but this computer could not reach the origin. Honest,
+ * because a reset/TLS/timeout here does not mean the relay is broken: a newly
+ * created workers.dev address can take a while to start answering, and the
+ * problem may be this network. Does not claim "set up".
+ */
+export function formatUnreachable(origin: string, detail: string): string {
+  return [
+    `Deployed the relay, but this computer can't reach ${origin} right now (${detail}).`,
+    "It may be your network, and it can also be that a new address takes time to work.",
+    "The settings were saved. Try again later, or run `node scripts/viewcode-relay.ts check`.",
+  ].join("\n");
+}
+
+/** No workers.dev subdomain: the Worker has no public address to reach. */
+export function formatMissingSubdomain(settingsFile: string): string {
+  return [
+    "Deployed, but this Cloudflare account has no workers.dev subdomain, so the Worker has no address.",
+    "Create one in the Cloudflare dashboard (Workers & Pages, then the workers.dev tab), then run deploy again.",
+    `Nothing was written to ${settingsFile}.`,
+  ].join("\n");
+}
