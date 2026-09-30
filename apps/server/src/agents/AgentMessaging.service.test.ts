@@ -1,5 +1,6 @@
 import {
   type AgentControlSnapshot,
+  type ModelSelection,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -921,6 +922,37 @@ describe("AgentMessaging", () => {
               { id: "serviceTier", value: "priority" },
             ],
           });
+        }),
+      ),
+    );
+
+    it.effect("spawn without effort starts the child at High", () =>
+      withMessaging((harness, messaging) =>
+        Effect.gen(function* () {
+          yield* messaging
+            .spawnAgent(LEAD, { name: "Helper", prompt: "Go.", providerId: "codex" })
+            .pipe(Effect.ignore);
+          const created = harness.selections.find((entry) => entry.type === "thread.create")!;
+          assert.deepInclude(created.modelSelection as ModelSelection, {
+            options: [
+              { id: "reasoningEffort", value: "high" },
+              { id: "serviceTier", value: "default" },
+            ],
+          });
+        }),
+      ),
+    );
+
+    it.effect("spawn without effort keeps the default on a model with no effort levels", () =>
+      withMessaging((harness, messaging) =>
+        Effect.gen(function* () {
+          yield* messaging
+            .spawnAgent(LEAD, { name: "Helper", prompt: "Go.", providerId: "claudeAgent" })
+            .pipe(Effect.ignore);
+          const created = harness.selections.find((entry) => entry.type === "thread.create")!;
+          const selection = created.modelSelection as ModelSelection;
+          assert.equal(selection.instanceId, "claudeAgent");
+          assert.isUndefined(selection.options);
         }),
       ),
     );

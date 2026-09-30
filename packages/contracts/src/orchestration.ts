@@ -1148,12 +1148,18 @@ const ThreadArchiveCommand = Schema.Struct({
   type: Schema.Literal("thread.archive"),
   commandId: CommandId,
   threadId: ThreadId,
+  // Set by the server on the per-thread commands a lead's command expands
+  // into; clients omit it so the lead's child agents follow.
+  cascade: Schema.optional(Schema.Boolean),
 });
 
 const ThreadUnarchiveCommand = Schema.Struct({
   type: Schema.Literal("thread.unarchive"),
   commandId: CommandId,
   threadId: ThreadId,
+  // Set by the server on the per-thread commands a lead's command expands
+  // into; clients omit it so the lead's child agents follow.
+  cascade: Schema.optional(Schema.Boolean),
 });
 
 const ThreadSettleCommand = Schema.Struct({
@@ -1188,6 +1194,9 @@ const ThreadSnoozeCommand = Schema.Struct({
   // will arrive as an optional condition field alongside this; time-based
   // snooze is just the first kind of condition.
   snoozedUntil: IsoDateTime,
+  // Set by the server on the per-thread commands a lead's command expands
+  // into; clients omit it so the lead's child agents follow.
+  cascade: Schema.optional(Schema.Boolean),
 });
 
 const ThreadUnsnoozeCommand = Schema.Struct({
@@ -1199,6 +1208,9 @@ const ThreadUnsnoozeCommand = Schema.Struct({
   // wakes need no event at all — clients derive visibility from snoozedUntil,
   // so a passed wake time simply stops classifying as snoozed.
   reason: Schema.Literal("user"),
+  // Set by the server on the per-thread commands a lead's command expands
+  // into; clients omit it so the lead's child agents follow.
+  cascade: Schema.optional(Schema.Boolean),
 });
 
 const ThreadPinCommand = Schema.Struct({

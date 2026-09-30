@@ -1,5 +1,11 @@
 import { type HistoryMatch, searchThreadHistory } from "./searchHistory.ts";
-import { applyModelTuning, describeModelTuning, type ModelTuning } from "./modelOptions.ts";
+import {
+  applyModelTuning,
+  describeModelTuning,
+  selectedEffort,
+  withoutEffort,
+  type ModelTuning,
+} from "./modelOptions.ts";
 import {
   AgentControlError,
   type AgentControlInput,
@@ -104,6 +110,8 @@ export class AgentMessagingError extends Schema.TaggedError<AgentMessagingError>
   }
 }
 
+const SPAWN_DEFAULT_EFFORT = "high";
+
 export interface AgentSummary {
   readonly id: string;
   readonly name: string;
@@ -111,6 +119,8 @@ export interface AgentSummary {
   readonly relation: "you" | "parent" | "child" | "sibling" | "other";
   readonly provider: string;
   readonly model: string;
+  /** Reasoning effort set on the agent; absent means the model's default. */
+  readonly effort?: string;
   readonly status: "running" | "idle" | "error" | "stopped" | "new" | "paused";
   readonly queuedMessages: number;
   /** Set while the agent's provider usage limit is known to hold. */
@@ -746,12 +756,27 @@ const make = Effect.gen(function* () {
       // A spawn is one more automatic hop, like a message.
       const hop = nextHop(caller) ?? { chainId: yield* uuid, hop: 0 };
       if (hop.hop >= AGENT_MESSAGE_MAX_HOPS) return yield* fail(hopLimitReason);
-      const modelSelection = yield* resolveModelSelection(
-        input.providerId,
-        input.model,
-        self.modelSelection,
-        { effort: input.effort, fastMode: input.fastMode },
-      );
+      // Children run at High unless the caller asks for a level; a model
+      // without a High effort keeps its own default.
+      const modelSelection =
+        input.effort !== undefined
+          ? yield* resolveModelSelection(input.providerId, input.model, self.modelSelection, {
+              effort: input.effort,
+              fastMode: input.fastMode,
+            })
+          : yield* resolveModelSelection(input.providerId, input.model, self.modelSelection, {
+              effort: SPAWN_DEFAULT_EFFORT,
+              fastMode: input.fastMode,
+            }).pipe(
+              Effect.catch(() =>
+                resolveModelSelection(
+                  input.providerId,
+                  input.model,
+                  withoutEffort(self.modelSelection),
+                  { fastMode: input.fastMode },
+                ),
+              ),
+            );
       const childId = ThreadId.make(yield* uuid);
       const createdAt = yield* nowIso;
       yield* engine
@@ -797,6 +822,7 @@ const make = Effect.gen(function* () {
       const nowMs = yield* now;
       return tree.map((thread): AgentSummary => {
         const mark = activeMark(thread.id, nowMs);
+        const effort = selectedEffort(thread.modelSelection.options);
         return {
           id: thread.id,
           name: thread.title,
@@ -804,6 +830,7 @@ const make = Effect.gen(function* () {
           relation: relationOf(thread, self),
           provider: String(thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
           model: thread.modelSelection.model,
+          ...(effort !== undefined ? { effort } : {}),
           status: paused.has(thread.id) ? "paused" : statusOf(thread),
           queuedMessages: queues.get(thread.id)?.length ?? 0,
           ...(mark

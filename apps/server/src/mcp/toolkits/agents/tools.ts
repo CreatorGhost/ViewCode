@@ -31,7 +31,7 @@ const ModelId = Schema.optional(
 const Effort = Schema.optional(
   TrimmedNonEmptyString.annotate({
     description:
-      'Reasoning effort, e.g. "high" for "set to High". Must be one of the model\'s effortLevels from viewcode_list_models. Omit to keep the default.',
+      'Reasoning effort, e.g. "high" for "set to High". Must be one of the model\'s effortLevels from viewcode_list_models. Omit to keep the current level (a new agent starts at High).',
   }),
 );
 
@@ -49,6 +49,9 @@ const AgentEntry = Schema.Struct({
   relation: Schema.Literals(["you", "parent", "child", "sibling", "other"]),
   provider: Schema.String,
   model: Schema.String,
+  effort: Schema.optional(Schema.String).annotate({
+    description: "Reasoning effort set on this agent. Absent means the model's default.",
+  }),
   status: Schema.Literals(["running", "idle", "error", "stopped", "new", "paused"]).annotate({
     description:
       "paused: the user stopped this agent. Messages to it wait in its queue until the user resumes it.",
@@ -78,7 +81,7 @@ const SendResult = Schema.Struct({
 
 const ListAgentsTool = Tool.make("viewcode_list_agents", {
   description:
-    "List the ViewCode agents in your agent tree (your root agent and all of its descendants), with their model and status, including outOfUsage when an agent's provider is out of usage and when it resets. Use the ids with viewcode_send_message, viewcode_read_transcript and viewcode_configure_agent.",
+    "List the ViewCode agents in your agent tree (your root agent and all of its descendants), with their model, reasoning effort and status, including outOfUsage when an agent's provider is out of usage and when it resets. Use the ids with viewcode_send_message, viewcode_read_transcript and viewcode_configure_agent.",
   success: Schema.Struct({ agents: Schema.Array(AgentEntry) }),
   failure: AgentToolError,
   dependencies,
@@ -140,7 +143,7 @@ const ListModelsTool = Tool.make("viewcode_list_models", {
 
 const SpawnAgentTool = Tool.make("viewcode_spawn_agent", {
   description:
-    "Start a child agent: a separate, full ViewCode agent with its own chat, transcript and model that the user can open, follow and prompt. It works in the same project and checkout as you. Give it a short name and a self-contained prompt. By default its final answer is sent back to you as a message when it finishes, which starts a new turn for you; you do not need to poll. Set effort (and fast_mode) here when the user asks for a reasoning level such as High; do not ask the user to set it. Prefer this over in-session sub-agents when the user asks for agents they can see.",
+    "Start a child agent: a separate, full ViewCode agent with its own chat, transcript and model that the user can open, follow and prompt. It works in the same project and checkout as you. Give it a short name and a self-contained prompt. By default its final answer is sent back to you as a message when it finishes, which starts a new turn for you; you do not need to poll. Without effort the agent runs at High (or the model's default when it has no High). Set effort (and fast_mode) here when the user asks for another reasoning level; do not ask the user to set it. Prefer this over in-session sub-agents when the user asks for agents they can see.",
   parameters: Schema.Struct({
     name: TrimmedNonEmptyString.annotate({
       description: 'Short display name, e.g. "Frontend audit".',
