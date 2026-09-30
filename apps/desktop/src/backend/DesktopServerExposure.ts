@@ -115,15 +115,21 @@ const resolveLanAdvertisedHost = (
 };
 
 /**
- * Names why the LAN address failed. Loopback answering while the LAN address
- * does not means something between this machine's network stack and the app
- * (macOS Application Firewall, security software) drops inbound connections.
+ * Runs the LAN self-test, loopback first. A server that does not answer on
+ * loopback is simply down, so the LAN address is never dialled for nothing;
+ * only a healthy server earns the one connection to this machine's own LAN
+ * address. Loopback answering while the LAN address does not means something
+ * between the network stack and the app (macOS Application Firewall, security
+ * software) drops inbound connections.
  */
-export const classifyLanReachability = (input: {
-  readonly lanResponded: boolean;
-  readonly loopbackResponded: boolean;
-}): Exclude<DesktopLanReachability["status"], "not-applicable"> =>
-  input.lanResponded ? "ok" : input.loopbackResponded ? "lan-blocked" : "unreachable";
+export const runLanReachabilityCheck = <R>(probes: {
+  readonly loopback: Effect.Effect<boolean, never, R>;
+  readonly lan: Effect.Effect<boolean, never, R>;
+}): Effect.Effect<Exclude<DesktopLanReachability["status"], "not-applicable">, never, R> =>
+  Effect.gen(function* () {
+    if (!(yield* probes.loopback)) return "unreachable";
+    return (yield* probes.lan) ? "ok" : "lan-blocked";
+  });
 
 type SocketBackendSettings = Pick<
   DesktopAppSettings.DesktopSettings,
@@ -678,10 +684,11 @@ export const make = Effect.gen(function* () {
       probeTailscaleHttpsEndpoint({ baseUrl, timeout: LAN_REACHABILITY_TIMEOUT }).pipe(
         Effect.provideService(HttpClient.HttpClient, httpClient),
       );
-    const lanResponded = yield* probe(lanUrl);
-    const loopbackResponded = lanResponded ? true : yield* probe(state.localHttpUrl);
     return {
-      status: classifyLanReachability({ lanResponded, loopbackResponded }),
+      status: yield* runLanReachabilityCheck({
+        loopback: probe(state.localHttpUrl),
+        lan: probe(lanUrl),
+      }),
       url: lanUrl,
     } satisfies DesktopLanReachability;
   }).pipe(Effect.withSpan("desktop.serverExposure.checkLanReachability"));

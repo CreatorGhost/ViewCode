@@ -301,7 +301,9 @@ export interface BackendInstanceSpec {
   // 127.0.0.1). Splitting this off from configResolve avoids races
   // between "fired onReady" and "currentConfig already advanced".
   readonly onReady?: (httpBaseUrl: URL) => Effect.Effect<void>;
-  readonly onShutdown?: () => Effect.Effect<void>;
+  // `reason` says why the backend stopped being ready (an exit code, a stop
+  // request, a restart), so a vanished backend is never unexplained in logs.
+  readonly onShutdown?: (reason: string) => Effect.Effect<void>;
   // Fired once when a fatal or bounded preflight failure has exhausted its
   // retries. Returns true when the callback changed configuration and the
   // manager should resolve once more; false stops the failed instance.
@@ -714,7 +716,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
         }
 
         if (current.ready) {
-          yield* spec.onShutdown?.() ?? Effect.void;
+          yield* spec.onShutdown?.("restarting") ?? Effect.void;
           yield* Ref.update(state, (latest) =>
             latest.ready ? { ...latest, ready: false } : latest,
           );
@@ -904,7 +906,11 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
                   }
                 }
                 if (wasReady) {
-                  yield* spec.onShutdown?.() ?? Effect.void;
+                  yield* (
+                    spec.onShutdown?.(
+                      exitObserved && !stopRequested ? `exited unexpectedly (${reason})` : reason,
+                    ) ?? Effect.void
+                  );
                 }
               }
 
@@ -1100,7 +1106,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
     );
 
     if (notifyShutdown) {
-      yield* (spec.onShutdown?.() ?? Effect.void).pipe(Effect.ignore);
+      yield* (spec.onShutdown?.("stop requested") ?? Effect.void).pipe(Effect.ignore);
     }
     yield* Option.match(restartFiber, {
       onNone: () => Effect.void,

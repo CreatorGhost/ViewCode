@@ -69,7 +69,7 @@ import {
   resolvePairingCodeStatus,
   resolveSelectedMode,
   shouldResumeConnectPhone,
-  shouldRunLanSelfTest,
+  canTestLanReachability,
 } from "./connectPhone.logic";
 import { useTailscalePhoneAccess } from "./useTailscalePhoneAccess";
 
@@ -579,7 +579,6 @@ function usePairingCode(endpointId: string) {
 
   const createCode = useCallback(() => setCounter((current) => current + 1), []);
   return {
-    counter,
     code,
     status,
     error: result?.error ?? null,
@@ -589,39 +588,47 @@ function usePairingCode(endpointId: string) {
 }
 
 /**
- * Asks the desktop to call its own LAN address over HTTP. Runs once per dialog
- * open, per new code, and when the address changes; never on a timer. Web and
- * `npx t3` clients have no desktop bridge and skip it.
+ * Asks the desktop to call its own LAN address over HTTP, only when the user
+ * clicks "Test this network". Never on open: on a managed Mac, security
+ * software can read an app connecting to its own LAN address as network
+ * reconnaissance and kill the whole process tree. Web and `npx t3` clients
+ * have no desktop bridge and never offer it.
  */
-function useLanSelfTest(input: {
-  readonly endpoint: PhoneEndpoint | undefined;
-  readonly run: number;
-}) {
+function useLanSelfTest(endpoint: PhoneEndpoint | undefined) {
   const check = window.desktopBridge?.checkLanReachability;
-  const enabled = shouldRunLanSelfTest({ canCheck: check !== undefined, endpoint: input.endpoint });
-  const key = `${input.endpoint?.httpBaseUrl ?? ""}#${input.run}`;
+  const available = canTestLanReachability({ canCheck: check !== undefined, endpoint });
+  const url = endpoint?.httpBaseUrl ?? "";
+  const [run, setRun] = useState<{ readonly url: string; readonly id: number } | null>(null);
   const [settled, setSettled] = useState<{
-    readonly key: string;
+    readonly id: number;
     readonly value: DesktopLanReachability | null;
   } | null>(null);
+  const current = run !== null && run.url === url ? run : null;
   useEffect(() => {
-    if (!enabled) return;
+    if (current === null || check === undefined) return;
     let cancelled = false;
-    window.desktopBridge?.checkLanReachability?.().then(
+    check().then(
       (value) => {
-        if (!cancelled) setSettled({ key, value });
+        if (!cancelled) setSettled({ id: current.id, value });
       },
       () => {
-        if (!cancelled) setSettled({ key, value: null });
+        if (!cancelled) setSettled({ id: current.id, value: null });
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [enabled, key]);
+  }, [check, current]);
+  const start = useCallback(
+    () => setRun((previous) => ({ url, id: (previous?.id ?? 0) + 1 })),
+    [url],
+  );
+  const done = current !== null && settled?.id === current.id;
   return {
-    checking: enabled && settled?.key !== key,
-    result: enabled && settled?.key === key ? settled.value : null,
+    available,
+    checking: available && current !== null && !done,
+    result: available && done ? settled.value : null,
+    start,
   };
 }
 
@@ -641,14 +648,13 @@ function ReadyBody({
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "pairing link" });
   const endpoint = endpoints.find((candidate) => candidate.id === endpointId) ?? endpoints[0];
   const {
-    counter,
     code,
     status,
     error,
     isCreating,
     createCode: createFreshCode,
   } = usePairingCode(endpoint?.id ?? "");
-  const lanTest = useLanSelfTest({ endpoint, run: counter });
+  const lanTest = useLanSelfTest(endpoint);
   const createCode = useCallback(() => {
     if (window.desktopBridge) refreshDesktopNetworkAccessState();
     createFreshCode();
@@ -716,6 +722,12 @@ function ReadyBody({
           <p className="text-xs text-muted-foreground">
             Checking that phones can reach this computer…
           </p>
+        ) : lanTest.result?.status === "ok" ? (
+          <p className="text-xs text-muted-foreground">Phones on this network can reach it.</p>
+        ) : lanTest.available ? (
+          <Button size="xs" variant="ghost" onClick={lanTest.start}>
+            Test this network
+          </Button>
         ) : null}
 
         {code && status === "active" && !endpoint.loopback ? (

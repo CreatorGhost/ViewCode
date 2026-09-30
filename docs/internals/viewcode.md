@@ -253,6 +253,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Network access relaunches the app on TCP for phone pairing; turning it off
   returns to socket-only. `pnpm dev:desktop` is development mode and always
   uses a Vite port.
+- The Same Wi-Fi LAN self-test (`checkLanReachability`) runs only when the user
+  clicks "Test this network", never on dialog open, and dials loopback before
+  the LAN address. On a managed Mac, Cortex XDR read an ad-hoc-signed app
+  connecting to its own LAN address as reconnaissance and killed the whole
+  process tree, parent terminal included. Keep it an explicit action.
 - Connect phone (`web/src/components/connectPhone/`) is the user-facing path to
   that toggle, and every mode ends in a pairing QR the stock T3 Code app scans
   (no phone sign-in). Modes come from `resolveConnectModes`: Same Wi-Fi and Quick

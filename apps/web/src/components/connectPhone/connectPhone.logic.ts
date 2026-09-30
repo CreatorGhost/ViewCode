@@ -369,7 +369,7 @@ export function formatPairingExpiry(expiresAtMs: number, locale?: string): strin
  * shell can (web and `npx t3` clients skip it), and only for the address the
  * desktop itself serves.
  */
-export function shouldRunLanSelfTest(input: {
+export function canTestLanReachability(input: {
   readonly canCheck: boolean;
   readonly endpoint: Pick<PhoneEndpoint, "lan"> | undefined;
 }): boolean {
