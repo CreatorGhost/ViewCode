@@ -6,6 +6,11 @@ import * as NodePath from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  describeFetchError,
+  detectMissingWorkersDevSubdomain,
+  formatMissingSubdomain,
+  formatReachableSetup,
+  formatUnreachable,
   generateHostSecret,
   isValidWorkerName,
   parseLenientJson,
@@ -122,6 +127,48 @@ describe("secret and state files", () => {
     expect(readRelayState(dir)).toEqual({ name: "viewcode-relay", url: "https://r.a.workers.dev" });
     removeRelayState(dir);
     expect(readRelayState(dir)).toBeNull();
+  });
+});
+
+describe("detectMissingWorkersDevSubdomain", () => {
+  it("spots wrangler's workers.dev subdomain warning", () => {
+    expect(
+      detectMissingWorkersDevSubdomain(
+        "You need to register a workers.dev subdomain before publishing to workers.dev",
+      ),
+    ).toBe(true);
+    expect(detectMissingWorkersDevSubdomain("Total Upload: 20 KiB\nDeployed viewcode-relay")).toBe(
+      false,
+    );
+  });
+});
+
+describe("describeFetchError", () => {
+  it("names the failure through the cause chain without a stack trace", () => {
+    const reset = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    });
+    expect(describeFetchError(reset)).toContain("ECONNRESET");
+    const abort = Object.assign(new Error("This operation was aborted"), { name: "AbortError" });
+    expect(describeFetchError(abort)).toContain("aborted");
+    expect(describeFetchError("boom")).toBe("boom");
+    expect(describeFetchError(undefined)).toBe("unknown error");
+  });
+});
+
+describe("probe result messages", () => {
+  it("claims set up only when reachable, and stays honest otherwise", () => {
+    const reachable = formatReachableSetup("https://r.a.workers.dev");
+    expect(reachable).toContain("set up");
+    expect(reachable).toContain("https://r.a.workers.dev");
+
+    const unreachable = formatUnreachable("https://r.a.workers.dev", "ECONNRESET");
+    expect(unreachable).not.toContain("set up");
+    expect(unreachable).toContain("can't reach");
+    expect(unreachable).toContain("ECONNRESET");
+    expect(unreachable).toContain("saved");
+
+    expect(formatMissingSubdomain("/tmp/settings.json")).toContain("workers.dev subdomain");
   });
 });
 

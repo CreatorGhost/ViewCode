@@ -16,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
+import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
   buildTailscaleHttpsBaseUrl,
@@ -28,6 +29,7 @@ import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
@@ -41,6 +43,7 @@ import {
 } from "effect/unstable/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { normalizeTunnelHttpBaseUrl } from "../cloud/config.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import {
@@ -150,6 +153,27 @@ export class ServePortOccupiedError extends Schema.TaggedError<ServePortOccupied
 /** The URL a browser or phone should pair through, absent Tailscale. */
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
   state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
+
+export class RelayNotConfiguredError extends Schema.TaggedError<RelayNotConfiguredError>()(
+  "RelayNotConfiguredError",
+  { settingsPath: Schema.String },
+) {
+  override get message(): string {
+    return [
+      "Quick connect is not set up, so there is no relay origin to pair through.",
+      `  checked ${this.settingsPath}`,
+      "Set it up with `node scripts/viewcode-relay.ts deploy`, then pair again with --relay.",
+    ].join("\n");
+  }
+}
+
+/** Only the relay origin is read out of settings.json; the rest is ignored. */
+const RelaySettingsJson = fromLenientJson(
+  Schema.Struct({
+    viewcodeRelay: Schema.optional(Schema.Struct({ url: Schema.optional(Schema.String) })),
+  }),
+);
+const decodeRelaySettingsJson = Schema.decodeUnknownEffect(RelaySettingsJson);
 
 export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
@@ -307,6 +331,33 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
     }
   }
   return yield* new NoRunningServerError({ checkedStatePaths });
+});
+
+/**
+ * The Quick connect relay origin stored in the discovered server's
+ * settings.json, so a CLI-minted token can be used off-network: the printed
+ * URL is `https://<relay-origin>/pair#token=…`, which the phone reaches through
+ * the user's own Cloudflare Worker. Fails clearly when the relay is not set up.
+ */
+const resolveRelayPairingBase = Effect.fn("pair.resolveRelayPairingBase")(function* (
+  target: DiscoveredPairTarget,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const derivedPaths = yield* ServerConfig.deriveServerPaths(
+    target.baseDir,
+    target.variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
+    {},
+  );
+  const { settingsPath } = derivedPaths;
+  const origin = (yield* fs.exists(settingsPath))
+    ? yield* fs.readFileString(settingsPath).pipe(
+        Effect.flatMap(decodeRelaySettingsJson),
+        Effect.map((decoded) => normalizeTunnelHttpBaseUrl(decoded.viewcodeRelay?.url)),
+        Effect.orElseSucceed(() => null),
+      )
+    : null;
+  if (origin === null) return yield* new RelayNotConfiguredError({ settingsPath });
+  return origin;
 });
 
 /**
@@ -488,6 +539,13 @@ const tailscaleFlag = Flag.Boolean("tailscale").pipe(
   Flag.withDefault(false),
 );
 
+const relayFlag = Flag.Boolean("relay").pipe(
+  Flag.withDescription(
+    "Pair through the stored Quick connect relay origin, so the token works off-network.",
+  ),
+  Flag.withDefault(false),
+);
+
 const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.withSchema(PortSchema),
   Flag.withDescription("HTTPS port for Tailscale Serve when --tailscale is enabled."),
@@ -499,6 +557,7 @@ export const pairCommand = Command.make("pair", {
   ttl: ttlFlag,
   label: labelFlag,
   tailscale: tailscaleFlag,
+  relay: relayFlag,
   tailscaleServePort: tailscaleServePortFlag,
 }).pipe(
   Command.withDescription(
@@ -511,11 +570,22 @@ export const pairCommand = Command.make("pair", {
       // an explicit --log-level still wins.
       const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
 
+      if (flags.tailscale && flags.relay) {
+        return yield* Effect.die(
+          new Error("Pass only one of --tailscale or --relay; they choose different pairing URLs."),
+        );
+      }
+
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
 
       const notes: Array<string> = [];
       let pairingBaseUrl: string;
-      if (flags.tailscale) {
+      if (flags.relay) {
+        pairingBaseUrl = yield* resolveRelayPairingBase(target);
+        notes.push(
+          "Pairing through your Quick connect relay. The phone reaches this computer through your Cloudflare Worker.",
+        );
+      } else if (flags.tailscale) {
         const resolved = yield* resolveTailscalePairingBase({
           target,
           servePort: flags.tailscaleServePort,

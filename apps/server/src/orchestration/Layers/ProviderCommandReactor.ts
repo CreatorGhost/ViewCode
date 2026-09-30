@@ -5,6 +5,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
@@ -221,6 +222,11 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 
 // Exchanges carried verbatim across a cross-provider handoff.
 const HANDOFF_RECENT_EXCHANGES = 3;
+// Room kept back from the provider input limit for the separator between the
+// prelude and the message, plus slack.
+const HANDOFF_INPUT_MARGIN_CHARS = 2_000;
+// ProviderService appends one path line per attachment after the input.
+const HANDOFF_ATTACHMENT_CONTEXT_CHARS = 400;
 
 const HandoffEndpointSchema = Schema.Struct({ instanceId: Schema.String, model: Schema.String });
 const PendingHandoffJson = Schema.fromJsonString(
@@ -1013,6 +1019,7 @@ const make = Effect.gen(function* () {
   const takeHandoffPrelude = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageText: string;
+    readonly attachmentCount: number;
     readonly createdAt: string;
   }) {
     yield* loadPendingHandoffs;
@@ -1043,6 +1050,14 @@ const make = Effect.gen(function* () {
       from: pending.from,
       to: pending.to,
       recentExchanges: HANDOFF_RECENT_EXCHANGES,
+      // The user's message is never trimmed, so the recap gets what is left.
+      maxChars: Math.max(
+        0,
+        PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+          input.messageText.length -
+          HANDOFF_INPUT_MARGIN_CHARS -
+          HANDOFF_ATTACHMENT_CONTEXT_CHARS * input.attachmentCount,
+      ),
       ...(targetContextTokens !== undefined ? { targetContextTokens } : {}),
     });
     const config = yield* Effect.serviceOption(ServerConfig);
@@ -1091,7 +1106,23 @@ const make = Effect.gen(function* () {
     const rejected = Effect.sync(() => {
       if (!pendingHandoffs.has(input.threadId)) pendingHandoffs.set(input.threadId, pending);
     });
-    return { prelude: handoff.prelude(transcriptPath), accepted, rejected };
+    // Belt and braces: the turn must not fail because of the handoff, so if the
+    // combined input would still be too long, shrink the prelude, never the message.
+    const room =
+      PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+      input.messageText.length -
+      HANDOFF_ATTACHMENT_CONTEXT_CHARS * input.attachmentCount;
+    let prelude = handoff.prelude(transcriptPath);
+    if (prelude.length > room) {
+      yield* Effect.logWarning("handoff prelude exceeds the provider input limit; shrinking it", {
+        threadId: input.threadId,
+        preludeChars: prelude.length,
+        room,
+      });
+      prelude = handoff.minimalPrelude(transcriptPath);
+      if (prelude.length > room) prelude = "";
+    }
+    return { prelude, accepted, rejected };
   });
 
   const buildSendTurnRequestForThread = Effect.fnUntraced(function* (input: {
@@ -1147,6 +1178,7 @@ const make = Effect.gen(function* () {
     const handoff = yield* takeHandoffPrelude({
       threadId: input.threadId,
       messageText: input.messageText,
+      attachmentCount: normalizedAttachments.length,
       createdAt: input.createdAt,
     });
     const normalizedInput = toNonEmptyProviderInput(

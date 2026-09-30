@@ -1,9 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - Deploy tooling runs wrangler and prints to the terminal.
 // @effect-diagnostics globalConsole:off - CLI output for the person running it.
+// @effect-diagnostics globalTimers:off globalFetch:off - Plain-node reachability probe, not Effect.
 /**
  * ViewCode Quick connect setup.
  *
  *   node scripts/viewcode-relay.ts deploy   [--mode desktop|web] [--name NAME] [--rotate-secret]
+ *   node scripts/viewcode-relay.ts check    [--mode desktop|web]
  *   node scripts/viewcode-relay.ts remove   [--mode desktop|web] [--local-only]
  *
  * `deploy` puts a small Worker on YOUR Cloudflare account (workers.dev),
@@ -18,9 +20,17 @@
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodePath from "node:path";
+import * as NodeTls from "node:tls";
+
+import { RELAY_HOST_PATH } from "@t3tools/shared/viewcodeRelayProtocol";
 
 import {
   DEFAULT_WORKER_NAME,
+  describeFetchError,
+  detectMissingWorkersDevSubdomain,
+  formatMissingSubdomain,
+  formatReachableSetup,
+  formatUnreachable,
   generateHostSecret,
   isValidWorkerName,
   parseWorkerUrl,
@@ -37,6 +47,43 @@ import {
   writeSettingsFile,
 } from "./lib/viewcode-relay.ts";
 import { resolveBuildState } from "./lib/build-state.ts";
+
+/** How long the reachability probe waits before calling the origin unreachable. */
+const PROBE_TIMEOUT_MS = 10_000;
+
+/**
+ * Fetches the origin once to see whether this computer can reach it. Any HTTP
+ * answer (even 401/503) means reachable; a reset, TLS failure or timeout means
+ * not right now. The OS trust store is loaded first so a corporate proxy's
+ * certificate is accepted (Node's global fetch reads the default CA set that
+ * `setDefaultCACertificates` updates; on a Node too old for the API we fall
+ * back to the bundled roots, noted in docs/operations/viewcode-relay.md).
+ */
+async function probeOrigin(
+  origin: string,
+): Promise<
+  { readonly ok: true; readonly status: number } | { readonly ok: false; readonly detail: string }
+> {
+  try {
+    NodeTls.setDefaultCACertificates(NodeTls.getCACertificates("system"));
+  } catch {
+    // Older Node without the system-CA helper: rely on the bundled roots.
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${origin}${RELAY_HOST_PATH}`, {
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    void response.body?.cancel().catch(() => undefined);
+    return { ok: true, status: response.status };
+  } catch (error) {
+    return { ok: false, detail: describeFetchError(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const repoRoot = NodePath.resolve(import.meta.dirname, "..");
 const wranglerConfig = NodePath.join(repoRoot, "infra/viewcode-relay/wrangler.jsonc");
@@ -74,8 +121,13 @@ function ensureLoggedIn(): void {
   const whoami = wrangler(["whoami"], { capture: true });
   if (!wranglerNeedsLogin(`${whoami.stdout ?? ""}${whoami.stderr ?? ""}`, whoami.status ?? 1))
     return;
-  console.log("Signing in to Cloudflare (a browser window opens)...");
-  const login = wrangler(["login"]);
+  // Device flow (RFC 8628): wrangler prints a URL and a code instead of opening
+  // a browser itself, so sign-in works from any browser on any machine — the
+  // point on a locked-down computer where the default flow cannot pop a window.
+  console.log(
+    "Signing in to Cloudflare: open the link wrangler shows and enter the code, in any browser.",
+  );
+  const login = wrangler(["login", "--device"]);
   if (login.status !== 0) fail("Cloudflare sign-in did not complete.");
 }
 
@@ -107,6 +159,8 @@ async function main() {
     if (deploy.status !== 0) fail(`Deploy failed:\n${deployOutput}`);
     const url = parseWorkerUrl(deployOutput, name);
     if (url === null) {
+      if (detectMissingWorkersDevSubdomain(deployOutput))
+        fail(formatMissingSubdomain(settingsFile));
       fail(
         `Deployed, but the workers.dev address was not in wrangler's output. Find it in the Cloudflare dashboard (Workers, ${name}), then set "viewcodeRelay": { "enabled": true, "url": "<address>" } in ${settingsFile}.`,
       );
@@ -128,13 +182,31 @@ async function main() {
     writeSecretFile(stateDir, secret);
     writeRelayState(stateDir, { name, url });
     writeSettingsFile(settingsFile, withRelaySettings(settings, url));
-    console.log(`\nQuick connect is set up: ${url}`);
-    console.log(
-      "Open ViewCode, Connect phone, Anywhere, and scan the QR code with the T3 Code app.",
-    );
-    console.log(
-      "Keep in mind: the relay is your own Worker, and it (and any network inspection) can see the traffic.",
-    );
+
+    // Confirm the origin actually answers from here before claiming success. A
+    // reset/TLS/timeout is not proof the relay is broken (a fresh workers.dev
+    // address can take time, and this network may block it), so be honest and
+    // still keep the saved config; the server keeps retrying regardless.
+    console.log(`\nDeployed. Checking that this computer can reach ${url}...`);
+    const probe = await probeOrigin(url);
+    console.log("");
+    console.log(probe.ok ? formatReachableSetup(url) : formatUnreachable(url, probe.detail));
+    return;
+  }
+
+  if (command === "check") {
+    const state = readRelayState(stateDir);
+    const url = state?.url;
+    if (url === undefined || url === "") {
+      fail("Quick connect is not set up here. Run `node scripts/viewcode-relay.ts deploy` first.");
+    }
+    console.log(`Checking that this computer can reach ${url}...`);
+    const probe = await probeOrigin(url);
+    if (probe.ok) {
+      console.log(`Reachable: ${url} answered (HTTP ${probe.status}).`);
+      return;
+    }
+    console.log(formatUnreachable(url, probe.detail));
     return;
   }
 
@@ -166,7 +238,7 @@ async function main() {
   }
 
   fail(
-    "Usage: node scripts/viewcode-relay.ts <deploy|remove> [--mode desktop|web] [--name NAME] [--rotate-secret] [--local-only]",
+    "Usage: node scripts/viewcode-relay.ts <deploy|check|remove> [--mode desktop|web] [--name NAME] [--rotate-secret] [--local-only]",
   );
 }
 

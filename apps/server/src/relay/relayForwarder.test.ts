@@ -5,6 +5,7 @@ import * as NodeHttp from "node:http";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import type * as NodeStream from "node:stream";
+import * as NodeZlib from "node:zlib";
 
 import {
   chunkBody,
@@ -301,6 +302,100 @@ describe.each(["tcp", "socket"] as const)("relay forwarder over %s", (mode) => {
     expect(seen.origin).toBe("https://relay.example.workers.dev");
     // The local socket's own close is not echoed back after the relay closed first.
     expect(relay.frames.some((frame) => frame.type === FrameType.WsClose)).toBe(false);
+  });
+
+  it("requests identity from the local server so the edge owns compression", async () => {
+    // A page the app would serve. The fake server compresses it exactly as the
+    // real one would: brotli when the request asks for br, gzip for gzip, plain
+    // otherwise. If the forwarder ever stopped forcing identity, the origin
+    // would hand back a compressed, content-encoding-labelled body, the
+    // Cloudflare edge would relabel it for the phone, and the phone would fail
+    // to decode it. Forcing identity keeps declared and actual bytes in sync.
+    const html =
+      "<!doctype html><html><head><title>ViewCode</title></head>" +
+      '<body><script src="/app.js"></script>Hello from ViewCode</body></html>';
+    const seenAcceptEncoding: Array<string | undefined> = [];
+    const { target } = await startLocal(mode, (request, response) => {
+      const acceptEncoding = request.headers["accept-encoding"];
+      seenAcceptEncoding.push(
+        Array.isArray(acceptEncoding) ? acceptEncoding.join(", ") : acceptEncoding,
+      );
+      const asked = (
+        Array.isArray(acceptEncoding) ? acceptEncoding.join(",") : (acceptEncoding ?? "")
+      ).toLowerCase();
+      const raw = Buffer.from(html, "utf8");
+      if (/\bbr\b/u.test(asked)) {
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "content-encoding": "br",
+        });
+        response.end(NodeZlib.brotliCompressSync(raw));
+      } else if (/\bgzip\b/u.test(asked)) {
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "content-encoding": "gzip",
+        });
+        response.end(NodeZlib.gzipSync(raw));
+      } else {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(raw);
+      }
+    });
+    const { relay, forwarder } = connect(target);
+
+    const collect = async (streamId: number) => {
+      const head = parseResponseHead((await relay.next(FrameType.ResponseHead, streamId)).payload);
+      await relay.next(FrameType.ResponseEnd, streamId);
+      const body = Buffer.concat(
+        relay.frames
+          .filter((frame) => frame.type === FrameType.ResponseBody && frame.streamId === streamId)
+          .map((frame) => Buffer.from(frame.payload)),
+      );
+      return { head, body };
+    };
+    /** Decode using the encoding the response declares, as a real client would. */
+    const decodeByHeader = (
+      head: ReturnType<typeof parseResponseHead>,
+      body: Buffer,
+    ): { readonly encoding: string; readonly text: string } => {
+      const encoding =
+        head?.headers
+          .find(([name]) => name.toLowerCase() === "content-encoding")?.[1]
+          ?.toLowerCase() ?? "identity";
+      const decoded =
+        encoding === "br"
+          ? NodeZlib.brotliDecompressSync(body)
+          : encoding === "gzip"
+            ? NodeZlib.gunzipSync(body)
+            : body;
+      return { encoding, text: decoded.toString("utf8") };
+    };
+
+    // gzip, br, zstd, identity, and a client that sends no Accept-Encoding.
+    const clientEncodings: Array<string | null> = ["gzip", "br", "zstd", "identity", null];
+    for (const [index, clientEncoding] of clientEncodings.entries()) {
+      const streamId = 100 + index;
+      const headers: Array<[string, string]> =
+        clientEncoding === null ? [] : [["accept-encoding", clientEncoding]];
+      forwarder.receive(
+        makeJsonFrame(FrameType.RequestHead, streamId, {
+          method: "GET",
+          path: "/",
+          headers,
+          hasBody: false,
+        }),
+      );
+      const { head, body } = await collect(streamId);
+      // The local server was asked for identity no matter what the client wanted.
+      expect(seenAcceptEncoding[index]).toBe("identity");
+      // So the relayed response is an uncompressed body, never a mislabelled one.
+      expect(head?.headers.some(([name]) => name.toLowerCase() === "content-encoding")).toBe(false);
+      const { encoding, text } = decodeByHeader(head, body);
+      expect(encoding).toBe("identity");
+      expect(text).toContain("<title>ViewCode</title>");
+      expect(text).toContain("Hello from ViewCode");
+      expect(text).toContain('<script src="/app.js">');
+    }
   });
 
   it("tells the relay when the local WebSocket closes", async () => {

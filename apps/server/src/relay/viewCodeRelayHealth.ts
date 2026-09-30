@@ -51,7 +51,14 @@ export function describeErrorChain(error: unknown): string {
 }
 
 export const RELAY_REASON = {
-  network: "Can't reach your relay right now.",
+  network: "Still connecting to your relay…",
+  // A connection reset is not permanent: a brand-new workers.dev hostname can be
+  // reset for up to an hour while a corporate firewall categorises it, then work
+  // unchanged. So the relay keeps retrying and only escalates the wording, never
+  // moving to a terminal state on a reset. It leads with "still connecting"
+  // because that is the likeliest cause; the network-block remedy comes second.
+  stillConnecting:
+    "Still connecting. A newly created relay address can take up to an hour to start working, and some networks block it. Same Wi-Fi still works in the meantime.",
   dropped: "The connection dropped.",
   silent: "The connection went silent.",
   untrusted:
@@ -60,11 +67,20 @@ export const RELAY_REASON = {
   auth: "The relay didn't accept this computer's secret. Run the setup command again.",
 } as const;
 
+/**
+ * Consecutive network dial failures before the reconnecting note escalates from
+ * a plain "still connecting" to the fuller explanation (roughly a minute of
+ * capped backoff). Retries never stop; only the wording changes.
+ */
+export const NETWORK_FAILURES_BEFORE_NOTE = 5;
+
 export interface RelayHealth {
   readonly status: ViewCodeRelayStatus;
   readonly reason: string | undefined;
   /** Consecutive attempts refused for an untrusted issuer. */
   readonly tlsRefusals: number;
+  /** Consecutive network dial failures (refused/reset/timeout), for the note. */
+  readonly networkFailures: number;
   /** A connection has been up since this session started. */
   readonly hasConnected: boolean;
 }
@@ -73,6 +89,7 @@ export const initialRelayHealth: RelayHealth = {
   status: "off",
   reason: undefined,
   tlsRefusals: 0,
+  networkFailures: 0,
   hasConnected: false,
 };
 
@@ -97,13 +114,31 @@ export function reduceRelayHealth(health: RelayHealth, event: RelayHealthEvent):
               health.hasConnected || health.reason !== undefined ? "reconnecting" : "connecting",
           };
     case "connected":
-      return { status: "connected", reason: undefined, tlsRefusals: 0, hasConnected: true };
+      return {
+        status: "connected",
+        reason: undefined,
+        tlsRefusals: 0,
+        networkFailures: 0,
+        hasConnected: true,
+      };
     case "dropped":
-      return { ...health, status: "reconnecting", reason: event.reason, tlsRefusals: 0 };
+      return {
+        ...health,
+        status: "reconnecting",
+        reason: event.reason,
+        tlsRefusals: 0,
+        networkFailures: 0,
+      };
     case "dial-failed": {
       const { failure } = event;
       if (failure.kind === "auth") {
-        return { ...health, status: "auth-failed", reason: RELAY_REASON.auth, tlsRefusals: 0 };
+        return {
+          ...health,
+          status: "auth-failed",
+          reason: RELAY_REASON.auth,
+          tlsRefusals: 0,
+          networkFailures: 0,
+        };
       }
       if (failure.kind === "tls-untrusted") {
         const tlsRefusals = health.tlsRefusals + 1;
@@ -116,7 +151,19 @@ export function reduceRelayHealth(health: RelayHealth, event: RelayHealthEvent):
               tlsRefusals,
             };
       }
-      return { ...health, status: "reconnecting", reason: RELAY_REASON.network, tlsRefusals: 0 };
+      // A refused or reset connection (and DNS/timeout/5xx) keeps retrying: never
+      // terminal. After a while the note escalates, but retries never stop.
+      const networkFailures = health.networkFailures + 1;
+      return {
+        ...health,
+        status: "reconnecting",
+        reason:
+          networkFailures >= NETWORK_FAILURES_BEFORE_NOTE
+            ? RELAY_REASON.stillConnecting
+            : RELAY_REASON.network,
+        tlsRefusals: 0,
+        networkFailures,
+      };
     }
   }
 }

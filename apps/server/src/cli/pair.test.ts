@@ -217,6 +217,59 @@ describe("t3 pair", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("pairs through the stored relay origin with --relay", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-relay-test-"));
+        const stateDir = NodePath.join(baseDir, "userdata");
+        yield* persistServerRuntimeState({
+          path: NodePath.join(stateDir, "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined },
+            port: Number(new URL(origin).port),
+          }),
+        });
+        NodeFS.writeFileSync(
+          NodePath.join(stateDir, "settings.json"),
+          // @effect-diagnostics-next-line preferSchemaOverJson:off - test fixture writes a settings.json string.
+          JSON.stringify({
+            viewcodeRelay: { enabled: true, url: "https://relay.example.workers.dev" },
+          }),
+        );
+
+        const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir, "--relay"]));
+
+        assert.include(output, "Pairing URL: https://relay.example.workers.dev/pair#token=");
+        assert.include(output, "through your Cloudflare Worker");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("says to run deploy when --relay is used but the relay is not set up", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(
+          NodePath.join(NodeOS.tmpdir(), "t3-pair-relay-none-test-"),
+        );
+        yield* persistServerRuntimeState({
+          path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined },
+            port: Number(new URL(origin).port),
+          }),
+        });
+
+        const error = yield* provideCliTestLayers(
+          runCli(["pair", "--base-dir", baseDir, "--relay"]).pipe(Effect.flip),
+        );
+        const rendered = String(
+          typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
+        );
+        assert.include(rendered, "Quick connect is not set up");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("directs to t3 serve or t3 connect when no server is running", () =>
     Effect.gen(function* () {
       const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-none-test-"));
