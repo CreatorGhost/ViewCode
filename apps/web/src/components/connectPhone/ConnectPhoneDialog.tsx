@@ -90,7 +90,8 @@ function selectConnectMode(mode: ConnectMode): void {
 }
 
 /** Opens the Connect phone dialog from anywhere (sidebar, command palette, settings). */
-export function openConnectPhoneDialog(): void {
+export function openConnectPhoneDialog(mode?: ConnectMode): void {
+  if (mode !== undefined) selectConnectMode(mode);
   useConnectPhoneDialogStore.setState({ open: true });
 }
 

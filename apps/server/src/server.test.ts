@@ -183,6 +183,7 @@ import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as ViewCodeRelayConnector from "./relay/ViewCodeRelayConnector.ts";
+import * as ViewCodeRelaySetup from "./relay/ViewCodeRelaySetup.ts";
 import * as CloudCliTokenManager from "./cloud/CliTokenManager.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
@@ -1197,6 +1198,7 @@ const buildAppUnderTest = (options?: {
             }),
           ),
           ViewCodeRelayConnector.layerUnconfigured,
+          ViewCodeRelaySetup.layerUnavailable,
         ),
       ),
       Layer.provide(

@@ -156,11 +156,12 @@ async function main() {
       capture: true,
     });
     const deployOutput = `${deploy.stdout ?? ""}${deploy.stderr ?? ""}`;
-    if (deploy.status !== 0) fail(`Deploy failed:\n${deployOutput}`);
     const url = parseWorkerUrl(deployOutput, name);
+    // Checked before the exit code: without a subdomain wrangler may exit non-zero.
+    if (url === null && detectMissingWorkersDevSubdomain(deployOutput))
+      fail(formatMissingSubdomain(settingsFile));
+    if (deploy.status !== 0) fail(`Deploy failed:\n${deployOutput}`);
     if (url === null) {
-      if (detectMissingWorkersDevSubdomain(deployOutput))
-        fail(formatMissingSubdomain(settingsFile));
       fail(
         `Deployed, but the workers.dev address was not in wrangler's output. Find it in the Cloudflare dashboard (Workers, ${name}), then set "viewcodeRelay": { "enabled": true, "url": "<address>" } in ${settingsFile}.`,
       );

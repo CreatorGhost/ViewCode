@@ -614,6 +614,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           enabled: false,
           url: "https://viewcode-relay.me.workers.dev",
         });
+
+        // Quick connect removal clears the address; the switch stays as sent.
+        const removed = yield* serverSettings.updateSettings({ viewcodeRelay: { url: null } });
+        assert.deepEqual(removed.viewcodeRelay, { enabled: false });
       }),
     ).pipe(Effect.provide(makeServerSettingsLayer())),
   );

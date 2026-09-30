@@ -13,6 +13,10 @@ import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts
 import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-executable-imports.ts";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
+  RELAY_WORKER_BUNDLE_DIR,
+  sourceCheckoutWorkerFiles,
+} from "../src/relay/relayWorkerSource.ts";
+import {
   ServerCliBuildAssetMissingError,
   ServerCliCommandExitError,
   ServerCliDevelopmentIconSourceMissingError,
@@ -87,6 +91,17 @@ const buildCmd = Command.make(
           stderr: "inherit",
           shell: false,
         }),
+      );
+
+      // Quick connect deploys the relay Worker from the app, and infra/ is not shipped:
+      // copy its sources beside the bundle; wrangler bundles them at deploy time.
+      const workerDir = path.join(serverDir, "dist", RELAY_WORKER_BUNDLE_DIR);
+      yield* fs.makeDirectory(workerDir, { recursive: true });
+      for (const file of sourceCheckoutWorkerFiles(path, repoRoot)) {
+        yield* fs.copyFile(file.from, path.join(workerDir, file.name));
+      }
+      yield* Effect.log(
+        `[cli] Copied the Quick connect Worker into dist/${RELAY_WORKER_BUNDLE_DIR}`,
       );
 
       const webDist = path.join(repoRoot, "apps/web/dist");

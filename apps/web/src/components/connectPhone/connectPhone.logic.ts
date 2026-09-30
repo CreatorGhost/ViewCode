@@ -4,6 +4,8 @@ import {
   type DesktopLanReachability,
   type DesktopServerExposureMode,
   type ManagedTunnelState,
+  type ViewCodeRelaySetupState,
+  type ViewCodeRelaySetupStep,
   type ViewCodeRelayState,
 } from "@t3tools/contracts";
 
@@ -200,7 +202,7 @@ export function resolveAnywhereView(input: {
 export type QuickConnectView =
   /** The connection state has not arrived yet. */
   | { readonly kind: "loading" }
-  /** No relay address and secret are stored: show the setup command. */
+  /** No relay address and secret are stored: offer setup. */
   | { readonly kind: "not-set-up" }
   /** Set up but switched off. */
   | { readonly kind: "off" }
@@ -239,13 +241,20 @@ export function resolveQuickConnectView(relay: ViewCodeRelayState | null): Quick
   }
 }
 
-/** One line for Settings → Connections. */
-export function describeQuickConnectStatus(view: QuickConnectView): string {
+/** One line for Settings → Connections; a running setup says which step it is on. */
+export function describeQuickConnectStatus(
+  view: QuickConnectView,
+  setup: ViewCodeRelaySetupState | null = null,
+): string {
+  if (setup?.status === "running") return setup.message ?? "Setting up…";
+  if (setup?.status === "needs-subdomain" || setup?.status === "failed") {
+    return setup.message ?? "Setup did not finish.";
+  }
   switch (view.kind) {
     case "loading":
       return "Checking…";
     case "not-set-up":
-      return `Not set up. Run ${QUICK_CONNECT_SETUP_COMMAND} in the ViewCode folder.`;
+      return "Not set up. Connect it to your own free Cloudflare account.";
     case "off":
       return "Off.";
     case "connecting":
@@ -261,7 +270,33 @@ export function describeQuickConnectStatus(view: QuickConnectView): string {
   }
 }
 
-export const QUICK_CONNECT_SETUP_COMMAND = "node scripts/viewcode-relay.ts deploy";
+/** The setup checklist as the person sees it; tool checks count as signing in. */
+export const QUICK_CONNECT_SETUP_STEPS: ReadonlyArray<{
+  readonly label: string;
+  readonly steps: ReadonlyArray<ViewCodeRelaySetupStep>;
+}> = [
+  { label: "Signing in to Cloudflare", steps: ["checking-tools", "signing-in"] },
+  { label: "Setting up your relay", steps: ["deploying"] },
+  { label: "Securing it", steps: ["storing-secret"] },
+  { label: "Checking it works", steps: ["verifying"] },
+];
+
+/** Each checklist row's state for the step that is running now. */
+export function resolveSetupChecklist(
+  step: ViewCodeRelaySetupStep | undefined,
+): ReadonlyArray<{ readonly label: string; readonly state: "done" | "current" | "pending" }> {
+  const current = step ?? "checking-tools";
+  const currentIndex = QUICK_CONNECT_SETUP_STEPS.findIndex((row) => row.steps.includes(current));
+  return QUICK_CONNECT_SETUP_STEPS.map((row, index) => ({
+    label: row.label,
+    state: index < currentIndex ? "done" : index === currentIndex ? "current" : "pending",
+  }));
+}
+
+export const CLOUDFLARE_SIGN_UP_URL = "https://dash.cloudflare.com/sign-up";
+/** Workers & Pages of whichever account the person picks, where the workers.dev subdomain is chosen. */
+export const CLOUDFLARE_WORKERS_URL = "https://dash.cloudflare.com/?to=/:account/workers-and-pages";
+export const NODE_DOWNLOAD_URL = "https://nodejs.org";
 
 export const QUICK_CONNECT_STABLE_NOTE = "Stable address: pair once, reconnects automatically.";
 

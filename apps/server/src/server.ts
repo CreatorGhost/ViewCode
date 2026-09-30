@@ -141,6 +141,7 @@ import { serverRelayBrokerTracingLayer } from "./cloud/relayTracing.ts";
 import { shouldRetryCloudLink } from "./cloud/relayResponse.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as ViewCodeRelayConnector from "./relay/ViewCodeRelayConnector.ts";
+import * as ViewCodeRelaySetup from "./relay/ViewCodeRelaySetup.ts";
 import { resolveLocalTarget } from "./relay/viewCodeRelayHealth.ts";
 import {
   MANAGED_TUNNEL_FIRST_REGISTRATION_JITTER,
@@ -479,6 +480,11 @@ const ViewCodeRelayConnectorLive = ViewCodeRelayConnector.layer.pipe(
   Layer.provide(ServerSettingsLayerLive),
 );
 
+const ViewCodeRelaySetupLive = ViewCodeRelaySetup.layer.pipe(
+  Layer.provide(ServerSecretStore.layer),
+  Layer.provide(ServerSettingsLayerLive),
+);
+
 const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
   RelayClientLive,
   CloudManagedEndpointRuntime.layer.pipe(
@@ -583,6 +589,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
       ),
       CloudManagedEndpointRuntimeLive,
       ViewCodeRelayConnectorLive,
+      ViewCodeRelaySetupLive,
     ),
   ),
 );
@@ -996,6 +1003,14 @@ const makeServerLayer = Layer.unwrap(
           ),
         );
         yield* forkParked(connector.run(resolveLocalTarget(server.address)));
+        // A connection that is up is the strongest proof of a working setup.
+        const relaySetup = yield* ViewCodeRelaySetup.ViewCodeRelaySetup;
+        yield* forkParked(
+          connector.stateChanges.pipe(
+            Stream.filter((state) => state.status === "connected"),
+            Stream.runForEach(() => relaySetup.relayConnected),
+          ),
+        );
       }),
       // Layers are memoized by reference, so this is the instance BackgroundPolicy reads.
     ).pipe(Layer.provide(HostPowerMonitorLayerLive));

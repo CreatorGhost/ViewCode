@@ -256,6 +256,11 @@ import {
 } from "./providerUsageLimits.ts";
 import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
+import {
+  ViewCodeRelayRemoveInput,
+  ViewCodeRelaySetupError,
+  ViewCodeRelaySetupStartInput,
+} from "./remoteAccess.ts";
 import { ChooseProvidersInput, DetectProvidersResult } from "./providerChoice.ts";
 import {
   AgentControlError,
@@ -451,6 +456,12 @@ export const WS_METHODS = {
   subscribeAgentControl: "subscribeAgentControl",
   usageResumeCancel: "usageResume.cancel",
   usageResumeNow: "usageResume.now",
+
+  // ViewCode Quick connect setup; progress rides subscribeAuthAccess
+  viewcodeRelaySetupStart: "viewcodeRelay.setup.start",
+  viewcodeRelaySetupCancel: "viewcodeRelay.setup.cancel",
+  viewcodeRelaySetupContinue: "viewcodeRelay.setup.continue",
+  viewcodeRelayRemove: "viewcodeRelay.remove",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -984,6 +995,26 @@ const WsUsageResumeNowRpc = Rpc.make(WS_METHODS.usageResumeNow, {
   payload: UsageResumeInput,
   success: UsageResumeResult,
   error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
+});
+
+const WsViewCodeRelaySetupStartRpc = Rpc.make(WS_METHODS.viewcodeRelaySetupStart, {
+  payload: ViewCodeRelaySetupStartInput,
+  error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
+});
+
+const WsViewCodeRelaySetupCancelRpc = Rpc.make(WS_METHODS.viewcodeRelaySetupCancel, {
+  payload: Schema.Struct({}),
+  error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
+});
+
+const WsViewCodeRelaySetupContinueRpc = Rpc.make(WS_METHODS.viewcodeRelaySetupContinue, {
+  payload: Schema.Struct({}),
+  error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
+});
+
+const WsViewCodeRelayRemoveRpc = Rpc.make(WS_METHODS.viewcodeRelayRemove, {
+  payload: ViewCodeRelayRemoveInput,
+  error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
 });
 
 const WsSubscribeAgentControlRpc = Rpc.make(WS_METHODS.subscribeAgentControl, {
@@ -1557,6 +1588,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeAgentControlRpc,
   WsUsageResumeCancelRpc,
   WsUsageResumeNowRpc,
+  WsViewCodeRelaySetupStartRpc,
+  WsViewCodeRelaySetupCancelRpc,
+  WsViewCodeRelaySetupContinueRpc,
+  WsViewCodeRelayRemoveRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,

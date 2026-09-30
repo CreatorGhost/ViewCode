@@ -20,6 +20,7 @@ import * as Stream from "effect/Stream";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthAccessStreamError,
+  AuthAccessWriteScope,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
@@ -170,6 +171,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as ViewCodeRelayConnector from "./relay/ViewCodeRelayConnector.ts";
+import * as ViewCodeRelaySetup from "./relay/ViewCodeRelaySetup.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -566,6 +568,7 @@ const makeWsRpcLayer = (
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const cloudEndpointRuntime = yield* CloudManagedEndpointRuntime.CloudManagedEndpointRuntime;
       const viewCodeRelay = yield* ViewCodeRelayConnector.ViewCodeRelayConnector;
+      const viewCodeRelaySetup = yield* ViewCodeRelaySetup.ViewCodeRelaySetup;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -2673,8 +2676,16 @@ const makeWsRpcLayer = (
                     Effect.provide(deviceHostContext),
                   )
                 : undefined;
+              // The relay address is written only by Quick connect setup, which also
+              // stores the matching secret; a client may only flip the switch.
+              const viewcodeRelay =
+                patch.viewcodeRelay?.enabled === undefined
+                  ? undefined
+                  : { enabled: patch.viewcodeRelay.enabled };
+              const { viewcodeRelay: _relayPatch, ...clientPatch } = patch;
               const settings = yield* serverSettings.updateSettings({
-                ...patch,
+                ...clientPatch,
+                ...(viewcodeRelay ? { viewcodeRelay } : {}),
                 ...(deviceHosts ? { deviceHosts } : {}),
               });
               return ServerSettings.redactServerSettingsForClient(settings);
@@ -3145,6 +3156,24 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "agents" },
           ),
+        [WS_METHODS.viewcodeRelaySetupStart]: (input) =>
+          observeRpcEffect(WS_METHODS.viewcodeRelaySetupStart, viewCodeRelaySetup.start(input), {
+            "rpc.aggregate": "relay",
+          }),
+        [WS_METHODS.viewcodeRelaySetupCancel]: () =>
+          observeRpcEffect(WS_METHODS.viewcodeRelaySetupCancel, viewCodeRelaySetup.cancel, {
+            "rpc.aggregate": "relay",
+          }),
+        [WS_METHODS.viewcodeRelaySetupContinue]: () =>
+          observeRpcEffect(
+            WS_METHODS.viewcodeRelaySetupContinue,
+            viewCodeRelaySetup.continueSetup,
+            { "rpc.aggregate": "relay" },
+          ),
+        [WS_METHODS.viewcodeRelayRemove]: (input) =>
+          observeRpcEffect(WS_METHODS.viewcodeRelayRemove, viewCodeRelaySetup.remove(input), {
+            "rpc.aggregate": "relay",
+          }),
         [WS_METHODS.subscribeAgentControl]: () =>
           observeRpcStream(WS_METHODS.subscribeAgentControl, agentMessaging.controlChanges, {
             "rpc.aggregate": "agents",
@@ -3879,13 +3908,20 @@ const makeWsRpcLayer = (
                 Option.isSome(currentTunnel) ? currentTunnel.value : null,
               );
               const latestRelayRef = yield* Ref.make(yield* viewCodeRelay.currentState);
+              // Setup progress can carry a Cloudflare sign-in code: only for sessions that
+              // may run setup themselves.
+              const canManageRelay = currentSession.scopes.includes(AuthAccessWriteScope);
+              const latestSetupRef = yield* Ref.make(
+                canManageRelay ? yield* viewCodeRelaySetup.current : null,
+              );
               const stateSnapshotEvent = Effect.all([
                 loadAuthAccessSnapshot().pipe(Effect.orElseSucceed(() => initialSnapshot)),
                 Ref.updateAndGet(revisionRef, (revision) => revision + 1),
                 Ref.get(latestTunnelRef),
                 Ref.get(latestRelayRef),
+                Ref.get(latestSetupRef),
               ]).pipe(
-                Effect.map(([snapshot, revision, managedTunnel, relay]) => ({
+                Effect.map(([snapshot, revision, managedTunnel, relay, setup]) => ({
                   version: 1 as const,
                   revision,
                   type: "snapshot" as const,
@@ -3893,6 +3929,7 @@ const makeWsRpcLayer = (
                     ...snapshot,
                     ...(managedTunnel === null ? {} : { managedTunnel }),
                     viewcodeRelay: relay,
+                    ...(setup === null ? {} : { viewcodeRelaySetup: setup }),
                   },
                 })),
               );
@@ -3910,6 +3947,14 @@ const makeWsRpcLayer = (
                     Ref.set(latestRelayRef, relay).pipe(Effect.andThen(stateSnapshotEvent)),
                   ),
                 );
+              const initialSetup = yield* Ref.get(latestSetupRef);
+              const setupEvents: Stream.Stream<AuthAccessStreamEvent> = canManageRelay
+                ? viewCodeRelaySetup.changes.pipe(
+                    Stream.mapEffect((setup) =>
+                      Ref.set(latestSetupRef, setup).pipe(Effect.andThen(stateSnapshotEvent)),
+                    ),
+                  )
+                : Stream.empty;
 
               return Stream.concat(
                 Stream.make({
@@ -3922,9 +3967,10 @@ const makeWsRpcLayer = (
                       ? { managedTunnel: currentTunnel.value }
                       : {}),
                     viewcodeRelay: yield* Ref.get(latestRelayRef),
+                    ...(initialSetup === null ? {} : { viewcodeRelaySetup: initialSetup }),
                   },
                 }),
-                Stream.mergeAll([credentialEvents, tunnelEvents, relayEvents], {
+                Stream.mergeAll([credentialEvents, tunnelEvents, relayEvents, setupEvents], {
                   concurrency: "unbounded",
                 }),
               );

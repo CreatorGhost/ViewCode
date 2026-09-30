@@ -262,6 +262,19 @@ function translateLegacyProjectOverridePatch(
   } as ServerSettingsPatch;
 }
 
+function applyViewCodeRelayPatch(
+  current: ServerSettings["viewcodeRelay"],
+  patch: NonNullable<ServerSettingsPatch["viewcodeRelay"]>,
+): ServerSettings["viewcodeRelay"] {
+  const { url: _url, ...rest } = current;
+  const url = patch.url === undefined ? current.url : patch.url;
+  return {
+    ...rest,
+    enabled: patch.enabled ?? current.enabled,
+    ...(url === null || url === undefined ? {} : { url }),
+  };
+}
+
 export function applyServerSettingsPatch(
   current: ServerSettings,
   rawPatch: ServerSettingsPatch,
@@ -284,6 +297,8 @@ export function applyServerSettingsPatch(
     projectAgentBrowserAccessOverrides: _legacyBrowserAccess,
     projectAutoPullOverrides: _legacyAutoPull,
     projectScriptOverrides: _legacyScripts,
+    // `url: null` removes the relay address, which deepMerge cannot express.
+    viewcodeRelay: viewcodeRelayPatch,
     ...patchForMerge
   } = patch;
   const currentBackgroundActivity = normalizeServerBackgroundActivitySettings(current);
@@ -396,6 +411,9 @@ export function applyServerSettingsPatch(
       : {}),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
     ...(providerHealthRefreshInterval !== undefined ? { providerHealthRefreshInterval } : {}),
+    ...(viewcodeRelayPatch !== undefined
+      ? { viewcodeRelay: applyViewCodeRelayPatch(current.viewcodeRelay, viewcodeRelayPatch) }
+      : {}),
   };
   const normalizedBackgroundActivity = normalizeBackgroundActivitySettings(
     nextWithReplacementsBase.backgroundActivity,
