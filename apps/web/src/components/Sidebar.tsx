@@ -1073,7 +1073,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     ) : status === "working" || childrenWorkingHidden ? (
       <Spinner
         size={isChild ? "xs" : "sm"}
-        tone="muted"
+        tone={status === "working" ? "muted" : "info"}
         aria-label={status === "working" ? "Working" : "Child agents working"}
       />
     ) : status === "failed" ? (
@@ -1213,7 +1213,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             className="inline-flex h-5 shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-0.5 text-2xs text-sidebar-muted-foreground hover:text-sidebar-foreground"
           >
             {props.childrenExpanded ? null : (
-              <span className="tabular-nums">
+              <span className={cn("tabular-nums", props.workingDescendantCount > 0 && "text-info")}>
                 {props.workingDescendantCount > 0
                   ? `${props.workingDescendantCount} of ${props.descendantCount} working`
                   : `${props.descendantCount} ${props.descendantCount === 1 ? "agent" : "agents"}`}
