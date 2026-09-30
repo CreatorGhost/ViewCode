@@ -116,7 +116,7 @@ import {
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { spawnAndCollect } from "../providerSnapshot.ts";
-import { isStaleProviderSessionCause } from "../staleSession.ts";
+import { isStaleProviderSessionCause, isStaleProviderSessionText } from "../staleSession.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
@@ -3516,7 +3516,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           : undefined);
     const { status, errorMessage } = resultOutcome(message, failureHint);
 
-    if (status === "failed") {
+    // A refused resume answers with a turnless error result; the reactor
+    // recovers with a fresh session and a recap, so no error row for it.
+    const refusedResume =
+      !turn && errorMessage !== undefined && isStaleProviderSessionText(errorMessage);
+    if (status === "failed" && !refusedResume) {
       yield* emitRuntimeError(context, errorMessage ?? "Claude turn failed.");
     }
 

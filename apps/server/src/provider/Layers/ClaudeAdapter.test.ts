@@ -3136,6 +3136,53 @@ describe("ClaudeAdapterLive", () => {
     },
   );
 
+  it.effect(
+    "a refused resume before any turn shows no error row; other turnless failures do",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "full-access",
+        });
+        const errorFiber = yield* adapter.streamEvents.pipe(
+          Stream.filter((event) => event.type === "runtime.error"),
+          Stream.runHead,
+          Effect.forkChild,
+        );
+        const turnlessError = (text: string, uuid: string) =>
+          ({
+            type: "result",
+            subtype: "error_during_execution",
+            is_error: true,
+            num_turns: 0,
+            errors: [text],
+            stop_reason: null,
+            session_id: "gone-session",
+            uuid,
+          }) as unknown as SDKMessage;
+        // The CLI answers a refused --resume with a turnless error result; the
+        // reactor recovers from it, so only the second failure may surface.
+        harness.query.emit(
+          turnlessError("No conversation found with session ID: gone-session", "result-refused"),
+        );
+        harness.query.emit(turnlessError("Some other startup failure", "result-other"));
+        const first = yield* Fiber.join(errorFiber);
+        assert.equal(
+          first._tag === "Some" && first.value.type === "runtime.error"
+            ? first.value.payload.message
+            : undefined,
+          "Some other startup failure",
+        );
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
   it.effect("fails a turn when a success result reports a 529 overload", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
