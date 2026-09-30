@@ -13,6 +13,7 @@ interface TestThread {
   readonly project: string;
   readonly parent?: string;
   readonly pinned?: boolean;
+  readonly working?: boolean;
   readonly order: number;
 }
 
@@ -31,6 +32,7 @@ function build(threads: readonly TestThread[], projects: readonly string[] = ["a
     sortPinned: byOrder,
     sortRoots: byOrder,
     sortChildren: byOrder,
+    isWorking: (thread) => thread.working === true,
   });
 }
 
@@ -72,6 +74,19 @@ describe("buildSidebarThreadTree", () => {
     expect(tree.parentKeyByKey.get("grandchild")).toBe("child1");
     expect(tree.folderKeyByThreadKey.get("grandchild")).toBe("a");
     expect(sidebarThreadAncestorKeys(tree, "grandchild")).toEqual(["child1", "root"]);
+  });
+
+  it("counts working descendants at every depth, excluding the thread itself", () => {
+    const tree = build([
+      { id: "root", project: "a", working: true, order: 1 },
+      { id: "child1", project: "a", parent: "root", order: 2 },
+      { id: "child2", project: "a", parent: "root", working: true, order: 3 },
+      { id: "grandchild", project: "a", parent: "child1", working: true, order: 4 },
+    ]);
+    const root = tree.folders[0]!.nodes[0]!;
+    expect(root.workingDescendantCount).toBe(2);
+    expect(root.children[0]!.workingDescendantCount).toBe(1);
+    expect(root.children[1]!.workingDescendantCount).toBe(0);
   });
 
   it("promotes a child whose parent is missing (archived or deleted) to top level", () => {

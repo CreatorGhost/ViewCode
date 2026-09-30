@@ -28,6 +28,7 @@ import {
   type EnvironmentMachineKind,
   type ScopedThreadRef,
   type ThreadId,
+  type ProjectIconOverride,
 } from "@t3tools/contracts";
 import {
   ArchiveIcon,
@@ -49,7 +50,9 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -82,6 +85,9 @@ import { useShortcutModifierState } from "../shortcutModifierState";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
+import { deriveProjectIdentity } from "../projectIdentity";
+import { projectIconColorClassName } from "../projectIconColors";
+import { projectEnvironment } from "../state/projects";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { isMacPlatform } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
@@ -729,6 +735,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   guides: string;
   /** Child agents below this thread (all depths); 0 hides the disclosure. */
   descendantCount: number;
+  /** Child agents below this thread that are still working. */
+  workingDescendantCount: number;
   childrenExpanded: boolean;
   onToggleChildren: (threadKey: string) => void;
   isPinned: boolean;
@@ -1052,6 +1060,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Leading badge, one glyph by priority: needs-you (approval or input) >
   // working spinner > failure > pin > background monitoring > provider.
   const iconClassName = isChild ? "size-3" : "size-3.5";
+  // Collapsed child agents that are still working keep the lead's spinner
+  // going, so folding them away never reads as the work being done.
+  const childrenWorkingHidden = !props.childrenExpanded && props.workingDescendantCount > 0;
   const leadingBadge =
     status === "approval" || status === "input" ? (
       <HandIcon
@@ -1059,8 +1070,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         aria-label={status === "approval" ? "Needs approval" : "Needs input"}
         className={cn(iconClassName, "text-warning")}
       />
-    ) : status === "working" ? (
-      <Spinner size={isChild ? "xs" : "sm"} tone="muted" aria-label="Working" />
+    ) : status === "working" || childrenWorkingHidden ? (
+      <Spinner
+        size={isChild ? "xs" : "sm"}
+        tone="muted"
+        aria-label={status === "working" ? "Working" : "Child agents working"}
+      />
     ) : status === "failed" ? (
       <CircleAlertIcon
         role="img"
@@ -1199,7 +1214,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           >
             {props.childrenExpanded ? null : (
               <span className="tabular-nums">
-                {props.descendantCount} {props.descendantCount === 1 ? "agent" : "agents"}
+                {props.workingDescendantCount > 0
+                  ? `${props.workingDescendantCount} of ${props.descendantCount} working`
+                  : `${props.descendantCount} ${props.descendantCount === 1 ? "agent" : "agents"}`}
               </span>
             )}
             <ChevronRightIcon
@@ -1289,8 +1306,17 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
   onToggle: (group: SidebarProjectSnapshot) => void;
   onNewThread: (group: SidebarProjectSnapshot) => void;
   onOpenMenu: (group: SidebarProjectSnapshot, position: { x: number; y: number }) => void;
+  onChooseIcon: (group: SidebarProjectSnapshot) => void;
 }) {
-  const { group, onNewThread, onOpenMenu, onToggle } = props;
+  const { group, onChooseIcon, onNewThread, onOpenMenu, onToggle } = props;
+  const handleChooseIconClick = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onChooseIcon(group);
+    },
+    [group, onChooseIcon],
+  );
   const handleToggle = useCallback(() => onToggle(group), [group, onToggle]);
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
@@ -1347,9 +1373,25 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
       onKeyDown={handleKeyDown}
       onContextMenu={handleContextMenu}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center">
-        <FolderGlyph aria-hidden className="size-3.5" />
-      </span>
+      <button
+        type="button"
+        aria-label={`Change icon and color for ${group.displayName}`}
+        onClick={handleChooseIconClick}
+        onKeyDown={(event) => event.stopPropagation()}
+        className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm hover:bg-sidebar-foreground/8"
+      >
+        {group.projectIcon || group.faviconPath ? (
+          <ProjectFavicon project={group} className="size-3.5" />
+        ) : (
+          <FolderGlyph
+            aria-hidden
+            className={cn(
+              "size-3.5",
+              projectIconColorClassName(deriveProjectIdentity(group.title).color),
+            )}
+          />
+        )}
+      </button>
       <span className="min-w-0 flex-1 truncate">{group.displayName}</span>
       {props.showEnvironment ? (
         <ProjectEnvironmentBadge
@@ -1538,11 +1580,18 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
 });
 
+const ProjectIconPickerDialog = lazy(() =>
+  import("./settings/ProjectIconPickerDialog").then((module) => ({
+    default: module.ProjectIconPickerDialog,
+  })),
+);
+
 type ProjectMenuAction =
   | "new-thread"
   | "copy-path"
   | "import-sessions"
   | "remove-imported-sessions"
+  | "project-icon"
   | "project-settings";
 
 export default function Sidebar() {
@@ -1940,6 +1989,7 @@ export default function Sidebar() {
         },
         sortRoots: (roots) => sortThreads(roots, sidebarThreadSortOrder),
         sortChildren: sortChildThreads,
+        isWorking: (thread) => resolveSidebarThreadStatus(thread) === "working",
       }),
     [
       folderKeyByPhysicalProjectKey,
@@ -2848,6 +2898,7 @@ export default function Sidebar() {
             [
               { id: "new-thread", label: "New thread", icon: "message-square-plus" },
               { id: "copy-path", label: "Copy path" },
+              { id: "project-icon", label: "Change icon and color…" },
               // Importing Claude/Codex session files is hidden for now (it
               // mostly brought in agent plumbing); clean-up stays available.
               {
@@ -2888,6 +2939,9 @@ export default function Sidebar() {
               projectRefs: group.memberProjectRefs,
             });
             return;
+          case "project-icon":
+            setIconPickerGroup(group);
+            return;
           case "project-settings":
             openProjectSettings(group);
             return;
@@ -2897,6 +2951,35 @@ export default function Sidebar() {
       })();
     },
     [copyPathToClipboard, createThreadInProject, openProjectSettings],
+  );
+
+  // Folder icon and color: the same picker as Project settings, saved on every
+  // checkout of the group like a settings edit.
+  const [iconPickerGroup, setIconPickerGroup] = useState<SidebarProjectSnapshot | null>(null);
+  const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
+  const saveProjectIcon = useCallback(
+    (group: SidebarProjectSnapshot, projectIcon: ProjectIconOverride) => {
+      void (async () => {
+        for (const member of group.memberProjects) {
+          const result = await updateProject({
+            environmentId: member.environmentId,
+            input: { projectId: member.id, faviconPath: null, projectIcon },
+          });
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: `Could not change the icon for ${group.displayName}`,
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+            return;
+          }
+        }
+      })();
+    },
+    [updateProject],
   );
 
   // Thread jump (cmd+1..9) and prev/next traversal follow the rendered rows.
@@ -3019,6 +3102,7 @@ export default function Sidebar() {
         isLastSibling={entry.isLastSibling}
         guides={entry.guides.map((continues) => (continues ? "1" : "0")).join("")}
         descendantCount={node.descendantCount}
+        workingDescendantCount={node.workingDescendantCount}
         childrenExpanded={!collapsedThreadKeys.has(threadKey)}
         onToggleChildren={toggleThreadChildren}
         isPinned={thread.pinnedAt != null}
@@ -3374,6 +3458,7 @@ export default function Sidebar() {
                         onToggle={toggleProjectFolder}
                         onNewThread={createThreadInProject}
                         onOpenMenu={handleProjectMenu}
+                        onChooseIcon={setIconPickerGroup}
                       />
                       {expanded && folder.nodes.length > 0 ? (
                         <ul role="group" className="flex flex-col gap-px pb-1">
@@ -3408,6 +3493,19 @@ export default function Sidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarChromeFooter />
+      {iconPickerGroup ? (
+        <Suspense fallback={null}>
+          <ProjectIconPickerDialog
+            current={iconPickerGroup.projectIcon ?? null}
+            projectName={iconPickerGroup.title}
+            open
+            onOpenChange={(open) => {
+              if (!open) setIconPickerGroup(null);
+            }}
+            onSelect={(icon) => saveProjectIcon(iconPickerGroup, icon)}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

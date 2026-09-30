@@ -13,6 +13,8 @@ export interface SidebarThreadTreeNode<T> {
   readonly children: readonly SidebarThreadTreeNode<T>[];
   /** Every thread below this one, for the collapsed "N agents" hint. */
   readonly descendantCount: number;
+  /** Threads below this one that are working, so a collapsed lead can show it. */
+  readonly workingDescendantCount: number;
 }
 
 export interface SidebarProjectFolder<P, T> {
@@ -45,6 +47,8 @@ export interface BuildSidebarThreadTreeInput<P, T> {
   readonly sortPinned: (threads: readonly T[]) => readonly T[];
   readonly sortRoots: (threads: readonly T[]) => readonly T[];
   readonly sortChildren: (threads: readonly T[]) => readonly T[];
+  /** Whether a thread is working; defaults to never. */
+  readonly isWorking?: (thread: T) => boolean;
 }
 
 /**
@@ -104,8 +108,13 @@ export function buildSidebarThreadTree<P, T>(
     const childThreads = childrenByParentKey.get(key);
     const children = childThreads ? input.sortChildren(childThreads).map(buildNode) : [];
     let descendantCount = children.length;
-    for (const child of children) descendantCount += child.descendantCount;
-    return { key, thread, children, descendantCount };
+    let workingDescendantCount = 0;
+    for (const child of children) {
+      descendantCount += child.descendantCount;
+      workingDescendantCount +=
+        child.workingDescendantCount + (input.isWorking?.(child.thread) ? 1 : 0);
+    }
+    return { key, thread, children, descendantCount, workingDescendantCount };
   };
 
   const pinnedRoots: T[] = [];
