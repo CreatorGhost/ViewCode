@@ -62,6 +62,9 @@ import {
   type HomeProjectSortOrder,
 } from "./homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
+import { buildLeadAgentMenuActions, isAgentMenuEvent } from "../agents/agentMenus";
+import { useAgentControlActions } from "../agents/useAgentControlActions";
+import { useAgentControlByThreadKey } from "../../state/agentControl";
 import { useMaterialFabScroll } from "./MaterialFabScrollContext";
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
@@ -453,6 +456,24 @@ export function HomeScreen(props: HomeScreenProps) {
   // Threads on servers without the settlement capability never classify as
   // settled (the user could neither un-settle nor pin them).
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
+  // Agent control is only followed where agent trees exist.
+  const agentEnvironmentIds = useMemo(() => {
+    const ids = new Set<EnvironmentId>();
+    for (const thread of props.threads) {
+      if (thread.parentThreadId != null && thread.archivedAt === null) {
+        ids.add(thread.environmentId);
+      }
+    }
+    return ids;
+  }, [props.threads]);
+  const agentControl = useAgentControlByThreadKey(agentEnvironmentIds);
+  const agentActions = useAgentControlActions();
+  const handleAgentMenuEvent = useCallback(
+    (thread: EnvironmentThreadShell, event: string) => {
+      if (isAgentMenuEvent(event)) agentActions.runMenuEvent(thread, event);
+    },
+    [agentActions],
+  );
   const settlementEnvironmentIds = useMemo(() => {
     const supported = new Set<EnvironmentId>();
     for (const [environmentId, config] of serverConfigs) {
@@ -617,8 +638,10 @@ export function HomeScreen(props: HomeScreenProps) {
         snoozeLabelNow: `${nowMinute}:00.000Z`,
         moveAvailability: threadMoveAvailability,
         shelfPreferencesLoading: !shelfPreferencesLoaded,
+        agentControl,
       }),
     [
+      agentControl,
       collapsedFolderKeys,
       expandedLeadKeys,
       expandedSettledFolderKeys,
@@ -688,6 +711,7 @@ export function HomeScreen(props: HomeScreenProps) {
               leadKey={listItem.leadKey}
               agentCount={listItem.agentCount}
               workingCount={listItem.workingCount}
+              pausedCount={listItem.pausedCount}
               expanded={listItem.expanded}
               muted={listItem.muted}
               onToggle={toggleLeadAgents}
@@ -699,9 +723,12 @@ export function HomeScreen(props: HomeScreenProps) {
               thread={listItem.thread}
               depth={listItem.depth}
               status={listItem.status}
+              running={listItem.running}
+              queued={listItem.queued}
               modelLabel={modelLabelOf(listItem.thread)}
               muted={listItem.muted}
               onSelectThread={props.onSelectThread}
+              onAgentMenuEvent={agentActions.runMenuEvent}
             />
           );
         case "folder-settled":
@@ -717,6 +744,7 @@ export function HomeScreen(props: HomeScreenProps) {
       const item = listItem.type === "folder-lead" ? listItem.entry : listItem;
       // Inside a folder the row's project line would repeat the folder name.
       const inFolder = listItem.type === "folder-lead" && listItem.inFolder;
+      const agentTree = listItem.type === "folder-lead" ? listItem.agentTree : null;
       if (item.type === "v2-pending") {
         const pendingScopeKey = scopedProjectKey(
           item.pendingTask.environmentId,
@@ -817,10 +845,14 @@ export function HomeScreen(props: HomeScreenProps) {
           onMoveThread={handleMoveThread}
           onSwipeableClose={handleSwipeableClose}
           onSwipeableWillOpen={handleSwipeableWillOpen}
+          leadingMenuActions={buildLeadAgentMenuActions(agentTree)}
+          onLeadingMenuAction={handleAgentMenuEvent}
         />
       );
     },
     [
+      agentActions.runMenuEvent,
+      handleAgentMenuEvent,
       handleDeleteThread,
       activeReorderEnvironmentIds,
       handleMoveThread,

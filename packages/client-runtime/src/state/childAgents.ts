@@ -1,5 +1,15 @@
-import type { EnvironmentId, OrchestrationThreadShell, ThreadId } from "@t3tools/contracts";
-import { isThreadSessionRunning } from "@t3tools/client-runtime/state/threads";
+import type {
+  AgentControlState,
+  EnvironmentId,
+  OrchestrationThreadShell,
+  ThreadId,
+} from "@t3tools/contracts";
+
+/**
+ * ViewCode child agents (threads whose `parentThreadId` chain leads to a lead
+ * thread) and what the user can do to them. Shared by the web Active agents
+ * bar and the mobile Home list and thread screen.
+ */
 
 type ChildAgentShellInput = Pick<
   OrchestrationThreadShell,
@@ -17,7 +27,8 @@ export interface ChildAgentEntry<T extends ChildAgentShellInput> {
 export function isChildAgentRunning(
   thread: Pick<OrchestrationThreadShell, "session" | "latestTurn">,
 ): boolean {
-  return isThreadSessionRunning(thread.session) || thread.latestTurn?.state === "running";
+  const status = thread.session?.status;
+  return status === "starting" || status === "running" || thread.latestTurn?.state === "running";
 }
 
 /**
@@ -101,4 +112,59 @@ export function countRunningChildAgents(
   let count = 0;
   for (const agent of agents) if (agent.running) count += 1;
   return count;
+}
+
+export interface AgentControlAvailability {
+  /** Interrupt and pause it (`agents.stop`). */
+  readonly stop: boolean;
+  /** Continue a paused agent and deliver what it holds (`agents.resume`). */
+  readonly resume: boolean;
+  /** Drop the held messages and replies, which also unpauses it (`agents.discard`). */
+  readonly discard: boolean;
+}
+
+/**
+ * Which agent-control actions one agent offers, as the web Active agents bar
+ * decides: Stop while it runs and is not already paused, Resume while paused
+ * (the way back from Stop), Discard while anything is held for it.
+ */
+export function resolveAgentControlAvailability(input: {
+  readonly running: boolean;
+  readonly control: Pick<AgentControlState, "paused" | "queued"> | undefined;
+}): AgentControlAvailability {
+  const paused = input.control?.paused === true;
+  const queued = input.control?.queued ?? 0;
+  return {
+    stop: input.running && !paused,
+    resume: paused,
+    discard: paused || queued > 0,
+  };
+}
+
+export interface AgentTreeControlSummary {
+  /** Running agents in the tree, the lead included. */
+  readonly running: number;
+  readonly paused: number;
+  /** Agent messages and replies waiting across the tree. */
+  readonly queued: number;
+}
+
+/**
+ * Counts a tree's running, paused and queued agents for tree-wide controls.
+ * `key` is whatever `control` is keyed by (a thread id, or a scoped key).
+ */
+export function summarizeAgentTreeControl(
+  agents: ReadonlyArray<{ readonly running: boolean; readonly key: string }>,
+  control: ReadonlyMap<string, Pick<AgentControlState, "paused" | "queued">>,
+): AgentTreeControlSummary {
+  let running = 0;
+  let paused = 0;
+  let queued = 0;
+  for (const agent of agents) {
+    const state = control.get(agent.key);
+    if (agent.running) running += 1;
+    if (state?.paused) paused += 1;
+    queued += state?.queued ?? 0;
+  }
+  return { running, paused, queued };
 }

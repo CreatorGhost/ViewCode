@@ -92,6 +92,8 @@ import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
 import { UsageResumeCard } from "./UsageResumeCard";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { ActiveAgentsStrip } from "../agents/ActiveAgentsStrip";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
@@ -135,6 +137,8 @@ export interface ThreadDetailScreenProps {
     | { readonly kind: "preparing"; readonly preparingWorktree: boolean }
     | { readonly kind: "failed"; readonly reason: string; readonly onEditTask: () => void }
     | null;
+  /** Opens one of this thread's child agents from the Active agents strip. */
+  readonly onOpenAgentThread?: (thread: EnvironmentThreadShell) => void;
   /** A usage limit stopped the thread; null when it did not. */
   readonly usageResume?: {
     readonly text: string;
@@ -1010,6 +1014,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       onClose={dismissUsageLimits}
                     />
                   </Animated.View>
+                ) : null}
+                {props.onOpenAgentThread && activeUserInputRequestId === null ? (
+                  <ActiveAgentsStrip
+                    environmentId={props.environmentId}
+                    threadId={props.selectedThread.id}
+                    parentThreadId={props.selectedThread.parentThreadId ?? null}
+                    onOpenThread={props.onOpenAgentThread}
+                  />
                 ) : null}
                 {props.usageResume ? (
                   <Animated.View

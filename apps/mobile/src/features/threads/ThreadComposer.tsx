@@ -85,6 +85,7 @@ import {
   buildModelOptions,
   groupByProvider,
   isModelSelectionUnavailable,
+  resolveHandoffFromKey,
 } from "../../lib/modelOptions";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import type { RemoteClientConnectionState } from "../../lib/connection";
@@ -523,12 +524,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     () => buildModelOptions(props.serverConfig, currentModelSelection),
     [props.serverConfig, currentModelSelection],
   );
+  // ViewCode never locks a started thread to its provider (as on web): every
+  // enabled provider is offered, and a model outside the native session's
+  // continuation group hands the chat off on the next turn.
   const providerGroups = useMemo(() => groupByProvider(modelOptions), [modelOptions]);
-  // An existing thread is bound to its harness: sessions can't move between
-  // provider instances, so the picker only offers the thread's own group.
-  const threadProviderGroups = useMemo(
-    () => providerGroups.filter((group) => group.providerKey === currentModelSelection.instanceId),
-    [providerGroups, currentModelSelection.instanceId],
+  const handoffFromKey = useMemo(
+    () =>
+      resolveHandoffFromKey(props.serverConfig, props.selectedThread.session?.providerInstanceId),
+    [props.serverConfig, props.selectedThread.session?.providerInstanceId],
   );
   const currentModelOption =
     modelOptions.find(
@@ -550,7 +553,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ownerId: settingsOwnerId,
       environmentId: props.environmentId,
       providerInstanceId: currentModelSelection.instanceId,
-      providerGroups: threadProviderGroups,
+      providerGroups,
+      handoffFromKey,
       selectedModel: currentModelSelection,
       onSelectModel: (option) => props.onUpdateModelSelection(option.selection),
       optionDescriptors: providerOptionDescriptors,
@@ -566,7 +570,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       props.onUpdateRuntimeMode,
       providerOptionDescriptors,
       settingsOwnerId,
-      threadProviderGroups,
+      providerGroups,
+      handoffFromKey,
     ],
   );
   const openSettings = useCallback(() => {

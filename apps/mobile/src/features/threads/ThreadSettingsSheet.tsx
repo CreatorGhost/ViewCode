@@ -51,7 +51,12 @@ import { MaterialIconButton } from "../../components/MaterialIconButton";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { cn } from "../../lib/cn";
-import type { ModelOption, ProviderGroup } from "../../lib/modelOptions";
+import {
+  handoffNote,
+  modelNeedsHandoff,
+  type ModelOption,
+  type ProviderGroup,
+} from "../../lib/modelOptions";
 import { applyProviderOptionSelection } from "../../lib/providerOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -127,12 +132,19 @@ function ProviderHeader(props: {
   readonly collapsible: boolean;
   readonly collapsed: boolean;
   readonly modelCount: number;
+  /** Picking one of its models hands this chat off to another provider. */
+  readonly handoff?: boolean;
   readonly onToggle: () => void;
 }) {
   const content = (
     <>
       <ProviderIcon provider={props.driver} size={15} />
       <Text className="text-sm font-t3-medium text-foreground-muted">{props.label}</Text>
+      {props.handoff ? (
+        <View className="rounded-md bg-subtle px-1.5 py-0.5">
+          <Text className="text-3xs font-t3-bold text-foreground-muted">Handoff</Text>
+        </View>
+      ) : null}
       {props.collapsible ? (
         <>
           <View className="flex-1" />
@@ -155,7 +167,7 @@ function ProviderHeader(props: {
   if (props.collapsible) {
     return (
       <Pressable
-        accessibilityLabel={`${props.label}, ${props.modelCount} models`}
+        accessibilityLabel={`${props.label}, ${props.modelCount} models${props.handoff ? ", hands this chat off" : ""}`}
         accessibilityRole="button"
         accessibilityState={{ expanded: !props.collapsed }}
         className="mx-4 mt-1 min-h-11 flex-row items-center gap-2 rounded-xl px-1 pt-2 active:opacity-60 android:min-h-12"
@@ -237,6 +249,11 @@ type ThreadSettingsSessionProps = {
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
+  /**
+   * Continuation group of the thread's native session (`resolveHandoffFromKey`);
+   * models outside it hand the chat off. Absent for a new task.
+   */
+  readonly handoffFromKey?: string | null;
   readonly selectedModel: ModelSelection | null;
   readonly onSelectModel: (option: ModelOption) => void;
   readonly optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
@@ -290,6 +307,8 @@ type ThreadSettingsSessionValue = {
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
+  /** Sending with this model hands the chat to another provider. */
+  readonly needsHandoff: (option: ModelOption) => boolean;
   readonly favoriteKeys: ReadonlySet<string>;
   readonly favoritesLoaded: boolean;
   readonly toggleFavorite: (option: ModelOption) => void;
@@ -383,6 +402,12 @@ function ThreadSettingsSessionProvider(
     [pendingModel, props.optionDescriptors],
   );
 
+  const handoffFromKey = props.handoffFromKey ?? null;
+  const needsHandoff = useCallback(
+    (option: ModelOption) => modelNeedsHandoff(option, handoffFromKey),
+    [handoffFromKey],
+  );
+
   const hasLegacyModels = useMemo(
     () => props.providerGroups.some((group) => group.models.some((model) => model.isLegacy)),
     [props.providerGroups],
@@ -449,6 +474,7 @@ function ThreadSettingsSessionProvider(
       environmentId: props.environmentId,
       providerInstanceId: props.providerInstanceId,
       providerGroups: props.providerGroups,
+      needsHandoff,
       runtimeMode: props.runtimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
       displayedDescriptors,
@@ -491,6 +517,7 @@ function ThreadSettingsSessionProvider(
       props.runtimeMode,
       searchQuery,
       showLegacyToggle,
+      needsHandoff,
       toggleProvider,
       toggleFavorite,
     ],
@@ -518,6 +545,7 @@ type ThreadSettingsProviderCatalog = {
   readonly collapsible: boolean;
   readonly collapsed: boolean;
   readonly modelCount: number;
+  readonly handoff: boolean;
   readonly models: ReadonlyArray<ModelOption>;
 };
 
@@ -584,6 +612,7 @@ function ThreadSettingsProviderListHeader(props: {
       driver={props.provider.driver}
       label={props.provider.label}
       modelCount={props.provider.modelCount}
+      handoff={props.provider.handoff}
       onToggle={onToggle}
     />
   );
@@ -647,6 +676,8 @@ function useThreadSettingsCatalogItems(
           collapsible,
           collapsed,
           modelCount: visibleModels.length,
+          // One instance's models share a continuation group, so one row decides.
+          handoff: group.models[0] !== undefined && session.needsHandoff(group.models[0]),
           models: collapsed ? [] : visibleModels,
         };
         return [
@@ -673,6 +704,7 @@ function useThreadSettingsCatalogItems(
       session.providerGroups,
       session.searchQuery,
       session.showLegacy,
+      session.needsHandoff,
     ],
   );
 }
@@ -690,6 +722,14 @@ function ThreadSettingsOptionsItem(props: {
 
   return (
     <View style={{ paddingBottom: insets.bottom + bottomToolbarInset + 12 }}>
+      {session.pendingModel !== null && session.needsHandoff(session.pendingModel) ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          className="px-5 pb-1 pt-3 text-xs leading-normal text-foreground-muted"
+        >
+          {handoffNote(session.pendingModel.providerLabel)}
+        </Text>
+      ) : null}
       <Text className="px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted">Options</Text>
       <Animated.View
         className="mx-4 overflow-hidden rounded-2xl bg-card"

@@ -2,14 +2,22 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import { memo } from "react";
+import { resolveAgentControlAvailability } from "@t3tools/client-runtime/state/child-agents";
+import { memo, useCallback, useMemo } from "react";
 import { Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
+import { ControlPillMenu } from "../../components/ControlPill";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { RowPressable } from "../../components/RowPressable";
 import { cn } from "../../lib/cn";
+import {
+  type AgentMenuEvent,
+  buildChildAgentMenuActions,
+  isAgentMenuEvent,
+  pausedAgentLabel,
+} from "../agents/agentMenus";
 import type { HomeAgentStatus } from "./homeFolderList";
 
 /** Folder rows for the project-grouped Home list (see homeFolderList.ts). */
@@ -100,6 +108,7 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
   readonly leadKey: string;
   readonly agentCount: number;
   readonly workingCount: number;
+  readonly pausedCount: number;
   readonly expanded: boolean;
   readonly muted: boolean;
   readonly onToggle: (leadKey: string) => void;
@@ -109,9 +118,13 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={
-        props.workingCount > 0 ? `${label}, ${props.workingCount} working` : label
-      }
+      accessibilityLabel={[
+        label,
+        props.workingCount > 0 ? `${props.workingCount} working` : null,
+        props.pausedCount > 0 ? `${props.pausedCount} paused` : null,
+      ]
+        .filter((part) => part !== null)
+        .join(", ")}
       accessibilityHint={`${props.expanded ? "Hides" : "Shows"} the agents this thread started.`}
       accessibilityState={{ expanded: props.expanded }}
       className={cn(
@@ -126,6 +139,9 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
       {props.workingCount > 0 ? (
         <Text className="text-xs text-adaptive-sky-600-400">· {props.workingCount} working</Text>
       ) : null}
+      {props.pausedCount > 0 ? (
+        <Text className="text-xs text-adaptive-amber-700-400">· {props.pausedCount} paused</Text>
+      ) : null}
     </Pressable>
   );
 });
@@ -133,6 +149,7 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
 const STATUS_DOT_CLASS = {
   "needs-you": "bg-adaptive-amber-700-400",
   working: "bg-adaptive-sky-600-400",
+  paused: "bg-adaptive-amber-700-400",
   failed: "bg-adaptive-rose-600-400",
   stopped: "bg-foreground-muted",
   idle: "bg-adaptive-emerald-600-400",
@@ -141,6 +158,7 @@ const STATUS_DOT_CLASS = {
 const STATUS_LABEL = {
   "needs-you": "needs you",
   working: "working",
+  paused: "paused",
   failed: "failed",
   stopped: "stopped",
   idle: "idle",
@@ -149,19 +167,44 @@ const STATUS_LABEL = {
 /** Indent per nesting level below the lead, in dp. */
 const CHILD_INDENT = 14;
 
+/** A child agent: tap opens it, long-press offers Stop, Resume and Discard. */
 export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
   readonly thread: EnvironmentThreadShell;
   readonly depth: number;
   readonly status: HomeAgentStatus;
+  readonly running: boolean;
+  readonly queued: number;
   readonly modelLabel: string | null;
   readonly muted: boolean;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  readonly onAgentMenuEvent: (thread: EnvironmentThreadShell, event: AgentMenuEvent) => void;
 }) {
-  const { thread, onSelectThread } = props;
-  return (
+  const { thread, onSelectThread, onAgentMenuEvent } = props;
+  const paused = props.status === "paused";
+  const menuActions = useMemo(
+    () =>
+      buildChildAgentMenuActions(
+        resolveAgentControlAvailability({
+          running: props.running,
+          control: { paused, queued: props.queued },
+        }),
+      ),
+    [paused, props.queued, props.running],
+  );
+  const statusText = paused ? pausedAgentLabel(props.queued) : STATUS_LABEL[props.status];
+  const handleMenuAction = useCallback(
+    ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      if (isAgentMenuEvent(nativeEvent.event)) onAgentMenuEvent(thread, nativeEvent.event);
+    },
+    [onAgentMenuEvent, thread],
+  );
+  const row = (
     <RowPressable
       accessibilityRole="button"
-      accessibilityLabel={`${thread.title}, ${STATUS_LABEL[props.status]}${props.modelLabel ? `, ${props.modelLabel}` : ""}`}
+      accessibilityLabel={`${thread.title}, ${statusText}${props.modelLabel ? `, ${props.modelLabel}` : ""}`}
+      accessibilityHint={
+        menuActions.length > 0 ? "Opens the agent. Long-press to stop or resume it." : undefined
+      }
       onPress={() => onSelectThread(thread)}
       className={cn("pr-5", props.muted && "opacity-60")}
     >
@@ -173,6 +216,11 @@ export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
         <Text className="min-w-0 flex-1 text-sm text-foreground" numberOfLines={1}>
           {thread.title}
         </Text>
+        {paused ? (
+          <Text className="text-xs text-adaptive-amber-700-400" numberOfLines={1}>
+            {statusText}
+          </Text>
+        ) : null}
         {props.modelLabel ? (
           <Text className="max-w-[40%] text-xs text-foreground-tertiary" numberOfLines={1}>
             {props.modelLabel}
@@ -180,6 +228,17 @@ export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
         ) : null}
       </View>
     </RowPressable>
+  );
+  if (menuActions.length === 0) return row;
+  return (
+    <ControlPillMenu
+      actions={menuActions}
+      onPressAction={handleMenuAction}
+      shouldOpenOnLongPress
+      title={thread.title}
+    >
+      {row}
+    </ControlPillMenu>
   );
 });
 

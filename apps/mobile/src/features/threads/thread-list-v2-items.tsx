@@ -520,6 +520,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly onSwipeableClose: (methods: SwipeableMethods) => void;
   readonly searchMatch?: EnvironmentThreadSearchMatch;
   readonly searchQuery?: string;
+  /** Items listed first in the long-press menu (ViewCode agent controls). Keep
+      the array stable while unchanged; this row is memoized. */
+  readonly leadingMenuActions?: ReadonlyArray<MenuAction>;
+  /** Receives the events of `leadingMenuActions`. */
+  readonly onLeadingMenuAction?: (thread: EnvironmentThreadShell, event: string) => void;
   readonly simultaneousSwipeGesture?: ComponentProps<
     typeof ThreadSwipeable
   >["simultaneousWithExternalGesture"];
@@ -767,6 +772,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      if (props.leadingMenuActions?.some((action) => action.id === nativeEvent.event)) {
+        props.onLeadingMenuAction?.(thread, nativeEvent.event);
+        return;
+      }
       if (nativeEvent.event === "new-thread-on-branch") onNewThreadOnBranch(thread);
       if (nativeEvent.event === "settle") handleSettle();
       if (nativeEvent.event === "unsettle") handleUnsettle();
@@ -802,6 +811,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     },
     [
       onNewThreadOnBranch,
+      props.leadingMenuActions,
+      props.onLeadingMenuAction,
       thread,
       handleArchive,
       handleDelete,
@@ -1201,6 +1212,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         {(close) => (
           <ControlPillMenu
             actions={[
+              ...(props.leadingMenuActions ?? []),
               ...(thread.branch
                 ? [
                     {
