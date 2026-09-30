@@ -297,6 +297,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   stream as `viewcodeRelay`, like `managedTunnel`; the switch is the `viewcodeRelay.enabled`
   server setting and the host secret lives only in the secret store. The desktop backend is
   spawned with `--use-system-ca` so corporate TLS inspection does not break the socket.
+- Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
+  runs `npx --yes wrangler@4` from PATH: the server may run as Electron-as-node, so it never
+  uses its own executable, and a missing Node is a message, not a crash. `infra/` does not
+  ship, so the server build copies the Worker's TypeScript sources to
+  `dist/viewcode-relay-worker/` and setup stages them with a generated `wrangler.json`
+  whose `alias` maps `@t3tools/shared/viewcodeRelayProtocol` to the flat copy; wrangler
+  bundles at deploy time, so there is no second bundler. Only setup writes
+  `viewcodeRelay.url` (`url: null` clears it): the settings RPC drops `url` from client
+  patches, because the address and the stored host secret must change together.
 - The relay requests identity from the local server; compression is owned by the edge.
   Cloudflare's edge rewrites `content-encoding` to the client's Accept-Encoding without
   transcoding, so a forwarded compressed body is mislabelled (`relayForwarder.ts`).

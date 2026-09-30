@@ -40,19 +40,33 @@ uses ordinary HTTPS to a `workers.dev` address, so it usually works on corporate
 networks that block tunnels. You pair once; the phone keeps the same address and
 reconnects on its own.
 
-Set it up once, from the ViewCode folder on the computer:
+Set it up once from the app: open **Connect phone → Anywhere → Quick connect**
+(or **Set up** next to Quick connect in **Settings → Connections**) and choose
+**Connect with Cloudflare**.
 
-```bash
-node scripts/viewcode-relay.ts deploy
-```
+- **Account.** You need a Cloudflare account; the free plan is enough. If you
+  don't have one, choose **Create one free**, sign up, then come back and choose
+  **Connect with Cloudflare** again. ViewCode never creates accounts or shares
+  one between people.
+- **Sign in.** A Cloudflare page opens (on the desktop app) with a code shown in
+  ViewCode. Check that the codes match and approve. If no page opened, use the
+  link and code shown. Setup then continues on its own.
+- **workers.dev address.** A new Cloudflare account may first need a free
+  `workers.dev` address. ViewCode says so: choose **Open Cloudflare**, pick one
+  under **Workers & Pages**, then come back; setup continues when you return.
+- **Needs Node.js.** Setup runs Cloudflare's tools through Node.js 22 or newer.
+  If it is missing, ViewCode says so and links to nodejs.org.
 
-If you build with `./build.sh`, `./build.sh --relay` does the same before
-building. It signs you in to Cloudflare if needed (a free account is enough),
-deploys the relay, and stores its address and a secret here. Then open **Connect
-phone → Anywhere → Quick connect**, and scan the code with the T3 Code app.
-**Turn off Quick connect** (also in **Settings → Connections**) stops it, and
-`node scripts/viewcode-relay.ts remove` deletes the relay and clears the
-settings.
+When the relay answers, the code for your phone appears; scan it with the T3 Code
+app. On some company networks a brand-new relay address is blocked for a few
+minutes up to an hour. ViewCode then says it is waiting for the network; you can
+close the dialog, and it connects on its own once the address is allowed.
+
+The **⋯** menu on the Quick connect tab turns it off, redeploys the relay (the
+secret is kept unless you choose **Redeploy with a new secret**), or removes it.
+**Remove Quick connect** deletes the relay from your Cloudflare account and
+forgets it on this computer; if Cloudflare can't be reached, you can remove it
+from this computer only.
 
 What can see your traffic: the relay is **not** end-to-end encrypted. The T3
 Code phone app can't add its own encryption, so your Cloudflare Worker sees the

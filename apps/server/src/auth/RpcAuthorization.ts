@@ -1,6 +1,7 @@
 import {
   type DeviceListInput,
   AuthAccessReadScope,
+  AuthAccessWriteScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthRelayReadScope,
@@ -114,6 +115,12 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.usageResumeCancel]: AuthOrchestrationOperateScope,
   [WS_METHODS.usageResumeNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.subscribeAgentControl]: AuthOrchestrationReadScope,
+  // Quick connect setup deploys to the user's Cloudflare account and writes the host
+  // secret: the same scope as managing pairing links in Settings → Connections.
+  [WS_METHODS.viewcodeRelaySetupStart]: AuthAccessWriteScope,
+  [WS_METHODS.viewcodeRelaySetupCancel]: AuthAccessWriteScope,
+  [WS_METHODS.viewcodeRelaySetupContinue]: AuthAccessWriteScope,
+  [WS_METHODS.viewcodeRelayRemove]: AuthAccessWriteScope,
   [WS_METHODS.projectsListEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsReadFile]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsSearchContents]: AuthOrchestrationReadScope,

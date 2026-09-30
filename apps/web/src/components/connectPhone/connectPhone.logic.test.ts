@@ -5,6 +5,7 @@ import {
   CONNECT_PHONE_CODE_TTL_SECONDS,
   describeLanReachability,
   describeQuickConnectStatus,
+  resolveSetupChecklist,
   formatPairingExpiry,
   LAN_BLOCKED_MESSAGE,
   LAN_UNREACHABLE_MESSAGE,
@@ -296,9 +297,14 @@ describe("resolveQuickConnectView", () => {
 
 describe("describeQuickConnectStatus", () => {
   it("gives Settings one honest line per state", () => {
-    expect(describeQuickConnectStatus({ kind: "not-set-up" })).toContain(
-      "node scripts/viewcode-relay.ts deploy",
-    );
+    expect(describeQuickConnectStatus({ kind: "not-set-up" })).toContain("Cloudflare account");
+    // A running setup outranks the connection's own line.
+    expect(
+      describeQuickConnectStatus(
+        { kind: "not-set-up" },
+        { status: "running", step: "deploying", message: "Setting up your relay…" },
+      ),
+    ).toBe("Setting up your relay…");
     expect(describeQuickConnectStatus({ kind: "off" })).toBe("Off.");
     expect(
       describeQuickConnectStatus({ kind: "reconnecting", reason: "The connection dropped." }),
@@ -397,5 +403,19 @@ describe("resolveAnywhereView", () => {
     expect(resolveAnywhereView({ managedTunnelActive: true, tunnel: withoutUrl }).kind).toBe(
       "needs-relink",
     );
+  });
+});
+
+describe("resolveSetupChecklist", () => {
+  it("ticks off the steps before the running one", () => {
+    expect(resolveSetupChecklist("storing-secret").map((row) => row.state)).toEqual([
+      "done",
+      "done",
+      "current",
+      "pending",
+    ]);
+    // Checking for Node is shown as part of signing in.
+    expect(resolveSetupChecklist("checking-tools")[0]!.state).toBe("current");
+    expect(resolveSetupChecklist("verifying").at(-1)!.state).toBe("current");
   });
 });

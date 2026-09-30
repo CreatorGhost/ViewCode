@@ -7,7 +7,7 @@ import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { describeQuickConnectStatus, resolveQuickConnectView } from "./connectPhone.logic";
 import { openConnectPhoneDialog } from "./ConnectPhoneDialog";
-import { useViewCodeRelayState } from "./QuickConnectPhone";
+import { useViewCodeRelaySetupState, useViewCodeRelayState } from "./QuickConnectPhone";
 import { useTailscalePhoneAccess } from "./useTailscalePhoneAccess";
 
 /** Top of Settings → Connections: the one-step way to pair the mobile app. */
@@ -15,6 +15,7 @@ export function ConnectPhoneSettingsSection() {
   const tailscale = useTailscalePhoneAccess();
   const cloudConfigured = hasCloudPublicConfig();
   const quickView = resolveQuickConnectView(useViewCodeRelayState());
+  const quickSetup = useViewCodeRelaySetupState();
   const updateSettings = useUpdatePrimarySettings();
   const quickOn =
     quickView.kind !== "off" && quickView.kind !== "not-set-up" && quickView.kind !== "loading";
@@ -32,23 +33,30 @@ export function ConnectPhoneSettingsSection() {
             : "Scan a code with the T3 Code mobile app. T3 Connect (anywhere) is off: add the values in docs/operations/connect-setup.md and rebuild."
         }
         control={
-          <Button size="sm" onClick={openConnectPhoneDialog}>
+          <Button size="sm" onClick={() => openConnectPhoneDialog()}>
             Connect phone
           </Button>
         }
       />
       <SettingsRow
         title="Quick connect"
-        description={describeQuickConnectStatus(quickView)}
+        description={describeQuickConnectStatus(quickView, quickSetup)}
         control={
-          <Switch
-            checked={quickOn}
-            disabled={quickView.kind === "not-set-up" || quickView.kind === "loading"}
-            onCheckedChange={(checked) =>
-              updateSettings({ viewcodeRelay: { enabled: checked === true } })
-            }
-            aria-label="Quick connect"
-          />
+          // Setup, redeploy and removal live in the Connect phone dialog's Quick connect tab.
+          quickView.kind === "not-set-up" || quickSetup?.status === "running" ? (
+            <Button size="sm" variant="outline" onClick={() => openConnectPhoneDialog("quick")}>
+              {quickSetup?.status === "running" ? "Show" : "Set up"}
+            </Button>
+          ) : (
+            <Switch
+              checked={quickOn}
+              disabled={quickView.kind === "loading"}
+              onCheckedChange={(checked) =>
+                updateSettings({ viewcodeRelay: { enabled: checked === true } })
+              }
+              aria-label="Quick connect"
+            />
+          )
         }
       />
       {tailscale.access?.installed ? (

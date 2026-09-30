@@ -116,3 +116,100 @@ export const ViewCodeRelayState = Schema.Struct({
   httpBaseUrl: Schema.optional(TrimmedNonEmptyString),
 });
 export type ViewCodeRelayState = typeof ViewCodeRelayState.Type;
+
+/**
+ * ViewCode Quick connect setup, run by the server from the app: which part is
+ * running. Separate from `ViewCodeRelayState`, which is the connection itself.
+ */
+export const ViewCodeRelaySetupStep = Schema.Literals([
+  "checking-tools",
+  "signing-in",
+  "deploying",
+  "storing-secret",
+  "verifying",
+  "removing",
+]);
+export type ViewCodeRelaySetupStep = typeof ViewCodeRelaySetupStep.Type;
+
+/**
+ * Why the relay address does not answer yet. `network-refused`: this network
+ * reset the connection or broke TLS (common for a brand-new address behind a
+ * corporate firewall). `credential-rejected`: the relay refused this
+ * computer's secret. `transient`: DNS, timeout or a 5xx; still retrying.
+ */
+export const ViewCodeRelayProblem = Schema.Literals([
+  "network-refused",
+  "credential-rejected",
+  "transient",
+]);
+export type ViewCodeRelayProblem = typeof ViewCodeRelayProblem.Type;
+
+/**
+ * `idle`: nothing running (never started, cancelled, or removed).
+ * `needs-subdomain`: the Cloudflare account has no workers.dev subdomain;
+ * continue after creating one. `succeeded`: deployed and the address answered.
+ * `unreachable`: deployed and saved, but the address did not answer in time;
+ * the connector keeps trying. `remove-failed`: the Worker could not be
+ * deleted; nothing local was changed.
+ */
+export const ViewCodeRelaySetupStatus = Schema.Literals([
+  "idle",
+  "running",
+  "needs-subdomain",
+  "succeeded",
+  "unreachable",
+  "failed",
+  "remove-failed",
+]);
+export type ViewCodeRelaySetupStatus = typeof ViewCodeRelaySetupStatus.Type;
+
+export const ViewCodeRelaySetupState = Schema.Struct({
+  status: ViewCodeRelaySetupStatus,
+  step: Schema.optional(ViewCodeRelaySetupStep),
+  /** While signing in: the device-flow page and code wrangler printed. */
+  signIn: Schema.optional(
+    Schema.Struct({
+      url: Schema.optional(TrimmedNonEmptyString),
+      code: Schema.optional(TrimmedNonEmptyString),
+      /** The page with the code filled in, for an Open button. */
+      openUrl: Schema.optional(TrimmedNonEmptyString),
+      /** wrangler's sign-in lines, verbatim and redacted, for when parsing failed. */
+      lines: Schema.Array(Schema.String),
+    }),
+  ),
+  /** While verifying, or when it ended unreachable: what the last attempt saw. */
+  problem: Schema.optional(ViewCodeRelayProblem),
+  /** One sentence for the person about the current step or the outcome. */
+  message: Schema.optional(TrimmedNonEmptyString),
+  /** Redacted wrangler output, shown under a collapsed "Details". */
+  details: Schema.optional(Schema.String),
+  /** A failure the person fixes outside ViewCode: offer the matching button. */
+  action: Schema.optional(Schema.Literals(["install-node"])),
+});
+export type ViewCodeRelaySetupState = typeof ViewCodeRelaySetupState.Type;
+
+export const ViewCodeRelaySetupMode = Schema.Literals(["new", "reuse", "redeploy"]);
+export type ViewCodeRelaySetupMode = typeof ViewCodeRelaySetupMode.Type;
+
+export const ViewCodeRelaySetupStartInput = Schema.Struct({
+  /** `reuse` verifies and turns on the stored relay; `new` and `redeploy` deploy it. */
+  mode: ViewCodeRelaySetupMode,
+  /** Only with `redeploy`: replace the host secret. Never implied. */
+  rotateSecret: Schema.optional(Schema.Boolean),
+});
+export type ViewCodeRelaySetupStartInput = typeof ViewCodeRelaySetupStartInput.Type;
+
+export const ViewCodeRelayRemoveInput = Schema.Struct({
+  /** Clear this computer's settings without deleting the Worker (after a failed delete). */
+  localOnly: Schema.optional(Schema.Boolean),
+});
+export type ViewCodeRelayRemoveInput = typeof ViewCodeRelayRemoveInput.Type;
+
+export class ViewCodeRelaySetupError extends Schema.TaggedError<ViewCodeRelaySetupError>()(
+  "ViewCodeRelaySetupError",
+  { detail: Schema.String },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}

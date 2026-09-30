@@ -7,7 +7,7 @@ import {
   ClientWebDeployment,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { ManagedTunnelState, ViewCodeRelayState } from "./remoteAccess.ts";
+import { ManagedTunnelState, ViewCodeRelaySetupState, ViewCodeRelayState } from "./remoteAccess.ts";
 
 /**
  * Declares the server's overall authentication posture.
@@ -265,6 +265,11 @@ export const AuthAccessSnapshot = Schema.Struct({
   managedTunnel: Schema.optional(ManagedTunnelState),
   /** ViewCode: the Quick connect relay connection, always present. */
   viewcodeRelay: Schema.optional(ViewCodeRelayState),
+  /**
+   * ViewCode: progress of setting up or removing Quick connect from the app.
+   * Sent only to sessions that may manage access: it can carry a sign-in code.
+   */
+  viewcodeRelaySetup: Schema.optional(ViewCodeRelaySetupState),
 });
 export type AuthAccessSnapshot = typeof AuthAccessSnapshot.Type;
 

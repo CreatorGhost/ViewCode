@@ -13,52 +13,75 @@ sets it up, debugs it or removes it.
 - `packages/shared/src/viewcodeRelayProtocol.ts`: the frame format both ends use.
 - `apps/server/src/relay/`: the connector (`ViewCodeRelayConnector.ts`), the
   forwarder that serves requests against the server's own port or Unix socket
-  (`relayForwarder.ts`), and the status logic (`viewCodeRelayHealth.ts`).
-- `scripts/viewcode-relay.ts`: `deploy`, `check` and `remove`.
+  (`relayForwarder.ts`), the status logic (`viewCodeRelayHealth.ts`), and the
+  in-app setup (`ViewCodeRelaySetup.ts`, `wranglerRunner.ts`, `relayWorkerSource.ts`).
+- `packages/shared/src/viewcodeRelaySetup.ts`: wrangler-output parsing, redaction and
+  probe classification, shared by the app and the script.
+- `scripts/viewcode-relay.ts`: `deploy`, `check` and `remove` from a terminal.
 
 ## Set up
+
+Users set it up in the app (**Connect phone → Anywhere → Quick connect → Connect with
+Cloudflare**); see [Remote access](../user/remote-access.md#quick-connect). The server
+runs the same steps as the script, one operation at a time, and pushes progress on the
+auth access stream as `viewcodeRelaySetup` (only to sessions with `access:write`, the
+scope its RPCs require, because it carries the sign-in code):
+
+1. Finds `npx` on the server's PATH and checks `node --version` (22 or newer;
+   `--use-system-ca` is added to `NODE_OPTIONS` from 22.15, older Node runs with the
+   bundled roots). No Node: "Quick connect setup needs Node.js".
+2. Stages the Worker in a temporary folder: the sources from `infra/` in a checkout, or
+   the copy the server build puts in `apps/server/dist/viewcode-relay-worker/`, which
+   ships in the desktop app and the npm package. A generated `wrangler.json` points the
+   `@t3tools/shared/viewcodeRelayProtocol` import at the local copy (`alias`), so
+   wrangler bundles it at deploy time without `node_modules`.
+3. `wrangler whoami`; if nobody is signed in, `wrangler login --device --browser=false`.
+   The link and code are parsed from its output and shown in the app (the desktop app
+   opens the link); if parsing fails, its lines are shown verbatim.
+4. `wrangler deploy --name <name>` (the name remembered in `viewcode-relay.json`, else
+   `viewcode-relay`). Output mentioning a missing workers.dev subdomain stops at
+   "needs subdomain" with nothing saved; **Continue** (or returning to the window after
+   **Open Cloudflare**) deploys again.
+5. Generates the host secret unless one is stored (rotation only on request) and sets
+   it with `wrangler secret put HOST_SECRET` through stdin. Only then are the secret
+   (`secrets/viewcode-relay-host-secret.bin`, 0600), `viewcode-relay.json` and
+   `viewcodeRelay: { enabled: true, url }` in `settings.json` written.
+6. Verifies with `GET /__viewcode/host` and the secret. Only the Worker's `426` counts as
+   set up. Resets and TLS failures ("network refused"), 401/403 ("credential rejected",
+   three in a row) and DNS/timeouts/5xx ("transient") are retried after 5, 10, 20, 40s
+   and then every minute for about ten minutes. After that it reports "unreachable" and
+   keeps the settings, so the connector keeps retrying.
+
+Wrangler output is redacted (the host secret) before it is kept or shown, and is never
+logged. Cancel interrupts the operation, which kills the wrangler child it spawned.
+
+From a terminal the script does the same with the terminal attached:
 
 ```bash
 node scripts/viewcode-relay.ts deploy      # or: ./build.sh --relay
 ```
 
-1. Signs in with `npx wrangler login --device` if `wrangler whoami` says nobody is:
-   open the link wrangler shows and enter the code, in any browser.
-2. Deploys the Worker (default name `viewcode-relay`; `--name` to change it).
-3. Generates the host secret and sets it as the Worker secret `HOST_SECRET`
-   through stdin. The secret is never printed.
-4. Writes the Worker address to `viewcodeRelay.url` in `settings.json`
-   (`"enabled": true`) and the secret to `secrets/viewcode-relay-host-secret.bin`
-   (mode 0600) in the same data folder `build.sh` resolves for `--managed`. The
-   Worker's name is kept in `viewcode-relay.json` there so `remove` can find it.
-5. Fetches the new address once (10s, OS certificate store trusted). Any HTTP
-   answer means reachable and only then does it say "set up". A reset, TLS error
-   or timeout prints "deployed but this computer can't reach it right now"; the
-   settings are still saved and it exits 0.
-
-If the account has no workers.dev subdomain, wrangler deploys a Worker with no
-address (non-interactively it declines to create one). `deploy` says so: create
-the subdomain in the Cloudflare dashboard (Workers & Pages, workers.dev), then
-run `deploy` again.
-
-`node scripts/viewcode-relay.ts check` runs only the reachability probe against
-the stored address. The probe loads the system store with
-`tls.setDefaultCACertificates`; on a Node without that API it falls back to the
-bundled roots and a TLS-inspecting proxy will fail it.
-
-Running `deploy` again is safe: it redeploys the code and keeps the existing
-secret. `--rotate-secret` makes a new one. `--mode web` targets the dev/web data
-folder instead of the desktop app's.
+It writes the files directly in the data folder `build.sh` resolves for `--managed`,
+fetches the address once, and says "set up" only if it answered. `check` runs only that
+probe. The probe loads the system store with `tls.setDefaultCACertificates`; on a Node
+without that API it falls back to the bundled roots and a TLS-inspecting proxy will fail
+it. Running `deploy` again is safe: it keeps the existing secret; `--rotate-secret`
+makes a new one. `--mode web` targets the dev/web data folder instead of the desktop
+app's.
 
 ## Remove
+
+In the app: the **⋯** menu, **Remove Quick connect**. From a terminal:
 
 ```bash
 node scripts/viewcode-relay.ts remove
 ```
 
-Deletes the Worker, the stored secret and the `viewcodeRelay` settings. If the
-delete fails (not signed in, offline) nothing local is changed, so it can be
-retried; `--local-only` clears only this computer's settings.
+Both delete the Worker (`wrangler delete --name <name> --force`, signing in first if
+needed), then the stored secret, `viewcode-relay.json` and the `viewcodeRelay` settings.
+If the delete fails (not signed in, offline) nothing local is changed, so it can be
+retried; "Remove from this computer only" (`--local-only`) clears only this computer's
+settings and leaves the Worker on the account.
 
 ## Check it
 
@@ -81,7 +104,7 @@ isn't connected right now.` to every request.
 | `off`          | Set up but switched off, or not set up.                                                                   |
 | `connecting`   | First attempt in progress.                                                                                |
 | `reconnecting` | Lost or cannot reach the relay; retrying with jittered backoff from 1s up to 30s. Never stops on a reset. |
-| `auth-failed`  | The relay answered 401. Retrying cannot help; run `deploy` again (or `--rotate-secret`).                  |
+| `auth-failed`  | The relay answered 401. Retrying cannot help; redeploy with a new secret.                                 |
 | `blocked`      | Three attempts in a row ended at a certificate issuer this computer does not trust.                       |
 | `connected`    | The socket is up; the QR is shown.                                                                        |
 
@@ -118,7 +141,7 @@ transcoding, so pages arrived undecodable (blank `GET /`).
 
 ## Not tested from a source checkout
 
-Deploying, the real Cloudflare Durable Object behaviour and behaviour behind a
+Deploying (from the app or the script), the real Cloudflare Durable Object behaviour and behaviour behind a
 particular company's proxy need a real account and network. Verify after the
 first deploy: pair a phone, use it for a few minutes on mobile data, put the
 computer to sleep and wake it, and confirm it reconnects without a new code.

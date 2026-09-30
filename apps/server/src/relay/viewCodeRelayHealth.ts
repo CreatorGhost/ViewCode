@@ -64,7 +64,7 @@ export const RELAY_REASON = {
   untrusted:
     "This network inspects HTTPS with a certificate this computer doesn't trust. Ask IT to trust it, or start ViewCode with system certificates.",
   untrustedRetrying: "This network's security certificate isn't trusted by this computer.",
-  auth: "The relay didn't accept this computer's secret. Run the setup command again.",
+  auth: "The relay didn't accept this computer's secret. Redeploy it with a new secret from Connect phone.",
 } as const;
 
 /**
