@@ -8,6 +8,7 @@ import {
   ProviderRuntimeEvent,
   ProviderSession,
   ProviderDriverKind,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderInstanceId,
   ProviderSetupError,
 } from "@t3tools/contracts";
@@ -3969,6 +3970,45 @@ describe("ProviderCommandReactor", () => {
       await waitFor(async () => (await handoffActivities(harness)).length === 1);
       return (await handoffActivities(harness))[0]?.payload as { mode?: string };
     };
+
+    describe("input limit", () => {
+      const handOffWithLongHistory = async (messageText: string, historyRepeats = 6_200) => {
+        const harness = await createHarness();
+        // Enough history that even the default window would overflow the input limit.
+        await startTurn(harness, "first", "Background detail. ".repeat(historyRepeats));
+        await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+        await startTurn(harness, "second", messageText, claude);
+        await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+        return sentInput(harness, 1);
+      };
+
+      it("keeps prelude plus message within the provider limit and leaves the message intact", async () => {
+        const message = "Please continue with the refactor.";
+        const input = await handOffWithLongHistory(message);
+        expect(input).toContain("<handoff>");
+        expect(input.length).toBeLessThanOrEqual(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+        expect(input.endsWith(message)).toBe(true);
+      });
+
+      it("shrinks the prelude for a long user message", async () => {
+        // ~57k chars of history fits whole beside a short message, not beside a long one.
+        const short = await handOffWithLongHistory("short", 3_000);
+        const message = `${"Long request. ".repeat(5_000)}End.`;
+        const input = await handOffWithLongHistory(message, 3_000);
+        expect(input.length).toBeLessThanOrEqual(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+        expect(input.endsWith(message)).toBe(true);
+        expect(input.length - message.length).toBeLessThan(short.length - "short".length);
+      });
+
+      it("sends a minimal prelude when the message leaves almost no room", async () => {
+        const message = "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS - 1_000);
+        const input = await handOffWithLongHistory(message);
+        expect(input.length).toBeLessThanOrEqual(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+        expect(input.endsWith(message)).toBe(true);
+        expect(input).toContain("<handoff>");
+        expect(input).not.toContain("## Conversation so far");
+      });
+    });
 
     it("sizes the handoff by a window the incoming model itself reported", async () => {
       expect(

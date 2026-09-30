@@ -18,6 +18,11 @@ import type { OrchestrationThread } from "@t3tools/contracts";
  * that the fixed header alone exceeds it. When everything does not fit, the
  * user's own messages win over the model's replies, and the prelude says what
  * was left out and how to recover it.
+ *
+ * Hard cap: `maxChars` (the provider's per-turn input limit minus the user's
+ * message) bounds the budget regardless of the window. A prelude that still
+ * would not fit, for instance because the room is nearly gone, degrades to
+ * `minimalPrelude`, which only points at the transcript.
  */
 
 export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
@@ -34,6 +39,8 @@ export interface HandoffDocument {
   readonly transcript: string;
   /** Builds the text prepended to the next provider turn. */
   readonly prelude: (transcriptPath: string | null) => string;
+  /** Header plus a pointer to the transcript; the smallest useful prelude. */
+  readonly minimalPrelude: (transcriptPath: string | null) => string;
 }
 
 interface Exchange {
@@ -340,6 +347,8 @@ export function buildHandoff(input: {
   readonly recentExchanges: number;
   /** Context window of the incoming model, in tokens. */
   readonly targetContextTokens?: number;
+  /** Hard cap on the rendered prelude, in characters; applied on top of the token budget. */
+  readonly maxChars?: number;
 }): HandoffDocument & { readonly mode: HandoffMode; readonly budgetTokens: number } {
   const { thread } = input;
   const exchanges = exchangesOf(thread);
@@ -351,7 +360,7 @@ export function buildHandoff(input: {
   ]);
   const windowTokens = input.targetContextTokens ?? DEFAULT_HANDOFF_CONTEXT_TOKENS;
   const budgetTokens = Math.floor(windowTokens * HANDOFF_CONTEXT_SHARE);
-  const budgetChars = budgetTokens * 4;
+  const budgetChars = Math.max(0, Math.min(budgetTokens * 4, input.maxChars ?? Infinity));
   const userTotal = exchanges.filter((exchange) => exchange.user.trim()).length;
   const conversationTokens = exchanges.reduce(
     (total, exchange) =>
@@ -397,6 +406,18 @@ export function buildHandoff(input: {
     ];
     return lines.filter((line, index, all) => line !== "" || all[index - 1] !== "").join("\n");
   };
+  const minimalPrelude = (transcriptPath: string | null) =>
+    [
+      "<handoff>",
+      `You are continuing an existing conversation previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over. The history is too long to include here.`,
+      transcriptPath
+        ? `The full transcript is at ${transcriptPath}; search it (or use ${SEARCH_HINT}) for earlier work before asking the user about it.`
+        : `Use ${SEARCH_HINT} to find earlier work before asking the user about it.`,
+      "</handoff>",
+      "",
+      "The user's new message follows.",
+      "",
+    ].join("\n");
   // Selection is sized against the longest path the header reserves room for.
   const sizingPath = "x".repeat(TRANSCRIPT_PATH_ALLOWANCE);
 
@@ -593,7 +614,13 @@ export function buildHandoff(input: {
     budgetTokens,
     summary: summaryLines.join("\n"),
     transcript,
-    prelude: (transcriptPath) => render(mode, selection, transcriptPath),
+    prelude: (transcriptPath) => {
+      const text = render(mode, selection, transcriptPath);
+      return input.maxChars === undefined || text.length <= input.maxChars
+        ? text
+        : minimalPrelude(transcriptPath);
+    },
+    minimalPrelude,
   };
 }
 
