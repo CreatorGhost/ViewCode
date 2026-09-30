@@ -184,7 +184,7 @@ describe("flattenSidebarThreadNode", () => {
 });
 
 describe("collectVisibleSidebarThreadKeys", () => {
-  it("lists pinned rows first, then expanded folders, skipping collapsed ones", () => {
+  it("lists pinned rows first, then the rows each folder renders", () => {
     const tree = build([
       { id: "pin", project: "b", pinned: true, order: 1 },
       { id: "a1", project: "a", order: 2 },
@@ -194,14 +194,14 @@ describe("collectVisibleSidebarThreadKeys", () => {
     expect(
       collectVisibleSidebarThreadKeys(
         tree,
-        (folderKey) => folderKey !== "b",
+        (folder) => (folder.key !== "b" ? folder.nodes : []),
         () => true,
       ),
     ).toEqual(["pin", "a1", "a1-child"]);
     expect(
       collectVisibleSidebarThreadKeys(
         tree,
-        () => true,
+        (folder) => folder.nodes,
         (threadKey) => threadKey !== "a1",
       ),
     ).toEqual(["pin", "a1", "b1"]);

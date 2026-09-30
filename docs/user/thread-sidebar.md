@@ -101,6 +101,14 @@ prevent automatic settlement. An open pull request does not prevent inactivity
 settlement, but an old closed or merged pull request does not settle work you
 resumed after it closed.
 
+In the project-folder sidebar, settled threads collapse into one **Settled · N** row at the
+bottom of their project. Click it to show them; they appear dimmed with the time since they
+settled, and the sidebar remembers whether each project's row is open. A settled thread moves
+back up on its own when you send it a message or it starts working again. A thread and its child
+agents stay together: the lead thread decides where the group sits, so Settle and Un-settle are
+offered on the lead's menu. Right-click a thread to choose **Settle thread** or **Un-settle
+thread**. Opening a settled thread, for example from search, opens its project's Settled row.
+
 To keep one thread out of the settled shelf no matter how long it sits idle, open its menu,
 choose **Auto-settle behavior**, and pick **Disabled**. The current option is checked. Pick
 **Enabled** to return to the usual rules. Manual settle, snooze, and archive still work while it
@@ -126,6 +134,12 @@ same link to return to the branch PR, if one exists.
 The linked pull request participates in automatic settlement.
 
 ## Find and reference work
+
+To search one project, hover its folder in the sidebar and choose the search icon. Typing
+narrows that project's threads, including settled threads and child agents, by title, pull
+request, or message text, and opens the Settled row when a match is inside it. Press `Escape`
+or the close button to clear the search. The search field at the top of the sidebar still
+searches every project, settled threads included.
 
 On web and desktop, open the command palette with `Cmd/Ctrl+K` to search threads
 across connected environments. Message search starts after two characters and

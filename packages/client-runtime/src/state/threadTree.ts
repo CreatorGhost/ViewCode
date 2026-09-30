@@ -191,10 +191,14 @@ export function flattenSidebarThreadNode<T>(
   return rows;
 }
 
-/** Keys of every rendered thread row, top to bottom: keyboard order. */
+/**
+ * Keys of every rendered thread row, top to bottom: keyboard order.
+ * `visibleFolderNodes` returns the top-level nodes a folder currently renders
+ * (none while collapsed; a closed Settled group or a folder search hides some).
+ */
 export function collectVisibleSidebarThreadKeys<P, T>(
   tree: SidebarThreadTree<P, T>,
-  isFolderExpanded: (folderKey: string) => boolean,
+  visibleFolderNodes: (folder: SidebarProjectFolder<P, T>) => readonly SidebarThreadTreeNode<T>[],
   isThreadExpanded: (threadKey: string) => boolean,
 ): string[] {
   const keys: string[] = [];
@@ -204,9 +208,7 @@ export function collectVisibleSidebarThreadKeys<P, T>(
     }
   };
   push(tree.pinned);
-  for (const folder of tree.folders) {
-    if (isFolderExpanded(folder.key)) push(folder.nodes);
-  }
+  for (const folder of tree.folders) push(visibleFolderNodes(folder));
   return keys;
 }
 
