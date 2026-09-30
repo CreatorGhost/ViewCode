@@ -12,7 +12,7 @@ import {
   ChatAttachment,
   ModelSelection,
   getProviderAttachmentLimitError,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  PROVIDER_HANDOFF_MAX_INPUT_CHARS,
   ProviderApprovalDecision,
   ProviderApprovalPolicy,
   ProviderInteractionMode,
@@ -21,6 +21,7 @@ import {
   ProviderUserInputAnswers,
   UserInputAttachments,
   RuntimeMode,
+  providerSendTurnMaxInputChars,
 } from "./orchestration.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
 
@@ -73,8 +74,11 @@ export const ProviderSendTurnInput = Schema.Struct({
   /** Internal recovery signal. Allows an empty turn only for adapters that
       explicitly support promptless continuation. */
   continuation: Schema.optional(Schema.Boolean),
+  /** Internal: the input carries a handoff prelude, so it is held to
+      PROVIDER_HANDOFF_MAX_INPUT_CHARS instead of the user-input limit. */
+  handoff: Schema.optional(Schema.Boolean),
   input: Schema.optional(
-    TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_HANDOFF_MAX_INPUT_CHARS)),
   ),
   attachments: Schema.optional(
     Schema.Array(ChatAttachment).check(
@@ -83,7 +87,12 @@ export const ProviderSendTurnInput = Schema.Struct({
   ),
   modelSelection: Schema.optional(ModelSelection),
   interactionMode: Schema.optional(ProviderInteractionMode),
-});
+}).check(
+  Schema.makeFilter((turn) => {
+    const limit = providerSendTurnMaxInputChars(turn);
+    return (turn.input?.length ?? 0) <= limit || `Input exceeds the ${limit} character limit`;
+  }),
+);
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;
 
 export const ProviderTurnStartResult = Schema.Struct({

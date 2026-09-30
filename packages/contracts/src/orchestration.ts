@@ -163,6 +163,18 @@ export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unkn
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
+/**
+ * Limit for a turn ViewCode builds itself around the user's message: a handoff
+ * prelude (up to ~200k characters) plus a typical message. Server-only; what a
+ * user can type stays at PROVIDER_SEND_TURN_MAX_INPUT_CHARS.
+ */
+export const PROVIDER_HANDOFF_MAX_INPUT_CHARS = 240_000;
+/** The input limit for one provider turn. */
+export function providerSendTurnMaxInputChars(input: { readonly handoff?: boolean | undefined }) {
+  return input.handoff === true
+    ? PROVIDER_HANDOFF_MAX_INPUT_CHARS
+    : PROVIDER_SEND_TURN_MAX_INPUT_CHARS;
+}
 export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 100;
 export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES = 80 * 1024 * 1024;

@@ -26,9 +26,9 @@ overall top-10 list by severity, then Ideas, then Questions for the user.
 **Intended behaviour.** The projected transcript is the truth. Same
 continuation key → the native session continues. Different key → a fresh
 session whose first turn gets a `<handoff>` prelude. If the conversation fits
-in 25 % of the **incoming** model's context window
-(`HANDOFF_CONTEXT_SHARE`, window read from `context-window.updated`
-activities, 128k default) it's carried verbatim. Otherwise **compact mode**:
+the fixed 50k-token budget (`HANDOFF_BUDGET_TOKENS`, sent under the 240k
+`PROVIDER_HANDOFF_MAX_INPUT_CHARS` handoff limit) it's carried verbatim.
+Otherwise **compact mode**:
 the user's own messages (never model-summarized, newest first), the last 3
 replies verbatim, older final answers, and deterministic key facts (links,
 PR/issue numbers, branches, commits, paths from messages and tool results); the
@@ -37,8 +37,8 @@ full transcript is written to `<stateDir>/transcripts/<thread>/` for providers
 without MCP.
 
 **Code.** `apps/server/src/orchestration/Handoff.ts`,
-`orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`,
-`observedContextTokens`), `agents/searchHistory.ts`. Tests:
+`orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`),
+`agents/searchHistory.ts`. Tests:
 `Handoff.test.ts`, `ProviderCommandReactor.test.ts`.
 
 **Verified.** Between two Claude accounts, live. **Not verified:**

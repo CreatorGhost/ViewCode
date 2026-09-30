@@ -7,7 +7,10 @@ import {
   type ScopedThreadRef,
   type ServerProviderModel,
 } from "@t3tools/contracts";
-import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
+import {
+  getProviderOptionCurrentLabel,
+  getProviderOptionCurrentValue,
+} from "@t3tools/shared/model";
 import {
   type CSSProperties,
   memo,
@@ -172,6 +175,11 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
   const effortStopLabel = effortIndex >= 0 ? (effortStops[effortIndex]?.label ?? null) : null;
   const effortLabel = ultracodeOn ? "Ultracode" : effortStopLabel;
   const fastMode = resolveFastModeControl(traits.provider, descriptors);
+  // A model's context-window variant (Claude's 200k / 1M) is part of what runs,
+  // so the trigger names it beside the effort, as upstream's "High · 1M" does.
+  const contextWindowLabel = hasTraitsTarget
+    ? (getProviderOptionCurrentLabel(controller.contextWindowDescriptor) ?? null)
+    : null;
   const brand = effortBrandForDriver(activeEntry?.driverKind ?? traits.provider);
   const trackKind = effortTrackKind({
     peak: effortTierForIndex(effortIndex, effortStops) === "peak",
@@ -220,6 +228,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
   const accessibleLabel = [
     triggerTitle,
     effortLabel,
+    contextWindowLabel ? `${contextWindowLabel} context window` : null,
     fastMode?.enabled ? "Fast mode on" : null,
     selectedModel?.isUnavailable ? "Unavailable" : null,
   ]
@@ -292,6 +301,11 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                 {effortLabel ? (
                   <span className="shrink-0" style={{ color: effortColor }}>
                     {effortLabel}
+                  </span>
+                ) : null}
+                {contextWindowLabel ? (
+                  <span className="shrink-0 text-muted-foreground">
+                    {effortLabel ? `· ${contextWindowLabel}` : contextWindowLabel}
                   </span>
                 ) : null}
               </>

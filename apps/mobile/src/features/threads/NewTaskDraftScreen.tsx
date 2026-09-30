@@ -27,6 +27,7 @@ import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useFontFamily } from "../../lib/useFontFamily";
+import { modelChipLabel } from "../../lib/providerOptions";
 import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
@@ -1698,7 +1699,15 @@ export function NewTaskDraftScreen(props: {
                             size={size}
                           />
                         )}
-                        label={flow.selectedModelOption?.label ?? "Choose model"}
+                        label={
+                          flow.selectedModelOption
+                            ? modelChipLabel({
+                                label: flow.selectedModelOption.label,
+                                capabilities: flow.selectedModelOption.capabilities,
+                                selections: flow.selectedModel?.options,
+                              })
+                            : "Choose model"
+                        }
                         maxWidth="100%"
                         onPress={settingsSheetPresentation.open}
                       />

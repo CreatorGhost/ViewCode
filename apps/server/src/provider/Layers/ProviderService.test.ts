@@ -21,6 +21,7 @@ import {
   MessageId,
   OrchestrationThreadShell,
   ProjectId,
+  PROVIDER_HANDOFF_MAX_INPUT_CHARS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -4782,6 +4783,42 @@ validation.layer("ProviderServiceLive validation", (it) => {
       assert.instanceOf(failure, ProviderValidationError);
       assert.include(failure.issue, String(PROVIDER_SEND_TURN_MAX_INPUT_CHARS));
       assert.equal(validation.codex.sendTurn.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("holds a normal turn to the user input limit and a handoff turn to its own", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-handoff-input-limit");
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        cwd: fixtureCwd("project"),
+        runtimeMode: "full-access",
+      });
+      validation.codex.sendTurn.mockClear();
+
+      const userTurn = yield* provider
+        .sendTurn({ threadId, input: "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS + 1) })
+        .pipe(Effect.flip);
+      assert.instanceOf(userTurn, ProviderValidationError);
+      assert.include(userTurn.issue, String(PROVIDER_SEND_TURN_MAX_INPUT_CHARS));
+
+      const oversizedHandoff = yield* provider
+        .sendTurn({
+          threadId,
+          handoff: true,
+          input: "x".repeat(PROVIDER_HANDOFF_MAX_INPUT_CHARS + 1),
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(oversizedHandoff, ProviderValidationError);
+      assert.equal(validation.codex.sendTurn.mock.calls.length, 0);
+
+      const handoffInput = "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS * 2 - 1_000);
+      yield* provider.sendTurn({ threadId, handoff: true, input: handoffInput });
+      const sent = validation.codex.sendTurn.mock.calls[0]?.[0] as ProviderSendTurnInput;
+      assert.equal(sent.input, handoffInput);
     }),
   );
 

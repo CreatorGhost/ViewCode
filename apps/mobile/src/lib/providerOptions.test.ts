@@ -2,7 +2,11 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { ModelCapabilities } from "@t3tools/contracts";
 
-import { applyProviderOptionSelection, resolveProviderOptionDescriptors } from "./providerOptions";
+import {
+  applyProviderOptionSelection,
+  modelChipLabel,
+  resolveProviderOptionDescriptors,
+} from "./providerOptions";
 
 const CODEX_CAPABILITIES: ModelCapabilities = {
   optionDescriptors: [
@@ -60,5 +64,44 @@ describe("mobile provider options", () => {
     expect(applyProviderOptionSelection(descriptors, { id: "fastMode", value: true })).toEqual([
       { id: "fastMode", value: true },
     ]);
+  });
+});
+
+describe("modelChipLabel", () => {
+  const CLAUDE_CAPABILITIES: ModelCapabilities = {
+    optionDescriptors: [
+      {
+        id: "contextWindow",
+        label: "Context Window",
+        type: "select",
+        options: [
+          { id: "200k", label: "200k" },
+          { id: "1m", label: "1M", isDefault: true },
+        ],
+      },
+    ],
+  };
+
+  it("names the context window variant, the default until one is picked", () => {
+    expect(
+      modelChipLabel({
+        label: "Claude Opus 5.5",
+        capabilities: CLAUDE_CAPABILITIES,
+        selections: [],
+      }),
+    ).toBe("Claude Opus 5.5 · 1M");
+    expect(
+      modelChipLabel({
+        label: "Claude Opus 5.5",
+        capabilities: CLAUDE_CAPABILITIES,
+        selections: [{ id: "contextWindow", value: "200k" }],
+      }),
+    ).toBe("Claude Opus 5.5 · 200k");
+  });
+
+  it("is the bare model name for a model without window variants", () => {
+    expect(
+      modelChipLabel({ label: "GPT-5", capabilities: CODEX_CAPABILITIES, selections: [] }),
+    ).toBe("GPT-5");
   });
 });
