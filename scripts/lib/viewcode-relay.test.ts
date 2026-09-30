@@ -6,19 +6,23 @@ import * as NodePath from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  classifyProbeError,
   generateHostSecret,
   isValidWorkerName,
   parseLenientJson,
   parseWorkerUrl,
+  probeRelayOrigin,
   readRelayState,
   readSecretFile,
   readSettingsFile,
   removeRelayState,
   removeSecretFile,
   secretFilePath,
+  unreachableMessage,
   withoutRelaySettings,
   withRelaySettings,
   wranglerNeedsLogin,
+  wranglerNeedsSubdomain,
   writeRelayState,
   writeSecretFile,
   writeSettingsFile,
@@ -137,5 +141,63 @@ describe("wranglerNeedsLogin", () => {
         0,
       ),
     ).toBe(false);
+  });
+});
+
+describe("probeRelayOrigin", () => {
+  const resetError = () =>
+    new TypeError("fetch failed", {
+      cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    });
+
+  it("counts any HTTP answer as reachable, including the Worker's 503", async () => {
+    const fetchImpl = (async () => new Response("not connected", { status: 503 })) as typeof fetch;
+    expect(await probeRelayOrigin("https://relay.example.workers.dev", fetchImpl)).toEqual({
+      reachable: true,
+      status: 503,
+    });
+  });
+
+  it("reports a reset handshake, as a TLS-inspecting firewall causes it", async () => {
+    const fetchImpl = (async () => {
+      throw resetError();
+    }) as typeof fetch;
+    const result = await probeRelayOrigin("https://relay.example.workers.dev", fetchImpl);
+    expect(result).toEqual({ reachable: false, cause: "reset" });
+    const message = unreachableMessage("https://relay.example.workers.dev", "reset");
+    expect(message).toContain("can't reach https://relay.example.workers.dev");
+    expect(message).toContain("the connection was reset");
+    expect(message).toContain("ask IT");
+    expect(message).not.toContain("is set up");
+  });
+
+  it("times out instead of hanging", async () => {
+    const fetchImpl = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      })) as unknown as typeof fetch;
+    expect(await probeRelayOrigin("https://relay.example.workers.dev", fetchImpl, 20)).toEqual({
+      reachable: false,
+      cause: "timeout",
+    });
+  });
+
+  it("tells the other failures apart", () => {
+    const chain = (code: string) => new TypeError("fetch failed", { cause: { code } });
+    expect(classifyProbeError(chain("UND_ERR_SOCKET"))).toBe("reset");
+    expect(classifyProbeError(chain("SELF_SIGNED_CERT_IN_CHAIN"))).toBe("tls");
+    expect(classifyProbeError(chain("ENOTFOUND"))).toBe("dns");
+    expect(classifyProbeError(new Error("boom"))).toBe("other");
+  });
+});
+
+describe("wranglerNeedsSubdomain", () => {
+  it("recognises the declined registration prompt", () => {
+    expect(
+      wranglerNeedsSubdomain(
+        "? Would you like to register a workers.dev subdomain now? \u2026 no\nYou can either deploy your worker to one or more routes",
+      ),
+    ).toBe(true);
+    expect(wranglerNeedsSubdomain("Uploaded viewcode-relay")).toBe(false);
   });
 });

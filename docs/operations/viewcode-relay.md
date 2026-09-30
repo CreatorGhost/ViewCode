@@ -22,14 +22,32 @@ sets it up, debugs it or removes it.
 node scripts/viewcode-relay.ts deploy      # or: ./build.sh --relay
 ```
 
-1. Signs in with `npx wrangler login` if `wrangler whoami` says nobody is.
-2. Deploys the Worker (default name `viewcode-relay`; `--name` to change it).
+1. Signs in with `npx wrangler login --device` if `wrangler whoami` says nobody
+   is. The device flow (RFC 8628) has no localhost callback: open the link
+   wrangler shows and enter the code, in any browser. (The callback flow fails
+   with "No CSRF value available in the session cookie" when it is finished in a
+   browser other than the default one.)
+2. Deploys the Worker (default name `viewcode-relay`; `--name` to change it). A
+   Cloudflare account with no workers.dev subdomain makes wrangler ask to
+   register one, answer no when it has no terminal, and fail; the script
+   recognises that and tells you to open dash.cloudflare.com, Workers & Pages,
+   once to create it.
 3. Generates the host secret and sets it as the Worker secret `HOST_SECRET`
    through stdin. The secret is never printed.
 4. Writes the Worker address to `viewcodeRelay.url` in `settings.json`
    (`"enabled": true`) and the secret to `secrets/viewcode-relay-host-secret.bin`
    (mode 0600) in the same data folder `build.sh` resolves for `--managed`. The
    Worker's name is kept in `viewcode-relay.json` there so `remove` can find it.
+
+5. Ends with a reachability probe: one HTTPS request to the new address with the
+   operating system's certificate store, 10s timeout. Any HTTP answer passes (the
+   Worker answers `503 ViewCode on your computer isn't connected right now.`
+   until the app connects). A reset, TLS error or timeout prints that this
+   computer can't reach the address and that the network blocked it; the config is
+   still saved, but the script does not say Quick connect "is set up".
+
+`node scripts/viewcode-relay.ts check` runs just that probe against the stored
+address and exits 1 when it fails.
 
 Running `deploy` again is safe: it redeploys the code and keeps the existing
 secret. `--rotate-secret` makes a new one. `--mode web` targets the dev/web data
@@ -59,19 +77,37 @@ isn't connected right now.` to every request.
 
 ## Status meanings
 
-| Status         | Meaning                                                                                  |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| `off`          | Set up but switched off, or not set up.                                                  |
-| `connecting`   | First attempt in progress.                                                               |
-| `reconnecting` | Lost or cannot reach the relay; retrying with jittered backoff from 1s up to 30s.        |
-| `auth-failed`  | The relay answered 401. Retrying cannot help; run `deploy` again (or `--rotate-secret`). |
-| `blocked`      | Three attempts in a row ended at a certificate issuer this computer does not trust.      |
-| `connected`    | The socket is up; the QR is shown.                                                       |
+| Status         | Meaning                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `off`          | Set up but switched off, or not set up.                                                                                               |
+| `connecting`   | First attempt in progress.                                                                                                            |
+| `reconnecting` | Lost or cannot reach the relay; retrying with jittered backoff from 1s up to 30s.                                                     |
+| `auth-failed`  | The relay answered 401. Retrying cannot help; run `deploy` again (or `--rotate-secret`).                                              |
+| `blocked`      | Three attempts in a row were stopped by the network: an untrusted certificate issuer, or a connection reset during the TLS handshake. |
+| `connected`    | The socket is up; the QR is shown.                                                                                                    |
 
 `blocked` keeps retrying every 30s at most; it clears the moment the network lets a
-connection through. Fix it by having the corporate root certificate in the operating
-system's trust store. The desktop app's backend is started with `--use-system-ca`
-(`DesktopBackendConfiguration.ts`); for `npx t3`, set `NODE_OPTIONS=--use-system-ca`.
+connection through. DNS failures, timeouts and 5xx answers stay `reconnecting`.
+The reason names the cause: "an untrusted certificate intercepted it" or "the
+network reset the connection to the relay".
+
+- **Untrusted certificate.** The corporate root certificate needs to be in the
+  operating system's trust store. The desktop app's backend is started with
+  `--use-system-ca` (`DesktopBackendConfiguration.ts`); for `npx t3`, set
+  `NODE_OPTIONS=--use-system-ca`.
+- **Reset at the Client Hello.** Some firewalls reset the TLS handshake for every
+  `*.workers.dev` subdomain by SNI while the apex `workers.dev` is allowed. The
+  symptom is `curl: (35) Recv failure: Connection reset by peer` and Node
+  `ECONNRESET`, even though the system certificate store is fine. Confirm with
+  `curl -sv https://<relay>/`: the reset comes right after "Client hello", before
+  any certificate. The fix is an allowance from whoever runs the network (ask IT
+  to allow the relay's address); the app does not work around it. Same Wi-Fi
+  still works, and Quick connect works on networks that don't block it.
+
+T3 Connect is a different path: `relay.t3.codes` only brokers sign-in and
+environment links, and phone traffic runs through a Cloudflare tunnel
+(`cloudflared` to Cloudflare's argotunnel), which this kind of network blocks
+too. See [T3 Connect](../internals/t3-connect.md).
 
 ## Limits
 

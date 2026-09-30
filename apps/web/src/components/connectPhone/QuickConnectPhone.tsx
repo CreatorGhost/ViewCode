@@ -14,6 +14,7 @@ import { Spinner } from "../ui/spinner";
 import {
   QUICK_CONNECT_SETUP_COMMAND,
   QUICK_CONNECT_TRAFFIC_NOTE,
+  describeQuickConnectBlocked,
   resolveQuickConnectView,
 } from "./connectPhone.logic";
 
@@ -45,6 +46,11 @@ export function QuickConnectPhone({
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "setup command" });
   const view = resolveQuickConnectView(relay);
   const setEnabled = (enabled: boolean) => updateSettings({ viewcodeRelay: { enabled } });
+  // Off then on restarts the connection loop, so it dials now instead of waiting out the backoff.
+  const retry = async () => {
+    await setEnabled(false);
+    await setEnabled(true);
+  };
 
   const turnOff = (
     <div>
@@ -135,13 +141,14 @@ export function QuickConnectPhone({
         <>
           <Alert variant="warning">
             <TriangleAlertIcon />
-            <AlertDescription>
-              {view.reason ??
-                "This network's security certificate is not trusted by this computer."}{" "}
-              ViewCode keeps trying and will connect as soon as the network allows it.
-            </AlertDescription>
+            <AlertDescription>{describeQuickConnectBlocked(view)}</AlertDescription>
           </Alert>
-          {turnOff}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setEnabled(false)}>
+              Turn off Quick connect
+            </Button>
+            <Button onClick={retry}>Try again</Button>
+          </div>
         </>
       ) : null}
 

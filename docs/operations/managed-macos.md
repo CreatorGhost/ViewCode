@@ -140,6 +140,26 @@ exception, or touches the EDR.
    browser, a legitimate mode that is useful as a data point. It still spawns
    provider CLIs; if Cortex flags it too, stop and go back to step 1.
 
+## Reading EDR alerts and disappearing processes
+
+- Cortex XDR alerts in **Notify** mode that name the terminal (`zsh`, `login`,
+  iTerm) are expected during builds and installs. They report activity; they do
+  not block it.
+- A dev server that disappears is usually the shell or agent tool call being torn
+  down, not the EDR. An EDR kill shows `exitCode: 9` or `SIGKILL` in the logs.
+  Check that before attributing it to security software.
+- Don't use `pkill -f` or kill by matching a name or path. Stop only the PIDs you
+  started, captured at spawn.
+
+## Quick connect on a TLS-inspecting network
+
+The relay is a `*.workers.dev` subdomain. A firewall that resets the TLS
+handshake for those subdomains by SNI (curl: "Recv failure: Connection reset by
+peer", Node: `ECONNRESET`) makes it unreachable from that computer even after a
+successful deploy. `node scripts/viewcode-relay.ts check` reports it; the app
+shows Quick connect as blocked. The remedy is for IT to allow the relay's address
+([details](viewcode-relay.md#status-meanings)). Same Wi-Fi still works.
+
 ## Cursor Enterprise MCP policy
 
 If Cursor reports that MCP servers are blocked by team policy, ask the team's
@@ -163,12 +183,13 @@ not establish whether Claude's separate SDK/MCP path is blocked.
 
 Each is an IT request. Never circumvent the control.
 
-| Blocker                                                                    | Symptom                                                            | Fix                                                                  |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat | Ask the Cursor team admin to allow `t3-code` (see above)             |
-| macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path |
-| Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                          |
-| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                     |
+| Blocker                                                                    | Symptom                                                                                              | Fix                                                                  |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat                                   | Ask the Cursor team admin to allow `t3-code` (see above)             |
+| macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app                                           | Ask IT to allow the app, or use the already-allowed `t3`/`node` path |
+| Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects (T3 Connect: `relay.t3.codes` only brokers sign-in, the traffic is the tunnel) | Ask IT for an exception for the tunnel host                          |
+| `*.workers.dev` subdomains reset at the TLS handshake                      | Quick connect blocked; `curl` shows a reset at the Client Hello                                      | Ask IT to allow the relay address                                    |
+| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                                                              | Ask IT for an exception for the Tailscale daemon                     |
 
 ## Building the installer on the managed Mac
 

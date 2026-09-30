@@ -4,6 +4,11 @@ T3 Connect uses Clerk for cloud identity. The relay manages environment links,
 credentials for reaching environments, and managed tunnel allocations. After
 bootstrap, clients send application traffic through the environment's tunnel
 hostname; the relay Worker does not proxy their HTTP or WebSocket sessions.
+`relay.t3.codes` only brokers sign-in and links. Phone traffic runs through a
+Cloudflare tunnel (`cloudflared` to Cloudflare's argotunnel), so a network that
+blocks tunnels blocks T3 Connect even when `relay.t3.codes` is reachable. ViewCode's
+[Quick connect](../operations/viewcode-relay.md) is a separate outbound WebSocket
+to a Worker on the user's own account.
 
 Clerk, deployment, and native authentication setup live in the
 [Connect setup runbook](../operations/connect-setup.md).

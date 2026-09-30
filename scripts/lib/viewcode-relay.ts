@@ -133,3 +133,82 @@ export function removeRelayState(stateDir: string): void {
 export function wranglerNeedsLogin(whoamiOutput: string, exitCode: number): boolean {
   return exitCode !== 0 || /not authenticated|not logged in|you are not/iu.test(whoamiOutput);
 }
+
+/** Wrangler's output when the account has no workers.dev subdomain and it could not ask. */
+export function wranglerNeedsSubdomain(output: string): boolean {
+  return /workers\.dev subdomain/iu.test(output);
+}
+
+export const NO_SUBDOMAIN_MESSAGE =
+  "Your Cloudflare account has no workers.dev subdomain yet. Open https://dash.cloudflare.com -> Workers & Pages once to create it, then run this again.";
+
+export const LOGIN_HINT =
+  "Open the link wrangler shows and enter the code, in any browser (it does not need to be this computer's default browser).";
+
+export type ProbeResult =
+  | { readonly reachable: true; readonly status: number }
+  | { readonly reachable: false; readonly cause: "reset" | "tls" | "timeout" | "dns" | "other" };
+
+export const PROBE_TIMEOUT_MS = 10_000;
+
+function errorChainText(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current !== null && current !== undefined; depth += 1) {
+    if (typeof current !== "object") {
+      parts.push(String(current));
+      break;
+    }
+    const { code, message, name, cause } = current as Record<string, unknown>;
+    for (const part of [code, name, message]) if (typeof part === "string") parts.push(part);
+    current = cause;
+  }
+  return parts.join(" ");
+}
+
+export function classifyProbeError(
+  error: unknown,
+): Exclude<ProbeResult, { reachable: true }>["cause"] {
+  const text = errorChainText(error);
+  if (/ECONNRESET|UND_ERR_SOCKET|socket hang up|other side closed|ECONNABORTED/iu.test(text))
+    return "reset";
+  if (/TimeoutError|AbortError|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|timed out/iu.test(text))
+    return "timeout";
+  if (/ENOTFOUND|EAI_AGAIN/iu.test(text)) return "dns";
+  if (/CERT|self[- ]signed|SSL|TLS|certificate/iu.test(text)) return "tls";
+  return "other";
+}
+
+/**
+ * Whether this computer can reach `origin` with its own trust store. Any HTTP
+ * answer counts (the Worker answers 503 while the host is not connected); what
+ * matters is that the TLS handshake finished.
+ */
+export async function probeRelayOrigin(
+  origin: string,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = PROBE_TIMEOUT_MS,
+): Promise<ProbeResult> {
+  try {
+    const response = await fetchImpl(origin, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    void response.body?.cancel().catch(() => undefined);
+    return { reachable: true, status: response.status };
+  } catch (error) {
+    return { reachable: false, cause: classifyProbeError(error) };
+  }
+}
+
+const PROBE_CAUSE_TEXT = {
+  reset: "the connection was reset",
+  tls: "a TLS error",
+  timeout: "it timed out",
+  dns: "the name did not resolve",
+  other: "the request failed",
+} as const;
+
+export function unreachableMessage(origin: string, cause: keyof typeof PROBE_CAUSE_TEXT): string {
+  return `Deployed, but this computer can't reach ${origin} — your network blocked it (${PROBE_CAUSE_TEXT[cause]}). Quick connect can't work from this network unless it's allowed; on a work network, ask IT. Same Wi-Fi still works.`;
+}

@@ -197,6 +197,21 @@ describe("runRelayConnection", () => {
     }).pipe(noJitter, Effect.provide(TestClock.layer())),
   );
 
+  it.effect("goes blocked after three connection resets in a row", () =>
+    Effect.gen(function* () {
+      const reset: DialFailure = { kind: "network-reset", detail: "UND_ERR_SOCKET" };
+      const { holder, dials, dialCount, fiber } = yield* setup([reset, reset, reset, reset]);
+      yield* Queue.take(dials);
+      expect((yield* waitForStatus(holder, "reconnecting"))?.reason).toBe(
+        RELAY_REASON.resetRetrying,
+      );
+      yield* expectRedialAfter(1_000, dials, dialCount);
+      yield* expectRedialAfter(2_000, dials, dialCount);
+      expect((yield* waitForStatus(holder, "blocked"))?.reason).toBe(RELAY_REASON.reset);
+      yield* Fiber.interrupt(fiber);
+    }).pipe(noJitter, Effect.provide(TestClock.layer())),
+  );
+
   it.effect("does not count other failures towards blocked", () =>
     Effect.gen(function* () {
       const { holder, dials, dialCount, fiber } = yield* setup([

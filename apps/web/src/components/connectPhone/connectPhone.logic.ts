@@ -206,8 +206,8 @@ export type QuickConnectView =
   | { readonly kind: "off" }
   | { readonly kind: "connecting" }
   | { readonly kind: "reconnecting"; readonly reason: string | null }
-  /** The network refuses the relay's certificate; retries continue quietly. */
-  | { readonly kind: "blocked"; readonly reason: string | null }
+  /** The network refuses or resets the connection to the relay; retries continue quietly. */
+  | { readonly kind: "blocked"; readonly reason: string | null; readonly origin: string | null }
   /** The relay refused this computer's secret; only setup again helps. */
   | { readonly kind: "auth-failed"; readonly reason: string | null }
   | { readonly kind: "ready"; readonly baseUrl: string; readonly host: string };
@@ -225,7 +225,7 @@ export function resolveQuickConnectView(relay: ViewCodeRelayState | null): Quick
     case "reconnecting":
       return { kind: "reconnecting", reason };
     case "blocked":
-      return { kind: "blocked", reason };
+      return { kind: "blocked", reason, origin: relay.httpBaseUrl ?? null };
     case "auth-failed":
       return { kind: "auth-failed", reason };
     case "connected": {
@@ -237,6 +237,19 @@ export function resolveQuickConnectView(relay: ViewCodeRelayState | null): Quick
       }
     }
   }
+}
+
+/**
+ * What to tell someone whose network blocks the relay. The only remedy is an
+ * allowance from whoever runs the network; nothing here tries to get around it.
+ */
+export function describeQuickConnectBlocked(view: {
+  readonly reason: string | null;
+  readonly origin: string | null;
+}): string {
+  return `Your network blocked the connection to the relay${
+    view.reason ? ` (${view.reason})` : ""
+  }. On a work network, ask IT to allow ${view.origin ?? "the relay address"}. Same Wi-Fi still works.`;
 }
 
 /** One line for Settings → Connections. */
@@ -253,7 +266,7 @@ export function describeQuickConnectStatus(view: QuickConnectView): string {
     case "reconnecting":
       return view.reason ? `Reconnecting. ${view.reason}` : "Reconnecting to your relay…";
     case "blocked":
-      return view.reason ?? "This network's certificate is not trusted; still trying.";
+      return describeQuickConnectBlocked(view);
     case "auth-failed":
       return view.reason ?? "The relay did not accept this computer's secret.";
     case "ready":

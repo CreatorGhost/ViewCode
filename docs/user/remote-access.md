@@ -63,6 +63,13 @@ needs the phone to be paired with a code from this computer.
 Check your company's policy on remote-access tools before using Quick connect on
 a work computer.
 
+If the network blocks the relay, Quick connect shows "Your network blocked the
+connection to the relay" with the reason (an untrusted certificate, or the
+connection being reset). On a work network, ask IT to allow the relay's address;
+**Try again** reconnects once they have. Same Wi-Fi still works, and Quick connect
+works on networks that don't block it. `node scripts/viewcode-relay.ts check`
+tests whether this computer can reach the relay.
+
 If the network's certificate is not trusted by the computer, ViewCode says so and
 keeps trying. The desktop app already trusts the operating system's certificate
 store; when running `npx t3` yourself, start it with

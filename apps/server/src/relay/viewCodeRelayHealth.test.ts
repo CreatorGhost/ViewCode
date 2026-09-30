@@ -3,9 +3,11 @@ import * as NetAddress from "effect/unstable/net/NetAddress";
 
 import {
   classifyDialError,
+  type DialFailure,
   describeErrorChain,
   initialRelayHealth,
   reconnectDelayMs,
+  RELAY_REASON,
   reduceRelayHealth,
   resolveLocalTarget,
 } from "./viewCodeRelayHealth.ts";
@@ -41,6 +43,72 @@ describe("classifyDialError", () => {
       cause: Object.assign(new Error("boom"), { code: "SELF_SIGNED_CERT_IN_CHAIN" }),
     });
     expect(classifyDialError(describeErrorChain(error)).kind).toBe("tls-untrusted");
+  });
+});
+
+describe("connection resets", () => {
+  const fetchFailed = (cause: Error) => new TypeError("fetch failed", { cause });
+  const resets = {
+    "node ECONNRESET": fetchFailed(
+      Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET", syscall: "read" }),
+    ),
+    "undici other side closed": fetchFailed(
+      Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }),
+    ),
+    "socket hang up": fetchFailed(
+      Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+    ),
+    "closed before TLS": fetchFailed(
+      new Error("Client network socket disconnected before secure TLS connection was established"),
+    ),
+  };
+
+  it("counts a reset or aborted handshake as a network block, not an offline network", () => {
+    for (const error of Object.values(resets)) {
+      expect(classifyDialError(describeErrorChain(error)).kind).toBe("network-reset");
+    }
+  });
+
+  it("puts the cause code in the flattened chain", () => {
+    expect(describeErrorChain(resets["undici other side closed"])).toContain("UND_ERR_SOCKET");
+  });
+
+  it("keeps DNS failures, timeouts and 5xx as ordinary network trouble", () => {
+    for (const error of [
+      fetchFailed(
+        Object.assign(new Error("getaddrinfo ENOTFOUND relay.example.workers.dev"), {
+          code: "ENOTFOUND",
+        }),
+      ),
+      fetchFailed(
+        Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" }),
+      ),
+      new Error("The relay answered 502."),
+    ]) {
+      expect(classifyDialError(describeErrorChain(error)).kind).toBe("network");
+    }
+  });
+
+  it("blocks after three resets in a row, naming the reset, and a good attempt clears it", () => {
+    const reset = classifyDialError(describeErrorChain(resets["node ECONNRESET"]));
+    let health = initialRelayHealth;
+    for (let index = 0; index < 2; index += 1) {
+      health = reduceRelayHealth(health, { type: "dial-failed", failure: reset });
+      expect(health.status).toBe("reconnecting");
+    }
+    health = reduceRelayHealth(health, { type: "dial-failed", failure: reset });
+    expect(health).toMatchObject({ status: "blocked", reason: RELAY_REASON.reset });
+    expect(RELAY_REASON.reset).not.toBe(RELAY_REASON.untrusted);
+    expect(reduceRelayHealth(health, { type: "connected" }).status).toBe("connected");
+  });
+
+  it("does not let a timeout in between count towards blocked", () => {
+    const reset: DialFailure = { kind: "network-reset", detail: "ECONNRESET" };
+    let health = initialRelayHealth;
+    for (const failure of [reset, reset, { kind: "network", detail: "timeout" } as const, reset]) {
+      health = reduceRelayHealth(health, { type: "dial-failed", failure });
+    }
+    expect(health.status).toBe("reconnecting");
   });
 });
 

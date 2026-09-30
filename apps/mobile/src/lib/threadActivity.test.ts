@@ -3102,17 +3102,21 @@ describe("quiet timeline: nested agents", () => {
   );
 
   it("batches Cursor Task lifecycle updates by tool id instead of identical titles", () => {
-    const activities = [
-      ["task.started", "task-a"],
-      ["task.started", "task-b"],
-      ["task.progress", "task-b"],
-      ["task.completed", "task-a"],
-      ["task.completed", "task-b"],
-      ["task.completed", "task-b"],
-    ].map(([kind, taskId], index) =>
+    const activities = (
+      [
+        ["task.started", "task-a"],
+        ["task.started", "task-b"],
+        ["task.progress", "task-b"],
+        ["task.completed", "task-a"],
+        ["task.completed", "task-b"],
+        ["task.completed", "task-b"],
+      ] as const
+    ).map(([kind, taskId], index) =>
       makeActivity({
         id: EventId.make(`cursor-${index}`),
         kind,
+        summary: "Audit",
+        createdAt: `2026-09-03T00:00:0${index}.000Z`,
         turnId: TurnId.make("cursor-turn"),
         payload: {
           taskId,
@@ -3124,9 +3128,14 @@ describe("quiet timeline: nested agents", () => {
         },
       }),
     );
-    const rows = buildThreadFeed(makeThread({ activities })).flatMap((entry) =>
-      entry.type === "activity-group" ? entry.activities : [],
-    );
+    const rows = buildThreadFeed(
+      makeThread({
+        id: ThreadId.make("cursor-thread"),
+        projectId: ProjectId.make("project-1"),
+        title: "Cursor tasks",
+        activities,
+      }),
+    ).flatMap((entry) => (entry.type === "activity-group" ? entry.activities : []));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.workEntry?.agentSpawn?.agentTaskIds).toEqual(["task-a", "task-b"]);
   });

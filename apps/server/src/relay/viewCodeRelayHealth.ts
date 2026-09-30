@@ -7,8 +7,9 @@ import { TLS_REFUSALS_BEFORE_BLOCKED } from "../cloud/managedTunnelHealth.ts";
 /**
  * ViewCode Quick connect: what a failed attempt to reach the relay says about
  * why. Same idea as `cloud/managedTunnelHealth.ts`: a TLS-inspecting network
- * shows up as an untrusted issuer, several times in a row, and that is a
- * different message from "offline". Everything here is pure.
+ * shows up as an untrusted issuer, or as a connection reset during the TLS
+ * handshake (a firewall that drops a host by SNI), several times in a row, and
+ * that is a different message from "offline". Everything here is pure.
  */
 
 export type DialFailure =
@@ -16,16 +17,27 @@ export type DialFailure =
   | { readonly kind: "auth" }
   /** The certificate chain ended at an issuer this computer does not trust. */
   | { readonly kind: "tls-untrusted"; readonly detail: string }
+  /** The connection was reset or closed before TLS finished: a firewall dropping this host. */
+  | { readonly kind: "network-reset"; readonly detail: string }
   | { readonly kind: "network"; readonly detail: string };
 
 const UNTRUSTED_ISSUER =
   /SELF_SIGNED_CERT_IN_CHAIN|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER_CERT|CERT_UNTRUSTED|self[- ]signed certificate|unable to verify the first certificate|unable to get local issuer certificate/iu;
 
+/**
+ * Node and undici spell a reset several ways: `ECONNRESET` (`read ECONNRESET`),
+ * undici's `SocketError` "other side closed" with code `UND_ERR_SOCKET`, `socket
+ * hang up`, and "Client network socket disconnected before secure TLS connection
+ * was established". Timeouts, DNS failures and HTTP errors are not resets.
+ */
+const CONNECTION_RESET =
+  /ECONNRESET|ECONNABORTED|UND_ERR_SOCKET|socket hang up|other side closed|disconnected before secure TLS connection/iu;
+
 /** Classifies a low-level connection error (its code and message, joined). */
 export function classifyDialError(text: string): DialFailure {
-  return UNTRUSTED_ISSUER.test(text)
-    ? { kind: "tls-untrusted", detail: text }
-    : { kind: "network", detail: text };
+  if (UNTRUSTED_ISSUER.test(text)) return { kind: "tls-untrusted", detail: text };
+  if (CONNECTION_RESET.test(text)) return { kind: "network-reset", detail: text };
+  return { kind: "network", detail: text };
 }
 
 /** Flattens an error and its causes into one searchable string. */
@@ -54,16 +66,18 @@ export const RELAY_REASON = {
   network: "Can't reach your relay right now.",
   dropped: "The connection dropped.",
   silent: "The connection went silent.",
-  untrusted:
-    "This network inspects HTTPS with a certificate this computer doesn't trust. Ask IT to trust it, or start ViewCode with system certificates.",
+  // The two `blocked` reasons complete "Your network blocked the connection to the relay (...)".
+  untrusted: "an untrusted certificate intercepted it",
   untrustedRetrying: "This network's security certificate isn't trusted by this computer.",
+  reset: "the network reset the connection to the relay",
+  resetRetrying: "The network reset the connection to the relay.",
   auth: "The relay didn't accept this computer's secret. Run the setup command again.",
 } as const;
 
 export interface RelayHealth {
   readonly status: ViewCodeRelayStatus;
   readonly reason: string | undefined;
-  /** Consecutive attempts refused for an untrusted issuer. */
+  /** Consecutive attempts refused by the network: an untrusted issuer or a reset. */
   readonly tlsRefusals: number;
   /** A connection has been up since this session started. */
   readonly hasConnected: boolean;
@@ -105,14 +119,20 @@ export function reduceRelayHealth(health: RelayHealth, event: RelayHealthEvent):
       if (failure.kind === "auth") {
         return { ...health, status: "auth-failed", reason: RELAY_REASON.auth, tlsRefusals: 0 };
       }
-      if (failure.kind === "tls-untrusted") {
+      if (failure.kind === "tls-untrusted" || failure.kind === "network-reset") {
+        const untrusted = failure.kind === "tls-untrusted";
         const tlsRefusals = health.tlsRefusals + 1;
         return tlsRefusals >= TLS_REFUSALS_BEFORE_BLOCKED
-          ? { ...health, status: "blocked", reason: RELAY_REASON.untrusted, tlsRefusals }
+          ? {
+              ...health,
+              status: "blocked",
+              reason: untrusted ? RELAY_REASON.untrusted : RELAY_REASON.reset,
+              tlsRefusals,
+            }
           : {
               ...health,
               status: "reconnecting",
-              reason: RELAY_REASON.untrustedRetrying,
+              reason: untrusted ? RELAY_REASON.untrustedRetrying : RELAY_REASON.resetRetrying,
               tlsRefusals,
             };
       }

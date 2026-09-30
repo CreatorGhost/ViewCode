@@ -265,10 +265,11 @@ describe("resolveQuickConnectView", () => {
       kind: "reconnecting",
       reason: "dropped",
     });
-    expect(resolveQuickConnectView(relay({ status: "blocked", reason: "cert" }))).toEqual({
-      kind: "blocked",
-      reason: "cert",
-    });
+    expect(
+      resolveQuickConnectView(
+        relay({ status: "blocked", reason: "cert", httpBaseUrl: "https://r.a.workers.dev" }),
+      ),
+    ).toEqual({ kind: "blocked", reason: "cert", origin: "https://r.a.workers.dev" });
     expect(resolveQuickConnectView(relay({ status: "auth-failed" }))).toEqual({
       kind: "auth-failed",
       reason: null,
@@ -306,8 +307,14 @@ describe("describeQuickConnectStatus", () => {
     expect(describeQuickConnectStatus({ kind: "reconnecting", reason: null })).toBe(
       "Reconnecting to your relay…",
     );
-    expect(describeQuickConnectStatus({ kind: "blocked", reason: "cert not trusted" })).toBe(
-      "cert not trusted",
+    expect(
+      describeQuickConnectStatus({
+        kind: "blocked",
+        reason: "the network reset the connection to the relay",
+        origin: "https://r.a.workers.dev",
+      }),
+    ).toBe(
+      "Your network blocked the connection to the relay (the network reset the connection to the relay). On a work network, ask IT to allow https://r.a.workers.dev. Same Wi-Fi still works.",
     );
     expect(
       describeQuickConnectStatus({

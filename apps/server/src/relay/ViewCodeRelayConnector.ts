@@ -7,7 +7,8 @@
  * handling.
  *
  * Status (`ViewCodeRelayState`) is honest about what the network does: an
- * untrusted TLS issuer several times in a row is `blocked`, a refused secret
+ * untrusted TLS issuer or a connection reset during the handshake several times
+ * in a row is `blocked`, a refused secret
  * is `auth-failed` (retrying cannot fix it), everything else keeps trying
  * with jittered backoff from 1s to 30s. Nothing polls; a resume from sleep
  * cuts a backoff wait short.
@@ -354,6 +355,7 @@ const probeRelayFailure = (
 ): Effect.Effect<DialFailure> => {
   const early = classifyDialError(dialError);
   if (early.kind === "tls-untrusted") return Effect.succeed(early);
+  // A reset is only conclusive once the plain request below fails the same way.
   return Effect.tryPromise({
     try: (signal) =>
       Undici.fetch(`${config.origin}${RELAY_HOST_PATH}`, {

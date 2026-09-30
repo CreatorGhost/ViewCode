@@ -5,11 +5,13 @@
  *
  *   node scripts/viewcode-relay.ts deploy   [--mode desktop|web] [--name NAME] [--rotate-secret]
  *   node scripts/viewcode-relay.ts remove   [--mode desktop|web] [--local-only]
+ *   node scripts/viewcode-relay.ts check    [--mode desktop|web]
  *
  * `deploy` puts a small Worker on YOUR Cloudflare account (workers.dev),
  * generates the secret this computer uses to connect to it, and stores the
  * Worker's address and that secret where ViewCode reads them. It never prints
  * the secret. `remove` deletes the Worker and clears the stored settings.
+ * `check` only asks whether this computer can reach the stored address.
  *
  * The data folder is resolved exactly as `build.sh` does (`--managed` writes
  * settings.json in the same place), so the running app picks the change up.
@@ -17,21 +19,27 @@
  * TLS-inspecting corporate proxy does not break it.
  */
 import * as NodeChildProcess from "node:child_process";
+import * as NodeTLS from "node:tls";
 import * as NodePath from "node:path";
 
 import {
   DEFAULT_WORKER_NAME,
   generateHostSecret,
   isValidWorkerName,
+  LOGIN_HINT,
+  NO_SUBDOMAIN_MESSAGE,
   parseWorkerUrl,
+  probeRelayOrigin,
   readRelayState,
   readSecretFile,
   readSettingsFile,
   removeRelayState,
   removeSecretFile,
+  unreachableMessage,
   withoutRelaySettings,
   withRelaySettings,
   wranglerNeedsLogin,
+  wranglerNeedsSubdomain,
   writeRelayState,
   writeSecretFile,
   writeSettingsFile,
@@ -74,9 +82,37 @@ function ensureLoggedIn(): void {
   const whoami = wrangler(["whoami"], { capture: true });
   if (!wranglerNeedsLogin(`${whoami.stdout ?? ""}${whoami.stderr ?? ""}`, whoami.status ?? 1))
     return;
-  console.log("Signing in to Cloudflare (a browser window opens)...");
-  const login = wrangler(["login"]);
+  // The device flow (RFC 8628) has no localhost callback, so it works even when
+  // the sign-in is finished in a browser other than the default one.
+  console.log("Signing in to Cloudflare.");
+  console.log(LOGIN_HINT);
+  const login = wrangler(["login", "--device"]);
   if (login.status !== 0) fail("Cloudflare sign-in did not complete.");
+}
+
+/** Trust the OS certificate store for this process's own requests (wrangler gets it through NODE_OPTIONS). */
+function trustSystemCa(): void {
+  if (process.env.NODE_OPTIONS?.includes("--use-system-ca")) return;
+  try {
+    NodeTLS.setDefaultCACertificates([
+      ...NodeTLS.getCACertificates("bundled"),
+      ...NodeTLS.getCACertificates("system"),
+    ]);
+  } catch {
+    // Older Node: the bundled store applies.
+  }
+}
+
+/** Probes the relay's address; returns whether this computer can reach it. */
+async function reportReachable(origin: string): Promise<boolean> {
+  trustSystemCa();
+  const result = await probeRelayOrigin(origin);
+  if (!result.reachable) {
+    console.error(unreachableMessage(origin, result.cause));
+    return false;
+  }
+  console.log(`This computer can reach ${origin} (it answered HTTP ${result.status}).`);
+  return true;
 }
 
 function flag(args: ReadonlyArray<string>, name: string): string | undefined {
@@ -104,7 +140,12 @@ async function main() {
       capture: true,
     });
     const deployOutput = `${deploy.stdout ?? ""}${deploy.stderr ?? ""}`;
-    if (deploy.status !== 0) fail(`Deploy failed:\n${deployOutput}`);
+    if (deploy.status !== 0) {
+      // Wrangler asks to register a workers.dev subdomain, answers no when it
+      // has no terminal, then fails. Say what to do instead of the raw error.
+      if (wranglerNeedsSubdomain(deployOutput)) fail(NO_SUBDOMAIN_MESSAGE);
+      fail(`Deploy failed:\n${deployOutput}`);
+    }
     const url = parseWorkerUrl(deployOutput, name);
     if (url === null) {
       fail(
@@ -128,6 +169,14 @@ async function main() {
     writeSecretFile(stateDir, secret);
     writeRelayState(stateDir, { name, url });
     writeSettingsFile(settingsFile, withRelaySettings(settings, url));
+
+    // The Worker is deployed and saved; whether this network lets us reach it is a separate fact.
+    if (!(await reportReachable(url))) {
+      console.error(
+        `The address is saved (${url}). Run "node scripts/viewcode-relay.ts check" after the network allows it.`,
+      );
+      return;
+    }
     console.log(`\nQuick connect is set up: ${url}`);
     console.log(
       "Open ViewCode, Connect phone, Anywhere, and scan the QR code with the T3 Code app.",
@@ -135,6 +184,13 @@ async function main() {
     console.log(
       "Keep in mind: the relay is your own Worker, and it (and any network inspection) can see the traffic.",
     );
+    return;
+  }
+
+  if (command === "check") {
+    const state = readRelayState(stateDir);
+    if (!state) fail("Quick connect is not set up here. Run deploy first.");
+    if (!(await reportReachable(state.url))) process.exit(1);
     return;
   }
 
@@ -166,7 +222,7 @@ async function main() {
   }
 
   fail(
-    "Usage: node scripts/viewcode-relay.ts <deploy|remove> [--mode desktop|web] [--name NAME] [--rotate-secret] [--local-only]",
+    "Usage: node scripts/viewcode-relay.ts <deploy|remove|check> [--mode desktop|web] [--name NAME] [--rotate-secret] [--local-only]",
   );
 }
 
