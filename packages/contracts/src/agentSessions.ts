@@ -2,8 +2,11 @@ import * as Schema from "effect/Schema";
 import { IsoDateTime, NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
-/** Coding agent home directories the scanner knows how to read. */
-export const AgentSessionSource = Schema.Literals(["claudeAgent", "codex"]);
+/**
+ * Where importable history comes from: a coding agent's home directory
+ * (Claude Code, Codex) or a T3 Code install's database (`t3code`).
+ */
+export const AgentSessionSource = Schema.Literals(["claudeAgent", "codex", "t3code"]);
 export type AgentSessionSource = typeof AgentSessionSource.Type;
 
 /** File identity saved with an imported session so bounded retries can skip unchanged history. */
@@ -70,6 +73,8 @@ export const AgentSessionScanResult = Schema.Struct({
   candidates: Schema.Array(AgentSessionProjectCandidate),
   scannedAt: IsoDateTime,
   truncated: Schema.optional(Schema.Boolean),
+  /** A source that was found but could not be read, e.g. an unsupported T3 Code version. */
+  warning: Schema.optionalKey(Schema.String),
 });
 export type AgentSessionScanResult = typeof AgentSessionScanResult.Type;
 
@@ -105,6 +110,8 @@ export const AgentSessionHiddenReason = Schema.Literals([
   "no-user-text",
   // A provider session ViewCode itself ran: importing it would duplicate a thread.
   "in-viewcode",
+  // A provider session a listed T3 Code thread already carries.
+  "in-t3code",
 ]);
 export type AgentSessionHiddenReason = typeof AgentSessionHiddenReason.Type;
 
@@ -125,12 +132,16 @@ export const AgentSessionSummary = Schema.Struct({
   alreadyImported: Schema.Boolean,
   hidden: Schema.Boolean,
   hiddenReason: Schema.NullOr(AgentSessionHiddenReason),
+  /** The model the conversation last used, when the source records one. */
+  model: Schema.optionalKey(Schema.String),
 });
 export type AgentSessionSummary = typeof AgentSessionSummary.Type;
 
 /** Recent sessions for a project, newest first. Nothing is imported by listing. */
 export const AgentSessionListResult = Schema.Struct({
   sessions: Schema.Array(AgentSessionSummary),
+  /** A source that was found but could not be read, e.g. an unsupported T3 Code version. */
+  warning: Schema.optionalKey(Schema.String),
 });
 export type AgentSessionListResult = typeof AgentSessionListResult.Type;
 

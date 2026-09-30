@@ -15,7 +15,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Command Code provider                    | `apps/server/src/provider/commandCodeCli.ts`, `Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`, `Layers/commandCodeUsageLimits.ts`                                                      |
 | Desktop local mode (no TCP port)         | `apps/server/src/socketListener.ts`, `mcp/McpStdioBridge.ts`, desktop `backend/DesktopLocalBackend*.ts`, web `lib/desktopBackendWebSocket.ts`                                                   |
 | Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                           |
-| Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, web `components/agentSessions/`                                     |
+| Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, `T3CodeHistory.ts`, web `components/agentSessions/`                 |
 | Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME`, web-only default), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids) |
 
 ## Decisions
@@ -357,13 +357,26 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ### Session import
 
-- **Hidden for now.** The "Import past sessions" menu items are removed and the
-  onboarding step is off (`SHOW_SESSION_IMPORT_STEP` in
-  `onboarding/WelcomeWizard.tsx`). Provider session files mostly brought in
-  agent plumbing; the intended replacement is importing threads from a T3 Code
-  install (see `docs/NEXT_AGENT.md`). "Remove imported sessions…" stays so users
-  can clean up earlier imports. The server RPCs and dialog code remain.
-- When shown, nothing is imported by default: sessions are picked one by one.
+- Three sources share one scan → list → import flow: Claude Code and Codex
+  session files, and a T3 Code install (`t3code`, `project/T3CodeHistory.ts`).
+  Nothing is imported by default: sessions are picked one by one.
+- **Never read T3's live database directly.** T3 Code may be running. The file
+  is attached with `mode=ro` to a private temp database, the needed rows are
+  copied in one read transaction, the source is detached, and the copy is
+  read and deleted. Reads are synchronous `node:sqlite`, so they copy only
+  projection rows (never `orchestration_events`). Schema comes from our own
+  migrations; a missing table or column reads as unsupported and surfaces as
+  the scan/list `warning`, never an error.
+- T3's home is `~/.t3` (`userdata`, then `dev`). `T3CODE_HOME` is not honored:
+  ViewCode reads that variable for its own home, and a path equal to our own
+  `dbPath` is never offered.
+- T3 threads import as `import:t3code:<t3 thread id>`, independent of the
+  instance they continue on, so a model change in T3 never duplicates them.
+  `getImportedAgentSessionSources` knows this naming. Every T3 thread gets a
+  binding; its resume cursor is T3's Claude/Codex session only when that
+  session ran on the same instance the thread continues on, otherwise null.
+  An `import:` thread whose binding has no cursor gets a recap on its first
+  turn (`ProviderCommandReactor`, shown as the stale-session notice).
 - `agentSessions.list` reads the recent transcripts without writing and marks
   junk `hidden` with a reason (`classifyAgentSession`): Codex sub-agent and
   internal rollouts, sessions opened by an agent message (Traycer or

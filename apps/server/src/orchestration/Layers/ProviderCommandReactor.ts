@@ -1081,8 +1081,32 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
+    // ViewCode: history imported without a native session to resume (a T3
+    // Code thread whose provider session could not carry over) reaches the
+    // agent as a recap on its first turn.
+    const recapImportedHistory =
+      String(threadId).startsWith("import:") &&
+      thread.session === null &&
+      thread.latestTurn === null &&
+      Option.isSome(sessionDirectory) &&
+      Option.match(
+        yield* sessionDirectory.value
+          .getBinding(threadId)
+          .pipe(Effect.orElseSucceed(() => Option.none())),
+        { onNone: () => true, onSome: (binding) => binding.resumeCursor == null },
+      );
     const startedSession = yield* startProviderSession(undefined);
     yield* bindSessionToThread(startedSession);
+    if (recapImportedHistory) {
+      yield* rememberPendingHandoff(threadId, {
+        from: {
+          instanceId: String(thread.modelSelection.instanceId),
+          model: thread.modelSelection.model,
+        },
+        to: { instanceId: String(desiredInstanceId), model: desiredModelSelection.model },
+        staleSessionProvider: "T3 Code",
+      });
+    }
     return startedSession.threadId;
   });
 

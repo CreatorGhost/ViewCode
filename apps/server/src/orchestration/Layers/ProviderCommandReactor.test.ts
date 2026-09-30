@@ -3943,6 +3943,73 @@ describe("ProviderCommandReactor", () => {
       expect(NodeFS.existsSync(pendingFile(after))).toBe(false);
     });
 
+    it("recaps imported history that has no native session on its first turn only", async () => {
+      const harness = await createHarness({ threadModelSelection: claude });
+      const threadId = ThreadId.make("import:t3code:t3-thread");
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const dispatch = (command: Parameters<typeof harness.engine.dispatch>[0]) =>
+        Effect.runPromise(harness.engine.dispatch(command));
+      await dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-import-thread-create"),
+        threadId,
+        projectId: asProjectId("project-1"),
+        title: "From T3 Code",
+        modelSelection: claude,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+        historyImport: true,
+      });
+      await dispatch({
+        type: "thread.history.import",
+        commandId: CommandId.make("cmd-import-thread-history"),
+        threadId,
+        messages: [
+          {
+            messageId: asMessageId(`${threadId}:000000`),
+            role: "user",
+            text: "Remember PINEAPPLE.",
+            createdAt,
+          },
+          {
+            messageId: asMessageId(`${threadId}:000001`),
+            role: "assistant",
+            text: "Noted.",
+            createdAt,
+          },
+        ],
+      });
+      const send = (id: string, text: string) =>
+        dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-import-turn-${id}`),
+          threadId,
+          message: {
+            messageId: asMessageId(`import-user-${id}`),
+            role: "user",
+            text,
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt,
+        });
+
+      await send("first", "Continue.");
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      expect(sentInput(harness, 0)).toContain("<handoff>");
+      expect(sentInput(harness, 0)).toContain("Remember PINEAPPLE.");
+      expect(sentInput(harness, 0).endsWith("Continue.")).toBe(true);
+      await harness.drain();
+
+      await send("second", "Next.");
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+      expect(sentInput(harness, 1)).toBe("Next.");
+    });
+
     describe("stale native session", () => {
       const staleSessionError = () =>
         new ProviderAdapterRequestError({
