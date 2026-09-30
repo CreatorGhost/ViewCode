@@ -17,7 +17,7 @@ import {
   resolveTailscaleView,
   selectPhoneEndpoints,
   shouldResumeConnectPhone,
-  shouldRunLanSelfTest,
+  canTestLanReachability,
 } from "./connectPhone.logic";
 
 function endpoint(
@@ -195,11 +195,11 @@ describe("LAN self-test", () => {
     expect(describeLanReachability(null, shown)).toBeNull();
   });
 
-  it("runs only on the desktop shell for the LAN address", () => {
-    expect(shouldRunLanSelfTest({ canCheck: true, endpoint: { lan: true } })).toBe(true);
-    expect(shouldRunLanSelfTest({ canCheck: true, endpoint: { lan: false } })).toBe(false);
-    expect(shouldRunLanSelfTest({ canCheck: false, endpoint: { lan: true } })).toBe(false);
-    expect(shouldRunLanSelfTest({ canCheck: true, endpoint: undefined })).toBe(false);
+  it("is offered only on the desktop shell for the LAN address", () => {
+    expect(canTestLanReachability({ canCheck: true, endpoint: { lan: true } })).toBe(true);
+    expect(canTestLanReachability({ canCheck: true, endpoint: { lan: false } })).toBe(false);
+    expect(canTestLanReachability({ canCheck: false, endpoint: { lan: true } })).toBe(false);
+    expect(canTestLanReachability({ canCheck: true, endpoint: undefined })).toBe(false);
   });
 });
 

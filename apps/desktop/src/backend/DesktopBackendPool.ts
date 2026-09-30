@@ -102,7 +102,7 @@ import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 
-const { logWarning: logBackendPoolWarning } =
+const { logInfo: logBackendPoolInfo, logWarning: logBackendPoolWarning } =
   DesktopObservability.makeComponentLogger("desktop-backend-pool");
 
 export type BackendInstanceId = DesktopBackendManager.BackendInstanceId;
@@ -299,7 +299,10 @@ export const layer = Layer.effect(
             }),
           ),
         ),
-      onShutdown: () => desktopWindow.handleBackendNotReady,
+      onShutdown: (reason) =>
+        logBackendPoolInfo("primary backend not ready", { reason }).pipe(
+          Effect.andThen(desktopWindow.handleBackendNotReady),
+        ),
       onPreflightFailed: handlePrimaryPreflightFailure,
       onRestartsExhausted: (reason) =>
         electronDialog.showErrorBox(

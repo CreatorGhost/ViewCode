@@ -148,30 +148,41 @@ const withHarness = <A, E, R>(
     );
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
 
-describe("classifyLanReachability", () => {
-  it("names a blocked LAN address only when loopback still answers", () => {
-    assert.equal(
-      DesktopServerExposure.classifyLanReachability({
-        lanResponded: true,
-        loopbackResponded: true,
-      }),
-      "ok",
-    );
-    assert.equal(
-      DesktopServerExposure.classifyLanReachability({
-        lanResponded: false,
-        loopbackResponded: true,
-      }),
-      "lan-blocked",
-    );
-    assert.equal(
-      DesktopServerExposure.classifyLanReachability({
-        lanResponded: false,
-        loopbackResponded: false,
-      }),
-      "unreachable",
-    );
-  });
+describe("runLanReachabilityCheck", () => {
+  const run = (answers: { loopback: boolean; lan: boolean }) =>
+    Effect.gen(function* () {
+      const dialled: Array<string> = [];
+      const probe = (name: string, answer: boolean) =>
+        Effect.sync(() => {
+          dialled.push(name);
+          return answer;
+        });
+      const status = yield* DesktopServerExposure.runLanReachabilityCheck({
+        loopback: probe("loopback", answers.loopback),
+        lan: probe("lan", answers.lan),
+      });
+      return { status, dialled };
+    });
+
+  it.effect("never dials the LAN address when the server is down", () =>
+    Effect.gen(function* () {
+      const result = yield* run({ loopback: false, lan: true });
+      assert.deepStrictEqual(result, { status: "unreachable", dialled: ["loopback"] });
+    }),
+  );
+
+  it.effect("names a blocked LAN address only when loopback answers", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* run({ loopback: true, lan: false }), {
+        status: "lan-blocked",
+        dialled: ["loopback", "lan"],
+      });
+      assert.deepStrictEqual(yield* run({ loopback: true, lan: true }), {
+        status: "ok",
+        dialled: ["loopback", "lan"],
+      });
+    }),
+  );
 });
 
 describe("DesktopServerExposure", () => {
