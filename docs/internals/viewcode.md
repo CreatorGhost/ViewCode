@@ -39,9 +39,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   and instance (ingestion stamps rows from the running session), on a thread
   currently set to that model. Unstamped rows and rows from other models are
   ignored; 128k is assumed until the model has reported once.
-- The budget is 25% of that window and covers the **whole rendered prelude**
-  (header, recap, omission note); the only overrun is a transcript path longer
-  than the reserved 400 characters, or a window too small for the fixed header.
+- The budget is 25% of that window, hard-capped at the provider's per-turn
+  input limit (`PROVIDER_SEND_TURN_MAX_INPUT_CHARS`) minus the user's message,
+  a 2k margin and 400 per attachment (`maxChars`), and covers the **whole
+  rendered prelude** (header, recap, omission note). A prelude that still does
+  not fit (tiny room, or a transcript path longer than the reserved 400
+  characters) becomes a minimal one: header plus "the full transcript is at
+  <path>; search it". The reactor re-checks the combined input, shrinks the
+  prelude (down to none) and logs a warning; the user's message is never
+  trimmed and the turn never fails because of the handoff.
   If everything fits, it is carried verbatim ("full"). Otherwise ("compact") the
   budget is filled in priority order: the user's messages newest first in full,
   then older user messages clipped to 300 characters, then replies newest first

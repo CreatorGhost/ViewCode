@@ -82,6 +82,78 @@ describe("buildHandoff", () => {
     expect(handoff.summary).toContain("The new model summarizes the rest itself");
   });
 
+  describe("maxChars hard cap", () => {
+    const long = () =>
+      threadWith(
+        Array.from({ length: 120 }, (_, i) =>
+          message(
+            i % 2 === 0 ? "user" : "assistant",
+            `Turn ${i}. ${"Detail sentence. ".repeat(120)}`,
+            i % 60,
+          ),
+        ),
+      );
+    const path = "/tmp/state/transcripts/thread-1/handoff.md";
+
+    it("keeps a huge window's prelude within maxChars", () => {
+      const uncapped = buildHandoff({
+        thread: long(),
+        from,
+        to,
+        recentExchanges: 3,
+        targetContextTokens: 400_000,
+      });
+      const capped = buildHandoff({
+        thread: long(),
+        from,
+        to,
+        recentExchanges: 3,
+        targetContextTokens: 400_000,
+        maxChars: 20_000,
+      });
+      expect(uncapped.prelude(path).length).toBeGreaterThan(120_000);
+      const prelude = capped.prelude(path);
+      expect(capped.mode).toBe("compact");
+      expect(prelude.length).toBeLessThanOrEqual(20_000);
+      expect(prelude).toContain("## Not shown here");
+      expect(prelude).toContain(path);
+      expect(prelude).toContain("Turn 118.");
+    });
+
+    it("shrinks as less room is left", () => {
+      const sizes = [50_000, 10_000, 3_000].map(
+        (maxChars) =>
+          buildHandoff({ thread: long(), from, to, recentExchanges: 3, maxChars }).prelude(path)
+            .length,
+      );
+      expect(sizes[0]!).toBeLessThanOrEqual(50_000);
+      expect(sizes[1]!).toBeLessThanOrEqual(10_000);
+      expect(sizes[2]!).toBeLessThanOrEqual(3_000);
+      expect(sizes[0]!).toBeGreaterThan(sizes[1]!);
+      expect(sizes[1]!).toBeGreaterThan(sizes[2]!);
+    });
+
+    it("falls back to the minimal prelude when almost no room is left", () => {
+      const handoff = buildHandoff({ thread: long(), from, to, recentExchanges: 3, maxChars: 0 });
+      const prelude = handoff.prelude(path);
+      expect(prelude).toBe(handoff.minimalPrelude(path));
+      expect(prelude).toContain(`The full transcript is at ${path}; search it`);
+      expect(prelude).not.toContain("## Conversation so far");
+    });
+
+    it("also caps a transcript path longer than the header allowance", () => {
+      const handoff = buildHandoff({
+        thread: long(),
+        from,
+        to,
+        recentExchanges: 3,
+        maxChars: 6_000,
+      });
+      const longPath = `/${"a".repeat(2_000)}.md`;
+      expect(handoff.prelude(longPath).length).toBeLessThanOrEqual(6_000);
+    });
+  });
+
   it("extracts links, PRs, branches, commits and paths, newest first", () => {
     const facts = extractKeyFacts([
       "Started on git checkout -b fix/cordon-rollback",
