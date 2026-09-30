@@ -23,6 +23,8 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly usedPercentage: number | null;
   readonly remainingPercentage: number | null;
   readonly updatedAt: string;
+  /** The provider instance that reported the usage; null on rows recorded before it was stamped. */
+  readonly providerInstanceId: string | null;
 };
 
 export function deriveLatestContextWindowSnapshot(
@@ -68,6 +70,8 @@ export function deriveLatestContextWindowSnapshot(
       compactsAutomatically: asBoolean(payload?.compactsAutomatically) ?? false,
       autoCompactThreshold: asFiniteNumber(payload?.autoCompactThreshold),
       updatedAt: activity.createdAt,
+      providerInstanceId:
+        typeof payload?.providerInstanceId === "string" ? payload.providerInstanceId : null,
     };
   }
 

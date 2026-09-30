@@ -843,6 +843,59 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBeNull();
   });
 
+  it("keeps a failed turn's error through the idle report that follows it", async () => {
+    const harness = await createHarness();
+    const base = {
+      provider: ProviderDriverKind.make("claudeAgent"),
+      threadId: asThreadId("thread-1"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as const;
+    const limit = "Claude usage limit reached. Send the message again once the limit resets.";
+    const session = async () =>
+      (await harness.readModel()).threads.find((entry) => entry.id === asThreadId("thread-1"))
+        ?.session;
+
+    harness.emit({
+      ...base,
+      type: "turn.started",
+      eventId: asEventId("evt-limit-turn-started"),
+      turnId: asTurnId("turn-limit"),
+    });
+    harness.emit({
+      ...base,
+      type: "turn.completed",
+      eventId: asEventId("evt-limit-turn-failed"),
+      turnId: asTurnId("turn-limit"),
+      payload: { state: "failed", errorMessage: limit },
+    });
+    // Claude's CLI goes idle after the result.
+    harness.emit({
+      ...base,
+      type: "session.state.changed",
+      eventId: asEventId("evt-limit-idle"),
+      payload: { state: "ready" },
+    });
+    await harness.drain();
+    expect(await session()).toMatchObject({ status: "ready", lastError: limit });
+
+    // A new turn that succeeds clears it.
+    harness.emit({
+      ...base,
+      type: "turn.started",
+      eventId: asEventId("evt-next-turn-started"),
+      turnId: asTurnId("turn-next"),
+    });
+    harness.emit({
+      ...base,
+      type: "turn.completed",
+      eventId: asEventId("evt-next-turn-completed"),
+      turnId: asTurnId("turn-next"),
+      payload: { state: "completed" },
+    });
+    await harness.drain();
+    expect(await session()).toMatchObject({ status: "ready", lastError: null });
+  });
+
   it("clears active turn when provider session becomes ready", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

@@ -4,6 +4,8 @@ import { describe, expect, it } from "@effect/vitest";
 import { isLimitError } from "@t3tools/shared/usageLimit";
 
 import {
+  freshUsageWindows,
+  limitKindOf,
   mergeRateLimitSignal,
   parseResetTime,
   pickResetTime,
@@ -97,6 +99,7 @@ describe("parseResetTime", () => {
 
 describe("reset time sources", () => {
   const future = "2026-09-29T09:00:00.000Z";
+  const signal = (resetsAt: number | null, windows: string[] = []) => ({ resetsAt, windows });
 
   it("reads the provider's rejected-window signal in seconds or milliseconds", () => {
     expect(rateLimitSignalReset({ status: "rejected", resetsAt: 1757865600 })).toBe(1757865600000);
@@ -113,11 +116,17 @@ describe("reset time sources", () => {
     expect(rateLimitSignalReset("nope")).toBeUndefined();
   });
 
-  it("lets a later signal with a time beat an earlier one without", () => {
-    expect(mergeRateLimitSignal(5, null)).toBe(5);
-    expect(mergeRateLimitSignal(null, 7)).toBe(7);
-    expect(mergeRateLimitSignal(5, 7)).toBe(7);
-    expect(mergeRateLimitSignal(undefined, null)).toBeNull();
+  it("lets a later signal with a time beat an earlier one without, and collects rejected windows", () => {
+    const first = mergeRateLimitSignal(undefined, {
+      status: "rejected",
+      rateLimitType: "five_hour",
+      resetsAt: 5,
+    });
+    expect(first).toEqual(signal(5000, ["five_hour"]));
+    const second = mergeRateLimitSignal(first, { status: "rejected", rateLimitType: "seven_day" });
+    expect(second).toEqual(signal(5000, ["five_hour", "seven_day"]));
+    expect(mergeRateLimitSignal(second, { status: "allowed" })).toBe(second);
+    expect(mergeRateLimitSignal(undefined, { status: "rejected" })).toEqual(signal(null));
   });
 
   it("takes the most-used window with a future reset, only when it is at least 95% used", () => {
@@ -132,17 +141,98 @@ describe("reset time sources", () => {
     expect(selectSpentWindowReset([], now)).toBeNull();
   });
 
+  it("prefers the window the provider said was rejected over the most-used one", () => {
+    const weekly = "2026-10-02T00:00:00.000Z";
+    const windows = [
+      { id: "five_hour", usedPercent: 100, resetsAt: future },
+      { id: "seven_day", usedPercent: 80, resetsAt: weekly },
+    ];
+    expect(iso(selectSpentWindowReset(windows, now, ["seven_day"]))).toBe(weekly);
+    expect(iso(selectSpentWindowReset(windows, now))).toBe(future);
+  });
+
+  it("ignores a usage reading that is stale, failed or unsupported", () => {
+    const windows = [{ usedPercent: 100, resetsAt: future }];
+    const at = (ms: number) => new Date(ms).toISOString();
+    expect(freshUsageWindows({ checkedAt: at(now - 60_000), windows }, now)).toBe(windows);
+    expect(freshUsageWindows({ checkedAt: at(now - 60 * 60_000), windows }, now)).toEqual([]);
+    expect(
+      freshUsageWindows({ checkedAt: at(now), windows, unavailable: { reason: "x" } }, now),
+    ).toEqual([]);
+    expect(freshUsageWindows(undefined, now)).toEqual([]);
+  });
+
   it("prefers the recorded signal, then the error text, then the windows", () => {
     const windows = [{ usedPercent: 100, resetsAt: future }];
     const text = "resets 8pm (UTC)";
     const recorded = Date.parse("2026-09-29T05:00:00Z");
-    expect(iso(pickResetTime({ recorded, text, windows, nowMs: now }))).toBe(iso(recorded));
-    expect(iso(pickResetTime({ recorded: null, text, windows, nowMs: now }))).toBe(
+    expect(iso(pickResetTime({ recorded: signal(recorded), text, windows, nowMs: now }))).toBe(
+      iso(recorded),
+    );
+    expect(iso(pickResetTime({ recorded: signal(null), text, windows, nowMs: now }))).toBe(
       "2026-09-29T20:00:00.000Z",
     );
     expect(iso(pickResetTime({ recorded: undefined, text: "429", windows, nowMs: now }))).toBe(
       future,
     );
-    expect(pickResetTime({ recorded: null, text: "429", windows: [], nowMs: now })).toBeNull();
+    expect(
+      pickResetTime({ recorded: signal(null), text: "429", windows: [], nowMs: now }),
+    ).toBeNull();
+  });
+
+  it("skips a source whose time is already past and falls through to the next", () => {
+    const windows = [{ usedPercent: 100, resetsAt: future }];
+    const past = now - 60 * 60_000;
+    expect(iso(pickResetTime({ recorded: signal(past), text: "", windows, nowMs: now }))).toBe(
+      future,
+    );
+    // A month and day kept up to a day old by the clock parser is past, too.
+    expect(
+      iso(
+        pickResetTime({
+          recorded: undefined,
+          text: "Weekly limit reached. resets Sep 28, 10pm (UTC)",
+          windows,
+          nowMs: now,
+        }),
+      ),
+    ).toBe(future);
+    expect(pickResetTime({ recorded: signal(past), text: "", windows: [], nowMs: now })).toBeNull();
+  });
+});
+
+describe("limitKindOf", () => {
+  it("tells a usage limit from a transient throttle", () => {
+    expect(limitKindOf("You've hit your limit · resets 8pm (UTC)", now)).toEqual({
+      kind: "usage",
+    });
+    expect(
+      limitKindOf(
+        "API Error: Server is temporarily limiting requests (not your usage limit) · litellm.RateLimitError",
+        now,
+      ),
+    ).toEqual({ kind: "transient", retryAt: null });
+    expect(limitKindOf("Failed to read file with 429 lines", now)).toBeNull();
+  });
+
+  it("treats a short retry hint as a throttle, even in usage-limit wording", () => {
+    expect(limitKindOf("Rate limit reached. Please try again in 1.2s.", now)).toEqual({
+      kind: "transient",
+      retryAt: now + 1200,
+    });
+    expect(limitKindOf("usage limit reached, retry after 20 seconds", now)).toEqual({
+      kind: "transient",
+      retryAt: now + 20_000,
+    });
+    expect(limitKindOf("usage limit reached, try again in 2h 30m", now)).toEqual({
+      kind: "usage",
+    });
+    // A rejected window signalled during the turn is the usage limit, hint or not.
+    expect(
+      limitKindOf("usage limit reached, retry after 20 seconds", now, {
+        resetsAt: null,
+        windows: ["five_hour"],
+      }),
+    ).toEqual({ kind: "usage" });
   });
 });

@@ -15,9 +15,9 @@ import * as Schema from "effect/Schema";
  * purpose: nothing ticks.
  */
 export interface UsageResumeNotice {
-  readonly state: "scheduled" | "reset-known" | "unknown" | "gave-up";
+  readonly state: "scheduled" | "rate-limited" | "reset-known" | "unknown" | "gave-up";
   readonly text: string;
-  /** Only a scheduled resume can be cancelled. */
+  /** Only a scheduled resume or retry can be cancelled. */
   readonly canCancel: boolean;
 }
 
@@ -88,6 +88,15 @@ export function deriveUsageResumeNotice(input: {
       return {
         state: "scheduled",
         text: `Out of usage · resumes automatically ${time}`,
+        canCancel: true,
+      };
+    }
+    case "rate-limited": {
+      const time = at(payload.resumeAt);
+      if (time === null) return null;
+      return {
+        state: "rate-limited",
+        text: `Rate limited by the server; retrying ${time}`,
         canCancel: true,
       };
     }

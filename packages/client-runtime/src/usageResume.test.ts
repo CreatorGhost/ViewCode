@@ -54,6 +54,19 @@ describe("deriveUsageResumeNotice", () => {
     expect(notice?.text).toBe("Out of usage · resumes automatically at 6:01 PM");
   });
 
+  it("words a transient throttle as a retry, not as being out of usage", () => {
+    const notice = deriveUsageResumeNotice({
+      activities: [activity({ state: "rate-limited", resumeAt: localIso(29, 12, 1) })],
+      session: idle,
+      latestTurn: null,
+      nowMs: NOW,
+      locale: "en-US",
+    });
+    expect(notice?.state).toBe("rate-limited");
+    expect(notice?.canCancel).toBe(true);
+    expect(notice?.text).toBe("Rate limited by the server; retrying at 12:01 PM");
+  });
+
   it("says when the reset time is unknown or automatic resume is off", () => {
     const unknown = deriveUsageResumeNotice({
       activities: [activity({ state: "unknown" })],

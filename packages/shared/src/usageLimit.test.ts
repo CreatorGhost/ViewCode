@@ -1,7 +1,12 @@
 // @effect-diagnostics globalDate:off -- Builds local wall-clock times to check zone-relative wording.
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatResumeAt, formatResumeTime, isLimitError } from "./usageLimit.ts";
+import {
+  classifyLimitError,
+  formatResumeAt,
+  formatResumeTime,
+  isLimitError,
+} from "./usageLimit.ts";
 
 const at = (day: number, hour: number, minute = 0) =>
   new Date(2026, 8, day, hour, minute).getTime();
@@ -42,5 +47,40 @@ describe("isLimitError", () => {
       expect(isLimitError(message), message).toBe(true);
     }
     expect(isLimitError("Context limit reached")).toBe(false);
+  });
+
+  it("recognises the providers' own usage-limit wording", () => {
+    for (const message of [
+      "Claude usage limit reached. Send the message again once the limit resets.",
+      "You've hit your usage limit. Upgrade to Pro or try again in 4 days 3 hours.",
+      "Weekly limit reached · resets Oct 3, 9am",
+      "Your credit balance is too low to access the API.",
+      "insufficient_quota: You exceeded your current quota",
+    ]) {
+      expect(classifyLimitError(message), message).toBe("usage");
+    }
+  });
+
+  it("treats a proxy or server throttle as transient, not as the usage limit", () => {
+    for (const message of [
+      "API Error: Server is temporarily limiting requests (not your usage limit) · litellm.RateLimitError: rate_limit_error. Please try again later",
+      "429 Too Many Requests",
+      "Rate limit reached for gpt-5 on tokens per min (TPM). Please try again in 1.2s.",
+      "Claude API is overloaded (529). Try again shortly.",
+    ]) {
+      expect(classifyLimitError(message), message).toBe("transient");
+      expect(isLimitError(message), message).toBe(false);
+    }
+  });
+
+  it("ignores unrelated numbers, words and stack traces", () => {
+    for (const message of [
+      "Failed to read file with 429 lines",
+      "Buy more credits in settings",
+      "quota.json not found",
+      "Error: spawn failed\n    at run (/app/src/UsageLimits.ts:429:7)\n    at usage limit reached (x.ts:1:1)",
+    ]) {
+      expect(classifyLimitError(message), message).toBeNull();
+    }
   });
 });

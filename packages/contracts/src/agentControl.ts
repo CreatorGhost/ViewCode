@@ -76,6 +76,11 @@ export const UsageResumeState = Schema.Literals([
   "resumed",
   /** Resumed twice and still limited; nothing more is scheduled. */
   "gave-up",
+  /**
+   * A server or proxy throttled the turn for a moment (not the usage limit);
+   * it is retried at `resumeAt`.
+   */
+  "rate-limited",
 ]);
 export type UsageResumeState = typeof UsageResumeState.Type;
 

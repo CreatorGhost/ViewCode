@@ -6450,6 +6450,10 @@ export default function ChatView(props: ChatViewProps) {
         usedTokens: activeContextWindow.usedTokens,
         updatedAt: activeContextWindow.updatedAt,
         now: `${nowMinute}:00.000Z`,
+        usageInstanceId: activeContextWindow.providerInstanceId,
+        currentInstanceId:
+          activeThread.session?.providerInstanceId ?? activeThread.modelSelection.instanceId,
+        selectedInstanceId: activeProviderInstanceId,
       })
     ) {
       return null;
@@ -6489,6 +6493,7 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [
     activeContextWindow,
+    activeProviderInstanceId,
     activeThread,
     compactDisabled,
     compactDisabledReason,

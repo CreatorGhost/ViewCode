@@ -60,11 +60,22 @@ export function hasDismissedResumeCompaction(
   });
 }
 
+/**
+ * Offers "resume with less context" only for the session that would be
+ * compacted: the usage must come from the thread's current provider instance
+ * (`usageInstanceId`, absent on older rows), and no handoff to another
+ * instance may be pending (`selectedInstanceId` differing from the current
+ * one). After a handoff the last usage row describes the old provider, and
+ * Compact would run on the new, empty session.
+ */
 export function shouldOfferResumeCompaction(input: {
   readonly provider: string | null | undefined;
   readonly usedTokens: number | null | undefined;
   readonly updatedAt: string | null | undefined;
   readonly now: string;
+  readonly usageInstanceId?: string | null | undefined;
+  readonly currentInstanceId?: string | null | undefined;
+  readonly selectedInstanceId?: string | null | undefined;
 }): boolean {
   if (
     input.provider !== "claudeAgent" ||
@@ -72,6 +83,11 @@ export function shouldOfferResumeCompaction(input: {
   ) {
     return false;
   }
+  const current = input.currentInstanceId ?? null;
+  if (current !== null && input.selectedInstanceId != null && input.selectedInstanceId !== current)
+    return false;
+  if (current !== null && input.usageInstanceId != null && input.usageInstanceId !== current)
+    return false;
 
   const updatedAt = Date.parse(input.updatedAt ?? "");
   const now = Date.parse(input.now);

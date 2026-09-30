@@ -71,6 +71,8 @@ const makeHarness = Effect.gen(function* () {
   const models = yield* Ref.make(new Map<string, string>());
   /** Provider instance per thread; claudeAgent unless a test moves one. */
   const instances = yield* Ref.make(new Map<string, string>());
+  /** Threads the user archived. */
+  const archivedIds = new Set<string>();
   /** The claudeAgent instance's usage windows, once a test publishes a reading. */
   const usage = yield* Ref.make<
     | {
@@ -207,6 +209,7 @@ const makeHarness = Effect.gen(function* () {
       runtimeMode: "full-access",
       branch: null,
       worktreePath: null,
+      archivedAt: archivedIds.has(id) ? "2026-01-01T00:00:00.000Z" : null,
       parentThreadId,
       latestTurn: turnId || lastError ? null : { turnId: "earlier-turn", state: "completed" },
       session: turnId
@@ -413,6 +416,7 @@ const makeHarness = Effect.gen(function* () {
     errors,
     models,
     instances,
+    archivedIds,
     /** A fresh usage reading for claudeAgent reaches the service. */
     publishUsage: (
       windows: ReadonlyArray<{ usedPercent: number; resetsAt?: string }>,
@@ -682,6 +686,48 @@ describe("AgentMessaging", () => {
       ),
     );
 
+    it.effect("does not mark an agent out of usage for a transient throttle", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task one." });
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task two." });
+          yield* setError(
+            harness,
+            CHILD,
+            "API Error: Server is temporarily limiting requests (not your usage limit) · litellm.RateLimitError",
+          );
+          yield* harness.endTurn(CHILD, undefined, "error");
+          yield* settle;
+
+          // The queue is not held back until a reset: the next message goes out now.
+          assert.equal(bodyOf((yield* harness.starts).at(-1)), "Task two.");
+          const agent = (yield* messaging.listAgents(LEAD)).find((entry) => entry.id === CHILD);
+          assert.isUndefined(agent?.outOfUsage);
+        }),
+      ),
+    );
+
+    it.effect("starts nothing in an archived agent", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task one." });
+          yield* messaging.sendMessage(LEAD, { to: CHILD, message: "Task two." });
+          harness.archivedIds.add(CHILD);
+          yield* harness.endTurn(CHILD, "Done.");
+          yield* settle;
+          assert.isFalse((yield* harness.starts).some((start) => bodyOf(start) === "Task two."));
+          const refused = yield* messaging
+            .sendMessage(LEAD, { to: CHILD, message: "Task three." })
+            .pipe(Effect.flip);
+          assert.include(refused.reason, "archived");
+          assert.equal(
+            yield* messaging.continueAfterLimit(CHILD, MessageId.make("resume-archived"), "usage"),
+            "gone",
+          );
+        }),
+      ),
+    );
+
     it.effect(
       "wakes a lead on another provider when the child's reset passes with nothing queued",
       () =>
@@ -861,7 +907,10 @@ describe("AgentMessaging", () => {
         yield* settle;
 
         yield* Ref.update(harness.errors, () => new Map());
-        assert.isTrue(yield* messaging.continueAfterLimit(CHILD, MessageId.make("resume-1")));
+        assert.equal(
+          yield* messaging.continueAfterLimit(CHILD, MessageId.make("resume-1"), "usage"),
+          "started",
+        );
         yield* settle;
         const resumed = (yield* harness.starts).at(-1)!;
         assert.equal(resumed.threadId, CHILD);
@@ -872,7 +921,10 @@ describe("AgentMessaging", () => {
         );
 
         // A busy thread is left alone.
-        assert.isFalse(yield* messaging.continueAfterLimit(CHILD, MessageId.make("resume-2")));
+        assert.equal(
+          yield* messaging.continueAfterLimit(CHILD, MessageId.make("resume-2"), "usage"),
+          "busy",
+        );
 
         yield* harness.endTurn(CHILD, "Done.");
         yield* settle;
@@ -1342,12 +1394,10 @@ describe("AgentMessaging", () => {
 });
 
 describe("isLimitError", () => {
-  it("recognises usage, rate, plan and credit limits", () => {
+  it("recognises usage, plan and credit limits", () => {
     for (const message of [
       "Claude usage limit reached. Try again at 5pm.",
       "usage_limit_reached",
-      "Rate limit exceeded, retry after 30s",
-      "429 Too Many Requests",
       "You exceeded your current quota, please check your plan and billing details.",
       "403 MODEL_NOT_IN_PLAN",
       "This model is not available on your plan",
@@ -1369,6 +1419,10 @@ describe("isLimitError", () => {
       "Request exceeded max_tokens",
       "Timeout exceeded while waiting for the provider",
       "Command exited with code 1",
+      // A throttle is retried (UsageResume), not treated as out of usage.
+      "Rate limit exceeded, retry after 30s",
+      "429 Too Many Requests",
+      "Failed to read file with 429 lines",
       null,
       undefined,
     ]) {

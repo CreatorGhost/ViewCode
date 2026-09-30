@@ -9,8 +9,11 @@
  * (`@t3tools/shared/usageLimit`); keep the two in step.
  *
  * This file also picks the best reset time among the sources a limit leaves
- * behind (see `pickResetTime`).
+ * behind (see `pickResetTime`), and tells a usage limit from a transient
+ * throttle (see `limitKindOf`).
  */
+
+import { classifyLimitError } from "@t3tools/shared/usageLimit";
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const FIXED_ZONES: Readonly<Record<string, number>> = {
@@ -225,48 +228,130 @@ export function rateLimitSignalReset(detail: unknown): number | null | undefined
   return raw > 1e11 ? raw : raw * 1000;
 }
 
-/** A later signal with a time beats an earlier one without. */
-export function mergeRateLimitSignal(
-  previous: number | null | undefined,
-  next: number | null,
-): number | null {
-  return next ?? previous ?? null;
+/**
+ * The provider's own rate-limit signals seen during one turn: the reset time
+ * (a later signal with a time beats an earlier one without) and the windows it
+ * named as rejected, e.g. Claude's `five_hour`, which match usage window ids.
+ */
+export interface RateLimitSignal {
+  readonly resetsAt: number | null;
+  readonly windows: ReadonlyArray<string>;
 }
 
-/** The reset of the most-used window that has one in the future, if it is spent. */
-export function selectSpentWindowReset(
-  windows: ReadonlyArray<{ readonly usedPercent: number; readonly resetsAt?: string | undefined }>,
+/** Folds one `runtime.warning` detail into the turn's signal; unchanged when it is not one. */
+export function mergeRateLimitSignal(
+  previous: RateLimitSignal | undefined,
+  detail: unknown,
+): RateLimitSignal | undefined {
+  const reset = rateLimitSignalReset(detail);
+  if (reset === undefined) return previous;
+  const window = (detail as { readonly rateLimitType?: unknown }).rateLimitType;
+  const windows = previous?.windows ?? [];
+  return {
+    resetsAt: reset ?? previous?.resetsAt ?? null,
+    windows:
+      typeof window === "string" && !windows.includes(window) ? [...windows, window] : windows,
+  };
+}
+
+type UsageWindow = {
+  readonly id?: string | undefined;
+  readonly usedPercent: number;
+  readonly resetsAt?: string | undefined;
+};
+
+/** A usage reading older than this says little about the limit a turn just hit. */
+export const USAGE_SNAPSHOT_MAX_AGE_MS = 10 * 60_000;
+
+/** The windows of a usage reading, or none when the reading is stale, failed or unsupported. */
+export function freshUsageWindows(
+  usage:
+    | {
+        readonly checkedAt: string;
+        readonly windows: ReadonlyArray<UsageWindow>;
+        readonly unavailable?: unknown;
+      }
+    | undefined,
   nowMs: number,
+): ReadonlyArray<UsageWindow> {
+  if (!usage || usage.unavailable !== undefined) return [];
+  const checkedAt = Date.parse(usage.checkedAt);
+  return Number.isFinite(checkedAt) && nowMs - checkedAt <= USAGE_SNAPSHOT_MAX_AGE_MS
+    ? usage.windows
+    : [];
+}
+
+/**
+ * The reset of the window blocking the account: a window the provider named
+ * as rejected (the latest such reset, since all of them must clear), else the
+ * most-used window with a future reset, if it is spent.
+ */
+export function selectSpentWindowReset(
+  windows: ReadonlyArray<UsageWindow>,
+  nowMs: number,
+  rejected: ReadonlyArray<string> = [],
 ): number | null {
   let spent: { readonly usedPercent: number; readonly at: number } | null = null;
+  let blocking: number | null = null;
   for (const window of windows) {
     if (window.resetsAt === undefined) continue;
     const at = Date.parse(window.resetsAt);
     if (!Number.isFinite(at) || at <= nowMs) continue;
+    if (window.id !== undefined && rejected.includes(window.id)) {
+      blocking = Math.max(blocking ?? at, at);
+    }
     if (spent === null || window.usedPercent > spent.usedPercent) {
       spent = { usedPercent: window.usedPercent, at };
     }
   }
+  if (blocking !== null) return blocking;
   return spent !== null && spent.usedPercent >= SPENT_WINDOW_PERCENT ? spent.at : null;
 }
 
 /**
  * When a limit resets, from the best source that has one: the provider's own
  * signal recorded during the turn, then the error text, then the provider's
- * usage windows.
+ * usage windows. Only a future time counts: a source naming a time already
+ * past falls through to the next, so a stale signal never resumes at once.
  */
 export function pickResetTime(input: {
-  readonly recorded: number | null | undefined;
+  readonly recorded: RateLimitSignal | undefined;
   readonly text: string;
-  readonly windows: ReadonlyArray<{
-    readonly usedPercent: number;
-    readonly resetsAt?: string | undefined;
-  }>;
+  readonly windows: ReadonlyArray<UsageWindow>;
   readonly nowMs: number;
 }): number | null {
+  const future = (at: number | null | undefined) =>
+    at !== null && at !== undefined && at > input.nowMs ? at : null;
   return (
-    input.recorded ??
-    parseResetTime(input.text, input.nowMs) ??
-    selectSpentWindowReset(input.windows, input.nowMs)
+    future(input.recorded?.resetsAt) ??
+    future(parseResetTime(input.text, input.nowMs)) ??
+    selectSpentWindowReset(input.windows, input.nowMs, input.recorded?.windows)
   );
+}
+
+/** A retry hint closer than this is a throttle ("try again in 20s"), not a usage window. */
+export const TRANSIENT_RETRY_HINT_MS = 5 * 60_000;
+
+/**
+ * How a failed turn's error reads: the usage limit, a transient throttle
+ * (with the provider's own short retry hint, if it gave one), or neither. A
+ * usage-limit message that says to retry within a few minutes is a throttle.
+ * A rejected usage window the provider signalled during the turn keeps a
+ * usage-limit message a usage limit even with a short hint.
+ */
+export function limitKindOf(
+  text: string | null | undefined,
+  nowMs: number,
+  recorded?: RateLimitSignal,
+):
+  | { readonly kind: "usage" }
+  | { readonly kind: "transient"; readonly retryAt: number | null }
+  | null {
+  const kind = classifyLimitError(text);
+  if (kind === null || typeof text !== "string") return null;
+  if (recorded !== undefined && kind === "usage") return { kind };
+  const hint = parseRelative(text, nowMs);
+  const short = hint !== null && hint - nowMs < TRANSIENT_RETRY_HINT_MS;
+  if (kind === "usage" && !short) return { kind };
+  return { kind: "transient", retryAt: short ? hint : null };
 }

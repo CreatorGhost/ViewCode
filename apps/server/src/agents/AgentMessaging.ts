@@ -52,7 +52,9 @@ import {
   USAGE_RESET_MARGIN_MS,
   mergeRateLimitSignal,
   pickResetTime,
-  rateLimitSignalReset,
+  type RateLimitSignal,
+  freshUsageWindows,
+  limitKindOf,
   selectSpentWindowReset,
   SPENT_WINDOW_PERCENT,
 } from "./usageResetTime.ts";
@@ -234,12 +236,12 @@ type Job =
       readonly threadId: ThreadId;
       readonly turn: OwnTurn;
       readonly session: OrchestrationSession;
-      readonly signal: number | null | undefined;
+      readonly signal: RateLimitSignal | undefined;
     }
   | {
       readonly kind: "idle";
       readonly threadId: ThreadId;
-      readonly signal: number | null | undefined;
+      readonly signal: RateLimitSignal | undefined;
     }
   | { readonly kind: "hold-turn"; readonly threadId: ThreadId; readonly turn: OwnTurn }
   | { readonly kind: "stopped"; readonly threadId: ThreadId; readonly interrupted: boolean }
@@ -307,14 +309,17 @@ export interface AgentMessagingShape {
     input: AgentControlInput,
   ) => Effect.Effect<AgentControlResult, AgentControlError>;
   /**
-   * Starts the usage-reset continue prompt on a thread whose usage limit has
-   * reset, clearing its out-of-quota mark. Mail queued for the agent follows
-   * when that turn ends. False when the thread is gone, paused or busy.
+   * Continues a thread stopped on a limit, clearing its out-of-quota mark:
+   * the usage-reset prompt once a usage limit reset, a plain "continue" after
+   * a transient throttle. Mail queued for the agent follows when that turn
+   * ends. Says why nothing started when the thread is gone or archived,
+   * paused by the user, or busy.
    */
   readonly continueAfterLimit: (
     threadId: ThreadId,
     messageId: MessageId,
-  ) => Effect.Effect<boolean, AgentMessagingError>;
+    reason: "usage" | "transient",
+  ) => Effect.Effect<"started" | "busy" | "paused" | "gone", AgentMessagingError>;
   /**
    * Records what happens to a thread stopped on a usage limit (`resumeAt` when
    * an automatic resume is scheduled), or clears it with null. Clients read it
@@ -404,7 +409,7 @@ const make = Effect.gen(function* () {
   // until the mark's retryAfter, then the next one is delivered as the probe.
   const limited = new Map<string, LimitMark>();
   // The provider's own rate-limit signal seen during the running turn, by thread.
-  const signals = new Map<string, number | null>();
+  const signals = new Map<string, RateLimitSignal>();
   const usageStates = new Map<string, { readonly resumeAt?: string }>();
   const limitChanged = yield* Queue.sliding<void>(1);
   const now = Clock.currentTimeMillis;
@@ -585,6 +590,9 @@ const make = Effect.gen(function* () {
     const threads = yield* shells;
     const target = threads.find((thread) => thread.id === delivery.toThreadId);
     if (!target) return yield* fail("The receiving agent no longer exists.");
+    if (target.archivedAt !== null) {
+      return yield* fail(`${target.title} is archived; the user has to unarchive it first.`);
+    }
     const to = delivery.toThreadId;
     const nowMs = yield* now;
     if (
@@ -610,7 +618,8 @@ const make = Effect.gen(function* () {
     const threads = yield* shells;
     if (paused.has(threadId) || blocks(threadId, yield* now) || ownTurns.has(threadId)) return;
     const thread = threads.find((entry) => entry.id === threadId);
-    if (!thread || isBusy(thread)) return;
+    // An archived agent keeps its queue; nothing runs in it until it is unarchived.
+    if (!thread || thread.archivedAt !== null || isBusy(thread)) return;
     const queue = queues.get(threadId);
     const next = queue?.shift();
     if (queue && queue.length === 0) queues.delete(threadId);
@@ -1042,12 +1051,14 @@ const make = Effect.gen(function* () {
   const instanceOf = (thread: OrchestrationThreadShell) =>
     String(thread.session?.providerInstanceId ?? thread.modelSelection.instanceId);
 
-  const usageWindows = (instanceId: string) =>
+  /** The instance's usage windows when the reading is recent enough to trust. */
+  const usageWindows = (instanceId: string, nowMs: number) =>
     providerRegistry.getProviders.pipe(
-      Effect.map(
-        (providers) =>
-          providers.find((entry) => String(entry.instanceId) === instanceId)?.usageLimits
-            ?.windows ?? [],
+      Effect.map((providers) =>
+        freshUsageWindows(
+          providers.find((entry) => String(entry.instanceId) === instanceId)?.usageLimits,
+          nowMs,
+        ),
       ),
       Effect.orElseSucceed(() => []),
     );
@@ -1062,21 +1073,22 @@ const make = Effect.gen(function* () {
    */
   const updateLimit = Effect.fnUntraced(function* (
     thread: OrchestrationThreadShell,
-    signal: number | null | undefined,
+    signal: RateLimitSignal | undefined,
     fresh: boolean,
   ) {
     const lastError = thread.session?.lastError ?? null;
-    if (!isLimitError(lastError)) {
+    const nowMs = yield* now;
+    // A transient throttle is not out of usage: no mark (UsageResume retries it).
+    if (lastError === null || limitKindOf(lastError, nowMs, signal)?.kind !== "usage") {
       limited.delete(thread.id);
       return false;
     }
     if (!fresh && limited.get(thread.id)?.reason === lastError) return true;
-    const nowMs = yield* now;
     const instanceId = instanceOf(thread);
     const resetsAt = pickResetTime({
       recorded: signal,
       text: lastError,
-      windows: yield* usageWindows(instanceId),
+      windows: yield* usageWindows(instanceId, nowMs),
       nowMs,
     });
     const known = resetsAt !== null && resetsAt - nowMs <= MAX_RESET_HORIZON_MS;
@@ -1116,9 +1128,10 @@ const make = Effect.gen(function* () {
     if (hadQueue) return;
     const threads = yield* shells;
     const child = threads.find((entry) => entry.id === threadId);
-    if (!child?.parentThreadId || isBusy(child) || ownTurns.has(id)) return;
+    if (!child?.parentThreadId || child.archivedAt !== null || isBusy(child) || ownTurns.has(id))
+      return;
     const lead = threads.find((entry) => entry.id === child.parentThreadId);
-    if (!lead) return;
+    if (!lead || lead.archivedAt !== null) return;
     const nowMs = yield* now;
     const label = yield* providerLabel(mark.instanceId);
     const reset = mark.resetsAt !== null ? ` (reset ${clockText(mark.resetsAt, nowMs)})` : "";
@@ -1454,12 +1467,11 @@ const make = Effect.gen(function* () {
           const { threadId, activity } = event.payload;
           if (activity.kind === "runtime.warning") {
             // A rejected usage window carries the provider's own reset time.
-            const reset = rateLimitSignalReset(
+            const signal = mergeRateLimitSignal(
+              signals.get(threadId),
               (activity.payload as { readonly detail?: unknown } | null)?.detail,
             );
-            if (reset !== undefined) {
-              signals.set(threadId, mergeRateLimitSignal(signals.get(threadId), reset));
-            }
+            if (signal !== undefined) signals.set(threadId, signal);
             return Effect.void;
           }
           if (
@@ -1611,15 +1623,22 @@ const make = Effect.gen(function* () {
       return { threadIds: changed };
     }).pipe(Effect.mapError(controlError));
 
-  const continueAfterLimit: AgentMessagingShape["continueAfterLimit"] = (threadId, messageId) =>
+  const continueAfterLimit: AgentMessagingShape["continueAfterLimit"] = (
+    threadId,
+    messageId,
+    reason,
+  ) =>
     Effect.gen(function* () {
       const thread = (yield* shells).find((entry) => entry.id === threadId);
-      if (!thread || paused.has(threadId) || ownTurns.has(threadId) || isBusy(thread)) return false;
+      if (!thread || thread.archivedAt !== null) return "gone" as const;
+      if (paused.has(threadId)) return "paused" as const;
+      if (ownTurns.has(threadId) || isBusy(thread)) return "busy" as const;
       limited.delete(threadId);
-      yield* startTurn(thread, USAGE_RESET_CONTINUE_PROMPT, null, messageId).pipe(
+      const prompt = reason === "usage" ? USAGE_RESET_CONTINUE_PROMPT : AGENT_CONTINUE_PROMPT;
+      yield* startTurn(thread, prompt, null, messageId).pipe(
         Effect.mapError((cause) => new AgentMessagingError({ reason: String(cause) })),
       );
-      return true;
+      return "started" as const;
     });
 
   const start: AgentMessagingShape["start"] = Effect.fn("AgentMessaging.start")(function* () {

@@ -182,6 +182,41 @@ describe("shouldOfferResumeCompaction", () => {
       }),
     ).toBe(false);
   });
+
+  it("offers it only for the current session's own usage, with no handoff pending", () => {
+    const old = {
+      provider: "claudeAgent",
+      usedTokens: 300_000,
+      updatedAt: "2026-08-24T09:00:00.000Z",
+      now,
+    } as const;
+    expect(
+      shouldOfferResumeCompaction({
+        ...old,
+        usageInstanceId: "claudeAgent",
+        currentInstanceId: "claudeAgent",
+        selectedInstanceId: "claudeAgent",
+      }),
+    ).toBe(true);
+    // Handed off from Codex: the last usage row is Codex's.
+    expect(
+      shouldOfferResumeCompaction({
+        ...old,
+        usageInstanceId: "codex",
+        currentInstanceId: "claudeAgent",
+        selectedInstanceId: "claudeAgent",
+      }),
+    ).toBe(false);
+    // A handoff to another Claude account is pending on the next turn.
+    expect(
+      shouldOfferResumeCompaction({
+        ...old,
+        usageInstanceId: "claudeAgent",
+        currentInstanceId: "claudeAgent",
+        selectedInstanceId: "claudeWork",
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("hasDismissedResumeCompaction", () => {
