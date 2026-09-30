@@ -6553,12 +6553,10 @@ export default function ChatView(props: ChatViewProps) {
     const parkedThreadItems = parkedThreadBannerItem === null ? [] : [parkedThreadBannerItem];
     // The user asked for this one, so it leads the notice tier instead of trailing it.
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
-    const usageResumeItems = usageResumeBannerItem === null ? [] : [usageResumeBannerItem];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
-        ...usageResumeItems,
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
@@ -6570,7 +6568,6 @@ export default function ChatView(props: ChatViewProps) {
     }
     return [
       ...feedbackBannerItems,
-      ...usageResumeItems,
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
@@ -6630,9 +6627,14 @@ export default function ChatView(props: ChatViewProps) {
     showBranchMismatchBanner,
     systemComposerBannerItems,
     usageLimitsBanner,
-    usageResumeBannerItem,
     wokeThreadBannerItem,
   ]);
+  // Pinned outside the stack: the stack keeps activity in front and folds
+  // everything else behind it, which hid "resumes automatically at …".
+  const pinnedComposerBannerItems = useMemo(
+    () => (usageResumeBannerItem === null ? [] : [usageResumeBannerItem]),
+    [usageResumeBannerItem],
+  );
   useEffect(() => {
     setPendingServerThreadEnvMode(null);
     setPendingServerThreadBranch(undefined);
@@ -10148,6 +10150,7 @@ export default function ChatView(props: ChatViewProps) {
                             }
                             isPreparingWorktree={isPreparingWorktree}
                             bannerItems={composerBannerItems}
+                            pinnedBannerItems={pinnedComposerBannerItems}
                             agentsBar={activeAgentsBar}
                             // With attachments or contexts aboard the pick just inserts the
                             // text, so it sends as a prompt like the typed path would.
