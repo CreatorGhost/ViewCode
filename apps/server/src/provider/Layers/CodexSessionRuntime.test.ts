@@ -309,7 +309,7 @@ describe("buildTurnStartParams", () => {
     NodeAssert.equal(settings?.model, DEFAULT_MODEL);
     NodeAssert.equal(settings?.reasoning_effort, "medium");
     NodeAssert.ok(
-      params.additionalContext?.t3_code_runtime?.value.includes(`as ${DEFAULT_MODEL} with medium`),
+      params.additionalContext?.viewcode_runtime?.value.includes(`as ${DEFAULT_MODEL} with medium`),
     );
   });
 
@@ -325,7 +325,7 @@ describe("buildTurnStartParams", () => {
       });
 
       NodeAssert.match(
-        params.additionalContext?.t3_code_runtime?.value ?? "",
+        params.additionalContext?.viewcode_runtime?.value ?? "",
         /as GPT-5\.3-Codex \(model slug: gpt-5\.3-codex\) with high reasoning effort/,
       );
     }),
@@ -597,12 +597,12 @@ describe("buildCodexDeveloperInstructions", () => {
 describe("buildCodexAdditionalContext", () => {
   const runtime = { model: "gpt-5.3-codex", reasoningEffort: "high" };
   const runtimeValue = (context: ReturnType<typeof buildCodexAdditionalContext>) =>
-    context.t3_code_runtime?.value ?? "";
+    context.viewcode_runtime?.value ?? "";
 
   it("describes the harness, model, effort, and Markdown media support", () => {
     const context = buildCodexAdditionalContext(runtime);
 
-    NodeAssert.equal(context.t3_code_runtime?.kind, "application");
+    NodeAssert.equal(context.viewcode_runtime?.kind, "application");
     NodeAssert.match(
       runtimeValue(context),
       /<runtime_info>.*Codex harness, as gpt-5\.3-codex with high reasoning effort.*embed images and videos.*Markdown.*<\/runtime_info>/,
@@ -640,8 +640,8 @@ describe("T3 tool instructions", () => {
   const runtime = { model: "gpt-5.3-codex", reasoningEffort: "high" };
 
   it("prefers the product-native preview tools when they are attached", () => {
-    const tools = buildCodexAdditionalContext(runtime, true).t3_code_tools?.value ?? "";
-    NodeAssert.match(tools, /t3-code/);
+    const tools = buildCodexAdditionalContext(runtime, true).viewcode_tools?.value ?? "";
+    NodeAssert.match(tools, /viewcode/);
     NodeAssert.match(tools, /preview_status/);
     NodeAssert.match(tools, /preview_open/);
     NodeAssert.match(tools, /Do not switch to global browser skills/);
@@ -650,8 +650,8 @@ describe("T3 tool instructions", () => {
 
   it("describes device tools only when the credential grants them", () => {
     const tools =
-      buildCodexAdditionalContext(runtime, { browser: false, device: true }).t3_code_tools?.value ??
-      "";
+      buildCodexAdditionalContext(runtime, { browser: false, device: true }).viewcode_tools
+        ?.value ?? "";
     NodeAssert.match(tools, /device_open/);
     NodeAssert.doesNotMatch(tools, /preview_open/);
   });
@@ -660,7 +660,7 @@ describe("T3 tool instructions", () => {
     // Steering away from other browser automation must go with the tools;
     // keeping it would leave the model talked out of its only option.
     const context = buildCodexAdditionalContext(runtime, false);
-    NodeAssert.deepStrictEqual(Object.keys(context), ["t3_code_runtime"]);
+    NodeAssert.deepStrictEqual(Object.keys(context), ["viewcode_runtime"]);
   });
 });
 
@@ -669,7 +669,7 @@ describe("hasConfiguredMcpServer", () => {
     NodeAssert.equal(hasConfiguredMcpServer(undefined), false);
     NodeAssert.equal(hasConfiguredMcpServer(["--model", "gpt-5.4"]), false);
     NodeAssert.equal(
-      hasConfiguredMcpServer(["-c", 'mcp_servers.t3-code.url="http://127.0.0.1/mcp"']),
+      hasConfiguredMcpServer(["-c", 'mcp_servers.viewcode.url="http://127.0.0.1/mcp"']),
       true,
     );
   });
@@ -826,7 +826,7 @@ describe("codexSessionAppServerArgs", () => {
   it("keeps launch args when explicit app-server args are provided", () => {
     NodeAssert.deepStrictEqual(
       codexSessionAppServerArgs(
-        ["-c", "mcp_servers.t3-code.url=http://127.0.0.1/mcp"],
+        ["-c", "mcp_servers.viewcode.url=http://127.0.0.1/mcp"],
         "--strict-config --enable foo",
       ),
       [
@@ -835,7 +835,7 @@ describe("codexSessionAppServerArgs", () => {
         "--enable",
         "foo",
         "-c",
-        "mcp_servers.t3-code.url=http://127.0.0.1/mcp",
+        "mcp_servers.viewcode.url=http://127.0.0.1/mcp",
       ],
     );
   });

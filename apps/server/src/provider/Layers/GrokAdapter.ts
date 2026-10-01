@@ -1531,7 +1531,8 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "session/prompt",
-            detail: "Change permissions with T3's permission selector instead of /always-approve.",
+            detail:
+              "Change permissions with ViewCode's permission selector instead of /always-approve.",
           });
         }
         const prepared = yield* withThreadLock(

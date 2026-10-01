@@ -59,7 +59,7 @@ Claude ↔ Codex live, compact mode on a real long thread.
 
 **Intended behaviour.** A child agent is a full thread with `parentThreadId`,
 shown nested in the sidebar; the user can open, prompt and switch its model.
-Agents talk through the `t3-code` MCP toolkit, **all tools prefixed
+Agents talk through the `viewcode` MCP toolkit, **all tools prefixed
 `viewcode_`** (`viewcode_list_agents`, `viewcode_list_models`,
 `viewcode_spawn_agent`, `viewcode_send_message`, `viewcode_read_transcript`,
 `viewcode_search_history`, `viewcode_configure_agent`). A message is a normal
