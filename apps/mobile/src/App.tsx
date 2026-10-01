@@ -35,7 +35,18 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
 });
 
 const appLinking = {
-  prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
+  // ViewCode registers only its own schemes; the t3code ones stay so links
+  // built with the stock scheme (widgets target this package explicitly)
+  // still route.
+  prefixes: [
+    Linking.createURL("/"),
+    "viewcode://",
+    "viewcode-dev://",
+    "viewcode-preview://",
+    "t3code://",
+    "t3code-dev://",
+    "t3code-preview://",
+  ],
   // Keep the compact thread list available beneath a directly opened thread.
   config: { initialRouteName: "Home" },
   filter: shouldHandleAppLink,

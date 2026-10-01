@@ -10,9 +10,9 @@
 
 This app has three variants:
 
-- `development`: Expo dev client, installable side-by-side as `T3 Code Dev`
-- `preview`: persistent internal preview build, installable side-by-side as `T3 Code Preview`
-- `production`: store/release build as `T3 Code`
+- `development`: Expo dev client, installable side-by-side as `ViewCode Dev`
+- `preview`: persistent internal preview build (an installable APK on Android), side-by-side as `ViewCode Preview`
+- `production`: release build as `ViewCode`
 
 Run commands from `apps/mobile`.
 
@@ -120,6 +120,11 @@ node ../../scripts/mobile-native-static-check.ts
 The native lint task runs SwiftLint for Swift plus ktlint and detekt for Kotlin. Missing native tools are reported as warnings and skipped locally. CI installs the default toolset from `apps/mobile/Brewfile` before running the native checks.
 
 ## EAS Builds
+
+ViewCode builds on your own Expo account. The config carries no EAS project:
+set `VIEWCODE_EAS_PROJECT_ID` (and `VIEWCODE_EAS_OWNER` for an organization) in the
+repository-root `.env.local` and as an EAS environment variable. OTA updates stay off
+until a project ID is set. Step by step: [ViewCode Android app](../../docs/user/android-app.md).
 
 Preview and production variants use Expo fingerprinting so OTA updates only reach binaries with matching native dependencies, config plugins, and patches. CI uses the `preview:dev` profile to reuse a compatible native build when possible.
 

@@ -4,9 +4,11 @@ import {
   buildSidebarThreadTree,
   collectVisibleSidebarThreadKeys,
   flattenSidebarThreadNode,
+  partitionThreadTreeNodes,
+  selectThreadTreeSearchMatches,
   sidebarThreadAncestorKeys,
   type SidebarThreadTreeNode,
-} from "./sidebarThreadTree";
+} from "./threadTree.ts";
 
 interface TestThread {
   readonly id: string;
@@ -203,5 +205,60 @@ describe("collectVisibleSidebarThreadKeys", () => {
         (threadKey) => threadKey !== "a1",
       ),
     ).toEqual(["pin", "a1", "b1"]);
+  });
+});
+
+describe("selectThreadTreeSearchMatches", () => {
+  const threads: TestThread[] = [
+    { id: "lead", project: "a", order: 1 },
+    { id: "child", project: "a", parent: "lead", order: 2 },
+    { id: "grandchild", project: "a", parent: "child", order: 3 },
+    { id: "other", project: "a", order: 4 },
+  ];
+  const select = (match: (thread: TestThread) => boolean, input = threads) =>
+    selectThreadTreeSearchMatches({
+      threads: input,
+      threadKeyOf: (thread) => thread.id,
+      parentKeyOf: (thread) => thread.parent ?? null,
+      matches: match,
+    });
+
+  it("keeps the path to a nested match and opens it", () => {
+    const selection = select((thread) => thread.id === "grandchild");
+    expect([...selection.keys].toSorted()).toEqual(["child", "grandchild", "lead"]);
+    expect([...selection.expandKeys].toSorted()).toEqual(["child", "lead"]);
+  });
+
+  it("keeps a matching lead's agents without opening them", () => {
+    const selection = select((thread) => thread.id === "lead");
+    expect([...selection.keys].toSorted()).toEqual(["child", "grandchild", "lead"]);
+    expect(selection.expandKeys.size).toBe(0);
+  });
+
+  it("terminates on cyclic parent links", () => {
+    const selection = select(
+      (thread) => thread.id === "x",
+      [
+        { id: "x", project: "a", parent: "y", order: 1 },
+        { id: "y", project: "a", parent: "x", order: 2 },
+      ],
+    );
+    expect([...selection.keys].toSorted()).toEqual(["x", "y"]);
+  });
+});
+
+describe("partitionThreadTreeNodes", () => {
+  it("moves a settled lead together with its agents", () => {
+    const settledIds = new Set(["lead"]);
+    const tree = build([
+      { id: "lead", project: "a", order: 1 },
+      { id: "child", project: "a", parent: "lead", order: 2, working: true },
+      { id: "open", project: "a", order: 3 },
+    ]);
+    const { active, settled } = partitionThreadTreeNodes(tree.folders[0]!.nodes, (thread) =>
+      settledIds.has(thread.id),
+    );
+    expect(shape(active)).toEqual(["open"]);
+    expect(shape(settled)).toEqual([{ lead: ["child"] }]);
   });
 });

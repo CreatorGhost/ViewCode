@@ -247,6 +247,10 @@
       "types": "./src/state/threadSettled.ts",
       "default": "./src/state/threadSettled.ts"
     },
+    "./state/thread-tree": {
+      "types": "./src/state/threadTree.ts",
+      "default": "./src/state/threadTree.ts"
+    },
     "./state/thread-search": {
       "types": "./src/state/threadSearch.ts",
       "default": "./src/state/threadSearch.ts"

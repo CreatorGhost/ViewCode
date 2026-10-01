@@ -78,7 +78,9 @@ export function extractPairingUrlFromQrPayload(payload: string): string {
 
   try {
     const url = new URL(trimmed);
-    if (url.protocol === "t3code:") {
+    // QR payloads may wrap the pairing URL in an app link; accept ViewCode's
+    // scheme and the stock T3 Code one so either desktop's QR works.
+    if (url.protocol === "viewcode:" || url.protocol === "t3code:") {
       const pairingUrl = url.searchParams.get(MOBILE_PAIRING_URL_PARAM)?.trim() ?? "";
       if (pairingUrl.length > 0) {
         return pairingUrl;
