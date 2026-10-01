@@ -52,10 +52,13 @@ import {
 } from "./home-folder-rows";
 import {
   buildHomeFolderList,
+  countHomeStatusFilters,
   homeFolderListItemsAreEqual,
   resolveHomeAgentModelLabel,
   type HomeFolderListItem,
+  type HomeStatusFilter,
 } from "./homeFolderList";
+import { HomeStatusFilterChips } from "./home-folder-rows";
 import {
   buildHomeProjectScopes,
   sortHomeProjectScopes,
@@ -419,6 +422,7 @@ export function HomeScreen(props: HomeScreenProps) {
     () => new Set(),
   );
   const [expandedLeadKeys, setExpandedLeadKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [statusFilter, setStatusFilter] = useState<HomeStatusFilter>("all");
   const [expandedSettledFolderKeys, setExpandedSettledFolderKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -625,6 +629,7 @@ export function HomeScreen(props: HomeScreenProps) {
         pendingTasks: v2PendingTasks,
         environmentId: props.selectedEnvironmentId,
         searchQuery: props.searchQuery,
+        statusFilter,
         matchedThreadKeys,
         settlementEnvironmentIds,
         snoozeEnvironmentIds,
@@ -659,6 +664,7 @@ export function HomeScreen(props: HomeScreenProps) {
       snoozeEnvironmentIds,
       snoozeWakeTick,
       snoozedShelfExpanded,
+      statusFilter,
       threadMoveAvailability,
       v2PendingTasks,
     ],
@@ -925,6 +931,18 @@ export function HomeScreen(props: HomeScreenProps) {
   // so the archived-at check already covers the settled shelf.
   const hasAnyThreads =
     props.threads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
+  const statusFilterCounts = useMemo(
+    () =>
+      countHomeStatusFilters(
+        props.threads.filter(
+          (thread) =>
+            thread.archivedAt === null &&
+            (props.selectedEnvironmentId === null ||
+              thread.environmentId === props.selectedEnvironmentId),
+        ),
+      ),
+    [props.selectedEnvironmentId, props.threads],
+  );
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
       ? null
@@ -981,11 +999,20 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  const listHeader = Platform.OS === "ios" ? null : <HomeTopContentSpacer />;
-
-  // Project scoping lives in the header filter menu (no inline chip row on
-  // mobile — the menu is the one filter surface).
-  const v2ListHeader = listHeader;
+  // Project and environment scoping stay in the header menu; the chips filter
+  // by what the work needs.
+  const v2ListHeader = hasAnyThreads ? (
+    <>
+      {Platform.OS === "ios" ? null : <HomeTopContentSpacer />}
+      <HomeStatusFilterChips
+        value={statusFilter}
+        counts={statusFilterCounts}
+        onChange={setStatusFilter}
+      />
+    </>
+  ) : Platform.OS === "ios" ? null : (
+    <HomeTopContentSpacer />
+  );
 
   // Use the v2 project scope for its empty state. Snoozed threads need no
   // special empty state: their shelf header is a list row even while collapsed.
@@ -994,6 +1021,16 @@ export function HomeScreen(props: HomeScreenProps) {
       <EmptyState
         title="No results"
         detail={`No threads matching "${props.searchQuery}".`}
+        variant={Platform.OS === "android" ? "plain" : undefined}
+      />
+    ) : statusFilter !== "all" ? (
+      <EmptyState
+        title={statusFilter === "working" ? "Nothing working" : "Nothing needs you"}
+        detail={
+          statusFilter === "working"
+            ? "No agents are running right now."
+            : "No approvals, questions or failures are waiting."
+        }
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : v2ScopedProjectGroup !== null ? (
@@ -1016,7 +1053,9 @@ export function HomeScreen(props: HomeScreenProps) {
       />
     );
 
-  if (Platform.OS === "android" && folderItems.length === 0) {
+  // A filter chip that empties the list keeps the list (and its chips) so the
+  // user can switch back.
+  if (Platform.OS === "android" && folderItems.length === 0 && statusFilter === "all") {
     return (
       <View className="flex-1 bg-header">
         <View

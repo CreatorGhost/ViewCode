@@ -7,6 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildHomeFolderList,
+  countHomeStatusFilters,
   resolveHomeAgentModelLabel,
   resolveHomeAgentStatus,
   type HomeFolderListItem,
@@ -80,6 +81,7 @@ function build(
     readonly expandedLeadKeys?: string[];
     readonly expandedSettledFolderKeys?: string[];
     readonly onlyScope?: (typeof scopes)[number];
+    readonly statusFilter?: "all" | "working" | "needs-you";
   } = {},
 ) {
   return buildHomeFolderList({
@@ -89,6 +91,7 @@ function build(
     pendingTasks: [],
     environmentId: null,
     searchQuery: options.searchQuery ?? "",
+    ...(options.statusFilter ? { statusFilter: options.statusFilter } : {}),
     now: NOW,
     collapsedFolderKeys: new Set(options.collapsedFolderKeys),
     expandedLeadKeys: new Set(options.expandedLeadKeys?.map((id) => `${ENV}:${id}`)),
@@ -322,5 +325,40 @@ describe("agent control on the folder list", () => {
       paused: 1,
       queued: 2,
     });
+  });
+});
+
+describe("home status filter", () => {
+  const running = { session: { status: "running" } } as Partial<EnvironmentThreadShell>;
+  const threads = [
+    thread("busy", "app", running),
+    thread("blocked", "app", { hasPendingApprovals: true }),
+    thread("broken", "docs", { session: { status: "error" } } as Partial<EnvironmentThreadShell>),
+    thread("quiet", "docs"),
+    thread("lead", "app"),
+    child("worker", "lead", running),
+  ];
+  const leads = (filter: "all" | "working" | "needs-you") =>
+    build(threads, { statusFilter: filter }).items.flatMap((item) =>
+      item.type === "folder-lead" ? [item.entry.item.thread.id] : [],
+    );
+
+  it("keeps every thread for all", () => {
+    expect(leads("all").sort()).toEqual(["blocked", "broken", "busy", "lead", "quiet"]);
+  });
+
+  it("keeps working threads and a lead whose child agent is working", () => {
+    expect(leads("working").sort()).toEqual(["busy", "lead"]);
+    expect(describeRows(build(threads, { statusFilter: "working" }).items)).toContain(
+      "  child worker working",
+    );
+  });
+
+  it("counts lead trees per chip", () => {
+    expect(countHomeStatusFilters(threads)).toEqual({ all: 5, working: 2, "needs-you": 2 });
+  });
+
+  it("keeps approvals and failures for needs you", () => {
+    expect(leads("needs-you").sort()).toEqual(["blocked", "broken"]);
   });
 });

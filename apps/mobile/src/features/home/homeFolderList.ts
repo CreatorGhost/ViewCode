@@ -53,6 +53,58 @@ export type HomeAgentStatus = "needs-you" | "working" | "paused" | "failed" | "s
 
 type AgentControlByThreadKey = ReadonlyMap<string, Pick<AgentControlState, "paused" | "queued">>;
 
+/** Home's status chips. `needs-you` is a decision or a failure waiting on the user. */
+export type HomeStatusFilter = "all" | "working" | "needs-you";
+
+export function matchesHomeStatusFilter(
+  thread: Pick<
+    EnvironmentThreadShell,
+    "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn"
+  >,
+  filter: HomeStatusFilter,
+): boolean {
+  if (filter === "all") return true;
+  const status = resolveHomeAgentStatus(thread);
+  return filter === "working"
+    ? status === "working"
+    : status === "needs-you" || status === "failed";
+}
+
+/** Lead trees each chip would keep, for the chip badges. */
+export function countHomeStatusFilters(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+): Record<HomeStatusFilter, number> {
+  const counts = { all: 0, working: 0, "needs-you": 0 };
+  const rootOf = new Map<string, string>();
+  const byKey = new Map(threads.map((thread) => [threadKey(thread), thread]));
+  const resolveRoot = (thread: EnvironmentThreadShell): string => {
+    const key = threadKey(thread);
+    const cached = rootOf.get(key);
+    if (cached !== undefined) return cached;
+    const seen = new Set([key]);
+    let current = thread;
+    for (let parent = parentKey(current); parent !== null && !seen.has(parent);) {
+      const next = byKey.get(parent);
+      if (next === undefined) break;
+      seen.add(parent);
+      current = next;
+      parent = parentKey(current);
+    }
+    const root = threadKey(current);
+    rootOf.set(key, root);
+    return root;
+  };
+  for (const filter of ["working", "needs-you"] as const) {
+    const roots = new Set<string>();
+    for (const thread of threads) {
+      if (matchesHomeStatusFilter(thread, filter)) roots.add(resolveRoot(thread));
+    }
+    counts[filter] = roots.size;
+  }
+  counts.all = threads.filter((thread) => parentKey(thread) === null).length;
+  return counts;
+}
+
 export function resolveHomeAgentStatus(
   thread: Pick<
     EnvironmentThreadShell,
@@ -159,11 +211,13 @@ export interface HomeFolderList {
 
 type Bucket = "snoozed" | "settled" | "pinned" | "active";
 
-const threadKey = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) =>
-  `${thread.environmentId}:${thread.id}`;
+function threadKey(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) {
+  return `${thread.environmentId}:${thread.id}`;
+}
 
-const parentKey = (thread: EnvironmentThreadShell) =>
-  thread.parentThreadId ? `${thread.environmentId}:${thread.parentThreadId}` : null;
+function parentKey(thread: EnvironmentThreadShell) {
+  return thread.parentThreadId ? `${thread.environmentId}:${thread.parentThreadId}` : null;
+}
 
 /** The same title / PR / message-match rule as the flat list. */
 function matchesHomeSearch(
@@ -197,6 +251,8 @@ export function buildHomeFolderList(input: {
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
   readonly environmentId: EnvironmentId | null;
   readonly searchQuery: string;
+  /** Status chip; a match keeps its lead and agent tree, as search does. */
+  readonly statusFilter?: HomeStatusFilter;
   readonly matchedThreadKeys?: ReadonlySet<string>;
   /** Same capability gates as the flat list. Absent = no gating (tests). */
   readonly settlementEnvironmentIds?: ReadonlySet<EnvironmentId>;
@@ -243,6 +299,17 @@ export function buildHomeFolderList(input: {
     });
     threads = threads.filter((thread) => selection.keys.has(threadKey(thread)));
     searchExpandKeys = selection.expandKeys;
+  }
+  const statusFilter = input.statusFilter ?? "all";
+  if (statusFilter !== "all") {
+    const selection = selectThreadTreeSearchMatches({
+      threads,
+      threadKeyOf: threadKey,
+      parentKeyOf: parentKey,
+      matches: (thread) => matchesHomeStatusFilter(thread, statusFilter),
+    });
+    threads = threads.filter((thread) => selection.keys.has(threadKey(thread)));
+    searchExpandKeys = new Set([...searchExpandKeys, ...selection.expandKeys]);
   }
 
   // Snooze outranks settlement and pinning until the thread wakes, as in the

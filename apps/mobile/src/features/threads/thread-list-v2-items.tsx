@@ -59,12 +59,24 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 // Live Activity/widgets (amber approval, indigo input, sky working) so a
 // thread reads the same color everywhere it surfaces.
 const STATUS_LABEL_BY_STATUS: Partial<
-  Record<ThreadListV2Status, { label: string; className: string }>
+  Record<ThreadListV2Status, { label: string; className: string; pillClassName: string }>
 > = {
-  approval: { label: "Approval", className: "text-warning-foreground" },
-  input: { label: "Input", className: "text-adaptive-indigo-600-300" },
-  working: { label: "Working", className: "text-adaptive-sky-600-400" },
-  failed: { label: "Failed", className: "text-danger-foreground" },
+  approval: {
+    label: "Approval",
+    className: "text-warning-foreground",
+    pillClassName: "bg-warning",
+  },
+  input: {
+    label: "Input",
+    className: "text-adaptive-indigo-600-300",
+    pillClassName: "bg-row-hover",
+  },
+  working: {
+    label: "Working",
+    className: "text-adaptive-sky-600-400",
+    pillClassName: "bg-row-hover",
+  },
+  failed: { label: "Failed", className: "text-danger-foreground", pillClassName: "bg-danger" },
 };
 
 // Menus keep lifecycle and title regeneration together. Archive keeps its
@@ -928,17 +940,24 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             type="monochrome"
           />
         ) : null}
-        <Text
-          className={cn(
-            "text-xs tabular-nums",
-            statusLabel?.className ??
-              (selected
+        {statusLabel ? (
+          <View className={cn("rounded-full px-2 py-0.5", statusLabel.pillClassName)}>
+            <Text className={cn("text-xs font-t3-medium", statusLabel.className)}>
+              {statusLabel.label}
+            </Text>
+          </View>
+        ) : (
+          <Text
+            className={cn(
+              "text-xs tabular-nums",
+              selected
                 ? selectedThreadRowColors.foregroundClassName
-                : rowAppearance.tertiaryForegroundClassName),
-          )}
-        >
-          {statusLabel?.label ?? timeLabel}
-        </Text>
+                : rowAppearance.tertiaryForegroundClassName,
+            )}
+          >
+            {timeLabel}
+          </Text>
+        )}
       </View>
       <Text
         className={cn(
@@ -951,6 +970,24 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       >
         {thread.title}
       </Text>
+      {status === "working" && thread.planProgress ? (
+        <Text
+          className={cn(
+            "mt-0.5 text-xs",
+            selected
+              ? selectedThreadRowColors.mutedForegroundClassName
+              : rowAppearance.mutedForegroundClassName,
+          )}
+          numberOfLines={1}
+          accessibilityLabel={`Step ${thread.planProgress.completedSteps + 1} of ${thread.planProgress.totalSteps}: ${thread.planProgress.step}`}
+        >
+          <Text className="text-xs tabular-nums text-adaptive-sky-600-400">
+            {thread.planProgress.completedSteps}/{thread.planProgress.totalSteps}
+          </Text>
+          {"  "}
+          {thread.planProgress.step}
+        </Text>
+      ) : null}
       {props.searchMatch ? (
         <View className="mt-1">
           <ThreadSearchMatchExcerpt

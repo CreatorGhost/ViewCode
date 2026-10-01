@@ -18,6 +18,8 @@ import {
   resolveProjectIconGlyph,
   type ProjectIconGlyph,
 } from "../lib/projectIcon";
+import { projectLucideIcon } from "../lib/projectLucideIcons";
+import { withUniwind } from "uniwind";
 
 import {
   beginProjectFaviconRequest,
@@ -97,6 +99,9 @@ function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonl
   }
 
   const colors = projectIconColorClassNames(glyph.color);
+  if (glyph.kind === "lucide") {
+    return <ProjectLucideGlyphView name={glyph.name} colors={colors} size={size} />;
+  }
   return (
     <View
       className={colors.background}
@@ -122,6 +127,39 @@ function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonl
       >
         {glyph.text}
       </AppText>
+    </View>
+  );
+}
+
+/** Tint arrives as a native prop, so Uniwind maps `tintColorClassName` to it. */
+const ProjectLucideIcon = withUniwind(
+  (props: { readonly name: string; readonly size: number; readonly tintColor?: string }) => {
+    const Icon = projectLucideIcon(props.name);
+    return Icon ? <Icon size={props.size} color={props.tintColor} strokeWidth={2} /> : null;
+  },
+);
+
+function ProjectLucideGlyphView(props: {
+  readonly name: string;
+  readonly colors: { readonly text: string; readonly background: string };
+  readonly size: number;
+}) {
+  return (
+    <View
+      className={props.colors.background}
+      style={{
+        width: props.size,
+        height: props.size,
+        borderRadius: props.size * 0.25,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <ProjectLucideIcon
+        name={props.name}
+        size={props.size * 0.68}
+        tintColorClassName={props.colors.text.replace(/^text-/, "accent-")}
+      />
     </View>
   );
 }
