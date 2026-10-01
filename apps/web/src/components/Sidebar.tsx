@@ -11,7 +11,11 @@ import {
 } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
-import { planPinnedReorder, sortThreads } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  planPinnedReorder,
+  resolveSettledThreadTimestamp,
+  sortThreads,
+} from "@t3tools/client-runtime/state/thread-sort";
 import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
@@ -34,6 +38,7 @@ import {
   ArchiveIcon,
   ChevronRightIcon,
   CircleAlertIcon,
+  CircleCheckIcon,
   EllipsisIcon,
   EyeIcon,
   FolderIcon,
@@ -44,6 +49,7 @@ import {
   PinIcon,
   PinOffIcon,
   PlusIcon,
+  SearchIcon,
   SettingsIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -151,6 +157,7 @@ import {
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  firstValidTimestampMs,
   hasUnseenCompletion,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
@@ -168,6 +175,15 @@ import {
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
+import {
+  collectSidebarTreeThreads,
+  filterSidebarFolderSections,
+  isSidebarThreadPinnedOnTop,
+  isSidebarThreadSettled,
+  partitionSidebarFolderNodes,
+  settledGroupPreferenceKey,
+  type SidebarFolderSections,
+} from "./sidebar/sidebarFolderSections.logic";
 import {
   buildSidebarThreadTree,
   collectVisibleSidebarThreadKeys,
@@ -244,6 +260,23 @@ function compactSidebarTimeLabel(label: string): string {
 function threadTimeLabel(thread: SidebarThreadSummary): string {
   const timestamp = thread.latestUserMessageAt ?? thread.updatedAt;
   return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
+}
+
+// Settled rows read "how long ago did this wrap up", matching the Settled
+// group's sort key.
+function settledTimeLabel(thread: SidebarThreadSummary): string {
+  const timestamp = resolveSettledThreadTimestamp(thread);
+  return timestamp === null ? "" : compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
+}
+
+// Working, or waiting on the user: a tree holding such a thread stays active.
+function isSidebarThreadLive(thread: SidebarThreadSummary): boolean {
+  const status = resolveSidebarThreadStatus(thread);
+  return status === "working" || status === "approval" || status === "input";
+}
+
+function isSidebarThreadWorking(thread: SidebarThreadSummary): boolean {
+  return resolveSidebarThreadStatus(thread) === "working";
 }
 
 function threadKeyOf(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">): string {
@@ -741,6 +774,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   onToggleChildren: (threadKey: string) => void;
   isPinned: boolean;
   pinningSupported: boolean;
+  /** In a folder's Settled group: muted, and timed from settlement. */
+  settled: boolean;
   isActive: boolean;
   openPullRequestsInRightPanel: boolean;
   jumpLabel: string | null;
@@ -1127,7 +1162,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         "min-w-0 flex-1 truncate",
         props.isActive || isUnread || status === "input" || status === "approval"
           ? "text-sidebar-foreground"
-          : "text-sidebar-foreground/80",
+          : props.settled
+            ? "text-sidebar-foreground/50"
+            : "text-sidebar-foreground/80",
         (props.isActive || isUnread) && "font-medium",
         isRegeneratingTitle && "opacity-55",
       )}
@@ -1192,7 +1229,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             guides={props.guides}
           />
         ) : null}
-        <span className="relative flex size-5 shrink-0 items-center justify-center">
+        <span
+          className={cn(
+            "relative flex size-5 shrink-0 items-center justify-center",
+            props.settled && !props.isActive && "opacity-60",
+          )}
+        >
           {leadingBadge}
         </span>
         {title}
@@ -1250,7 +1292,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           ) : null}
           {isChild ? null : (
             <span className="text-2xs text-sidebar-muted-foreground tabular-nums">
-              {threadTimeLabel(thread)}
+              {props.settled ? settledTimeLabel(thread) : threadTimeLabel(thread)}
             </span>
           )}
         </span>
@@ -1307,12 +1349,23 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
     SidebarProjectSnapshot["environmentId"],
     EnvironmentMachineKind
   >;
+  /** This folder's search field is open. */
+  searching: boolean;
   onToggle: (group: SidebarProjectSnapshot) => void;
+  onToggleSearch: (group: SidebarProjectSnapshot) => void;
   onNewThread: (group: SidebarProjectSnapshot) => void;
   onOpenMenu: (group: SidebarProjectSnapshot, position: { x: number; y: number }) => void;
   onChooseIcon: (group: SidebarProjectSnapshot) => void;
 }) {
-  const { group, onChooseIcon, onNewThread, onOpenMenu, onToggle } = props;
+  const { group, onChooseIcon, onNewThread, onOpenMenu, onToggle, onToggleSearch } = props;
+  const handleSearchClick = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleSearch(group);
+    },
+    [group, onToggleSearch],
+  );
   const handleChooseIconClick = useCallback(
     (event: ReactMouseEvent) => {
       event.preventDefault();
@@ -1411,6 +1464,17 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
       ) : null}
       <span className="hidden shrink-0 items-center gap-0.5 group-hover/sidebar-row:flex group-focus-visible/sidebar-row:flex group-has-[:focus-visible]/sidebar-row:flex">
         <SidebarRowAction
+          label={
+            props.searching
+              ? `Close search in ${group.displayName}`
+              : `Search threads in ${group.displayName}`
+          }
+          tooltip={props.searching ? "Close search" : "Search this project"}
+          onClick={handleSearchClick}
+        >
+          <SearchIcon className="size-3.5" />
+        </SidebarRowAction>
+        <SidebarRowAction
           label={`New thread in ${group.displayName}`}
           tooltip="New thread"
           onClick={handleNewThreadClick}
@@ -1426,6 +1490,81 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
         </SidebarRowAction>
       </span>
     </div>
+  );
+});
+
+/**
+ * One folder's search field, shown at the top of the folder while its search
+ * is open. Escape or the close button clears the query and closes it.
+ */
+const SidebarFolderSearchField = memo(function SidebarFolderSearchField(props: {
+  folderName: string;
+  query: string;
+  onQueryChange: (query: string) => void;
+  onClose: () => void;
+}) {
+  const { onClose, onQueryChange } = props;
+  return (
+    <div className="flex h-7 items-center gap-1.5 pr-2 pl-2" data-thread-selection-safe>
+      <span className="flex size-5 shrink-0 items-center justify-center">
+        <SearchIcon aria-hidden className="size-3 text-sidebar-muted-foreground" />
+      </span>
+      <input
+        autoFocus
+        value={props.query}
+        aria-label={`Search threads in ${props.folderName}`}
+        placeholder="Search this project"
+        onChange={(event) => onQueryChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }}
+        className="min-w-0 flex-1 bg-transparent text-row text-sidebar-foreground outline-none placeholder:text-sidebar-muted-foreground"
+      />
+      <SidebarRowAction label="Close project search" onClick={onClose}>
+        <XIcon className="size-3" />
+      </SidebarRowAction>
+    </div>
+  );
+});
+
+/** The collapsible "Settled · N" row at the bottom of a project folder. */
+const SidebarSettledGroupRow = memo(function SidebarSettledGroupRow(props: {
+  folderKey: string;
+  count: number;
+  expanded: boolean;
+  /** A folder search decides the open state while it filters. */
+  disabled: boolean;
+  onToggle: (folderKey: string) => void;
+}) {
+  const { folderKey, onToggle } = props;
+  const handleClick = useCallback(() => onToggle(folderKey), [folderKey, onToggle]);
+  return (
+    <button
+      type="button"
+      aria-expanded={props.expanded}
+      disabled={props.disabled}
+      data-testid="sidebar-settled-group"
+      data-thread-selection-safe
+      onClick={handleClick}
+      className={cn(
+        rowSurfaceBaseClassName,
+        "h-6 pl-2 text-2xs text-sidebar-muted-foreground hover:bg-sidebar-foreground/6 hover:text-sidebar-foreground disabled:cursor-default disabled:hover:bg-transparent",
+      )}
+    >
+      <span className="flex size-5 shrink-0 items-center justify-center">
+        <CircleCheckIcon aria-hidden className="size-3" />
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        Settled · <span className="tabular-nums">{props.count}</span>
+      </span>
+      <ChevronRightIcon
+        aria-hidden
+        className={cn("size-3 shrink-0", props.expanded && "rotate-90")}
+      />
+    </button>
   );
 });
 
@@ -1610,8 +1749,16 @@ export default function Sidebar() {
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
-  const { pinThread, confirmAndUnpinThread, reorderPinnedThread, archiveThread, deleteThread } =
-    useThreadActions();
+  const {
+    pinThread,
+    confirmAndUnpinThread,
+    reorderPinnedThread,
+    archiveThread,
+    deleteThread,
+    settleThread,
+    unsettleThread,
+    setThreadAutoSettle,
+  } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -1938,8 +2085,8 @@ export default function Sidebar() {
     [openProjectSettings],
   );
 
-  // Every live thread in scope. Settled and snoozed threads are ordinary rows
-  // here: the sidebar does not surface those lifecycles.
+  // Every live thread in scope. Settled threads collapse into their folder's
+  // Settled group; snoozed threads are ordinary rows.
   const visibleThreads = useMemo(
     () =>
       threads.filter(
@@ -1949,6 +2096,19 @@ export default function Sidebar() {
       ),
     [scopedProjectKeys, threads],
   );
+  // Threads on servers without settlement support never classify as settled:
+  // they could not be un-settled from here.
+  const settledThreadKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const thread of visibleThreads) {
+      const supportsSettlement =
+        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement === true;
+      if (isSidebarThreadSettled(thread, supportsSettlement)) keys.add(threadKeyOf(thread));
+    }
+    return keys;
+  }, [serverConfigs, visibleThreads]);
+  const settledThreadKeysRef = useRef(settledThreadKeys);
+  settledThreadKeysRef.current = settledThreadKeys;
   const pinReorderableThreadKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const thread of visibleThreads) {
@@ -1980,7 +2140,8 @@ export default function Sidebar() {
             : null,
         folderKeyOf: (thread) =>
           folderKeyByPhysicalProjectKey.get(physicalProjectKeyOf(thread)) ?? "",
-        isPinned: (thread) => thread.pinnedAt != null,
+        isPinned: (thread) =>
+          isSidebarThreadPinnedOnTop(thread, settledThreadKeys.has(threadKeyOf(thread))),
         sortPinned: (pinned) => {
           const sorted = sortPinnedThreadsForSidebar(pinned);
           return optimisticPinnedOrder === null
@@ -1993,16 +2154,40 @@ export default function Sidebar() {
         },
         sortRoots: (roots) => sortThreads(roots, sidebarThreadSortOrder),
         sortChildren: sortChildThreads,
-        isWorking: (thread) => resolveSidebarThreadStatus(thread) === "working",
+        isWorking: isSidebarThreadWorking,
       }),
     [
       folderKeyByPhysicalProjectKey,
       optimisticPinnedOrder,
       projectGroups,
       scopedProjectGroup,
+      settledThreadKeys,
       sidebarThreadSortOrder,
       visibleThreads,
     ],
+  );
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
+
+  // Each folder: active trees, then its settled trees. A lead and its child
+  // agents move as one, decided by the lead.
+  const folderSectionsByKey = useMemo(
+    () =>
+      new Map(
+        tree.folders.map(
+          (folder) =>
+            [
+              folder.key,
+              partitionSidebarFolderNodes(folder.nodes, {
+                isSettled: (thread) => settledThreadKeys.has(threadKeyOf(thread)),
+                isLive: isSidebarThreadLive,
+                settledAtMs: (thread) =>
+                  firstValidTimestampMs(resolveSettledThreadTimestamp(thread)),
+              }),
+            ] as const,
+        ),
+      ),
+    [settledThreadKeys, tree.folders],
   );
 
   // Folder expansion persists with the other project preferences; child-agent
@@ -2078,9 +2263,17 @@ export default function Sidebar() {
     if (folder && folderExpandedByKey.get(folder.projectKey) === false) {
       setProjectExpanded(projectExpansionPreferenceKeys(folder), true);
     }
+    const rootKey = ancestors.at(-1) ?? routeThreadKey;
+    if (
+      folderKey !== undefined &&
+      folderSectionsByKey.get(folderKey)?.settled.some((node) => node.key === rootKey)
+    ) {
+      setProjectExpanded(settledGroupPreferenceKey(folderKey), true);
+    }
   }, [
     collapsedThreadKeys,
     folderExpandedByKey,
+    folderSectionsByKey,
     projectGroupByScopeKey,
     routeThreadKey,
     setProjectExpanded,
@@ -2128,16 +2321,119 @@ export default function Sidebar() {
       ?.scrollIntoView({ block: "nearest" });
   }, [activeSearchResultIndex, isSearchingThreads, threadSearchResultOrderKey]);
 
+  // One folder search at a time. It filters that folder's active and settled
+  // threads (child agents included) by title, PR, and message text, reusing
+  // the global search's matching.
+  const [folderSearchState, setFolderSearch] = useState<{
+    readonly folderKey: string;
+    readonly query: string;
+  } | null>(null);
+  // A search on a folder that left the list (scope change, project removed)
+  // simply stops applying.
+  const folderSearch =
+    folderSearchState !== null && folderSectionsByKey.has(folderSearchState.folderKey)
+      ? folderSearchState
+      : null;
+  const folderSearchQuery = folderSearch?.query.trim() ?? "";
+  const folderContentSearch = useThreadSearch(searchEnvironmentIds, folderSearchQuery);
+  const folderContentMatchKeys = useMemo(
+    () => new Set(folderContentSearch.matches.map(threadSearchMatchKey)),
+    [folderContentSearch.matches],
+  );
+  const folderSearchResult = useMemo(() => {
+    if (folderSearch === null || folderSearchQuery.length === 0) return null;
+    const sections = folderSectionsByKey.get(folderSearch.folderKey);
+    if (!sections) return null;
+    const matchedKeys = new Set(
+      searchSidebarThreads(
+        collectSidebarTreeThreads([...sections.active, ...sections.settled]),
+        folderSearchQuery,
+        folderContentMatchKeys,
+      ).map(threadKeyOf),
+    );
+    return {
+      folderKey: folderSearch.folderKey,
+      ...filterSidebarFolderSections(sections, {
+        matches: (key) => matchedKeys.has(key),
+        isWorking: isSidebarThreadWorking,
+      }),
+    };
+  }, [folderContentMatchKeys, folderSearch, folderSearchQuery, folderSectionsByKey]);
+  const toggleFolderSearch = useCallback(
+    (group: SidebarProjectSnapshot) => {
+      setFolderSearch((current) =>
+        current?.folderKey === group.projectKey ? null : { folderKey: group.projectKey, query: "" },
+      );
+      const keys = projectExpansionPreferenceKeys(group);
+      if (!resolveProjectExpanded(useUiStateStore.getState().projectExpandedById, keys)) {
+        setProjectExpanded(keys, true);
+      }
+    },
+    [setProjectExpanded],
+  );
+  const closeFolderSearch = useCallback(() => setFolderSearch(null), []);
+  const changeFolderSearchQuery = useCallback(
+    (query: string) => setFolderSearch((current) => (current ? { ...current, query } : current)),
+    [],
+  );
+  const toggleSettledGroup = useCallback(
+    (folderKey: string) => {
+      const key = settledGroupPreferenceKey(folderKey);
+      setProjectExpanded(key, useUiStateStore.getState().projectExpandedById[key] !== true);
+    },
+    [setProjectExpanded],
+  );
+  const routeRootKey = useMemo(
+    () =>
+      routeThreadKey === null
+        ? null
+        : (sidebarThreadAncestorKeys(tree, routeThreadKey).at(-1) ?? routeThreadKey),
+    [routeThreadKey, tree],
+  );
+  // What each folder renders below its header. A collapsed Settled group still
+  // shows the open thread's tree, so settling the thread you are reading never
+  // hides it; a folder search opens the group when a match is inside.
+  const folderViewByKey = useMemo(() => {
+    const views = new Map<
+      string,
+      SidebarFolderSections<EnvironmentThreadShell> & {
+        readonly settledCount: number;
+        readonly settledOpen: boolean;
+        readonly filtering: boolean;
+      }
+    >();
+    for (const [folderKey, sections] of folderSectionsByKey) {
+      const searched = folderSearchResult?.folderKey === folderKey ? folderSearchResult : null;
+      const settledOpen = searched
+        ? searched.settledHasMatch
+        : projectExpandedById[settledGroupPreferenceKey(folderKey)] === true;
+      const settled = searched?.settled ?? sections.settled;
+      views.set(folderKey, {
+        active: searched?.active ?? sections.active,
+        settled: settledOpen ? settled : settled.filter((node) => node.key === routeRootKey),
+        settledCount: settled.length,
+        settledOpen,
+        filtering: searched !== null,
+      });
+    }
+    return views;
+  }, [folderSearchResult, folderSectionsByKey, projectExpandedById, routeRootKey]);
+
   // Rendered rows top to bottom: keyboard traversal, jump shortcuts, and
   // shift-range selection all follow what the user sees.
   const orderedThreadKeys = useMemo(
     () =>
       collectVisibleSidebarThreadKeys(
         tree,
-        (folderKey) => folderExpandedByKey.get(folderKey) ?? true,
+        (folder) => {
+          const view = folderViewByKey.get(folder.key);
+          return (folderExpandedByKey.get(folder.key) ?? true) && view
+            ? [...view.active, ...view.settled]
+            : [];
+        },
         isThreadExpanded,
       ),
-    [folderExpandedByKey, isThreadExpanded, tree],
+    [folderExpandedByKey, folderViewByKey, isThreadExpanded, tree],
   );
   const orderedThreadKeysRef = useRef(orderedThreadKeys);
   orderedThreadKeysRef.current = orderedThreadKeys;
@@ -2369,6 +2665,52 @@ export default function Sidebar() {
       })();
     },
     [confirmAndUnpinThread],
+  );
+  // One settle per thread at a time: repeated menu picks must not dispatch a
+  // second settle that fails and toasts a false error.
+  const settlingThreadKeysRef = useRef(new Set<string>());
+  const attemptSettle = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      void (async () => {
+        const threadKey = scopedThreadKey(threadRef);
+        if (settlingThreadKeysRef.current.has(threadKey)) return;
+        settlingThreadKeysRef.current.add(threadKey);
+        try {
+          const result = await settleThread(threadRef);
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to settle thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+        } finally {
+          settlingThreadKeysRef.current.delete(threadKey);
+        }
+      })();
+    },
+    [settleThread],
+  );
+  const attemptUnsettle = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      void (async () => {
+        const result = await unsettleThread(threadRef);
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to un-settle thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [unsettleThread],
   );
   const attemptArchive = useCallback(
     (threadRef: ScopedThreadRef) => {
@@ -2686,10 +3028,12 @@ export default function Sidebar() {
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        // Settlement moves a whole tree by its lead, so child agents do not
+        // offer it: settling one would change nothing visible. Snooze stays a
+        // server feature the sidebar does not surface.
+        const isChildAgent = treeRef.current.parentKeyByKey.has(threadKey);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            // Settlement, snooze and auto-settle stay server features; the
-            // sidebar no longer offers them, so the menu reports no support.
             buildThreadActionMenuItems({
               branch: thread.branch ?? null,
               projectFilter: threadProjectGroup
@@ -2699,16 +3043,16 @@ export default function Sidebar() {
                   }
                 : null,
               isPinned: thread.pinnedAt != null,
-              isSettled: false,
-              autoSettleEnabled: true,
+              isSettled: settledThreadKeysRef.current.has(threadKey),
+              autoSettleEnabled: thread.autoSettleDisabledAt == null,
               isSnoozed: false,
               canSnoozeNow: false,
               isRegeneratingTitle,
               isRunning:
                 thread.session?.status === "running" && thread.session.activeTurnId != null,
               supports: {
-                settlement: false,
-                autoSettleOptOut: false,
+                settlement: !isChildAgent && capabilities?.threadSettlement === true,
+                autoSettleOptOut: !isChildAgent && capabilities?.threadAutoSettleOptOut === true,
                 snooze: false,
                 pinning: capabilities?.threadPinning === true,
                 titleRegeneration: capabilities?.threadTitleRegeneration === true,
@@ -2762,6 +3106,30 @@ export default function Sidebar() {
           case "unpin":
             attemptUnpin(threadRef);
             return;
+          case "settle":
+            attemptSettle(threadRef);
+            return;
+          case "unsettle":
+            attemptUnsettle(threadRef);
+            return;
+          case "auto-settle:enabled":
+          case "auto-settle:disabled": {
+            const result = await setThreadAutoSettle(
+              threadRef,
+              clicked.value === "auto-settle:enabled",
+            );
+            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Failed to update auto-settle",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
+            return;
+          }
           case "rename":
             startThreadRename(threadRef, thread.title);
             return;
@@ -2844,7 +3212,9 @@ export default function Sidebar() {
     [
       attemptArchive,
       attemptPin,
+      attemptSettle,
       attemptUnpin,
+      attemptUnsettle,
       confirmThreadDelete,
       copyBranchToClipboard,
       copyPathToClipboard,
@@ -2857,6 +3227,7 @@ export default function Sidebar() {
       projectByKey,
       serverConfigs,
       setProjectScopeKey,
+      setThreadAutoSettle,
       startThreadRename,
       updateThreadMetadata,
     ],
@@ -3109,7 +3480,8 @@ export default function Sidebar() {
 
   const renderThreadRow = (
     entry: SidebarThreadRowEntry<EnvironmentThreadShell>,
-    sortable?: SortableNodeBag,
+    sortable: SortableNodeBag | undefined,
+    settled: boolean,
   ) => {
     const { node } = entry;
     const thread = node.thread;
@@ -3129,6 +3501,7 @@ export default function Sidebar() {
         pinningSupported={
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadPinning === true
         }
+        settled={settled}
         isActive={routeThreadKey === threadKey}
         openPullRequestsInRightPanel={routeThreadRef !== null}
         jumpLabel={showThreadJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
@@ -3164,6 +3537,7 @@ export default function Sidebar() {
   const renderThreadNode = (
     node: SidebarThreadTreeNode<EnvironmentThreadShell>,
     sortable?: SortableNodeBag,
+    settled = false,
   ) => {
     const rows = flattenSidebarThreadNode(node, isThreadExpanded);
     return (
@@ -3184,7 +3558,7 @@ export default function Sidebar() {
         <ul role="group" className="flex flex-col">
           {rows.map((entry) => (
             <li key={entry.node.key} className="list-none">
-              {renderThreadRow(entry, sortable)}
+              {renderThreadRow(entry, sortable, settled)}
             </li>
           ))}
         </ul>
@@ -3466,24 +3840,57 @@ export default function Sidebar() {
                 ) : null}
                 {tree.folders.map((folder) => {
                   const expanded = folderExpandedByKey.get(folder.key) ?? true;
+                  const view = folderViewByKey.get(folder.key);
+                  const searching = folderSearch?.folderKey === folder.key;
                   return (
                     <li key={folder.key} className="list-none">
                       <SidebarProjectFolderRow
                         group={folder.project}
                         expanded={expanded}
-                        threadCount={folder.nodes.length}
+                        threadCount={folderSectionsByKey.get(folder.key)?.active.length ?? 0}
                         showEnvironment={showProjectEnvironments}
                         primaryEnvironmentId={primaryEnvironmentId}
                         machineByEnvironmentId={environmentMachineById}
+                        searching={searching}
                         onToggle={toggleProjectFolder}
+                        onToggleSearch={toggleFolderSearch}
                         onNewThread={createThreadInProject}
                         onOpenMenu={handleProjectMenu}
                         onChooseIcon={setIconPickerGroup}
                       />
-                      {expanded && folder.nodes.length > 0 ? (
+                      {expanded && searching ? (
+                        <SidebarFolderSearchField
+                          folderName={folder.project.displayName}
+                          query={folderSearch.query}
+                          onQueryChange={changeFolderSearchQuery}
+                          onClose={closeFolderSearch}
+                        />
+                      ) : null}
+                      {expanded && view && (view.active.length > 0 || view.settledCount > 0) ? (
                         <ul role="group" className="flex flex-col gap-px pb-1">
-                          {folder.nodes.map((node) => renderThreadNode(node))}
+                          {view.active.map((node) => renderThreadNode(node))}
+                          {view.settledCount > 0 ? (
+                            <li className="list-none">
+                              <SidebarSettledGroupRow
+                                folderKey={folder.key}
+                                count={view.settledCount}
+                                expanded={view.settledOpen}
+                                disabled={view.filtering}
+                                onToggle={toggleSettledGroup}
+                              />
+                            </li>
+                          ) : null}
+                          {view.settled.map((node) => renderThreadNode(node, undefined, true))}
                         </ul>
+                      ) : expanded && view?.filtering ? (
+                        <p
+                          role="status"
+                          className="py-1 pr-2 pl-9 text-2xs text-sidebar-muted-foreground"
+                        >
+                          {folderContentSearch.isPending
+                            ? "Searching thread messages…"
+                            : "No matching threads"}
+                        </p>
                       ) : null}
                     </li>
                   );

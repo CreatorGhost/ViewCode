@@ -126,7 +126,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   every client and entry point moves a tree as one. The sidebar floats a child
   whose parent is hidden to the top level, which read as a stray chat. Snooze
   skips children blocked on the user (pending request or queued turn) rather
-  than failing. Settle and pin do not cascade.
+  than failing. Settle and pin do not cascade. The project-folder sidebar still
+  places a tree as one: the lead's settled state decides whether the whole tree
+  sits in its folder's Settled group, and any live thread in it (working or
+  waiting on the user) keeps it active. Child agents therefore offer no Settle
+  there (`sidebar/sidebarFolderSections.logic.ts`).
 - Agents can reach only their own tree (root thread and all descendants). A hop
   limit (24) stops ping-pong loops; spawning counts as a hop too.
 - Stopping an agent that belongs to a tree **pauses** it (user decision): any
