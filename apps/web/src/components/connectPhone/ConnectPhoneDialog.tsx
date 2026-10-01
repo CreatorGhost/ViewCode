@@ -5,15 +5,7 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { CheckIcon, CopyIcon, SmartphoneIcon, TriangleAlertIcon } from "lucide-react";
-import {
-  Fragment,
-  type ReactNode,
-  type RefObject,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -48,8 +40,6 @@ import { QRCodeSvg } from "../ui/qr-code";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
-import { hasCloudPublicConfig } from "~/cloud/publicConfig";
-import { T3ConnectPhone } from "./T3ConnectPhone";
 import { QuickConnectPhone } from "./QuickConnectPhone";
 import { TailscalePhone } from "./TailscalePhone";
 import {
@@ -115,7 +105,7 @@ function takeResumeFlag(): boolean {
     window.localStorage.removeItem(CONNECT_PHONE_RESUME_KEY);
     const resume = shouldResumeConnectPhone(stored, Date.now());
     const storedMode = window.localStorage.getItem(CONNECT_PHONE_MODE_KEY);
-    if (resume && (storedMode === "cloud" || storedMode === "tailscale")) {
+    if (resume && storedMode === "tailscale") {
       selectConnectMode(storedMode);
     }
     window.localStorage.removeItem(CONNECT_PHONE_MODE_KEY);
@@ -137,7 +127,6 @@ function clearResumeFlag(): void {
 /** Mounted once at the app root. Reopens the dialog after a "Turn on and restart" relaunch. */
 export function ConnectPhoneDialogHost() {
   const open = useConnectPhoneDialogStore((state) => state.open);
-  const authContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (takeResumeFlag()) openConnectPhoneDialog();
   }, []);
@@ -147,10 +136,8 @@ export function ConnectPhoneDialogHost() {
       onOpenChange={(next) => useConnectPhoneDialogStore.setState({ open: next })}
     >
       {/* The popup mounts its content only while open, so nothing below runs when closed. */}
-      <DialogPopup className="max-w-md has-[[data-phone-auth-container]:not(:empty)]:h-[min(620px,calc(100dvh-2rem))]">
-        <ConnectPhoneDialogContent authContainerRef={authContainerRef} />
-        {/* Outside the scrolling panel, inside the dialog's focus scope. */}
-        <div ref={authContainerRef} data-phone-auth-container="" />
+      <DialogPopup className="max-w-md">
+        <ConnectPhoneDialogContent />
       </DialogPopup>
     </Dialog>
   );
@@ -159,7 +146,6 @@ export function ConnectPhoneDialogHost() {
 const MODE_LABELS: Record<ConnectMode, string> = {
   local: "Same Wi-Fi",
   quick: "Quick connect",
-  cloud: "T3 Connect",
   tailscale: "Tailscale",
 };
 
@@ -207,15 +193,10 @@ function useConnectPhoneState(): ConnectPhoneState {
   return resolveConnectPhoneState({ desktop: null, web });
 }
 
-function ConnectPhoneDialogContent({
-  authContainerRef,
-}: {
-  authContainerRef: RefObject<HTMLDivElement | null>;
-}) {
+function ConnectPhoneDialogContent() {
   const state = useConnectPhoneState();
   const tailscale = useTailscalePhoneAccess();
   const modes = resolveConnectModes({
-    cloudConfigured: hasCloudPublicConfig(),
     tailscaleInstalled: tailscale.access?.installed === true,
   });
   const mode = resolveSelectedMode(
@@ -280,7 +261,7 @@ function ConnectPhoneDialogContent({
             disabled={pendingMode !== null}
             onValueChange={(values) => {
               const next = values[0];
-              if (next === "quick" || next === "tailscale" || next === "cloud") {
+              if (next === "quick" || next === "tailscale") {
                 selectConnectMode(next);
               }
             }}
@@ -329,39 +310,6 @@ function ConnectPhoneDialogContent({
               />
             )}
           />
-        </DialogPanel>
-      ) : mode === "cloud" ? (
-        <DialogPanel>
-          <T3ConnectPhone
-            authContainerRef={authContainerRef}
-            renderQr={(baseUrl, host) => (
-              <ReadyBody
-                bare
-                endpoints={[
-                  {
-                    id: "t3-connect",
-                    label: host,
-                    httpBaseUrl: baseUrl,
-                    loopback: false,
-                    lan: false,
-                  },
-                ]}
-                note="Works on mobile data or any Wi-Fi while T3 Connect stays on."
-              />
-            )}
-            isLoading={state.kind === "loading"}
-            needsNetworkAccess={
-              state.kind === "needs-network-access" ||
-              (Boolean(window.desktopBridge) && state.kind === "ready" && !state.canTurnOff)
-            }
-            isRestarting={pendingMode !== null}
-            onEnableNetworkAccess={() => void setNetworkAccess(true)}
-          />
-          {exposureError ? (
-            <Alert variant="error">
-              <AlertDescription>{exposureError}</AlertDescription>
-            </Alert>
-          ) : null}
         </DialogPanel>
       ) : state.kind === "ready" ? (
         <ReadyBody endpoints={state.endpoints}>

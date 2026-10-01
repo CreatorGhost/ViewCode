@@ -16,15 +16,10 @@ phone will reach it, and scan the code from the app's **Add environment**.
   [Quick connect](#quick-connect).
 - **Same Wi-Fi.** Choose **Turn on and restart** if asked; ViewCode restarts once
   and reopens on the code. Works only on the same network.
-- **Tailscale.** Shown when Tailscale is installed. **Turn on Tailscale** enables
+- **Anywhere · Tailscale.** Shown only when Tailscale is installed on this computer. **Turn on Tailscale** enables
   Tailscale HTTPS and restarts once. Works wherever your phone is on your tailnet.
   **Settings → Connections** can turn it on at every launch; that is off by
   default because some security software stops Tailscale.
-- **Anywhere · T3 Connect.** An alternative to Quick connect. Works on mobile data. Sign in on the computer once
-  and turn it on; the code appears when the connection is up. If the network
-  blocks it (common on corporate networks and VPNs), ViewCode says so and offers
-  **Try again**; Same Wi-Fi still works. **Turn off T3 Connect** stops it. This
-  option is hidden in builds without T3 Connect configuration.
 
 Each code works once for five minutes; choose **New code** for another phone. Keep
 the computer awake and ViewCode running. **Turn off local network access** in the
@@ -87,10 +82,9 @@ store; when running `npx t3` yourself, start it with
 ## T3 Connect
 
 T3 Connect makes an environment available to your other devices without setting
-up router forwarding. In the desktop app on the host, open **Connect phone →
-Anywhere · T3 Connect**, then choose **Sign in and turn on T3 Connect**. You can
-also manage it in **Settings → Connections**. Builds without T3 Connect
-configuration hide the option and still support local pairing.
+up router forwarding. ViewCode's Connect phone dialog does not offer it; use
+[Quick connect](#quick-connect) instead. Builds with T3 Connect configuration can
+still manage it in **Settings → Connections**.
 
 For a command-line host, run:
 

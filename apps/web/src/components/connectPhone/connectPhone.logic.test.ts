@@ -9,7 +9,6 @@ import {
   formatPairingExpiry,
   LAN_BLOCKED_MESSAGE,
   LAN_UNREACHABLE_MESSAGE,
-  resolveAnywhereView,
   resolveConnectModes,
   resolveConnectPhoneState,
   resolveQuickConnectView,
@@ -215,30 +214,19 @@ describe("pairing code lifetime", () => {
 });
 
 describe("resolveConnectModes", () => {
-  it("always offers same Wi-Fi and Quick connect, and hides what is not available", () => {
-    expect(resolveConnectModes({ cloudConfigured: false, tailscaleInstalled: false })).toEqual([
-      "local",
-      "quick",
-    ]);
-  });
-
-  it("puts Quick connect before T3 Connect and Tailscale, which appear only when available", () => {
-    expect(resolveConnectModes({ cloudConfigured: false, tailscaleInstalled: true })).toEqual([
+  it("offers Same Wi-Fi and Quick connect, and Tailscale only when it is installed", () => {
+    expect(resolveConnectModes({ tailscaleInstalled: false })).toEqual(["local", "quick"]);
+    expect(resolveConnectModes({ tailscaleInstalled: true })).toEqual([
       "local",
       "quick",
       "tailscale",
     ]);
-    expect(resolveConnectModes({ cloudConfigured: true, tailscaleInstalled: true })).toEqual([
-      "local",
-      "quick",
-      "cloud",
-      "tailscale",
-    ]);
   });
 
-  it("falls back to the first tab when a remembered one is gone", () => {
-    expect(resolveSelectedMode("cloud", ["local", "quick"])).toBe("local");
-    expect(resolveSelectedMode("quick", ["local", "quick"])).toBe("quick");
+  it("falls back to the first method when a remembered one is no longer offered", () => {
+    const modes = resolveConnectModes({ tailscaleInstalled: false });
+    expect(resolveSelectedMode("tailscale", modes)).toBe("local");
+    expect(resolveSelectedMode("quick", modes)).toBe("quick");
   });
 });
 
@@ -340,69 +328,6 @@ describe("resolveTailscaleView", () => {
         endpoints: [{ ...tailnetHttps, status: "unavailable" }],
       }).kind,
     ).toBe("unavailable");
-  });
-});
-
-describe("resolveAnywhereView", () => {
-  const tunnel = (
-    overrides: Partial<NonNullable<Parameters<typeof resolveAnywhereView>[0]["tunnel"]>>,
-  ) => ({
-    status: "connected" as const,
-    registered: true,
-    httpBaseUrl: "https://abc.example.test",
-    ...overrides,
-  });
-
-  it("offers the button while T3 Connect is off, whatever the tunnel says", () => {
-    expect(resolveAnywhereView({ managedTunnelActive: false, tunnel: tunnel({}) })).toEqual({
-      kind: "off",
-    });
-  });
-
-  it("shows the QR only while the tunnel is registered", () => {
-    expect(resolveAnywhereView({ managedTunnelActive: true, tunnel: null }).kind).toBe(
-      "connecting",
-    );
-    expect(
-      resolveAnywhereView({
-        managedTunnelActive: true,
-        tunnel: tunnel({ status: "connecting", registered: false }),
-      }).kind,
-    ).toBe("connecting");
-    expect(resolveAnywhereView({ managedTunnelActive: true, tunnel: tunnel({}) })).toEqual({
-      kind: "ready",
-      baseUrl: "https://abc.example.test",
-      host: "abc.example.test",
-      unstable: false,
-    });
-  });
-
-  it("pauses on a blocked network, even if a stale registration flag lingers", () => {
-    expect(
-      resolveAnywhereView({
-        managedTunnelActive: true,
-        tunnel: tunnel({ status: "blocked-by-network" }),
-      }).kind,
-    ).toBe("blocked");
-  });
-
-  it("warns before the QR when the tunnel is unstable, and hides it while reconnecting", () => {
-    expect(
-      resolveAnywhereView({ managedTunnelActive: true, tunnel: tunnel({ status: "unstable" }) }),
-    ).toMatchObject({ kind: "ready", unstable: true });
-    expect(
-      resolveAnywhereView({
-        managedTunnelActive: true,
-        tunnel: tunnel({ status: "unstable", registered: false }),
-      }).kind,
-    ).toBe("unstable-reconnecting");
-  });
-
-  it("asks to turn T3 Connect off and on when the tunnel address was never kept", () => {
-    const { httpBaseUrl: _omitted, ...withoutUrl } = tunnel({});
-    expect(resolveAnywhereView({ managedTunnelActive: true, tunnel: withoutUrl }).kind).toBe(
-      "needs-relink",
-    );
   });
 });
 

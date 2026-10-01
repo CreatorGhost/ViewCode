@@ -273,22 +273,16 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Connect phone (`web/src/components/connectPhone/`) is the user-facing path to
   that toggle, and every mode ends in a pairing QR the stock T3 Code app scans
   (no phone sign-in). Modes come from `resolveConnectModes`: Same Wi-Fi and Quick
-  connect always (Quick connect, T3 Connect and Tailscale sit under one Anywhere tab,
-  Quick connect first); Tailscale only when the desktop finds the `tailscale` CLI on disk (a PATH
-  search, never a spawn; `DesktopTailscalePhoneAccess.ts`), whose "Turn on"
+  connect always (Quick connect and Tailscale sit under one Anywhere tab, Quick
+  connect first); Tailscale only when the desktop finds the `tailscale` CLI on disk
+  (a PATH search, never a spawn; `DesktopTailscalePhoneAccess.ts`), whose "Turn on"
   reuses `setTailscaleServeEnabled`, and whose launch-time opt-in
-  (`tailscaleAutoServe`) defaults off because managed laptops' security
-  software kills tailscaled; T3 Connect only when the build has the Clerk key,
-  JWT template and relay URL. The QR for T3 Connect is a normal
-  `https://<tunnel-host>/pair#token=` on the managed tunnel: the relay link
-  response's `endpoint.httpBaseUrl` is kept in the `cloud-endpoint-http-base-url`
-  secret (passed in `RelayEnvironmentConfigRequest.endpointHttpBaseUrl`).
-  Tunnel honesty lives in `cloud/managedTunnelHealth.ts`: cloudflared's output
-  is classified (TLS refused x3 in a row -> `blocked-by-network`, connector
-  stopped until the user's Try again; a registration dying within 60s twice ->
-  `unstable`), and the state rides the auth-access stream as `managedTunnel`
-  in a fresh snapshot event, so there is no polling and no new event type.
-  The QR shows only while a registration is up. The relaunch kills the open
+  (`tailscaleAutoServe`) defaults off because managed laptops' security software
+  kills tailscaled. The dialog does not offer upstream's hosted T3 Connect tunnel:
+  Quick connect does that job on the user's own account, and a third choice only
+  confused people. T3 Connect's server side (`cloud/`) is untouched and still
+  reachable from Settings → Connections in builds that configure it.
+  The relaunch kills the open
   dialog, so it leaves a timestamped `viewcode:open-connect-phone`
   localStorage flag (plus the tab) first and the root host reopens the dialog
   on boot. That works only because the packaged renderer keeps its
