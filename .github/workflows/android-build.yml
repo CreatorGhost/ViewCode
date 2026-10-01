@@ -1,0 +1,99 @@
+name: Build ViewCode Android app
+
+# Manual only. Builds the installable ViewCode APK on the repo owner's own Expo
+# account (EAS cloud builds and signs it) and prints the install link.
+#
+# One-time setup (see docs/user/android-app.md once the app PR lands):
+#   - repository secret   EXPO_TOKEN                (expo.dev access token)
+#   - repository variable VIEWCODE_EAS_PROJECT_ID   (from `eas init`)
+#   - the first build run once from a laptop so EAS creates the signing key.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        default: dev
+        required: true
+      wait:
+        description: Wait for the build and print the APK link here
+        type: boolean
+        default: true
+
+jobs:
+  android:
+    name: EAS Android (preview APK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      APP_VARIANT: preview
+      NODE_OPTIONS: --max-old-space-size=8192
+      VIEWCODE_EAS_PROJECT_ID: ${{ vars.VIEWCODE_EAS_PROJECT_ID }}
+    steps:
+      - name: Check setup
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          missing=""
+          [ -n "$EXPO_TOKEN" ] || missing="$missing EXPO_TOKEN (repository secret)"
+          [ -n "$VIEWCODE_EAS_PROJECT_ID" ] || missing="$missing VIEWCODE_EAS_PROJECT_ID (repository variable)"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing:$missing. See docs/user/android-app.md."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full clone: eas-cli archives the project with a local `git clone`,
+          # which fails on a partial (blob-filtered) checkout.
+          fetch-depth: 0
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/mobile...
+
+      - name: Expose pnpm
+        run: |
+          pnpm_version="$(node --print "require('./package.json').packageManager.split('@').pop()")"
+          vp_pnpm_bin="$HOME/.vite-plus/package_manager/pnpm/$pnpm_version/pnpm/bin"
+          echo "$vp_pnpm_bin" >> "$GITHUB_PATH"
+          "$vp_pnpm_bin/pnpm" --version
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          packager: npm
+
+      - name: Build
+        id: build
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          wait_flag="--no-wait"
+          if [ "${{ inputs.wait }}" = "true" ]; then wait_flag="--wait"; fi
+          eas build --platform android --profile preview --non-interactive "$wait_flag" --json > build.json
+          cat build.json
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const [build] = JSON.parse(readFileSync("build.json", "utf8"));
+          const page = build?.id
+            ? `https://expo.dev/accounts/${build.accountName ?? build.project?.ownerAccount?.name ?? "-"}/projects/${build.project?.slug ?? "viewcode"}/builds/${build.id}`
+            : null;
+          const apk = build?.artifacts?.applicationArchiveUrl ?? build?.artifacts?.buildUrl ?? null;
+          const lines = ["## ViewCode Android build", ""];
+          if (page) lines.push(`- Build page (QR code to install): ${page}`);
+          if (apk) lines.push(`- APK: ${apk}`);
+          if (!apk) lines.push("- The APK link appears on the build page when the build finishes.");
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          NODE

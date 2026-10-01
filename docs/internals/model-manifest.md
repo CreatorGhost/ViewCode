@@ -1,8 +1,9 @@
 # Model manifest
 
 The [bundled manifest](../../apps/server/src/provider/model-manifest.json) allows
-offline startup; fetching it from `main` lets model metadata change between
-releases. Failed fetches or invalid data preserve the last usable manifest.
+offline startup; fetching it from ViewCode's own `dev` branch lets model metadata
+change between releases. ViewCode never fetches upstream T3 Code's copy: it lacks
+ViewCode's providers and defaults, and a newer upstream `updatedAt` would replace them. Failed fetches or invalid data preserve the last usable manifest.
 Remote data must pass both catalog-reference validation and the owning provider's
 adapter validation before replacing the cache.
 

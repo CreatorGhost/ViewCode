@@ -37,8 +37,11 @@ import bundledManifestJson from "./model-manifest.json" with { type: "json" };
 import { ProviderCompatibilityPolicy } from "./providerCompatibility.ts";
 import type { ServerProviderDraft } from "./providerSnapshot.ts";
 
+// ViewCode fetches its own manifest: upstream's copy lacks ViewCode's
+// providers (Command Code) and defaults, and a newer upstream `updatedAt`
+// would silently replace them.
 const MODEL_MANIFEST_URL =
-  "https://raw.githubusercontent.com/pingdotgg/t3code/main/apps/server/src/provider/model-manifest.json";
+  "https://raw.githubusercontent.com/CreatorGhost/ViewCode/dev/apps/server/src/provider/model-manifest.json";
 
 /** How long a fetched manifest stays fresh before the next probe re-fetches. */
 const MANIFEST_TTL_MS = 60 * 60 * 1000;

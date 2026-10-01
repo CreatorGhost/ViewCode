@@ -49,7 +49,8 @@ terminal metadata while the terminal process can use them.
 
 T3 Code starts with a clean sidebar. Select **Start fresh** to skip this step.
 
-To add projects, T3 Code lists directories that Claude Code or Codex has used.
+To add projects, ViewCode lists the projects of a T3 Code install on the same
+computer and directories that Claude Code or Codex has used.
 Git repositories are listed first, newest activity on top. When the remote is on
 GitHub, the group shows the repository as `owner/name`. Clones with the same
 remote share one group. Directories that are not git repositories sit under
@@ -60,15 +61,36 @@ Codex scratch directories under `Documents/Codex`, and anything under
 A large or malformed history can reach the scan limit. T3 Code keeps the
 projects it found and warns when projects or conversations may be missing.
 
-Adding a project does not bring in its past conversations.
+Adding a project does not bring in its past conversations. After adding, select
+**Choose sessions…** beside a project to pick the ones you want, or **Done** to
+skip.
 
-## Remove imported sessions
+## Import past sessions
 
-Importing Claude Code and Codex conversations is turned off for now. If you
-imported some earlier, open a project's menu in the sidebar and select
-**Remove imported sessions…**. Imported threads you have not continued are
-checked; confirming archives them. Restore archived threads from
-**Settings → Archive**.
+Open a project's menu in the sidebar and select **Import past sessions…** to
+pick conversations to continue in ViewCode:
+
+- **T3 Code**: every thread of the matching T3 Code project, whatever its age.
+  ViewCode reads T3 Code's data in `~/.t3` without changing it, so T3 Code can
+  stay open. A thread that ran Claude or Codex continues that same session;
+  any other thread continues with a recap of the conversation. If your T3 Code
+  version is not supported, ViewCode says so and lists nothing from it.
+- **Claude Code and Codex**: sessions from the last 30 days.
+
+Nothing is checked for you. Sub-agent runs, sessions another agent started,
+short fragments, and Claude or Codex sessions a T3 Code thread already carries
+are hidden; select **Show hidden** to see them with the reason. Sessions you
+already imported are marked **Imported**, and importing one again changes
+nothing.
+
+Import is best effort. ViewCode keeps the first user prompt and the newest
+remaining user and assistant messages, with 200 messages total. It omits tool
+activity, terminal output, checkpoints and attachments; a message that had
+attachments says so.
+
+To clean up, select **Remove imported sessions…** in the same menu. Imported
+threads you have not continued are checked; confirming archives them. Restore
+archived threads from **Settings → Archive**.
 
 You can continue without configuring agents or adding projects, or return to an earlier step
 using the setup progress bar. Navigation pauses while projects are being added.

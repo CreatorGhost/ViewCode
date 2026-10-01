@@ -359,8 +359,11 @@ function MiniPlayerShell({
   // Inside a wide curve the default 8px inset would land on the clipped-away corner.
   const pillInset = Math.max(8, Math.round(radius * 0.55));
 
+  // Closing is a choice: agents don't pop the player back up on this thread
+  // until the user opens it again ("Float preview over chat" in the browser
+  // panel, or "Float device over chat").
   const close = () => {
-    usePreviewMiniPlayerStore.getState().close(threadRef);
+    usePreviewMiniPlayerStore.getState().dismiss(threadRef);
   };
 
   // The composer grows on its own (drafts, banners), so it is observed alongside the column.
@@ -450,26 +453,15 @@ function MiniPlayerShell({
           }}
         >
           <div
-            className="group pointer-events-auto absolute z-[49] size-3"
+            // Always visible: the guest webview swallows hover, so controls
+            // revealed on hover were effectively unreachable.
+            className="pointer-events-auto absolute z-[49] size-3"
             style={{ right: pillInset, top: pillInset }}
           >
             <div
               role={recording ? "status" : undefined}
               aria-label={recording ? "Recording preview" : undefined}
-              aria-hidden={!recording}
-              className="absolute right-0 top-0 size-2 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
-            >
-              <span
-                className={cn(
-                  "block size-2 rounded-full shadow-sm ring-1 ring-background/70",
-                  recording
-                    ? "bg-destructive motion-safe:animate-status-pulse"
-                    : "bg-foreground/25",
-                )}
-              />
-            </div>
-            <div
-              className="pointer-events-none absolute right-0 top-0 flex h-8 cursor-grab items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 opacity-0 shadow-lg/20 backdrop-blur-xl transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 active:cursor-grabbing"
+              className="absolute right-0 top-0 flex h-8 cursor-grab items-center gap-0.5 rounded-lg border border-border/80 bg-popover/92 p-0.5 shadow-lg/20 backdrop-blur-xl active:cursor-grabbing"
               onPointerDown={(event) => beginGesture(event, null)}
               onPointerMove={handlePointerMove}
               onPointerUp={endGesture}

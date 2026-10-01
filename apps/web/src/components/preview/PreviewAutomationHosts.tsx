@@ -411,7 +411,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             ) {
               usePreviewMiniPlayerStore
                 .getState()
-                .open(threadRef, browserMiniPlayerSource(readyTabId));
+                .autoOpen(threadRef, browserMiniPlayerSource(readyTabId));
             }
           }
           browserActivity.release ??= acquireBrowserSurfaceActivity(runtimeTabId);
@@ -539,15 +539,17 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 presentationSuppressedRuntimeTabsRef.current.delete(request.threadId);
               }
             }
-            if (shouldPresentPreview) {
+            // A player the user closed on this thread stays closed; the agent
+            // keeps working in the background.
+            const presented =
+              shouldPresentPreview &&
               usePreviewMiniPlayerStore
                 .getState()
-                .open(threadRef, browserMiniPlayerSource(activeTabId));
-            }
+                .autoOpen(threadRef, browserMiniPlayerSource(activeTabId));
             if (activeSnapshot && previewAutomationOpenNeedsOverlay(input, activeSnapshot)) {
               await requireReadyTab();
             }
-            if (shouldPresentPreview) {
+            if (presented) {
               // React commits the thread-bound surface asynchronously. Settle
               // briefly so active-thread opens report visible=true, without
               // turning a background thread's offscreen mini player into an

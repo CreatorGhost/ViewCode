@@ -4653,7 +4653,9 @@ export default function ChatView(props: ChatViewProps) {
         name: device.name,
       };
       if (autoShowFloatingPreview) {
-        usePreviewMiniPlayerStore.getState().open(activeThreadRef, { kind: "device", ...target });
+        usePreviewMiniPlayerStore
+          .getState()
+          .autoOpen(activeThreadRef, { kind: "device", ...target });
         continue;
       }
       const existing = useRightPanelStore
