@@ -1,7 +1,38 @@
 import type { ProjectIconColor, ProjectIconOverride } from "@t3tools/contracts";
 
+/** Lucide names projectLucideIcons.ts draws; kept here so this module stays native-free. */
+const DRAWN_LUCIDE_ICON_NAMES: ReadonlySet<string> = new Set([
+  "folder-code",
+  "code-2",
+  "code",
+  "terminal",
+  "globe-2",
+  "globe",
+  "server",
+  "database",
+  "bot",
+  "sparkles",
+  "smartphone",
+  "monitor",
+  "cloud-cog",
+  "package",
+  "book-open",
+  "flask-conical",
+  "shield-check",
+  "rocket",
+  "gamepad-2",
+  "music",
+  "image",
+  "shopping-bag",
+  "git-branch",
+  "workflow",
+  "wrench",
+  "layers-3",
+]);
+
 export type ProjectIconGlyph =
   | { readonly kind: "emoji"; readonly emoji: string }
+  | { readonly kind: "lucide"; readonly name: string; readonly color: ProjectIconColor }
   | { readonly kind: "monogram"; readonly text: string; readonly color: ProjectIconColor };
 
 /**
@@ -32,9 +63,9 @@ export function projectMonogram(projectName: string): string {
 }
 
 /**
- * Picks what mobile draws for an assigned project icon. Mobile does not bundle
- * the Lucide set, so a Lucide override keeps its color and falls back to the
- * project's monogram instead of the folder glyph.
+ * Picks what mobile draws for an assigned project icon. Lucide icons from web's
+ * popular set draw a matching Tabler icon; any other Lucide name keeps its
+ * color and falls back to the project's monogram instead of the folder glyph.
  */
 export function resolveProjectIconGlyph(
   projectIcon: ProjectIconOverride | null | undefined,
@@ -46,7 +77,9 @@ export function resolveProjectIconGlyph(
     case "monogram":
       return { kind: "monogram", text: projectIcon.text, color: projectIcon.color };
     case "lucide":
-      return { kind: "monogram", text: projectMonogram(projectTitle), color: projectIcon.color };
+      return DRAWN_LUCIDE_ICON_NAMES.has(projectIcon.name)
+        ? { kind: "lucide", name: projectIcon.name, color: projectIcon.color }
+        : { kind: "monogram", text: projectMonogram(projectTitle), color: projectIcon.color };
     case undefined:
       return null;
   }

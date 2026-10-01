@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>Junction</title>
+  <g fill="currentColor">
+    <path d="M24 26h15v13a11 11 0 0 0 11 11h11a15 15 0 0 1 15 15v11H61V65H50a26 26 0 0 1-26-26z"/>
+    <rect x="61" y="24" width="15" height="15" rx="4"/>
+    <rect x="24" y="61" width="15" height="15" rx="4"/>
+  </g>
+</svg>
