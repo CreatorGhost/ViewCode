@@ -107,6 +107,10 @@
       "types": "./src/usageResume.ts",
       "default": "./src/usageResume.ts"
     },
+    "./viewcode-tools": {
+      "types": "./src/viewcodeTools.ts",
+      "default": "./src/viewcodeTools.ts"
+    },
     "./state/child-agents": {
       "types": "./src/state/childAgents.ts",
       "default": "./src/state/childAgents.ts"

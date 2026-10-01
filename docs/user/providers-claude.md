@@ -69,6 +69,24 @@ Claude Code holds the turn until that window reopens, so it can keep showing as
 working. Wait for the reset, or stop the turn and continue later. The warning's
 timestamp shows when the displayed wait started.
 
+## Managed (MDM) machines
+
+Some organizations install a managed MCP configuration for Claude Code
+(`managed-mcp.json`, for example under `/Library/Application Support/ClaudeCode/`
+on macOS). Claude Code then only loads the MCP servers your organization lists
+and refuses any other, including ViewCode's. ViewCode respects that policy: it
+starts Claude without its own tools and shows a notice on the thread.
+
+Editing, search, the terminal and git work as usual. What is unavailable in
+those Claude chats is ViewCode's tool server: browser preview, devices, linking
+pull requests to the thread, and ViewCode agents (Claude cannot spawn or message
+them; you can still create child agents from the sidebar). Other providers are
+not affected.
+
+To get the tools back, ask your IT team to add ViewCode's MCP server to the
+managed configuration. To run Claude without ViewCode tools on purpose, turn on
+**Run Claude without ViewCode tools** in Settings → Providers → Claude.
+
 ## Skills
 
 Claude skills come from the config directory's `skills` folder and the project's
