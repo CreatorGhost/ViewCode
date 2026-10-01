@@ -97,13 +97,16 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
   );
   const control = useAgentControlByThreadKey(controlEnvironmentIds);
   const actions = useAgentControlActions();
-  const [expanded, setExpanded] = useState(false);
+  // Opens while agents run so their progress shows without a tap; a manual
+  // toggle sticks for the rest of the visit.
+  const [manualExpanded, setExpanded] = useState<boolean | null>(null);
 
   const keyOf = (id: ThreadId) => `${environmentId}:${id}`;
   const summary = summarizeAgentTreeControl(
     agents.map((agent) => ({ running: agent.running, key: keyOf(agent.thread.id) })),
     control,
   );
+  const expanded = manualExpanded ?? summary.running > 0;
   const selfState = control.get(keyOf(threadId));
   const self = { environmentId, id: threadId };
   if (!selfState?.paused && agents.length === 0) return null;
@@ -156,7 +159,7 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
                 "flex-row items-center gap-2 px-4 py-2.5 active:opacity-70",
                 selfState?.paused && "border-t border-border-subtle",
               )}
-              onPress={() => setExpanded((value) => !value)}
+              onPress={() => setExpanded(!expanded)}
             >
               <View
                 className={cn(

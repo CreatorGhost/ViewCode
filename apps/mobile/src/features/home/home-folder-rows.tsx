@@ -18,7 +18,7 @@ import {
   isAgentMenuEvent,
   pausedAgentLabel,
 } from "../agents/agentMenus";
-import type { HomeAgentStatus } from "./homeFolderList";
+import type { HomeAgentStatus, HomeStatusFilter } from "./homeFolderList";
 
 /** Folder rows for the project-grouped Home list (see homeFolderList.ts). */
 
@@ -264,5 +264,68 @@ export const HomeFolderSettledRow = memo(function HomeFolderSettledRow(props: {
         Settled · {props.count}
       </Text>
     </Pressable>
+  );
+});
+
+const STATUS_FILTER_OPTIONS: ReadonlyArray<{
+  readonly id: HomeStatusFilter;
+  readonly label: string;
+}> = [
+  { id: "all", label: "All" },
+  { id: "working", label: "Working" },
+  { id: "needs-you", label: "Needs you" },
+];
+
+/** Status chips above the folders. Counts count whole trees the chip would keep. */
+export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: {
+  readonly value: HomeStatusFilter;
+  readonly counts: Readonly<Record<HomeStatusFilter, number>>;
+  readonly onChange: (value: HomeStatusFilter) => void;
+}) {
+  return (
+    <View className="flex-row gap-2 px-5 pb-1 pt-2" accessibilityRole="tablist">
+      {STATUS_FILTER_OPTIONS.map((option) => {
+        const selected = props.value === option.id;
+        const count = props.counts[option.id];
+        return (
+          <Pressable
+            key={option.id}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            accessibilityLabel={option.id === "all" ? option.label : `${option.label}, ${count}`}
+            onPress={() => props.onChange(option.id)}
+            hitSlop={6}
+            style={pressedOpacity}
+            className={cn(
+              "flex-row items-center gap-1.5 rounded-full px-3.5 py-1.5",
+              selected ? "bg-foreground" : "bg-row-hover",
+            )}
+          >
+            <Text
+              className={cn(
+                "text-sm font-t3-medium",
+                selected ? "text-screen" : "text-foreground-muted",
+              )}
+            >
+              {option.label}
+            </Text>
+            {option.id !== "all" && count > 0 ? (
+              <Text
+                className={cn(
+                  "text-xs font-t3-medium tabular-nums",
+                  selected
+                    ? "text-screen"
+                    : option.id === "needs-you"
+                      ? "text-warning-foreground"
+                      : "text-adaptive-sky-600-400",
+                )}
+              >
+                {count}
+              </Text>
+            ) : null}
+          </Pressable>
+        );
+      })}
+    </View>
   );
 });
