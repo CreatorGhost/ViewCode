@@ -143,7 +143,7 @@ exception, or touches the EDR.
 ## Cursor Enterprise MCP policy
 
 If Cursor reports that MCP servers are blocked by team policy, ask the team's
-administrator to allow `t3-code`. Verify with `cursor-agent mcp list` under the
+administrator to allow `viewcode` (called `t3-code` before October 2026). Verify with `cursor-agent mcp list` under the
 same account; a blocked server cannot be restored by changing ViewCode's MCP
 transport. An HTTP 401 for a bogus credential proves that the endpoint is
 reachable and auth-gated, not that Cursor registered its tools.
@@ -165,7 +165,7 @@ Each is an IT request. Never circumvent the control.
 
 | Blocker                                                                    | Symptom                                                            | Fix                                                                  |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat | Ask the Cursor team admin to allow `t3-code` (see above)             |
+| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat | Ask the Cursor team admin to allow `viewcode` (see above)            |
 | macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path |
 | Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                          |
 | EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                     |

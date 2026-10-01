@@ -58,23 +58,23 @@ describe("provider MCP transport config", () => {
     });
     expect(acpMcpServerConfig(http)).toEqual({
       type: "http",
-      name: "t3-code",
+      name: "viewcode",
       url: http.endpoint,
       headers: [{ name: "Authorization", value: "Bearer secret" }],
     });
     expect(openCodeMcpServerConfig(http)).toMatchObject({ type: "remote", url: http.endpoint });
     expect(codexMcpConfigArgs(http)).toEqual([
       "-c",
-      "mcp_servers.t3-code.url=http://127.0.0.1:3773/mcp",
+      "mcp_servers.viewcode.url=http://127.0.0.1:3773/mcp",
       "-c",
-      'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
+      'mcp_servers.viewcode.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
     ]);
   });
 
   it("launches the stdio bridge when the server listens on a socket", () => {
     expect(claudeMcpServerConfig(socket)).toEqual({ type: "stdio", ...socket.stdio });
     expect(acpMcpServerConfig(socket)).toEqual({
-      name: "t3-code",
+      name: "viewcode",
       command: socket.stdio.command,
       args: socket.stdio.args,
       env: [
@@ -91,12 +91,12 @@ describe("provider MCP transport config", () => {
 
   it("writes Codex stdio overrides as TOML values", () => {
     const [, command, , args, , env] = codexMcpConfigArgs(socket);
-    expect(command).toBe('mcp_servers.t3-code.command="/opt/T3 Code/t3"');
+    expect(command).toBe('mcp_servers.viewcode.command="/opt/T3 Code/t3"');
     expect(args).toBe(
-      'mcp_servers.t3-code.args=["/opt/T3 Code/mcp-stdio-bridge.mjs","--socket","/tmp/t3code-1000/a \\"b\\".sock"]',
+      'mcp_servers.viewcode.args=["/opt/T3 Code/mcp-stdio-bridge.mjs","--socket","/tmp/t3code-1000/a \\"b\\".sock"]',
     );
     expect(env).toBe(
-      'mcp_servers.t3-code.env={ELECTRON_RUN_AS_NODE="1",T3_MCP_BEARER_TOKEN="secret"}',
+      'mcp_servers.viewcode.env={ELECTRON_RUN_AS_NODE="1",T3_MCP_BEARER_TOKEN="secret"}',
     );
   });
 });

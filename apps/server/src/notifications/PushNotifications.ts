@@ -143,7 +143,7 @@ export class ExpoPushSender extends Context.Service<
       messages: ReadonlyArray<ExpoPushMessage>,
     ) => Effect.Effect<ReadonlyArray<ExpoPushTicket>, PushNotificationError>;
   }
->()("t3/notifications/ExpoPushSender") {}
+>()("t3/notifications/PushNotifications/ExpoPushSender") {}
 
 const ExpoPushResponse = Schema.Struct({
   data: Schema.Array(

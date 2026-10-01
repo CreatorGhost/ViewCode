@@ -20,7 +20,7 @@ const AGENT_TOOLKIT_LABELS: Readonly<
 };
 
 const T3_MCP_PREFIX =
-  /^(?:mcp__(?:t3-code|t3_code|t3code)__|(?:t3-code|t3_code|t3code)(?:[.:/]|\s*·\s*))/i;
+  /^(?:mcp__(?:viewcode|t3-code|t3_code|t3code)__|(?:viewcode|t3-code|t3_code|t3code)(?:[.:/]|\s*·\s*))/i;
 
 function agentToolkitToolName(value: string | undefined): string | null {
   if (!value) return null;

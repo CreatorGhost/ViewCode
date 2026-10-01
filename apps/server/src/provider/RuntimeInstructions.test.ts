@@ -4,7 +4,7 @@ import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 describe("buildRuntimeInstructions", () => {
   it("requires explicit registration of every PR and stack layer", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
-    expect(instructions).toContain("When the t3-code MCP server exposes link_pull_request");
+    expect(instructions).toContain("When the viewcode MCP server exposes link_pull_request");
     expect(instructions).toContain("with the full PR URL immediately after creating a PR");
     expect(instructions).toContain("For a stack, call it for every layer");
     expect(instructions).toContain("call list_thread_pull_requests and link any PR");
@@ -12,7 +12,7 @@ describe("buildRuntimeInstructions", () => {
 
   it("routes requests for sub-agents to ViewCode agents, not the harness's own", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
-    expect(instructions).toContain("When the t3-code MCP server exposes viewcode_spawn_agent");
+    expect(instructions).toContain("When the viewcode MCP server exposes viewcode_spawn_agent");
     expect(instructions).toContain("call viewcode_list_models");
     expect(instructions).toContain(
       "only when the user explicitly asks for built-in, inline or in-chat sub-agents",

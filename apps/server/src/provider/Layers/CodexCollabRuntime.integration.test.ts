@@ -934,7 +934,7 @@ describe("CodexSessionRuntime compaction", () => {
       assert.lengthOf(texts, 1);
       assert.match(
         texts[0] ?? "",
-        /^<t3_code_runtime><runtime_info>.*as GPT-5\.6 Sol \(model slug: gpt-5\.6-sol\).*<\/t3_code_runtime>$/s,
+        /^<viewcode_runtime><runtime_info>.*as GPT-5\.6 Sol \(model slug: gpt-5\.6-sol\).*<\/viewcode_runtime>$/s,
       );
 
       yield* runtime.close;

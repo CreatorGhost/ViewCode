@@ -50,7 +50,7 @@ export function withAgentDeviceEnvironment(
   };
 }
 
-export const MCP_SERVER_NAME = "t3-code";
+export const MCP_SERVER_NAME = "viewcode";
 
 type McpTransportConfig = Pick<
   McpProviderSessionConfig,
