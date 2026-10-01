@@ -3,7 +3,6 @@ import {
   type AdvertisedEndpoint,
   type DesktopLanReachability,
   type DesktopServerExposureMode,
-  type ManagedTunnelState,
   type ViewCodeRelaySetupState,
   type ViewCodeRelaySetupStep,
   type ViewCodeRelayState,
@@ -82,14 +81,15 @@ export function selectPhoneEndpoints(input: {
 }
 
 /**
- * `quick`, `cloud` and `tailscale` are the three ways to reach this computer
- * from anywhere; the dialog shows them under one "Anywhere" tab, Quick connect
- * first.
+ * `quick` and `tailscale` are the ways to reach this computer from anywhere;
+ * the dialog shows them under one "Anywhere" tab, Quick connect first. ViewCode
+ * does not offer upstream's hosted T3 Connect tunnel: Quick connect does that
+ * job on the user's own Cloudflare account.
  */
-export type ConnectMode = "local" | "quick" | "cloud" | "tailscale";
+export type ConnectMode = "local" | "quick" | "tailscale";
 
 /** The methods under the Anywhere tab, in the order they are offered. */
-export const ANYWHERE_MODES = ["quick", "cloud", "tailscale"] as const;
+export const ANYWHERE_MODES = ["quick", "tailscale"] as const;
 export type AnywhereMode = (typeof ANYWHERE_MODES)[number];
 
 export function isAnywhereMode(mode: ConnectMode): mode is AnywhereMode {
@@ -98,21 +98,14 @@ export function isAnywhereMode(mode: ConnectMode): mode is AnywhereMode {
 
 /**
  * The methods to offer. Same Wi-Fi and Quick connect are always there (Quick
- * connect explains its own setup). T3 Connect needs the build's relay
- * configuration; a tab that could only say "not configured" is worse than
- * none. Tailscale needs the desktop to have found the Tailscale CLI on disk
- * (found is not running; that check waits until the user turns it on).
+ * connect explains its own setup). Tailscale appears only when the desktop
+ * found the Tailscale CLI on disk (found is not running; that check waits
+ * until the user turns it on), so people without Tailscale never see it.
  */
 export function resolveConnectModes(input: {
-  readonly cloudConfigured: boolean;
   readonly tailscaleInstalled: boolean;
 }): ReadonlyArray<ConnectMode> {
-  return [
-    "local",
-    "quick",
-    ...(input.cloudConfigured ? (["cloud"] as const) : []),
-    ...(input.tailscaleInstalled ? (["tailscale"] as const) : []),
-  ];
+  return ["local", "quick", ...(input.tailscaleInstalled ? (["tailscale"] as const) : [])];
 }
 
 /** A remembered tab that is no longer offered falls back to the first one. */
@@ -150,53 +143,6 @@ export function resolveTailscaleView(input: {
     };
   }
   return input.serveEnabled ? { kind: "unavailable" } : { kind: "off" };
-}
-
-export type AnywhereView =
-  /** Not linked: offer the one button. */
-  | { readonly kind: "off" }
-  | { readonly kind: "connecting" }
-  /** The network refused the tunnel repeatedly; retries are paused. */
-  | { readonly kind: "blocked" }
-  /** Registrations keep dying; reconnecting, so no QR yet. */
-  | { readonly kind: "unstable-reconnecting" }
-  /** Linked before the tunnel address was kept; turning it off and on fixes it. */
-  | { readonly kind: "needs-relink" }
-  | {
-      readonly kind: "ready";
-      readonly baseUrl: string;
-      readonly host: string;
-      /** Registrations have been dying within a minute: warn before the QR. */
-      readonly unstable: boolean;
-    };
-
-/** What the Anywhere tab shows. The QR appears only while the tunnel is registered. */
-export function resolveAnywhereView(input: {
-  readonly managedTunnelActive: boolean;
-  readonly tunnel: ManagedTunnelState | null;
-}): AnywhereView {
-  if (!input.managedTunnelActive) return { kind: "off" };
-  const tunnel = input.tunnel;
-  if (tunnel === null) return { kind: "connecting" };
-  if (tunnel.status === "blocked-by-network") return { kind: "blocked" };
-  if (!tunnel.registered) {
-    return tunnel.status === "unstable"
-      ? { kind: "unstable-reconnecting" }
-      : { kind: "connecting" };
-  }
-  if (tunnel.httpBaseUrl === undefined) return { kind: "needs-relink" };
-  let host: string;
-  try {
-    host = new URL(tunnel.httpBaseUrl).host;
-  } catch {
-    return { kind: "needs-relink" };
-  }
-  return {
-    kind: "ready",
-    baseUrl: tunnel.httpBaseUrl,
-    host,
-    unstable: tunnel.status === "unstable",
-  };
 }
 
 export type QuickConnectView =
@@ -303,12 +249,6 @@ export const QUICK_CONNECT_STABLE_NOTE = "Stable address: pair once, reconnects 
 /** Shown wherever a Quick connect code is: the relay is not end-to-end encrypted. */
 export const QUICK_CONNECT_TRAFFIC_NOTE =
   "Traffic passes through your own Cloudflare Worker, which can read it, and your company's network may inspect it. It is not end-to-end encrypted. Check your company's policy on remote-access tools before using this on a work computer.";
-
-export const TUNNEL_BLOCKED_MESSAGE =
-  "This network blocks tunnel connections (common on corporate networks or VPNs). Same Wi-Fi still works.";
-
-export const TUNNEL_UNSTABLE_MESSAGE =
-  "This connection keeps dropping. The phone may connect and then lose the computer. Same Wi-Fi is more reliable on this network.";
 
 export function resolveConnectPhoneState(input: {
   /** Null outside the desktop app. */
