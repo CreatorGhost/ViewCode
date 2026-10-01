@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-24T18:40:00Z",
+  "updatedAt": "2026-09-30T23:30:00Z",
   "compatibility": [
     {
       "driver": "codex",
@@ -547,12 +547,12 @@
                 "options": [
                   {
                     "id": "200k",
-                    "label": "200k",
-                    "isDefault": true
+                    "label": "200k"
                   },
                   {
                     "id": "1m",
-                    "label": "1M"
+                    "label": "1M",
+                    "isDefault": true
                   }
                 ]
               }
@@ -614,12 +614,12 @@
                 "options": [
                   {
                     "id": "200k",
-                    "label": "200k",
-                    "isDefault": true
+                    "label": "200k"
                   },
                   {
                     "id": "1m",
-                    "label": "1M"
+                    "label": "1M",
+                    "isDefault": true
                   }
                 ]
               }
