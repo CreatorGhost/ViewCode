@@ -511,6 +511,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ServerUpdateAction } from "./ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import { useUsageResumeBanner } from "./chat/useUsageResumeBanner";
+import { useViewcodeToolsBanner } from "./chat/useViewcodeToolsBanner";
 import {
   ComposerServerUpdateIcon,
   ComposerServerUpdateStatus,
@@ -6546,7 +6547,13 @@ export default function ChatView(props: ChatViewProps) {
     session: activeThread?.session ?? null,
     latestTurn: activeLatestTurn,
   });
+  const viewcodeToolsBannerItem = useViewcodeToolsBanner({
+    threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
+    activities: threadActivities,
+    sessionProviderName: activeThread?.session?.providerName,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
+    const viewcodeToolsItems = viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem];
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
     const resumeCompactionItems =
@@ -6565,6 +6572,7 @@ export default function ChatView(props: ChatViewProps) {
         ...backgroundLivenessItems,
         ...resumeCompactionItems,
         ...wokeThreadItems,
+        ...viewcodeToolsItems,
         ...parkedThreadItems,
       ];
     }
@@ -6614,6 +6622,7 @@ export default function ChatView(props: ChatViewProps) {
           setBranchMismatchDismissTick((tick) => tick + 1);
         },
       },
+      ...viewcodeToolsItems,
       ...parkedThreadItems,
     ];
   }, [
@@ -6629,6 +6638,7 @@ export default function ChatView(props: ChatViewProps) {
     showBranchMismatchBanner,
     systemComposerBannerItems,
     usageLimitsBanner,
+    viewcodeToolsBannerItem,
     wokeThreadBannerItem,
   ]);
   // Pinned outside the stack: the stack keeps activity in front and folds

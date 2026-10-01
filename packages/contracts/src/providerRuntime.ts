@@ -807,6 +807,18 @@ const RuntimeWarningPayload = Schema.Struct({
 });
 export type RuntimeWarningPayload = typeof RuntimeWarningPayload.Type;
 
+/**
+ * ViewCode: `runtime.warning` detail of a session that runs without ViewCode's
+ * own MCP server. `managed-mcp`: the organization manages the provider's MCP
+ * servers (Claude Code's enterprise MCP config), so ViewCode does not pass its
+ * own. `setting`: the user turned ViewCode tools off for the provider.
+ */
+export const ViewcodeToolsUnavailableDetail = Schema.Struct({
+  viewcodeTools: Schema.Literal("unavailable"),
+  reason: Schema.Literals(["managed-mcp", "setting"]),
+});
+export type ViewcodeToolsUnavailableDetail = typeof ViewcodeToolsUnavailableDetail.Type;
+
 const RuntimeErrorPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
   class: Schema.optional(RuntimeErrorClass),

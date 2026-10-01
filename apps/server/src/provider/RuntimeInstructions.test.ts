@@ -24,6 +24,21 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).not.toContain("or when viewcode_spawn_agent is unavailable or fails");
   });
 
+  it.each(["managed-mcp", "setting"] as const)(
+    "does not advertise ViewCode tools when they are unavailable (%s)",
+    (reason) => {
+      const instructions = buildRuntimeInstructions({
+        harness: "Claude Code",
+        viewcodeToolsUnavailable: reason,
+      });
+      expect(instructions).toContain("<runtime_info>");
+      expect(instructions).toContain("are not available in this session");
+      expect(instructions).not.toContain("<pull_request_linking>");
+      expect(instructions).not.toContain("<viewcode_agents>");
+      expect(instructions).not.toContain("call viewcode_list_models");
+    },
+  );
+
   it("keeps known model and effort metadata on one line", () => {
     expect(
       buildRuntimeInstructions({

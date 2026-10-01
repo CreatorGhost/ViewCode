@@ -27,6 +27,16 @@ export function claudeManagedMcpConfigPaths(platform: NodeJS.Platform): Readonly
   }
 }
 
+// Claude Code's own refusal when a client passes MCP servers (or
+// --strict-mcp-config) on a machine with an enterprise MCP config.
+const ENTERPRISE_MCP_REFUSAL =
+  /cannot (?:dynamically configure MCP servers|use --strict-mcp-config) when an enterprise MCP config is present/i;
+
+/** Whether `text` (stderr or an error message) is Claude Code refusing client MCP config. */
+export function isClaudeEnterpriseMcpRefusal(text: string): boolean {
+  return ENTERPRISE_MCP_REFUSAL.test(text);
+}
+
 /** Override for the policy file locations (tests); `undefined` uses the platform's. */
 export const ClaudeManagedMcpConfigPaths = Context.Reference<ReadonlyArray<string> | undefined>(
   "server/provider/Drivers/ClaudeManagedMcpConfigPaths",
