@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>Common</title>
+  <g fill="currentColor">
+    <path d="M24 46a22 22 0 0 1 22-22h10v14H46a8 8 0 0 0-8 8v8a8 8 0 0 0 8 8h10v14H46a22 22 0 0 1-22-22z"/>
+    <circle cx="72" cy="50" r="8"/>
+  </g>
+</svg>

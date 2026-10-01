@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>Fold</title>
+  <g fill="currentColor">
+    <path d="M20 20h55L61 34H34v27L20 75z"/>
+    <path d="M80 25v55H25l14-14h27V39z"/>
+  </g>
+</svg>

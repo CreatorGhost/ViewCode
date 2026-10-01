@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>Offset</title>
+  <g fill="currentColor">
+    <path d="M20 20h42v14H34v28H20z"/>
+    <path d="M80 80H38V66h28V38h14z"/>
+  </g>
+</svg>
