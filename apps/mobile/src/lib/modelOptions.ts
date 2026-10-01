@@ -20,6 +20,11 @@ export type ModelOption = {
   readonly isUnavailable?: boolean;
   readonly capabilities: ModelCapabilities | null;
   readonly selection: ModelSelection;
+  /**
+   * Instances sharing this key can resume each other's native sessions
+   * (the provider's `continuation.groupKey`, else its instance id).
+   */
+  readonly continuationKey?: string;
 };
 
 export type ProviderGroup = {
@@ -176,6 +181,7 @@ export function buildModelOptions(
         isDefault: model.isDefault === true,
         isLegacy: model.isLegacy === true,
         capabilities: model.capabilities,
+        continuationKey: provider.continuation?.groupKey ?? provider.instanceId,
         selection: normalizeSelectionOptions(
           {
             instanceId: provider.instanceId,
@@ -226,6 +232,7 @@ export function buildModelOptions(
           ? { isUnavailable: true }
           : {}),
         capabilities: model?.capabilities ?? null,
+        continuationKey: provider?.continuation?.groupKey ?? fallbackModelSelection.instanceId,
         selection: fallbackModelSelection,
       });
     }
@@ -253,4 +260,40 @@ export function groupByProvider(options: ReadonlyArray<ModelOption>): ReadonlyAr
     providerLabel: group.providerLabel,
     models: group.models,
   }));
+}
+
+/**
+ * The continuation group a thread's native provider session belongs to, or
+ * null before the thread has a session. Models outside it switch by handoff.
+ * Same rule as the web composer (`handoffFromContinuationGroupKey`).
+ */
+export function resolveHandoffFromKey(
+  config: T3ServerConfig | null | undefined,
+  sessionInstanceId: string | null | undefined,
+): string | null {
+  if (!sessionInstanceId) return null;
+  const provider = config?.providers.find(
+    (candidate) => candidate.instanceId === sessionInstanceId,
+  );
+  return provider?.continuation?.groupKey ?? sessionInstanceId;
+}
+
+/**
+ * Whether sending with `option` hands the chat to another provider (the
+ * server carries it over as a recap on the next turn) rather than continuing
+ * the native session. Any model or variant in the session's continuation
+ * group (e.g. Claude 200k to 1M) continues natively. Web's `modelNeedsHandoff`.
+ */
+export function modelNeedsHandoff(
+  option: Pick<ModelOption, "continuationKey" | "providerKey">,
+  handoffFromKey: string | null,
+): boolean {
+  return (
+    handoffFromKey !== null && (option.continuationKey ?? option.providerKey) !== handoffFromKey
+  );
+}
+
+/** The note shown when a pick hands the chat to another provider (web's wording). */
+export function handoffNote(providerLabel: string): string {
+  return `Switching to ${providerLabel} hands this chat off: your messages carry over word for word, earlier replies as a summary.`;
 }

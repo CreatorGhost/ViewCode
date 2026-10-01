@@ -6,8 +6,10 @@ import {
   collectChildAgents,
   countRunningChildAgents,
   isChildAgentRunning,
+  resolveAgentControlAvailability,
   resolveChildAgentStatus,
-} from "./childAgents.logic";
+  summarizeAgentTreeControl,
+} from "./childAgents.ts";
 
 const env = EnvironmentId.make("env-a");
 const otherEnv = EnvironmentId.make("env-b");
@@ -175,5 +177,64 @@ describe("collectAgentTree", () => {
         (entry) => entry.thread.id,
       ),
     ).toEqual(["other"]);
+  });
+});
+
+describe("resolveAgentControlAvailability", () => {
+  it("offers Stop only while a free agent runs", () => {
+    expect(resolveAgentControlAvailability({ running: true, control: undefined })).toEqual({
+      stop: true,
+      resume: false,
+      discard: false,
+    });
+    expect(resolveAgentControlAvailability({ running: false, control: undefined })).toEqual({
+      stop: false,
+      resume: false,
+      discard: false,
+    });
+  });
+
+  it("gives a stopped agent a way back: Resume, and Discard for held work", () => {
+    expect(
+      resolveAgentControlAvailability({ running: false, control: { paused: true, queued: 0 } }),
+    ).toEqual({ stop: false, resume: true, discard: true });
+    // Paused while the interrupt is still landing: no second Stop.
+    expect(
+      resolveAgentControlAvailability({ running: true, control: { paused: true, queued: 2 } }),
+    ).toEqual({ stop: false, resume: true, discard: true });
+  });
+
+  it("offers Discard for messages queued behind a busy agent", () => {
+    expect(
+      resolveAgentControlAvailability({ running: true, control: { paused: false, queued: 1 } }),
+    ).toEqual({ stop: true, resume: false, discard: true });
+  });
+});
+
+describe("summarizeAgentTreeControl", () => {
+  it("counts running, paused and queued agents across the tree", () => {
+    const agents = collectAgentTree(
+      [
+        shell("lead", null, { sessionStatus: "running" }),
+        shell("a", "lead", { turnState: "running" }),
+        shell("b", "lead"),
+        shell("c", "lead"),
+      ],
+      { environmentId: env, threadId: ThreadId.make("lead") },
+    );
+    const control = new Map([
+      ["b", { paused: true, queued: 2 }],
+      ["c", { paused: false, queued: 1 }],
+    ]);
+    expect(
+      summarizeAgentTreeControl(
+        agents.map((agent) => ({ running: agent.running, key: agent.thread.id })),
+        control,
+      ),
+    ).toEqual({
+      running: 2,
+      paused: 1,
+      queued: 3,
+    });
   });
 });

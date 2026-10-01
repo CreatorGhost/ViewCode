@@ -6,7 +6,9 @@ import {
   buildModelOptions,
   groupByProvider,
   isModelSelectionUnavailable,
+  modelNeedsHandoff,
   resolveDefaultableModelSelection,
+  resolveHandoffFromKey,
   resolveNewTaskModelSelection,
   resolveSelectableModelSelection,
   type ModelOption,
@@ -407,5 +409,87 @@ describe("mobile model options", () => {
         modelOptions: [unavailable],
       }),
     ).toBeNull();
+  });
+});
+
+describe("existing-thread model picker", () => {
+  const provider = (
+    instanceId: string,
+    driver: string,
+    models: ReadonlyArray<string>,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    instanceId,
+    driver,
+    enabled: true,
+    installed: true,
+    auth: { status: "authenticated" },
+    models: models.map((slug) => ({ slug, name: slug, isCustom: false, capabilities: null })),
+    ...extra,
+  });
+  const config = {
+    providers: [
+      provider("claudeAgent", "claudeAgent", ["claude-opus-5-5", "claude-sonnet-5"]),
+      // A second Claude account that can resume the first one's sessions.
+      provider("claude_work", "claudeAgent", ["claude-opus-5-5"], {
+        continuation: { groupKey: "claudeAgent" },
+      }),
+      provider("codex", "codex", ["gpt-5.6-sol"]),
+      provider("cursor", "cursor", ["composer-2"]),
+      provider("commandCode", "commandCode", ["cc-1"]),
+      provider("opencode", "opencode", ["anthropic/claude-fable-5"]),
+      provider("grok", "grok", ["grok-5"], { enabled: false }),
+    ],
+  } as unknown as ServerConfig;
+  const selected: ModelSelection = {
+    instanceId: ProviderInstanceId.make("claudeAgent"),
+    model: "claude-opus-5-5",
+  };
+  const options = buildModelOptions(config, selected);
+  const optionFor = (key: string) => options.find((option) => option.key === key)!;
+
+  it("offers every enabled provider for a thread that started on Claude", () => {
+    expect(groupByProvider(options).map((group) => group.providerKey)).toEqual([
+      "claudeAgent",
+      "claude_work",
+      "codex",
+      "cursor",
+      "commandCode",
+      "opencode",
+    ]);
+  });
+
+  it("keeps same-provider switches native and hands other providers off", () => {
+    const handoffFromKey = resolveHandoffFromKey(config, "claudeAgent");
+    expect(handoffFromKey).toBe("claudeAgent");
+    const handoff = (key: string) => modelNeedsHandoff(optionFor(key), handoffFromKey);
+    expect(handoff("claudeAgent:claude-opus-5-5")).toBe(false);
+    expect(handoff("claudeAgent:claude-sonnet-5")).toBe(false);
+    // Another account in the same continuation group resumes natively.
+    expect(handoff("claude_work:claude-opus-5-5")).toBe(false);
+    expect(handoff("codex:gpt-5.6-sol")).toBe(true);
+    expect(handoff("cursor:composer-2")).toBe(true);
+    expect(handoff("commandCode:cc-1")).toBe(true);
+    expect(handoff("opencode:anthropic/claude-fable-5")).toBe(true);
+  });
+
+  it("keeps a context-window variant (200k to 1M) on the native session", () => {
+    const variant = {
+      ...optionFor("claudeAgent:claude-opus-5-5"),
+      selection: { ...selected, options: [{ id: "contextWindow", value: "1m" }] },
+    };
+    expect(modelNeedsHandoff(variant, resolveHandoffFromKey(config, "claudeAgent"))).toBe(false);
+  });
+
+  it("never hands off before the thread has a provider session", () => {
+    expect(resolveHandoffFromKey(config, null)).toBeNull();
+    expect(modelNeedsHandoff(optionFor("codex:gpt-5.6-sol"), null)).toBe(false);
+  });
+
+  it("follows the session's instance, not a staged selection", () => {
+    // The session is still on Codex while Claude is staged: Codex resumes natively.
+    const handoffFromKey = resolveHandoffFromKey(config, "codex");
+    expect(modelNeedsHandoff(optionFor("codex:gpt-5.6-sol"), handoffFromKey)).toBe(false);
+    expect(modelNeedsHandoff(optionFor("claudeAgent:claude-sonnet-5"), handoffFromKey)).toBe(true);
   });
 });

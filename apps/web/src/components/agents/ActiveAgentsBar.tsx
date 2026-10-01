@@ -18,7 +18,7 @@ import {
   collectChildAgents,
   countRunningChildAgents,
   resolveChildAgentStatus,
-} from "./childAgents.logic";
+} from "@t3tools/client-runtime/state/child-agents";
 import { useAgentControlActions } from "./useAgentControlActions";
 
 const STATUS_LABEL: Record<ChildAgentStatus, string> = {

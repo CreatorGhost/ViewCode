@@ -56,6 +56,27 @@ wait in a collapsed **Settled · N** row at the bottom of their folder. Search
 looks through every folder, settled threads and agents included, and opens
 whatever hides a match. **+** on a folder starts a new task in that project.
 
+## Managing agents
+
+Long-press an agent row for **Stop agent**, **Resume agent** or **Discard held
+messages**. Long-press the thread that started them for **Stop all agents (N
+running)**. A stopped agent is paused, not deleted: it shows **paused**, messages
+from other agents wait for it, and **Resume** continues where it stopped.
+Discard drops the waiting messages instead.
+
+Inside a thread with agents, the **Active agents** strip above the composer
+lists them with their status and model. Tap it to expand, tap an agent to open
+it, and use **Stop** or **Resume** per agent or for all of them.
+
+## Switching models
+
+Tap the model chip in the composer to pick any model from any provider the
+computer has set up, with its effort, fast mode and, for Claude, the 200k or 1M
+context window. Another model from the same provider continues the same
+session. Picking a different provider (marked **Handoff**) hands the chat
+over on your next message: your messages carry over word for word, earlier
+replies as a summary.
+
 ## Updating
 
 Pull the latest ViewCode and run `eas build -p android --profile preview` again,

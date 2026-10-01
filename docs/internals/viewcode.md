@@ -54,6 +54,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   new API id, and the conversation continues natively. The composer trigger
   names the variant ("High · 1M" on web, "Opus 5.5 · 1M" on mobile) because it
   is part of what runs.
+- Clients never lock a started thread to its provider (stock T3 does): web
+  (`lockedProvider = null` in `ChatView.tsx`) and mobile (`ThreadComposer.tsx`)
+  offer every enabled provider, and the next turn's `modelSelection` is the
+  whole request; the server decides the handoff. Clients only label it, from
+  the continuation group of `session.providerInstanceId`, not of the staged
+  selection. Upstream merges that bring the lock back must drop it again.
 - The recap has one fixed budget for every incoming model,
   `HANDOFF_BUDGET_TOKENS` (50k tokens, ~200k characters), covering the **whole
   rendered prelude** (header, recap, omission note). It is not a share of the
@@ -147,8 +153,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   interruption is pending wait for it to settle; its partial answer must not
   be forwarded as the requested result. Typing a prompt into a paused agent
   resumes it. Pause and queues live in server memory only
-  (`subscribeAgentControl` streams them); a restart forgets them. Mobile can
-  stop and prompt but has no Resume/Discard buttons yet.
+  (`subscribeAgentControl` streams them); a restart forgets them. Web and
+  mobile decide which of Stop / Resume / Discard an agent offers with the same
+  rule (`resolveAgentControlAvailability`, client-runtime `state/childAgents.ts`).
 - Providers report limits only as text, so `classifyLimitError`
   (`packages/shared/src/usageLimit.ts`, shared with the web notification) sorts a failure into
   a **usage limit** (quota or plan spent: anchored to the providers' own phrasing such as

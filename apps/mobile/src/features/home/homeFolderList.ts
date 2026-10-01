@@ -14,7 +14,11 @@ import {
   type SidebarThreadTreeNode,
 } from "@t3tools/client-runtime/state/thread-tree";
 import { formatSubagentModelLabel } from "@t3tools/client-runtime/state/subagentRuntime";
-import type { EnvironmentId, ServerConfig } from "@t3tools/contracts";
+import {
+  summarizeAgentTreeControl,
+  type AgentTreeControlSummary,
+} from "@t3tools/client-runtime/state/child-agents";
+import type { AgentControlState, EnvironmentId, ServerConfig } from "@t3tools/contracts";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 
 import { scopedProjectKey } from "../../lib/scopedEntities";
@@ -44,8 +48,10 @@ import type { HomeProjectScope } from "./homeThreadList";
  * are the ordinary v2 rows, so swipe and long-press actions stay as they are.
  */
 
-/** What a child agent row's dot shows. */
-export type HomeAgentStatus = "needs-you" | "working" | "failed" | "stopped" | "idle";
+/** What a child agent row's dot shows. `paused` is a user Stop (agent control). */
+export type HomeAgentStatus = "needs-you" | "working" | "paused" | "failed" | "stopped" | "idle";
+
+type AgentControlByThreadKey = ReadonlyMap<string, Pick<AgentControlState, "paused" | "queued">>;
 
 export function resolveHomeAgentStatus(
   thread: Pick<
@@ -99,6 +105,8 @@ export interface HomeFolderLeadItem {
   readonly entry: ThreadListV2ThreadListItem;
   /** Rows inside a folder drop the project line the folder already names. */
   readonly inFolder: boolean;
+  /** The lead's agent tree (lead included) for Stop all / Resume; null without agents. */
+  readonly agentTree: AgentTreeControlSummary | null;
 }
 
 export interface HomeFolderAgentsToggleItem {
@@ -107,6 +115,8 @@ export interface HomeFolderAgentsToggleItem {
   readonly leadKey: string;
   readonly agentCount: number;
   readonly workingCount: number;
+  /** Agents below the lead stopped by the user. */
+  readonly pausedCount: number;
   readonly expanded: boolean;
   readonly muted: boolean;
 }
@@ -118,6 +128,10 @@ export interface HomeFolderChildItem {
   /** 1 for a lead's own agents, 2 for theirs, … */
   readonly depth: number;
   readonly status: HomeAgentStatus;
+  /** Its session or turn is in flight, even while `status` says paused. */
+  readonly running: boolean;
+  /** Agent messages waiting for it. */
+  readonly queued: number;
   readonly muted: boolean;
 }
 
@@ -197,6 +211,8 @@ export function buildHomeFolderList(input: {
   readonly snoozeLabelNow?: string;
   readonly moveAvailability?: ReadonlyMap<string, ThreadMoveAvailability>;
   readonly shelfPreferencesLoading?: boolean;
+  /** Agent control state by `${environmentId}:${threadId}`. */
+  readonly agentControl?: AgentControlByThreadKey;
 }): HomeFolderList {
   const { now } = input;
   const folderKeyByProjectKey = new Map<string, string>();
@@ -380,6 +396,7 @@ export function buildHomeFolderList(input: {
     if (entry.type === "v2-thread") entryByKey.set(threadKey(entry.item.thread), entry);
   }
 
+  const agentControl: AgentControlByThreadKey = input.agentControl ?? new Map();
   const items: HomeFolderListItem[] = [];
   const pushTree = (
     node: SidebarThreadTreeNode<EnvironmentThreadShell>,
@@ -388,8 +405,19 @@ export function buildHomeFolderList(input: {
   ) => {
     const entry = entryByKey.get(node.key);
     if (entry === undefined) return;
-    items.push({ type: "folder-lead", key: entry.key, entry, inFolder });
-    if (node.children.length === 0) return;
+    if (node.children.length === 0) {
+      items.push({ type: "folder-lead", key: entry.key, entry, inFolder, agentTree: null });
+      return;
+    }
+    const tree = flattenSidebarThreadNode(node, () => true).map((row) => ({
+      key: row.node.key,
+      thread: row.node.thread,
+      depth: row.depth,
+      running: resolveHomeAgentStatus(row.node.thread) === "working",
+    }));
+    const agentTree = summarizeAgentTreeControl(tree, agentControl);
+    items.push({ type: "folder-lead", key: entry.key, entry, inFolder, agentTree });
+    const agents = tree.slice(1);
     const expanded = input.expandedLeadKeys.has(node.key) || searchExpandKeys.has(node.key);
     items.push({
       type: "folder-agents",
@@ -397,18 +425,22 @@ export function buildHomeFolderList(input: {
       leadKey: node.key,
       agentCount: node.descendantCount,
       workingCount: node.workingDescendantCount,
+      pausedCount: agents.filter((row) => agentControl.get(row.key)?.paused === true).length,
       expanded,
       muted,
     });
     if (!expanded) return;
     // An open lead shows its whole tree; nested agents indent by depth.
-    for (const row of flattenSidebarThreadNode(node, () => true).slice(1)) {
+    for (const row of agents) {
+      const control = agentControl.get(row.key);
       items.push({
         type: "folder-child",
-        key: `folder-child:${row.node.key}`,
-        thread: row.node.thread,
+        key: `folder-child:${row.key}`,
+        thread: row.thread,
         depth: row.depth,
-        status: resolveHomeAgentStatus(row.node.thread),
+        status: control?.paused ? "paused" : resolveHomeAgentStatus(row.thread),
+        running: row.running,
+        queued: control?.queued ?? 0,
         muted,
       });
     }
@@ -529,6 +561,7 @@ export function homeFolderListItemsAreEqual(
       return (
         previous.type === "folder-lead" &&
         previous.inFolder === item.inFolder &&
+        agentTreesAreEqual(previous.agentTree, item.agentTree) &&
         threadListV2ListItemsAreEqual(previous.entry, item.entry)
       );
     case "folder-agents":
@@ -537,6 +570,7 @@ export function homeFolderListItemsAreEqual(
         previous.key === item.key &&
         previous.agentCount === item.agentCount &&
         previous.workingCount === item.workingCount &&
+        previous.pausedCount === item.pausedCount &&
         previous.expanded === item.expanded &&
         previous.muted === item.muted
       );
@@ -547,6 +581,8 @@ export function homeFolderListItemsAreEqual(
         previous.thread === item.thread &&
         previous.depth === item.depth &&
         previous.status === item.status &&
+        previous.running === item.running &&
+        previous.queued === item.queued &&
         previous.muted === item.muted
       );
     case "folder-settled":
@@ -563,4 +599,16 @@ export function homeFolderListItemsAreEqual(
         threadListV2ListItemsAreEqual(previous, item)
       );
   }
+}
+
+function agentTreesAreEqual(
+  previous: AgentTreeControlSummary | null,
+  next: AgentTreeControlSummary | null,
+): boolean {
+  if (previous === null || next === null) return previous === next;
+  return (
+    previous.running === next.running &&
+    previous.paused === next.paused &&
+    previous.queued === next.queued
+  );
 }

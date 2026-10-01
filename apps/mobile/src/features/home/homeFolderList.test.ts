@@ -277,3 +277,50 @@ describe("resolveHomeAgentModelLabel", () => {
     expect(resolveHomeAgentModelLabel(configs, unlisted)).toBe("sonnet-4");
   });
 });
+
+describe("agent control on the folder list", () => {
+  const threads = [
+    thread("lead", "app", { session: sessionWith("running") }),
+    child("worker", "lead", { session: sessionWith("running") }),
+    child("paused", "lead"),
+  ];
+  const list = buildHomeFolderList({
+    threads,
+    scopes,
+    projectScoped: false,
+    pendingTasks: [],
+    environmentId: null,
+    searchQuery: "",
+    now: NOW,
+    collapsedFolderKeys: new Set(),
+    expandedLeadKeys: new Set([`${ENV}:lead`]),
+    expandedSettledFolderKeys: new Set(),
+    snoozedShelfExpanded: false,
+    agentControl: new Map([[`${ENV}:paused`, { paused: true, queued: 2 }]]),
+  });
+
+  it("marks a stopped agent paused and counts it on the agents row", () => {
+    expect(describeRows(list.items)).toEqual([
+      "folder App (1)",
+      "lead lead",
+      "agents 2 open",
+      "  child worker working",
+      "  child paused paused",
+    ]);
+    const agentsRow = list.items.find((item) => item.type === "folder-agents");
+    expect(agentsRow?.type === "folder-agents" && agentsRow.pausedCount).toBe(1);
+    const pausedRow = list.items.find(
+      (item) => item.type === "folder-child" && item.thread.id === "paused",
+    );
+    expect(pausedRow?.type === "folder-child" && pausedRow.queued).toBe(2);
+  });
+
+  it("gives the lead its tree's counts for Stop all", () => {
+    const lead = list.items.find((item) => item.type === "folder-lead");
+    expect(lead?.type === "folder-lead" && lead.agentTree).toEqual({
+      running: 2,
+      paused: 1,
+      queued: 2,
+    });
+  });
+});

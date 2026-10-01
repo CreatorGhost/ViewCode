@@ -14,7 +14,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
-import { collectAgentTree } from "./childAgents.logic";
+import { collectAgentTree } from "@t3tools/client-runtime/state/child-agents";
 import { useAgentControlActions } from "./useAgentControlActions";
 
 /**

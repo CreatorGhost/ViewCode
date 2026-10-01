@@ -107,6 +107,10 @@
       "types": "./src/usageResume.ts",
       "default": "./src/usageResume.ts"
     },
+    "./state/child-agents": {
+      "types": "./src/state/childAgents.ts",
+      "default": "./src/state/childAgents.ts"
+    },
     "./state/agent-control": {
       "types": "./src/state/agentControl.ts",
       "default": "./src/state/agentControl.ts"
