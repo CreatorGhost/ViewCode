@@ -70,7 +70,7 @@ keep that cheap.
 - Keep upstream names, file layout and contracts. Extend contracts with
   optional fields; never rename or remove upstream ones (older clients, the
   store mobile app and upstream merges all depend on them).
-- Hide instead of delete (see `SHOW_SESSION_IMPORT_STEP`): an upstream file you
+- Hide instead of delete (behind a flag or a removed menu item): an upstream file you
   deleted conflicts on every upstream change to it.
 - Merge hot spots today, by lines changed: `components/Sidebar.tsx` (~4k,
   largely rewritten; `LegacySidebar.tsx` holds the old one),
@@ -138,25 +138,14 @@ the picker lists ViewCode, upstream's themes and 18 ported Droppy themes
   project icons), 30 (tool-row spacing check), 34 (gradient swatches), the
   floating chrome row, top veil and stepped working spinner (§5).
 
-### 2. Import from T3 Code instead of provider session files
+### 2. Import from T3 Code: follow-ups
 
-Provider-file import (Claude/Codex JSONL) is hidden: sidebar menu items
-removed, onboarding step off via `SHOW_SESSION_IMPORT_STEP` in
-`apps/web/src/components/onboarding/WelcomeWizard.tsx`. "Remove imported
-sessions…" stays. Server RPCs (`agentSessions.list/import`) and the dialog are
-kept.
-
-Wanted instead: "Import from T3 Code" in onboarding and Settings.
-
-- Read `~/.t3/userdata/state.sqlite` **read-only** (open with `readonly: true`,
-  or snapshot with `VACUUM INTO` to a temp file first). Never write to it.
-- List projects and threads with title, provider, message count, last activity;
-  nothing checked by default; user picks.
-- Copy threads with their messages (and `parentThreadId` if present) into
-  ViewCode, with ids that can't collide (prefix like `t3:`), re-importing the
-  same thread is a no-op.
-- Works on desktop and `pnpm dev`; hide the entry when no T3 install is found.
-- Tests: importer against a fixture database; idempotency; read-only open.
+T3 Code threads import through the session import flow (onboarding
+"Choose sessions…" and a project's "Import past sessions…"), next to Claude
+Code and Codex session files; see
+[`internals/viewcode.md`](internals/viewcode.md#session-import). Not done yet:
+an entry in Settings, and deciding whether Claude/Codex session files should
+stay offered now that the dialog is visible again.
 
 ### 3. One-step phone connection
 

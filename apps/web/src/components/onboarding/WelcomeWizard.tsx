@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
 import type {
   AgentSessionProjectCandidate,
+  AgentSessionSource,
   EnvironmentId,
   ProjectId,
   ScopedProjectRef,
@@ -66,7 +67,7 @@ import {
   ImportSessionsDialog,
   type ImportSessionsTarget,
 } from "../agentSessions/ImportSessionsDialog";
-import { ClaudeAI, OpenAI } from "../Icons";
+import { ClaudeAI, OpenAI, T3CodeIcon } from "../Icons";
 import { T3Wordmark } from "../T3Wordmark";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -96,9 +97,6 @@ const NO_ENVIRONMENTS: readonly EnvironmentId[] = [];
 const AGENT_ONBOARDING_THREAD_ID = ThreadId.make("onboarding-agent-setup");
 const ONBOARDING_STAGES = ["Connect", "Agents", "Projects"] as const;
 const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some projects or conversations may be missing.";
-
-/** Hidden until import comes from T3 Code instead of provider session files. */
-const SHOW_SESSION_IMPORT_STEP = false;
 
 export function WelcomeWizard({
   localAvailable,
@@ -1172,13 +1170,6 @@ function ImportStep({
       void onDone();
       return;
     }
-    // The per-project "bring in past conversations" step is hidden for now:
-    // importing Claude/Codex session files mostly brought in agent plumbing.
-    // Projects open empty; the step returns with an import from T3 Code.
-    if (!SHOW_SESSION_IMPORT_STEP) {
-      finishWithProjects();
-      return;
-    }
     setAddedProjects(added);
   };
 
@@ -1186,7 +1177,7 @@ function ImportStep({
     return (
       <StepShell
         title="Bring in past conversations?"
-        description="Your projects start empty. Pick specific Claude Code or Codex sessions to continue, or skip this. You can do it later from a project's menu in the sidebar."
+        description="Your projects start empty. Pick specific T3 Code, Claude Code or Codex conversations to continue, or skip this. You can do it later from a project's menu in the sidebar."
       >
         <ScrollArea scrollFade className="mt-5 h-auto max-h-80">
           <div className="space-y-0.5 pr-3">
@@ -1249,7 +1240,7 @@ function ImportStep({
         <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6">
           <Spinner size="lg" tone="muted" />
           <p className="text-center text-sm text-muted-foreground">
-            Looking for projects from Claude Code and Codex…
+            Looking for projects from T3 Code, Claude Code and Codex…
           </p>
         </div>
         <div className="flex justify-end">
@@ -1264,7 +1255,7 @@ function ImportStep({
   return (
     <StepShell
       title="Start fresh, or add projects"
-      description="ViewCode starts with a clean sidebar. Add folders you have used with Claude Code or Codex as projects if you like. Adding a project does not bring in its conversations; you choose those next."
+      description="ViewCode starts with a clean sidebar. Add folders you have used with T3 Code, Claude Code or Codex as projects if you like. Adding a project does not bring in its conversations; you choose those next."
     >
       {candidates.length > 0 ? (
         <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -1326,12 +1317,17 @@ function ImportStep({
                   </div>
                 ) : scanCandidates.length === 0 ? (
                   <p className="py-2 text-sm text-muted-foreground">
-                    No existing Claude Code or Codex projects found.
+                    No existing T3 Code, Claude Code or Codex projects found.
                   </p>
                 ) : null}
                 {scan.data?.truncated ? (
                   <p className="text-xs text-muted-foreground" role="status">
                     {SCAN_LIMIT_MESSAGE}
+                  </p>
+                ) : null}
+                {scan.data?.warning ? (
+                  <p className="text-xs text-muted-foreground" role="status">
+                    {scan.data.warning}
                   </p>
                 ) : null}
                 <ImportCandidateList
@@ -1571,7 +1567,7 @@ function ImportRowMeta({
   threadCount,
   lastActiveAt,
 }: {
-  readonly sources: ReadonlyArray<"claudeAgent" | "codex"> | null;
+  readonly sources: ReadonlyArray<AgentSessionSource> | null;
   readonly threadCount: number;
   readonly lastActiveAt: string | null;
 }) {
@@ -1579,7 +1575,12 @@ function ImportRowMeta({
   // "just now" does not fit the fixed column, so collapse it.
   const age = relative === null ? "" : relative.suffix === null ? "now" : relative.value;
   return (
-    <span className="ml-auto grid shrink-0 grid-cols-[1rem_1rem_2.5rem_2.25rem] items-center gap-x-1 text-xs text-muted-foreground tabular-nums">
+    <span className="ml-auto grid shrink-0 grid-cols-[1rem_1rem_1rem_2.5rem_2.25rem] items-center gap-x-1 text-xs text-muted-foreground tabular-nums">
+      <span className="flex size-4 items-center justify-center">
+        {sources?.includes("t3code") ? (
+          <T3CodeIcon className="size-3" aria-label="T3 Code" />
+        ) : null}
+      </span>
       <span className="flex size-4 items-center justify-center">
         {sources?.includes("claudeAgent") ? (
           <ClaudeAI className="size-3" aria-label="Claude Code" />

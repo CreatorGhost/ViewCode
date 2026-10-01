@@ -103,6 +103,27 @@ function hasImportBlockingActivity(
 const sessionKey = (providerInstanceId: string, providerSessionId: string) =>
   `${providerInstanceId}\0${providerSessionId}`;
 
+interface ImportSourceRef {
+  readonly provider: AgentSessionSource;
+  readonly providerInstanceId: string;
+  readonly providerSessionId: string;
+}
+
+/**
+ * Identity of an imported session. A T3 Code thread keeps its identity when
+ * its model moves to another instance, so its key ignores the instance.
+ */
+const importKey = (source: ImportSourceRef) =>
+  source.provider === "t3code"
+    ? sessionKey("t3code", source.providerSessionId)
+    : sessionKey(source.providerInstanceId, source.providerSessionId);
+
+/** Threads are named `import:<instance>:<session>`, and T3 Code threads `import:t3code:<thread>`. */
+const importedThreadId = (source: ImportSourceRef) =>
+  ThreadId.make(
+    `import:${source.provider === "t3code" ? "t3code" : source.providerInstanceId}:${source.providerSessionId}`,
+  );
+
 /** The project's root, checked against the one the client saw. */
 const resolveImportWorkspaceRoot = Effect.fn("resolveImportWorkspaceRoot")(function* (
   input: AgentSessionListInput,
@@ -128,6 +149,24 @@ const resolveImportWorkspaceRoot = Effect.fn("resolveImportWorkspaceRoot")(funct
   }
   return workspaceRoot;
 });
+
+/**
+ * The resume cursor an imported thread starts with. A T3 Code thread with no
+ * Claude or Codex session to carry has none; its first turn carries a recap
+ * of the imported history instead (see ProviderCommandReactor).
+ */
+function importedResumeCursor(threadId: ThreadId, thread: AgentSessionScanner.AgentSessionThread) {
+  if (thread.source === "codex") return { threadId: thread.providerSessionId };
+  if (thread.source === "claudeAgent") return { threadId, resume: thread.providerSessionId };
+  const resume = thread.resume;
+  if (resume === undefined) return null;
+  if (resume.provider === "codex") return { threadId: resume.sessionId };
+  return {
+    threadId,
+    resume: resume.sessionId,
+    ...(resume.resumeSessionAt === undefined ? {} : { resumeSessionAt: resume.resumeSessionAt }),
+  };
+}
 
 /** Provider session ids a resume cursor names (Codex `threadId`, Claude `resume`). */
 export function resumeCursorSessionIds(cursor: unknown): string[] {
@@ -155,11 +194,7 @@ export const listImportableAgentSessions = Effect.fn("listImportableAgentSession
     .pipe(
       Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-projects", cause })),
     );
-  const imported = new Set(
-    completedSources.map(({ source }) =>
-      sessionKey(source.providerInstanceId, source.providerSessionId),
-    ),
-  );
+  const imported = new Set(completedSources.map(({ source }) => importKey(source)));
   // Sessions ViewCode ran itself also land in the providers' session files;
   // their resume cursors name them, so they can be folded away as duplicates.
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
@@ -169,33 +204,42 @@ export const listImportableAgentSessions = Effect.fn("listImportableAgentSession
       .filter((binding) => !String(binding.threadId).startsWith("import:"))
       .flatMap((binding) => resumeCursorSessionIds(binding.resumeCursor)),
   );
-  const sessions: Array<AgentSessionSummary> = [];
+  const threads: Array<AgentSessionScanner.AgentSessionThread> = [];
+  let warning: string | null = null;
   yield* Stream.runForEach(scanner.recentThreads(workspaceRoot), (outcome) =>
     Effect.sync(() => {
-      if (outcome._tag !== "Importable") return;
-      const { thread } = outcome;
-      sessions.push({
-        providerInstanceId: thread.providerInstanceId,
-        providerSessionId: thread.providerSessionId,
-        provider: thread.source,
-        title: thread.title,
-        firstActivityAt: thread.createdAt,
-        lastActivityAt: thread.updatedAt,
-        userMessageCount: thread.userMessageCount,
-        alreadyImported: imported.has(
-          sessionKey(thread.providerInstanceId, thread.providerSessionId),
-        ),
-        ...(() => {
-          const hiddenReason = ownSessionIds.has(thread.providerSessionId)
-            ? ("in-viewcode" as const)
-            : thread.hiddenReason;
-          return { hidden: hiddenReason !== null, hiddenReason };
-        })(),
-      });
+      if (outcome._tag === "Warning") warning = outcome.message;
+      if (outcome._tag === "Importable") threads.push(outcome.thread);
     }),
   );
+  // A T3 Code thread that ran Claude or Codex also left that provider's
+  // session file; list the conversation once, as the T3 Code thread.
+  const t3SessionIds = new Set(threads.flatMap((thread) => thread.resume?.sessionId ?? []));
+  const sessions = threads.map((thread): AgentSessionSummary => {
+    const hiddenReason = ownSessionIds.has(thread.providerSessionId)
+      ? ("in-viewcode" as const)
+      : thread.source !== "t3code" && t3SessionIds.has(thread.providerSessionId)
+        ? ("in-t3code" as const)
+        : thread.hiddenReason;
+    return {
+      providerInstanceId: thread.providerInstanceId,
+      providerSessionId: thread.providerSessionId,
+      provider: thread.source,
+      title: thread.title,
+      firstActivityAt: thread.createdAt,
+      lastActivityAt: thread.updatedAt,
+      userMessageCount: thread.userMessageCount,
+      alreadyImported: imported.has(importKey({ ...thread, provider: thread.source })),
+      hidden: hiddenReason !== null,
+      hiddenReason,
+      ...(thread.model === null ? {} : { model: thread.model }),
+    };
+  });
   sessions.sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
-  return { sessions } satisfies AgentSessionListResult;
+  return {
+    sessions,
+    ...(warning === null ? {} : { warning }),
+  } satisfies AgentSessionListResult;
 });
 
 /**
@@ -239,22 +283,19 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
   // Sub-agent sessions nest under their parent, so a child whose parent has
   // not been imported yet (rollouts arrive newest first) waits for a second pass.
   const deferred: AgentSessionScanner.AgentSessionRecentThread[] = [];
-  const threadIdFor = (providerInstanceId: string, providerSessionId: string) =>
-    ThreadId.make(`import:${providerInstanceId}:${providerSessionId}`);
 
   const importOutcome = (
     outcome: AgentSessionScanner.AgentSessionRecentThread,
     finalPass: boolean,
   ) =>
     Effect.gen(function* () {
+      if (outcome._tag === "Warning") return;
       if (outcome._tag === "Skipped") {
         skippedCount += 1;
         return;
       }
       if (outcome._tag === "AlreadyImported" || outcome._tag === "Duplicate") {
-        const threadId = ThreadId.make(
-          `import:${outcome.source.providerInstanceId}:${outcome.source.providerSessionId}`,
-        );
+        const threadId = importedThreadId(outcome.source);
         if (outcome._tag === "AlreadyImported") {
           // Tracked even when unselected so a selected child can nest under it.
           importedThreadIds.add(threadId);
@@ -275,17 +316,20 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
       }
       const thread = outcome.thread;
       if (selected === null ? thread.hiddenReason === "internal" : !isSelected(thread)) return;
-      const threadId = threadIdFor(thread.providerInstanceId, thread.providerSessionId);
+      const threadId = importedThreadId(outcome.source);
       const parentThreadId =
         thread.parentProviderSessionId === undefined
           ? null
-          : threadIdFor(thread.providerInstanceId, thread.parentProviderSessionId);
+          : importedThreadId({
+              ...outcome.source,
+              providerSessionId: thread.parentProviderSessionId,
+            });
       if (parentThreadId !== null && !importedThreadIds.has(parentThreadId) && !finalPass) {
         deferred.push(outcome);
         return;
       }
       const imported = yield* Effect.gen(function* () {
-        const provider = ProviderDriverKind.make(thread.source);
+        const provider = thread.driver ?? ProviderDriverKind.make(thread.source);
         const model = thread.model ?? DEFAULT_MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL;
         const existingThread = yield* snapshots.getThreadDetailById(threadId);
         const existingBinding = yield* directory.getBinding(threadId);
@@ -347,10 +391,7 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
               providerInstanceId: thread.providerInstanceId,
               status: "stopped",
               runtimeMode: DEFAULT_RUNTIME_MODE,
-              resumeCursor:
-                thread.source === "codex"
-                  ? { threadId: thread.providerSessionId }
-                  : { threadId, resume: thread.providerSessionId },
+              resumeCursor: importedResumeCursor(threadId, thread),
               runtimePayload: { cwd: workspaceRoot },
             },
             { onConflict: "ignore" },

@@ -1,4 +1,9 @@
-import type { AgentSessionSummary, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type {
+  AgentSessionListResult,
+  AgentSessionSummary,
+  EnvironmentId,
+  ProjectId,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -8,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentSessionImport, agentSessionList } from "../../state/agentSessions";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
-import { ClaudeAI, OpenAI } from "../Icons";
+import { ClaudeAI, OpenAI, T3CodeIcon, type Icon } from "../Icons";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -45,9 +50,9 @@ function plural(count: number, noun: string) {
 }
 
 /**
- * Pick past Claude Code and Codex sessions to bring into one project. Nothing
- * is checked up front; sessions that look like agent plumbing (sub-agents,
- * agent-to-agent messages, fragments) sit behind "Show hidden".
+ * Pick past T3 Code, Claude Code and Codex conversations to bring into one
+ * project. Nothing is checked up front; sessions that look like agent plumbing
+ * (sub-agents, agent-to-agent messages, fragments) sit behind "Show hidden".
  */
 export function ImportSessionsDialog({
   target,
@@ -80,7 +85,7 @@ export function ImportSessionsDialog({
 type ListState =
   | { readonly status: "loading" }
   | { readonly status: "error"; readonly message: string }
-  | { readonly status: "ready"; readonly sessions: ReadonlyArray<AgentSessionSummary> };
+  | ({ readonly status: "ready" } & AgentSessionListResult);
 
 function ImportSessionsPopup({
   target,
@@ -110,7 +115,7 @@ function ImportSessionsPopup({
       if (request !== listRequestRef.current || isAtomCommandInterrupted(result)) return;
       setList(
         result._tag === "Success"
-          ? { status: "ready", sessions: result.value.sessions }
+          ? { status: "ready", ...result.value }
           : { status: "error", message: errorMessage(squashAtomCommandFailure(result)) },
       );
     });
@@ -189,8 +194,8 @@ function ImportSessionsPopup({
       <DialogHeader>
         <DialogTitle>Import past sessions</DialogTitle>
         <DialogDescription>
-          Choose Claude Code and Codex conversations from the last 30 days to continue in{" "}
-          {target.title}. Imported sessions appear in the sidebar as threads.
+          Choose T3 Code conversations, or Claude Code and Codex ones from the last 30 days, to
+          continue in {target.title}. Imported sessions appear in the sidebar as threads.
         </DialogDescription>
       </DialogHeader>
       <DialogPanel>
@@ -208,10 +213,16 @@ function ImportSessionsPopup({
           </div>
         ) : list.sessions.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            No Claude Code or Codex sessions from the last 30 days in this folder.
+            {list.warning ??
+              "No T3 Code conversations, or Claude Code or Codex sessions from the last 30 days, in this folder."}
           </p>
         ) : (
           <div className="space-y-0.5">
+            {list.warning ? (
+              <p role="status" className="pb-2 text-xs text-muted-foreground">
+                {list.warning}
+              </p>
+            ) : null}
             {shown.length === 0 ? (
               <p className="py-4 text-center text-sm text-muted-foreground">
                 Nothing new to import. The hidden ones are already in ViewCode, sub-agents or too
@@ -261,6 +272,12 @@ function ImportSessionsPopup({
   );
 }
 
+const SOURCE_ICONS = {
+  claudeAgent: { Icon: ClaudeAI, label: "Claude Code" },
+  codex: { Icon: OpenAI, label: "Codex" },
+  t3code: { Icon: T3CodeIcon, label: "T3 Code" },
+} satisfies Record<AgentSessionSummary["provider"], { Icon: Icon; label: string }>;
+
 function SessionRow({
   session,
   checked,
@@ -272,7 +289,7 @@ function SessionRow({
   readonly disabled: boolean;
   readonly onCheckedChange: (checked: boolean) => void;
 }) {
-  const ProviderIcon = session.provider === "claudeAgent" ? ClaudeAI : OpenAI;
+  const { Icon: ProviderIcon, label } = SOURCE_ICONS[session.provider];
   return (
     <label className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/40 has-disabled:cursor-default has-disabled:opacity-70">
       <Checkbox
@@ -280,11 +297,13 @@ function SessionRow({
         disabled={disabled}
         onCheckedChange={(value) => onCheckedChange(value === true)}
       />
-      <ProviderIcon
-        className="size-3.5 shrink-0 text-muted-foreground"
-        aria-label={session.provider === "claudeAgent" ? "Claude Code" : "Codex"}
-      />
+      <ProviderIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label={label} />
       <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
+      {session.provider === "t3code" && session.model ? (
+        <span className="max-w-32 shrink-0 truncate text-xs text-muted-foreground">
+          {session.model}
+        </span>
+      ) : null}
       {session.alreadyImported ? (
         <Badge variant="secondary">Imported</Badge>
       ) : session.hiddenReason !== null ? (

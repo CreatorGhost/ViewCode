@@ -19,6 +19,8 @@ import {
   AgentSessionScanError,
   ClaudeSettings,
   CodexSettings,
+  DEFAULT_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
   ProviderDriverKind,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
@@ -28,6 +30,7 @@ import {
   type AgentSessionProjectGit,
   type AgentSessionScanResult,
   type ProviderInstanceConfig,
+  type ServerSettings as ServerSettingsValue,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -59,6 +62,7 @@ import {
   createTranscriptJsonSelector,
   TranscriptJsonLimitError,
 } from "./AgentSessionJson.ts";
+import * as T3CodeHistory from "./T3CodeHistory.ts";
 
 /** Chunk size for full transcript reads. */
 const TRANSCRIPT_PREFIX_BYTES = 32 * 1024;
@@ -176,6 +180,19 @@ export interface AgentSessionThread {
   readonly userMessageCount: number;
   /** Set when the import picker should fold this session away by default. */
   readonly hiddenReason: AgentSessionHiddenReason | null;
+  /** Driver the thread continues on when `source` is not a driver itself (T3 Code). */
+  readonly driver?: ProviderDriverKind;
+  /**
+   * Native session a T3 Code thread can resume. Claude and Codex files resume
+   * `providerSessionId` itself.
+   */
+  readonly resume?: T3CodeResume;
+}
+
+export interface T3CodeResume {
+  readonly provider: "claudeAgent" | "codex";
+  readonly sessionId: string;
+  readonly resumeSessionAt?: string;
 }
 
 export type AgentSessionRecentThread =
@@ -186,7 +203,9 @@ export type AgentSessionRecentThread =
     }
   | { readonly _tag: "AlreadyImported"; readonly source: AgentSessionImportSource }
   | { readonly _tag: "Duplicate"; readonly source: AgentSessionImportSource }
-  | { readonly _tag: "Skipped" };
+  | { readonly _tag: "Skipped" }
+  /** A source was found but could not be read; nothing from it is listed. */
+  | { readonly _tag: "Warning"; readonly message: string };
 
 /** Service tag for agent session discovery. */
 export class AgentSessionScanner extends Context.Service<
@@ -213,6 +232,8 @@ interface RawCandidate {
   readonly cwd: string;
   readonly source: AgentSessionSource;
   readonly providerInstanceId: ProviderInstanceId;
+  /** The T3 Code project this candidate came from (`source` is `t3code`). */
+  readonly t3ProjectId?: string;
   readonly threadCount: number;
   readonly lastActiveAtMs: number | null;
   readonly transcripts: ReadonlyArray<{
@@ -640,6 +661,111 @@ function parseAgentSessionRecords(
   };
 }
 
+const CLAUDE_SESSION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** The Claude or Codex session a T3 resume cursor names, in the shape the importer binds. */
+function t3CodeResume(driver: string, cursor: unknown): AgentSessionThread["resume"] | undefined {
+  if (typeof cursor !== "object" || cursor === null) return undefined;
+  const record = cursor as Record<string, unknown>;
+  const text = (value: unknown) =>
+    typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  if (driver === "codex") {
+    const sessionId = text(record.threadId);
+    return sessionId === undefined ? undefined : { provider: "codex", sessionId };
+  }
+  if (driver === "claudeAgent") {
+    const sessionId = text(record.resume) ?? text(record.sessionId);
+    if (sessionId === undefined || !CLAUDE_SESSION_UUID.test(sessionId)) return undefined;
+    const resumeSessionAt = text(record.resumeSessionAt);
+    return {
+      provider: "claudeAgent",
+      sessionId,
+      ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
+    };
+  }
+  return undefined;
+}
+
+/**
+ * A T3 Code thread as an importable session. It continues on the instance T3
+ * used when ViewCode has one by that id, else on Codex. T3's saved Claude or
+ * Codex session carries over only when it ran on that same instance; other
+ * threads continue with a recap (see ProviderCommandReactor).
+ */
+export function t3CodeThreadToAgentSession(
+  thread: T3CodeHistory.T3CodeThread,
+  settings: Pick<ServerSettingsValue, "providerInstances">,
+): AgentSessionThread | null {
+  const driverOf = (instanceId: string | null): ProviderDriverKind | null => {
+    if (instanceId === null) return null;
+    const configured = settings.providerInstances[ProviderInstanceId.make(instanceId)];
+    if (configured !== undefined) return configured.driver;
+    const builtIn = ProviderDriverKind.make(instanceId);
+    return DEFAULT_MODEL_BY_PROVIDER[builtIn] === undefined ? null : builtIn;
+  };
+  const t3Driver = driverOf(thread.instanceId);
+  const instanceId = t3Driver === null ? "codex" : (thread.instanceId ?? "codex");
+  const driver = t3Driver ?? ProviderDriverKind.make("codex");
+  const model =
+    t3Driver !== null && thread.model !== null
+      ? thread.model
+      : (DEFAULT_MODEL_BY_PROVIDER[driver] ?? DEFAULT_MODEL);
+
+  const binding = thread.binding;
+  const bindingInstanceId =
+    binding === null ? null : (binding.providerInstanceId ?? binding.providerName);
+  const resume =
+    binding !== null && bindingInstanceId === instanceId && binding.providerName === driver
+      ? t3CodeResume(driver, binding.resumeCursor)
+      : undefined;
+
+  const fallback = normalizeTimestamp(
+    thread.updatedAt,
+    normalizeTimestamp(thread.createdAt, DateTime.formatIso(DateTime.makeUnsafe(0))),
+  );
+  const all = thread.messages.map((message) => ({
+    ...message,
+    createdAt: normalizeTimestamp(message.createdAt, fallback),
+  }));
+  const firstUserIndex = all.findIndex((message) => message.role === "user");
+  if (firstUserIndex === -1) return null;
+  const firstUser = all[firstUserIndex]!;
+  const messages =
+    all.length <= MAX_IMPORTED_MESSAGES
+      ? all
+      : firstUserIndex >= all.length - (MAX_IMPORTED_MESSAGES - 1)
+        ? all.slice(-MAX_IMPORTED_MESSAGES)
+        : [firstUser, ...all.slice(-(MAX_IMPORTED_MESSAGES - 1))];
+  const classification = classifyAgentSession({
+    origin: thread.parentThreadId === null ? "main" : "child",
+    userTexts: messages.filter((message) => message.role === "user").map((message) => message.text),
+  });
+  const title =
+    thread.title.length > 0
+      ? thread.title
+      : (all
+          .filter((message) => message.role === "user")
+          .map((message) => titleFromUserText(message.text))
+          .find((candidate) => candidate !== null) ?? "Imported thread");
+
+  return {
+    source: "t3code",
+    providerInstanceId: ProviderInstanceId.make(instanceId),
+    providerSessionId: thread.id,
+    title,
+    model,
+    createdAt: normalizeTimestamp(thread.createdAt, messages[0]?.createdAt ?? fallback),
+    updatedAt: fallback,
+    messages,
+    ...(thread.parentThreadId === null ? {} : { parentProviderSessionId: thread.parentThreadId }),
+    userMessageCount: classification.userMessageCount,
+    hiddenReason: classification.hiddenReason,
+    driver,
+    ...(resume === undefined ? {} : { resume }),
+  };
+}
+
 function extractDecodedCwd(record: DecodedTranscriptRecord): string | null {
   const cwd = record.cwd?.trim() || record.payload?.cwd?.trim();
   return cwd && cwd.length > 0 ? cwd : null;
@@ -759,6 +885,8 @@ export const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  // Optional so a scanner without a T3 Code install to read (tests, embeds) needs no stub.
+  const t3CodeHistory = yield* Effect.serviceOption(T3CodeHistory.T3CodeHistory);
   const baseDir = path.resolve(serverConfig.baseDir);
   const worktreesDir = path.resolve(serverConfig.worktreesDir);
   // Windows filesystems are case-insensitive, so path prefix checks there
@@ -1327,13 +1455,39 @@ export const make = Effect.gen(function* () {
       truncated ||= metadataBudget.truncated;
     }
 
-    return { candidates: raw, truncated };
+    let warning: string | null = null;
+    if (Option.isSome(t3CodeHistory)) {
+      const read = yield* t3CodeHistory.value.projects;
+      warning = T3CodeHistory.t3CodeReadWarning(read);
+      if (warning !== null) {
+        yield* Effect.logWarning("Could not read T3 Code projects", { reason: read });
+      }
+      if (read._tag === "Read") {
+        for (const project of read.value) {
+          const lastActive =
+            project.lastActiveAt === null ? Option.none() : DateTime.make(project.lastActiveAt);
+          raw.push({
+            cwd: project.workspaceRoot,
+            source: "t3code",
+            providerInstanceId: ProviderInstanceId.make("t3code"),
+            t3ProjectId: project.id,
+            threadCount: project.threadCount,
+            lastActiveAtMs: Option.isSome(lastActive)
+              ? DateTime.toEpochMillis(lastActive.value)
+              : null,
+            transcripts: [],
+          });
+        }
+      }
+    }
+
+    return { candidates: raw, truncated, warning };
   });
 
   let cachedCandidates: ReadonlyArray<RawCandidate> | null = null;
 
   const scan: AgentSessionScanner["Service"]["scan"] = Effect.gen(function* () {
-    const { candidates: raw, truncated } = yield* collectCandidates();
+    const { candidates: raw, truncated, warning } = yield* collectCandidates();
     cachedCandidates = raw;
 
     // Filesystem identity merges symlinks and case aliases without collapsing
@@ -1456,6 +1610,7 @@ export const make = Effect.gen(function* () {
       candidates,
       scannedAt: DateTime.formatIso(yield* DateTime.now),
       ...(truncated ? { truncated: true } : {}),
+      ...(warning === null ? {} : { warning }),
     };
   });
 
@@ -1477,11 +1632,13 @@ export const make = Effect.gen(function* () {
       readonly candidate: RawCandidate;
       readonly transcript: RawCandidate["transcripts"][number] & { readonly mtimeMs: number };
     }> = [];
+    const t3ProjectIds: Array<string> = [];
     for (const candidate of candidates) {
       const expanded = expandHomePath(candidate.cwd.trim());
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
       if ((yield* directoryIdentity(resolved)) !== rootIdentity) continue;
+      if (candidate.t3ProjectId !== undefined) t3ProjectIds.push(candidate.t3ProjectId);
 
       for (const transcript of candidate.transcripts) {
         if (
@@ -1513,7 +1670,8 @@ export const make = Effect.gen(function* () {
     let bytesRemaining = MAX_IMPORT_BYTES;
     let transcriptsRemaining = MAX_IMPORT_TRANSCRIPTS;
     let recordsRemaining = MAX_IMPORT_RECORDS;
-    return Stream.fromIteratorSucceed(eligibleTranscripts.values(), 1).pipe(
+    const t3Outcomes = yield* readT3CodeThreads(t3ProjectIds);
+    const providerOutcomes = Stream.fromIteratorSucceed(eligibleTranscripts.values(), 1).pipe(
       Stream.mapEffect(({ candidate, transcript }) =>
         Effect.gen(function* () {
           const completed = completedByFile.get(
@@ -1616,6 +1774,52 @@ export const make = Effect.gen(function* () {
       Stream.map(Option.toArray),
       Stream.flattenIterable,
     );
+    return Stream.concat(providerOutcomes, Stream.fromIterable(t3Outcomes));
+  });
+
+  /**
+   * Every thread of the given T3 Code projects, whatever its age: moving from
+   * T3 Code means bringing all of it. Already-imported threads are still
+   * listed; the importer recognizes them by thread id.
+   */
+  const readT3CodeThreads = Effect.fn("AgentSessionScanner.readT3CodeThreads")(function* (
+    projectIds: ReadonlyArray<string>,
+  ) {
+    if (projectIds.length === 0 || Option.isNone(t3CodeHistory)) {
+      return [] as Array<AgentSessionRecentThread>;
+    }
+    const read = yield* t3CodeHistory.value.threads(projectIds);
+    if (read._tag !== "Read") {
+      const warning = T3CodeHistory.t3CodeReadWarning(read);
+      if (warning === null) return [];
+      yield* Effect.logWarning("Could not read T3 Code threads", { reason: read });
+      return [{ _tag: "Warning", message: warning } as const];
+    }
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-settings", cause })),
+    );
+    return read.value.flatMap((t3Thread): Array<AgentSessionRecentThread> => {
+      const thread = t3CodeThreadToAgentSession(t3Thread, settings);
+      if (thread === null) return [];
+      return [
+        {
+          _tag: "Importable",
+          thread,
+          // A database row has no file identity; the path records where it came from.
+          source: {
+            provider: "t3code",
+            providerInstanceId: thread.providerInstanceId,
+            providerSessionId: thread.providerSessionId,
+            filePath: read.databasePath,
+            size: 0,
+            mtimeMs: null,
+            device: 0,
+            inode: null,
+            birthtimeMs: null,
+          },
+        },
+      ];
+    });
   });
 
   const recentThreads: AgentSessionScanner["Service"]["recentThreads"] = (

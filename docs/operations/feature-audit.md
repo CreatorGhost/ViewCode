@@ -242,12 +242,14 @@ SPDX license texts vendored (offline builds); `dev-runner` finds `vp` in
 **Risk questions.** `build.sh` on a stock Mac without GNU tools; `--fresh`
 while the app is running; a settings file with comments under `--managed`.
 
-## 9. Session import (hidden) and cleanup
+## 9. Session import and cleanup
 
-**Intended behaviour.** Importing Claude/Codex session files is hidden (menu
-items removed, onboarding step off via `SHOW_SESSION_IMPORT_STEP`); "Remove
-imported sessions…" stays. Code: `project/AgentSessionScanner.ts`,
-`AgentSessionImporter.ts`, web `components/agentSessions/`.
+**Intended behaviour.** Onboarding "Choose sessions…" and a project's "Import
+past sessions…" list T3 Code threads and recent Claude/Codex sessions; nothing
+is checked by default. T3 Code's database is only read through a temp copy.
+"Remove imported sessions…" archives imports. Code:
+`project/AgentSessionScanner.ts`, `AgentSessionImporter.ts`,
+`T3CodeHistory.ts`, web `components/agentSessions/`.
 
 **Risk question.** Is anything still reachable that imports files
 automatically?
