@@ -129,6 +129,7 @@ import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionRe
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import * as AgentMessaging from "./agents/AgentMessaging.ts";
 import * as UsageResume from "./agents/UsageResume.ts";
+import * as PushNotifications from "./notifications/PushNotifications.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore.ts";
@@ -1020,6 +1021,10 @@ const buildAppUnderTest = (options?: {
             drain: Effect.void,
           }),
           Layer.mock(UsageResume.UsageResume)({
+            start: () => Effect.void,
+            drain: Effect.void,
+          }),
+          Layer.mock(PushNotifications.PushNotifications)({
             start: () => Effect.void,
             drain: Effect.void,
           }),

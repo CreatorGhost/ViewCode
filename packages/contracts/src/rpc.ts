@@ -272,6 +272,12 @@ import {
   UsageResumeResult,
 } from "./agentControl.ts";
 import {
+  PushNotificationError,
+  PushRegisterInput,
+  PushRegistrationResult,
+  PushUnregisterInput,
+} from "./pushNotifications.ts";
+import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
   ProjectCloneListEvent,
@@ -456,6 +462,10 @@ export const WS_METHODS = {
   subscribeAgentControl: "subscribeAgentControl",
   usageResumeCancel: "usageResume.cancel",
   usageResumeNow: "usageResume.now",
+
+  // ViewCode phone notifications through the Expo push service
+  pushRegister: "push.register",
+  pushUnregister: "push.unregister",
 
   // ViewCode Quick connect setup; progress rides subscribeAuthAccess
   viewcodeRelaySetupStart: "viewcodeRelay.setup.start",
@@ -995,6 +1005,18 @@ const WsUsageResumeNowRpc = Rpc.make(WS_METHODS.usageResumeNow, {
   payload: UsageResumeInput,
   success: UsageResumeResult,
   error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
+});
+
+const WsPushRegisterRpc = Rpc.make(WS_METHODS.pushRegister, {
+  payload: PushRegisterInput,
+  success: PushRegistrationResult,
+  error: Schema.Union([PushNotificationError, EnvironmentAuthorizationError]),
+});
+
+const WsPushUnregisterRpc = Rpc.make(WS_METHODS.pushUnregister, {
+  payload: PushUnregisterInput,
+  success: PushRegistrationResult,
+  error: Schema.Union([PushNotificationError, EnvironmentAuthorizationError]),
 });
 
 const WsViewCodeRelaySetupStartRpc = Rpc.make(WS_METHODS.viewcodeRelaySetupStart, {
@@ -1588,6 +1610,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeAgentControlRpc,
   WsUsageResumeCancelRpc,
   WsUsageResumeNowRpc,
+  WsPushRegisterRpc,
+  WsPushUnregisterRpc,
   WsViewCodeRelaySetupStartRpc,
   WsViewCodeRelaySetupCancelRpc,
   WsViewCodeRelaySetupContinueRpc,

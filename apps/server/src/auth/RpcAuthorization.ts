@@ -115,6 +115,9 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.usageResumeCancel]: AuthOrchestrationOperateScope,
   [WS_METHODS.usageResumeNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.subscribeAgentControl]: AuthOrchestrationReadScope,
+  // A phone registering for pushes receives only what it could already read.
+  [WS_METHODS.pushRegister]: AuthOrchestrationReadScope,
+  [WS_METHODS.pushUnregister]: AuthOrchestrationReadScope,
   // Quick connect setup deploys to the user's Cloudflare account and writes the host
   // secret: the same scope as managing pairing links in Settings → Connections.
   [WS_METHODS.viewcodeRelaySetupStart]: AuthAccessWriteScope,

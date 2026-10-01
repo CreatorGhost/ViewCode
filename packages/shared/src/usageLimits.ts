@@ -436,6 +436,9 @@ export function usageRefreshNotice(limits: ServerProviderUsageLimits): string | 
   return limits.refreshError ? `Showing last known usage. ${limits.refreshError}` : null;
 }
 
+/** What a provider with no windows yet says; clients may show it as a quiet row instead. */
+export const NO_USAGE_RECORDED_NOTICE = "No usage recorded yet.";
+
 /** The one-line status under a provider heading when there are no bars to draw. */
 export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
   if (limits.unavailable?.reason === "unsupported") {
@@ -444,7 +447,7 @@ export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
   if (limits.unavailable?.reason === "probeFailed") {
     return limits.unavailable.message ?? "Could not read limits.";
   }
-  return limits.windows.length === 0 ? "No usage recorded yet." : null;
+  return limits.windows.length === 0 ? NO_USAGE_RECORDED_NOTICE : null;
 }
 
 /** Quota left in the window, 0..100. Bars and labels show what remains, as Codex does. */

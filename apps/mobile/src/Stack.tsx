@@ -30,6 +30,7 @@ import {
 } from "./components/RenderErrorBoundary";
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
+import { useDirectPushRegistration } from "./features/agent-awareness/useDirectPushRegistration";
 import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
 import { useConnectOnboardingNavigation } from "./features/cloud/connectOnboardingNavigation";
 import { AttachmentFileScreen } from "./features/files/AttachmentFileScreen";
@@ -516,6 +517,8 @@ function RootStackLayout(props: {
   const { pendingShare } = useIncomingShare();
   const sharePresentationRef = useRef(EMPTY_INCOMING_SHARE_PRESENTATION_STATE);
   useAgentNotificationNavigation();
+  // Registers this phone for notifications from each connected computer.
+  useDirectPushRegistration();
   // Presents the T3 Connect onboarding sheet after an in-session sign-in.
   useConnectOnboardingNavigation();
   // Launcher app shortcuts: routes shortcut taps and tracks opened threads.

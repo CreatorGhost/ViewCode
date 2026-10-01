@@ -24,6 +24,7 @@ export function MaterialThreadListToolbar(props: {
   readonly onFilterAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
   readonly onOpenSettings: () => void;
   readonly onOpenEnvironments: () => void;
+  readonly onOpenUsage?: () => void;
   readonly sidebar?: boolean;
   readonly onLayout?: (event: LayoutChangeEvent) => void;
   readonly onRequestVisibility?: () => void;
@@ -102,6 +103,13 @@ export function MaterialThreadListToolbar(props: {
                   brand={<CompactBrandTitle allowFontScaling={false} />}
                 />
               </View>
+              {props.onOpenUsage ? (
+                <AndroidHeaderIconButton
+                  accessibilityLabel="Open usage"
+                  icon="chart.bar.xaxis"
+                  onPress={props.onOpenUsage}
+                />
+              ) : null}
               <AndroidHeaderIconButton
                 accessibilityLabel="Search threads"
                 icon="magnifyingglass"

@@ -17,5 +17,7 @@ export interface HomeHeaderProps {
   readonly onProjectChange: (projectKey: string | null) => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
+  /** Subscription limits and usage-limit resumes. */
+  readonly onOpenUsage: () => void;
   readonly onStartNewTask: () => void;
 }
