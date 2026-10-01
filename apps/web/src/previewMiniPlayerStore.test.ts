@@ -23,7 +23,7 @@ const pixel: PreviewMiniPlayerSource = {
 };
 
 beforeEach(() => {
-  usePreviewMiniPlayerStore.setState({ byThreadKey: {} });
+  usePreviewMiniPlayerStore.setState({ byThreadKey: {}, dismissedThreadKeys: {} });
 });
 
 describe("previewMiniPlayerStore", () => {
@@ -94,5 +94,25 @@ describe("previewMiniPlayerStore", () => {
     expect(
       selectThreadPreviewMiniPlayer(usePreviewMiniPlayerStore.getState().byThreadKey, refA),
     ).toBe(floating);
+  });
+
+  it("keeps a closed player closed when an agent uses the browser again", () => {
+    const store = () => usePreviewMiniPlayerStore.getState();
+    expect(store().autoOpen(refA, tabA)).toBe(true);
+    store().dismiss(refA);
+
+    expect(store().autoOpen(refA, tabA)).toBe(false);
+    expect(store().autoOpen(refA, tabB)).toBe(false);
+    expect(selectThreadPreviewMiniPlayer(store().byThreadKey, refA)).toBeNull();
+    // Another thread is unaffected.
+    expect(store().autoOpen(refB, tabB)).toBe(true);
+
+    // Opening it by hand brings it back and lets agents show it again.
+    store().open(refA, tabA);
+    expect(selectThreadPreviewMiniPlayer(store().byThreadKey, refA)).toMatchObject({
+      source: tabA,
+    });
+    store().close(refA);
+    expect(store().autoOpen(refA, tabB)).toBe(true);
   });
 });

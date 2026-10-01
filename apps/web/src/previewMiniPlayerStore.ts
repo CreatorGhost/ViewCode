@@ -32,8 +32,18 @@ export interface PreviewMiniPlayerState {
 
 interface PreviewMiniPlayerStoreState {
   readonly byThreadKey: Record<string, PreviewMiniPlayerState>;
+  /** Threads whose floating player the user closed; agents may not reopen it. */
+  readonly dismissedThreadKeys: Readonly<Record<string, true>>;
+  /** The user asked for the player: shows it and lifts a dismissal. */
   readonly open: (ref: ScopedThreadRef, source: PreviewMiniPlayerSource) => void;
+  /**
+   * An agent used the browser or a device: shows the player unless the user
+   * closed it on this thread. Returns whether it is (or already was) shown.
+   */
+  readonly autoOpen: (ref: ScopedThreadRef, source: PreviewMiniPlayerSource) => boolean;
   readonly close: (ref: ScopedThreadRef) => void;
+  /** The user closed the player: it stays closed until they open it again. */
+  readonly dismiss: (ref: ScopedThreadRef) => void;
   /** `sourceKey` guards against a drag that outlives the source it started on. */
   readonly move: (
     ref: ScopedThreadRef,
@@ -55,27 +65,55 @@ export const browserMiniPlayerSource = (tabId: string): PreviewMiniPlayerSource 
   tabId,
 });
 
-export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((set) => ({
+function withPlayer(
+  byThreadKey: Record<string, PreviewMiniPlayerState>,
+  threadKey: string,
+  source: PreviewMiniPlayerSource,
+): Record<string, PreviewMiniPlayerState> {
+  const current = byThreadKey[threadKey];
+  if (
+    current &&
+    previewMiniPlayerSourceKey(current.source) === previewMiniPlayerSourceKey(source)
+  ) {
+    return byThreadKey;
+  }
+  return {
+    ...byThreadKey,
+    [threadKey]: {
+      source,
+      position: current?.position ?? null,
+      width: current?.width ?? null,
+    },
+  };
+}
+
+export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((set, get) => ({
   byThreadKey: {},
+  dismissedThreadKeys: {},
   open: (ref, source) =>
     set((state) => {
       const threadKey = scopedThreadKey(ref);
-      const current = state.byThreadKey[threadKey];
-      if (
-        current &&
-        previewMiniPlayerSourceKey(current.source) === previewMiniPlayerSourceKey(source)
-      ) {
-        return state;
-      }
+      const shown = withPlayer(state.byThreadKey, threadKey, source);
+      if (shown === state.byThreadKey && !(threadKey in state.dismissedThreadKeys)) return state;
+      const { [threadKey]: _lifted, ...dismissedThreadKeys } = state.dismissedThreadKeys;
+      return { byThreadKey: shown, dismissedThreadKeys };
+    }),
+  autoOpen: (ref, source) => {
+    const threadKey = scopedThreadKey(ref);
+    if (threadKey in get().dismissedThreadKeys) return false;
+    set((state) => {
+      const shown = withPlayer(state.byThreadKey, threadKey, source);
+      return shown === state.byThreadKey ? state : { byThreadKey: shown };
+    });
+    return true;
+  },
+  dismiss: (ref) =>
+    set((state) => {
+      const threadKey = scopedThreadKey(ref);
+      const { [threadKey]: _closed, ...byThreadKey } = state.byThreadKey;
       return {
-        byThreadKey: {
-          ...state.byThreadKey,
-          [threadKey]: {
-            source,
-            position: current?.position ?? null,
-            width: current?.width ?? null,
-          },
-        },
+        byThreadKey,
+        dismissedThreadKeys: { ...state.dismissedThreadKeys, [threadKey]: true },
       };
     }),
   close: (ref) =>
@@ -119,9 +157,12 @@ export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((
   removeThread: (ref) =>
     set((state) => {
       const threadKey = scopedThreadKey(ref);
-      if (!(threadKey in state.byThreadKey)) return state;
+      if (!(threadKey in state.byThreadKey) && !(threadKey in state.dismissedThreadKeys)) {
+        return state;
+      }
       const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
-      return { byThreadKey };
+      const { [threadKey]: _dismissed, ...dismissedThreadKeys } = state.dismissedThreadKeys;
+      return { byThreadKey, dismissedThreadKeys };
     }),
 }));
 
