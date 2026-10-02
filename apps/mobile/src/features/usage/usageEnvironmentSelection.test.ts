@@ -10,10 +10,16 @@ const removed = EnvironmentId.make("removed");
 const environments = [a, b, c].map((environmentId) => ({ environmentId }));
 
 describe("usage environment selection", () => {
-  it("can exclude an environment from all, then select all again", () => {
+  it("narrows from all to the picked environment, then widens back to all", () => {
     const selected = toggleUsageEnvironment(null, environments, b);
-    expect(selected).toEqual(new Set([a, c]));
-    expect(toggleUsageEnvironment(selected, environments, b)).toBeNull();
+    expect(selected).toEqual(new Set([b]));
+    const two = toggleUsageEnvironment(selected, environments, a);
+    expect(two).toEqual(new Set([a, b]));
+    expect(toggleUsageEnvironment(two, environments, c)).toBeNull();
+  });
+
+  it("stays on all when the only environment is picked", () => {
+    expect(toggleUsageEnvironment(null, [{ environmentId: a }], a)).toBeNull();
   });
 
   it("can deselect the last environment", () => {
@@ -34,7 +40,7 @@ describe("usage environment selection", () => {
 
   it("includes newly connected environments only in all mode", () => {
     const expanded = [...environments, { environmentId: removed }];
-    expect(toggleUsageEnvironment(null, expanded, a)).toEqual(new Set([b, c, removed]));
+    expect(toggleUsageEnvironment(null, expanded, a)).toEqual(new Set([a]));
     expect(toggleUsageEnvironment(new Set([a, b, c]), expanded, a)).toEqual(new Set([b, c]));
   });
 });

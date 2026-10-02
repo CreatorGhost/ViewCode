@@ -478,14 +478,18 @@ function ConfiguredSettingsNotificationsRouteScreen() {
           {liveActivityStatus === "signed-out" && canClearLiveActivitiesPreference ? (
             <SettingsRow
               icon="bolt.circle"
-              label="Turn off Live Activity preference"
+              label={
+                Platform.OS === "android"
+                  ? "Clear saved Live Updates choice"
+                  : "Clear saved Live Activity choice"
+              }
               onPress={() => handleLiveActivitiesChange(false)}
             />
           ) : null}
           {supportsAndroidLiveUpdateSettings() ? (
             <SettingsRow
-              icon="bolt.circle"
-              label="Live Update Settings"
+              icon="slider.horizontal.3"
+              label="Live Updates in system settings"
               onPress={() => {
                 void openAndroidLiveUpdateSettings().catch(() => {
                   Alert.alert(

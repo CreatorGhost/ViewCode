@@ -196,10 +196,12 @@ export function CodeAppearancePreview(props: {
   return (
     <View className="flex-row p-4">
       <View>{CODE_PREVIEW_LINES.map((line, index) => lineNumber(line, index))}</View>
+      {/* Android keeps a bar visible so the clipped line reads as scrollable. */}
       <ScrollView
         horizontal
         contentContainerStyle={{ paddingLeft: 12 }}
-        showsHorizontalScrollIndicator={false}
+        persistentScrollbar
+        showsHorizontalScrollIndicator={Platform.OS === "android"}
       >
         <View>{CODE_PREVIEW_LINES.map((line) => codeLine(line, false))}</View>
       </ScrollView>

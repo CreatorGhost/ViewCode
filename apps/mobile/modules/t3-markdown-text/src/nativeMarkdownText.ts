@@ -874,6 +874,13 @@ export function nativeMarkdownNodePosition(node: MarkdownNode, index: number): s
 
 export function nativeMarkdownDocumentChunks(
   document: MarkdownNode,
+  options: {
+    /**
+     * Render top-level lists as rich blocks. Android text ignores the run
+     * stream's hanging indents, so its lists need the block renderer's marker gutter.
+     */
+    readonly richLists?: boolean;
+  } = {},
 ): ReadonlyArray<NativeMarkdownDocumentChunk> {
   const chunks: NativeMarkdownDocumentChunk[] = [];
   let selectableNodes: MarkdownNode[] = [];
@@ -896,7 +903,7 @@ export function nativeMarkdownDocumentChunks(
   };
 
   for (const [index, child] of (document.children ?? []).entries()) {
-    if (!containsRichBlock(child)) {
+    if (!(options.richLists === true && child.type === "list") && !containsRichBlock(child)) {
       if (selectableNodes.length === 0) {
         selectableStart = index;
       }

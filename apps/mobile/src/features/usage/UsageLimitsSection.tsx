@@ -27,8 +27,7 @@ import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useProviderColors } from "./usageProviders";
-
-const PACE_LABEL = { ahead: "ahead of pace", on: "on pace", under: "under pace" } as const;
+import { limitPoolStatus } from "./usageScreenModel";
 
 type Driver = ServerProvider["driver"];
 
@@ -55,7 +54,7 @@ function WindowRow(props: {
   const remaining = remainingPercent(window);
   const elapsed = elapsedShare(window, now);
   const timeLeft = elapsed === null ? null : Math.round((1 - elapsed) * 100);
-  const pace = paceOf(window, now);
+  const status = limitPoolStatus(paceOf(window, now), remaining);
   const resetsIn = formatResetsIn(window, now);
   return (
     <View className="gap-1">
@@ -89,9 +88,17 @@ function WindowRow(props: {
           />
         ) : null}
       </View>
-      {pace || resetsIn ? (
+      {status || resetsIn ? (
         <View className="flex-row justify-between gap-3">
-          <Text className="text-xs text-foreground-tertiary">{pace ? PACE_LABEL[pace] : ""}</Text>
+          <Text
+            className={
+              status?.warn
+                ? "text-xs font-t3-medium text-warning-foreground"
+                : "text-xs text-foreground-tertiary"
+            }
+          >
+            {status?.label ?? ""}
+          </Text>
           <Text className="text-xs tabular-nums text-foreground-tertiary">{resetsIn ?? ""}</Text>
         </View>
       ) : null}

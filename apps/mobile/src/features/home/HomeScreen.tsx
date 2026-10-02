@@ -18,7 +18,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { ActivityIndicator, Platform, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -54,13 +54,12 @@ import {
 import {
   buildHomeFolderList,
   countHomeStatusFilters,
-  countWorkingAgents,
   homeFolderListItemsAreEqual,
   resolveHomeAgentModelLabel,
   type HomeFolderListItem,
   type HomeStatusFilter,
 } from "./homeFolderList";
-import { HomeStatusFilterChips, HomeWorkingPill } from "./home-folder-rows";
+import { HomeStatusFilterChips } from "./home-folder-rows";
 import { AppText as Text } from "../../components/AppText";
 import {
   buildHomeProjectScopes,
@@ -232,6 +231,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const queuedThreadKeys = useQueuedThreadKeys();
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const insets = useSafeAreaInsets();
+  const windowHeight = useWindowDimensions().height;
   const { fabClearance } = useAndroidControlSizing();
   const iosBottomToolbarClearance =
     Platform.OS === "ios" && !NATIVE_LIQUID_GLASS_SUPPORTED
@@ -802,6 +802,7 @@ export function HomeScreen(props: HomeScreenProps) {
         <HomeFolderCardSlice edge={folderEdge}>
           <ThreadListV2Row
             inFolderCard={folderEdge != null}
+            foldedAgentCount={listItem.type === "folder-lead" ? listItem.foldedAgentCount : 0}
             onNewThreadOnBranch={props.onNewThreadOnBranch}
             thread={thread}
             variant={item.item.variant}
@@ -959,20 +960,6 @@ export function HomeScreen(props: HomeScreenProps) {
       ),
     [props.selectedEnvironmentId, props.threads],
   );
-  // The pill counts agents (leads and children); the Working chip counts the
-  // lead trees it keeps. Both read "working" so the numbers mean what they say.
-  const workingAgentCount = useMemo(
-    () =>
-      countWorkingAgents(
-        props.threads.filter(
-          (thread) =>
-            thread.archivedAt === null &&
-            (props.selectedEnvironmentId === null ||
-              thread.environmentId === props.selectedEnvironmentId),
-        ),
-      ),
-    [props.selectedEnvironmentId, props.threads],
-  );
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
       ? null
@@ -1061,15 +1048,20 @@ export function HomeScreen(props: HomeScreenProps) {
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : statusFilter !== "all" ? (
-      <EmptyState
-        title={statusFilter === "working" ? "Nothing working" : "Nothing needs you"}
-        detail={
-          statusFilter === "working"
-            ? "No agents are running right now."
-            : "No approvals, questions or failures are waiting."
-        }
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      // Centred in the space under the chips rather than hugging them.
+      <View className="justify-center" style={{ minHeight: Math.round(windowHeight * 0.5) }}>
+        <EmptyState
+          title={statusFilter === "working" ? "Nothing working" : "Nothing needs you"}
+          detail={
+            statusFilter === "working"
+              ? "No agents are working right now."
+              : "No approvals, questions or failures are waiting."
+          }
+          actionLabel="Show all threads"
+          onAction={() => setStatusFilter("all")}
+          variant={Platform.OS === "android" ? "plain" : undefined}
+        />
+      </View>
     ) : v2ScopedProjectGroup !== null ? (
       <EmptyState
         title={`No threads in ${v2ScopedProjectGroup.title}`}
@@ -1147,14 +1139,6 @@ export function HomeScreen(props: HomeScreenProps) {
             }}
           />
         </SwipeableScrollGateProvider>
-        {workingAgentCount > 0 ? (
-          <HomeWorkingPill
-            count={workingAgentCount}
-            selected={statusFilter === "working"}
-            bottom={Math.max(insets.bottom, 16) + 16}
-            onPress={() => setStatusFilter(statusFilter === "working" ? "all" : "working")}
-          />
-        ) : null}
       </View>
     </View>
   );

@@ -399,14 +399,11 @@ function CloudEnvironmentRowShell(props: {
           </Text>
           {errorCanExpand ? (
             <SymbolView
-              name="chevron.down"
+              name={isErrorExpanded ? "chevron.up" : "chevron.down"}
               size={10}
               tintColorClassName={"accent-chevron"}
               type="monochrome"
-              style={{
-                marginTop: 3,
-                transform: [{ rotate: isErrorExpanded ? "180deg" : "0deg" }],
-              }}
+              style={{ marginTop: 3 }}
             />
           ) : null}
         </StatusContainer>

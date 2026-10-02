@@ -18,6 +18,7 @@ import {
   isAgentMenuEvent,
   pausedAgentLabel,
 } from "../agents/agentMenus";
+import { AGENT_STATUS } from "../agents/agentStatus";
 import type { HomeAgentStatus, HomeFolderEdge, HomeStatusFilter } from "./homeFolderList";
 import { projectIconColorClassNames } from "../../lib/projectIcon";
 
@@ -51,14 +52,15 @@ const pressedOpacity = ({ pressed }: { readonly pressed: boolean }) => ({
   opacity: pressed ? 0.6 : 1,
 });
 
+/** Swaps glyphs rather than rotating: a transformed Tabler SVG on Android
+    rotates out of its own viewport and vanishes. */
 function Chevron(props: { readonly expanded: boolean; readonly size?: number }) {
   return (
     <SymbolView
-      name="chevron.right"
+      name={props.expanded ? "chevron.down" : "chevron.right"}
       size={props.size ?? 11}
       tintColorClassName="accent-foreground-muted"
       type="monochrome"
-      style={{ transform: [{ rotate: props.expanded ? "90deg" : "0deg" }] }}
     />
   );
 }
@@ -132,8 +134,7 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`New task in ${props.title}`}
-        className="size-11 items-center justify-center"
-        hitSlop={4}
+        className="size-[44px] items-center justify-center"
         onPress={() => onNewThread(project)}
         style={pressedOpacity}
       >
@@ -172,7 +173,7 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
       accessibilityHint={`${props.expanded ? "Hides" : "Shows"} the agents this thread started.`}
       accessibilityState={{ expanded: props.expanded }}
       className={cn(
-        "min-h-[36px] flex-row items-center gap-1.5 pl-5 pr-4",
+        "min-h-[44px] flex-row items-center gap-1.5 pl-5 pr-4",
         props.muted && "opacity-60",
       )}
       onPress={() => onToggle(leadKey)}
@@ -189,24 +190,6 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
     </Pressable>
   );
 });
-
-const STATUS_DOT_CLASS = {
-  "needs-you": "bg-adaptive-amber-700-400",
-  working: "bg-adaptive-sky-600-400",
-  paused: "bg-adaptive-amber-700-400",
-  failed: "bg-adaptive-rose-600-400",
-  stopped: "bg-foreground-muted",
-  idle: "bg-adaptive-emerald-600-400",
-} as const satisfies Record<HomeAgentStatus, string>;
-
-const STATUS_LABEL = {
-  "needs-you": "needs you",
-  working: "working",
-  paused: "paused",
-  failed: "failed",
-  stopped: "stopped",
-  idle: "idle",
-} as const satisfies Record<HomeAgentStatus, string>;
 
 /** Indent per nesting level below the lead, in dp. */
 const CHILD_INDENT = 14;
@@ -235,7 +218,7 @@ export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
       ),
     [paused, props.queued, props.running],
   );
-  const statusText = paused ? pausedAgentLabel(props.queued) : STATUS_LABEL[props.status];
+  const statusText = paused ? pausedAgentLabel(props.queued) : AGENT_STATUS[props.status].label;
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
       if (isAgentMenuEvent(nativeEvent.event)) onAgentMenuEvent(thread, nativeEvent.event);
@@ -253,10 +236,10 @@ export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
       className={cn("pr-4", props.muted && "opacity-60")}
     >
       <View
-        className="ml-6 min-h-[40px] flex-row items-center gap-2.5 border-l border-border-subtle py-1.5"
+        className="ml-6 min-h-[44px] flex-row items-center gap-2.5 border-l border-border-subtle py-1.5"
         style={{ paddingLeft: 10 + props.depth * CHILD_INDENT }}
       >
-        <View className={cn("size-2 rounded-full", STATUS_DOT_CLASS[props.status])} />
+        <View className={cn("size-2 rounded-full", AGENT_STATUS[props.status].dotClass)} />
         <Text className="min-w-0 flex-1 text-sm text-foreground" numberOfLines={1}>
           {thread.title}
         </Text>
@@ -299,7 +282,7 @@ export const HomeFolderSettledRow = memo(function HomeFolderSettledRow(props: {
       accessibilityLabel={`${props.count} settled ${props.count === 1 ? "thread" : "threads"}`}
       accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the settled threads.`}
       accessibilityState={{ expanded: props.expanded }}
-      className="min-h-[40px] flex-row items-center gap-1.5 border-t border-border-subtle px-4"
+      className="min-h-[44px] flex-row items-center gap-1.5 border-t border-border-subtle px-3"
       onPress={() => onToggle(folderKey)}
       style={pressedOpacity}
     >
@@ -338,7 +321,8 @@ export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: 
             accessibilityState={{ selected }}
             accessibilityLabel={option.id === "all" ? option.label : `${option.label}, ${count}`}
             onPress={() => props.onChange(option.id)}
-            hitSlop={6}
+            // 31dp chips reach 45dp with the slop, without a taller header.
+            hitSlop={{ top: 7, bottom: 7, left: 4, right: 4 }}
             style={pressedOpacity}
             className={cn(
               "flex-row items-center gap-1.5 rounded-md px-3 py-1.5",
@@ -371,38 +355,5 @@ export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: 
         );
       })}
     </View>
-  );
-});
-
-/** Bottom-left "N agents working" pill; tapping toggles the Working filter. */
-export const HomeWorkingPill = memo(function HomeWorkingPill(props: {
-  readonly count: number;
-  readonly selected: boolean;
-  readonly bottom: number;
-  readonly onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: props.selected }}
-      accessibilityLabel={`${props.count} ${props.count === 1 ? "agent" : "agents"} working`}
-      accessibilityHint={props.selected ? "Shows every thread." : "Shows working threads."}
-      onPress={props.onPress}
-      style={({ pressed }) => ({ bottom: props.bottom, opacity: pressed ? 0.6 : 1 })}
-      className={cn(
-        "absolute left-4 flex-row items-center gap-2 rounded-md border px-3 py-2.5",
-        props.selected ? "border-foreground bg-foreground" : "border-border bg-card-alt",
-      )}
-    >
-      <View className="size-2 rounded-full bg-adaptive-sky-600-400" />
-      <Text
-        className={cn(
-          "text-sm font-t3-medium tabular-nums",
-          props.selected ? "text-screen" : "text-foreground",
-        )}
-      >
-        {props.count} {props.count === 1 ? "agent" : "agents"} working
-      </Text>
-    </Pressable>
   );
 });

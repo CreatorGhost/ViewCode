@@ -19,7 +19,7 @@ import {
   makeWindow,
 } from "@t3tools/shared/usageFormat";
 import { type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, RefreshControl, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, RefreshControl, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -33,6 +33,7 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { UsageDailyChart } from "./UsageDailyChart";
 import { toggleUsageEnvironment } from "./usageEnvironmentSelection";
+import { usageLoadingCaption } from "./usageScreenModel";
 import { useRefreshLimits } from "./UsageLimitsSection";
 import { UsageLimitsSection } from "./UsageLimitsPooled";
 import { ControlPillMenu } from "../../components/ControlPill";
@@ -176,7 +177,9 @@ export function UsageRouteScreen() {
     });
   };
 
-  const showEnvironmentFilter = environments.length > 0 || selectedEnvironmentIds !== null;
+  // With one environment the menu has nothing to choose; keep it while a narrowed
+  // selection is active so it can be reset.
+  const showEnvironmentFilter = environments.length > 1 || selectedEnvironmentIds !== null;
   const hasLoadingEnvironments = selectedEnvironments.some(isUsageLoading);
   const filterAccessibilityLabel = hasLoadingEnvironments
     ? "Filter usage environments, some environments are loading"
@@ -198,7 +201,7 @@ export function UsageRouteScreen() {
         title: environment.label,
         subtitle: usageEnvironmentStatus(environment),
         state:
-          selectedEnvironmentIds === null || selectedEnvironmentIds.has(environment.environmentId)
+          selectedEnvironmentIds?.has(environment.environmentId) === true
             ? ("on" as const)
             : ("off" as const),
       })),
@@ -324,9 +327,9 @@ export function UsageRouteScreen() {
                 </Text>
               ) : null}
               {isPending ? (
-                <Text className="py-16 text-center text-base text-foreground-muted">
-                  Scanning provider transcripts…
-                </Text>
+                <UsageLoadingSkeleton
+                  {...usageLoadingCaption(selectedEnvironments.filter(isUsageLoading))}
+                />
               ) : selectedEnvironments.length === 0 ? (
                 <Text className="py-16 text-center text-base text-foreground-muted">
                   {environments.length === 0
@@ -764,6 +767,52 @@ function usageEnvironmentStatus(environment: EnvironmentUsageStatus): string {
   if (isUsageLoading(environment))
     return environment.summary ? "Updating usage…" : "Loading usage…";
   return "Usage up to date";
+}
+
+/** Static placeholder in the shape of the chart card and the provider list. */
+function UsageLoadingSkeleton(props: {
+  readonly caption: string;
+  readonly waitingForConnection: boolean;
+}) {
+  return (
+    <View
+      accessible
+      accessibilityLabel={props.caption}
+      accessibilityState={{ busy: true }}
+      className="gap-6"
+    >
+      <View className="gap-4 rounded-lg border border-border-subtle bg-card p-4">
+        <View className="gap-2">
+          <View className="h-2.5 w-28 rounded-sm bg-subtle" />
+          <View className="h-8 w-36 rounded-sm bg-subtle" />
+          <View className="h-3 w-44 rounded-sm bg-subtle" />
+        </View>
+        <View style={{ height: CHART_HEIGHT }} className="items-center justify-center gap-3">
+          {props.waitingForConnection ? (
+            <SymbolView name="wifi.slash" size={22} tintColorClassName="accent-icon-muted" />
+          ) : (
+            <ActivityIndicator colorClassName="accent-icon-muted" />
+          )}
+          <Text className="px-4 text-center text-sm text-foreground-muted">{props.caption}</Text>
+        </View>
+      </View>
+      <UsageSection title="Providers">
+        {[0, 1, 2].map((index) => (
+          <View
+            key={index}
+            className={cn(
+              "flex-row items-center gap-3 px-4 py-3.5",
+              index > 0 && "border-t border-border-subtle",
+            )}
+          >
+            <View className="size-5 rounded-sm bg-subtle" />
+            <View className="h-3 w-24 rounded-sm bg-subtle" />
+            <View className="ml-auto h-3 w-14 rounded-sm bg-subtle" />
+          </View>
+        ))}
+      </UsageSection>
+    </View>
+  );
 }
 
 /** Refined section: an uppercase label over one squared, hairline card. */

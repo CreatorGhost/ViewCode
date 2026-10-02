@@ -8,7 +8,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildHomeFolderList,
   countHomeStatusFilters,
-  countWorkingAgents,
   resolveHomeAgentModelLabel,
   resolveHomeAgentStatus,
   type HomeFolderListItem,
@@ -108,7 +107,7 @@ function describeRows(items: readonly HomeFolderListItem[]): string[] {
       case "folder-header":
         return `folder ${item.title} (${item.count})${item.expanded ? "" : " closed"}`;
       case "folder-lead":
-        return `lead ${item.entry.item.thread.id}${item.entry.item.variant === "slim" ? " slim" : ""}`;
+        return `lead ${item.entry.item.thread.id}${item.entry.item.variant === "slim" ? " slim" : ""}${item.foldedAgentCount > 0 ? ` (${item.foldedAgentCount} agents)` : ""}`;
       case "folder-agents":
         return `agents ${item.agentCount}${item.expanded ? " open" : ""}${item.muted ? " muted" : ""}`;
       case "folder-child":
@@ -175,6 +174,17 @@ describe("buildHomeFolderList", () => {
       "lead done slim",
       "agents 1 muted",
     ]);
+  });
+
+  it("folds a quiet settled tree's agents into its lead row", () => {
+    const threads = [
+      thread("done", "app", settled),
+      child("idle", "done", { session: sessionWith("ready") }),
+      child("gone", "idle"),
+    ];
+    expect(
+      describeRows(build(threads, { expandedSettledFolderKeys: [scopes[0]!.key] }).items),
+    ).toEqual(["folder App (0)", "settled 1 open", "lead done slim (2 agents)"]);
   });
 
   it("lists pinned leads above the folders", () => {
@@ -357,17 +367,6 @@ describe("home status filter", () => {
 
   it("counts lead trees per chip", () => {
     expect(countHomeStatusFilters(threads)).toEqual({ all: 5, working: 2, "needs-you": 2 });
-  });
-
-  it("counts every working agent for the pill, children included", () => {
-    expect(countWorkingAgents(threads)).toBe(2);
-    expect(
-      countWorkingAgents([
-        thread("lead", "app"),
-        child("w1", "lead", running),
-        child("w2", "lead", running),
-      ]),
-    ).toBe(2);
   });
 
   it("keeps approvals and failures for needs you", () => {

@@ -145,7 +145,8 @@ function ThreadListV2Section(props: {
       />
       {props.disclosure ? (
         <SymbolView
-          name="chevron.down"
+          // Swap, never rotate: Android drops a rotated Tabler glyph.
+          name={props.disclosure.expanded ? "chevron.up" : "chevron.down"}
           size={10}
           tintColorClassName={
             sidebarPane
@@ -155,7 +156,6 @@ function ThreadListV2Section(props: {
                 : "accent-foreground-muted"
           }
           type="monochrome"
-          style={{ transform: [{ rotate: props.disclosure.expanded ? "180deg" : "0deg" }] }}
         />
       ) : null}
     </>
@@ -451,6 +451,8 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   /** Drawn inside a Home folder card (see HomeFolderCardSlice). */
   readonly inFolderCard?: boolean;
+  /** Agents a settled lead folds into its row, shown as "N agents"; 0 or absent hides it. */
+  readonly foldedAgentCount?: number;
   readonly thread: EnvironmentThreadShell;
   readonly variant: "card" | "slim";
   /** A message for this thread is waiting in the outbox. */
@@ -1188,11 +1190,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         }}
         style={rowAppearance.style}
       >
-        {/* Settled history recedes: dimmed favicon + muted title. */}
+        {/* Settled history recedes: dimmed favicon + muted title. In a folder
+            card it shares the active rows' padding so titles line up. */}
         <View
           className={cn(
             "min-h-[44px] flex-row items-center gap-2.5 py-2",
-            sidebarPane ? "px-3" : "px-5",
+            sidebarPane
+              ? "px-3"
+              : props.inFolderCard
+                ? THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME
+                : "px-5",
           )}
         >
           {props.project ? (
@@ -1229,6 +1236,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             ) : null}
           </View>
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
+          {props.foldedAgentCount ? (
+            <Text
+              className={cn(
+                "text-xs tabular-nums",
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : rowAppearance.tertiaryForegroundClassName,
+              )}
+            >
+              {props.foldedAgentCount} {props.foldedAgentCount === 1 ? "agent" : "agents"}
+            </Text>
+          ) : null}
           <Text
             className={cn(
               "text-sm tabular-nums",

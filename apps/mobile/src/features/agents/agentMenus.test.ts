@@ -39,7 +39,7 @@ describe("child agent menu", () => {
 describe("lead agent menu", () => {
   it("names how many agents Stop all stops", () => {
     const actions = buildLeadAgentMenuActions({ running: 3, paused: 0, queued: 0 });
-    expect(actions.map((action) => action.title)).toEqual(["Stop all agents (3 running)"]);
+    expect(actions.map((action) => action.title)).toEqual(["Stop all agents (3 working)"]);
   });
 
   it("offers the way back from a stop", () => {

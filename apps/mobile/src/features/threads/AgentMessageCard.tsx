@@ -25,6 +25,8 @@ function AgentMessageCardFrame(props: {
   readonly badge: ReactNode;
   readonly body: string;
   readonly iconColor: ColorValue;
+  /** Formatted send time, shown at the header's end like normal messages. */
+  readonly timeLabel: string;
 }) {
   const navigation = useNavigation();
   const [expanded, setExpanded] = useState(false);
@@ -52,27 +54,31 @@ function AgentMessageCardFrame(props: {
           </Text>
         </Pressable>
         {props.badge}
+        {props.timeLabel ? (
+          <Text className="ml-auto shrink-0 pl-2 text-xs text-foreground-tertiary">
+            {props.timeLabel}
+          </Text>
+        ) : null}
       </View>
       {props.body.trim().length > 0 ? (
-        <Pressable
-          accessibilityRole={long ? "button" : undefined}
-          accessibilityState={long ? { expanded } : undefined}
-          disabled={!long}
-          onPress={() => setExpanded((value) => !value)}
-          className="mt-1.5"
+        <Text
+          selectable
+          className="mt-1.5 text-sm text-foreground"
+          numberOfLines={long && !expanded ? 4 : undefined}
         >
-          <Text
-            selectable
-            className="text-sm text-foreground"
-            numberOfLines={long && !expanded ? 4 : undefined}
-          >
-            {props.body.trim()}
+          {props.body.trim()}
+        </Text>
+      ) : null}
+      {long ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          onPress={() => setExpanded((value) => !value)}
+          className="-mb-2.5 min-h-10 justify-center self-stretch active:opacity-70"
+        >
+          <Text className="text-xs font-t3-medium text-foreground-muted">
+            {expanded ? "Show less" : "Show more"}
           </Text>
-          {long ? (
-            <Text className="mt-1 text-xs font-t3-medium text-foreground-muted">
-              {expanded ? "Show less" : "Show more"}
-            </Text>
-          ) : null}
         </Pressable>
       ) : null}
     </View>
@@ -103,6 +109,7 @@ export const IncomingAgentMessageCard = memo(function IncomingAgentMessageCard(p
   readonly envelope: AgentMessageEnvelope;
   readonly environmentId: EnvironmentId;
   readonly iconColor: ColorValue;
+  readonly timeLabel: string;
 }) {
   const { envelope } = props;
   return (
@@ -114,6 +121,7 @@ export const IncomingAgentMessageCard = memo(function IncomingAgentMessageCard(p
       threadId={envelope.fromThreadId}
       body={envelope.body}
       iconColor={props.iconColor}
+      timeLabel={props.timeLabel}
       badge={
         envelope.inReplyTo ? (
           <Text className="shrink-0 text-xs text-foreground-muted">· reply</Text>
@@ -129,6 +137,7 @@ export const OutgoingAgentMessageCard = memo(function OutgoingAgentMessageCard(p
   readonly sent: AgentMessageSentPayload;
   readonly environmentId: EnvironmentId;
   readonly iconColor: ColorValue;
+  readonly timeLabel: string;
 }) {
   const { sent } = props;
   const spawn = sent.kind === "spawn";
@@ -141,6 +150,7 @@ export const OutgoingAgentMessageCard = memo(function OutgoingAgentMessageCard(p
       threadId={sent.toThreadId}
       body={sent.body}
       iconColor={props.iconColor}
+      timeLabel={props.timeLabel}
       badge={sent.delivery === "queued" ? <Badge label="queued" tone="warning" /> : null}
     />
   );

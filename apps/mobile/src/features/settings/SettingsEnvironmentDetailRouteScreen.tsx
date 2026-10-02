@@ -169,7 +169,11 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
             </SettingsSection>
             {!connected ? (
               <Text className="px-2 text-sm text-foreground-muted">
-                Connect this environment to manage it.
+                {environment.isEnabled &&
+                (environment.connectionState === "connecting" ||
+                  environment.connectionState === "reconnecting")
+                  ? "Reconnecting. Controls appear once it's connected."
+                  : "Connect this environment to manage it."}
               </Text>
             ) : !allowed ? (
               <Text className="px-2 text-sm text-foreground-muted">

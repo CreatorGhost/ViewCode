@@ -116,7 +116,7 @@ export function ConnectionEnvironmentRow(props: {
                 "text-xs",
                 hasConnectionFailure ? "text-danger-foreground" : "text-foreground-muted",
               )}
-              numberOfLines={props.expanded ? undefined : 1}
+              numberOfLines={props.expanded ? undefined : 2}
               selectable={props.expanded}
             >
               {statusLabel}
@@ -137,14 +137,14 @@ export function ConnectionEnvironmentRow(props: {
           onValueChange={(next) => props.onSetEnabled(props.environment.environmentId, next)}
           value={enabled}
         />
+        {/* Swap the glyph instead of rotating: a rotated Android SVG symbol leaves its box. */}
         <SymbolView
-          name={props.opensDetails ? "chevron.right" : "chevron.down"}
+          name={
+            props.opensDetails ? "chevron.right" : props.expanded ? "chevron.up" : "chevron.down"
+          }
           size={12}
           tintColorClassName="accent-icon-subtle"
           type="monochrome"
-          style={{
-            transform: [{ rotate: props.expanded ? "180deg" : "0deg" }],
-          }}
         />
       </Pressable>
 

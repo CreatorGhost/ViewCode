@@ -39,6 +39,7 @@ import {
   type PendingThreadOrder,
 } from "../threads/threadOrder";
 import type { HomeProjectScope } from "./homeThreadList";
+import { agentStatusRank, sortAgentsByStatus } from "../agents/agentStatus";
 
 /**
  * Home as project folders: pinned leads on top, then one collapsible folder
@@ -71,11 +72,6 @@ export function matchesHomeStatusFilter(
 }
 
 /** Lead trees each chip would keep, for the chip badges. */
-/** Every thread, lead or agent, that is working right now (the "N working" pill). */
-export function countWorkingAgents(threads: ReadonlyArray<EnvironmentThreadShell>): number {
-  return threads.filter((thread) => resolveHomeAgentStatus(thread) === "working").length;
-}
-
 export function countHomeStatusFilters(
   threads: ReadonlyArray<EnvironmentThreadShell>,
 ): Record<HomeStatusFilter, number> {
@@ -168,6 +164,8 @@ export interface HomeFolderLeadItem {
   readonly inFolder: boolean;
   /** The lead's agent tree (lead included) for Stop all / Resume; null without agents. */
   readonly agentTree: AgentTreeControlSummary | null;
+  /** Agents a settled lead folds into its row instead of an "N agents" row; 0 otherwise. */
+  readonly foldedAgentCount: number;
 }
 
 export interface HomeFolderAgentsToggleItem {
@@ -431,10 +429,14 @@ export function buildHomeFolderList(input: {
       ...sortRoots(roots.filter((thread) => bucketOf(thread) !== "pinned")),
     ],
     sortRoots,
-    // Agents read in the order they were spawned.
+    // Working agents first, as in the thread screen's panel; otherwise in the
+    // order they were spawned.
     sortChildren: (children) =>
-      [...children].sort(
-        (left, right) => parseTimestampMs(left.createdAt) - parseTimestampMs(right.createdAt),
+      sortAgentsByStatus(
+        [...children].sort(
+          (left, right) => parseTimestampMs(left.createdAt) - parseTimestampMs(right.createdAt),
+        ),
+        (child) => agentStatusRank(resolveHomeAgentStatus(child)),
       ),
     isWorking: (thread) => resolveHomeAgentStatus(thread) === "working",
   });
@@ -494,11 +496,19 @@ export function buildHomeFolderList(input: {
     node: SidebarThreadTreeNode<EnvironmentThreadShell>,
     inFolder: boolean,
     muted: boolean,
+    settled = false,
   ) => {
     const entry = entryByKey.get(node.key);
     if (entry === undefined) return;
     if (node.children.length === 0) {
-      items.push({ type: "folder-lead", key: entry.key, entry, inFolder, agentTree: null });
+      items.push({
+        type: "folder-lead",
+        key: entry.key,
+        entry,
+        inFolder,
+        agentTree: null,
+        foldedAgentCount: 0,
+      });
       return;
     }
     const tree = flattenSidebarThreadNode(node, () => true).map((row) => ({
@@ -508,8 +518,33 @@ export function buildHomeFolderList(input: {
       running: resolveHomeAgentStatus(row.node.thread) === "working",
     }));
     const agentTree = summarizeAgentTreeControl(tree, agentControl);
-    items.push({ type: "folder-lead", key: entry.key, entry, inFolder, agentTree });
     const agents = tree.slice(1);
+    // A settled tree whose agents are all quiet folds them into the lead row;
+    // the thread screen still lists them. A working, waiting, failed or paused
+    // agent keeps the disclosure, and so does a search that matched one.
+    const quiet = agents.every((row) => {
+      const status = resolveHomeAgentStatus(row.thread);
+      return (status === "idle" || status === "stopped") && !agentControl.get(row.key)?.paused;
+    });
+    if (settled && quiet && !searchExpandKeys.has(node.key)) {
+      items.push({
+        type: "folder-lead",
+        key: entry.key,
+        entry,
+        inFolder,
+        agentTree,
+        foldedAgentCount: node.descendantCount,
+      });
+      return;
+    }
+    items.push({
+      type: "folder-lead",
+      key: entry.key,
+      entry,
+      inFolder,
+      agentTree,
+      foldedAgentCount: 0,
+    });
     const expanded = input.expandedLeadKeys.has(node.key) || searchExpandKeys.has(node.key);
     items.push({
       type: "folder-agents",
@@ -598,7 +633,7 @@ export function buildHomeFolderList(input: {
       count: settled.length,
       expanded: settledExpanded,
     });
-    if (settledExpanded) for (const node of settled) pushTree(node, true, true);
+    if (settledExpanded) for (const node of settled) pushTree(node, true, true, true);
   }
 
   if (snoozedNodes.length > 0) {
@@ -693,6 +728,7 @@ export function homeFolderListItemsAreEqual(
       return (
         previous.type === "folder-lead" &&
         previous.inFolder === item.inFolder &&
+        previous.foldedAgentCount === item.foldedAgentCount &&
         agentTreesAreEqual(previous.agentTree, item.agentTree) &&
         threadListV2ListItemsAreEqual(previous.entry, item.entry)
       );
