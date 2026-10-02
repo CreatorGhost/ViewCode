@@ -438,6 +438,7 @@ export const layer = Layer.effect(
             Stream.mapEffect(readDesire),
             Stream.changesWith((left, right) => JSON.stringify(left) === JSON.stringify(right)),
           );
+          const runFork = Effect.runForkWith(yield* Effect.context<never>());
           yield* followRelayDesire({
             desires,
             holder,
@@ -446,7 +447,16 @@ export const layer = Layer.effect(
                 config,
                 holder,
                 dial: dialRelay,
-                makeForwarder: (send) => createRelayForwarder({ target, send }),
+                makeForwarder: (send) =>
+                  createRelayForwarder({
+                    target,
+                    send,
+                    onOversizedMessage: (details) => {
+                      runFork(
+                        Effect.logWarning("Quick connect WebSocket message too big", details),
+                      );
+                    },
+                  }),
                 networkSignals: Stream.fromPubSub(signals),
               }),
           });

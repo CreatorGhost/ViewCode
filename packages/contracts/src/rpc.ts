@@ -229,6 +229,7 @@ import {
   ServerRemoveKeybindingInput,
   ServerRemoveKeybindingResult,
   ServerProviderUpdatedPayload,
+  ServerProviderWorkspaceSnapshot,
   ServerSelfUpdateError,
   ServerSelfUpdateInput,
   ServerSelfUpdateProgressEvent,
@@ -388,6 +389,7 @@ export const WS_METHODS = {
   serverProbe: "server.probe",
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
+  serverGetProviderWorkspaceSnapshot: "server.getProviderWorkspaceSnapshot",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -530,6 +532,18 @@ const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, 
   success: ServerProviderUpdatedPayload,
   error: Schema.Union([EnvironmentAuthorizationError, ProviderSetupError]),
 });
+
+const WsServerGetProviderWorkspaceSnapshotRpc = Rpc.make(
+  WS_METHODS.serverGetProviderWorkspaceSnapshot,
+  {
+    payload: Schema.Struct({
+      instanceId: ProviderInstanceId,
+      cwd: TrimmedNonEmptyString,
+    }),
+    success: Schema.NullOr(ServerProviderWorkspaceSnapshot),
+    error: EnvironmentAuthorizationError,
+  },
+);
 
 const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
   payload: ServerProviderUpdateInput,
@@ -1533,6 +1547,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsServerGetProviderWorkspaceSnapshotRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,

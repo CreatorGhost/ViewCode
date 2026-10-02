@@ -6581,6 +6581,91 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("keeps workspace catalogs out of config broadcasts and serves one cwd by RPC", () =>
+    Effect.gen(function* () {
+      const checkedAt = "2026-04-11T00:00:00.000Z";
+      const cwd = "/tmp/workspace-0";
+      const workspaceSnapshots = Array.from({ length: 16 }, (_, index) => ({
+        cwd: `/tmp/workspace-${index}`,
+        checkedAt,
+        slashCommands: [{ name: `command-${index}` }],
+        skills: [
+          {
+            name: `skill-${index}`,
+            path: `/tmp/workspace-${index}/SKILL.md`,
+            description: "x".repeat(80_000),
+            enabled: true,
+          },
+        ],
+      }));
+      const provider = {
+        instanceId: ProviderInstanceId.make("codex"),
+        driver: ProviderDriverKind.make("codex"),
+        enabled: true,
+        installed: true,
+        version: "1.0.0",
+        status: "ready" as const,
+        auth: { status: "authenticated" as const },
+        checkedAt,
+        models: [],
+        slashCommands: [],
+        skills: [],
+        workspaceSnapshots,
+      };
+      yield* buildAppUnderTest({
+        layers: {
+          providerRegistry: {
+            getProviders: Effect.succeed([provider]),
+            streamChanges: Stream.succeed([{ ...provider, checkedAt: "2026-04-11T00:00:01.000Z" }]),
+            refreshWorkspaceSnapshot: () => Effect.succeed([provider]),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const events = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.take(2), Stream.runCollect),
+        ),
+      );
+      const [snapshot, update] = Array.from(events);
+      assert.equal(snapshot?.type, "snapshot");
+      assert.equal(update?.type, "providerStatuses");
+      if (snapshot?.type !== "snapshot" || update?.type !== "providerStatuses") return;
+      assert.equal("workspaceSnapshots" in snapshot.config.providers[0]!, false);
+      assert.equal("workspaceSnapshots" in update.payload.providers[0]!, false);
+      const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+      const before = yield* encodeJson({ ...snapshot.config, providers: [provider] });
+      const after = yield* encodeJson(snapshot.config);
+      assert.isAbove(Buffer.byteLength(before), 1024 * 1024);
+      assert.isBelow(Buffer.byteLength(after), 1024 * 1024);
+
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.all({
+            config: client[WS_METHODS.serverGetConfig]({}),
+            found: client[WS_METHODS.serverGetProviderWorkspaceSnapshot]({
+              instanceId: provider.instanceId,
+              cwd,
+            }),
+            unknown: client[WS_METHODS.serverGetProviderWorkspaceSnapshot]({
+              instanceId: provider.instanceId,
+              cwd: "/tmp/unknown",
+            }),
+            refreshed: client[WS_METHODS.serverRefreshProviders]({
+              instanceId: provider.instanceId,
+              cwd,
+            }),
+          }),
+        ),
+      );
+      assert.equal("workspaceSnapshots" in result.config.providers[0]!, false);
+      assert.deepEqual(result.found, workspaceSnapshots[0]);
+      assert.equal(result.unknown, null);
+      assert.equal("workspaceSnapshots" in result.refreshed.providers[0]!, false);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   for (const mode of ["all", "targeted", "background"] as const) {
     it.effect(`provider refresh invalidates T3 caches before probing (${mode})`, () => {
       const driver = ProviderDriverKind.make("codex");

@@ -25,7 +25,11 @@ import {
 } from "@t3tools/shared/viewcodeRelayProtocol";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { createRelayForwarder, type RelayForwarder } from "./relayForwarder.ts";
+import {
+  createRelayForwarder,
+  type OversizedRelayMessage,
+  type RelayForwarder,
+} from "./relayForwarder.ts";
 import type { LocalTarget } from "./viewCodeRelayHealth.ts";
 
 /** The relay's end of the socket: records what the host sends and lets a test wait for a frame. */
@@ -108,9 +112,16 @@ async function startLocal(
   return { server, target: { kind: "socket", path } };
 }
 
-function connect(target: LocalTarget) {
+function connect(
+  target: LocalTarget,
+  onOversizedMessage?: (details: OversizedRelayMessage) => void,
+) {
   const relay = makeRelayEnd();
-  const forwarder: RelayForwarder = createRelayForwarder({ target, send: relay.onFrame });
+  const forwarder: RelayForwarder = createRelayForwarder({
+    target,
+    send: relay.onFrame,
+    onOversizedMessage: onOversizedMessage ?? (() => {}),
+  });
   closers.push(() => forwarder.closeAll());
   return { relay, forwarder };
 }
@@ -123,6 +134,43 @@ const requestHead = (
 ) => makeJsonFrame(FrameType.RequestHead, 1, { method, path, headers, hasBody });
 
 describe.each(["tcp", "socket"] as const)("relay forwarder over %s", (mode) => {
+  it("logs the RPC tag and closes an oversized WebSocket message with 1009", async () => {
+    const { server, target } = await startLocal(mode, () => undefined);
+    server.on("upgrade", (request, socket: NodeStream.Duplex) => {
+      const accept = NodeCrypto.createHash("sha1")
+        .update(`${request.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+        .digest("base64");
+      socket.write(
+        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+      const message = Buffer.from(
+        `{"tag":"subscribeServerConfig","payload":{"secret":"DO_NOT_LOG","padding":"${"x".repeat(1024 * 1024)}"}}`,
+      );
+      const header = Buffer.alloc(10);
+      header[0] = 0x81;
+      header[1] = 127;
+      header.writeBigUInt64BE(BigInt(message.byteLength), 2);
+      socket.write(Buffer.concat([header, message]));
+    });
+    const warnings: OversizedRelayMessage[] = [];
+    const { relay, forwarder } = connect(target, (details) => warnings.push(details));
+    forwarder.receive(
+      makeJsonFrame(FrameType.WsOpen, 9, { path: "/ws", headers: [], protocols: [] }),
+    );
+
+    const close = parseWsClose((await relay.next(FrameType.WsClose, 9)).payload);
+    expect(close?.code).toBe(1009);
+    expect(warnings).toEqual([
+      {
+        byteLength: expect.any(Number),
+        streamId: 9,
+        messagePrefix: '{"tag":"subscribeServerConfig"}',
+      },
+    ]);
+    expect(warnings[0]?.byteLength).toBeGreaterThan(1024 * 1024);
+    expect(JSON.stringify(warnings)).not.toContain("DO_NOT_LOG");
+  });
+
   it("serves a GET, keeps duplicate headers, and presents the public host", async () => {
     let seenHost: string | undefined;
     let seenAuth: string | undefined;

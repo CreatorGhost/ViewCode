@@ -58,6 +58,7 @@ import {
   ProjectWriteFileError,
   ProviderUploadFeedbackError,
   ProviderSetupError,
+  type ServerProvider,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
   ServerSelfUpdateError,
@@ -381,6 +382,10 @@ export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract
 }
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
+
+function withoutWorkspaceSnapshots(providers: ReadonlyArray<ServerProvider>): ServerProvider[] {
+  return providers.map(({ workspaceSnapshots: _workspaceSnapshots, ...provider }) => provider);
+}
 
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
@@ -1832,7 +1837,7 @@ const makeWsRpcLayer = (
       const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
-          const currentProviders = yield* providerRegistry.getProviders;
+          const currentProviders = withoutWorkspaceSnapshots(yield* providerRegistry.getProviders);
           const providers = options.usageLimitsCommand
             ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
             : currentProviders;
@@ -2488,7 +2493,23 @@ const makeWsRpcLayer = (
                   providers = yield* providerRegistry.refreshInstance(instance.instanceId);
                 }
               }
-              return { providers };
+              return { providers: withoutWorkspaceSnapshots(providers) };
+            }),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverGetProviderWorkspaceSnapshot]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetProviderWorkspaceSnapshot,
+            Effect.gen(function* () {
+              const providers = withUsageLimitsCommands(
+                yield* providerRegistry.getProviders,
+                yield* usageLimitSources.current,
+              );
+              return (
+                providers
+                  .find((provider) => provider.instanceId === input.instanceId)
+                  ?.workspaceSnapshots?.find((snapshot) => snapshot.cwd === input.cwd) ?? null
+              );
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -3794,7 +3815,7 @@ const makeWsRpcLayer = (
                 Stream.concat(
                   Stream.fromEffect(providerRegistry.getProviders),
                   providerRegistry.streamChanges,
-                ),
+                ).pipe(Stream.map(withoutWorkspaceSnapshots)),
                 usageLimitSources.streamChanges.pipe(
                   // Quota updates already have their own stream. Republish the model
                   // catalog only when the set of providers offered the command changes.

@@ -2,6 +2,7 @@ import type {
   ServerProvider,
   ServerProviderSkill,
   ServerProviderSlashCommand,
+  ServerProviderWorkspaceSnapshot,
 } from "@t3tools/contracts";
 
 export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
@@ -106,21 +107,31 @@ export function resolveProviderSkillSourceKind(
 function resolveProviderWorkspaceSnapshot(
   provider: ServerProvider,
   cwd: string | null | undefined,
+  fetchedSnapshot?: ServerProviderWorkspaceSnapshot | null,
 ) {
   if (!cwd) return undefined;
-  return provider.workspaceSnapshots?.find((snapshot) => snapshot.cwd === cwd);
+  return fetchedSnapshot?.cwd === cwd
+    ? fetchedSnapshot
+    : provider.workspaceSnapshots?.find((snapshot) => snapshot.cwd === cwd);
 }
 
 export function resolveProviderSkillsForCwd(
   provider: ServerProvider,
   cwd: string | null | undefined,
+  fetchedSnapshot?: ServerProviderWorkspaceSnapshot | null,
 ): ServerProvider["skills"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.skills ?? provider.skills;
+  return (
+    resolveProviderWorkspaceSnapshot(provider, cwd, fetchedSnapshot)?.skills ?? provider.skills
+  );
 }
 
 export function resolveProviderSlashCommandsForCwd(
   provider: ServerProvider,
   cwd: string | null | undefined,
+  fetchedSnapshot?: ServerProviderWorkspaceSnapshot | null,
 ): ServerProvider["slashCommands"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
+  return (
+    resolveProviderWorkspaceSnapshot(provider, cwd, fetchedSnapshot)?.slashCommands ??
+    provider.slashCommands
+  );
 }
