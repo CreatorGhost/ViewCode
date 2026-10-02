@@ -343,6 +343,32 @@ describe("buildThreadFeed", () => {
     ]);
   });
 
+  it("keeps another MCP server's send_message tool call in the work log", () => {
+    const thread = makeThread({
+      id: ThreadId.make("lead"),
+      projectId: ProjectId.make("project-1"),
+      title: "Lead",
+      activities: [
+        makeActivity({
+          id: EventId.make("slack-done"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "MCP tool call",
+          createdAt: "2026-04-01T00:00:03.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: {
+            itemType: "mcp_tool_call",
+            toolCallId: "call-slack",
+            title: "MCP tool call",
+            status: "completed",
+            data: { toolName: "mcp__slack__send_message", input: { channel: "general" } },
+          },
+        }),
+      ],
+    });
+    expect(buildThreadFeed(thread)).not.toHaveLength(0);
+  });
+
   it("omits internal turn acceptance receipts while keeping turn failures", () => {
     const thread = makeThread({
       id: ThreadId.make("thread-1"),

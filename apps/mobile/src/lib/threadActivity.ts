@@ -435,7 +435,8 @@ function isAgentInternalActivity(activity: OrchestrationThreadActivity): boolean
   return payload.timelineBypass === true || ownedByAgent;
 }
 
-const AGENT_MESSAGING_TOOL = /(?:^|__|[._:/\s])(?:viewcode_)?(?:send_message|spawn_agent)\b/;
+// Only ViewCode's own agent tools; another MCP server's `send_message` keeps its row.
+const AGENT_MESSAGING_TOOL = /(?:^|__|[._:/\s])viewcode_(?:send_message|spawn_agent)\b/;
 
 /**
  * The tool call behind an agent-to-agent message. Its "to" card already shows
