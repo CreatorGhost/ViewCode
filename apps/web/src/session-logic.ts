@@ -23,6 +23,7 @@ import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-lo
 import {
   AGENT_MESSAGE_SENT_ACTIVITY_KIND,
   type AgentMessageSentPayload,
+  readAgentMessageSentPayload,
 } from "@t3tools/shared/agentMessages";
 import {
   isToolLifecycleItemType,
@@ -695,31 +696,6 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   derivedWorkLogEntryByActivity.set(activity, entry);
   return entry;
-}
-
-function readAgentMessageSentPayload(
-  payload: Record<string, unknown> | null,
-): AgentMessageSentPayload | null {
-  if (!payload) return null;
-  const { messageId, toThreadId, toName, body, replyExpected, inReplyTo, kind, delivery } = payload;
-  if (
-    typeof messageId !== "string" ||
-    typeof toThreadId !== "string" ||
-    typeof toName !== "string" ||
-    typeof body !== "string"
-  ) {
-    return null;
-  }
-  return {
-    messageId,
-    toThreadId,
-    toName,
-    body,
-    replyExpected: replyExpected === true,
-    inReplyTo: typeof inReplyTo === "string" ? inReplyTo : null,
-    kind: kind === "spawn" ? "spawn" : "message",
-    delivery: delivery === "queued" ? "queued" : "started",
-  };
 }
 
 /**

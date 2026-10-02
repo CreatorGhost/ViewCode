@@ -3,6 +3,8 @@ import {
   WorktreeSetupCard,
   type WorktreeSetupCardProps,
 } from "./worktree-setup-card";
+import { parseAgentMessage } from "@t3tools/shared/agentMessages";
+import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
@@ -1425,6 +1427,16 @@ function renderFeedEntry(
     return <ThreadThinkingRow rowSizing={props.workRowSizing} iconSubtleColor={iconSubtleColor} />;
   }
 
+  if (entry.type === "agent-message") {
+    return (
+      <OutgoingAgentMessageCard
+        sent={entry.sent}
+        environmentId={props.environmentId}
+        iconColor={iconSubtleColor}
+      />
+    );
+  }
+
   if (entry.type === "agent-spawn") {
     return (
       <ThreadAgentSpawnCard
@@ -1512,6 +1524,16 @@ function renderFeedEntry(
             </View>
           </MarkdownImageAvailableWidthContext>
         </ThreadReasoningRow>
+      );
+    }
+    const agentEnvelope = message.role === "user" ? parseAgentMessage(message.text) : null;
+    if (agentEnvelope) {
+      return (
+        <IncomingAgentMessageCard
+          envelope={agentEnvelope}
+          environmentId={props.environmentId}
+          iconColor={iconSubtleColor}
+        />
       );
     }
     const isUser = message.role === "user";
