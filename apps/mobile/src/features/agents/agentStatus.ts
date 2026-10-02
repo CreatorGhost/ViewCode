@@ -1,4 +1,5 @@
-import type { HomeAgentStatus } from "../home/homeFolderList";
+/** What a child agent row's dot shows. `paused` is a user Stop (agent control). */
+export type HomeAgentStatus = "needs-you" | "working" | "paused" | "failed" | "stopped" | "idle";
 
 /**
  * One label and dot per agent status, shared by Home's agent rows and the

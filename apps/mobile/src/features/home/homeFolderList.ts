@@ -39,7 +39,7 @@ import {
   type PendingThreadOrder,
 } from "../threads/threadOrder";
 import type { HomeProjectScope } from "./homeThreadList";
-import { agentStatusRank, sortAgentsByStatus } from "../agents/agentStatus";
+import { agentStatusRank, sortAgentsByStatus, type HomeAgentStatus } from "../agents/agentStatus";
 
 /**
  * Home as project folders: pinned leads on top, then one collapsible folder
@@ -49,8 +49,7 @@ import { agentStatusRank, sortAgentsByStatus } from "../agents/agentStatus";
  * are the ordinary v2 rows, so swipe and long-press actions stay as they are.
  */
 
-/** What a child agent row's dot shows. `paused` is a user Stop (agent control). */
-export type HomeAgentStatus = "needs-you" | "working" | "paused" | "failed" | "stopped" | "idle";
+export type { HomeAgentStatus };
 
 type AgentControlByThreadKey = ReadonlyMap<string, Pick<AgentControlState, "paused" | "queued">>;
 
