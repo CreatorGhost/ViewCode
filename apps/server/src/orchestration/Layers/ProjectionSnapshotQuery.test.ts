@@ -110,6 +110,65 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("projects a bounded preview of the latest completed message", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const query = yield* ProjectionSnapshotQuery;
+      const timestamp = "2026-09-01T00:00:00.000Z";
+      yield* sql`INSERT INTO projection_projects
+        (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+        VALUES ('preview-project', 'Project', '/tmp/preview-project', '[]', ${timestamp}, ${timestamp})`;
+      yield* sql`INSERT INTO projection_threads
+        (thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode, created_at, updated_at)
+        VALUES ('preview-thread', 'preview-project', 'Thread',
+          '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+          ${timestamp}, ${timestamp})`;
+
+      const readPreview = Effect.gen(function* () {
+        const snapshot = yield* query.getShellSnapshot();
+        const individual = yield* query.getThreadShellById(ThreadId.make("preview-thread"));
+        assert.equal(
+          Option.getOrThrow(individual).latestMessagePreview,
+          snapshot.threads[0]?.latestMessagePreview,
+        );
+        return snapshot.threads[0]!;
+      });
+      assert.equal(Object.hasOwn(yield* readPreview, "latestMessagePreview"), false);
+
+      yield* sql`INSERT INTO projection_thread_messages
+        (message_id, thread_id, role, text, is_streaming, created_at, updated_at)
+        VALUES ('preview-user', 'preview-thread', 'user', 'First message', 0,
+          ${timestamp}, ${timestamp})`;
+      assert.equal((yield* readPreview).latestMessagePreview, "First message");
+
+      const later = "2026-09-01T00:00:01.000Z";
+      yield* sql`INSERT INTO projection_thread_messages
+        (message_id, thread_id, role, text, is_streaming, created_at, updated_at)
+        VALUES ('preview-assistant', 'preview-thread', 'assistant',
+          '# **Latest** [answer](https://example.com)\nnext', 1, ${later}, ${later})`;
+      assert.equal((yield* readPreview).latestMessagePreview, "First message");
+      yield* sql`UPDATE projection_thread_messages SET is_streaming = 0
+        WHERE message_id = 'preview-assistant'`;
+      assert.equal((yield* readPreview).latestMessagePreview, "Latest answer next");
+
+      const longMessage = `  **${"x".repeat(200)}**  `;
+      const latest = "2026-09-01T00:00:02.000Z";
+      yield* sql`INSERT INTO projection_thread_messages
+        (message_id, thread_id, role, text, is_streaming, created_at, updated_at)
+        VALUES ('preview-long', 'preview-thread', 'user', ${longMessage}, 0, ${latest}, ${latest})`;
+      assert.equal((yield* readPreview).latestMessagePreview, "x".repeat(140));
+      yield* sql`UPDATE projection_threads SET archived_at = ${latest}
+        WHERE thread_id = 'preview-thread'`;
+      assert.equal(
+        (yield* query.getArchivedShellSnapshot()).threads[0]?.latestMessagePreview,
+        "x".repeat(140),
+      );
+      yield* sql`DELETE FROM projection_thread_messages WHERE thread_id = 'preview-thread'`;
+      yield* sql`DELETE FROM projection_threads WHERE thread_id = 'preview-thread'`;
+      yield* sql`DELETE FROM projection_projects WHERE project_id = 'preview-project'`;
+    }),
+  );
+
   it.effect("hydrates read model from projection tables and computes snapshot sequence", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -580,6 +639,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
           title: "Thread 1",
+          latestMessagePreview: "hello from projection",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",

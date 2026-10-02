@@ -997,6 +997,20 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           <View className="flex-row items-center gap-1.5 pt-0.5">{rowTrailing}</View>
         </View>
       )}
+      {thread.latestMessagePreview ? (
+        <Text
+          className={cn(
+            "mt-0.5 text-xs",
+            selected
+              ? selectedThreadRowColors.mutedForegroundClassName
+              : rowAppearance.mutedForegroundClassName,
+          )}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {thread.latestMessagePreview}
+        </Text>
+      ) : null}
       {status === "working" && thread.planProgress ? (
         <Text
           className={cn(
@@ -1226,6 +1240,20 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             >
               {thread.title}
             </Text>
+            {thread.latestMessagePreview ? (
+              <Text
+                className={cn(
+                  "mt-0.5 text-xs",
+                  selected
+                    ? selectedThreadRowColors.mutedForegroundClassName
+                    : rowAppearance.mutedForegroundClassName,
+                )}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {thread.latestMessagePreview}
+              </Text>
+            ) : null}
             {props.searchMatch ? (
               <ThreadSearchMatchExcerpt
                 sidebar={sidebarPane}
