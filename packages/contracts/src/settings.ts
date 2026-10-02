@@ -679,9 +679,18 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    runWithoutViewCodeTools: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({
+        title: "Run Claude without ViewCode tools",
+        description:
+          "Starts Claude without ViewCode's tools (browser preview, devices, PR linking, ViewCode agents). Happens automatically when your organization manages Claude Code's MCP servers.",
+        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit" },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "autoCompactWindow", "launchArgs"],
+    order: ["binaryPath", "homePath", "autoCompactWindow", "launchArgs", "runWithoutViewCodeTools"],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
@@ -1477,6 +1486,7 @@ const ClaudeSettingsPatch = Schema.Struct({
   autoCompactWindow: Schema.optionalKey(
     TrimmedString.check(Schema.isPattern(CLAUDE_AUTO_COMPACT_WINDOW_PATTERN)),
   ),
+  runWithoutViewCodeTools: Schema.optionalKey(Schema.Boolean),
 });
 
 const CursorSettingsPatch = Schema.Struct({

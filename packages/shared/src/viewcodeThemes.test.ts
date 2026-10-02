@@ -51,6 +51,14 @@ describe("ViewCode named themes", () => {
     }
   });
 
+  it("keeps Matrix on true black instead of the derived greys", () => {
+    const matrix = themeById("viewcode-matrix");
+    for (const role of ["canvas", "chrome", "sidebar", "surface", "terminalBackground"] as const) {
+      expect(matrix.colors[role]).toBe("#000000");
+    }
+    expect(matrix.colors.accent).toBe("#3DDC97");
+  });
+
   it("picks a dark glyph on light accents", () => {
     expect(themeById("viewcode-matrix").colors.messageActionForeground).toBe("#101010");
   });

@@ -58,6 +58,7 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
+  type ViewcodeToolsUnavailableDetail,
 } from "@t3tools/contracts";
 import {
   applyClaudePromptEffortPrefix,
@@ -89,6 +90,10 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import {
+  hasClaudeManagedMcpConfig,
+  isClaudeEnterpriseMcpRefusal,
+} from "../Drivers/ClaudeEnterprisePolicy.ts";
 import { requireClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { claudeSignedOutMessage, makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { planClaudeSkillDispatch } from "../Drivers/ClaudeSkillDispatch.ts";
@@ -115,6 +120,11 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import {
+  findClaudeProcessExit,
+  formatProviderProcessExit,
+  isClaudeQueryGone,
+} from "../providerProcessExit.ts";
 import { spawnAndCollect } from "../providerSnapshot.ts";
 import { isStaleProviderSessionCause, isStaleProviderSessionText } from "../staleSession.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
@@ -413,8 +423,20 @@ interface ClaudeSessionContext {
   session: ProviderSession;
   startInput: Parameters<ClaudeAdapterShape["startSession"]>[0];
   readonly turnStartMessageIds: Array<string | null>;
-  readonly promptQueue: Queue.Queue<PromptQueueItem>;
-  readonly query: ClaudeQueryRuntime;
+  /** Replaced, with `query`, when the CLI is relaunched without ViewCode tools. */
+  promptQueue: Queue.Queue<PromptQueueItem>;
+  query: ClaudeQueryRuntime;
+  /**
+   * Set while the CLI was launched with ViewCode's MCP server and has not
+   * produced any output yet. Claude Code refuses client MCP config at startup
+   * on machines with an enterprise MCP config; this relaunches the same
+   * session without it and resends `unstartedPrompts`.
+   */
+  relaunchWithoutViewcodeTools: Effect.Effect<void, ProviderAdapterError> | undefined;
+  /** Prompts sent to a CLI that has not produced output yet (see above). */
+  unstartedPrompts: Array<SDKUserMessage> | undefined;
+  /** "Claude Code exited (code 1): <stderr>" once the CLI died on its own. */
+  exitDetail: string | undefined;
   streamFiber: Fiber.Fiber<void, Error> | undefined;
   readonly startedAt: string;
   readonly basePermissionMode: PermissionMode | undefined;
@@ -2112,6 +2134,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }) as ClaudeQueryRuntime);
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
+  // Set once this instance's CLI refused ViewCode's MCP server because of an
+  // enterprise MCP config the file check did not see; later sessions (child
+  // agents included) start without it. Server lifetime only.
+  let enterpriseMcpRefused = false;
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -2541,6 +2567,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       providerRefs: nativeProviderRefs(context),
     });
   });
+
+  /** The thread notice for a session that runs without ViewCode's MCP server. */
+  const emitViewcodeToolsUnavailable = (
+    context: ClaudeSessionContext,
+    reason: ViewcodeToolsUnavailableDetail["reason"],
+  ) =>
+    emitRuntimeWarning(
+      context,
+      reason === "managed-mcp"
+        ? "Your organization manages Claude Code's MCP servers, so ViewCode's own tools (browser preview, devices, linking PRs, ViewCode agents) are off for Claude. Editing, search, terminal and git work normally."
+        : "ViewCode's own tools (browser preview, devices, linking PRs, ViewCode agents) are turned off for Claude in Settings. Editing, search, terminal and git work normally.",
+      { viewcodeTools: "unavailable", reason } satisfies ViewcodeToolsUnavailableDetail,
+    );
 
   const emitThreadTokenUsage = Effect.fn("emitThreadTokenUsage")(function* (
     context: ClaudeSessionContext,
@@ -4170,6 +4209,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     context: ClaudeSessionContext,
     message: SDKMessage,
   ) {
+    // The CLI accepted its launch config, so an enterprise MCP refusal can no
+    // longer happen in this session.
+    context.relaunchWithoutViewcodeTools = undefined;
+    context.unstartedPrompts = undefined;
     yield* logNativeSdkMessage(context, message);
     yield* ensureThreadId(context, message);
 
@@ -4267,7 +4310,25 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         const failures = exit.cause.reasons.flatMap((reason) =>
           Cause.isFailReason(reason) ? [reason.error] : [],
         );
-        const message = failures[0]?.detail ?? "Claude runtime stream failed.";
+        const processExit = failures
+          .map((failure) => findClaudeProcessExit(failure))
+          .find((found) => found !== undefined);
+        // Only Claude Code's own refusal of client MCP config triggers this,
+        // and only once: the relaunch passes no MCP server at all.
+        const relaunch = context.relaunchWithoutViewcodeTools;
+        if (
+          relaunch !== undefined &&
+          processExit?.stderr !== undefined &&
+          isClaudeEnterpriseMcpRefusal(processExit.stderr)
+        ) {
+          const relaunched = yield* relaunch.pipe(
+            Effect.as(true),
+            Effect.catch((cause) =>
+              Effect.logError("claude.session.relaunch-failed", { cause }).pipe(Effect.as(false)),
+            ),
+          );
+          if (relaunched) return;
+        }
         // A resume the CLI refuses at startup also fails the pending sendTurn,
         // and the orchestration reactor recovers from that with a fresh
         // session and a recap. An error row here would contradict the recovery.
@@ -4278,6 +4339,18 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           });
           yield* stopSessionInternal(context, { emitExitEvent: true });
           return;
+        }
+        // A CLI that exits on its own is reported as that exit with its
+        // stderr, never as the request that happened to reach it first.
+        const message = processExit
+          ? formatProviderProcessExit("Claude Code", processExit, claudeEnvironment)
+          : (failures[0]?.detail ?? "Claude runtime stream failed.");
+        if (processExit) {
+          context.exitDetail = message;
+          yield* Effect.logError(`claude.process.exited: ${message}`, {
+            threadId: context.session.threadId,
+            instanceId: boundInstanceId,
+          });
         }
         yield* emitRuntimeError(context, message, {
           failureCount: failures.length,
@@ -4464,14 +4537,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const runPromise = Effect.runPromiseWith(runtimeContext);
 
       const promptQueue = yield* Queue.unbounded<PromptQueueItem>();
-      const prompt = Stream.fromQueue(promptQueue).pipe(
-        Stream.filter((item) => item.type === "message"),
-        Stream.map((item) => item.message),
-        Stream.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause) ? Stream.empty : Stream.failCause(cause),
-        ),
-        Stream.toAsyncIterable,
-      );
+      const promptFromQueue = (queue: Queue.Queue<PromptQueueItem>) =>
+        Stream.fromQueue(queue).pipe(
+          Stream.filter((item) => item.type === "message"),
+          Stream.map((item) => item.message),
+          Stream.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause) ? Stream.empty : Stream.failCause(cause),
+          ),
+          Stream.toAsyncIterable,
+        );
+      const prompt = promptFromQueue(promptQueue);
 
       const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
       const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
@@ -4953,6 +5028,18 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         extraArgs["thinking-display"] = "summarized";
       }
       const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+      // An organization that manages Claude Code's MCP servers (enterprise
+      // MCP config) makes the CLI refuse any server a client passes. That is
+      // a security control: ViewCode respects it and runs without its own
+      // tools rather than routing its server in some other way.
+      const viewcodeToolsUnavailable: "managed-mcp" | "setting" | undefined =
+        mcpSession === undefined
+          ? undefined
+          : claudeSettings.runWithoutViewCodeTools
+            ? "setting"
+            : enterpriseMcpRefused || (yield* hasClaudeManagedMcpConfig)
+              ? "managed-mcp"
+              : undefined;
       // The attachments dir grant lets the agent Read/copy pasted images at
       // the paths ProviderService injects into the turn text, without an
       // approval prompt. It is a leaf directory holding only attachment
@@ -4961,7 +5048,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(input.cwd ? [input.cwd] : []),
         serverConfig.attachmentsDir,
       ];
-      const queryOptions: ClaudeQueryOptions = {
+      const buildQueryOptions = (
+        toolsUnavailable: "managed-mcp" | "setting" | undefined,
+      ): ClaudeQueryOptions => ({
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(apiModelId ? { model: apiModelId } : {}),
         pathToClaudeCodeExecutable: claudeBinaryPath,
@@ -4969,7 +5058,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           type: "preset",
           preset: "claude_code",
           // Model and effort can change after this session-level prompt is set.
-          append: buildRuntimeInstructions({ harness: "Claude Code" }),
+          append: buildRuntimeInstructions({
+            harness: "Claude Code",
+            ...(toolsUnavailable ? { viewcodeToolsUnavailable: toolsUnavailable } : {}),
+          }),
         },
         settingSources: [...CLAUDE_SETTING_SOURCES],
         // `ultracode` is a Claude Code setting, not an API effort level. It is
@@ -5001,7 +5093,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         env: McpProviderSession.withAgentDeviceEnvironment(claudeEnvironment, mcpSession),
         additionalDirectories,
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
-        ...(mcpSession
+        ...(mcpSession && toolsUnavailable === undefined
           ? {
               mcpServers: {
                 [McpProviderSession.MCP_SERVER_NAME]:
@@ -5009,7 +5101,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               },
             }
           : {}),
-      };
+      });
+      const queryOptions = buildQueryOptions(viewcodeToolsUnavailable);
 
       yield* Effect.annotateCurrentSpan({
         "provider.kind": PROVIDER,
@@ -5105,7 +5198,48 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         lastThreadStartedId: undefined,
         announcedUsageLimits: undefined,
         stopped: false,
+        relaunchWithoutViewcodeTools: undefined,
+        unstartedPrompts: undefined,
+        exitDetail: undefined,
       };
+      if (mcpSession !== undefined && viewcodeToolsUnavailable === undefined) {
+        context.unstartedPrompts = [];
+        context.relaunchWithoutViewcodeTools = Effect.gen(function* () {
+          const pending = context.unstartedPrompts ?? [];
+          context.relaunchWithoutViewcodeTools = undefined;
+          context.unstartedPrompts = undefined;
+          enterpriseMcpRefused = true;
+          yield* Effect.logWarning("claude.session.enterprise-mcp-refused", {
+            threadId,
+            instanceId: boundInstanceId,
+            resentPrompts: pending.length,
+          });
+          // The CLI already exited; this only releases the SDK's handles.
+          yield* Effect.ignore(Effect.try(() => context.query.close()));
+          yield* Queue.shutdown(context.promptQueue);
+          const nextQueue = yield* Queue.unbounded<PromptQueueItem>();
+          context.query = yield* Effect.try({
+            try: () =>
+              createQuery({
+                prompt: promptFromQueue(nextQueue),
+                options: buildQueryOptions("managed-mcp"),
+              }),
+            catch: (cause) =>
+              new ProviderAdapterProcessError({
+                provider: PROVIDER,
+                threadId,
+                detail: "Failed to start Claude runtime session.",
+                cause,
+              }),
+          });
+          context.promptQueue = nextQueue;
+          forkSdkStream(context);
+          for (const message of pending) {
+            yield* Queue.offer(nextQueue, { type: "message", message });
+          }
+          yield* emitViewcodeToolsUnavailable(context, "managed-mcp");
+        });
+      }
       yield* Ref.set(contextRef, context);
       sessions.set(threadId, context);
 
@@ -5151,37 +5285,90 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         },
         providerRefs: {},
       });
+      if (viewcodeToolsUnavailable !== undefined) {
+        yield* emitViewcodeToolsUnavailable(context, viewcodeToolsUnavailable);
+      }
 
-      let streamFiber: Fiber.Fiber<void, never>;
-      streamFiber = runFork(
-        Effect.exit(runSdkStream(context)).pipe(
-          Effect.flatMap((exit) => {
-            if (context.stopped) {
-              return Effect.void;
-            }
-            if (context.streamFiber === streamFiber) {
-              context.streamFiber = undefined;
-            }
-            return handleStreamExit(context, exit).pipe(
-              Effect.catch((cause) =>
-                Effect.logError("Failed to close Claude runtime stream.", { cause }),
-              ),
-            );
-          }),
-        ),
-      );
-      context.streamFiber = streamFiber;
-      streamFiber.addObserver(() => {
-        if (context.streamFiber === streamFiber) {
-          context.streamFiber = undefined;
-        }
-      });
+      const forkSdkStream = (target: ClaudeSessionContext) => {
+        let streamFiber: Fiber.Fiber<void, never>;
+        streamFiber = runFork(
+          Effect.exit(runSdkStream(target)).pipe(
+            Effect.flatMap((exit) => {
+              if (target.stopped) {
+                return Effect.void;
+              }
+              if (target.streamFiber === streamFiber) {
+                target.streamFiber = undefined;
+              }
+              return handleStreamExit(target, exit).pipe(
+                Effect.catch((cause) =>
+                  Effect.logError("Failed to close Claude runtime stream.", { cause }),
+                ),
+              );
+            }),
+          ),
+        );
+        target.streamFiber = streamFiber;
+        streamFiber.addObserver(() => {
+          if (target.streamFiber === streamFiber) {
+            target.streamFiber = undefined;
+          }
+        });
+      };
+      forkSdkStream(context);
 
       return {
         ...session,
       };
     },
   );
+
+  /**
+   * A control request (setModel, setPermissionMode) to the session's CLI. When
+   * it fails because the CLI is gone, this waits for the stream to settle so
+   * the failure names the exit and stderr instead of the request; if the CLI
+   * was relaunched without ViewCode tools meanwhile, the request is retried
+   * once on the new process.
+   */
+  const controlRequest = Effect.fn("controlRequest")(function* (
+    context: ClaudeSessionContext,
+    method: string,
+    request: (query: ClaudeQueryRuntime) => Promise<void>,
+  ) {
+    const threadId = context.session.threadId;
+    const query = context.query;
+    const streamFiber = context.streamFiber;
+    const attempt = yield* Effect.exit(
+      Effect.tryPromise({
+        try: () => request(query),
+        catch: (cause) => toRequestError(threadId, method, cause),
+      }),
+    );
+    if (Exit.isSuccess(attempt)) return;
+    const failure = Cause.squash(attempt.cause);
+    const cause =
+      typeof failure === "object" && failure !== null && "cause" in failure
+        ? failure.cause
+        : failure;
+    if (isClaudeQueryGone(cause)) {
+      if (streamFiber !== undefined) yield* Fiber.await(streamFiber);
+      if (!context.stopped && context.query !== query) {
+        return yield* Effect.tryPromise({
+          try: () => request(context.query),
+          catch: (retryCause) => toRequestError(threadId, method, retryCause),
+        });
+      }
+      if (context.exitDetail !== undefined) {
+        return yield* new ProviderAdapterProcessError({
+          provider: PROVIDER,
+          threadId,
+          detail: context.exitDetail,
+          cause,
+        });
+      }
+    }
+    return yield* Effect.failCause(attempt.cause);
+  });
 
   const sendTurn: ClaudeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
     const context = yield* requireSession(input.threadId);
@@ -5211,10 +5398,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     if (modelSelection?.model) {
       const apiModelId = resolveClaudeCatalogApiModelId(modelCatalog, modelSelection);
       if (context.currentApiModelId !== apiModelId) {
-        yield* Effect.tryPromise({
-          try: () => context.query.setModel(apiModelId),
-          catch: (cause) => toRequestError(input.threadId, "turn/setModel", cause),
-        });
+        yield* controlRequest(context, "turn/setModel", (query) => query.setModel(apiModelId));
         context.currentApiModelId = apiModelId;
       }
       context.session = {
@@ -5236,15 +5420,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     // "default" restores the session's original permission mode.
     // When interactionMode is absent we leave the current mode unchanged.
     if (input.interactionMode === "plan") {
-      yield* Effect.tryPromise({
-        try: () => context.query.setPermissionMode("plan"),
-        catch: (cause) => toRequestError(input.threadId, "turn/setPermissionMode", cause),
-      });
+      yield* controlRequest(context, "turn/setPermissionMode", (query) =>
+        query.setPermissionMode("plan"),
+      );
     } else if (input.interactionMode === "default") {
-      yield* Effect.tryPromise({
-        try: () => context.query.setPermissionMode(context.basePermissionMode ?? "default"),
-        catch: (cause) => toRequestError(input.threadId, "turn/setPermissionMode", cause),
-      });
+      yield* controlRequest(context, "turn/setPermissionMode", (query) =>
+        query.setPermissionMode(context.basePermissionMode ?? "default"),
+      );
     }
 
     const turnId = steeringTurnState?.turnId ?? TurnId.make(yield* randomUUIDv4);
@@ -5316,12 +5498,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     if (steeringTurnState === null) context.turnStartMessageIds.push(turnId);
     yield* updateResumeCursor(context);
+    const promptMessage: SDKUserMessage =
+      steeringTurnState === null
+        ? { ...message, uuid: turnId as NonNullable<SDKUserMessage["uuid"]> }
+        : message;
+    // Kept until the CLI shows it started, so a relaunch without ViewCode
+    // tools resends it (an offer to the replaced queue is then dropped).
+    context.unstartedPrompts?.push(promptMessage);
     yield* Queue.offer(context.promptQueue, {
       type: "message",
-      message:
-        steeringTurnState === null
-          ? { ...message, uuid: turnId as NonNullable<SDKUserMessage["uuid"]> }
-          : message,
+      message: promptMessage,
     }).pipe(Effect.mapError((cause) => toRequestError(input.threadId, "turn/start", cause)));
 
     return {

@@ -136,9 +136,10 @@ The machine has `/Library/Application Support/ClaudeCode/managed-mcp.json`
   the probe's error text instead of `orElseSucceed(() => undefined)`; fall back
   to `claude auth status` for the account display. Then check whether
   `--settings {"disableAllHooks":true}` collides with `allowManagedHooksOnly`.
-- Open: under an enterprise MCP config, Claude may ignore the MCP server
-  ViewCode passes to sessions (the agents toolkit), so child agents / agent
-  messaging with Claude may not work there. Test on the laptop.
+- Sessions: Claude Code refuses any client MCP server under an enterprise MCP
+  config and exits 1, so Claude sessions there run without ViewCode's tools
+  and say so on the thread. See
+  [ViewCode internals](../internals/viewcode.md#acp-and-the-viewcode-mcp-server).
 
 ## Installers (DMG, EXE, AppImage)
 
