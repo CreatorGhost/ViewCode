@@ -15,7 +15,10 @@ export type FloatingWorkingStatus =
   | {
       readonly kind: "connection";
       readonly tone: "reconnecting" | "unavailable";
+      /** Short enough to fit the pill on a phone. */
       readonly label: string;
+      /** The full sentence, naming the environment and error, for screen readers. */
+      readonly detail: string;
       readonly onPress: () => void;
     };
 
@@ -30,37 +33,42 @@ export function connectionFloatingStatus(input: {
   readonly onReconnect: () => void;
 }): FloatingWorkingStatus | null {
   const environmentLabel = input.environmentLabel ?? "Environment";
-  const unavailable = (label: string): FloatingWorkingStatus => ({
+  const pill = (
+    tone: "reconnecting" | "unavailable",
+    label: string,
+    detail: string,
+  ): FloatingWorkingStatus => ({
     kind: "connection",
-    tone: "unavailable",
+    tone,
     label,
+    detail,
     onPress: input.onReconnect,
   });
 
   switch (input.connectionState) {
     case "connecting":
     case "reconnecting":
-      return {
-        kind: "connection",
-        tone: "reconnecting",
-        label:
-          input.connectionError === null
-            ? `Reconnecting to ${environmentLabel}...`
-            : `Failed to connect. Retrying ${environmentLabel}...`,
-        onPress: input.onReconnect,
-      };
+      return input.connectionError === null
+        ? pill("reconnecting", "Reconnecting…", `Reconnecting to ${environmentLabel}`)
+        : pill(
+            "reconnecting",
+            "Can't connect · retrying",
+            `Failed to connect. Retrying ${environmentLabel}: ${input.connectionError}`,
+          );
     case "offline":
-      return unavailable("You are offline");
+      return pill("unavailable", "You are offline", "You are offline");
     case "unsupported":
-      return unavailable("Client not supported");
+      return pill("unavailable", "Client not supported", "Client not supported");
     case "error":
-      return unavailable(
+      return pill(
+        "unavailable",
+        "Can't connect",
         input.connectionError
           ? `Failed to connect to ${environmentLabel}: ${input.connectionError}`
           : `Failed to connect to ${environmentLabel}`,
       );
     case "available":
-      return unavailable(`${environmentLabel} is not connected`);
+      return pill("unavailable", "Disconnected", `${environmentLabel} is not connected`);
     case "connected":
       return null;
   }

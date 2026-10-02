@@ -18,8 +18,8 @@ import {
   formatUsd,
   makeWindow,
 } from "@t3tools/shared/usageFormat";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, RefreshControl, View } from "react-native";
+import { type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Platform, Pressable, RefreshControl, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -31,9 +31,9 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { SettingsSection } from "../settings/components/SettingsSection";
 import { UsageDailyChart } from "./UsageDailyChart";
 import { toggleUsageEnvironment } from "./usageEnvironmentSelection";
+import { usageLoadingCaption } from "./usageScreenModel";
 import { useRefreshLimits } from "./UsageLimitsSection";
 import { UsageLimitsSection } from "./UsageLimitsPooled";
 import { ControlPillMenu } from "../../components/ControlPill";
@@ -177,7 +177,9 @@ export function UsageRouteScreen() {
     });
   };
 
-  const showEnvironmentFilter = environments.length > 0 || selectedEnvironmentIds !== null;
+  // With one environment the menu has nothing to choose; keep it while a narrowed
+  // selection is active so it can be reset.
+  const showEnvironmentFilter = environments.length > 1 || selectedEnvironmentIds !== null;
   const hasLoadingEnvironments = selectedEnvironments.some(isUsageLoading);
   const filterAccessibilityLabel = hasLoadingEnvironments
     ? "Filter usage environments, some environments are loading"
@@ -199,7 +201,7 @@ export function UsageRouteScreen() {
         title: environment.label,
         subtitle: usageEnvironmentStatus(environment),
         state:
-          selectedEnvironmentIds === null || selectedEnvironmentIds.has(environment.environmentId)
+          selectedEnvironmentIds?.has(environment.environmentId) === true
             ? ("on" as const)
             : ("off" as const),
       })),
@@ -268,7 +270,7 @@ export function UsageRouteScreen() {
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         className="flex-1"
-        contentContainerClassName="gap-6 px-5 pt-4"
+        contentContainerClassName="gap-5 px-4 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         refreshControl={
           <RefreshControl
@@ -325,9 +327,9 @@ export function UsageRouteScreen() {
                 </Text>
               ) : null}
               {isPending ? (
-                <Text className="py-16 text-center text-base text-foreground-muted">
-                  Scanning provider transcripts…
-                </Text>
+                <UsageLoadingSkeleton
+                  {...usageLoadingCaption(selectedEnvironments.filter(isUsageLoading))}
+                />
               ) : selectedEnvironments.length === 0 ? (
                 <Text className="py-16 text-center text-base text-foreground-muted">
                   {environments.length === 0
@@ -456,7 +458,7 @@ function CursorEnableLimits({
         <ProviderIcon provider="cursor" size={18} />
         <Text className="text-base font-t3-medium text-foreground">Cursor</Text>
       </View>
-      <View className="items-start gap-3 rounded-[24px] border-continuous bg-card p-4">
+      <View className="items-start gap-3 rounded-lg border border-border-subtle bg-card p-4">
         <Text className="text-xs text-foreground-muted">{CURSOR_KEYCHAIN_COPY}</Text>
         <View className="flex-row flex-wrap gap-2">
           {environments.map((environment) => (
@@ -490,12 +492,12 @@ function ChartCard(props: {
   const hasActivity = props.daily.some((period) => period.totalTokens > 0);
 
   return (
-    <View className="gap-4 rounded-[24px] border-continuous bg-card p-4">
+    <View className="gap-4 rounded-lg border border-border-subtle bg-card p-4">
       <View className="gap-0.5">
-        <Text className="text-sm text-foreground-muted">
+        <Text className="text-2xs font-t3-bold uppercase tracking-[0.8px] text-foreground-muted">
           {metric === "cost" ? "Raw token cost" : "Processed tokens"}
         </Text>
-        <Text className="text-4xl font-t3-bold tabular-nums text-foreground">
+        <Text className="text-4xl font-t3-bold tabular-nums tracking-[-1px] text-foreground">
           {metric === "cost" ? `${formatUsd(merged.costUsd)}*` : formatTokens(merged.totalTokens)}
         </Text>
         <Text className="text-sm text-foreground-muted">
@@ -582,7 +584,7 @@ function ProviderSection(props: {
   );
 
   return (
-    <SettingsSection title="Providers">
+    <UsageSection title="Providers">
       {rows.map((row, index) => {
         if (row.kind === "enable") {
           return (
@@ -617,9 +619,9 @@ function ProviderSection(props: {
                   : formatTokens(provider.totalTokens)}
               </Text>
             </View>
-            <View className="h-1 flex-row overflow-hidden rounded-full bg-subtle">
+            <View className="h-1 flex-row overflow-hidden rounded-sm bg-subtle">
               <View
-                className="h-full rounded-full"
+                className="h-full"
                 style={{ flex: share, backgroundColor: colors[provider.provider] }}
               />
               <View style={{ flex: 1 - share }} />
@@ -632,7 +634,7 @@ function ProviderSection(props: {
           </View>
         );
       })}
-    </SettingsSection>
+    </UsageSection>
   );
 }
 
@@ -646,7 +648,7 @@ function TotalsSection(props: { readonly merged: MergedUsage; readonly isPast24H
   const cachedShare = observedInput === 0 ? 0 : merged.cachedInputTokens / observedInput;
 
   return (
-    <SettingsSection title="Totals">
+    <UsageSection title="Totals">
       <View className="flex-row flex-wrap">
         <MetricCell
           label="Processed tokens"
@@ -683,7 +685,7 @@ function TotalsSection(props: { readonly merged: MergedUsage; readonly isPast24H
           detail="of records, excluded from cost"
         />
       </View>
-    </SettingsSection>
+    </UsageSection>
   );
 }
 
@@ -694,7 +696,9 @@ function MetricCell(props: {
 }) {
   return (
     <View className="w-1/2 gap-0.5 p-4">
-      <Text className="text-sm text-foreground-muted">{props.label}</Text>
+      <Text className="text-2xs font-t3-bold uppercase tracking-[0.8px] text-foreground-muted">
+        {props.label}
+      </Text>
       <Text className="text-xl font-t3-medium tabular-nums text-foreground">{props.value}</Text>
       <Text className="text-xs text-foreground-tertiary">{props.detail}</Text>
     </View>
@@ -707,7 +711,7 @@ function ModelsSection(props: { readonly merged: MergedUsage }) {
   if (merged.models.length === 0) return null;
 
   return (
-    <SettingsSection title="By model">
+    <UsageSection title="By model">
       {merged.models.map((model, index) => (
         <View
           key={`${model.provider}:${model.model}`}
@@ -736,7 +740,7 @@ function ModelsSection(props: { readonly merged: MergedUsage }) {
           </Text>
         </View>
       ))}
-    </SettingsSection>
+    </UsageSection>
   );
 }
 
@@ -763,4 +767,64 @@ function usageEnvironmentStatus(environment: EnvironmentUsageStatus): string {
   if (isUsageLoading(environment))
     return environment.summary ? "Updating usage…" : "Loading usage…";
   return "Usage up to date";
+}
+
+/** Static placeholder in the shape of the chart card and the provider list. */
+function UsageLoadingSkeleton(props: {
+  readonly caption: string;
+  readonly waitingForConnection: boolean;
+}) {
+  return (
+    <View
+      accessible
+      accessibilityLabel={props.caption}
+      accessibilityState={{ busy: true }}
+      className="gap-6"
+    >
+      <View className="gap-4 rounded-lg border border-border-subtle bg-card p-4">
+        <View className="gap-2">
+          <View className="h-2.5 w-28 rounded-sm bg-subtle" />
+          <View className="h-8 w-36 rounded-sm bg-subtle" />
+          <View className="h-3 w-44 rounded-sm bg-subtle" />
+        </View>
+        <View style={{ height: CHART_HEIGHT }} className="items-center justify-center gap-3">
+          {props.waitingForConnection ? (
+            <SymbolView name="wifi.slash" size={22} tintColorClassName="accent-icon-muted" />
+          ) : (
+            <ActivityIndicator colorClassName="accent-icon-muted" />
+          )}
+          <Text className="px-4 text-center text-sm text-foreground-muted">{props.caption}</Text>
+        </View>
+      </View>
+      <UsageSection title="Providers">
+        {[0, 1, 2].map((index) => (
+          <View
+            key={index}
+            className={cn(
+              "flex-row items-center gap-3 px-4 py-3.5",
+              index > 0 && "border-t border-border-subtle",
+            )}
+          >
+            <View className="size-5 rounded-sm bg-subtle" />
+            <View className="h-3 w-24 rounded-sm bg-subtle" />
+            <View className="ml-auto h-3 w-14 rounded-sm bg-subtle" />
+          </View>
+        ))}
+      </UsageSection>
+    </View>
+  );
+}
+
+/** Refined section: an uppercase label over one squared, hairline card. */
+function UsageSection(props: { readonly title: string; readonly children: ReactNode }) {
+  return (
+    <View className="gap-2">
+      <Text className="px-1 text-2xs font-t3-bold uppercase tracking-[0.8px] text-foreground-muted">
+        {props.title}
+      </Text>
+      <View className="overflow-hidden rounded-lg border border-border-subtle bg-card">
+        {props.children}
+      </View>
+    </View>
+  );
 }

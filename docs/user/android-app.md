@@ -60,12 +60,12 @@ whatever hides a match. **+** on a folder starts a new task in that project.
 
 Long-press an agent row for **Stop agent**, **Resume agent** or **Discard held
 messages**. Long-press the thread that started them for **Stop all agents (N
-running)**. A stopped agent is paused, not deleted: it shows **paused**, messages
+working)**. A stopped agent is paused, not deleted: it shows **paused**, messages
 from other agents wait for it, and **Resume** continues where it stopped.
 Discard drops the waiting messages instead.
 
-Inside a thread with agents, the **Active agents** strip above the composer
-lists them with their status and model. Tap it to expand, tap an agent to open
+Inside a thread with agents, the **Agents** strip above the composer lists
+them with their status and model, working ones first. Tap it to expand, tap an agent to open
 it, and use **Stop** or **Resume** per agent or for all of them.
 
 ## Switching models

@@ -18,7 +18,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { ActivityIndicator, Platform, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -46,6 +46,7 @@ import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-s
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
   HomeFolderAgentsToggle,
+  HomeFolderCardSlice,
   HomeFolderChildRow,
   HomeFolderHeader,
   HomeFolderSettledRow,
@@ -59,6 +60,7 @@ import {
   type HomeStatusFilter,
 } from "./homeFolderList";
 import { HomeStatusFilterChips } from "./home-folder-rows";
+import { AppText as Text } from "../../components/AppText";
 import {
   buildHomeProjectScopes,
   sortHomeProjectScopes,
@@ -229,6 +231,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const queuedThreadKeys = useQueuedThreadKeys();
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const insets = useSafeAreaInsets();
+  const windowHeight = useWindowDimensions().height;
   const { fabClearance } = useAndroidControlSizing();
   const iosBottomToolbarClearance =
     Platform.OS === "ios" && !NATIVE_LIQUID_GLASS_SUPPORTED
@@ -700,51 +703,59 @@ export function HomeScreen(props: HomeScreenProps) {
       switch (listItem.type) {
         case "folder-header":
           return (
-            <HomeFolderHeader
-              folderKey={listItem.folderKey}
-              title={listItem.title}
-              project={listItem.scope.representative}
-              count={listItem.count}
-              workingCount={listItem.workingCount}
-              expanded={listItem.expanded}
-              onToggle={toggleFolder}
-              onNewThread={props.onNewThreadInProject}
-            />
+            <HomeFolderCardSlice edge={listItem.folderEdge}>
+              <HomeFolderHeader
+                folderKey={listItem.folderKey}
+                title={listItem.title}
+                project={listItem.scope.representative}
+                count={listItem.count}
+                workingCount={listItem.workingCount}
+                expanded={listItem.expanded}
+                onToggle={toggleFolder}
+                onNewThread={props.onNewThreadInProject}
+              />
+            </HomeFolderCardSlice>
           );
         case "folder-agents":
           return (
-            <HomeFolderAgentsToggle
-              leadKey={listItem.leadKey}
-              agentCount={listItem.agentCount}
-              workingCount={listItem.workingCount}
-              pausedCount={listItem.pausedCount}
-              expanded={listItem.expanded}
-              muted={listItem.muted}
-              onToggle={toggleLeadAgents}
-            />
+            <HomeFolderCardSlice edge={listItem.folderEdge}>
+              <HomeFolderAgentsToggle
+                leadKey={listItem.leadKey}
+                agentCount={listItem.agentCount}
+                workingCount={listItem.workingCount}
+                pausedCount={listItem.pausedCount}
+                expanded={listItem.expanded}
+                muted={listItem.muted}
+                onToggle={toggleLeadAgents}
+              />
+            </HomeFolderCardSlice>
           );
         case "folder-child":
           return (
-            <HomeFolderChildRow
-              thread={listItem.thread}
-              depth={listItem.depth}
-              status={listItem.status}
-              running={listItem.running}
-              queued={listItem.queued}
-              modelLabel={modelLabelOf(listItem.thread)}
-              muted={listItem.muted}
-              onSelectThread={props.onSelectThread}
-              onAgentMenuEvent={agentActions.runMenuEvent}
-            />
+            <HomeFolderCardSlice edge={listItem.folderEdge}>
+              <HomeFolderChildRow
+                thread={listItem.thread}
+                depth={listItem.depth}
+                status={listItem.status}
+                running={listItem.running}
+                queued={listItem.queued}
+                modelLabel={modelLabelOf(listItem.thread)}
+                muted={listItem.muted}
+                onSelectThread={props.onSelectThread}
+                onAgentMenuEvent={agentActions.runMenuEvent}
+              />
+            </HomeFolderCardSlice>
           );
         case "folder-settled":
           return (
-            <HomeFolderSettledRow
-              folderKey={listItem.folderKey}
-              count={listItem.count}
-              expanded={listItem.expanded}
-              onToggle={toggleFolderSettled}
-            />
+            <HomeFolderCardSlice edge={listItem.folderEdge}>
+              <HomeFolderSettledRow
+                folderKey={listItem.folderKey}
+                count={listItem.count}
+                expanded={listItem.expanded}
+                onToggle={toggleFolderSettled}
+              />
+            </HomeFolderCardSlice>
           );
       }
       const item = listItem.type === "folder-lead" ? listItem.entry : listItem;
@@ -786,74 +797,80 @@ export function HomeScreen(props: HomeScreenProps) {
         );
       }
       const thread = item.item.thread;
+      const folderEdge = listItem.type === "folder-lead" ? listItem.folderEdge : null;
       return (
-        <ThreadListV2Row
-          onNewThreadOnBranch={props.onNewThreadOnBranch}
-          thread={thread}
-          variant={item.item.variant}
-          hasQueuedMessages={item.hasQueuedMessages}
-          snoozed={item.item.snoozed}
-          pinned={item.item.pinned}
-          snoozePresetMinute={item.snoozePresetMinute ?? ""}
-          snoozeWakeLabelText={item.snoozeWakeLabelText}
-          timeLabel={item.timeLabel}
-          showTrailingDivider={item.showTrailingDivider}
-          project={
-            inFolder
-              ? null
-              : (projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null)
-          }
-          projectTitle={
-            inFolder
-              ? ""
-              : v2ProjectTitleByProjectKey.get(
-                  scopedProjectKey(thread.environmentId, thread.projectId),
-                )
-          }
-          providerInstance={resolveProviderInstance(thread)}
-          environmentLabel={
-            Object.keys(props.savedConnectionsById).length > 1
-              ? (props.savedConnectionsById[thread.environmentId]?.environmentLabel ?? null)
-              : null
-          }
-          environmentMachine={machineByEnvironmentId.get(thread.environmentId)}
-          searchMatch={threadSearchMatchByKey.get(
-            threadSearchMatchKey({
-              environmentId: thread.environmentId,
-              threadId: thread.id,
-            }),
-          )}
-          searchQuery={props.searchQuery}
-          onSelectThread={props.onSelectThread}
-          onDeleteThread={handleDeleteThread}
-          onArchiveThread={props.onArchiveThread}
-          onRenameThread={handleRenameThread}
-          onRegenerateThreadTitle={handleRegenerateThreadTitle}
-          titleRegenerationSupported={titleRegenerationEnvironmentIds.has(thread.environmentId)}
-          settlementSupported={settlementEnvironmentIds.has(thread.environmentId)}
-          onSettleThread={handleSettleThread}
-          snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}
-          pinningSupported={pinningEnvironmentIds.has(thread.environmentId)}
-          autoSettleOptOutSupported={autoSettleOptOutEnvironmentIds.has(thread.environmentId)}
-          reorderSupported={
-            item.item.pinned
-              ? pinReorderEnvironmentIds.has(thread.environmentId)
-              : activeReorderEnvironmentIds.has(thread.environmentId)
-          }
-          canMoveUp={item.canMoveUp}
-          canMoveDown={item.canMoveDown}
-          onSnoozeThread={handleSnoozeThread}
-          onUnsnoozeThread={handleUnsnoozeThread}
-          onUnsettleThread={handleUnsettleThread}
-          onPinThread={handlePinThread}
-          onUnpinThread={handleUnpinThread}
-          onSetThreadAutoSettle={handleSetThreadAutoSettle}
-          onMoveThread={handleMoveThread}
-          onSwipeableClose={handleSwipeableClose}
-          onSwipeableWillOpen={handleSwipeableWillOpen}
-          leadingMenuActions={buildLeadAgentMenuActions(agentTree)}
-          onLeadingMenuAction={handleAgentMenuEvent}
-        />
+        <HomeFolderCardSlice edge={folderEdge}>
+          <ThreadListV2Row
+            inFolderCard={folderEdge != null}
+            foldedAgentCount={listItem.type === "folder-lead" ? listItem.foldedAgentCount : 0}
+            onNewThreadOnBranch={props.onNewThreadOnBranch}
+            thread={thread}
+            variant={item.item.variant}
+            hasQueuedMessages={item.hasQueuedMessages}
+            snoozed={item.item.snoozed}
+            pinned={item.item.pinned}
+            snoozePresetMinute={item.snoozePresetMinute ?? ""}
+            snoozeWakeLabelText={item.snoozeWakeLabelText}
+            timeLabel={item.timeLabel}
+            showTrailingDivider={item.showTrailingDivider}
+            project={
+              inFolder
+                ? null
+                : (projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ??
+                  null)
+            }
+            projectTitle={
+              inFolder
+                ? ""
+                : v2ProjectTitleByProjectKey.get(
+                    scopedProjectKey(thread.environmentId, thread.projectId),
+                  )
+            }
+            providerInstance={resolveProviderInstance(thread)}
+            environmentLabel={
+              Object.keys(props.savedConnectionsById).length > 1
+                ? (props.savedConnectionsById[thread.environmentId]?.environmentLabel ?? null)
+                : null
+            }
+            environmentMachine={machineByEnvironmentId.get(thread.environmentId)}
+            searchMatch={threadSearchMatchByKey.get(
+              threadSearchMatchKey({
+                environmentId: thread.environmentId,
+                threadId: thread.id,
+              }),
+            )}
+            searchQuery={props.searchQuery}
+            onSelectThread={props.onSelectThread}
+            onDeleteThread={handleDeleteThread}
+            onArchiveThread={props.onArchiveThread}
+            onRenameThread={handleRenameThread}
+            onRegenerateThreadTitle={handleRegenerateThreadTitle}
+            titleRegenerationSupported={titleRegenerationEnvironmentIds.has(thread.environmentId)}
+            settlementSupported={settlementEnvironmentIds.has(thread.environmentId)}
+            onSettleThread={handleSettleThread}
+            snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}
+            pinningSupported={pinningEnvironmentIds.has(thread.environmentId)}
+            autoSettleOptOutSupported={autoSettleOptOutEnvironmentIds.has(thread.environmentId)}
+            reorderSupported={
+              item.item.pinned
+                ? pinReorderEnvironmentIds.has(thread.environmentId)
+                : activeReorderEnvironmentIds.has(thread.environmentId)
+            }
+            canMoveUp={item.canMoveUp}
+            canMoveDown={item.canMoveDown}
+            onSnoozeThread={handleSnoozeThread}
+            onUnsnoozeThread={handleUnsnoozeThread}
+            onUnsettleThread={handleUnsettleThread}
+            onPinThread={handlePinThread}
+            onUnpinThread={handleUnpinThread}
+            onSetThreadAutoSettle={handleSetThreadAutoSettle}
+            onMoveThread={handleMoveThread}
+            onSwipeableClose={handleSwipeableClose}
+            onSwipeableWillOpen={handleSwipeableWillOpen}
+            leadingMenuActions={buildLeadAgentMenuActions(agentTree)}
+            onLeadingMenuAction={handleAgentMenuEvent}
+          />
+        </HomeFolderCardSlice>
       );
     },
     [
@@ -1003,7 +1020,14 @@ export function HomeScreen(props: HomeScreenProps) {
   // by what the work needs.
   const v2ListHeader = hasAnyThreads ? (
     <>
-      {Platform.OS === "ios" ? null : <HomeTopContentSpacer />}
+      {Platform.OS === "ios" ? null : (
+        <Text
+          accessibilityRole="header"
+          className="px-4 pt-4 text-3xl font-t3-bold tracking-[-0.6px] text-foreground"
+        >
+          Threads
+        </Text>
+      )}
       <HomeStatusFilterChips
         value={statusFilter}
         counts={statusFilterCounts}
@@ -1024,15 +1048,20 @@ export function HomeScreen(props: HomeScreenProps) {
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : statusFilter !== "all" ? (
-      <EmptyState
-        title={statusFilter === "working" ? "Nothing working" : "Nothing needs you"}
-        detail={
-          statusFilter === "working"
-            ? "No agents are running right now."
-            : "No approvals, questions or failures are waiting."
-        }
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      // Centred in the space under the chips rather than hugging them.
+      <View className="justify-center" style={{ minHeight: Math.round(windowHeight * 0.5) }}>
+        <EmptyState
+          title={statusFilter === "working" ? "Nothing working" : "Nothing needs you"}
+          detail={
+            statusFilter === "working"
+              ? "No agents are working right now."
+              : "No approvals, questions or failures are waiting."
+          }
+          actionLabel="Show all threads"
+          onAction={() => setStatusFilter("all")}
+          variant={Platform.OS === "android" ? "plain" : undefined}
+        />
+      </View>
     ) : v2ScopedProjectGroup !== null ? (
       <EmptyState
         title={`No threads in ${v2ScopedProjectGroup.title}`}
@@ -1105,7 +1134,8 @@ export function HomeScreen(props: HomeScreenProps) {
               paddingBottom:
                 Platform.OS === "ios"
                   ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
-                  : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? fabClearance : 88),
+                  : Math.max(insets.bottom, 16) +
+                    (Platform.OS === "android" ? fabClearance + 24 : 88),
             }}
           />
         </SwipeableScrollGateProvider>

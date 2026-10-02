@@ -5,6 +5,9 @@ export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"]
 /** ViewCode's own default theme. Web and desktop only; mobile keeps its Uniwind set. */
 export const VIEWCODE_THEME_ID = "viewcode";
 
+/** Carbon and silver from the brand lab's "Instrument" direction. ViewCode mobile's default. */
+export const INSTRUMENT_THEME_ID = "instrument";
+
 /** The standard T3 Code palette, kept separate from the optional built-in theme library. */
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
 
@@ -13,7 +16,8 @@ export const MOBILE_DEFAULT_THEME_ID = "t3-code";
  * (the app-store screenshot harness) can validate a requested theme without
  * importing React Native application code.
  */
-export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...BUILT_IN_THEME_IDS] as const;
+export const MOBILE_PALETTE_THEME_IDS = [...BUILT_IN_THEME_IDS, INSTRUMENT_THEME_ID] as const;
+export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...MOBILE_PALETTE_THEME_IDS] as const;
 
 /**
  * Ids a theme may not take: the appearance keywords a stored preference uses,
@@ -26,6 +30,7 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "light",
   "dark",
   VIEWCODE_THEME_ID,
+  INSTRUMENT_THEME_ID,
   ...VIEWCODE_NAMED_THEME_IDS,
   ...BUILT_IN_THEME_IDS,
   "t3-chat-dark",
@@ -48,6 +53,7 @@ export const UNPUBLISHABLE_THEME_IDS: ReadonlySet<string> = new Set([
 
 export type BuiltInThemeId = (typeof BUILT_IN_THEME_IDS)[number];
 export type MobileThemeId = (typeof MOBILE_THEME_IDS)[number];
+export type MobilePaletteThemeId = (typeof MOBILE_PALETTE_THEME_IDS)[number];
 export type ThemeAppearance = "light" | "dark";
 
 /** Product roles shared by web CSS, React Native tokens, and native surfaces. */
@@ -1025,12 +1031,133 @@ export const VIEWCODE_THEME: ThemeDefinition = {
   },
 };
 
+type InstrumentSwatch = readonly [
+  canvas: string,
+  chrome: string,
+  surface: string,
+  raised: string,
+  text: string,
+  muted: string,
+  border: string,
+  accent: string,
+  onAccent: string,
+];
+
+// The brand lab's swatch mapping: nine tones fill every role, status colors
+// come from the ViewCode base.
+function instrumentColors(base: ThemeColors, swatch: InstrumentSwatch): ThemeColors {
+  const [canvas, chrome, surface, raised, text, muted, border, accent, onAccent] = swatch;
+  return {
+    ...base,
+    canvas,
+    chrome,
+    toolbar: chrome,
+    toolbarForeground: text,
+    toolbarBorder: border,
+    toolbarControl: surface,
+    toolbarControlForeground: text,
+    toolbarControlHover: raised,
+    surface,
+    surfaceRaised: raised,
+    surfaceOverlay: surface,
+    text,
+    textMuted: muted,
+    border,
+    input: border,
+    focus: accent,
+    accent,
+    accentForeground: onAccent,
+    secondary: raised,
+    secondaryForeground: text,
+    muted: raised,
+    mutedForeground: muted,
+    placeholder: muted,
+    secondaryLabel: muted,
+    iconMuted: muted,
+    accentSurface: raised,
+    accentSurfaceForeground: accent,
+    messageSurface: raised,
+    messageForeground: text,
+    messageAction: accent,
+    messageActionForeground: onAccent,
+    messageActionHover: accent,
+    codeBackground: chrome,
+    codeForeground: text,
+    sidebar: chrome,
+    sidebarForeground: text,
+    sidebarMutedForeground: muted,
+    sidebarControlSurface: surface,
+    sidebarRowHover: raised,
+    sidebarRowActive: raised,
+    sidebarRowSelected: raised,
+    sidebarBorder: border,
+    terminalBackground: chrome,
+    terminalForeground: text,
+    terminalCursor: accent,
+    terminalSelection: raised,
+    terminalScrollbar: border,
+    terminalScrollbarHover: muted,
+    // Opaque over the canvas: mobile measures text contrast on these surfaces.
+    errorSurface: mix(base.error, canvas, 0.12),
+    warningSurface: mix(base.warning, canvas, 0.12),
+    updateSurface: mix(base.update, canvas, 0.12),
+  };
+}
+
+function mix(color: string, over: string, alpha: number): string {
+  const channel = (hex: string, index: number) =>
+    Number.parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  return `#${[0, 1, 2]
+    .map((index) =>
+      Math.round(channel(color, index) * alpha + channel(over, index) * (1 - alpha))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
+
+export const INSTRUMENT_THEME: ThemeDefinition = {
+  id: INSTRUMENT_THEME_ID,
+  label: "Instrument",
+  appearance: "dark",
+  colors: instrumentColors(VIEWCODE_THEME.colors, [
+    "#171b1e",
+    "#101416",
+    "#1f2528",
+    "#293135",
+    "#e4edef",
+    "#a7b6bb",
+    "#465257",
+    "#c3d5db",
+    "#1b2d33",
+  ]),
+  variants: {
+    light: instrumentColors(VIEWCODE_LIGHT_COLORS, [
+      "#f5f6f6",
+      "#e6e9e9",
+      "#ffffff",
+      "#e9eded",
+      "#1c272b",
+      "#536269",
+      "#bec9cc",
+      "#2e4c58",
+      "#ffffff",
+    ]),
+  },
+};
+
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   T3_CHAT_THEME,
   GROVE_THEME,
   OCEAN_THEME,
   EMBER_THEME,
   IRIS_THEME,
+];
+
+/** Palettes the mobile app registers as Uniwind themes, beside its standard one. */
+export const MOBILE_PALETTE_THEMES: ReadonlyArray<ThemeDefinition> = [
+  ...BUILT_IN_THEMES,
+  INSTRUMENT_THEME,
 ];
 
 /** Built-ins offered on web and desktop: ViewCode's own theme first, then

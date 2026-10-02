@@ -16,6 +16,11 @@ import type {
 } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import {
+  AGENT_MESSAGE_SENT_ACTIVITY_KIND,
+  readAgentMessageSentPayload,
+  type AgentMessageSentPayload,
+} from "@t3tools/shared/agentMessages";
+import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
   extractWorkLogToolLifecycleStatus,
@@ -119,6 +124,8 @@ export interface WorkLogEntry {
     }>;
   };
   toolData?: unknown;
+  /** A message this thread's agent sent another agent; renders as a "to" card. */
+  agentMessageSent?: AgentMessageSentPayload;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -209,7 +216,20 @@ export type ThreadFeedEntry =
       readonly activity: ThreadFeedActivity;
       readonly expanded: boolean;
       readonly summary: AgentSpawnSummary;
+    }
+  | {
+      /** A message this thread's agent sent another agent (web's "to" card). */
+      readonly type: "agent-message";
+      readonly id: string;
+      readonly createdAt: string;
+      readonly turnId: TurnId | null;
+      readonly sent: AgentMessageSentPayload;
     };
+
+export type ThreadFeedAgentMessageEntry = Extract<
+  ThreadFeedEntry,
+  { readonly type: "agent-message" }
+>;
 
 export interface AgentSpawnSummary {
   /** "Locate UNO hand rendering code" for one agent, "3 subagents" for a batch. */
@@ -281,6 +301,10 @@ export function isContextCompactionActivityGroup(
 
 function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return entry.activities.some((activity) => activity.workEntry.questionAnswer !== undefined);
+}
+
+function isAgentMessageActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return entry.activities.some((activity) => activity.workEntry.agentMessageSent !== undefined);
 }
 
 function normalizeDraftAnswer(value: string | undefined): string | null {
@@ -411,6 +435,27 @@ function isAgentInternalActivity(activity: OrchestrationThreadActivity): boolean
   return payload.timelineBypass === true || ownedByAgent;
 }
 
+// Only ViewCode's own agent tools; another MCP server's `send_message` keeps its row.
+const AGENT_MESSAGING_TOOL = /(?:^|__|[._:/\s])viewcode_(?:send_message|spawn_agent)\b/;
+
+/**
+ * The tool call behind an agent-to-agent message. Its "to" card already shows
+ * it, so the call itself is noise; a failed call stays, since no card follows.
+ */
+function isAgentMessagingToolCall(activity: OrchestrationThreadActivity): boolean {
+  if (activity.tone === "error") return false;
+  const payload = asRecord(activity.payload);
+  if (payload?.itemType !== "mcp_tool_call" || payload.status === "failed") return false;
+  const data = asRecord(payload.data);
+  const item = asRecord(data?.item);
+  const name =
+    asTrimmedString(data?.toolName) ??
+    (typeof item?.tool === "string" ? `${String(item.server)}.${item.tool}` : null) ??
+    asTrimmedString(payload.detail)?.split(":")[0] ??
+    "";
+  return AGENT_MESSAGING_TOOL.test(name);
+}
+
 /** Agent (non-background) task.started rows seed spawn batches. */
 function isAgentTaskStartedActivity(activity: OrchestrationThreadActivity): boolean {
   const payload =
@@ -446,6 +491,7 @@ function deriveWorkLogEntries(
     if (isNoContentRuntimeWarning(activity)) continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
+    if (isAgentMessagingToolCall(activity)) continue;
     entries.push(toDerivedWorkLogEntry(activity));
   }
   return collapseDerivedWorkLogEntries(entries);
@@ -527,6 +573,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       return Option.isSome(answer) ? { questionAnswer: answer.value } : {};
     })(),
   };
+  if (activity.kind === AGENT_MESSAGE_SENT_ACTIVITY_KIND) {
+    const sent = readAgentMessageSentPayload(payload);
+    if (sent) entry.agentMessageSent = sent;
+  }
   const toolCallId =
     asTrimmedString(payload?.toolCallId) ?? asTrimmedString(asRecord(payload?.data)?.toolCallId);
   if (toolCallId) {
@@ -1585,7 +1635,8 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
 
     const isStandalone =
       entry.activity.workEntry.sourceActivityKind === "context-compaction" ||
-      entry.activity.workEntry.questionAnswer !== undefined;
+      entry.activity.workEntry.questionAnswer !== undefined ||
+      entry.activity.workEntry.agentMessageSent !== undefined;
     if (isStandalone || firstActivityEntry?.turnId !== entry.turnId) {
       flushGroup();
     }
@@ -1712,7 +1763,10 @@ function deriveThreadFeedTurnFolds(
           (entry) =>
             entry.id !== firstAssistantMessageId &&
             entry.id !== terminalAssistantMessageId &&
-            !(entry.type === "activity-group" && isUserInputActivityGroup(entry)),
+            !(
+              entry.type === "activity-group" &&
+              (isUserInputActivityGroup(entry) || isAgentMessageActivityGroup(entry))
+            ),
         )
         .map((entry) => entry.id),
     );
@@ -1787,7 +1841,8 @@ export function deriveThreadFeedPresentation(
       entry.type !== "turn-fold" &&
       entry.type !== "work-toggle" &&
       entry.type !== "thinking" &&
-      entry.type !== "agent-spawn",
+      entry.type !== "agent-spawn" &&
+      entry.type !== "agent-message",
   );
   const activeTailGroup = sourceFeed.findLast(
     (entry) => entry.type !== "message" || !isEmptyMessage(entry),
@@ -1905,7 +1960,10 @@ function activityRunTurnId(entry: ThreadFeedEntry): TurnId | null {
     !isContextCompactionActivityGroup(entry) &&
     !isUserInputActivityGroup(entry) &&
     entry.activities.every(
-      (activity) => !activity.workEntry.agentSpawn && activity.workEntry.tone !== "error",
+      (activity) =>
+        !activity.workEntry.agentSpawn &&
+        !activity.workEntry.agentMessageSent &&
+        activity.workEntry.tone !== "error",
     )
   ) {
     return entry.turnId;
@@ -2132,6 +2190,18 @@ function appendActivityGroupRows(
   };
   for (const activity of activities) {
     const spawn = activity.workEntry.agentSpawn;
+    const sent = activity.workEntry.agentMessageSent;
+    if (sent !== undefined) {
+      flushGroupableRun(false);
+      result.push({
+        type: "agent-message",
+        id: activity.id,
+        createdAt: activity.createdAt,
+        turnId: activity.turnId,
+        sent,
+      });
+      continue;
+    }
     if (activity.workEntry.tone !== "error" && spawn === undefined) {
       groupableRun.push(activity);
       continue;

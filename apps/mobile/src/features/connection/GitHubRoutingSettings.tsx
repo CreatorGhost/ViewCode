@@ -38,7 +38,8 @@ export function GitHubRoutingSettings() {
   const update = useAtomCommand(environmentCatalog.setGitHubRoutingPermission);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  if (catalog.entries.size === 0) return null;
+  // Routing shares GitHub access between environments, so it needs at least two.
+  if (catalog.entries.size < 2) return null;
 
   return (
     <View className="mt-5 gap-3">

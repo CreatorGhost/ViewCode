@@ -9,10 +9,10 @@ const connected = [{ environmentId: first }, { environmentId: second }];
 
 describe("settings environment filter", () => {
   it("starts with all connected environments and can narrow to either or neither", () => {
-    const withoutFirst = toggleSettingsEnvironment(null, connected, first);
-    expect([...withoutFirst!]).toEqual([second]);
+    const onlySecond = toggleSettingsEnvironment(null, connected, second);
+    expect([...onlySecond!]).toEqual([second]);
 
-    const none = toggleSettingsEnvironment(withoutFirst, connected, second);
+    const none = toggleSettingsEnvironment(onlySecond, connected, second);
     expect([...none!]).toEqual([]);
 
     const onlyFirst = toggleSettingsEnvironment(none, connected, first);

@@ -29,10 +29,12 @@ import { ResetCredits } from "./UsageLimitsSection";
 import { useProviderColors } from "./usageProviders";
 import {
   limitDriverLabel,
+  limitPoolStatus,
   limitWarnings,
   providersAwaitingData,
   usageResumeRows,
 } from "./usageScreenModel";
+import { cn } from "../../lib/cn";
 
 type ProviderColors = ReturnType<typeof useProviderColors>;
 
@@ -50,7 +52,6 @@ function driverColor(colors: ProviderColors, driver: string): string {
       return colors.codex;
   }
 }
-const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
 
 function accountName(account: LimitAccount) {
   if (account.displayName) return account.displayName;
@@ -121,8 +122,11 @@ function PoolWindowCard({
         },
       },
     });
+  const status = limitPoolStatus(pool.pace, pool.remainingPercent);
+  // A lone segment needs no number to tell it apart.
+  const numbered = pool.columns.length > 1;
   return (
-    <View className="gap-3 rounded-[24px] border-continuous bg-card p-4">
+    <View className="gap-3 rounded-lg border border-border-subtle bg-card p-4">
       <View className="flex-row items-start justify-between gap-3">
         <View className="gap-1">
           <Text className="text-sm font-t3-medium text-foreground">{label ?? pool.label}</Text>
@@ -133,8 +137,15 @@ function PoolWindowCard({
             <Text className="text-sm text-foreground-muted">left</Text>
           </View>
         </View>
-        {pool.pace ? (
-          <Text className="text-xs text-foreground-tertiary">{PACE_LABEL[pool.pace]}</Text>
+        {status ? (
+          <Text
+            className={cn(
+              "text-xs",
+              status.warn ? "font-t3-medium text-warning-foreground" : "text-foreground-tertiary",
+            )}
+          >
+            {status.label}
+          </Text>
         ) : null}
       </View>
       {description ? <Text className="text-xs text-foreground-muted">{description}</Text> : null}
@@ -161,11 +172,13 @@ function PoolWindowCard({
                 color={color}
                 pending={Boolean(window.resetsAt)}
               />
-              <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
-                <Text className="text-xs font-t3-medium tabular-nums text-foreground">
-                  {index + 1}
-                </Text>
-              </View>
+              {numbered ? (
+                <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
+                  <Text className="text-xs font-t3-medium tabular-nums text-foreground">
+                    {index + 1}
+                  </Text>
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
@@ -184,11 +197,13 @@ function PoolWindowCard({
               onPress={() => openAccount(account)}
               className="min-h-[44px] flex-row items-center gap-2 active:opacity-60"
             >
-              <View className="size-5 items-center justify-center overflow-hidden rounded-md bg-subtle-strong">
-                <Text className="text-xs font-t3-medium tabular-nums text-foreground">
-                  {index + 1}
-                </Text>
-              </View>
+              {numbered ? (
+                <View className="size-5 items-center justify-center overflow-hidden rounded-md bg-subtle-strong">
+                  <Text className="text-xs font-t3-medium tabular-nums text-foreground">
+                    {index + 1}
+                  </Text>
+                </View>
+              ) : null}
               <Text
                 numberOfLines={1}
                 className="min-w-0 flex-1 text-sm font-t3-medium text-foreground"
@@ -299,7 +314,7 @@ export function UsageLimitsSection({
       })}
       {cursorPromptAt === pools.length ? cursorPrompt : null}
       {awaitingData.length > 0 ? (
-        <View className="rounded-[24px] border-continuous bg-card">
+        <View className="rounded-lg border border-border-subtle bg-card">
           {awaitingData.map((provider, index) => (
             <View
               key={provider.key}
@@ -393,7 +408,7 @@ function UsageResumeSection({
   return (
     <View className="gap-3">
       <Text className="px-1 text-base font-t3-medium text-foreground">Waiting on a limit</Text>
-      <View className="rounded-[24px] border-continuous bg-card">
+      <View className="rounded-lg border border-border-subtle bg-card">
         {rows.map((row, index) => (
           <Pressable
             key={row.key}
@@ -486,7 +501,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
                 </Text>
               ) : null}
             </View>
-            <View className="gap-3 rounded-[24px] border-continuous bg-card p-4">
+            <View className="gap-3 rounded-lg border border-border-subtle bg-card p-4">
               <Text className="text-sm font-t3-medium text-foreground">{window.label}</Text>
               <Text className="text-3xl font-t3-bold tabular-nums text-foreground">
                 {remainingPercent(window)}% left
@@ -506,7 +521,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
                 </Text>
               ) : null}
             </View>
-            <View className="gap-2 rounded-[24px] border-continuous bg-card p-4">
+            <View className="gap-2 rounded-lg border border-border-subtle bg-card p-4">
               <Text className="text-sm font-t3-medium text-foreground">
                 {account.environments.length ? "Signed in" : "Source"}
               </Text>
@@ -521,7 +536,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
               )}
             </View>
             {account.redeem && account.limits.resetCredits ? (
-              <View className="gap-3 rounded-[24px] border-continuous bg-card p-4">
+              <View className="gap-3 rounded-lg border border-border-subtle bg-card p-4">
                 <Text className="text-sm font-t3-medium text-foreground">Reset credits</Text>
                 <ResetCredits
                   key={account.key}

@@ -66,10 +66,7 @@ export function SettingsEnvironmentFilterHeader(props: { readonly closeSettings?
                       type: "action" as const,
                       label: entry.label,
                       description: entry.displayUrl ?? undefined,
-                      state:
-                        selectedIds === null || selectedIds.has(entry.environmentId)
-                          ? ("on" as const)
-                          : undefined,
+                      state: selectedIds?.has(entry.environmentId) ? ("on" as const) : undefined,
                       onPress: () => toggleEnvironment(entry.environmentId),
                     })),
                   ],
@@ -147,10 +144,7 @@ export function AndroidSettingsEnvironmentFilter() {
           id: `environment:${entry.environmentId}`,
           title: `Environment · ${entry.label}`,
           subtitle: entry.displayUrl ?? undefined,
-          state:
-            selectedIds === null || selectedIds.has(entry.environmentId)
-              ? ("on" as const)
-              : ("off" as const),
+          state: selectedIds?.has(entry.environmentId) ? ("on" as const) : ("off" as const),
         })),
         {
           id: "project:all",

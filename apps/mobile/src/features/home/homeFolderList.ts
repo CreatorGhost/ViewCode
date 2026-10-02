@@ -39,6 +39,7 @@ import {
   type PendingThreadOrder,
 } from "../threads/threadOrder";
 import type { HomeProjectScope } from "./homeThreadList";
+import { agentStatusRank, sortAgentsByStatus, type HomeAgentStatus } from "../agents/agentStatus";
 
 /**
  * Home as project folders: pinned leads on top, then one collapsible folder
@@ -48,8 +49,7 @@ import type { HomeProjectScope } from "./homeThreadList";
  * are the ordinary v2 rows, so swipe and long-press actions stay as they are.
  */
 
-/** What a child agent row's dot shows. `paused` is a user Stop (agent control). */
-export type HomeAgentStatus = "needs-you" | "working" | "paused" | "failed" | "stopped" | "idle";
+export type { HomeAgentStatus };
 
 type AgentControlByThreadKey = ReadonlyMap<string, Pick<AgentControlState, "paused" | "queued">>;
 
@@ -139,6 +139,8 @@ export function resolveHomeAgentModelLabel(
 }
 
 export interface HomeFolderHeaderItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-header";
   readonly key: string;
   readonly folderKey: string;
@@ -152,6 +154,8 @@ export interface HomeFolderHeaderItem {
 }
 
 export interface HomeFolderLeadItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-lead";
   readonly key: string;
   readonly entry: ThreadListV2ThreadListItem;
@@ -159,9 +163,13 @@ export interface HomeFolderLeadItem {
   readonly inFolder: boolean;
   /** The lead's agent tree (lead included) for Stop all / Resume; null without agents. */
   readonly agentTree: AgentTreeControlSummary | null;
+  /** Agents a settled lead folds into its row instead of an "N agents" row; 0 otherwise. */
+  readonly foldedAgentCount: number;
 }
 
 export interface HomeFolderAgentsToggleItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-agents";
   readonly key: string;
   readonly leadKey: string;
@@ -174,6 +182,8 @@ export interface HomeFolderAgentsToggleItem {
 }
 
 export interface HomeFolderChildItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-child";
   readonly key: string;
   readonly thread: EnvironmentThreadShell;
@@ -188,11 +198,23 @@ export interface HomeFolderChildItem {
 }
 
 export interface HomeFolderSettledItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-settled";
   readonly key: string;
   readonly folderKey: string;
   readonly count: number;
   readonly expanded: boolean;
+}
+
+/**
+ * Where a row sits in its folder's card. Rows are virtualized one by one, so
+ * the card is drawn by each row: `first` rounds the top, `last` the bottom.
+ * Null for rows outside any folder.
+ */
+export interface HomeFolderEdge {
+  readonly first: boolean;
+  readonly last: boolean;
 }
 
 export type HomeFolderListItem =
@@ -406,10 +428,14 @@ export function buildHomeFolderList(input: {
       ...sortRoots(roots.filter((thread) => bucketOf(thread) !== "pinned")),
     ],
     sortRoots,
-    // Agents read in the order they were spawned.
+    // Working agents first, as in the thread screen's panel; otherwise in the
+    // order they were spawned.
     sortChildren: (children) =>
-      [...children].sort(
-        (left, right) => parseTimestampMs(left.createdAt) - parseTimestampMs(right.createdAt),
+      sortAgentsByStatus(
+        [...children].sort(
+          (left, right) => parseTimestampMs(left.createdAt) - parseTimestampMs(right.createdAt),
+        ),
+        (child) => agentStatusRank(resolveHomeAgentStatus(child)),
       ),
     isWorking: (thread) => resolveHomeAgentStatus(thread) === "working",
   });
@@ -469,11 +495,19 @@ export function buildHomeFolderList(input: {
     node: SidebarThreadTreeNode<EnvironmentThreadShell>,
     inFolder: boolean,
     muted: boolean,
+    settled = false,
   ) => {
     const entry = entryByKey.get(node.key);
     if (entry === undefined) return;
     if (node.children.length === 0) {
-      items.push({ type: "folder-lead", key: entry.key, entry, inFolder, agentTree: null });
+      items.push({
+        type: "folder-lead",
+        key: entry.key,
+        entry,
+        inFolder,
+        agentTree: null,
+        foldedAgentCount: 0,
+      });
       return;
     }
     const tree = flattenSidebarThreadNode(node, () => true).map((row) => ({
@@ -483,8 +517,33 @@ export function buildHomeFolderList(input: {
       running: resolveHomeAgentStatus(row.node.thread) === "working",
     }));
     const agentTree = summarizeAgentTreeControl(tree, agentControl);
-    items.push({ type: "folder-lead", key: entry.key, entry, inFolder, agentTree });
     const agents = tree.slice(1);
+    // A settled tree whose agents are all quiet folds them into the lead row;
+    // the thread screen still lists them. A working, waiting, failed or paused
+    // agent keeps the disclosure, and so does a search that matched one.
+    const quiet = agents.every((row) => {
+      const status = resolveHomeAgentStatus(row.thread);
+      return (status === "idle" || status === "stopped") && !agentControl.get(row.key)?.paused;
+    });
+    if (settled && quiet && !searchExpandKeys.has(node.key)) {
+      items.push({
+        type: "folder-lead",
+        key: entry.key,
+        entry,
+        inFolder,
+        agentTree,
+        foldedAgentCount: node.descendantCount,
+      });
+      return;
+    }
+    items.push({
+      type: "folder-lead",
+      key: entry.key,
+      entry,
+      inFolder,
+      agentTree,
+      foldedAgentCount: 0,
+    });
     const expanded = input.expandedLeadKeys.has(node.key) || searchExpandKeys.has(node.key);
     items.push({
       type: "folder-agents",
@@ -573,7 +632,7 @@ export function buildHomeFolderList(input: {
       count: settled.length,
       expanded: settledExpanded,
     });
-    if (settledExpanded) for (const node of settled) pushTree(node, true, true);
+    if (settledExpanded) for (const node of settled) pushTree(node, true, true, true);
   }
 
   if (snoozedNodes.length > 0) {
@@ -587,10 +646,34 @@ export function buildHomeFolderList(input: {
     if (input.snoozedShelfExpanded) for (const node of snoozedNodes) pushTree(node, false, true);
   }
 
+  // A folder card runs from its header to the row before the next header or
+  // the snoozed shelf; each row carries its edge so it can draw its part.
+  const folderEdgeAt = new Map<number, HomeFolderEdge>();
+  for (let start = 0; start < items.length; start++) {
+    if (items[start]?.type !== "folder-header") continue;
+    let end = start + 1;
+    while (
+      end < items.length &&
+      items[end]?.type !== "folder-header" &&
+      items[end]?.type !== "v2-snoozed-shelf"
+    ) {
+      end++;
+    }
+    for (let index = start; index < end; index++) {
+      folderEdgeAt.set(index, { first: index === start, last: index === end - 1 });
+    }
+    start = end - 1;
+  }
+
   // Hairlines separate consecutive lead rows only; a lead's agents and every
   // header draw their own structure.
   return {
-    items: items.map((item, index) => {
+    items: items.map((rawItem, index) => {
+      const folderEdge = folderEdgeAt.get(index) ?? null;
+      const item =
+        rawItem.type === "v2-pending" || rawItem.type === "v2-snoozed-shelf" || folderEdge === null
+          ? rawItem
+          : { ...rawItem, folderEdge };
       if (item.type !== "folder-lead" && item.type !== "v2-pending") return item;
       const next = items[index + 1];
       const showTrailingDivider =
@@ -609,10 +692,26 @@ export function buildHomeFolderList(input: {
 }
 
 /** Recycled-list equality: rows re-render only when what they draw moved. */
+function folderEdgesAreEqual(
+  previous: HomeFolderEdge | null | undefined,
+  next: HomeFolderEdge | null | undefined,
+): boolean {
+  return previous?.first === next?.first && previous?.last === next?.last;
+}
+
 export function homeFolderListItemsAreEqual(
   previous: HomeFolderListItem,
   item: HomeFolderListItem,
 ): boolean {
+  if (
+    item.type !== "v2-pending" &&
+    item.type !== "v2-snoozed-shelf" &&
+    previous.type !== "v2-pending" &&
+    previous.type !== "v2-snoozed-shelf" &&
+    !folderEdgesAreEqual(previous.folderEdge, item.folderEdge)
+  ) {
+    return false;
+  }
   switch (item.type) {
     case "folder-header":
       return (
@@ -628,6 +727,7 @@ export function homeFolderListItemsAreEqual(
       return (
         previous.type === "folder-lead" &&
         previous.inFolder === item.inFolder &&
+        previous.foldedAgentCount === item.foldedAgentCount &&
         agentTreesAreEqual(previous.agentTree, item.agentTree) &&
         threadListV2ListItemsAreEqual(previous.entry, item.entry)
       );

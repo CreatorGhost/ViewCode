@@ -84,3 +84,29 @@ export interface AgentMessageSentPayload {
   readonly kind: "message" | "spawn";
   readonly delivery: "started" | "queued";
 }
+
+/** Reads a sent-message activity payload; null when it is malformed. */
+export function readAgentMessageSentPayload(
+  payload: Record<string, unknown> | null,
+): AgentMessageSentPayload | null {
+  if (!payload) return null;
+  const { messageId, toThreadId, toName, body, replyExpected, inReplyTo, kind, delivery } = payload;
+  if (
+    typeof messageId !== "string" ||
+    typeof toThreadId !== "string" ||
+    typeof toName !== "string" ||
+    typeof body !== "string"
+  ) {
+    return null;
+  }
+  return {
+    messageId,
+    toThreadId,
+    toName,
+    body,
+    replyExpected: replyExpected === true,
+    inReplyTo: typeof inReplyTo === "string" ? inReplyTo : null,
+    kind: kind === "spawn" ? "spawn" : "message",
+    delivery: delivery === "queued" ? "queued" : "started",
+  };
+}

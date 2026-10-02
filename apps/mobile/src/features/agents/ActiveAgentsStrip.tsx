@@ -7,7 +7,7 @@ import {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { AgentControlState, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { memo, useMemo, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
@@ -15,31 +15,10 @@ import { cn } from "../../lib/cn";
 import { useAgentControlByThreadKey } from "../../state/agentControl";
 import { useThreadShells } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
-import {
-  type HomeAgentStatus,
-  resolveHomeAgentModelLabel,
-  resolveHomeAgentStatus,
-} from "../home/homeFolderList";
+import { resolveHomeAgentModelLabel, resolveHomeAgentStatus } from "../home/homeFolderList";
 import { pausedAgentLabel } from "./agentMenus";
+import { AGENT_STATUS, agentStatusRank, sortAgentsByStatus } from "./agentStatus";
 import { useAgentControlActions } from "./useAgentControlActions";
-
-const STATUS_DOT_CLASS = {
-  "needs-you": "bg-adaptive-amber-700-400",
-  working: "bg-adaptive-sky-600-400",
-  paused: "bg-adaptive-amber-700-400",
-  failed: "bg-adaptive-rose-600-400",
-  stopped: "bg-foreground-muted",
-  idle: "bg-adaptive-emerald-600-400",
-} as const satisfies Record<HomeAgentStatus, string>;
-
-const STATUS_LABEL = {
-  "needs-you": "Needs you",
-  working: "Working",
-  paused: "Paused",
-  failed: "Failed",
-  stopped: "Idle",
-  idle: "Idle",
-} as const satisfies Record<HomeAgentStatus, string>;
 
 function StripButton(props: {
   readonly label: string;
@@ -71,7 +50,7 @@ function StripButton(props: {
 }
 
 /**
- * The thread screen's "Active agents" strip above the composer, like the
+ * The thread screen's agents strip above the composer, like the
  * desktop bar: this thread's child agents with status and model, Stop /
  * Resume per agent, and Stop all / Resume / Discard for the tree. When this
  * thread itself was stopped (paused), a "Stopped" row with Resume sits on
@@ -97,24 +76,39 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
   );
   const control = useAgentControlByThreadKey(controlEnvironmentIds);
   const actions = useAgentControlActions();
-  // Opens while agents run so their progress shows without a tap; a manual
-  // toggle sticks for the rest of the visit.
-  const [manualExpanded, setExpanded] = useState<boolean | null>(null);
+  // Starts collapsed so the conversation stays readable; the summary line
+  // already says how many agents run.
+  const [expanded, setExpanded] = useState(false);
+  const { height: windowHeight } = useWindowDimensions();
 
   const keyOf = (id: ThreadId) => `${environmentId}:${id}`;
   const summary = summarizeAgentTreeControl(
     agents.map((agent) => ({ running: agent.running, key: keyOf(agent.thread.id) })),
     control,
   );
-  const expanded = manualExpanded ?? summary.running > 0;
   const selfState = control.get(keyOf(threadId));
   const self = { environmentId, id: threadId };
   if (!selfState?.paused && agents.length === 0) return null;
 
+  // Each top-level agent keeps its own agents under it; the groups sort by
+  // their busiest member, so a working agent is on top when the list opens.
+  const rankOf = (agent: (typeof agents)[number]) =>
+    agentStatusRank(
+      control.get(keyOf(agent.thread.id))?.paused ? "paused" : resolveHomeAgentStatus(agent.thread),
+    );
+  const groups: Array<Array<(typeof agents)[number]>> = [];
+  for (const agent of agents) {
+    const last = groups[groups.length - 1];
+    if (agent.depth === 1 || last === undefined) groups.push([agent]);
+    else last.push(agent);
+  }
+  const sortedAgents = sortAgentsByStatus(groups, (group) => Math.min(...group.map(rankOf))).flat();
   const plural = agents.length > 1;
+  const active = summary.running > 0 || summary.paused > 0 || summary.queued > 0;
+  const title = active ? "Active agents" : "Agents";
   const summaryText =
     [
-      summary.running > 0 ? `${summary.running} running` : null,
+      summary.running > 0 ? `${summary.running} working` : null,
       summary.paused > 0 ? `${summary.paused} paused` : null,
       summary.queued > 0 ? `${summary.queued} queued` : null,
     ]
@@ -152,7 +146,7 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
           <>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Active agents, ${summaryText}`}
+              accessibilityLabel={`${title}, ${summaryText}`}
               accessibilityHint={`${expanded ? "Hides" : "Shows"} this thread's agents.`}
               accessibilityState={{ expanded }}
               className={cn(
@@ -171,7 +165,7 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
                       : "bg-foreground-muted",
                 )}
               />
-              <Text className="text-sm font-t3-medium text-foreground">Active agents</Text>
+              <Text className="text-sm font-t3-medium text-foreground">{title}</Text>
               <Text
                 className="min-w-0 flex-1 text-xs tabular-nums text-foreground-tertiary"
                 numberOfLines={1}
@@ -195,21 +189,26 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
               {summary.running > 0 ? (
                 <StripButton
                   label={plural ? "Stop all" : "Stop"}
-                  accessibilityLabel={`Stop all agents (${summary.running} running)`}
+                  accessibilityLabel={`Stop all agents (${summary.running} working)`}
                   onPress={() => void actions.stop(self, "tree")}
                 />
               ) : null}
+              {/* Swap glyphs, never rotate: a transformed Tabler SVG on
+                  Android rotates out of its own viewport and vanishes. */}
               <SymbolView
-                name="chevron.right"
+                name={expanded ? "chevron.down" : "chevron.up"}
                 size={11}
                 tintColorClassName="accent-foreground-muted"
                 type="monochrome"
-                style={{ transform: [{ rotate: expanded ? "90deg" : "-90deg" }] }}
               />
             </Pressable>
             {expanded ? (
-              <ScrollView className="max-h-56 border-t border-border-subtle" nestedScrollEnabled>
-                {agents.map((agent) => (
+              <ScrollView
+                className="border-t border-border-subtle"
+                style={{ maxHeight: Math.round(windowHeight * 0.32) }}
+                nestedScrollEnabled
+              >
+                {sortedAgents.map((agent) => (
                   <ActiveAgentRow
                     key={agent.thread.id}
                     thread={agent.thread}
@@ -252,7 +251,9 @@ function ActiveAgentRow(props: {
     control: props.control,
   });
   const paused = props.control?.paused === true;
-  const statusText = paused ? pausedAgentLabel(props.control?.queued ?? 0) : STATUS_LABEL[status];
+  const statusText = paused
+    ? pausedAgentLabel(props.control?.queued ?? 0)
+    : AGENT_STATUS[status].label;
   return (
     <View
       className="flex-row items-center gap-2 py-2 pr-3"
@@ -268,7 +269,7 @@ function ActiveAgentRow(props: {
         <View
           className={cn(
             "size-2 rounded-full",
-            paused ? "bg-adaptive-amber-700-400" : STATUS_DOT_CLASS[status],
+            paused ? AGENT_STATUS.paused.dotClass : AGENT_STATUS[status].dotClass,
           )}
         />
         <View className="min-w-0 flex-1">

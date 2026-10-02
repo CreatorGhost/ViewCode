@@ -729,6 +729,28 @@ describe("nativeMarkdownDocumentChunks", () => {
     ).toBe("Tasks\n\n☑︎\tCompleted\n•\tParent\n◦\tNested");
   });
 
+  it("splits lists into rich blocks when richLists is set (Android hanging indents)", () => {
+    const list: MarkdownNode = {
+      type: "list",
+      beg: 7,
+      children: [{ type: "list_item", children: [{ type: "text", content: "Item" }] }],
+    };
+    const document: MarkdownNode = {
+      type: "document",
+      children: [
+        { type: "paragraph", beg: 0, children: [{ type: "text", content: "Intro" }] },
+        list,
+      ],
+    };
+
+    expect(nativeMarkdownDocumentChunks(document).map((chunk) => chunk.kind)).toEqual([
+      "selectable",
+    ]);
+    expect(
+      nativeMarkdownDocumentChunks(document, { richLists: true }).map((chunk) => chunk.kind),
+    ).toEqual(["selectable", "rich"]);
+  });
+
   it("aligns ordered markers while keeping the list in one selectable string", () => {
     const document: MarkdownNode = {
       type: "document",

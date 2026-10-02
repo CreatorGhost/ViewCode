@@ -61,7 +61,7 @@ export function buildLeadAgentMenuActions(summary: AgentTreeControlSummary | nul
       ? [
           {
             id: AGENT_MENU_EVENT.stopAll,
-            title: `Stop all agents (${summary.running} running)`,
+            title: `Stop all agents (${summary.running} working)`,
             image: "stop.fill",
           },
         ]

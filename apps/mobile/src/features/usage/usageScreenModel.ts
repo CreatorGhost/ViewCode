@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { formatResumeAt } from "@t3tools/shared/usageLimit";
 import {
+  type LimitPace,
   type LimitPresentations,
   NO_USAGE_RECORDED_NOTICE,
   limitsNotice,
@@ -105,4 +106,46 @@ export function usageResumeRows(input: {
     }
     return Date.parse(left.resumeAt) - Date.parse(right.resumeAt);
   });
+}
+
+/**
+ * What the Usage loading state is waiting on. Transcript scans need a live
+ * connection, so while every pending environment is disconnected the screen says
+ * so instead of claiming to scan.
+ */
+export function usageLoadingCaption(
+  pending: ReadonlyArray<{ readonly label: string; readonly isConnected: boolean }>,
+): { readonly caption: string; readonly waitingForConnection: boolean } {
+  const disconnected = pending.filter((environment) => !environment.isConnected);
+  if (disconnected.length === 0 || disconnected.length < pending.length) {
+    return { caption: "Scanning provider transcripts…", waitingForConnection: false };
+  }
+  return {
+    caption:
+      disconnected.length === 1
+        ? `Waiting for ${disconnected[0]!.label} to connect…`
+        : `Waiting for ${disconnected.length} environments to connect…`,
+    waitingForConnection: true,
+  };
+}
+
+/**
+ * A pool's status, said as its consequence. "Ahead of pace" next to "2% left"
+ * read as good news, so a fast or nearly empty window is phrased as a warning.
+ */
+export function limitPoolStatus(
+  pace: LimitPace | null,
+  remainingPercent: number,
+): { readonly label: string; readonly warn: boolean } | null {
+  if (remainingPercent < 10) return { label: "Running low", warn: true };
+  switch (pace) {
+    case "ahead":
+      return { label: "Using fast", warn: true };
+    case "on":
+      return { label: "On track", warn: false };
+    case "under":
+      return { label: "Plenty left", warn: false };
+    case null:
+      return null;
+  }
 }

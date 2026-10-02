@@ -258,7 +258,13 @@ export function FileTreeBrowser(props: {
       updateCellsBatchingPeriod={16}
       windowSize={5}
       contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
-      refreshControl={<RefreshControl refreshing={props.isPending} onRefresh={props.onRefresh} />}
+      // The first load already shows an inline spinner in the empty state.
+      refreshControl={
+        <RefreshControl
+          refreshing={props.isPending && props.entries.length > 0}
+          onRefresh={props.onRefresh}
+        />
+      }
       renderItem={renderItem}
       ListHeaderComponent={
         <>

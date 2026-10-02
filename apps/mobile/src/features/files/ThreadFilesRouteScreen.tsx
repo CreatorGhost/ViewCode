@@ -47,6 +47,10 @@ import { ThreadFileNavigatorPane } from "./thread-file-navigator-pane";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { WorkspaceFileImagePreview } from "./WorkspaceFileImagePreview";
 import { WorkspaceFilePreviewError } from "./WorkspaceFilePreviewError";
+import { environmentCatalog } from "../../connection/catalog";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { useEnvironmentPresentation } from "../../state/presentation";
+import { EnvironmentConnectionNotice } from "../connection/EnvironmentConnectionNotice";
 import { WorkspaceFileVideoPreview } from "./WorkspaceFileVideoPreview";
 import { WorkspaceFileWebPreview } from "./WorkspaceFileWebPreview";
 import {
@@ -426,6 +430,14 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     cwd: fileInspector.supported ? null : cwd,
     searchQuery,
   });
+  // The entries request waits for the connection, so without this a disconnected
+  // environment shows an endless refresh spinner instead of saying why.
+  const environment = useEnvironmentPresentation(environmentId);
+  const connection = environment.presentation?.connection;
+  const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, "environment retry");
+  const retryConnection = useCallback(() => {
+    if (environmentId !== null) void retryEnvironment(environmentId);
+  }, [environmentId, retryEnvironment]);
   const handleReturnToThread = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -534,20 +546,31 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
         onBack={handleReturnToThread}
       />
       <MaterialScreenContent insetHorizontal={layout.usesSplitView}>
-        <FileTreeBrowser
-          key={JSON.stringify([environmentId, cwd])}
-          entries={entriesQuery.entries}
-          loadedDirectories={entriesQuery.loadedDirectories}
-          onLoadDirectory={entriesQuery.loadDirectory}
-          error={entriesQuery.error}
-          isPending={entriesQuery.isPending}
-          searchQuery={searchQuery}
-          searchTruncated={entriesQuery.searchTruncated}
-          selectedPath={null}
-          onPreviewFile={handlePreviewFile}
-          onRefresh={entriesQuery.refresh}
-          onSelectFile={handleSelectFile}
-        />
+        {connection !== undefined &&
+        connection.phase !== "connected" &&
+        entriesQuery.entries.length === 0 ? (
+          <EnvironmentConnectionNotice
+            environmentLabel={environment.presentation?.entry.target.label ?? "Environment"}
+            connection={connection}
+            resourceName="files"
+            onRetry={retryConnection}
+          />
+        ) : (
+          <FileTreeBrowser
+            key={JSON.stringify([environmentId, cwd])}
+            entries={entriesQuery.entries}
+            loadedDirectories={entriesQuery.loadedDirectories}
+            onLoadDirectory={entriesQuery.loadDirectory}
+            error={entriesQuery.error}
+            isPending={entriesQuery.isPending}
+            searchQuery={searchQuery}
+            searchTruncated={entriesQuery.searchTruncated}
+            selectedPath={null}
+            onPreviewFile={handlePreviewFile}
+            onRefresh={entriesQuery.refresh}
+            onSelectFile={handleSelectFile}
+          />
+        )}
         <FilesToolbarBottomFade />
       </MaterialScreenContent>
     </>

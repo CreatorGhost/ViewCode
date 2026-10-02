@@ -145,7 +145,8 @@ function ThreadListV2Section(props: {
       />
       {props.disclosure ? (
         <SymbolView
-          name="chevron.down"
+          // Swap, never rotate: Android drops a rotated Tabler glyph.
+          name={props.disclosure.expanded ? "chevron.up" : "chevron.down"}
           size={10}
           tintColorClassName={
             sidebarPane
@@ -155,7 +156,6 @@ function ThreadListV2Section(props: {
                 : "accent-foreground-muted"
           }
           type="monochrome"
-          style={{ transform: [{ rotate: props.disclosure.expanded ? "180deg" : "0deg" }] }}
         />
       ) : null}
     </>
@@ -449,6 +449,10 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
 });
 
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
+  /** Drawn inside a Home folder card (see HomeFolderCardSlice). */
+  readonly inFolderCard?: boolean;
+  /** Agents a settled lead folds into its row, shown as "N agents"; 0 or absent hides it. */
+  readonly foldedAgentCount?: number;
   readonly thread: EnvironmentThreadShell;
   readonly variant: "card" | "slim";
   /** A message for this thread is waiting in the outbox. */
@@ -568,7 +572,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const theme = useUniwindTheme();
   const sidebarPane = props.pane === "sidebar";
   const selected = props.selected === true;
-  const rowAppearance = getThreadListV2RowAppearance(theme, sidebarPane, selected);
+  const rowAppearance = getThreadListV2RowAppearance(
+    theme,
+    sidebarPane,
+    selected,
+    props.inFolderCard === true,
+  );
 
   const status = resolveThreadListV2Status(thread);
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
@@ -907,69 +916,101 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and snooze actions.`;
 
   // Sidebar rows use navigation foregrounds on their active and idle surfaces.
-  const cardContent = (
+  // Inside a folder there's no project line, so status/time ride the title line.
+  const rowTrailing = (
     <>
-      <View className="flex-row items-center gap-1.5">
-        {props.project ? (
-          <ProjectFavicon
-            environmentId={thread.environmentId}
-            faviconPath={props.project.faviconPath}
-            projectIcon={props.project.projectIcon}
-            size={15}
-            projectTitle={props.project.title}
-            workspaceRoot={props.project.workspaceRoot}
-          />
-        ) : null}
+      {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
+      {pinnedRow ? (
+        <SymbolView
+          name="pin"
+          size={11}
+          tintColorClassName={rowAppearance.mutedIconTintClassName}
+          type="monochrome"
+        />
+      ) : null}
+      {statusLabel ? (
+        <View className={cn("rounded-full px-2 py-0.5", statusLabel.pillClassName)}>
+          <Text className={cn("text-xs font-t3-medium", statusLabel.className)}>
+            {statusLabel.label}
+          </Text>
+        </View>
+      ) : (
         <Text
           className={cn(
-            "flex-1 text-sm font-t3-medium",
+            "text-xs tabular-nums",
+            selected
+              ? selectedThreadRowColors.foregroundClassName
+              : rowAppearance.tertiaryForegroundClassName,
+          )}
+        >
+          {timeLabel}
+        </Text>
+      )}
+    </>
+  );
+  const titleText = (
+    <Text
+      className={cn(
+        "text-base font-t3-medium",
+        props.project || props.projectTitle ? "mt-1" : "min-w-0 flex-1",
+        selected ? selectedThreadRowColors.foregroundClassName : rowAppearance.foregroundClassName,
+      )}
+      numberOfLines={2}
+    >
+      {thread.title}
+    </Text>
+  );
+  const hasProjectLine = Boolean(props.project || props.projectTitle);
+  const cardContent = (
+    <>
+      {hasProjectLine ? (
+        <View className="flex-row items-center gap-1.5">
+          {props.project ? (
+            <ProjectFavicon
+              environmentId={thread.environmentId}
+              faviconPath={props.project.faviconPath}
+              projectIcon={props.project.projectIcon}
+              size={15}
+              projectTitle={props.project.title}
+              workspaceRoot={props.project.workspaceRoot}
+            />
+          ) : null}
+          <Text
+            className={cn(
+              "flex-1 text-sm font-t3-medium",
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : rowAppearance.mutedForegroundClassName,
+            )}
+            numberOfLines={1}
+          >
+            {props.projectTitle ?? props.project?.title ?? ""}
+          </Text>
+          {rowTrailing}
+        </View>
+      ) : null}
+      {hasProjectLine ? (
+        titleText
+      ) : (
+        <View className="flex-row items-start gap-2">
+          {titleText}
+          <View className="flex-row items-center gap-1.5 pt-0.5">{rowTrailing}</View>
+        </View>
+      )}
+      {thread.latestMessagePreview ? (
+        <Text
+          className={cn(
+            "mt-0.5 text-xs",
             selected
               ? selectedThreadRowColors.mutedForegroundClassName
               : rowAppearance.mutedForegroundClassName,
           )}
           numberOfLines={1}
+          ellipsizeMode="tail"
         >
-          {props.projectTitle ?? props.project?.title ?? ""}
+          {thread.latestMessagePreview}
         </Text>
-        {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
-        {pinnedRow ? (
-          <SymbolView
-            name="pin"
-            size={11}
-            tintColorClassName={rowAppearance.mutedIconTintClassName}
-            type="monochrome"
-          />
-        ) : null}
-        {statusLabel ? (
-          <View className={cn("rounded-full px-2 py-0.5", statusLabel.pillClassName)}>
-            <Text className={cn("text-xs font-t3-medium", statusLabel.className)}>
-              {statusLabel.label}
-            </Text>
-          </View>
-        ) : (
-          <Text
-            className={cn(
-              "text-xs tabular-nums",
-              selected
-                ? selectedThreadRowColors.foregroundClassName
-                : rowAppearance.tertiaryForegroundClassName,
-            )}
-          >
-            {timeLabel}
-          </Text>
-        )}
-      </View>
-      <Text
-        className={cn(
-          "mt-1 text-base font-t3-medium",
-          selected
-            ? selectedThreadRowColors.foregroundClassName
-            : rowAppearance.foregroundClassName,
-        )}
-        numberOfLines={2}
-      >
-        {thread.title}
-      </Text>
+      ) : null}
       {status === "working" && thread.planProgress ? (
         <Text
           className={cn(
@@ -1027,6 +1068,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   : rowAppearance.mutedForegroundClassName,
               )}
               numberOfLines={1}
+              ellipsizeMode="middle"
             >
               {thread.branch ? (
                 <Text
@@ -1162,11 +1204,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         }}
         style={rowAppearance.style}
       >
-        {/* Settled history recedes: dimmed favicon + muted title. */}
+        {/* Settled history recedes: dimmed favicon + muted title. In a folder
+            card it shares the active rows' padding so titles line up. */}
         <View
           className={cn(
             "min-h-[44px] flex-row items-center gap-2.5 py-2",
-            sidebarPane ? "px-3" : "px-5",
+            sidebarPane
+              ? "px-3"
+              : props.inFolderCard
+                ? THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME
+                : "px-5",
           )}
         >
           {props.project ? (
@@ -1193,6 +1240,20 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             >
               {thread.title}
             </Text>
+            {thread.latestMessagePreview ? (
+              <Text
+                className={cn(
+                  "mt-0.5 text-xs",
+                  selected
+                    ? selectedThreadRowColors.mutedForegroundClassName
+                    : rowAppearance.mutedForegroundClassName,
+                )}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {thread.latestMessagePreview}
+              </Text>
+            ) : null}
             {props.searchMatch ? (
               <ThreadSearchMatchExcerpt
                 sidebar={sidebarPane}
@@ -1203,6 +1264,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             ) : null}
           </View>
           {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
+          {props.foldedAgentCount ? (
+            <Text
+              className={cn(
+                "text-xs tabular-nums",
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : rowAppearance.tertiaryForegroundClassName,
+              )}
+            >
+              {props.foldedAgentCount} {props.foldedAgentCount === 1 ? "agent" : "agents"}
+            </Text>
+          ) : null}
           <Text
             className={cn(
               "text-sm tabular-nums",

@@ -27,8 +27,7 @@ import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useProviderColors } from "./usageProviders";
-
-const PACE_LABEL = { ahead: "ahead of pace", on: "on pace", under: "under pace" } as const;
+import { limitPoolStatus } from "./usageScreenModel";
 
 type Driver = ServerProvider["driver"];
 
@@ -55,7 +54,7 @@ function WindowRow(props: {
   const remaining = remainingPercent(window);
   const elapsed = elapsedShare(window, now);
   const timeLeft = elapsed === null ? null : Math.round((1 - elapsed) * 100);
-  const pace = paceOf(window, now);
+  const status = limitPoolStatus(paceOf(window, now), remaining);
   const resetsIn = formatResetsIn(window, now);
   return (
     <View className="gap-1">
@@ -66,14 +65,14 @@ function WindowRow(props: {
         </Text>
       </View>
       <View className="h-3 justify-center">
-        <View className="h-1.5 flex-row overflow-hidden rounded-full bg-subtle">
+        <View className="h-1.5 flex-row overflow-hidden rounded-sm bg-subtle">
           <View
             className={
               remaining <= 10
-                ? "h-full rounded-full bg-red-500"
+                ? "h-full bg-red-500"
                 : remaining <= 30
-                  ? "h-full rounded-full bg-amber-500"
-                  : "h-full rounded-full bg-foreground"
+                  ? "h-full bg-amber-500"
+                  : "h-full bg-foreground"
             }
             style={[
               { flex: remaining },
@@ -89,9 +88,17 @@ function WindowRow(props: {
           />
         ) : null}
       </View>
-      {pace || resetsIn ? (
+      {status || resetsIn ? (
         <View className="flex-row justify-between gap-3">
-          <Text className="text-xs text-foreground-tertiary">{pace ? PACE_LABEL[pace] : ""}</Text>
+          <Text
+            className={
+              status?.warn
+                ? "text-xs font-t3-medium text-warning-foreground"
+                : "text-xs text-foreground-tertiary"
+            }
+          >
+            {status?.label ?? ""}
+          </Text>
           <Text className="text-xs tabular-nums text-foreground-tertiary">{resetsIn ?? ""}</Text>
         </View>
       ) : null}
@@ -256,8 +263,8 @@ export function ResetCredits(props: {
           onPress={confirm}
           className={
             dense
-              ? "rounded-full bg-subtle-strong px-2.5 py-1"
-              : "min-h-[44px] justify-center rounded-full bg-subtle-strong px-3 py-1.5"
+              ? "rounded-md bg-subtle-strong px-2.5 py-1"
+              : "min-h-[44px] justify-center rounded-md bg-subtle-strong px-3 py-1.5"
           }
         >
           <Text
