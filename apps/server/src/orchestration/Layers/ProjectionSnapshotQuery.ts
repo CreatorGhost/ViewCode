@@ -98,6 +98,30 @@ const THREAD_DETAIL_ACTIVITY_LIMIT = 500;
 // Snapshot payloads are decoded and projected in small sequential batches so
 // one client read does not retain the raw payloads for the full activity window.
 const THREAD_DETAIL_ACTIVITY_PAYLOAD_BATCH_SIZE = 25;
+const THREAD_MESSAGE_PREVIEW_LENGTH = 140;
+// Bound SQLite reads before stripping markdown and whitespace in JS.
+const THREAD_MESSAGE_PREVIEW_SOURCE_LENGTH = 2048;
+
+function latestMessagePreview(text: string | null | undefined): string | undefined {
+  if (!text) return undefined;
+  const preview = text
+    .replace(/```[^\n]*\n?/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/[#>*_~`|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, THREAD_MESSAGE_PREVIEW_LENGTH)
+    .trim();
+  return preview || undefined;
+}
+
+function latestMessagePreviewField(text: string | null | undefined) {
+  const preview = latestMessagePreview(text);
+  return preview === undefined ? {} : { latestMessagePreview: preview };
+}
+
 // SQLite trim defaults to spaces. Match the whitespace removed by String.trim.
 const MESSAGE_TRIM_WHITESPACE =
   "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff";
@@ -132,6 +156,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    latestMessageText: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -610,6 +635,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           title,
+          (SELECT substr(messages.text, 1, ${THREAD_MESSAGE_PREVIEW_SOURCE_LENGTH})
+           FROM projection_thread_messages AS messages
+           WHERE messages.thread_id = projection_threads.thread_id
+             AND messages.role IN ('user', 'assistant')
+             AND messages.is_streaming = 0
+             AND messages.text <> ''
+           ORDER BY messages.created_at DESC, messages.message_id DESC
+           LIMIT 1) AS "latestMessageText",
           title_state_json AS "titleState",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -685,6 +718,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           title,
+          (SELECT substr(messages.text, 1, ${THREAD_MESSAGE_PREVIEW_SOURCE_LENGTH})
+           FROM projection_thread_messages AS messages
+           WHERE messages.thread_id = projection_threads.thread_id
+             AND messages.role IN ('user', 'assistant')
+             AND messages.is_streaming = 0
+             AND messages.text <> ''
+           ORDER BY messages.created_at DESC, messages.message_id DESC
+           LIMIT 1) AS "latestMessageText",
           title_state_json AS "titleState",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -1252,6 +1293,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           title,
+          (SELECT substr(messages.text, 1, ${THREAD_MESSAGE_PREVIEW_SOURCE_LENGTH})
+           FROM projection_thread_messages AS messages
+           WHERE messages.thread_id = projection_threads.thread_id
+             AND messages.role IN ('user', 'assistant')
+             AND messages.is_streaming = 0
+             AND messages.text <> ''
+           ORDER BY messages.created_at DESC, messages.message_id DESC
+           LIMIT 1) AS "latestMessageText",
           title_state_json AS "titleState",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -2757,6 +2806,7 @@ pending_approval_requests AS (
                         id: row.threadId,
                         projectId: row.projectId,
                         title: row.title,
+                        ...latestMessagePreviewField(row.latestMessageText),
                         modelSelection: row.modelSelection,
                         runtimeMode: row.runtimeMode,
                         interactionMode: row.interactionMode,
@@ -2922,6 +2972,7 @@ pending_approval_requests AS (
                   id: row.threadId,
                   projectId: row.projectId,
                   title: row.title,
+                  ...latestMessagePreviewField(row.latestMessageText),
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
                   interactionMode: row.interactionMode,
@@ -3278,6 +3329,7 @@ pending_approval_requests AS (
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
         title: threadRow.value.title,
+        ...latestMessagePreviewField(threadRow.value.latestMessageText),
         modelSelection: threadRow.value.modelSelection,
         runtimeMode: threadRow.value.runtimeMode,
         interactionMode: threadRow.value.interactionMode,
