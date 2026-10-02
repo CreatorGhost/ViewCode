@@ -251,4 +251,20 @@ describe("workspace provider snapshots", () => {
     expect(resolveProviderSkillsForCwd(provider, "/workspace/project-b")).toEqual(provider.skills);
     expect(resolveProviderSlashCommandsForCwd(provider, null)).toEqual(provider.slashCommands);
   });
+
+  it("uses a fetched cwd snapshot and falls back while it loads", () => {
+    const { workspaceSnapshots: _workspaceSnapshots, ...streamedProvider } = provider;
+    const fetchedSnapshot = provider.workspaceSnapshots[0]!;
+    const cwd = "/workspace/project-a";
+    expect(resolveProviderSkillsForCwd(streamedProvider, cwd)).toEqual(provider.skills);
+    expect(resolveProviderSlashCommandsForCwd(streamedProvider, cwd)).toEqual(
+      provider.slashCommands,
+    );
+    expect(resolveProviderSkillsForCwd(streamedProvider, cwd, fetchedSnapshot)).toEqual(
+      fetchedSnapshot.skills,
+    );
+    expect(resolveProviderSlashCommandsForCwd(streamedProvider, cwd, fetchedSnapshot)).toEqual(
+      fetchedSnapshot.slashCommands,
+    );
+  });
 });

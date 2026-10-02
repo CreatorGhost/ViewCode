@@ -1967,11 +1967,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [selectedProviderEntry],
   );
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
+  const workspaceSnapshot = useEnvironmentQuery(
+    gitCwd && selectedProviderEntry && selectedProviderStatus
+      ? serverEnvironment.workspaceSnapshot({
+          environmentId,
+          input: {
+            instanceId: selectedProviderEntry.instanceId,
+            cwd: gitCwd,
+            checkedAt: selectedProviderStatus.checkedAt,
+          },
+        })
+      : null,
+  );
   const selectedProviderSkills = selectedProviderStatus
-    ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
+    ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd, workspaceSnapshot.data)
     : [];
   const selectedProviderSlashCommands = selectedProviderStatus
-    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
+    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd, workspaceSnapshot.data)
     : [];
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -1982,20 +1994,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useEffect(() => {
     const hasWorkspaceSnapshot = Boolean(
       gitCwd &&
-      selectedProviderStatus?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd),
+      (workspaceSnapshot.data?.cwd === gitCwd ||
+        selectedProviderStatus?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd)),
     );
     if (hadWorkspaceSnapshotRef.current && !hasWorkspaceSnapshot) {
       workspaceRefreshKeyRef.current = null;
       workspaceRefreshRetryRef.current = null;
     }
     hadWorkspaceSnapshotRef.current = hasWorkspaceSnapshot;
-  }, [gitCwd, selectedProviderStatus]);
+  }, [gitCwd, selectedProviderStatus, workspaceSnapshot.data]);
   useEffect(() => {
-    if (!gitCwd || !selectedProviderEntry) return;
-    const key = `${environmentId}:${selectedProviderEntry.instanceId}:${gitCwd}`;
-    const hasWorkspaceSnapshot = selectedProviderStatus?.workspaceSnapshots?.some(
-      (snapshot) => snapshot.cwd === gitCwd,
-    );
+    if (
+      !gitCwd ||
+      !selectedProviderEntry ||
+      (!workspaceSnapshot.isSuccess && workspaceSnapshot.error === null)
+    )
+      return;
+    const key = JSON.stringify([
+      environmentId,
+      selectedProviderEntry.instanceId,
+      gitCwd,
+      selectedProviderStatus?.checkedAt,
+    ]);
+    const hasWorkspaceSnapshot =
+      workspaceSnapshot.data?.cwd === gitCwd ||
+      selectedProviderStatus?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd);
     if (workspaceRefreshKeyRef.current === key) return;
     if (hasWorkspaceSnapshot) {
       workspaceRefreshKeyRef.current = key;
@@ -2017,16 +2040,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       environmentId,
       input: { instanceId: selectedProviderEntry.instanceId, cwd: gitCwd },
     }).then((result) => {
-      const hasWorkspaceSnapshot =
-        result._tag === "Success" &&
-        result.value.providers
-          .find((provider) => provider.instanceId === selectedProviderEntry.instanceId)
-          ?.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd);
-      if (!hasWorkspaceSnapshot && workspaceRefreshKeyRef.current === key) {
-        retryLater();
-      }
+      if (result._tag === "Success" && workspaceSnapshot.isSuccess) workspaceSnapshot.refresh();
+      retryLater();
     }, retryLater);
-  }, [environmentId, gitCwd, prompt, refreshProviders, selectedProviderEntry]);
+  }, [
+    environmentId,
+    gitCwd,
+    prompt,
+    refreshProviders,
+    selectedProviderEntry,
+    selectedProviderStatus?.checkedAt,
+    workspaceSnapshot.data,
+    workspaceSnapshot.error,
+    workspaceSnapshot.isSuccess,
+    workspaceSnapshot.refresh,
+  ]);
   const selectedProviderModels = useMemo<ReadonlyArray<ServerProvider["models"][number]>>(
     () => selectedProviderEntry?.models ?? [],
     [selectedProviderEntry],

@@ -13,6 +13,7 @@
 import * as NodeHttp from "node:http";
 
 import * as Undici from "@effect/platform-node/Undici";
+import { ORCHESTRATION_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
 import {
   chunkBody,
   CreditGate,
@@ -38,6 +39,23 @@ import type { LocalTarget } from "./viewCodeRelayHealth.ts";
 const MAX_WS_MESSAGE_BYTES = 1024 * 1024 - 64;
 /** Client messages that arrive before the local WebSocket opens wait here. */
 const MAX_PENDING_WS_BYTES = 4 * 1024 * 1024;
+const KNOWN_RPC_TAGS = new Set<string>([
+  ...Object.values(WS_METHODS),
+  ...Object.values(ORCHESTRATION_WS_METHODS),
+]);
+
+export interface OversizedRelayMessage {
+  readonly byteLength: number;
+  readonly streamId: number;
+  readonly messagePrefix: string;
+}
+
+function safeMessagePrefix(data: Uint8Array): string {
+  // Log only the RPC tag. Raw payload prefixes can contain user text or tokens.
+  const start = new TextDecoder().decode(data.subarray(0, 256));
+  const tag = /"tag"\s*:\s*"([a-zA-Z0-9._-]{1,70})"/.exec(start)?.[1];
+  return tag && KNOWN_RPC_TAGS.has(tag) ? `{"tag":"${tag}"}` : "<RPC tag unavailable>";
+}
 
 export interface RelayForwarder {
   /** One binary message from the relay. */
@@ -90,6 +108,7 @@ export function createRelayForwarder(options: {
   readonly target: LocalTarget;
   /** Sends one binary message to the relay. */
   readonly send: (message: Uint8Array) => void;
+  readonly onOversizedMessage: (details: OversizedRelayMessage) => void;
 }): RelayForwarder {
   const { target, send } = options;
   const streams = new Map<number, HttpStream | WsStream>();
@@ -223,6 +242,12 @@ export function createRelayForwarder(options: {
           ? new TextEncoder().encode(event.data)
           : new Uint8Array(event.data as ArrayBuffer);
       if (data.byteLength > MAX_WS_MESSAGE_BYTES) {
+        const details = {
+          byteLength: data.byteLength,
+          streamId,
+          messagePrefix: safeMessagePrefix(data),
+        };
+        options.onOversizedMessage(details);
         send(makeJsonFrame(FrameType.WsClose, streamId, { code: 1009, reason: "Message too big" }));
         endStream(streamId);
         return;

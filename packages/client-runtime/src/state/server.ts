@@ -1,5 +1,6 @@
 import {
   type EnvironmentId,
+  type ProviderInstanceId,
   type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerLifecycleWelcomePayload,
@@ -1084,6 +1085,20 @@ export function createServerEnvironmentAtoms<R, E>(
             input.refreshModels ?? false,
           ]),
       },
+    }),
+    workspaceSnapshot: createEnvironmentQueryAtomFamily(runtime, {
+      label: "environment-data:server:workspace-snapshot",
+      staleTimeMs: 10 * 60_000,
+      execute: (input: {
+        readonly instanceId: ProviderInstanceId;
+        readonly cwd: string;
+        // The query key includes the provider revision; the RPC only needs the cwd.
+        readonly checkedAt: string;
+      }) =>
+        request(WS_METHODS.serverGetProviderWorkspaceSnapshot, {
+          instanceId: input.instanceId,
+          cwd: input.cwd,
+        }),
     }),
     updateProvider: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:update-provider",

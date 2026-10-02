@@ -305,6 +305,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   stream as `viewcodeRelay`, like `managedTunnel`; the switch is the `viewcodeRelay.enabled`
   server setting and the host secret lives only in the secret store. The desktop backend is
   spawned with `--use-system-ca` so corporate TLS inspection does not break the socket.
+- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. Provider
+  `workspaceSnapshots` stay in the server registry; config snapshots, provider
+  status updates and refresh replies omit them. Composers fetch one cwd's
+  snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
+  frames cannot help because the stock phone expects one WebSocket message.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
   runs `npx --yes wrangler@4` from PATH: the server may run as Electron-as-node, so it never
   uses its own executable, and a missing Node is a message, not a crash. `infra/` does not
