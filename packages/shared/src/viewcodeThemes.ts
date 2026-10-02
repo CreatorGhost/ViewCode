@@ -25,6 +25,8 @@ type NamedThemeSpec = Readonly<{
   label: string;
   dark: DroppyPalette;
   light?: DroppyPalette;
+  /** Roles set after the derivation, for a theme the palette alone can't express. */
+  darkOverrides?: Partial<ThemeColors>;
 }>;
 
 const NAMED_THEME_SPECS: ReadonlyArray<NamedThemeSpec> = [
@@ -251,14 +253,30 @@ const NAMED_THEME_SPECS: ReadonlyArray<NamedThemeSpec> = [
     },
   },
   {
+    // True black on every plane with a mint accent, like a black VS Code /
+    // Cursor setup. The derivation would lift black toward the ViewCode greys,
+    // so the planes are pinned here; viewcode-theme.css adds the hairline that
+    // separates the sheet from the window.
     id: "viewcode-matrix",
     label: "Matrix",
     dark: {
-      accent: "#00E676",
+      accent: "#3DDC97",
       surface: "#000000",
-      success: "#00E676",
+      success: "#4ADE80",
       warning: "#FFD600",
-      danger: "#FF5252",
+      danger: "#FF5C5C",
+    },
+    darkOverrides: {
+      canvas: "#000000",
+      chrome: "#000000",
+      toolbar: "#000000",
+      surface: "#000000",
+      sidebar: "#000000",
+      surfaceRaised: "#0E0E0E",
+      surfaceOverlay: "#141414",
+      codeBackground: "#0A0A0A",
+      messageSurface: "#071A12",
+      terminalBackground: "#000000",
     },
   },
 ];
@@ -368,7 +386,7 @@ export function createViewCodeNamedThemes(
     id: spec.id,
     label: spec.label,
     appearance: "dark",
-    colors: deriveViewCodeThemeColors(base.dark, spec.dark, "dark"),
+    colors: { ...deriveViewCodeThemeColors(base.dark, spec.dark, "dark"), ...spec.darkOverrides },
     ...(spec.light
       ? { variants: { light: deriveViewCodeThemeColors(base.light, spec.light, "light") } }
       : {}),

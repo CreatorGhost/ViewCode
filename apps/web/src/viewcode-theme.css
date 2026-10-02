@@ -102,6 +102,11 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-
     ~ [data-slot="sidebar-inset"] {
     margin-left: var(--vc-sheet-inset);
   }
+
+  /* Matrix paints window and sheet the same black, so a hairline marks the sheet. */
+  html[data-theme-id="viewcode-matrix"] [data-slot="sidebar-inset"] {
+    border: 1px solid var(--vc-hairline);
+  }
 }
 
 /* Settings navigation rows: 28 tall, 13px, like the thread rows (row 9). */
