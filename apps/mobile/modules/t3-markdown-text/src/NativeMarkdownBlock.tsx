@@ -236,19 +236,64 @@ function collectTableRows(node: MarkdownNode): MarkdownNode[] {
   return rows;
 }
 
+const TABLE_COLUMN_MIN_WIDTH = 64;
+const TABLE_COLUMN_MAX_WIDTH = 260;
+const TABLE_CELL_HORIZONTAL_PADDING = 20;
+
+/**
+ * Sizes each column from its longest cell so short columns (ids, numbers) stay
+ * narrow and prose columns wrap at a readable width. Rows are separate flex rows,
+ * so widths must be shared per column to keep cells aligned.
+ * ponytail: character-count estimate, not measured text; measure if columns visibly misfit.
+ */
+function tableColumnWidths(
+  rows: ReadonlyArray<ReadonlyArray<{ readonly runs: ReadonlyArray<{ readonly text: string }> }>>,
+  fontSize: number,
+): number[] {
+  const widths: number[] = [];
+  for (const cells of rows) {
+    cells.forEach(({ runs }, index) => {
+      const chars = runs.reduce((total, run) => total + run.text.length, 0);
+      const width = Math.min(
+        TABLE_COLUMN_MAX_WIDTH,
+        Math.max(
+          TABLE_COLUMN_MIN_WIDTH,
+          Math.ceil(chars * fontSize * 0.6) + TABLE_CELL_HORIZONTAL_PADDING,
+        ),
+      );
+      widths[index] = Math.max(widths[index] ?? 0, width);
+    });
+  }
+  return widths;
+}
+
 function NativeTable(props: {
   readonly node: MarkdownNode;
   readonly skills: ReadonlyArray<SelectableMarkdownSkill>;
   readonly textStyle: NativeMarkdownTextStyle;
   readonly onLinkPress?: (href: string) => void;
 }) {
-  const rows = collectTableRows(props.node);
+  const rows = collectTableRows(props.node).map((row) => ({
+    row,
+    cells: (row.children ?? []).map((cell) => ({
+      cell,
+      runs: nativeMarkdownDocumentRuns(documentFor(cell), props.skills),
+    })),
+  }));
+  const columnWidths = tableColumnWidths(
+    rows.map((entry) => entry.cells),
+    props.textStyle.fontSize,
+  );
   return (
+    // Android shows a persistent bar only when the table overflows, so wide
+    // tables read as scrollable instead of cut off.
     <ScrollView
       horizontal
       bounces={false}
       nestedScrollEnabled={Platform.OS === "android"}
-      showsHorizontalScrollIndicator={false}
+      persistentScrollbar
+      showsHorizontalScrollIndicator={Platform.OS === "android"}
+      contentContainerStyle={Platform.OS === "android" ? { paddingBottom: 6 } : undefined}
     >
       <View
         style={{
@@ -259,7 +304,7 @@ function NativeTable(props: {
           overflow: "hidden",
         }}
       >
-        {rows.map((row, rowIndex) => (
+        {rows.map(({ row, cells }, rowIndex) => (
           <View
             key={nodeKey(row, rowIndex)}
             style={{
@@ -269,11 +314,11 @@ function NativeTable(props: {
               borderTopWidth: rowIndex === 0 ? 0 : 1,
             }}
           >
-            {(row.children ?? []).map((cell, cellIndex) => (
+            {cells.map(({ cell, runs }, cellIndex) => (
               <View
                 key={nodeKey(cell, cellIndex)}
                 style={{
-                  width: 160,
+                  width: columnWidths[cellIndex] ?? TABLE_COLUMN_MIN_WIDTH,
                   borderLeftColor: props.textStyle.dividerColor,
                   borderLeftWidth: cellIndex === 0 ? 0 : 1,
                   paddingHorizontal: 10,
@@ -281,9 +326,11 @@ function NativeTable(props: {
                 }}
               >
                 <NativeMarkdownSelectableText
-                  runs={nativeMarkdownDocumentRuns(documentFor(cell), props.skills).map((run) =>
-                    rowIndex === 0 || cell.isHeader ? { ...run, bold: true } : run,
-                  )}
+                  runs={
+                    rowIndex === 0 || cell.isHeader
+                      ? runs.map((run) => ({ ...run, bold: true }))
+                      : runs
+                  }
                   textStyle={props.textStyle}
                   onLinkPress={props.onLinkPress}
                 />

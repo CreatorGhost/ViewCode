@@ -299,7 +299,7 @@ function FloatingStatusLabel(props: {
     return (
       <StatusLabelRow
         key="connection"
-        accessibilityLabel={props.status.label}
+        accessibilityLabel={`${props.status.detail}. Tap to reconnect.`}
         accessibilityRole="button"
         className="gap-2"
         onLayout={props.onLayout}

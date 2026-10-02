@@ -151,7 +151,15 @@ function ThemeCard(props: {
   );
 
   return (
-    <View className="min-w-36 flex-1 basis-[47%] gap-3 rounded-[24px] border border-border bg-grouped-card px-2 py-4">
+    // Outlined like the selected colour-scheme card whenever either appearance uses it.
+    <View
+      className={cn(
+        "min-w-36 flex-1 basis-[47%] gap-3 rounded-[24px] px-2 py-4",
+        props.lightSelected || props.darkSelected
+          ? "border-2 border-primary bg-subtle"
+          : "border border-border bg-grouped-card",
+      )}
+    >
       <Pressable
         accessibilityHint="Sets both light and dark appearances"
         accessibilityLabel={`${props.label} theme`}

@@ -5,8 +5,10 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   limitDriverLabel,
+  limitPoolStatus,
   limitWarnings,
   providersAwaitingData,
+  usageLoadingCaption,
   usageResumeRows,
 } from "./usageScreenModel";
 
@@ -119,5 +121,43 @@ describe("usageResumeRows", () => {
       ["env-1", "later", "Untitled thread", "Resumes at 10:05 PM"],
       ["env-1", "waiting", "env-1/waiting", "Out of usage · send a message to continue"],
     ]);
+  });
+});
+
+describe("usageLoadingCaption", () => {
+  it("says it is scanning while any pending environment is connected", () => {
+    expect(
+      usageLoadingCaption([
+        { label: "Mac", isConnected: true },
+        { label: "Box", isConnected: false },
+      ]),
+    ).toEqual({ caption: "Scanning provider transcripts…", waitingForConnection: false });
+  });
+
+  it("names what it is waiting on when nothing is connected", () => {
+    expect(usageLoadingCaption([{ label: "Mac", isConnected: false }])).toEqual({
+      caption: "Waiting for Mac to connect…",
+      waitingForConnection: true,
+    });
+    expect(
+      usageLoadingCaption([
+        { label: "Mac", isConnected: false },
+        { label: "Box", isConnected: false },
+      ]).caption,
+    ).toBe("Waiting for 2 environments to connect…");
+  });
+});
+
+describe("limitPoolStatus", () => {
+  it("warns when the window is nearly empty, whatever the pace", () => {
+    expect(limitPoolStatus("under", 2)).toEqual({ label: "Running low", warn: true });
+    expect(limitPoolStatus(null, 9)).toEqual({ label: "Running low", warn: true });
+  });
+
+  it("phrases pace as its consequence", () => {
+    expect(limitPoolStatus("ahead", 40)).toEqual({ label: "Using fast", warn: true });
+    expect(limitPoolStatus("on", 40)).toEqual({ label: "On track", warn: false });
+    expect(limitPoolStatus("under", 40)).toEqual({ label: "Plenty left", warn: false });
+    expect(limitPoolStatus(null, 40)).toBeNull();
   });
 });

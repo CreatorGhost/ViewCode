@@ -3,6 +3,8 @@ import {
   WorktreeSetupCard,
   type WorktreeSetupCardProps,
 } from "./worktree-setup-card";
+import { parseAgentMessage } from "@t3tools/shared/agentMessages";
+import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
@@ -182,6 +184,7 @@ import {
 } from "../../state/assets";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { usePreparedConnection } from "../../state/session";
+import { useEnvironmentPresentation } from "../../state/presentation";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { composerDocumentAttachmentRecord } from "../../lib/composerContext";
 import * as Option from "effect/Option";
@@ -277,6 +280,35 @@ export interface ThreadFeedProps {
     readonly loading: boolean;
     readonly onLoadEarlier: () => void;
   } | null;
+}
+
+/**
+ * Older turns come from the server, so while the environment is disconnected the
+ * button says why it cannot load instead of being a dead tap.
+ */
+function LoadEarlierTurnsButton(props: {
+  readonly environmentId: EnvironmentId;
+  readonly loading: boolean;
+  readonly onLoadEarlier: () => void;
+}) {
+  const connected =
+    useEnvironmentPresentation(props.environmentId).presentation?.connection.phase === "connected";
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={props.onLoadEarlier}
+      disabled={props.loading || !connected}
+      className="min-h-11 items-center justify-center py-2"
+    >
+      <Text className="text-xs text-foreground-secondary">
+        {!connected
+          ? "Connect to load earlier turns"
+          : props.loading
+            ? "Loading earlier turns…"
+            : "Load earlier turns"}
+      </Text>
+    </Pressable>
+  );
 }
 
 function MessageAttachmentImage(props: {
@@ -610,6 +642,8 @@ const MARKDOWN_MONO_FONT = Platform.select({
 interface MarkdownStyleSets {
   readonly user: MarkdownStyleSet;
   readonly assistant: MarkdownStyleSet;
+  /** Thinking traces: muted and one step smaller so they read as asides. */
+  readonly reasoning: MarkdownStyleSet;
 }
 
 interface MarkdownStyleSet {
@@ -969,6 +1003,7 @@ function useMarkdownStyles(
   const markdownCodeText = theme["--color-md-code-text"];
   const markdownInlineCodeText = theme["--color-foreground-secondary"];
   const markdownHrColor = theme["--color-md-hr"];
+  const markdownMutedColor = theme["--color-foreground-muted"];
   // Native chip drawing parses opaque hex only, and this role is translucent.
   const contextChipBorderColor = flattenThemeColor(
     theme["--color-border"],
@@ -1249,7 +1284,7 @@ function useMarkdownStyles(
       ...baseStyles,
     };
 
-    return {
+    const sets = {
       user: {
         theme: userTheme,
         styles: userStyles,
@@ -1319,6 +1354,20 @@ function useMarkdownStyles(
         },
       },
     };
+    return {
+      ...sets,
+      reasoning: {
+        ...sets.assistant,
+        nativeTextStyle: {
+          ...sets.assistant.nativeTextStyle,
+          color: markdownMutedColor,
+          strongColor: markdownMutedColor,
+          mutedColor: markdownMutedColor,
+          fontSize: nativeMarkdownTypography.fontSize - 1,
+          lineHeight: nativeMarkdownTypography.lineHeight - 2,
+        },
+      },
+    };
   }, [
     boldFontFamily,
     contextChipBorderColor,
@@ -1333,6 +1382,7 @@ function useMarkdownStyles(
     markdownHrColor,
     markdownInlineCodeText,
     markdownLinkColor,
+    markdownMutedColor,
     markdownStrongColor,
     markdownUserBodyColor,
     markdownUserCodeBg,
@@ -1407,14 +1457,15 @@ function renderFeedEntry(
       >
         <Text
           key={props.workRowSizing.textSizeKey}
-          className="font-t3-medium text-sm tabular-nums text-foreground-muted"
+          className="text-sm tabular-nums text-foreground-muted"
         >
           {entry.label}
         </Text>
+        {/* Same weight and chevron as the work-group toggle so stacked folds read as one style. */}
         <ThreadDisclosureChevron
           expanded={entry.expanded}
-          collapsedDirection="right"
-          size={15}
+          collapsedDirection="down"
+          size={11}
           tintColor={iconSubtleColor}
         />
       </Pressable>
@@ -1423,6 +1474,17 @@ function renderFeedEntry(
 
   if (entry.type === "thinking") {
     return <ThreadThinkingRow rowSizing={props.workRowSizing} iconSubtleColor={iconSubtleColor} />;
+  }
+
+  if (entry.type === "agent-message") {
+    return (
+      <OutgoingAgentMessageCard
+        sent={entry.sent}
+        environmentId={props.environmentId}
+        iconColor={iconSubtleColor}
+        timeLabel={formatMessageTime(entry.createdAt)}
+      />
+    );
   }
 
   if (entry.type === "agent-spawn") {
@@ -1503,7 +1565,7 @@ function renderFeedEntry(
                 <AssistantMarkdownContent
                   key={reasoningMessage.id}
                   markdown={reasoningMessage.text}
-                  markdownStyles={markdownStyles.assistant}
+                  markdownStyles={markdownStyles.reasoning}
                   linkHandlers={props.markdownLinkHandlers}
                   renderImage={props.renderMarkdownImage}
                   skills={props.skills}
@@ -1512,6 +1574,17 @@ function renderFeedEntry(
             </View>
           </MarkdownImageAvailableWidthContext>
         </ThreadReasoningRow>
+      );
+    }
+    const agentEnvelope = message.role === "user" ? parseAgentMessage(message.text) : null;
+    if (agentEnvelope) {
+      return (
+        <IncomingAgentMessageCard
+          envelope={agentEnvelope}
+          environmentId={props.environmentId}
+          iconColor={iconSubtleColor}
+          timeLabel={formatMessageTime(message.createdAt)}
+        />
       );
     }
     const isUser = message.role === "user";
@@ -2976,15 +3049,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                   <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
                 ) : null}
                 {props.loadEarlier != null ? (
-                  <Pressable
-                    onPress={props.loadEarlier.onLoadEarlier}
-                    disabled={props.loadEarlier.loading}
-                    className="items-center py-2"
-                  >
-                    <Text className="text-xs text-foreground-secondary">
-                      {props.loadEarlier.loading ? "Loading earlier turns…" : "Load earlier turns"}
-                    </Text>
-                  </Pressable>
+                  <LoadEarlierTurnsButton
+                    environmentId={props.environmentId}
+                    loading={props.loadEarlier.loading}
+                    onLoadEarlier={props.loadEarlier.onLoadEarlier}
+                  />
                 ) : null}
               </>
             }

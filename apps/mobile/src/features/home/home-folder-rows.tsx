@@ -3,7 +3,7 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import { resolveAgentControlAvailability } from "@t3tools/client-runtime/state/child-agents";
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -18,22 +18,49 @@ import {
   isAgentMenuEvent,
   pausedAgentLabel,
 } from "../agents/agentMenus";
-import type { HomeAgentStatus, HomeStatusFilter } from "./homeFolderList";
+import { AGENT_STATUS } from "../agents/agentStatus";
+import type { HomeAgentStatus, HomeFolderEdge, HomeStatusFilter } from "./homeFolderList";
+import { projectIconColorClassNames } from "../../lib/projectIcon";
 
 /** Folder rows for the project-grouped Home list (see homeFolderList.ts). */
+
+/**
+ * One row's slice of its folder card. Rows are virtualized separately, so the
+ * card is the sum of slices: side borders on every row, top border and radius
+ * on the header, bottom border and radius on the last row.
+ */
+export function HomeFolderCardSlice(props: {
+  readonly edge: HomeFolderEdge | null | undefined;
+  readonly children: ReactNode;
+}) {
+  const edge = props.edge;
+  if (!edge) return <>{props.children}</>;
+  return (
+    <View
+      className={cn(
+        "mx-3 overflow-hidden border-x border-border-subtle bg-card",
+        edge.first && "mt-3 rounded-t-lg border-t",
+        edge.last && "mb-1 rounded-b-lg border-b pb-1",
+      )}
+    >
+      {props.children}
+    </View>
+  );
+}
 
 const pressedOpacity = ({ pressed }: { readonly pressed: boolean }) => ({
   opacity: pressed ? 0.6 : 1,
 });
 
+/** Swaps glyphs rather than rotating: a transformed Tabler SVG on Android
+    rotates out of its own viewport and vanishes. */
 function Chevron(props: { readonly expanded: boolean; readonly size?: number }) {
   return (
     <SymbolView
-      name="chevron.right"
+      name={props.expanded ? "chevron.down" : "chevron.right"}
       size={props.size ?? 11}
       tintColorClassName="accent-foreground-muted"
       type="monochrome"
-      style={{ transform: [{ rotate: props.expanded ? "90deg" : "0deg" }] }}
     />
   );
 }
@@ -49,47 +76,65 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
   readonly onNewThread: (project: EnvironmentProject) => void;
 }) {
   const { folderKey, onToggle, onNewThread, project } = props;
+  const accent =
+    project.projectIcon && "color" in project.projectIcon
+      ? projectIconColorClassNames(project.projectIcon.color)
+      : null;
   return (
-    <View className="mt-3 flex-row items-center pl-5 pr-2">
+    <View
+      className={cn(
+        "flex-row items-center pl-3 pr-1",
+        props.expanded && "border-b border-border-subtle",
+        accent?.background,
+      )}
+    >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${props.title}, ${props.count} ${props.count === 1 ? "thread" : "threads"}`}
+        accessibilityLabel={[
+          props.title,
+          `${props.count} ${props.count === 1 ? "thread" : "threads"}`,
+          props.workingCount > 0 ? `${props.workingCount} working` : null,
+        ]
+          .filter((part) => part !== null)
+          .join(", ")}
         accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the project folder.`}
         accessibilityState={{ expanded: props.expanded }}
-        className="min-h-[40px] flex-1 flex-row items-center gap-2"
+        className="min-h-[44px] flex-1 flex-row items-center gap-2"
         onPress={() => onToggle(folderKey)}
         style={pressedOpacity}
       >
-        <Chevron expanded={props.expanded} />
         <ProjectFavicon
           environmentId={project.environmentId}
           faviconPath={project.faviconPath}
           projectIcon={project.projectIcon}
-          size={16}
+          size={18}
           projectTitle={props.title}
           workspaceRoot={project.workspaceRoot}
         />
-        <Text className="shrink text-sm font-t3-medium text-foreground" numberOfLines={1}>
+        <Text
+          className={cn("shrink text-sm font-t3-bold", accent?.text ?? "text-foreground")}
+          numberOfLines={1}
+        >
           {props.title}
         </Text>
-        <Text className="text-xs tabular-nums text-foreground-tertiary">{props.count}</Text>
+        {props.count > 0 ? (
+          <Text className="text-xs tabular-nums text-foreground-tertiary">{props.count}</Text>
+        ) : null}
         {props.workingCount > 0 ? (
-          <View
-            className="flex-row items-center gap-1"
-            accessibilityLabel={`${props.workingCount} working`}
-          >
+          <View className="flex-row items-center gap-1 rounded-full bg-row-hover px-2 py-0.5">
             <View className="size-1.5 rounded-full bg-adaptive-sky-600-400" />
             <Text className="text-xs tabular-nums text-adaptive-sky-600-400">
-              {props.workingCount}
+              {props.workingCount} working
             </Text>
           </View>
         ) : null}
+        <View className="flex-1" />
+        <Chevron expanded={props.expanded} />
       </Pressable>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`New task in ${props.title}`}
-        className="size-10 items-center justify-center"
-        hitSlop={4}
+        className="size-[44px] items-center justify-center"
         onPress={() => onNewThread(project)}
         style={pressedOpacity}
       >
@@ -128,7 +173,7 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
       accessibilityHint={`${props.expanded ? "Hides" : "Shows"} the agents this thread started.`}
       accessibilityState={{ expanded: props.expanded }}
       className={cn(
-        "min-h-[32px] flex-row items-center gap-1.5 pl-9 pr-5",
+        "min-h-[44px] flex-row items-center gap-1.5 pl-5 pr-4",
         props.muted && "opacity-60",
       )}
       onPress={() => onToggle(leadKey)}
@@ -145,24 +190,6 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
     </Pressable>
   );
 });
-
-const STATUS_DOT_CLASS = {
-  "needs-you": "bg-adaptive-amber-700-400",
-  working: "bg-adaptive-sky-600-400",
-  paused: "bg-adaptive-amber-700-400",
-  failed: "bg-adaptive-rose-600-400",
-  stopped: "bg-foreground-muted",
-  idle: "bg-adaptive-emerald-600-400",
-} as const satisfies Record<HomeAgentStatus, string>;
-
-const STATUS_LABEL = {
-  "needs-you": "needs you",
-  working: "working",
-  paused: "paused",
-  failed: "failed",
-  stopped: "stopped",
-  idle: "idle",
-} as const satisfies Record<HomeAgentStatus, string>;
 
 /** Indent per nesting level below the lead, in dp. */
 const CHILD_INDENT = 14;
@@ -191,7 +218,7 @@ export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
       ),
     [paused, props.queued, props.running],
   );
-  const statusText = paused ? pausedAgentLabel(props.queued) : STATUS_LABEL[props.status];
+  const statusText = paused ? pausedAgentLabel(props.queued) : AGENT_STATUS[props.status].label;
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
       if (isAgentMenuEvent(nativeEvent.event)) onAgentMenuEvent(thread, nativeEvent.event);
@@ -206,13 +233,13 @@ export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
         menuActions.length > 0 ? "Opens the agent. Long-press to stop or resume it." : undefined
       }
       onPress={() => onSelectThread(thread)}
-      className={cn("pr-5", props.muted && "opacity-60")}
+      className={cn("pr-4", props.muted && "opacity-60")}
     >
       <View
-        className="min-h-[40px] flex-row items-center gap-2.5 py-1.5"
-        style={{ paddingLeft: 24 + props.depth * CHILD_INDENT }}
+        className="ml-6 min-h-[44px] flex-row items-center gap-2.5 border-l border-border-subtle py-1.5"
+        style={{ paddingLeft: 10 + props.depth * CHILD_INDENT }}
       >
-        <View className={cn("size-2 rounded-full", STATUS_DOT_CLASS[props.status])} />
+        <View className={cn("size-2 rounded-full", AGENT_STATUS[props.status].dotClass)} />
         <Text className="min-w-0 flex-1 text-sm text-foreground" numberOfLines={1}>
           {thread.title}
         </Text>
@@ -255,7 +282,7 @@ export const HomeFolderSettledRow = memo(function HomeFolderSettledRow(props: {
       accessibilityLabel={`${props.count} settled ${props.count === 1 ? "thread" : "threads"}`}
       accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the settled threads.`}
       accessibilityState={{ expanded: props.expanded }}
-      className="min-h-[36px] flex-row items-center gap-1.5 px-5"
+      className="min-h-[44px] flex-row items-center gap-1.5 border-t border-border-subtle px-3"
       onPress={() => onToggle(folderKey)}
       style={pressedOpacity}
     >
@@ -283,7 +310,7 @@ export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: 
   readonly onChange: (value: HomeStatusFilter) => void;
 }) {
   return (
-    <View className="flex-row gap-2 px-5 pb-1 pt-2" accessibilityRole="tablist">
+    <View className="flex-row gap-2 px-4 pb-1 pt-2" accessibilityRole="tablist">
       {STATUS_FILTER_OPTIONS.map((option) => {
         const selected = props.value === option.id;
         const count = props.counts[option.id];
@@ -294,10 +321,11 @@ export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: 
             accessibilityState={{ selected }}
             accessibilityLabel={option.id === "all" ? option.label : `${option.label}, ${count}`}
             onPress={() => props.onChange(option.id)}
-            hitSlop={6}
+            // 31dp chips reach 45dp with the slop, without a taller header.
+            hitSlop={{ top: 7, bottom: 7, left: 4, right: 4 }}
             style={pressedOpacity}
             className={cn(
-              "flex-row items-center gap-1.5 rounded-full px-3.5 py-1.5",
+              "flex-row items-center gap-1.5 rounded-md px-3 py-1.5",
               selected ? "bg-foreground" : "bg-row-hover",
             )}
           >

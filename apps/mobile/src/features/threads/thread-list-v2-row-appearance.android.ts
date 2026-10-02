@@ -20,19 +20,28 @@ export function getThreadListV2RowAppearance(
   theme: MobileThemeVariables,
   sidebarPane: boolean,
   selected: boolean,
+  /** Inside a Home folder card: a flat row, the card draws the box. */
+  inFolderCard = false,
 ) {
   const selectedBackgroundColor = theme["--color-thread-selected"];
-  const backgroundColor = theme[sidebarPane ? "--color-drawer" : "--color-screen"];
+  // Refined: list rows are squared cards on the screen; the sidebar stays flat.
+  const backgroundColor = theme[sidebarPane ? "--color-drawer" : "--color-card"];
+  const radius = sidebarPane ? 20 : inFolderCard ? 0 : 8;
   const style: ViewStyle = {
     backgroundColor: selected ? selectedBackgroundColor : backgroundColor,
-    borderRadius: 20,
+    borderRadius: radius,
+    ...(sidebarPane || inFolderCard
+      ? {}
+      : { borderWidth: 1, borderColor: theme["--color-border-subtle"] }),
   };
-  const swipeContainerStyle: ViewStyle = {
-    borderRadius: 20,
-    overflow: "hidden",
-    marginHorizontal: 8,
-    marginVertical: 2,
-  };
+  const swipeContainerStyle: ViewStyle = inFolderCard
+    ? { overflow: "hidden" }
+    : {
+        borderRadius: radius,
+        overflow: "hidden",
+        marginHorizontal: sidebarPane ? 8 : 12,
+        marginVertical: sidebarPane ? 2 : 3,
+      };
 
   return {
     className: undefined,

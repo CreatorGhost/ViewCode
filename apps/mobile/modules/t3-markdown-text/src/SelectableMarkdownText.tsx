@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { parseMarkdownWithOptions } from "react-native-nitro-markdown/headless";
 
 import {
@@ -59,7 +59,9 @@ export function SelectableMarkdownText({
     const document = preserveSoftBreaks
       ? nativeMarkdownWithPreservedSoftBreaks(parsedDocument)
       : parsedDocument;
-    return nativeMarkdownDocumentChunks(document).map((chunk) =>
+    return nativeMarkdownDocumentChunks(document, {
+      richLists: Platform.OS === "android",
+    }).map((chunk) =>
       chunk.kind === "selectable"
         ? {
             ...chunk,

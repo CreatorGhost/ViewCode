@@ -20,13 +20,16 @@ export function SettingsControlRow(props: {
         props.disabled && "opacity-[0.45]",
       )}
     >
-      <SymbolView
-        name={props.icon}
-        size={Platform.OS === "android" ? 24 : 22}
-        tintColorClassName="accent-icon"
-        type="monochrome"
-        weight="regular"
-      />
+      {/* With a subtitle the icon sits beside the title, not centred on the description. */}
+      <View className={props.subtitle ? "self-start pt-0.5" : undefined}>
+        <SymbolView
+          name={props.icon}
+          size={Platform.OS === "android" ? 24 : 22}
+          tintColorClassName="accent-icon"
+          type="monochrome"
+          weight="regular"
+        />
+      </View>
       <View className="min-w-0 flex-1 android:gap-1">
         <Text className="text-lg text-foreground android:text-base">{props.label}</Text>
         {props.subtitle ? (

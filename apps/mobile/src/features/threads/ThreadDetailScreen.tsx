@@ -364,6 +364,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   )
     ? 0
     : Math.max(insets.bottom, 12);
+  // While typing, the agents strip steps aside so the reply has room to see
+  // what it answers. Same platform split as the inset above.
+  const composerKeyboardOpen = Platform.OS === "android" ? isKeyboardVisible : composerFocused;
   const contentPresentationKind = props.contentPresentation.kind;
   // The raw sync status enters "synchronizing" on every full fetch, cached or
   // not. Whether messages are already on screen decides the pill label: no
@@ -994,98 +997,105 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 showScrollToEnd={showScrollToEndButton}
                 onScrollToEnd={handleScrollToEnd}
               />
-              <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
-                {props.feedbackSubmissions.map((submission) => (
-                  <ComposerFeedback
-                    key={submission.id}
-                    submission={submission}
-                    onDismiss={() => props.onDismissFeedback(submission.id)}
-                  />
-                ))}
-                {usageLimitsReport && activeUserInputRequestId === null ? (
-                  <Animated.View
-                    className="shrink-0 px-4 pb-3"
-                    entering={FadeInDown.duration(220)}
-                    exiting={FadeOut.duration(140)}
-                  >
-                    <ComposerUsageLimits
-                      report={usageLimitsReport}
+              {/* Android's composer is an opaque panel; back the cards above it
+                  with the same surface so the feed never shows between them.
+                  iOS keeps its gradient scrim. */}
+              <View className={Platform.OS === "android" ? "bg-screen" : undefined}>
+                <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
+                  {props.feedbackSubmissions.map((submission) => (
+                    <ComposerFeedback
+                      key={submission.id}
+                      submission={submission}
+                      onDismiss={() => props.onDismissFeedback(submission.id)}
+                    />
+                  ))}
+                  {usageLimitsReport && activeUserInputRequestId === null ? (
+                    <Animated.View
+                      className="shrink-0 px-4 pb-3"
+                      entering={FadeInDown.duration(220)}
+                      exiting={FadeOut.duration(140)}
+                    >
+                      <ComposerUsageLimits
+                        report={usageLimitsReport}
+                        environmentId={props.environmentId}
+                        onClose={dismissUsageLimits}
+                      />
+                    </Animated.View>
+                  ) : null}
+                  {props.onOpenAgentThread &&
+                  activeUserInputRequestId === null &&
+                  !composerKeyboardOpen ? (
+                    <ActiveAgentsStrip
                       environmentId={props.environmentId}
-                      onClose={dismissUsageLimits}
+                      threadId={props.selectedThread.id}
+                      parentThreadId={props.selectedThread.parentThreadId ?? null}
+                      onOpenThread={props.onOpenAgentThread}
                     />
-                  </Animated.View>
-                ) : null}
-                {props.onOpenAgentThread && activeUserInputRequestId === null ? (
-                  <ActiveAgentsStrip
-                    environmentId={props.environmentId}
-                    threadId={props.selectedThread.id}
-                    parentThreadId={props.selectedThread.parentThreadId ?? null}
-                    onOpenThread={props.onOpenAgentThread}
-                  />
-                ) : null}
-                {props.usageResume ? (
-                  <Animated.View
-                    className="shrink-0 px-4 pb-3"
-                    entering={FadeInDown.duration(220)}
-                    exiting={FadeOut.duration(140)}
-                  >
-                    <UsageResumeCard {...props.usageResume} />
-                  </Animated.View>
-                ) : null}
-                {props.creationState?.kind === "failed" ? (
-                  <Animated.View
-                    className="shrink-0 px-4"
-                    style={{ paddingBottom: composerBottomInset }}
-                    entering={FadeInDown.duration(220)}
-                    exiting={FadeOut.duration(140)}
-                  >
-                    <ThreadCreationFailedCard
-                      reason={props.creationState.reason}
-                      onEditTask={props.creationState.onEditTask}
-                    />
-                  </Animated.View>
-                ) : null}
-                {props.activePendingApproval || props.activePendingUserInput ? (
-                  <Animated.View
-                    className="shrink-0 gap-3 px-4 pb-3"
-                    // The questionnaire replaces the composer, so it must pad
-                    // the home indicator the composer normally covers.
-                    style={
-                      activeUserInputRequestId !== null
-                        ? { paddingBottom: composerBottomInset }
-                        : undefined
-                    }
-                    entering={FadeInDown.duration(220)}
-                    exiting={FadeOut.duration(140)}
-                  >
-                    {props.activePendingApproval ? (
-                      <PendingApprovalCard
-                        approval={props.activePendingApproval}
-                        respondingApprovalId={props.respondingApprovalId}
-                        onRespond={props.onRespondToApproval}
+                  ) : null}
+                  {props.usageResume ? (
+                    <Animated.View
+                      className="shrink-0 px-4 pb-3"
+                      entering={FadeInDown.duration(220)}
+                      exiting={FadeOut.duration(140)}
+                    >
+                      <UsageResumeCard {...props.usageResume} />
+                    </Animated.View>
+                  ) : null}
+                  {props.creationState?.kind === "failed" ? (
+                    <Animated.View
+                      className="shrink-0 px-4"
+                      style={{ paddingBottom: composerBottomInset }}
+                      entering={FadeInDown.duration(220)}
+                      exiting={FadeOut.duration(140)}
+                    >
+                      <ThreadCreationFailedCard
+                        reason={props.creationState.reason}
+                        onEditTask={props.creationState.onEditTask}
                       />
-                    ) : null}
-                    {props.activePendingUserInput ? (
-                      <PendingUserInputCard
-                        pendingUserInput={props.activePendingUserInput}
-                        maxHeight={pendingUserInputMaxHeight}
-                        collapsed={userInputCollapsed}
-                        onToggleCollapsed={handleToggleUserInputCollapsed}
-                        onStopThread={props.onStopThread}
-                        cardProgress={userInputCardProgress}
-                        cardCoverage={userInputCardCoverage}
-                        onInputFocusChange={handleOwnedInputFocusChange}
-                        drafts={props.activePendingUserInputDrafts}
-                        answers={props.activePendingUserInputAnswers}
-                        respondingUserInputId={props.respondingUserInputId}
-                        onSelectOption={props.onSelectUserInputOption}
-                        onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
-                        onSubmit={props.onSubmitUserInput}
-                        onDismiss={props.onDismissUserInput}
-                      />
-                    ) : null}
-                  </Animated.View>
-                ) : null}
+                    </Animated.View>
+                  ) : null}
+                  {props.activePendingApproval || props.activePendingUserInput ? (
+                    <Animated.View
+                      className="shrink-0 gap-3 px-4 pb-3"
+                      // The questionnaire replaces the composer, so it must pad
+                      // the home indicator the composer normally covers.
+                      style={
+                        activeUserInputRequestId !== null
+                          ? { paddingBottom: composerBottomInset }
+                          : undefined
+                      }
+                      entering={FadeInDown.duration(220)}
+                      exiting={FadeOut.duration(140)}
+                    >
+                      {props.activePendingApproval ? (
+                        <PendingApprovalCard
+                          approval={props.activePendingApproval}
+                          respondingApprovalId={props.respondingApprovalId}
+                          onRespond={props.onRespondToApproval}
+                        />
+                      ) : null}
+                      {props.activePendingUserInput ? (
+                        <PendingUserInputCard
+                          pendingUserInput={props.activePendingUserInput}
+                          maxHeight={pendingUserInputMaxHeight}
+                          collapsed={userInputCollapsed}
+                          onToggleCollapsed={handleToggleUserInputCollapsed}
+                          onStopThread={props.onStopThread}
+                          cardProgress={userInputCardProgress}
+                          cardCoverage={userInputCardCoverage}
+                          onInputFocusChange={handleOwnedInputFocusChange}
+                          drafts={props.activePendingUserInputDrafts}
+                          answers={props.activePendingUserInputAnswers}
+                          respondingUserInputId={props.respondingUserInputId}
+                          onSelectOption={props.onSelectUserInputOption}
+                          onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
+                          onSubmit={props.onSubmitUserInput}
+                          onDismiss={props.onDismissUserInput}
+                        />
+                      ) : null}
+                    </Animated.View>
+                  ) : null}
+                </View>
               </View>
 
               {/* Hidden (not unmounted) while a user-input request owns the
@@ -1103,7 +1113,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   editorRef={composerEditorRef}
                   draftMessage={props.draftMessage}
                   draftAttachments={props.draftAttachments}
-                  placeholder="Ask the repo agent, or run a command…"
+                  placeholder="Ask or run a command…"
                   contentMaxWidth={contentMaxWidth}
                   connectionState={props.connectionStateLabel}
                   environmentLabel={props.environmentLabel}
