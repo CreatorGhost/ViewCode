@@ -66,14 +66,14 @@ function WindowRow(props: {
         </Text>
       </View>
       <View className="h-3 justify-center">
-        <View className="h-1.5 flex-row overflow-hidden rounded-full bg-subtle">
+        <View className="h-1.5 flex-row overflow-hidden rounded-sm bg-subtle">
           <View
             className={
               remaining <= 10
-                ? "h-full rounded-full bg-red-500"
+                ? "h-full bg-red-500"
                 : remaining <= 30
-                  ? "h-full rounded-full bg-amber-500"
-                  : "h-full rounded-full bg-foreground"
+                  ? "h-full bg-amber-500"
+                  : "h-full bg-foreground"
             }
             style={[
               { flex: remaining },
@@ -256,8 +256,8 @@ export function ResetCredits(props: {
           onPress={confirm}
           className={
             dense
-              ? "rounded-full bg-subtle-strong px-2.5 py-1"
-              : "min-h-[44px] justify-center rounded-full bg-subtle-strong px-3 py-1.5"
+              ? "rounded-md bg-subtle-strong px-2.5 py-1"
+              : "min-h-[44px] justify-center rounded-md bg-subtle-strong px-3 py-1.5"
           }
         >
           <Text

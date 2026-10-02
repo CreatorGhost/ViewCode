@@ -7,7 +7,7 @@ import {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { AgentControlState, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { memo, useMemo, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
@@ -97,16 +97,16 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
   );
   const control = useAgentControlByThreadKey(controlEnvironmentIds);
   const actions = useAgentControlActions();
-  // Opens while agents run so their progress shows without a tap; a manual
-  // toggle sticks for the rest of the visit.
-  const [manualExpanded, setExpanded] = useState<boolean | null>(null);
+  // Starts collapsed so the conversation stays readable; the summary line
+  // already says how many agents run.
+  const [expanded, setExpanded] = useState(false);
+  const { height: windowHeight } = useWindowDimensions();
 
   const keyOf = (id: ThreadId) => `${environmentId}:${id}`;
   const summary = summarizeAgentTreeControl(
     agents.map((agent) => ({ running: agent.running, key: keyOf(agent.thread.id) })),
     control,
   );
-  const expanded = manualExpanded ?? summary.running > 0;
   const selfState = control.get(keyOf(threadId));
   const self = { environmentId, id: threadId };
   if (!selfState?.paused && agents.length === 0) return null;
@@ -208,7 +208,11 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
               />
             </Pressable>
             {expanded ? (
-              <ScrollView className="max-h-56 border-t border-border-subtle" nestedScrollEnabled>
+              <ScrollView
+                className="border-t border-border-subtle"
+                style={{ maxHeight: Math.round(windowHeight * 0.32) }}
+                nestedScrollEnabled
+              >
                 {agents.map((agent) => (
                   <ActiveAgentRow
                     key={agent.thread.id}

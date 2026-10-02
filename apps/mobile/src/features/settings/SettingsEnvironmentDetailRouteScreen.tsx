@@ -188,7 +188,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
             {notice ? <Text className="px-2 text-sm text-foreground-muted">{notice}</Text> : null}
             {config ? (
               <>
-                <SettingsSection title="T3 Code">
+                <SettingsSection title="ViewCode">
                   <View className="gap-1 p-4">
                     <Text className="text-base text-foreground">Version {version}</Text>
                     {running ? (

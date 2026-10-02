@@ -71,6 +71,11 @@ export function matchesHomeStatusFilter(
 }
 
 /** Lead trees each chip would keep, for the chip badges. */
+/** Every thread, lead or agent, that is working right now (the "N working" pill). */
+export function countWorkingAgents(threads: ReadonlyArray<EnvironmentThreadShell>): number {
+  return threads.filter((thread) => resolveHomeAgentStatus(thread) === "working").length;
+}
+
 export function countHomeStatusFilters(
   threads: ReadonlyArray<EnvironmentThreadShell>,
 ): Record<HomeStatusFilter, number> {
@@ -139,6 +144,8 @@ export function resolveHomeAgentModelLabel(
 }
 
 export interface HomeFolderHeaderItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-header";
   readonly key: string;
   readonly folderKey: string;
@@ -152,6 +159,8 @@ export interface HomeFolderHeaderItem {
 }
 
 export interface HomeFolderLeadItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-lead";
   readonly key: string;
   readonly entry: ThreadListV2ThreadListItem;
@@ -162,6 +171,8 @@ export interface HomeFolderLeadItem {
 }
 
 export interface HomeFolderAgentsToggleItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-agents";
   readonly key: string;
   readonly leadKey: string;
@@ -174,6 +185,8 @@ export interface HomeFolderAgentsToggleItem {
 }
 
 export interface HomeFolderChildItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-child";
   readonly key: string;
   readonly thread: EnvironmentThreadShell;
@@ -188,11 +201,23 @@ export interface HomeFolderChildItem {
 }
 
 export interface HomeFolderSettledItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
   readonly type: "folder-settled";
   readonly key: string;
   readonly folderKey: string;
   readonly count: number;
   readonly expanded: boolean;
+}
+
+/**
+ * Where a row sits in its folder's card. Rows are virtualized one by one, so
+ * the card is drawn by each row: `first` rounds the top, `last` the bottom.
+ * Null for rows outside any folder.
+ */
+export interface HomeFolderEdge {
+  readonly first: boolean;
+  readonly last: boolean;
 }
 
 export type HomeFolderListItem =
@@ -587,10 +612,34 @@ export function buildHomeFolderList(input: {
     if (input.snoozedShelfExpanded) for (const node of snoozedNodes) pushTree(node, false, true);
   }
 
+  // A folder card runs from its header to the row before the next header or
+  // the snoozed shelf; each row carries its edge so it can draw its part.
+  const folderEdgeAt = new Map<number, HomeFolderEdge>();
+  for (let start = 0; start < items.length; start++) {
+    if (items[start]?.type !== "folder-header") continue;
+    let end = start + 1;
+    while (
+      end < items.length &&
+      items[end]?.type !== "folder-header" &&
+      items[end]?.type !== "v2-snoozed-shelf"
+    ) {
+      end++;
+    }
+    for (let index = start; index < end; index++) {
+      folderEdgeAt.set(index, { first: index === start, last: index === end - 1 });
+    }
+    start = end - 1;
+  }
+
   // Hairlines separate consecutive lead rows only; a lead's agents and every
   // header draw their own structure.
   return {
-    items: items.map((item, index) => {
+    items: items.map((rawItem, index) => {
+      const folderEdge = folderEdgeAt.get(index) ?? null;
+      const item =
+        rawItem.type === "v2-pending" || rawItem.type === "v2-snoozed-shelf" || folderEdge === null
+          ? rawItem
+          : { ...rawItem, folderEdge };
       if (item.type !== "folder-lead" && item.type !== "v2-pending") return item;
       const next = items[index + 1];
       const showTrailingDivider =
@@ -609,10 +658,26 @@ export function buildHomeFolderList(input: {
 }
 
 /** Recycled-list equality: rows re-render only when what they draw moved. */
+function folderEdgesAreEqual(
+  previous: HomeFolderEdge | null | undefined,
+  next: HomeFolderEdge | null | undefined,
+): boolean {
+  return previous?.first === next?.first && previous?.last === next?.last;
+}
+
 export function homeFolderListItemsAreEqual(
   previous: HomeFolderListItem,
   item: HomeFolderListItem,
 ): boolean {
+  if (
+    item.type !== "v2-pending" &&
+    item.type !== "v2-snoozed-shelf" &&
+    previous.type !== "v2-pending" &&
+    previous.type !== "v2-snoozed-shelf" &&
+    !folderEdgesAreEqual(previous.folderEdge, item.folderEdge)
+  ) {
+    return false;
+  }
   switch (item.type) {
     case "folder-header":
       return (

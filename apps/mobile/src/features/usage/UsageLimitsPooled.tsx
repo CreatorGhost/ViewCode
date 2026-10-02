@@ -122,7 +122,7 @@ function PoolWindowCard({
       },
     });
   return (
-    <View className="gap-3 rounded-[24px] border-continuous bg-card p-4">
+    <View className="gap-3 rounded-lg border border-border-subtle bg-card p-4">
       <View className="flex-row items-start justify-between gap-3">
         <View className="gap-1">
           <Text className="text-sm font-t3-medium text-foreground">{label ?? pool.label}</Text>
@@ -299,7 +299,7 @@ export function UsageLimitsSection({
       })}
       {cursorPromptAt === pools.length ? cursorPrompt : null}
       {awaitingData.length > 0 ? (
-        <View className="rounded-[24px] border-continuous bg-card">
+        <View className="rounded-lg border border-border-subtle bg-card">
           {awaitingData.map((provider, index) => (
             <View
               key={provider.key}
@@ -393,7 +393,7 @@ function UsageResumeSection({
   return (
     <View className="gap-3">
       <Text className="px-1 text-base font-t3-medium text-foreground">Waiting on a limit</Text>
-      <View className="rounded-[24px] border-continuous bg-card">
+      <View className="rounded-lg border border-border-subtle bg-card">
         {rows.map((row, index) => (
           <Pressable
             key={row.key}
@@ -486,7 +486,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
                 </Text>
               ) : null}
             </View>
-            <View className="gap-3 rounded-[24px] border-continuous bg-card p-4">
+            <View className="gap-3 rounded-lg border border-border-subtle bg-card p-4">
               <Text className="text-sm font-t3-medium text-foreground">{window.label}</Text>
               <Text className="text-3xl font-t3-bold tabular-nums text-foreground">
                 {remainingPercent(window)}% left
@@ -506,7 +506,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
                 </Text>
               ) : null}
             </View>
-            <View className="gap-2 rounded-[24px] border-continuous bg-card p-4">
+            <View className="gap-2 rounded-lg border border-border-subtle bg-card p-4">
               <Text className="text-sm font-t3-medium text-foreground">
                 {account.environments.length ? "Signed in" : "Source"}
               </Text>
@@ -521,7 +521,7 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
               )}
             </View>
             {account.redeem && account.limits.resetCredits ? (
-              <View className="gap-3 rounded-[24px] border-continuous bg-card p-4">
+              <View className="gap-3 rounded-lg border border-border-subtle bg-card p-4">
                 <Text className="text-sm font-t3-medium text-foreground">Reset credits</Text>
                 <ResetCredits
                   key={account.key}

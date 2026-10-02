@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildHomeFolderList,
   countHomeStatusFilters,
+  countWorkingAgents,
   resolveHomeAgentModelLabel,
   resolveHomeAgentStatus,
   type HomeFolderListItem,
@@ -358,7 +359,43 @@ describe("home status filter", () => {
     expect(countHomeStatusFilters(threads)).toEqual({ all: 5, working: 2, "needs-you": 2 });
   });
 
+  it("counts every working agent for the pill, children included", () => {
+    expect(countWorkingAgents(threads)).toBe(2);
+    expect(
+      countWorkingAgents([
+        thread("lead", "app"),
+        child("w1", "lead", running),
+        child("w2", "lead", running),
+      ]),
+    ).toBe(2);
+  });
+
   it("keeps approvals and failures for needs you", () => {
     expect(leads("needs-you").sort()).toEqual(["blocked", "broken"]);
+  });
+});
+
+describe("folder cards", () => {
+  it("marks the first and last row of each folder so rows draw one card", () => {
+    const { items } = build([thread("a1", "app"), thread("a2", "app"), thread("d1", "docs")]);
+    const edges = items.map((item) =>
+      "folderEdge" in item && item.folderEdge
+        ? `${item.type}${item.folderEdge.first ? " first" : ""}${item.folderEdge.last ? " last" : ""}`
+        : `${item.type} -`,
+    );
+    expect(edges).toEqual([
+      "folder-header first",
+      "folder-lead",
+      "folder-lead last",
+      "folder-header first",
+      "folder-lead last",
+    ]);
+  });
+
+  it("closes a folder card on its settled row", () => {
+    const { items } = build([thread("a1", "app"), thread("a2", "app", settled)]);
+    const last = items.at(-1);
+    expect(last?.type).toBe("folder-settled");
+    expect(last && "folderEdge" in last ? last.folderEdge?.last : undefined).toBe(true);
   });
 });

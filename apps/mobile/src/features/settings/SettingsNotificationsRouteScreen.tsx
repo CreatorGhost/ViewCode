@@ -490,7 +490,7 @@ function ConfiguredSettingsNotificationsRouteScreen() {
                 void openAndroidLiveUpdateSettings().catch(() => {
                   Alert.alert(
                     "Couldn't open Settings",
-                    "Open Android Settings, select T3 Code, then enable Live Updates in Notifications.",
+                    "Open Android Settings, select ViewCode, then enable Live Updates in Notifications.",
                   );
                 });
               }}

@@ -291,6 +291,58 @@ function makeThread(
 }
 
 describe("buildThreadFeed", () => {
+  it("shows a sent agent message as one card and drops its send_message tool call", () => {
+    const turnId = TurnId.make("turn-1");
+    const toolCall = {
+      itemType: "mcp_tool_call",
+      toolCallId: "call-1",
+      title: "MCP tool call",
+      data: { toolName: "mcp__viewcode__viewcode_send_message", input: { to: "child" } },
+    };
+    const thread = makeThread({
+      id: ThreadId.make("lead"),
+      projectId: ProjectId.make("project-1"),
+      title: "Lead",
+      activities: [
+        makeActivity({
+          id: EventId.make("call-started"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "MCP tool call",
+          createdAt: "2026-04-01T00:00:01.000Z",
+          turnId,
+          payload: { ...toolCall, status: "inProgress" },
+        }),
+        makeActivity({
+          id: EventId.make("sent"),
+          kind: "viewcode.agent-message.sent",
+          summary: "Message to Child",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: {
+            messageId: "m-1",
+            toThreadId: "child",
+            toName: "Child",
+            body: "Fix the findings.",
+            replyExpected: false,
+          },
+        }),
+        makeActivity({
+          id: EventId.make("call-done"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "MCP tool call",
+          createdAt: "2026-04-01T00:00:03.000Z",
+          turnId,
+          payload: { ...toolCall, status: "completed" },
+        }),
+      ],
+    });
+    expect(deriveThreadFeedPresentation(buildThreadFeed(thread), null, new Set())).toMatchObject([
+      { type: "agent-message", sent: { toName: "Child", body: "Fix the findings." } },
+    ]);
+  });
+
   it("omits internal turn acceptance receipts while keeping turn failures", () => {
     const thread = makeThread({
       id: ThreadId.make("thread-1"),
