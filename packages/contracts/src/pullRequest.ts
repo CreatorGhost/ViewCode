@@ -1399,6 +1399,7 @@ export class PullRequestOperationError extends Schema.TaggedError<PullRequestOpe
   {
     operation: Schema.String,
     detail: TrimmedNonEmptyString,
+    reason: Schema.optional(Schema.Literal("not-found")),
     cause: Schema.optional(Schema.Defect()),
   },
   { httpApiStatus: 502 },
