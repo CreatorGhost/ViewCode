@@ -316,7 +316,7 @@ function NoticeDescription({
             aria-label="Notice details"
             tooltipStyle
             side="top"
-            className="max-w-80 whitespace-normal wrap-anywhere"
+            className="max-w-[min(30rem,calc(100vw-2rem))] whitespace-normal wrap-anywhere [--inline-button-text-align:start] [--inline-button-white-space:normal] [&_[data-slot=inline-button]]:max-w-full"
           >
             <ComposerBanner.Scroll className="max-h-[min(var(--available-height),24rem,40dvh)]">
               {children}
