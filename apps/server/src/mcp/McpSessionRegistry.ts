@@ -8,6 +8,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import { HttpServer } from "effect/unstable/http";
 import * as NetAddress from "effect/unstable/net/NetAddress";
 
+import { COMPUTER_USE_ROUTE_PATH } from "../computerUse/computerUsePolicy.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpProviderSession from "./McpProviderSession.ts";
@@ -98,9 +99,16 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const state = yield* SynchronizedRef.make<RegistryState>({ records: new Map() });
   const currentTimeMillis = options.now ? Effect.sync(options.now) : Clock.currentTimeMillis;
   const livenessWindowMs = options.livenessWindowMs ?? DEFAULT_LIVENESS_WINDOW_MS;
-  const endpoint = NetAddress.isInetAddress(httpServer.address)
-    ? `http://${getHttpMcpEndpointHost(httpServer.address.address)}:${httpServer.address.port}/mcp`
-    : "http://localhost/mcp";
+  const httpOrigin = NetAddress.isInetAddress(httpServer.address)
+    ? `http://${getHttpMcpEndpointHost(httpServer.address.address)}:${httpServer.address.port}`
+    : "http://localhost";
+  const endpoint = `${httpOrigin}/mcp`;
+  // The computer-use CLI speaks plain HTTP itself, so on a socket listener it
+  // dials the socket directly instead of going through the stdio bridge.
+  const computerUseEndpoint =
+    httpServer.address._tag === "UnixPathAddress"
+      ? `unix:${httpServer.address.path}`
+      : `${httpOrigin}${COMPUTER_USE_ROUTE_PATH}`;
   // A socket listener has no URL a provider can dial, so providers launch the
   // stdio bridge, which forwards to `/mcp` over the same socket.
   const stdioBridge =
@@ -157,6 +165,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           providerSessionId,
           providerInstanceId: scope.providerInstanceId,
           endpoint,
+          computerUseEndpoint,
           authorizationHeader: `Bearer ${rawToken}`,
           ...(stdioBridge
             ? {

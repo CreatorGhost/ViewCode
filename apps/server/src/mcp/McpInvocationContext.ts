@@ -8,7 +8,8 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
-export type McpCapability = "preview" | "device" | "pull-requests" | "agents" | "html";
+/** `computer` is not an MCP toolkit: it gates `POST /api/computer-use`, which reuses this credential. */
+export type McpCapability = "preview" | "device" | "pull-requests" | "agents" | "html" | "computer";
 
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;

@@ -32,7 +32,7 @@ System Settings still looks on. Remove ViewCode from the list and add it again.
 
 Observing never asks. Every input action asks for your approval in the conversation, showing the
 app, the window and the control it will act on. Text the agent wants to type is counted, not shown.
-**Allow for this session** covers routine actions until the current turn ends.
+**Allow for the rest of this turn** covers routine actions until the current turn ends.
 
 In **Full access** threads, routine actions run without asking. Actions on controls that look
 destructive, such as delete, send, submit, purchase or sign out, and shortcuts that quit or close

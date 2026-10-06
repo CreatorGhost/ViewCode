@@ -3,6 +3,7 @@ import {
   acpMcpServerConfig,
   claudeMcpServerConfig,
   codexMcpConfigArgs,
+  mergeAgentCliEnvironments,
   openCodeMcpServerConfig,
   withAgentDeviceEnvironment,
 } from "./McpProviderSession.ts";
@@ -26,6 +27,28 @@ describe("device CLI environment", () => {
       AGENT_DEVICE_DAEMON_BASE_URL: "http://127.0.0.1:9000",
       AGENT_DEVICE_DAEMON_AUTH_TOKEN: "fixture-device",
     });
+  });
+
+  it("puts both the device and computer-use CLIs on PATH when both are granted", () => {
+    const merged = mergeAgentCliEnvironments([
+      { PATH: "/t3/device/bin", PATH_SEPARATOR: ";", AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1" },
+      {
+        PATH: "/t3/computer-use/bin",
+        PATH_SEPARATOR: ";",
+        VIEWCODE_COMPUTER_ENDPOINT: "unix:/t3/server.sock",
+        VIEWCODE_COMPUTER_AUTH: "Bearer fixture",
+      },
+    ]);
+    expect(
+      withAgentDeviceEnvironment({ Path: "C:\\bin" }, { agentDeviceEnvironment: merged! }),
+    ).toEqual({
+      Path: "C:\\bin",
+      PATH: "/t3/device/bin;/t3/computer-use/bin;C:\\bin",
+      AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1",
+      VIEWCODE_COMPUTER_ENDPOINT: "unix:/t3/server.sock",
+      VIEWCODE_COMPUTER_AUTH: "Bearer fixture",
+    });
+    expect(mergeAgentCliEnvironments([undefined, undefined])).toBeUndefined();
   });
 
   it("does not grant CLI access when device access was not supplied", () => {

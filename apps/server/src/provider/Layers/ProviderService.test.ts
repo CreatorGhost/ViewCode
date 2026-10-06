@@ -11,6 +11,7 @@ import type {
   ProviderTurnStartResult,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
+  ServerSettings as ServerSettingsValue,
 } from "@t3tools/contracts";
 import {
   ASSISTANT_CITATION_MAX_TEXT_LENGTH,
@@ -26,6 +27,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionStartInput,
+  RuntimeRequestId,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -66,6 +68,7 @@ import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
 import { makeProviderServiceLive } from "./ProviderService.ts";
+import { ComputerUseService } from "../../computerUse/ComputerUseService.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -5076,7 +5079,10 @@ describe("agent browser access", () => {
     access: boolean | { readonly browser: boolean; readonly device: boolean },
     threadId: ThreadId,
     projectOverride?: boolean | { readonly browser?: boolean; readonly device?: boolean },
-    options?: { readonly withoutOrchestration?: boolean },
+    options?: {
+      readonly withoutOrchestration?: boolean;
+      readonly computerUse?: ServerSettingsValue["computerUse"];
+    },
   ) =>
     Effect.gen(function* () {
       const enableAgentBrowserAccess = typeof access === "boolean" ? access : access.browser;
@@ -5157,6 +5163,7 @@ describe("agent browser access", () => {
           ServerSettings.ServerSettingsService.layerTest({
             enableAgentBrowserAccess,
             enableAgentDeviceAccess,
+            ...(options?.computerUse ? { computerUse: options.computerUse } : {}),
             projectSettingsOverrides:
               projectOverride === undefined
                 ? {}
@@ -5181,6 +5188,15 @@ describe("agent browser access", () => {
             ProviderEventLoggers.ProviderEventLoggers,
             ProviderEventLoggers.NoOpProviderEventLoggers,
           ),
+        ),
+        Layer.provide(
+          options?.computerUse
+            ? Layer.mock(ComputerUseService)({
+                attachRuntimeEventPublisher: () => Effect.void,
+                releaseThread: () => Effect.void,
+                releaseAll: Effect.void,
+              })
+            : Layer.empty,
         ),
       );
 
@@ -5289,5 +5305,122 @@ describe("agent browser access", () => {
         { threadId, capabilities: ["agents", "html", "preview", "pull-requests"] },
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("grants the computer capability only when computer use is on", () =>
+    Effect.gen(function* () {
+      const onThread = asThreadId("thread-computer-use-on");
+      const offThread = asThreadId("thread-computer-use-off");
+      assert.deepEqual(
+        yield* startSessionWith(false, onThread, undefined, { computerUse: "observe" }),
+        [{ threadId: onThread, capabilities: ["agents", "computer", "html", "pull-requests"] }],
+      );
+      assert.deepEqual(
+        yield* startSessionWith(false, offThread, undefined, { computerUse: "off" }),
+        [{ threadId: offThread, capabilities: ["agents", "html", "pull-requests"] }],
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("computer-use approvals", () => {
+  const threadId = asThreadId("thread-computer-use-approvals");
+
+  const makeLayer = (answer: "handled" | "stale" | "not-owned") => {
+    const answered: Array<string> = [];
+    let publish: ((event: ProviderRuntimeEvent) => Effect.Effect<void>) | undefined;
+    const layer = makeProviderServiceLive().pipe(
+      Layer.provide(NodeServices.layer),
+      // No adapters and no sessions: anything routed past ComputerUseService fails.
+      Layer.provide(
+        Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, makeAdapterRegistryMock({})),
+      ),
+      Layer.provide(
+        ProviderSessionDirectoryLive.pipe(
+          Layer.provide(ProviderSessionRuntime.layer.pipe(Layer.provide(SqlitePersistenceMemory))),
+        ),
+      ),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(serverConfigTestLayer),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+      Layer.provide(
+        Layer.mock(ComputerUseService)({
+          attachRuntimeEventPublisher: (publishEvent) =>
+            Effect.sync(() => {
+              publish = publishEvent;
+            }),
+          respondToApproval: ({ requestId }) =>
+            Effect.sync(() => {
+              answered.push(requestId);
+              return answer;
+            }),
+          releaseAll: Effect.void,
+        }),
+      ),
+    );
+    return { layer, answered, publish: () => publish };
+  };
+
+  it.effect("answers computer-use approvals without touching a provider", () =>
+    Effect.gen(function* () {
+      const harness = makeLayer("handled");
+      yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        yield* provider.respondToRequest({
+          threadId,
+          requestId: asRequestId("computer-use:1"),
+          decision: "accept",
+        });
+      }).pipe(Effect.provide(harness.layer));
+      assert.deepEqual(harness.answered, ["computer-use:1"]);
+    }),
+  );
+
+  it.effect("reports an answered or expired computer-use approval as stale", () =>
+    Effect.gen(function* () {
+      const harness = makeLayer("stale");
+      const exit = yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        return yield* provider.respondToRequest({
+          threadId,
+          requestId: asRequestId("computer-use:2"),
+          decision: "accept",
+        });
+      }).pipe(Effect.provide(harness.layer), Effect.exit);
+      assert.isTrue(Exit.isFailure(exit));
+      if (Exit.isFailure(exit)) {
+        assert.include(Cause.pretty(exit.cause), "Unknown pending approval request");
+      }
+    }),
+  );
+
+  it.effect("publishes computer-use approval events on the provider event stream", () =>
+    Effect.gen(function* () {
+      const harness = makeLayer("handled");
+      const event = yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const first = yield* Stream.runHead(provider.streamEvents).pipe(Effect.forkChild);
+        yield* Effect.yieldNow;
+        const publish = harness.publish();
+        assert.isDefined(publish);
+        yield* publish!({
+          eventId: EventId.make("computer-use:3:opened"),
+          type: "request.opened",
+          provider: ProviderDriverKind.make("codex"),
+          threadId,
+          createdAt: "2026-10-06T00:00:00.000Z",
+          requestId: RuntimeRequestId.make("computer-use:3"),
+          payload: { requestType: "permission_approval", detail: "Press button" },
+        });
+        return yield* Fiber.join(first);
+      }).pipe(Effect.provide(harness.layer));
+      assert.equal(Option.getOrUndefined(event)?.requestId, "computer-use:3");
+    }),
   );
 });

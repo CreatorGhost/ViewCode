@@ -188,6 +188,7 @@ export interface CodexRuntimeInfo {
   readonly model: string;
   readonly modelName?: string | undefined;
   readonly reasoningEffort: string;
+  readonly computerUse?: "observe" | "control" | undefined;
 }
 
 /** Mode prompt for `turn/start.collaborationMode.settings.developer_instructions`. */

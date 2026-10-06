@@ -133,6 +133,7 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import { withTerminalOutputWindow } from "./terminal/OutputProtocol.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
+import { ComputerUseService } from "./computerUse/ComputerUseService.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { remoteSshDeviceHosts } from "./device/localSshDeviceHost.ts";
 import * as PreviewManager from "./preview/Manager.ts";
@@ -585,6 +586,7 @@ const makeWsRpcLayer = (
       const terminalManager = yield* TerminalManager.TerminalManager;
       const previewManager = yield* PreviewManager.PreviewManager;
       const deviceService = yield* DeviceService.DeviceService;
+      const computerUse = yield* ComputerUseService;
       const deviceHostContext =
         yield* Effect.context<Effect.Services<ReturnType<typeof remoteSshDeviceHosts>>>();
       const portDiscovery = yield* PortScanner.PortDiscovery;
@@ -2682,6 +2684,10 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.serverGetComputerUseStatus]: (_input) =>
+          observeRpcEffect(WS_METHODS.serverGetComputerUseStatus, computerUse.status, {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverGetSettings]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetSettings,

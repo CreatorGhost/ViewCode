@@ -58,6 +58,8 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
+import { ensureComputerUseShim } from "../../computerUse/ComputerUseShim.ts";
+import { ComputerUseService } from "../../computerUse/ComputerUseService.ts";
 import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import {
   increment,
@@ -487,6 +489,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     options?.issueMcpCredential ?? McpSessionRegistry.issueActiveMcpCredential;
   const fileSystem = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
+  // Optional so provider-only runtimes and tests run without a desktop driver.
+  const computerUse = yield* Effect.serviceOption(ComputerUseService);
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const pendingCompactions = new Map<ThreadId, PendingCompaction>();
   const timedOutNativeCompactions = new Set<ThreadId>();
@@ -875,9 +879,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         (entry) => entry.enableAgentBrowserAccess !== undefined,
       );
       const deviceOverridden = entries.some((entry) => entry.enableAgentDeviceAccess !== undefined);
+      // Computer use has no project override: it is one machine-wide choice.
+      const computerUseMode = settings.computerUse;
       const environment = {
         browser: settings.enableAgentBrowserAccess,
         device: settings.enableAgentDeviceAccess,
+        computerUse: computerUseMode,
       };
       if (!browserOverridden && !deviceOverridden) return environment;
       // Provider-only runtimes may omit orchestration. An unresolved project
@@ -886,6 +893,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const denied = {
         browser: browserOverridden ? false : environment.browser,
         device: deviceOverridden ? false : environment.device,
+        computerUse: computerUseMode,
       };
       if (Option.isNone(projectionQuery)) return denied;
       const thread = yield* projectionQuery.value.getThreadShellById(threadId);
@@ -894,13 +902,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       return {
         browser: resolved.enableAgentBrowserAccess,
         device: resolved.enableAgentDeviceAccess,
+        computerUse: computerUseMode,
       };
     },
     Effect.catch((cause) =>
       Effect.logWarning(
-        "Could not read server settings; withholding agent browser and device access for this session.",
+        "Could not read server settings; withholding agent browser, device and computer access for this session.",
         { cause },
-      ).pipe(Effect.as({ browser: false, device: false })),
+      ).pipe(Effect.as({ browser: false, device: false, computerUse: "off" as const })),
     ),
   );
 
@@ -915,7 +924,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     const access = yield* agentAccessSettings(threadId);
     if (access.browser) capabilities.add("preview");
     if (access.device) capabilities.add("device");
-    return capabilities;
+    if (access.computerUse !== "off" && Option.isSome(computerUse)) capabilities.add("computer");
+    return { capabilities, computerUseMode: access.computerUse };
   });
 
   /** Install only the local CLI here. device_open supplies a separate config for each host. */
@@ -945,9 +955,39 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     } satisfies Record<string, string>;
   });
 
+  /**
+   * The `viewcode-computer` CLI on PATH, pointed at this server with the
+   * session's own credential. Fixed at spawn like the device CLI: a setting
+   * change applies to the next session.
+   */
+  const computerUseEnvironment = (config: McpProviderSession.McpProviderSessionConfig) =>
+    Effect.gen(function* () {
+      if (!config.computerUseEndpoint) return undefined;
+      const shimDir = yield* ensureComputerUseShim({ stateDir: serverConfig.stateDir }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, pathService),
+        Effect.provideService(HostProcessPlatform, hostPlatform),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Computer use CLI unavailable; withholding it from this session", {
+            cause,
+          }).pipe(Effect.as(undefined)),
+        ),
+      );
+      if (!shimDir) return undefined;
+      return {
+        PATH: shimDir,
+        PATH_SEPARATOR: hostPlatform === "win32" ? ";" : ":",
+        VIEWCODE_COMPUTER_ENDPOINT: config.computerUseEndpoint,
+        VIEWCODE_COMPUTER_AUTH: config.authorizationHeader,
+      } satisfies Record<string, string>;
+    });
+
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
-      const capabilities = yield* agentAccessCapabilities(threadId);
+      // A new session replaces the old one: its refs, grant and pending
+      // approvals belong to a process that is going away.
+      if (Option.isSome(computerUse)) yield* computerUse.value.releaseThread(threadId);
+      const { capabilities, computerUseMode } = yield* agentAccessCapabilities(threadId);
       const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
       yield* Effect.logInfo("MCP session prepared", {
         threadId,
@@ -960,10 +1000,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         const deviceEnvironment = capabilities.has("device")
           ? yield* agentDeviceEnvironment
           : undefined;
+        const computerEnvironment =
+          capabilities.has("computer") && computerUseMode !== "off"
+            ? yield* computerUseEnvironment(credential.config)
+            : undefined;
+        const cliEnvironment = McpProviderSession.mergeAgentCliEnvironments([
+          deviceEnvironment,
+          computerEnvironment,
+        ]);
         yield* Effect.sync(() =>
           McpProviderSession.setMcpProviderSession({
             ...credential.config,
-            ...(deviceEnvironment ? { agentDeviceEnvironment: deviceEnvironment } : {}),
+            ...(cliEnvironment ? { agentDeviceEnvironment: cliEnvironment } : {}),
+            ...(computerEnvironment && computerUseMode !== "off" ? { computerUseMode } : {}),
           }),
         );
       }
@@ -984,6 +1033,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       Effect.flatMap((canonicalEvent) => PubSub.publish(runtimeEventPubSub, canonicalEvent)),
       Effect.asVoid,
     );
+  // Computer-use approvals reach every client as ordinary provider approvals.
+  if (Option.isSome(computerUse)) {
+    yield* computerUse.value.attachRuntimeEventPublisher(publishRuntimeEvent);
+  }
 
   const isCompactedEvent = (
     event: ProviderRuntimeEvent,
@@ -1112,6 +1165,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         canonicalEvent.type === "turn.aborted"
       ) {
         yield* recordTurnCompletedAnalytics(source, canonicalEvent);
+        if (Option.isSome(computerUse)) {
+          yield* computerUse.value.endTurn(canonicalEvent.threadId, canonicalEvent.turnId);
+        }
         if (source.provider === "claudeAgent") {
           // Background Claude turns have no sendTurn response to persist their
           // new native boundary. Save it before clients can checkpoint the turn.
@@ -1143,6 +1199,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }
       } else if (canonicalEvent.type === "session.exited") {
         yield* clearTurnAnalyticsSession(source.instanceId, canonicalEvent.threadId);
+        if (Option.isSome(computerUse)) {
+          yield* computerUse.value.releaseThread(canonicalEvent.threadId);
+        }
       }
       if (
         isCompactedEvent(canonicalEvent) &&
@@ -1954,6 +2013,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         schema: ProviderInterruptTurnInput,
         payload: rawInput,
       });
+      // A stopped turn takes its pending computer-use approvals with it.
+      if (Option.isSome(computerUse)) yield* computerUse.value.endTurn(input.threadId);
       let metricProvider = "unknown";
       return yield* Effect.gen(function* () {
         const routed = yield* resolveRoutableSession({
@@ -1991,6 +2052,18 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         schema: ProviderRespondToRequestInput,
         payload: rawInput,
       });
+      // Computer-use approvals are ViewCode's own, not the provider's.
+      if (Option.isSome(computerUse)) {
+        const handled = yield* computerUse.value.respondToApproval(input);
+        if (handled === "handled") return;
+        if (handled === "stale") {
+          return yield* new ProviderAdapterRequestError({
+            provider: "viewcode",
+            method: "computer-use/approval",
+            detail: `Unknown pending approval request: ${input.requestId}`,
+          });
+        }
+      }
       let metricProvider = "unknown";
       return yield* Effect.gen(function* () {
         const routed = yield* resolveRoutableSession({
@@ -2067,6 +2140,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         schema: ProviderStopSessionInput,
         payload: rawInput,
       });
+      if (Option.isSome(computerUse)) yield* computerUse.value.releaseThread(input.threadId);
       let metricProvider = "unknown";
       return yield* Effect.gen(function* () {
         const routed = yield* resolveRoutableSession({
@@ -2393,6 +2467,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     yield* Effect.forEach(currentAdapters, ([, adapter]) => adapter.stopAll()).pipe(Effect.asVoid);
     yield* McpSessionRegistry.revokeAllActiveMcpCredentials();
     McpProviderSession.clearAllMcpProviderSessions();
+    if (Option.isSome(computerUse)) yield* computerUse.value.releaseAll;
     const bindings = yield* directory.listBindings().pipe(Effect.orElseSucceed(() => []));
     yield* Effect.forEach(bindings, (binding) =>
       Effect.gen(function* () {

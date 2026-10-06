@@ -5131,6 +5131,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           append: buildRuntimeInstructions({
             harness: "Claude Code",
             ...(toolsUnavailable ? { viewcodeToolsUnavailable: toolsUnavailable } : {}),
+            computerUse: mcpSession?.computerUseMode,
           }),
         },
         settingSources: [...CLAUDE_SETTING_SOURCES],

@@ -1,4 +1,9 @@
-import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type {
+  ComputerUseMode,
+  EnvironmentId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
 /**
@@ -23,17 +28,51 @@ export interface McpProviderSessionConfig {
    * stdio bridge instead of dialing `endpoint`, which no one listens on.
    */
   readonly stdio?: McpStdioLaunch;
-  /** Capabilities the credential grants ("preview", "device"). */
+  /** Capabilities the credential grants ("preview", "device", "computer"). */
   readonly capabilities: ReadonlySet<string>;
   /**
-   * Set when the session may drive devices. Adapters spread this into the
-   * provider subprocess environment so the `agent-device` CLI is on PATH and
-   * already pointed at the server's daemon; the agent never handles a token.
+   * Where the `viewcode-computer` CLI reaches `POST /api/computer-use`:
+   * `http://…/api/computer-use` on TCP, `unix:<socket path>` when the server
+   * listens on a socket only.
+   */
+  readonly computerUseEndpoint?: string;
+  /**
+   * Set when the session was granted computer use and its CLI environment is
+   * in `agentDeviceEnvironment`. Adapters pass it to the runtime instructions.
+   */
+  readonly computerUseMode?: Exclude<ComputerUseMode, "off">;
+  /**
+   * Environment for the agent-facing CLIs ViewCode puts on PATH (`agent-device`
+   * when the session may drive devices, `viewcode-computer` when it may use
+   * the computer). Adapters spread this into the provider subprocess
+   * environment through `withAgentDeviceEnvironment`; the agent never has to
+   * configure either CLI itself.
    */
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
 }
 
-/** Provider env with the device variables applied over `base`, or `base` untouched. */
+/**
+ * Joins several agent CLI environments into one `agentDeviceEnvironment`:
+ * their shim directories become one `PATH` prefix, in order.
+ */
+export function mergeAgentCliEnvironments(
+  environments: ReadonlyArray<Readonly<Record<string, string>> | undefined>,
+): Readonly<Record<string, string>> | undefined {
+  const present = environments.filter((environment) => environment !== undefined);
+  if (present.length === 0) return undefined;
+  const separator = present.find((environment) => environment.PATH_SEPARATOR)?.PATH_SEPARATOR;
+  const shimDirs = present.flatMap((environment) => (environment.PATH ? [environment.PATH] : []));
+  const merged: Record<string, string> = Object.assign({}, ...present);
+  delete merged.PATH;
+  delete merged.PATH_SEPARATOR;
+  return {
+    ...merged,
+    ...(shimDirs.length > 0 ? { PATH: shimDirs.join(separator ?? ":") } : {}),
+    ...(separator ? { PATH_SEPARATOR: separator } : {}),
+  };
+}
+
+/** Provider env with the agent CLI variables applied over `base`, or `base` untouched. */
 export function withAgentDeviceEnvironment(
   base: NodeJS.ProcessEnv,
   config: Pick<McpProviderSessionConfig, "agentDeviceEnvironment"> | undefined,
