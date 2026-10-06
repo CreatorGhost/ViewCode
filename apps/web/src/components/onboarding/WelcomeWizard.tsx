@@ -614,7 +614,7 @@ function isTerminalSetupDriver(
 }
 
 /** Setup values stay fixed while provider probes refresh the surrounding cards. */
-interface AgentTerminalSession {
+export interface AgentTerminalSession {
   readonly environmentId: EnvironmentId;
   readonly driver: OnboardingAgentDriver;
   readonly providerInstanceId: ServerProvider["instanceId"];
@@ -848,7 +848,7 @@ function AgentCard({
  * the server validates only the cwd) and pre-types the install or login
  * command without submitting, so the user reviews and presses Enter.
  */
-function AgentInstallTerminal({
+export function AgentInstallTerminal({
   session,
   onClose,
 }: {

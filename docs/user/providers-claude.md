@@ -9,6 +9,10 @@ shared provider settings.
 Use a separate Claude config directory for each account. This also works for named
 presets that need different Claude settings or a router connection.
 
+In **Settings → Providers**, **Add another account** on a Claude instance creates a
+separate config directory (or uses one you choose) and opens a terminal running
+`claude auth login` for it. **Sign in** on an instance reruns the login.
+
 Keep your existing account in the default directory. On the environment's machine,
 create the second login:
 
@@ -60,6 +64,16 @@ You can also send `/compact` in an existing conversation. Web and desktop offer
 **Compact context** from the context meter and may suggest it when you return to
 a large older thread. See [commands and skills](./composer.md#commands-and-skills)
 for using composer commands.
+
+## Prompt cache notice
+
+Claude keeps a conversation's prompt cached for about 5 minutes (1 hour when the
+extended cache is in use). Sending to a conversation over 100k tokens after the cache
+has expired re-reads it all at full price, so ViewCode shows a notice above the
+composer with the approximate size and cost. Your message is not sent until you choose
+**Send anyway**, or **Compact first** when compaction is available. Dismiss the notice
+to stop it for that thread. When ViewCode can't tell which lifetime applies, the notice
+says the cache is *likely* expired.
 
 ## Usage limits
 

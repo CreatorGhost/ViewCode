@@ -7,6 +7,7 @@
  * is a normal terminal opened with `providerInstanceId`, which applies the
  * instance's CODEX_HOME / CLAUDE_CONFIG_DIR (`terminal/Manager.ts`).
  */
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   ClaudeSettings,
   CodexSettings,
@@ -118,13 +119,14 @@ export const addProviderAccount = Effect.fn("providerAccounts.add")(function* (i
     patch: Pick<ServerSettings, "providerInstances">,
   ) => Effect.Effect<unknown, ServerSettingsError>;
 }) {
+  const platform = yield* HostProcessPlatform;
   const { patch, result } = yield* Effect.try({
     try: () =>
       addAccountSettingsPatch({
         settings: input.settings,
         account: input.account,
         stateDir: input.stateDir,
-        platform: process.platform,
+        platform,
       }),
     catch: (cause) =>
       isProviderAccountError(cause) ? cause : fail("add", "Could not add the account.", cause),
@@ -152,6 +154,7 @@ export const prepareProviderAccountSignIn = Effect.fn("providerAccounts.prepareS
     readonly stateDir: string;
   }) {
     const path = yield* Path.Path;
+    const platform = yield* HostProcessPlatform;
     const instance = deriveProviderInstanceConfigMap(input.settings)[input.instanceId];
     if (instance === undefined) {
       return yield* fail("prepareSignIn", `No provider instance '${input.instanceId}'.`);
@@ -199,7 +202,7 @@ export const prepareProviderAccountSignIn = Effect.fn("providerAccounts.prepareS
       command: accountLoginCommand({
         driver,
         binaryPath,
-        platform: process.platform === "win32" ? "windows" : "posix",
+        platform: platform === "win32" ? "windows" : "posix",
       }),
     };
     return plan;
