@@ -20,6 +20,7 @@ import {
   useThreadDetail,
   useThreadRefs,
   useThreadShell,
+  useThreadStalled,
   useThreadStatus,
 } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
@@ -81,6 +82,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const serverThreadShell = useThreadShell(serverThreadRef);
   const serverThreadDetail = useThreadDetail(serverThreadRef);
   const serverThreadStatus = useThreadStatus(serverThreadRef);
+  const serverThreadStalled = useThreadStalled(serverThreadRef);
   const environmentThreadRefs = useEnvironmentThreadRefs(serverThreadRef?.environmentId ?? null);
   const bootstrapComplete = shell.data?.snapshot._tag === "Some";
   const draftThread = useComposerDraftStore((store) =>
@@ -119,6 +121,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     detailExists: serverThreadDetail !== null,
     shellExists: serverThreadShell !== null,
     status: serverThreadStatus,
+    stalled: serverThreadStalled,
   });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;

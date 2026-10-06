@@ -39,6 +39,8 @@ const EMPTY_THREAD_STATUS_ATOM = Atom.make<EnvironmentThreadStatus>("empty").pip
   Atom.withLabel("web-thread-status:empty"),
 );
 
+const EMPTY_THREAD_STALLED_ATOM = Atom.make(false).pipe(Atom.withLabel("web-thread-stalled:empty"));
+
 const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
   Atom.keepAlive,
   Atom.withLabel("web-active-environment-id"),
@@ -111,6 +113,13 @@ export function useThreadDetail(ref: ScopedThreadRef | null): EnvironmentThread 
 export function useThreadStatus(ref: ScopedThreadRef | null): EnvironmentThreadStatus {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_STATUS_ATOM : environmentThreadDetails.statusAtom(ref),
+  );
+}
+
+/** True when the thread's first load stopped making progress (see client-runtime threads.ts). */
+export function useThreadStalled(ref: ScopedThreadRef | null): boolean {
+  return useAtomValue(
+    ref === null ? EMPTY_THREAD_STALLED_ATOM : environmentThreadDetails.stalledAtom(ref),
   );
 }
 

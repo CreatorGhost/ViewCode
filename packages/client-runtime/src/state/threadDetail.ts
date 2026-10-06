@@ -144,6 +144,13 @@ export function createEnvironmentThreadDetailAtoms<E>(
     ),
   );
 
+  const threadStalledAtomFamily = Atom.family((key: string) =>
+    Atom.make((get) => get(threadStateValueAtomFamily(key)).stalled === true).pipe(
+      Atom.setIdleTTL(0),
+      Atom.withLabel(`environment-thread-stalled:${key}`),
+    ),
+  );
+
   const threadMessagesAtomFamily = Atom.family((key: string) =>
     Atom.make(
       (get): ReadonlyArray<OrchestrationMessage> =>
@@ -189,6 +196,7 @@ export function createEnvironmentThreadDetailAtoms<E>(
     detailAtom: (ref: ScopedThreadRef) => threadDetailAtomFamily(threadKey(ref)),
     statusAtom: (ref: ScopedThreadRef) => threadStatusAtomFamily(threadKey(ref)),
     errorAtom: (ref: ScopedThreadRef) => threadErrorAtomFamily(threadKey(ref)),
+    stalledAtom: (ref: ScopedThreadRef) => threadStalledAtomFamily(threadKey(ref)),
     messagesAtom: (ref: ScopedThreadRef) => threadMessagesAtomFamily(threadKey(ref)),
     activitiesAtom: (ref: ScopedThreadRef) => threadActivitiesAtomFamily(threadKey(ref)),
     proposedPlansAtom: (ref: ScopedThreadRef) => threadProposedPlansAtomFamily(threadKey(ref)),

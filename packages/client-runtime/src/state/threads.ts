@@ -10,6 +10,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -47,6 +48,8 @@ function statusWithoutLiveData(data: Option.Option<OrchestrationThread>): Enviro
  * observed threads stays around 100K gzipped while median threads load fully.
  */
 export const INITIAL_THREAD_USER_TURN_LIMIT = 10;
+/** How long a thread may show nothing while connected before it counts as stalled. */
+const THREAD_LOAD_STALL_AFTER = "15 seconds";
 const OLDER_THREAD_PAGE_USER_TURN_LIMIT = 20;
 
 function pageStateFromSnapshot(
@@ -739,6 +742,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   // status. A replacement session or foreground resubscribe on the same scope
   // may have missed events, so those show sync progress until confirmed.
   const resumingLive = yield* Ref.make(initialState.status === "live");
+  // How far the first load got, for the stall warning below.
+  const loadStage = yield* Ref.make("starting its subscription");
   const markSynchronizing = Effect.gen(function* () {
     if (yield* Ref.get(resumingLive)) return;
     // Connection notifications do not establish that a terminated load restarted.
@@ -751,10 +756,11 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   });
 
   yield* markSynchronizing;
-  yield* Effect.forkScoped(
+  const subscription = Effect.suspend(() =>
     subscribeDynamic(
       ORCHESTRATION_WS_METHODS.subscribeThread,
       Effect.fn("EnvironmentThreadState.makeSubscribeInput")(function* (session) {
+        yield* Ref.set(loadStage, "reading the server's configuration");
         const config = yield* session.initialConfig.pipe(
           Effect.orElseSucceed(
             () =>
@@ -800,6 +806,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           current = yield* SubscriptionRef.get(state);
         }
         if (Option.isNone(current.data) && current.status !== "deleted") {
+          yield* Ref.set(loadStage, "waiting for the connection details");
           const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
             Effect.flatMap(
               Option.match({
@@ -814,6 +821,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
               }),
             ),
           );
+          yield* Ref.set(loadStage, "loading the thread over HTTP");
           const httpSnapshot = yield* snapshotLoader.load(
             prepared,
             threadId,
@@ -826,6 +834,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           }
         }
 
+        yield* Ref.set(loadStage, "waiting for the server's first reply");
         const sequence = yield* SubscriptionRef.get(lastSequence);
         const canResume = Option.isSome(current.data);
         if (!supportsCompletionMarker && canResume) {
@@ -859,6 +868,41 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       ),
     ),
   );
+  let subscriptionFiber = yield* Effect.forkScoped(subscription);
+
+  // A thread whose messages never arrive must not spin forever with another
+  // thread painted in its place. Only while connected (waiting offline is
+  // expected), and only before the first data: once a thread has loaded,
+  // reconnects and resyncs are someone else's job. The first stall restarts
+  // this thread's subscription, which is what reloading the window did when
+  // this was seen in the wild; a second marks the thread stalled so the UI
+  // can say so. Either way the stage it stopped at is logged.
+  yield* Effect.gen(function* () {
+    for (let stalls = 0; stalls < 2;) {
+      yield* Effect.sleep(THREAD_LOAD_STALL_AFTER);
+      const current = yield* SubscriptionRef.get(state);
+      if (Option.isSome(current.data) || current.status === "deleted") return;
+      const phase = connectionProjectionPhase(yield* SubscriptionRef.get(supervisor.state));
+      if (phase !== "ready" || Option.isSome(current.error)) continue;
+      stalls += 1;
+      const stage = yield* Ref.get(loadStage);
+      yield* Effect.logWarning("A thread's messages have not loaded.").pipe(
+        Effect.annotateLogs({ environmentId, threadId, stage, restarting: stalls === 1 }),
+      );
+      if (stalls === 1) {
+        yield* Ref.set(loadStage, "starting its subscription");
+        const stalled = subscriptionFiber;
+        subscriptionFiber = yield* Effect.forkScoped(subscription);
+        // Never wait on the stalled fiber: whatever it is stuck on may not
+        // honour interruption promptly.
+        yield* Effect.forkScoped(Fiber.interrupt(stalled));
+      } else {
+        yield* SubscriptionRef.update(state, (value) =>
+          Option.isSome(value.data) ? value : { ...value, stalled: true as const },
+        );
+      }
+    }
+  }).pipe(Effect.forkScoped);
 
   // Expose loadOlderTurns to UI actions through the request registry.
   // Requests funnel through a sliding queue drained serially, so mashing

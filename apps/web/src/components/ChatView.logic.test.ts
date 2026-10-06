@@ -540,6 +540,29 @@ describe("resolveThreadSwitchTimeline", () => {
     ).toEqual({ entries: ["a1", "a2"], displayThreadKey: "env-1:thread-a" });
   });
 
+  it("stops standing in another thread once the hold is over", () => {
+    rememberReadyThreadTimeline({ threadKey: "env-1:thread-b", entries: ["b-cached"] });
+    // The thread's own remembered entries still show; another thread's never do.
+    expect(
+      resolveThreadSwitchTimeline({
+        loading: true,
+        activeThreadKey: "env-1:thread-c",
+        nextEntries: [],
+        lastReady: held,
+        allowOtherThread: false,
+      }),
+    ).toEqual({ entries: [], displayThreadKey: "env-1:thread-c" });
+    expect(
+      resolveThreadSwitchTimeline({
+        loading: true,
+        activeThreadKey: "env-1:thread-b",
+        nextEntries: [],
+        lastReady: held,
+        allowOtherThread: false,
+      }),
+    ).toEqual({ entries: ["b-cached"], displayThreadKey: "env-1:thread-b" });
+  });
+
   it("shows the new thread once its detail is ready", () => {
     expect(
       resolveThreadSwitchTimeline({

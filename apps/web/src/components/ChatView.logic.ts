@@ -371,6 +371,12 @@ export function resolveThreadSwitchTimeline<T extends readonly unknown[]>(input:
   nextEntries: T;
   rememberedForActive?: T | null;
   lastReady?: HeldThreadTimeline<T> | null;
+  /**
+   * Whether another thread's last timeline may stand in while this one loads.
+   * Callers turn it off after a short hold: a load that never finishes must
+   * not keep showing a different conversation under this thread's title.
+   */
+  allowOtherThread?: boolean;
 }): { entries: T; displayThreadKey: string | null } {
   if (input.nextEntries.length > 0) {
     return { entries: input.nextEntries, displayThreadKey: input.activeThreadKey };
@@ -385,6 +391,7 @@ export function resolveThreadSwitchTimeline<T extends readonly unknown[]>(input:
   const lastReady = input.lastReady ?? peekHeldThreadTimeline<T>();
   if (
     input.loading &&
+    input.allowOtherThread !== false &&
     lastReady !== null &&
     lastReady.threadKey !== null &&
     lastReady.threadKey !== input.activeThreadKey &&

@@ -1,3 +1,5 @@
+import { CircleAlertIcon } from "lucide-react";
+
 import { Spinner } from "~/components/ui/spinner";
 
 import { threadSyncLabel, type ThreadSyncPhase } from "../../threadSync";
@@ -7,7 +9,7 @@ export function ComposerActivityRow({ phase }: { readonly phase: ThreadSyncPhase
   return (
     <ComposerBanner.Row>
       <ComposerBanner.Icon>
-        <Spinner />
+        {phase === "stalled" ? <CircleAlertIcon aria-hidden /> : <Spinner />}
       </ComposerBanner.Icon>
       <ComposerBanner.Content>
         <span
