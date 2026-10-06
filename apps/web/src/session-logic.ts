@@ -107,6 +107,8 @@ export interface WorkLogEntry {
   agentMessageSent?: AgentMessageSentPayload;
   /** A page the agent published with `html_render`, shown inline. */
   htmlRender?: HtmlRenderReference;
+  /** ViewCode: the thread a fork was taken from. */
+  forkedFrom?: { threadId: string; title: string };
   /** ViewCode: models (and provider instances) on either side of a handoff. */
   handoff?: { fromModel: string; toModel: string; fromInstanceId?: string; toInstanceId?: string };
 }
@@ -621,6 +623,11 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (activity.kind === HTML_RENDER_ACTIVITY_KIND) {
     const htmlRender = readHtmlRenderReference(payload);
     if (htmlRender) entry.htmlRender = htmlRender;
+  }
+  if (activity.kind === "viewcode.thread.forked") {
+    const threadId = asTrimmedString(payload?.sourceThreadId);
+    const title = asTrimmedString(payload?.sourceTitle);
+    if (threadId && title) entry.forkedFrom = { threadId, title };
   }
   if (activity.kind === "viewcode.handoff") {
     const fromModel = asTrimmedString(asRecord(payload?.from)?.model);

@@ -230,6 +230,8 @@ import {
   foldSubagentActivities,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
+import { ThreadFindBar, THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
+import { chatOwnsFindShortcut } from "./chat/threadFind.logic";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -514,6 +516,7 @@ import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import { useUsageResumeBanner } from "./chat/useUsageResumeBanner";
 import { useClaudeCacheBanner } from "./chat/useClaudeCacheBanner";
 import { useViewcodeToolsBanner } from "./chat/useViewcodeToolsBanner";
+import { useLiveEditedFilesBanner } from "./chat/useLiveEditedFilesBanner";
 import { useImagePayloadBanner } from "./chat/useImagePayloadBanner";
 import {
   ComposerServerUpdateIcon,
@@ -1781,6 +1784,12 @@ export default function ChatView(props: ChatViewProps) {
     LastInvokedScriptByProjectSchema,
   );
   const legendListRef = useRef<LegendListRef | null>(null);
+  const [threadFindOpen, setThreadFindOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setThreadFindOpen(true);
+    window.addEventListener(THREAD_FIND_OPEN_EVENT, open);
+    return () => window.removeEventListener(THREAD_FIND_OPEN_EVENT, open);
+  }, []);
   const getTimelineScrollableNode = useCallback(
     () => legendListRef.current?.getScrollableNode() ?? null,
     [],
@@ -6591,8 +6600,20 @@ export default function ChatView(props: ChatViewProps) {
     messages: activeThread?.messages ?? EMPTY_THREAD_MESSAGES,
     providerName: activeThread?.session?.providerName,
   });
+  // onOpenTurnDiff is declared further down; a ref keeps this callback stable.
+  const openTurnDiffRef = useRef<(turnId: TurnId, filePath?: string) => void>(() => {});
+  const openLiveEditedFileDiff = useCallback(
+    (turnId: string, filePath?: string) => openTurnDiffRef.current(turnId as TurnId, filePath),
+    [],
+  );
+  const liveEditedFilesBannerItem = useLiveEditedFilesBanner({
+    entries: workLogEntries,
+    runningTurnId: activeRunningTurnId,
+    onOpenDiff: openLiveEditedFileDiff,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const threadNoticeItems = [
+      ...(liveEditedFilesBannerItem === null ? [] : [liveEditedFilesBannerItem]),
       ...(imagePayloadBannerItem === null ? [] : [imagePayloadBannerItem]),
       ...(viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem]),
       ...(claudeCacheBannerItem === null ? [] : [claudeCacheBannerItem]),
@@ -6674,6 +6695,7 @@ export default function ChatView(props: ChatViewProps) {
     feedbackBannerItems,
     handleRestoreThreadBranch,
     imagePayloadBannerItem,
+    liveEditedFilesBannerItem,
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
@@ -6850,6 +6872,15 @@ export default function ChatView(props: ChatViewProps) {
             }),
           );
         });
+        return;
+      }
+
+      if (command === "thread.find") {
+        // Terminal, editor and diff keep their own find.
+        if (!chatOwnsFindShortcut(event.target, shortcutContext.terminalFocus)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setThreadFindOpen(true);
         return;
       }
 
@@ -9608,6 +9639,7 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
   );
+  openTurnDiffRef.current = onOpenTurnDiff;
   // The revert handler is read from a ref at call-time so the callback
   // reference is fully stable and never busts TimelineRowCtx identity.
   const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
@@ -10005,6 +10037,15 @@ export default function ChatView(props: ChatViewProps) {
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
               {/* Messages — LegendList handles virtualization and scrolling internally */}
+              {threadFindOpen ? (
+                <ThreadFindBar
+                  key={String(activeThread.id)}
+                  entries={displayedTimeline.entries}
+                  listRef={legendListRef}
+                  getViewport={getTimelineScrollableNode}
+                  onClose={() => setThreadFindOpen(false)}
+                />
+              ) : null}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
