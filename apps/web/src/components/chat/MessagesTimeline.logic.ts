@@ -443,6 +443,13 @@ export type MessagesTimelineRow =
       sent: AgentMessageSentPayload;
     }
   | {
+      /** Child agents this thread started back to back: one compact row each, grouped. */
+      kind: "agent-spawns";
+      id: string;
+      createdAt: string;
+      spawns: ReadonlyArray<AgentMessageSentPayload>;
+    }
+  | {
       kind: "message";
       id: string;
       createdAt: string;
@@ -1249,6 +1256,22 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "work" && timelineEntry.entry.agentMessageSent?.kind === "spawn") {
+      const sent = timelineEntry.entry.agentMessageSent;
+      const previous = nextRows.at(-1);
+      if (previous?.kind === "agent-spawns") {
+        nextRows[nextRows.length - 1] = { ...previous, spawns: [...previous.spawns, sent] };
+      } else {
+        nextRows.push({
+          kind: "agent-spawns",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          spawns: [sent],
+        });
+      }
+      continue;
+    }
+
     if (timelineEntry.kind === "work" && timelineEntry.entry.agentMessageSent !== undefined) {
       nextRows.push({
         kind: "agent-message-out",
@@ -1715,6 +1738,15 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "agent-message-out": {
       const bo = b as typeof a;
       return a.createdAt === bo.createdAt && Equal.equals(a.sent, bo.sent);
+    }
+
+    case "agent-spawns": {
+      const bs = b as typeof a;
+      return (
+        a.createdAt === bs.createdAt &&
+        a.spawns.length === bs.spawns.length &&
+        a.spawns.every((spawn, index) => Equal.equals(spawn, bs.spawns[index]))
+      );
     }
 
     case "proposed-plan":

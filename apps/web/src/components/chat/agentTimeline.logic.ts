@@ -53,6 +53,23 @@ export function resolveAgentToolkitToolName(
 }
 
 /**
+ * A ViewCode spawn or message call whose card already shows in the timeline,
+ * so its tool row would only repeat it. A failed call keeps its row: no card
+ * follows it. Only MCP calls count, so a harness's own spawn_agent stays.
+ */
+export function isAgentMessagingToolCallWithCard(
+  entry: Pick<
+    WorkLogEntry,
+    "label" | "toolTitle" | "toolData" | "toolLifecycleStatus" | "tone" | "itemType"
+  >,
+): boolean {
+  if (entry.itemType !== "mcp_tool_call") return false;
+  if (entry.tone === "error" || entry.toolLifecycleStatus === "failed") return false;
+  const name = resolveAgentToolkitToolName(entry);
+  return name === "spawn_agent" || name === "send_message";
+}
+
+/**
  * Friendly label ("Spawned agent", "Messaging agent") for a call to the
  * ViewCode agents MCP toolkit; null for any other entry.
  */

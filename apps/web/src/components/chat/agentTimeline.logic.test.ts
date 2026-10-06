@@ -137,6 +137,20 @@ describe("agent work log entries", () => {
     });
   });
 
+  it("drops a ViewCode spawn call whose card shows, but keeps a failed one", () => {
+    const call = (status: "completed" | "failed") => ({
+      ...activity("tool.completed", "viewcode_spawn_agent", {
+        itemType: "mcp_tool_call",
+        status,
+        data: { item: { server: "viewcode", tool: "viewcode_spawn_agent" } },
+      }),
+      id: EventId.make(`activity-spawn-${status}`),
+      ...(status === "failed" ? { tone: "error" as const } : {}),
+    });
+    expect(deriveWorkLogEntries([call("completed")])).toEqual([]);
+    expect(deriveWorkLogEntries([call("failed")])).toHaveLength(1);
+  });
+
   it("leaves a malformed sent payload as an ordinary entry", () => {
     const [entry] = deriveWorkLogEntries([
       activity("viewcode.agent-message.sent", "Message to ?", { toName: 3 }),

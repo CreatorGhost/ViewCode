@@ -188,7 +188,9 @@ import {
   buildSidebarThreadTree,
   collectVisibleSidebarThreadKeys,
   flattenSidebarThreadNode,
+  sidebarLeadsWhoseAgentsFinished,
   sidebarThreadAncestorKeys,
+  sidebarWorkingDescendantCounts,
   type SidebarThreadRowEntry,
   type SidebarThreadTreeNode,
 } from "./sidebar/sidebarThreadTree";
@@ -2215,6 +2217,25 @@ export default function Sidebar() {
     (threadKey: string) => !collapsedThreadKeys.has(threadKey),
     [collapsedThreadKeys],
   );
+  // A lead folds its child agents away once they have all finished, so done
+  // work stops taking rows. Only on that transition: the user can open them
+  // again, and a lead whose agent is open stays expanded.
+  const workingCountsRef = useRef<ReadonlyMap<string, number>>(new Map());
+  useEffect(() => {
+    const counts = sidebarWorkingDescendantCounts(tree);
+    const finished = sidebarLeadsWhoseAgentsFinished(workingCountsRef.current, counts);
+    workingCountsRef.current = counts;
+    if (finished.length === 0) return;
+    const openAncestors =
+      routeThreadKey === null ? [] : sidebarThreadAncestorKeys(tree, routeThreadKey);
+    const toCollapse = finished.filter((key) => !openAncestors.includes(key));
+    if (toCollapse.length === 0) return;
+    setCollapsedThreadKeys((current) => {
+      const next = new Set(current);
+      for (const key of toCollapse) next.add(key);
+      return next;
+    });
+  }, [routeThreadKey, tree]);
   const toggleThreadChildren = useCallback((threadKey: string) => {
     setCollapsedThreadKeys((current) => {
       const next = new Set(current);

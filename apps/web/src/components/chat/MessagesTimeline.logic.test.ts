@@ -1497,7 +1497,41 @@ describe("deriveMessagesTimelineRows", () => {
           ],
         ),
       );
-      expect(rows.map((row) => row.kind)).toEqual(["work", "agent-message-out", "work"]);
+      expect(rows.map((row) => row.kind)).toEqual(["work", "agent-spawns", "work"]);
+    });
+
+    it("groups back-to-back spawns into one row and keeps a later message apart", () => {
+      const spawn = (id: string, order: number) =>
+        work(id, order, {
+          tone: "info",
+          sourceActivityKind: "viewcode.agent-message.sent",
+          agentMessageSent: { ...sent, messageId: id, kind: "spawn" },
+          turnId: null,
+        });
+      const rows = derive(
+        deriveTimelineEntries(
+          [],
+          [],
+          [
+            spawn("spawn-1", 1),
+            spawn("spawn-2", 2),
+            work("message", 3, {
+              tone: "info",
+              sourceActivityKind: "viewcode.agent-message.sent",
+              agentMessageSent: sent,
+              turnId: null,
+            }),
+            spawn("spawn-3", 4),
+          ],
+        ),
+      );
+      expect(
+        rows.map((row) =>
+          row.kind === "agent-spawns"
+            ? `spawns:${row.spawns.map((spawned) => spawned.messageId).join(",")}`
+            : row.kind,
+        ),
+      ).toEqual(["spawns:spawn-1,spawn-2", "agent-message-out", "spawns:spawn-3"]);
     });
 
     it("renders a delivered agent message as an incoming card, not a user bubble", () => {

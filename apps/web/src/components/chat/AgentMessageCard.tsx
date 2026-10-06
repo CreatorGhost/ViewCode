@@ -17,7 +17,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { cn } from "~/lib/utils";
 import { agentMessageBodyIsLong } from "./agentTimeline.logic";
 
-interface AgentMessageRenderContext {
+export interface AgentMessageRenderContext {
   readonly environmentId: EnvironmentId;
   readonly markdownCwd: string | undefined;
   readonly threadRef: ScopedThreadRef | null;

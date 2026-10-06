@@ -7,7 +7,11 @@ import {
   countRunningChildAgents,
   isChildAgentRunning,
   resolveAgentControlAvailability,
+  formatAgentElapsed,
   resolveChildAgentStatus,
+  resolveSpawnedAgentRowStatus,
+  spawnedAgentElapsedRange,
+  spawnedAgentTaskTitle,
   summarizeAgentTreeControl,
 } from "./childAgents.ts";
 
@@ -236,5 +240,84 @@ describe("summarizeAgentTreeControl", () => {
       paused: 1,
       queued: 3,
     });
+  });
+});
+
+describe("spawned agent rows", () => {
+  const turn = (state: "running" | "completed" | "interrupted" | "error") => ({
+    turnId: TurnId.make("turn-1"),
+    state,
+    requestedAt: "2026-10-06T10:00:00.000Z",
+    startedAt: "2026-10-06T10:00:01.000Z",
+    completedAt: state === "running" ? null : "2026-10-06T10:02:15.000Z",
+    assistantMessageId: null,
+  });
+  const child = (
+    overrides: Partial<{
+      latestTurn: ReturnType<typeof turn>;
+      hasPendingApprovals: boolean;
+    }>,
+  ) => ({
+    session: null,
+    latestTurn: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    ...overrides,
+  });
+
+  it("reads a running, finished, stopped and failed child", () => {
+    expect(resolveSpawnedAgentRowStatus(child({ latestTurn: turn("running") }), "started")).toBe(
+      "running",
+    );
+    expect(resolveSpawnedAgentRowStatus(child({ latestTurn: turn("completed") }), "started")).toBe(
+      "done",
+    );
+    expect(
+      resolveSpawnedAgentRowStatus(child({ latestTurn: turn("interrupted") }), "started"),
+    ).toBe("stopped");
+    expect(resolveSpawnedAgentRowStatus(child({ latestTurn: turn("error") }), "started")).toBe(
+      "failed",
+    );
+  });
+
+  it("puts a pending approval ahead of running", () => {
+    expect(
+      resolveSpawnedAgentRowStatus(
+        child({ latestTurn: turn("running"), hasPendingApprovals: true }),
+        "started",
+      ),
+    ).toBe("approval");
+  });
+
+  it("says queued before the first turn of a queued spawn", () => {
+    expect(resolveSpawnedAgentRowStatus(child({}), "queued")).toBe("queued");
+    expect(resolveSpawnedAgentRowStatus(null, "started")).toBeNull();
+  });
+
+  it("measures the latest turn, open-ended while it runs", () => {
+    expect(spawnedAgentElapsedRange({ latestTurn: turn("running") })).toEqual({
+      startMs: Date.parse("2026-10-06T10:00:01.000Z"),
+      endMs: null,
+    });
+    const done = spawnedAgentElapsedRange({ latestTurn: turn("completed") });
+    expect(done && done.endMs !== null ? formatAgentElapsed(done.endMs - done.startMs) : "").toBe(
+      "2m 14s",
+    );
+    expect(spawnedAgentElapsedRange({ latestTurn: null })).toBeNull();
+  });
+
+  it("formats elapsed time in whole units", () => {
+    expect(formatAgentElapsed(7_400)).toBe("7s");
+    expect(formatAgentElapsed(60_000)).toBe("1m");
+    expect(formatAgentElapsed(3_900_000)).toBe("1h 5m");
+  });
+
+  it("titles a spawn by its task, else its prompt's first line", () => {
+    expect(spawnedAgentTaskTitle({ task: "diff panel design", body: "long prompt" })).toBe(
+      "diff panel design",
+    );
+    expect(spawnedAgentTaskTitle({ body: "\n## Review the diff panel\nMore detail" })).toBe(
+      "Review the diff panel",
+    );
   });
 });

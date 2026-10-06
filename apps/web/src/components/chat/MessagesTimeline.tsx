@@ -153,6 +153,7 @@ import {
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
+import { SpawnedAgentRows } from "./SpawnedAgentRows";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useAtomValue } from "@effect/atom-react";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
@@ -1727,6 +1728,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "agent-message-in" || row.kind === "agent-message-out" ? (
         <AgentMessageTimelineRow row={row} />
       ) : null}
+      {row.kind === "agent-spawns" ? <SpawnedAgentsTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
@@ -1891,6 +1893,32 @@ function AgentMessageTimelineRow({
     <IncomingAgentMessageCard envelope={row.envelope} context={context} />
   ) : (
     <OutgoingAgentMessageCard sent={row.sent} context={context} />
+  );
+}
+
+function SpawnedAgentsTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "agent-spawns" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const context = useMemo(
+    () => ({
+      environmentId: ctx.activeThreadEnvironmentId,
+      markdownCwd: ctx.markdownCwd,
+      threadRef: ctx.threadRef,
+      skills: ctx.skills,
+    }),
+    [ctx.activeThreadEnvironmentId, ctx.markdownCwd, ctx.threadRef, ctx.skills],
+  );
+  return (
+    <SpawnedAgentRows
+      rowId={row.id}
+      spawns={row.spawns}
+      context={context}
+      expandedKeys={ctx.expandedSpawnEntryIds}
+      onToggle={ctx.onToggleSpawnRow}
+    />
   );
 }
 
