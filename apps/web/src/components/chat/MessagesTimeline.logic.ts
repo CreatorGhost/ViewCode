@@ -96,7 +96,7 @@ export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string
   if (agentToolLabel) return agentToolLabel;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
-  if (entry.command) return entry.command;
+  if (entry.command?.trim()) return entry.command;
   if (entry.detail) return entry.detail;
   const [firstPath] = entry.changedFiles ?? [];
   if (firstPath) {

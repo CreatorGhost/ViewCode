@@ -57,6 +57,7 @@ import { getProjectFaviconCacheKey } from "@t3tools/shared/projectFavicon";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
   createContext,
+  Fragment,
   memo,
   use,
   useCallback,
@@ -151,6 +152,7 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { ShellCommandBlock } from "./ShellCommandBlock";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
@@ -4499,19 +4501,20 @@ function workEntryRawCommand(
   return rawCommand === workEntry.command.trim() ? null : rawCommand;
 }
 
+/** The expanded body's blocks; the command block is shown syntax highlighted. */
 function buildToolCallExpandedBody(
   workEntry: TimelineWorkEntry,
   workspaceRoot: string | undefined,
   visibleLabel: string,
   viewedImagePath: string | null,
-): string | null {
-  const blocks: string[] = [];
+): Array<{ text: string; command: boolean }> | null {
+  const blocks: Array<{ text: string; command: boolean }> = [];
   const seen = new Set<string>([visibleLabel.trim()]);
-  const addBlock = (value: string | null | undefined) => {
+  const addBlock = (value: string | null | undefined, command = false) => {
     const text = value?.trim();
     if (!text || seen.has(text)) return;
     seen.add(text);
-    blocks.push(text);
+    blocks.push({ text, command });
   };
   if (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) {
     addBlock(`MCP call\n${JSON.stringify(workEntry.toolData, null, 2)}`);
@@ -4521,7 +4524,7 @@ function buildToolCallExpandedBody(
   if (command === visibleLabel.trim()) {
     seen.add(command);
   } else {
-    addBlock(raw ?? command);
+    addBlock(raw ?? command, true);
   }
   const detail = workEntry.detail?.trim();
   if (detail !== viewedImagePath?.trim()) {
@@ -4544,7 +4547,7 @@ function buildToolCallExpandedBody(
   if (changedFiles.length > 0) {
     addBlock([...new Set(changedFiles)].join("\n"));
   }
-  return blocks.length > 0 ? blocks.join("\n\n") : null;
+  return blocks.length > 0 ? blocks : null;
 }
 
 const toolCallExpandedBodyClassName =
@@ -4835,7 +4838,11 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                 onClick={expanded ? stopRowToggleWhileSelectingText : undefined}
                 onPointerDown={expanded ? stopRowToggle : undefined}
               >
-                {previewText}
+                {expanded && workEntry.command?.trim() === previewText.trim() ? (
+                  <ShellCommandBlock command={previewText} />
+                ) : (
+                  previewText
+                )}
               </span>
               {answerPreview ? (
                 <span
@@ -4901,7 +4908,14 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           onClick={stopRowToggle}
           onPointerDown={stopRowToggle}
         >
-          <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>
+          <pre className={toolCallExpandedBodyClassName}>
+            {expandedBody.map((block, index) => (
+              <Fragment key={block.text}>
+                {index > 0 ? "\n\n" : null}
+                {block.command ? <ShellCommandBlock command={block.text} /> : block.text}
+              </Fragment>
+            ))}
+          </pre>
         </div>
       ) : null}
     </div>
