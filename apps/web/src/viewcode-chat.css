@@ -191,6 +191,49 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   background: color-mix(in srgb, var(--warning) 8%, transparent) !important;
 }
 
+/* Composer context row (workspace, PR, branch): a quiet borderless row on the
+   composer's inner edges instead of a detached drawer strip. The shell glass
+   keeps its geometry; only the drawer outline, seam and inset go. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-shell"][data-with-context]::before {
+  clip-path: none;
+  bottom: var(--chat-composer-context-extension);
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-shell"][data-with-context]
+  :is([data-slot="composer-host"], [data-chat-composer-main-surface])::after {
+  clip-path: none;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-context-strip"] {
+  width: 100%;
+  padding-inline: 0.5rem;
+  font-size: 12px;
+}
+@media (min-width: 40rem) {
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-context-strip"] {
+    padding-inline: 0.625rem;
+  }
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-context-strip"]::before {
+  display: none;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-context-strip"]
+  :is(button, [role="button"]) {
+  border-color: transparent;
+  box-shadow: none;
+  border-radius: 9999px;
+  background-color: transparent;
+  color: var(--muted-foreground);
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-context-strip"]
+  :is(button, [role="button"]):is(:hover, [data-popup-open], [data-pressed]) {
+  background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}
+
 /* Transcript: quiet meta rows and summary rows. */
 [data-timeline-root] [data-timeline-row-kind="turn-fold"] {
   font-size: 12px;

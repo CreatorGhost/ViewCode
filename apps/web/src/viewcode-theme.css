@@ -532,18 +532,26 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   /* The selected row: a soft fill and a 2px accent bar, instead of a heavy block. */
   [data-testid="sidebar-row"][aria-current="page"],
   [data-testid="sidebar-row-child"][aria-current="page"] {
-    background-color: color-mix(in srgb, var(--app-theme-accent) 10%, transparent);
+    background-color: color-mix(in srgb, var(--app-theme-accent) 7%, transparent);
   }
   [data-testid="sidebar-row"][aria-current="page"]::before,
   [data-testid="sidebar-row-child"][aria-current="page"]::before {
     content: "";
     position: absolute;
-    left: 0;
-    top: 22%;
-    bottom: 22%;
+    /* Inside the rounded fill, centred, about 60% of the row. */
+    left: 3px;
+    top: 20%;
+    bottom: 20%;
     width: 2px;
-    border-radius: 1px;
+    border-radius: 9999px;
+    pointer-events: none;
     background: var(--app-theme-accent);
+  }
+  /* One left gutter for thread rows, project headers and Settled rows. */
+  [data-testid="sidebar-row"],
+  [data-testid="sidebar-project-row"],
+  [data-testid="sidebar-settled-group"] {
+    padding-left: 0.5rem;
   }
   /* Timestamps and badges are metadata: quieter until the row is hovered. */
   [data-testid="sidebar-row"] .tabular-nums {
