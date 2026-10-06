@@ -859,6 +859,9 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       {
         onDefect: () => setStreamError("Could not synchronize the thread."),
         onExpectedFailure: (cause) => setStreamError(formatThreadError(cause)),
+        // Doubles per consecutive failure (up to 30s). The stall watchdog
+        // below skips while an error is showing, and its restart starts a
+        // fresh subscription, so the delay begins at 250ms again.
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
