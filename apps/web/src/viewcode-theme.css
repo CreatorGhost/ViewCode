@@ -476,3 +476,26 @@ html[data-window-glass="true"] body {
     opacity: 0;
   }
 }
+
+/*
+ * App rail (components/rail/AppRail.tsx): a 3rem strip left of the thread sidebar. The
+ * sidebar's fixed container is shifted right of it instead of editing ui/sidebar.tsx, and
+ * collapsing slides the sidebar under the rail. Web only: macOS keeps the traffic-light
+ * inset in --workspace-titlebar-content-left.
+ */
+@media (min-width: 768px) {
+  [data-app-rail-layout] {
+    --app-rail-width: 3rem;
+  }
+  [data-app-rail-layout] [data-slot="sidebar-container"] {
+    left: var(--app-rail-width) !important;
+  }
+  [data-app-rail-layout] [data-collapsible="offcanvas"] [data-slot="sidebar-container"] {
+    left: calc(var(--app-rail-width) - var(--sidebar-width)) !important;
+  }
+  /* The toggle floats over the rail now, so content starts right after it. macOS keeps the
+     traffic-light inset. */
+  [data-app-rail-layout="web"] {
+    --workspace-titlebar-content-left: 0.75rem !important;
+  }
+}

@@ -33,6 +33,7 @@ import {
 } from "../panelAnimations";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
+import { AppRail } from "./rail/AppRail";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
@@ -289,10 +290,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       <SidebarProvider
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
+        data-app-rail-layout={isMacosDesktop ? "mac" : "web"}
         defaultOpen
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
+        <AppRail />
         <Sidebar
           side="left"
           collapsible="offcanvas"

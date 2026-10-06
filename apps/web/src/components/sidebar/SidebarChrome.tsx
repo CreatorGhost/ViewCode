@@ -109,7 +109,8 @@ function SidebarUtilityItem({
   onClick: () => void;
 }) {
   return (
-    <SidebarMenuItem className="shrink-0">
+    // The app rail carries these on desktop; the mobile sheet has no rail.
+    <SidebarMenuItem className="shrink-0 md:hidden">
       <Tooltip>
         <TooltipTrigger
           render={
