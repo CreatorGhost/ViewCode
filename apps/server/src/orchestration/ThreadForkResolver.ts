@@ -17,10 +17,22 @@ export const resolveThreadFork = Effect.fn("resolveThreadFork")(function* (input
   readonly forkThreadId: ThreadId;
   readonly forkFrom: ThreadForkSource;
 }) {
-  const projection = yield* ProjectionSnapshotQuery;
-  const source = yield* projection.getThreadDetailById(input.forkFrom.threadId, {
-    activityKinds: [],
-  });
+  // Optional so the normalizer's requirements do not grow for every caller;
+  // the engine's layer always provides it for real dispatches.
+  const found = yield* Effect.serviceOption(ProjectionSnapshotQuery);
+  if (Option.isNone(found)) {
+    return yield* new OrchestrationDispatchCommandError({
+      message: "Forking is unavailable: no projection is configured.",
+    });
+  }
+  const projection = found.value;
+  const source = yield* projection
+    .getThreadDetailById(input.forkFrom.threadId, { activityKinds: [] })
+    .pipe(
+      Effect.mapError(
+        (cause) => new OrchestrationDispatchCommandError({ message: cause.message }),
+      ),
+    );
   if (Option.isNone(source)) {
     return yield* new OrchestrationDispatchCommandError({
       message: `Thread '${input.forkFrom.threadId}' was not found, so it cannot be forked.`,
