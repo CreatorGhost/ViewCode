@@ -2759,6 +2759,11 @@ describe("ClaudeAdapterLive", () => {
     uuid: "result-limit",
   };
 
+  const rejectedWindow = {
+    type: "rate_limit_event",
+    rate_limit_info: { status: "rejected", rateLimitType: "five_hour" },
+    session_id: "sdk-session-limit",
+  };
   const assistantLimitText = "You've hit your session limit";
   const proxyThrottleText =
     "API Error: Server is temporarily limiting requests (not your usage limit) · litellm.RateLimitError: rate_limit_error. Please try again later";
@@ -2804,6 +2809,25 @@ describe("ClaudeAdapterLive", () => {
       expected: proxyThrottleText,
     },
     {
+      // A rejected window does not make another HTTP failure the usage limit.
+      name: "a server error with a rejected window",
+      messages: [rejectedWindow],
+      result: { ...rateLimitResult, api_error_status: 500 },
+      expected: genericApiErrorMessage,
+    },
+    {
+      name: "a rejected window ending for another reason",
+      messages: [rejectedWindow],
+      result: { ...rateLimitResult, terminal_reason: "prompt_too_long" },
+      expected: "Claude stopped: the prompt exceeds the model's context window.",
+    },
+    {
+      name: "a 429 with a rejected window",
+      messages: [rejectedWindow],
+      result: { ...rateLimitResult, api_error_status: 429 },
+      expected: usageLimitMessage,
+    },
+    {
       name: "a normal parent response after a rate limit",
       messages: [rateLimitAssistant, { ...rateLimitAssistant, error: undefined }],
       expected: genericApiErrorMessage,
@@ -2826,7 +2850,7 @@ describe("ClaudeAdapterLive", () => {
       ],
       expected: assistantLimitText,
     },
-  ])("classifies the terminal API failure after $name", ({ messages, expected }) => {
+  ])("classifies the terminal API failure after $name", ({ messages, result, expected }) => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -2844,7 +2868,7 @@ describe("ClaudeAdapterLive", () => {
       for (const [index, message] of messages.entries()) {
         harness.query.emit({ ...message, uuid: `assistant-${index}` } as unknown as SDKMessage);
       }
-      harness.query.emit(rateLimitResult as unknown as SDKMessage);
+      harness.query.emit((result ?? rateLimitResult) as unknown as SDKMessage);
 
       const events = Array.from(yield* Fiber.join(eventsFiber));
       const errors = events.filter((event) => event.type === "runtime.error");
@@ -2852,6 +2876,44 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(errors[0]?.payload.message, expected);
       assert.equal(completedTurn(events).state, "failed");
       assert.equal(completedTurn(events).errorMessage, expected);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("does not pause on the usage limit when the API called it a throttle", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "hello", attachments: [] });
+      harness.query.emit({
+        ...rateLimitAssistant,
+        uuid: "assistant-throttle",
+        message: {
+          ...rateLimitAssistant.message,
+          content: [{ type: "text", text: proxyThrottleText }],
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({ ...rejectedWindow, uuid: "window" } as unknown as SDKMessage);
+      harness.query.emit(rateLimitResult as unknown as SDKMessage);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      assert.deepEqual(
+        events.filter((event) => event.type === "runtime.warning"),
+        [],
+      );
+      assert.equal(completedTurn(events).errorMessage, proxyThrottleText);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

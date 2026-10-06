@@ -27,8 +27,8 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
-import { classifyLimitError } from "@t3tools/shared/usageLimit";
 import { describeClaudeApiRetry } from "./claudeApiRetry.ts";
+import { isClaudeUsageLimit } from "./claudeUsageLimitRule.ts";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
 import {
   ApprovalRequestId,
@@ -3587,18 +3587,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       });
       return;
     }
-    // Only a usage window Claude reported as rejected is the usage limit. A
-    // bare 429 (a proxy or the API throttling for a moment) keeps its own words,
-    // so it is retried rather than reported as out of usage. The words also win
-    // over a rejected window when they say outright that this is a throttle
-    // ("Server is temporarily limiting requests (not your usage limit)"): the
-    // CLI can report a rejected window for a gateway's 429, and calling that
-    // the usage limit parks the thread and marks its agents out of usage.
-    const responseSaysThrottle =
-      classifyLimitError(turn?.latestAssistantRateLimitText) === "transient";
+    // A bare 429 (a proxy or the API throttling for a moment) keeps its own
+    // words, so it is retried rather than reported as out of usage.
+    const usageLimited =
+      turn !== undefined &&
+      isClaudeUsageLimit({
+        rejectedWindows: turn.rejectedRateLimitTypes.size,
+        assistantRateLimitText: turn.latestAssistantRateLimitText,
+        apiErrorStatus: message.subtype === "success" ? message.api_error_status : undefined,
+        terminalReason: message.terminal_reason,
+      });
     const failureHint =
       turn?.authenticationFailureMessage ??
-      (turn && turn.rejectedRateLimitTypes.size > 0 && !responseSaysThrottle
+      (usageLimited
         ? "Claude usage limit reached. Send the message again once the limit resets."
         : turn?.latestAssistantRateLimited
           ? (turn.latestAssistantRateLimitText ?? "Claude API rate limited the request (429).")
@@ -4241,7 +4242,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           context.turnState.rejectedRateLimitTypes.delete(limitType);
         }
       }
-      if (blocked && context.turnState !== undefined) {
+      if (
+        blocked &&
+        context.turnState !== undefined &&
+        // The result decides with the same rule; a turn whose API reply
+        // already called this a throttle is not paused on the usage limit.
+        isClaudeUsageLimit({
+          rejectedWindows: context.turnState.rejectedRateLimitTypes.size,
+          assistantRateLimitText: context.turnState.latestAssistantRateLimitText,
+        })
+      ) {
         // Tracked per turn as a set of limit identities, not as the rendered
         // row: a parked window re-fires while the remaining wait shrinks, and a
         // turn can park on more than one window, so a single slot would let an

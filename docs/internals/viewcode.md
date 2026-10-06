@@ -176,9 +176,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   not evidence: a live litellm 429 used to read as "Claude usage limit reached" and mark a whole
   tree out of usage. The server's `limitKindOf` (`agents/usageResetTime.ts`) also treats a retry
   hint under five minutes ("try again in 1.2s") as a throttle, unless the turn saw a rejected
-  usage window. Claude's adapter only says "Claude usage limit reached" when a
-  `rate_limit_event` rejected a window during the turn; a bare `rate_limit` response keeps its
-  own text.
+  usage window. Claude's adapter only says "Claude usage limit reached" (in the result and in
+  the mid-turn "paused" row) when a `rate_limit_event` rejected a window during the turn and
+  nothing contradicts it: not the reply's own words ("not your usage limit"), not another HTTP
+  status than 429, not a terminal reason other than an API error or blocking limit
+  (`isClaudeUsageLimit`, `provider/Layers/claudeUsageLimitRule.ts`). A bare `rate_limit`
+  response keeps its own text.
 - A turn that ends with a usage limit marks the agent out of usage in AgentMessaging
   (`limited`, a `LimitMark`); a throttle never does. The mark never refuses a send: messages
   queue until `retryAfter` (the reset plus 60s; ten minutes on when no reset time is known),
