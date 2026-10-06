@@ -63,6 +63,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+/", command: "shortcuts.open", when: "!terminalFocus" },
   { key: "alt+arrowup", command: "diff.change.previous", when: "diffOpen && !editableFocus" },
   { key: "alt+arrowdown", command: "diff.change.next", when: "diffOpen && !editableFocus" },
+  { key: "mod+alt+f", command: "diff.file.jump", when: "diffOpen && !terminalFocus" },
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
   { key: "mod+shift+c", command: "thread.copyReference", when: "!terminalFocus" },

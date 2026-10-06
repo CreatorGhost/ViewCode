@@ -96,6 +96,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "shortcuts.open",
   "diff.change.previous",
   "diff.change.next",
+  "diff.file.jump",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;
