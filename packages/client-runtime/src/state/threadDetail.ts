@@ -70,6 +70,22 @@ export function mergeEnvironmentThread(
   };
 }
 
+/**
+ * Bytes of image attachments across the loaded messages. Providers that
+ * replay the whole conversation (Cursor) resend these on every turn, and past
+ * a size limit reject every turn of the thread; token counts do not predict
+ * that. Only loaded messages count, so a paginated thread reads low.
+ */
+export function threadImagePayloadBytes(messages: ReadonlyArray<OrchestrationMessage>): number {
+  let bytes = 0;
+  for (const message of messages) {
+    for (const attachment of message.attachments ?? []) {
+      if (attachment.type === "image") bytes += attachment.sizeBytes;
+    }
+  }
+  return bytes;
+}
+
 const NO_UNDELIVERED_MESSAGES: ReadonlyMap<string, string> = new Map();
 
 /**

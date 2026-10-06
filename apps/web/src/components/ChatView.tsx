@@ -513,6 +513,7 @@ import { ServerUpdateAction } from "./ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import { useUsageResumeBanner } from "./chat/useUsageResumeBanner";
 import { useViewcodeToolsBanner } from "./chat/useViewcodeToolsBanner";
+import { useImagePayloadBanner } from "./chat/useImagePayloadBanner";
 import {
   ComposerServerUpdateIcon,
   ComposerServerUpdateStatus,
@@ -1451,6 +1452,7 @@ function chatActionErrorMessage(error: unknown): string {
 const ENVIRONMENT_UNAVAILABLE_SEND_TOAST_TRAIL_SIZE = 3;
 /** How long another thread's messages may stand in while a thread loads. */
 const OTHER_THREAD_HOLD_MS = 1_500;
+const EMPTY_THREAD_MESSAGES: ReadonlyArray<ChatMessage> = [];
 const EMPTY_HELD_TURN_DIFF_SUMMARIES: readonly never[] = [];
 const noopHeldTurnDiff = (_turnId: TurnId, _filePath?: string) => {};
 const noopHeldRevert = (_targetTurnCount: number) => {};
@@ -6574,8 +6576,16 @@ export default function ChatView(props: ChatViewProps) {
     activities: threadActivities,
     sessionProviderName: activeThread?.session?.providerName,
   });
+  const imagePayloadBannerItem = useImagePayloadBanner({
+    threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
+    messages: activeThread?.messages ?? EMPTY_THREAD_MESSAGES,
+    providerName: activeThread?.session?.providerName,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
-    const viewcodeToolsItems = viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem];
+    const threadNoticeItems = [
+      ...(imagePayloadBannerItem === null ? [] : [imagePayloadBannerItem]),
+      ...(viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem]),
+    ];
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
     const resumeCompactionItems =
@@ -6594,7 +6604,7 @@ export default function ChatView(props: ChatViewProps) {
         ...backgroundLivenessItems,
         ...resumeCompactionItems,
         ...wokeThreadItems,
-        ...viewcodeToolsItems,
+        ...threadNoticeItems,
         ...parkedThreadItems,
       ];
     }
@@ -6644,7 +6654,7 @@ export default function ChatView(props: ChatViewProps) {
           setBranchMismatchDismissTick((tick) => tick + 1);
         },
       },
-      ...viewcodeToolsItems,
+      ...threadNoticeItems,
       ...parkedThreadItems,
     ];
   }, [
@@ -6652,6 +6662,7 @@ export default function ChatView(props: ChatViewProps) {
     backgroundLivenessBannerItem,
     feedbackBannerItems,
     handleRestoreThreadBranch,
+    imagePayloadBannerItem,
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
