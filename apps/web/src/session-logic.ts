@@ -182,6 +182,7 @@ export interface TimelineEntriesProjection {
 export function workEntrySignalsSevereFailure(entry: WorkLogEntry): boolean {
   return (
     entry.sourceActivityKind === "runtime.error" ||
+    entry.sourceActivityKind === "provider.turn.stalled" ||
     entry.sourceActivityKind?.endsWith(".failed") === true
   );
 }

@@ -75,6 +75,7 @@ import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as AgentMessaging from "./agents/AgentMessaging.ts";
 import * as UsageResume from "./agents/UsageResume.ts";
+import * as TurnStallWatchdog from "./orchestration/TurnStallWatchdog.ts";
 import * as PushNotifications from "./notifications/PushNotifications.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -288,6 +289,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(UsageResume.layer.pipe(Layer.provide(DesktopTelemetryReceiverLayerLive))),
   Layer.provideMerge(PushNotifications.layerLive),
   Layer.provideMerge(PullRequestWatchReactor.layer),
+  Layer.provideMerge(TurnStallWatchdog.layer),
   Layer.provideMerge(AgentMessaging.layer),
   Layer.provideMerge(PullRequestSyncReactor.layer),
   Layer.provideMerge(ThreadPullRequestReactor.layer),
