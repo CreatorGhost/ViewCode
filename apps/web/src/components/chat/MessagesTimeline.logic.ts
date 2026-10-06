@@ -48,10 +48,15 @@ import { agentToolkitLabel, handoffDividerLabel } from "./agentTimeline.logic";
 import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 
 export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
+export const THREAD_FORKED_ACTIVITY_KIND = "viewcode.thread.forked";
 
 /** Activities that render as a full-width divider instead of a work row. */
 export function isTimelineDividerActivityKind(kind: string | undefined): boolean {
-  return kind === "context-compaction" || kind === HANDOFF_ACTIVITY_KIND;
+  return (
+    kind === "context-compaction" ||
+    kind === HANDOFF_ACTIVITY_KIND ||
+    kind === THREAD_FORKED_ACTIVITY_KIND
+  );
 }
 
 const incomingAgentMessageByMessage = new WeakMap<ChatMessage, AgentMessageEnvelope | null>();
@@ -428,7 +433,9 @@ export type MessagesTimelineRow =
       createdAt: string;
       label: string;
       /** Compaction divider, or a ViewCode cross-provider handoff card. */
-      variant: "compaction" | "handoff";
+      variant: "compaction" | "handoff" | "fork";
+      /** Set on a fork divider: the thread it was forked from. */
+      forkedFrom?: { threadId: string; title: string };
     }
   | {
       /** A message another agent delivered to this thread (a user turn). */
@@ -1314,7 +1321,12 @@ export function deriveMessagesTimelineRows(input: {
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         label: isHandoff ? handoffDividerLabel(timelineEntry.entry) : timelineEntry.entry.label,
-        variant: isHandoff ? "handoff" : "compaction",
+        variant: isHandoff
+          ? "handoff"
+          : timelineEntry.entry.forkedFrom
+            ? "fork"
+            : "compaction",
+        ...(timelineEntry.entry.forkedFrom ? { forkedFrom: timelineEntry.entry.forkedFrom } : {}),
       });
       continue;
     }

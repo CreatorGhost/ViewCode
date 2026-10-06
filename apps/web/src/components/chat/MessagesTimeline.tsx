@@ -169,6 +169,8 @@ import {
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { ForkFromMessageButton } from "../agents/ForkFromMessageButton";
+import { ForkSourceDivider } from "../agents/ForkSourceDivider";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { inferEntryKindFromPath } from "../../pierre-icons";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
@@ -1932,6 +1934,14 @@ function ContextCompactionTimelineRow({
 }: {
   row: Extract<TimelineRow, { kind: "context-compaction" }>;
 }) {
+  const ctx = use(TimelineRowCtx);
+  if (row.variant === "fork" && row.forkedFrom) {
+    return <ForkSourceDivider
+        label={row.label}
+        source={row.forkedFrom}
+        environmentId={ctx.threadRef?.environmentId}
+      />;
+  }
   if (row.variant === "handoff") {
     return (
       <div
@@ -2309,6 +2319,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             {typeof revertTurnCount === "number" && (
               <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
             )}
+            {ctx.threadRef ? (
+              <ForkFromMessageButton threadRef={ctx.threadRef} messageId={row.message.id} />
+            ) : null}
             {resolvedContext.text && (
               <MessageCopyButton
                 // Structured paste needs the canonical links to retain their positions.
@@ -2566,6 +2579,9 @@ function AssistantMessageMeta({
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
       />
+      {!message.streaming && ctx.threadRef ? (
+        <ForkFromMessageButton threadRef={ctx.threadRef} messageId={message.id} />
+      ) : null}
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>

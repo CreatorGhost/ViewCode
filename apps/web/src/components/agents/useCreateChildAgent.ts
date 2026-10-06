@@ -15,7 +15,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
 /** Resolves once the thread's shell reaches the client store (false on timeout). */
-function waitForThreadShell(ref: ScopedThreadRef, timeoutMs = 5_000): Promise<boolean> {
+export function waitForThreadShell(ref: ScopedThreadRef, timeoutMs = 5_000): Promise<boolean> {
   const atom = environmentThreadShells.threadShellAtom(ref);
   if (appAtomRegistry.get(atom) !== null) return Promise.resolve(true);
   return new Promise((resolve) => {
