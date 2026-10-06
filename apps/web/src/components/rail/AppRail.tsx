@@ -81,7 +81,13 @@ function UsageRing({ ring }: { ring: RailUsageRing }) {
 }
 
 /** Mounted only while the card is open, so closed rings never probe the provider. */
-function UsageRingCard({ ring, environmentId }: { ring: RailUsageRing; environmentId: EnvironmentId }) {
+function UsageRingCard({
+  ring,
+  environmentId,
+}: {
+  ring: RailUsageRing;
+  environmentId: EnvironmentId;
+}) {
   const { openedAt } = useUsageRefreshOnOpen(environmentId, [ring.entry]);
   const limits = ring.entry.snapshot.usageLimits;
   const windows = limits ? orderUsageWindows(limits.windows) : [];

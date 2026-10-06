@@ -228,6 +228,8 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
+import { SidebarProjectHoverCard } from "./sidebar/SidebarProjectHoverCard";
+import { threadStatusLabel } from "./sidebar/sidebarHoverCard.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Spinner } from "./ui/spinner";
@@ -364,6 +366,13 @@ function SidebarThreadTooltip({
           {thread.title}
         </div>
         <div className="grid gap-1.5 pl-0.5 text-xs text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-2 text-foreground/75">
+            <span className="min-w-0 truncate">
+              {threadStatusLabel(resolveSidebarThreadStatus(thread))}
+              {" · "}
+              {formatRelativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt)}
+            </span>
+          </div>
           {projectDisplayName ? (
             <div className="flex min-w-0 items-center gap-2">
               {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
@@ -1418,80 +1427,82 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
   );
   const FolderGlyph = props.expanded ? FolderOpenIcon : FolderIcon;
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={props.expanded}
-      data-testid="sidebar-project-row"
-      data-thread-selection-safe
-      className={cn(
-        rowSurfaceBaseClassName,
-        "h-7 pl-2 font-medium text-sidebar-foreground/70 hover:bg-sidebar-foreground/6 hover:text-sidebar-foreground",
-      )}
-      onClick={handleToggle}
-      onKeyDown={handleKeyDown}
-      onContextMenu={handleContextMenu}
-    >
-      <button
-        type="button"
-        aria-label={`Change icon and color for ${group.displayName}`}
-        onClick={handleChooseIconClick}
-        onKeyDown={(event) => event.stopPropagation()}
-        className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm hover:bg-sidebar-foreground/8"
-      >
-        {group.projectIcon || group.faviconPath ? (
-          <ProjectFavicon project={group} className="size-3.5" />
-        ) : (
-          <FolderGlyph
-            aria-hidden
-            className={cn(
-              "size-3.5",
-              projectIconColorClassName(deriveProjectIdentity(group.title).color),
-            )}
-          />
+    <SidebarProjectHoverCard group={group} threadCount={props.threadCount}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={props.expanded}
+        data-testid="sidebar-project-row"
+        data-thread-selection-safe
+        className={cn(
+          rowSurfaceBaseClassName,
+          "h-7 pl-2 font-medium text-sidebar-foreground/70 hover:bg-sidebar-foreground/6 hover:text-sidebar-foreground",
         )}
-      </button>
-      <span className="min-w-0 flex-1 truncate">{group.displayName}</span>
-      {props.showEnvironment ? (
-        <ProjectEnvironmentBadge
-          group={group}
-          primaryEnvironmentId={props.primaryEnvironmentId}
-          machineByEnvironmentId={props.machineByEnvironmentId}
-        />
-      ) : null}
-      {!props.expanded && props.threadCount > 0 ? (
-        <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground tabular-nums group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden">
-          {props.threadCount}
+        onClick={handleToggle}
+        onKeyDown={handleKeyDown}
+        onContextMenu={handleContextMenu}
+      >
+        <button
+          type="button"
+          aria-label={`Change icon and color for ${group.displayName}`}
+          onClick={handleChooseIconClick}
+          onKeyDown={(event) => event.stopPropagation()}
+          className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm hover:bg-sidebar-foreground/8"
+        >
+          {group.projectIcon || group.faviconPath ? (
+            <ProjectFavicon project={group} className="size-3.5" />
+          ) : (
+            <FolderGlyph
+              aria-hidden
+              className={cn(
+                "size-3.5",
+                projectIconColorClassName(deriveProjectIdentity(group.title).color),
+              )}
+            />
+          )}
+        </button>
+        <span className="min-w-0 flex-1 truncate">{group.displayName}</span>
+        {props.showEnvironment ? (
+          <ProjectEnvironmentBadge
+            group={group}
+            primaryEnvironmentId={props.primaryEnvironmentId}
+            machineByEnvironmentId={props.machineByEnvironmentId}
+          />
+        ) : null}
+        {!props.expanded && props.threadCount > 0 ? (
+          <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground tabular-nums group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden">
+            {props.threadCount}
+          </span>
+        ) : null}
+        <span className="hidden shrink-0 items-center gap-0.5 group-hover/sidebar-row:flex group-focus-visible/sidebar-row:flex group-has-[:focus-visible]/sidebar-row:flex">
+          <SidebarRowAction
+            label={
+              props.searching
+                ? `Close search in ${group.displayName}`
+                : `Search threads in ${group.displayName}`
+            }
+            tooltip={props.searching ? "Close search" : "Search this project"}
+            onClick={handleSearchClick}
+          >
+            <SearchIcon className="size-3.5" />
+          </SidebarRowAction>
+          <SidebarRowAction
+            label={`New thread in ${group.displayName}`}
+            tooltip="New thread"
+            onClick={handleNewThreadClick}
+          >
+            <PlusIcon className="size-3.5" />
+          </SidebarRowAction>
+          <SidebarRowAction
+            label={`${group.displayName} actions`}
+            tooltip="More actions"
+            onClick={handleMenuClick}
+          >
+            <EllipsisIcon className="size-3.5" />
+          </SidebarRowAction>
         </span>
-      ) : null}
-      <span className="hidden shrink-0 items-center gap-0.5 group-hover/sidebar-row:flex group-focus-visible/sidebar-row:flex group-has-[:focus-visible]/sidebar-row:flex">
-        <SidebarRowAction
-          label={
-            props.searching
-              ? `Close search in ${group.displayName}`
-              : `Search threads in ${group.displayName}`
-          }
-          tooltip={props.searching ? "Close search" : "Search this project"}
-          onClick={handleSearchClick}
-        >
-          <SearchIcon className="size-3.5" />
-        </SidebarRowAction>
-        <SidebarRowAction
-          label={`New thread in ${group.displayName}`}
-          tooltip="New thread"
-          onClick={handleNewThreadClick}
-        >
-          <PlusIcon className="size-3.5" />
-        </SidebarRowAction>
-        <SidebarRowAction
-          label={`${group.displayName} actions`}
-          tooltip="More actions"
-          onClick={handleMenuClick}
-        >
-          <EllipsisIcon className="size-3.5" />
-        </SidebarRowAction>
-      </span>
-    </div>
+      </div>
+    </SidebarProjectHoverCard>
   );
 });
 
