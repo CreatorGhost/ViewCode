@@ -1719,6 +1719,27 @@ function isOverloadedResult(result: SDKResultMessage): boolean {
   return result.subtype === "success" && result.api_error_status === 529;
 }
 
+/**
+ * True when a result answers a different Claude turn than the active real
+ * turn. Claude runs turns of its own between user prompts (a resumed session
+ * first reports background tasks the previous process left behind; peer
+ * messages wake the agent), and a queued prompt waits behind them. Real turns
+ * send their turn id as the prompt uuid, which newer CLIs echo in
+ * `user_message_uuids`. Claude-initiated turns echo nothing and carry a
+ * non-human `origin`. Results with neither field (older CLIs) still complete
+ * the active turn.
+ */
+function isResultForOtherTurn(result: SDKResultMessage, turn: ClaudeTurnState): boolean {
+  // A synthetic turn mirrors a Claude-initiated turn, so any result is its own.
+  if (turn.synthetic) return false;
+  const echoed = [
+    ...(result.user_message_uuids ?? []),
+    ...(result.user_message_uuid ? [result.user_message_uuid] : []),
+  ];
+  if (echoed.length > 0) return !echoed.includes(turn.turnId);
+  return result.origin !== undefined && result.origin.kind !== "human";
+}
+
 /** Derives turn status and its error from the same provider result. */
 function resultOutcome(
   result: SDKResultMessage,
@@ -3544,6 +3565,18 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     const turn = context.turnState;
+    if (turn && isResultForOtherTurn(message, turn)) {
+      // Completing here would end the user's turn before its prompt runs. A
+      // `/compact` would then compact with no turn open and leave the thread
+      // looking busy.
+      yield* Effect.logInfo("claude.turn.result-for-other-turn", {
+        threadId: context.session.threadId,
+        turnId: turn.turnId,
+        origin: message.origin?.kind,
+        numTurns: message.num_turns,
+      });
+      return;
+    }
     // Only a usage window Claude reported as rejected is the usage limit. A
     // bare 429 (a proxy or the API throttling for a moment) keeps its own words,
     // so it is retried rather than reported as out of usage. The words also win
