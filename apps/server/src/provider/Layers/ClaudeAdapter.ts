@@ -27,6 +27,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import { classifyLimitError } from "@t3tools/shared/usageLimit";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
 import {
   ApprovalRequestId,
@@ -3545,10 +3546,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     const turn = context.turnState;
     // Only a usage window Claude reported as rejected is the usage limit. A
     // bare 429 (a proxy or the API throttling for a moment) keeps its own words,
-    // so it is retried rather than reported as out of usage.
+    // so it is retried rather than reported as out of usage. The words also win
+    // over a rejected window when they say outright that this is a throttle
+    // ("Server is temporarily limiting requests (not your usage limit)"): the
+    // CLI can report a rejected window for a gateway's 429, and calling that
+    // the usage limit parks the thread and marks its agents out of usage.
+    const responseSaysThrottle =
+      classifyLimitError(turn?.latestAssistantRateLimitText) === "transient";
     const failureHint =
       turn?.authenticationFailureMessage ??
-      (turn && turn.rejectedRateLimitTypes.size > 0
+      (turn && turn.rejectedRateLimitTypes.size > 0 && !responseSaysThrottle
         ? "Claude usage limit reached. Send the message again once the limit resets."
         : turn?.latestAssistantRateLimited
           ? (turn.latestAssistantRateLimitText ?? "Claude API rate limited the request (429).")

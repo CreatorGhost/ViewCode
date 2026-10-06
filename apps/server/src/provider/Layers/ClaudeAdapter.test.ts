@@ -2653,6 +2653,26 @@ describe("ClaudeAdapterLive", () => {
       expected: proxyThrottleText,
     },
     {
+      // The CLI can report a rejected window for a gateway's 429; the response
+      // saying outright that it is not the usage limit wins.
+      name: "a proxy's transient 429 with a rejected window",
+      messages: [
+        {
+          type: "rate_limit_event",
+          rate_limit_info: { status: "rejected" },
+          session_id: "sdk-session-limit",
+        },
+        {
+          ...rateLimitAssistant,
+          message: {
+            ...rateLimitAssistant.message,
+            content: [{ type: "text", text: proxyThrottleText }],
+          },
+        },
+      ],
+      expected: proxyThrottleText,
+    },
+    {
       name: "a normal parent response after a rate limit",
       messages: [rateLimitAssistant, { ...rateLimitAssistant, error: undefined }],
       expected: genericApiErrorMessage,
