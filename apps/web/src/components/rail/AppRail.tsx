@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { useNavigate } from "@tanstack/react-router";
-import { ChartNoAxesColumnIcon, EllipsisIcon, SettingsIcon, SmartphoneIcon } from "lucide-react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
+import { SettingsIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import { cn } from "~/lib/utils";
@@ -21,11 +21,9 @@ import {
   shortPlanName,
 } from "../chat/composerUsageLimits.logic";
 import { useUsageRefreshOnOpen } from "../chat/useUsageRefreshOnOpen";
-import { openConnectPhoneDialog } from "../connectPhone/ConnectPhoneDialog";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { Button } from "../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { buildRailUsageRings, type RailRingTone, type RailUsageRing } from "./appRail.logic";
@@ -209,45 +207,24 @@ function RailButton(props: {
   );
 }
 
-const RailMoreMenu = memo(function RailMoreMenu() {
+/** Pull Requests is the only destination the rings and Settings don't already cover. */
+const RailPullRequestsButton = memo(function RailPullRequestsButton(props: { active: boolean }) {
   const navigate = useNavigate();
   const { environments } = useEnvironments();
   const pullRequestsSupported = environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
   );
+  if (!pullRequestsSupported) return null;
   return (
-    <Menu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <MenuTrigger render={<Button variant="ghost-muted" size="icon" aria-label="More" />} />
-          }
-        >
-          <EllipsisIcon />
-        </TooltipTrigger>
-        <TooltipPopup side="right">More</TooltipPopup>
-      </Tooltip>
-      <MenuPopup side="right" align="end" sideOffset={10}>
-        {pullRequestsSupported ? (
-          <MenuItem
-            onClick={() =>
-              void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() })
-            }
-          >
-            <PullRequestGlyph.pullRequest />
-            Pull Requests
-          </MenuItem>
-        ) : null}
-        <MenuItem onClick={() => void navigate({ to: "/usage" })}>
-          <ChartNoAxesColumnIcon />
-          Usage
-        </MenuItem>
-        <MenuItem onClick={() => openConnectPhoneDialog()}>
-          <SmartphoneIcon />
-          Connect phone
-        </MenuItem>
-      </MenuPopup>
-    </Menu>
+    <RailButton
+      label="Pull Requests"
+      active={props.active}
+      onClick={() =>
+        void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() })
+      }
+    >
+      <PullRequestGlyph.pullRequest />
+    </RailButton>
   );
 });
 
@@ -260,6 +237,9 @@ export const AppRail = memo(function AppRail() {
   const providers = useAtomValue(primaryServerProvidersAtom);
   const settings = useAtomValue(primaryServerSettingsAtom);
   const { onSettings, openSettings } = useAppSettingsRoute();
+  const onPullRequests = useLocation({
+    select: (location) => location.pathname.startsWith("/pull-requests"),
+  });
   const rings = useMemo(
     () =>
       buildRailUsageRings(
@@ -286,7 +266,7 @@ export const AppRail = memo(function AppRail() {
         <RailButton label="Settings" active={onSettings} onClick={openSettings}>
           <SettingsIcon />
         </RailButton>
-        <RailMoreMenu />
+        <RailPullRequestsButton active={onPullRequests} />
       </div>
     </nav>
   );

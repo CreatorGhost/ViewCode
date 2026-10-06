@@ -170,7 +170,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   return (
     <SidebarMenu className="flex-row items-center">
       {isOnUtilityPage ? (
-        <SidebarMenuItem className="min-w-0 flex-1">
+        // Desktop has the header Back button; the mobile sheet keeps this one.
+        <SidebarMenuItem className="min-w-0 flex-1 md:hidden">
           <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />
             <span>Back</span>

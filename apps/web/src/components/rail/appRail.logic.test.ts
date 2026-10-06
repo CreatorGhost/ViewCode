@@ -69,12 +69,11 @@ describe("buildRailUsageRings", () => {
     expect(ring?.tone).toBe("healthy");
   });
 
-  it("skips disabled accounts and keeps limit-less ones quiet", () => {
+  it("skips disabled accounts and accounts that report no usage limits", () => {
     const rings = buildRailUsageRings([
       entry("a", "codex", [], { enabled: false }),
       entry("b", "opencode", []),
     ]);
-    expect(rings).toHaveLength(1);
-    expect(rings[0]).toMatchObject({ window: null, remainingPercent: null, tone: null });
+    expect(rings).toHaveLength(0);
   });
 });

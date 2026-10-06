@@ -16,9 +16,9 @@ export function railRingTone(remainingPercent: number): RailRingTone {
 export type RailUsageRing = {
   entry: ProviderInstanceEntry;
   /** The most constrained window, which is what the ring draws. */
-  window: ServerProviderUsageWindow | null;
-  remainingPercent: number | null;
-  tone: RailRingTone | null;
+  window: ServerProviderUsageWindow;
+  remainingPercent: number;
+  tone: RailRingTone;
 };
 
 /** The window closest to exhaustion; the ring warns about whichever limit hits first. */
@@ -38,16 +38,20 @@ export function mostConstrainedWindow(
   );
 }
 
-/** One ring per enabled, reachable account; accounts without limits still get a (quiet) ring. */
+/**
+ * One ring per enabled, reachable account that reports usage limits. An account
+ * with no limit windows (no subscription, or a provider that reports none) has
+ * nothing to show, so it gets no ring.
+ */
 export function buildRailUsageRings(
   entries: ReadonlyArray<ProviderInstanceEntry>,
 ): ReadonlyArray<RailUsageRing> {
   return entries
     .filter((entry) => entry.enabled && entry.isAvailable && entry.installed)
-    .map((entry) => {
+    .flatMap((entry) => {
       const window = mostConstrainedWindow(entry);
-      if (!window) return { entry, window: null, remainingPercent: null, tone: null };
+      if (!window) return [];
       const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent));
-      return { entry, window, remainingPercent, tone: railRingTone(remainingPercent) };
+      return [{ entry, window, remainingPercent, tone: railRingTone(remainingPercent) }];
     });
 }
