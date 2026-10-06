@@ -792,6 +792,30 @@ export const ThreadPullRequestKey = Schema.Struct({
 });
 export type ThreadPullRequestKey = typeof ThreadPullRequestKey.Type;
 
+/**
+ * Present while the server watches the pull request for its thread (ViewCode port of upstream's
+ * PR watch). The server wakes the thread's agent when checks finish on the head commit, someone
+ * else comments, or the branch starts to conflict. The other fields record what the agent was
+ * last told, so each change is reported once.
+ */
+export const ThreadPullRequestWatch = Schema.Struct({
+  startedAt: IsoDateTime,
+  /** Head commit at the last pass; null where the host does not report one. */
+  headSha: Schema.NullOr(TrimmedNonEmptyString),
+  /** Failed checks on that commit the agent was told about; a rerun that fails again is news. */
+  failedChecks: Schema.Array(TrimmedNonEmptyString),
+  /** The agent was told the checks on that commit passed. */
+  passed: Schema.Boolean,
+  /** Remarks from others created up to this host time were reported. */
+  remarksThrough: IsoDateTime,
+  /** Remarks created exactly at `remarksThrough` that were reported, so a late one still counts. */
+  remarkIds: Schema.Array(TrimmedNonEmptyString),
+  conflicting: Schema.Boolean,
+  /** Comment-only wakes in a row. Watching stops at a limit, so bots cannot loop it. */
+  wakes: NonNegativeInt,
+});
+export type ThreadPullRequestWatch = typeof ThreadPullRequestWatch.Type;
+
 export const ThreadPullRequestLink = Schema.Struct({
   ...ThreadPullRequestKey.fields,
   url: TrimmedNonEmptyString,
@@ -799,6 +823,7 @@ export const ThreadPullRequestLink = Schema.Struct({
   linkedAt: IsoDateTime,
   snapshot: Schema.NullOr(ThreadPullRequestSnapshot),
   stack: Schema.NullOr(ThreadPullRequestStack),
+  watch: Schema.optional(ThreadPullRequestWatch),
 });
 export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 
@@ -1303,6 +1328,18 @@ const ThreadPullRequestUnlinkCommand = Schema.Struct({
   ...ThreadPullRequestKey.fields,
 });
 
+/** Starts or stops watching a pull request; starting links an unlinked one when `link` is given. */
+const ThreadPullRequestWatchCommand = Schema.Struct({
+  type: Schema.Literal("thread.pull-request.watch"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  ...ThreadPullRequestKey.fields,
+  watching: Schema.Boolean,
+  link: Schema.optional(
+    Schema.Struct({ url: TrimmedNonEmptyString, source: ThreadPullRequestLinkSource }),
+  ),
+});
+
 const ThreadRuntimeModeSetCommand = Schema.Struct({
   type: Schema.Literal("thread.runtime-mode.set"),
   commandId: CommandId,
@@ -1474,6 +1511,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
+  ThreadPullRequestWatchCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
@@ -1508,6 +1546,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
+  ThreadPullRequestWatchCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
@@ -1688,6 +1727,17 @@ const ThreadPullRequestLinkSyncCommand = Schema.Struct({
   stack: Schema.NullOr(ThreadPullRequestStack),
 });
 
+/** What a watch pass saw; applied only while the watch that started at `startedAt` is on. */
+const ThreadPullRequestWatchSyncCommand = Schema.Struct({
+  type: Schema.Literal("thread.pull-request-watch.sync"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  ...ThreadPullRequestKey.fields,
+  startedAt: IsoDateTime,
+  /** Null ends the watch. */
+  watch: Schema.NullOr(ThreadPullRequestWatch),
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
@@ -1708,6 +1758,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTitleRefineCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
+  ThreadPullRequestWatchSyncCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 

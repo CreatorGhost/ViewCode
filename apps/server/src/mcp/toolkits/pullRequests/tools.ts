@@ -108,6 +108,24 @@ export class PullRequestUnlinkFailedError extends Schema.TaggedError<PullRequest
   }
 }
 
+export class PullRequestWatchFailedError extends Schema.TaggedError<PullRequestWatchFailedError>()(
+  "PullRequestWatchFailedError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not change whether the pull request is watched.";
+  }
+}
+
+export class PullRequestNotWatchableError extends Schema.TaggedError<PullRequestNotWatchableError>()(
+  "PullRequestNotWatchableError",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return `Cannot watch this pull request: ${this.reason}.`;
+  }
+}
+
 export class PullRequestListFailedError extends Schema.TaggedError<PullRequestListFailedError>()(
   "PullRequestListFailedError",
   { cause: Schema.Defect() },
@@ -126,6 +144,8 @@ export const PullRequestToolError = Schema.Union([
   PullRequestLinkFailedError,
   PullRequestUnlinkFailedError,
   PullRequestListFailedError,
+  PullRequestWatchFailedError,
+  PullRequestNotWatchableError,
 ]);
 export type PullRequestToolError = typeof PullRequestToolError.Type;
 
@@ -154,9 +174,21 @@ export const UnlinkPullRequestResult = Schema.Struct({
 });
 export type UnlinkPullRequestResult = typeof UnlinkPullRequestResult.Type;
 
+export const WatchPullRequestResult = Schema.Struct({
+  ...PullRequestIdentity,
+  watching: Schema.Boolean.annotate({
+    description: "Whether ViewCode now watches the pull request for this thread.",
+  }),
+  wasWatching: Schema.Boolean.annotate({
+    description: "Whether it was already watched before the call.",
+  }),
+});
+export type WatchPullRequestResult = typeof WatchPullRequestResult.Type;
+
 export const ThreadPullRequestEntry = Schema.Struct({
   ...PullRequestIdentity,
   source: ThreadPullRequestLinkSource,
+  watching: Schema.Boolean,
   state: Schema.NullOr(PullRequestState),
   title: Schema.NullOr(Schema.String),
   headBranch: Schema.NullOr(Schema.String),
@@ -213,7 +245,7 @@ const UnlinkPullRequestTool = Tool.make("unlink_pull_request", {
   .annotate(Tool.OpenWorld, false);
 
 const ListThreadPullRequestsTool = Tool.make("list_thread_pull_requests", {
-  description: `List the pull requests linked to this thread with their last known host state, and how they chain into stacks (bottom to top). ${REGISTER_EVERY_PR}`,
+  description: `List the pull requests linked to this thread with their last known host state, whether ViewCode watches each one, and how they chain into stacks (bottom to top). ${REGISTER_EVERY_PR}`,
   success: ListThreadPullRequestsResult,
   failure: PullRequestToolError,
   dependencies,
@@ -224,8 +256,38 @@ const ListThreadPullRequestsTool = Tool.make("list_thread_pull_requests", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const WatchPullRequestTool = Tool.make("watch_pull_request", {
+  description:
+    "Have ViewCode watch an open pull request for this thread, linking it first if needed. ViewCode checks it every two minutes and wakes you with a message when a check fails, all checks pass, someone else comments or reviews, or the branch starts to conflict with its base. Use this to monitor or babysit a pull request instead of polling, sleeping, or running a watcher. Only comments posted after this call wake you, so handle the existing ones first, then end your turn. A wake is news, not a merge decision: check readiness yourself before merging. Watching ends when the pull request merges or closes, when ViewCode cannot read it 8 times in a row, after 10 comment-only wakes in a row, when the thread settles or is archived, or when you call unwatch_pull_request.",
+  parameters: PullRequestTargetInput,
+  success: WatchPullRequestResult,
+  failure: PullRequestToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Watch pull request")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const UnwatchPullRequestTool = Tool.make("unwatch_pull_request", {
+  description:
+    "Stop ViewCode from watching a pull request for this thread. The pull request stays linked. Pass the URL, or repository plus number.",
+  parameters: PullRequestTargetInput,
+  success: WatchPullRequestResult,
+  failure: PullRequestToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Stop watching pull request")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const PullRequestsToolkit = Toolkit.make(
   LinkPullRequestTool,
   UnlinkPullRequestTool,
   ListThreadPullRequestsTool,
+  WatchPullRequestTool,
+  UnwatchPullRequestTool,
 );

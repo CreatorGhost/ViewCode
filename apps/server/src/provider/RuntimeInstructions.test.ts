@@ -10,6 +10,12 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).toContain("call list_thread_pull_requests and link any PR");
   });
 
+  it("sends requests to babysit a PR to watch_pull_request instead of polling", () => {
+    const instructions = buildRuntimeInstructions({ harness: "Codex" });
+    expect(instructions).toContain("exposes watch_pull_request, call it and end your turn");
+    expect(instructions).toContain("do not poll, sleep, or run your own watcher");
+  });
+
   it("routes requests for sub-agents to visible ViewCode agents by default", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
     expect(instructions).toContain("create ViewCode agents by default");
@@ -41,6 +47,7 @@ describe("buildRuntimeInstructions", () => {
       expect(instructions).toContain("<runtime_info>");
       expect(instructions).toContain("are not available in this session");
       expect(instructions).not.toContain("<pull_request_linking>");
+      expect(instructions).not.toContain("<pull_request_watch>");
       expect(instructions).not.toContain("<viewcode_agents>");
       expect(instructions).not.toContain("call viewcode_list_models");
     },

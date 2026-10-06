@@ -154,6 +154,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       threads, and routes PullRequestRef.host across projects on the same host. Same
       version-skew contract as threadSettlement. */
   threadPullRequests: Schema.optionalKey(Schema.Boolean),
+  /** Server understands thread.pull-request.watch and wakes agents on pull request changes. */
+  threadPullRequestWatch: Schema.optionalKey(Schema.Boolean),
   pullRequestStackActions: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows

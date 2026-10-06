@@ -45,6 +45,7 @@ import {
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import { decidePullRequestWatch, withoutPullRequestWatch } from "./pullRequestWatch.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -1246,7 +1247,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           type: "thread.pull-request-linked",
           payload: {
             threadId: command.threadId,
-            link: { ...existing, source: "stack-dismissed" },
+            link: { ...withoutPullRequestWatch(existing), source: "stack-dismissed" },
             updatedAt: occurredAt,
           },
         };
@@ -1290,6 +1291,39 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           snapshot: command.snapshot,
           stack: command.stack,
           updatedAt: occurredAt,
+        },
+      };
+    }
+
+    // ViewCode pull request watches ride on the link, so they reuse the linked event.
+    case "thread.pull-request.watch":
+    case "thread.pull-request-watch.sync": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      const decided = decidePullRequestWatch(thread, command, occurredAt);
+      if ("rejected" in decided) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: decided.rejected,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.pull-request-linked",
+        payload: {
+          threadId: command.threadId,
+          link: decided.link,
+          // Starting or stopping is activity; recorded progress is not.
+          updatedAt: command.type === "thread.pull-request.watch" ? occurredAt : thread.updatedAt,
         },
       };
     }

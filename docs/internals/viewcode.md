@@ -240,6 +240,26 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   tells agents to use a vendor's own provider (GPT → Codex) over resellers
   (Command Code, OpenCode, Cursor) unless the user names the reseller.
 
+### Pull request watches (port of upstream's v2 PR watch onto v1)
+
+- The watch is an optional `watch` on the thread's pull request link, persisted in
+  `projection_thread_pull_requests.watch_json` (migration 056, idempotent like 055 so it can be
+  renumbered after upstream's). `thread.pull-request.watch` and the internal
+  `thread.pull-request-watch.sync` emit the existing `thread.pull-request-linked` event with the
+  new link, so the projector, projection pipeline and client reducers needed no new case and older
+  clients ignore the field. A side effect: each recorded watch change also triggers one pull
+  request sync read (`PullRequestSyncReactor` refreshes on every linked event).
+- The watch records what the agent was **told**, not what was seen. `PullRequestWatchReactor`
+  starts the wake through `AgentMessaging.wake` (the same turn path as agent messages and usage
+  resume), and only a started turn records the new state. A busy, paused or out-of-usage thread
+  keeps the wake in memory and gets it on the next `thread.session-set` that is not live, or the
+  next pass; a restart loses it and the next pass reports the same news again. Passes and those
+  turn-end deliveries are serialized, and a sync applies only to the watch whose `startedAt` it
+  read, so a stop wins over a pass in flight.
+- Left out of the port for now: upstream's required-check gate (`isRequired` in the GraphQL core
+  read), its host fingerprint gating, paging long review threads, and edited-comment wakes. A
+  pull request with nothing in flight and an unmoved sync snapshot is re-read every 10 minutes.
+
 ### Command Code
 
 - Headless CLI adapter (`cmd -p --output-format json`, `--resume <id>`). Its stdin

@@ -322,6 +322,16 @@ export interface AgentMessagingShape {
     reason: "usage" | "transient",
   ) => Effect.Effect<"started" | "busy" | "paused" | "gone", AgentMessagingError>;
   /**
+   * Starts a server-written turn (a pull request watch wake) when the thread is free. "held"
+   * means the user paused it or it is out of usage; "busy" means a turn or queued mail comes
+   * first. Either way the caller tries again later.
+   */
+  readonly wake: (
+    threadId: ThreadId,
+    messageId: MessageId,
+    text: string,
+  ) => Effect.Effect<"started" | "busy" | "held" | "gone", AgentMessagingError>;
+  /**
    * Records what happens to a thread stopped on a usage limit (`resumeAt` when
    * an automatic resume is scheduled), or clears it with null. Clients read it
    * from `controlChanges`.
@@ -1650,6 +1660,20 @@ const make = Effect.gen(function* () {
       return "started" as const;
     });
 
+  const wake: AgentMessagingShape["wake"] = (threadId, messageId, text) =>
+    Effect.gen(function* () {
+      const thread = (yield* shells).find((entry) => entry.id === threadId);
+      if (!thread || thread.archivedAt !== null) return "gone" as const;
+      if (paused.has(threadId) || blocks(threadId, yield* now)) return "held" as const;
+      if (ownTurns.has(threadId) || isBusy(thread) || (queues.get(threadId)?.length ?? 0) > 0) {
+        return "busy" as const;
+      }
+      yield* startTurn(thread, text, null, messageId).pipe(
+        Effect.mapError((cause) => new AgentMessagingError({ reason: String(cause) })),
+      );
+      return "started" as const;
+    });
+
   const start: AgentMessagingShape["start"] = Effect.fn("AgentMessaging.start")(function* () {
     const events = yield* engine.subscribeDomainEvents;
     const providerChanges = providerRegistry.streamChanges;
@@ -1692,6 +1716,7 @@ const make = Effect.gen(function* () {
     resume,
     discard,
     continueAfterLimit,
+    wake,
     setUsageResume,
     controlChanges: SubscriptionRef.changes(control),
     start,
