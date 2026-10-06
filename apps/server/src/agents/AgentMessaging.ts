@@ -262,6 +262,7 @@ export interface AgentMessagingShape {
       readonly effort?: string | undefined;
       readonly fastMode?: boolean | undefined;
       readonly replyExpected?: boolean | undefined;
+      readonly task?: string | undefined;
     },
   ) => Effect.Effect<SpawnResult, AgentMessagingError>;
   readonly sendMessage: (
@@ -501,6 +502,7 @@ const make = Effect.gen(function* () {
     toName: string,
     kind: "message" | "spawn",
     status: "started" | "queued",
+    task?: string,
   ) =>
     Effect.gen(function* () {
       const createdAt = yield* nowIso;
@@ -513,6 +515,7 @@ const make = Effect.gen(function* () {
         inReplyTo: delivery.inReplyTo,
         kind,
         delivery: status,
+        ...(task ? { task } : {}),
       };
       yield* engine.dispatch({
         type: "thread.activity.append",
@@ -816,7 +819,13 @@ const make = Effect.gen(function* () {
         inReplyTo: null,
       };
       const status = yield* deliver(delivery);
-      yield* recordSent(delivery, input.name.trim() || "Sub-agent", "spawn", status);
+      yield* recordSent(
+        delivery,
+        input.name.trim() || "Sub-agent",
+        "spawn",
+        status,
+        input.task?.trim() || undefined,
+      );
       return {
         agentId: childId,
         name: input.name.trim() || "Sub-agent",

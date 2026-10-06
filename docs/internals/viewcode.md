@@ -113,12 +113,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `traycer_*`). Codex has its own built-in `spawn_agent`; with the bare name the
   model picked the built-in one, so "sub-agents" never became visible ViewCode
   agents. The runtime instructions (`provider/RuntimeInstructions.ts`) name the
-  ViewCode path and say when the harness's own sub-agents are appropriate. If
-  `viewcode_spawn_agent` is missing or fails, Cursor reports the failure and
-  may continue with native Tasks without another confirmation. These remain
-  inline agents, not separate chats with model pickers. It must report a
-  limitation if the fallback cannot satisfy a requested provider/model or
-  separate chat. Other providers still ask before substituting native agents.
+  ViewCode path as the default and say when the harness's own sub-agents are
+  appropriate. On every provider, a missing or failing `viewcode_spawn_agent`
+  is announced in one sentence and the agent continues with native sub-agents
+  without asking (the user chose this over a confirmation prompt). Native
+  sub-agents stay inline, with no chat or model picker of their own, so a
+  request for a specific provider/model or a separate chat is reported as a
+  limitation instead of substituted. An agent may also pick native sub-agents
+  itself for a quick lookup when the user did not ask for agents.
 
 - A message is a normal `thread.turn.start` whose text begins with a
   `<viewcode-agent-message …>` envelope. Idle receiver → starts now; busy,

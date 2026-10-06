@@ -148,6 +148,12 @@ const SpawnAgentTool = Tool.make("viewcode_spawn_agent", {
     name: TrimmedNonEmptyString.annotate({
       description: 'Short display name, e.g. "Frontend audit".',
     }),
+    task: Schema.optional(
+      Schema.String.annotate({
+        description:
+          'What the agent is doing, in 3 to 8 words, e.g. "diff panel default and base diff design". Shown next to the name in the parent chat.',
+      }),
+    ),
     prompt: TrimmedNonEmptyString.annotate({
       description: "Complete instructions. The child does not see your conversation.",
     }),

@@ -31,6 +31,7 @@ const make = Effect.gen(function* () {
             effort: input.effort,
             fastMode: input.fast_mode,
             replyExpected: input.reply_expected,
+            task: input.task,
           }),
         ),
       ),

@@ -1166,7 +1166,6 @@ export function makeCursorAdapter(
                       text: buildRuntimeInstructions({
                         harness: "Cursor",
                         model: resolvedModel,
-                        allowNativeAgentFallback: true,
                       }),
                     },
                   ],

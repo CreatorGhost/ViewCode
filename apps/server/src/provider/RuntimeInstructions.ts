@@ -5,14 +5,15 @@ When the viewcode MCP server exposes link_pull_request, you must use it to regis
 // ViewCode agents are full, visible chats the user can open, prompt and switch
 // models on. Every toolkit tool carries the viewcode_ prefix (as Traycer prefixes
 // traycer_*) so it can't be confused with a harness's own tools, such as
-// Codex's built-in spawn_agent. Provider-native sub-agents stay available.
-const viewcodeAgentsInstructions = (allowNativeAgentFallback: boolean) => `<viewcode_agents>
-ViewCode agents are separate agents the user sees in the ViewCode sidebar: each has its own chat, provider and model, the user can open and prompt it, and its final answer is sent back to you automatically. When the viewcode MCP server exposes viewcode_spawn_agent and the user asks for sub-agents, child agents, agents, helpers or parallel agents, create ViewCode agents: call viewcode_list_models if you need provider or model ids, then viewcode_spawn_agent once per agent with the provider and model the user named, then viewcode_send_message for follow-ups. If an agent was out of usage and its reset time has passed, just send the message: viewcode_list_agents shows outOfUsage while a limit holds, and messages sent meanwhile are queued and delivered automatically when it resets. To set an agent's thinking level ("set to High" means effort "high") or fast mode, pass effort/fast_mode to viewcode_spawn_agent or viewcode_configure_agent; never ask the user to set it in the picker. Your harness's built-in sub-agents (for example a native spawn_agent or Task tool) are a different feature: ${
-  allowNativeAgentFallback
-    ? "use them when the user explicitly asks for built-in, inline or in-chat sub-agents, or as a fallback when viewcode_spawn_agent is unavailable or fails. Explain the failure and that you are using native tasks, then proceed without an extra confirmation. Native tasks appear inside the current chat; they are not separate ViewCode chats with an independent model picker. If the user requires a particular provider/model or a separate child chat that native tasks cannot provide, report that limitation instead of silently substituting."
-    : "use them only when the user explicitly asks for built-in, inline or in-chat sub-agents, and say which kind you used. If viewcode_spawn_agent is unavailable or fails, do not fall back on your own: tell the user what failed and ask whether to use your built-in sub-agents instead."
-}
-If the viewcode_* tools are missing from your tool list, say so plainly to the user instead of working around it silently. Name the likely causes (for example, the provider's MCP policy: "Cursor team policy may block MCP servers") and offer to continue with child agents the user creates from the ViewCode sidebar.
+// Codex's built-in spawn_agent. Visible agents are the default; the harness's
+// own sub-agents are the announced fallback, on every provider.
+const VIEWCODE_AGENTS_INSTRUCTIONS = `<viewcode_agents>
+ViewCode agents are separate agents the user sees in the ViewCode sidebar: each has its own chat, provider and model, the user can open and prompt it, and its final answer is sent back to you automatically. When the user asks for sub-agents, child agents, agents, helpers or parallel agents, create ViewCode agents by default: call viewcode_list_models if you need provider or model ids, then viewcode_spawn_agent once per agent with the provider and model the user named and a short task (3 to 8 words saying what it will do), then viewcode_send_message for follow-ups. If an agent was out of usage and its reset time has passed, just send the message: viewcode_list_agents shows outOfUsage while a limit holds, and messages sent meanwhile are queued and delivered automatically when it resets. To set an agent's thinking level ("set to High" means effort "high") or fast mode, pass effort/fast_mode to viewcode_spawn_agent or viewcode_configure_agent; never ask the user to set it in the picker.
+Your harness's built-in sub-agents (for example a native spawn_agent or Task tool) run inline in this chat; they are not separate ViewCode chats and have no model picker of their own. Use them:
+- when the user asks for built-in, inline or in-chat sub-agents;
+- as the fallback when viewcode_spawn_agent is missing from your tools or fails: say in one sentence what failed and that you are using inline sub-agents instead, then proceed without asking;
+- on your own initiative, when the user did not ask for agents and you want a quick, self-contained lookup (searching or reading code) that does not deserve its own chat.
+If the user requires a particular provider or model, or a separate chat, that inline sub-agents cannot provide, say so instead of silently substituting. If the viewcode_* tools are missing from your tool list, name the likely cause (for example, the provider's MCP policy: "Cursor team policy may block MCP servers") and mention that the user can also create child agents from the ViewCode sidebar.
 </viewcode_agents>`;
 
 /**
@@ -24,7 +25,6 @@ export function buildRuntimeInstructions(runtime: {
   readonly model?: string | undefined;
   readonly modelName?: string | undefined;
   readonly reasoningEffort?: string | undefined;
-  readonly allowNativeAgentFallback?: boolean;
   /**
    * Set when the session runs without ViewCode's MCP server, so the prompt
    * never advertises tools the session does not have.
@@ -43,7 +43,7 @@ export function buildRuntimeInstructions(runtime: {
   if (runtime.viewcodeToolsUnavailable) {
     return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable)}`;
   }
-  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${viewcodeAgentsInstructions(runtime.allowNativeAgentFallback ?? false)}`;
+  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}`;
 }
 
 const viewcodeToolsUnavailableInstructions = (reason: "managed-mcp" | "setting") =>
@@ -52,7 +52,7 @@ ViewCode's own tools (the viewcode MCP server: browser preview, devices, pull re
     reason === "managed-mcp"
       ? "the user's organization manages this harness's MCP servers"
       : "the user turned them off in ViewCode's settings"
-  }. Do not claim to use them. If the user asks for something that needs them, say so plainly and continue with your built-in tools; the user can still create child agents from the ViewCode sidebar.
+  }. Do not claim to use them. If the user asks for something that needs them, say so plainly and continue with your built-in tools. When the user asks for agents, use your harness's built-in sub-agents and say they run inline in this chat; the user can still create visible child agents from the ViewCode sidebar.
 </viewcode_tools>`;
 
 function toSingleLine(value: string): string {
