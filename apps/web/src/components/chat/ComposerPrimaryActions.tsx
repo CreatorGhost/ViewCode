@@ -97,7 +97,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           type="button"
           className={cn(
             // Same 28px accent disc as send (Droppy composer); touch keeps 32px.
-            "flex size-8 cursor-pointer items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-message-action-hover hover:scale-105 active:inset-shadow-black/8 active:shadow-none sm:size-7",
+            "flex size-8 cursor-pointer items-center justify-center rounded-full bg-foreground text-background shadow-xs transition-[opacity,scale] duration-150 hover:opacity-85 active:scale-95",
           )}
           {...pointerFocusProps}
           {...stopProps}
@@ -218,10 +218,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     <button
       type="submit"
       className={cn(
-        "relative isolate flex size-8 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:size-7",
+        "relative isolate flex size-8 items-center justify-center overflow-hidden rounded-full shadow-xs transition-[opacity,scale] duration-150 enabled:cursor-pointer hover:enabled:opacity-85 active:enabled:scale-95 disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none",
         stageBackdropVariant
           ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
-          : "bg-message-action text-message-action-foreground hover:bg-message-action-hover",
+          : "bg-foreground text-background",
       )}
       {...pointerFocusProps}
       disabled={
@@ -255,7 +255,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       {isConnecting || isSendBusy ? (
         <Spinner size="sm" aria-hidden="true" />
       ) : (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path
             d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
             stroke="currentColor"

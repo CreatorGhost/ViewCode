@@ -100,7 +100,7 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
   const isWarning = status.status === "warning" || incompatible !== null;
 
   return (
-    <div className="pointer-events-auto mx-auto w-fit max-w-[calc(100%-2rem)] pt-3">
+    <div data-chat-notice className="pointer-events-auto px-4 pt-3">
       <Alert
         variant={isWarning ? "warning" : "error"}
         role={incompatible && incompatible.status !== "broken" ? "status" : "alert"}

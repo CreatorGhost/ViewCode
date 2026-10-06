@@ -29,8 +29,8 @@ export function SidechatHeaderButton(props: {
       <TooltipTrigger
         render={
           <Button
-            variant="ghost-muted"
-            size="icon-xs"
+            variant="chip"
+            size="icon-chip"
             aria-label="Side chat"
             aria-pressed={open}
             onClick={() => useSidechatDockStore.getState().toggle(parentRef)}
