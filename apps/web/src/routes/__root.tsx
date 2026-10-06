@@ -237,6 +237,7 @@ function RootRouteView() {
           <ThreadNotificationCoordinator />
           <ConfirmDialogHost />
           <CustomSnoozeDialogHost />
+          <ShortcutsSheet />
           <ConnectPhoneDialogHost />
           <AgentSessionDialogsHost />
           <SlowRpcRequestToastCoordinator />
