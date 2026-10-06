@@ -4,6 +4,7 @@ import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollVie
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import {
+  type ComputerUseMode,
   type ResponseStreamingMode,
   type ServerSettings,
   type ServerSettingsPatch,
@@ -114,6 +115,29 @@ const STREAMING_CHOICES: ReadonlyArray<{
     mode: "token",
     label: "Token by token (legacy)",
     description: "Repaint for every token; this can be slower.",
+  },
+];
+
+const COMPUTER_USE_CHOICES: ReadonlyArray<{
+  readonly mode: ComputerUseMode;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  {
+    mode: "off",
+    label: "Off",
+    description: "Agents cannot see or operate apps on the server's machine.",
+  },
+  {
+    mode: "observe",
+    label: "Observe only",
+    description: "Agents can see apps and windows on the server's machine.",
+  },
+  {
+    mode: "control",
+    label: "Observe and control",
+    description:
+      "Agents can also click and type. Input asks for approval unless the thread runs in full access.",
   },
 ];
 
@@ -396,6 +420,32 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
                     />
                   </SettingsSection>
+                  <View className="gap-2">
+                    <SettingsSection
+                      title="Computer use"
+                      trailing={
+                        pendingWrites === 0 && uniform("computerUse") === null ? (
+                          <MixedValuesLabel projectSelected={projectSelected} />
+                        ) : null
+                      }
+                    >
+                      {COMPUTER_USE_CHOICES.map((choice, index) => (
+                        <ChoiceRow
+                          key={choice.mode}
+                          label={choice.label}
+                          description={choice.description}
+                          selected={uniform("computerUse") === choice.mode}
+                          separated={index > 0}
+                          disabled={disabledFor("computerUse")}
+                          onPress={() => write({ computerUse: choice.mode })}
+                        />
+                      ))}
+                    </SettingsSection>
+                    <Text className="px-2 text-sm text-foreground-muted">
+                      Password managers, System Settings and ViewCode itself are never controlled.
+                      Applies to new agent sessions.
+                    </Text>
+                  </View>
                 </>
               ) : null}
 

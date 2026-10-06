@@ -622,6 +622,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["allow simulator emulator ios android drive tools sessions"],
   },
   {
+    id: "computer-use",
+    title: "Computer use",
+    to: "/settings/integrations",
+    searchTerms: [
+      "agent see operate control apps screen screenshot accessibility desktop mouse keyboard observe approval",
+    ],
+  },
+  {
     id: "device-hub",
     title: "Device hub",
     to: "/settings/integrations",

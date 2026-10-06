@@ -112,6 +112,7 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { ComputerUseSetting } from "./ComputerUseSetting";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { BrowserImportWizard, type WizardTarget } from "./BrowserImportWizard";
@@ -1456,6 +1457,9 @@ export function IntegrationsSettingsPanel() {
         )}
       </SettingsSection>
       <DeviceIntegrationSettings />
+      <SettingsSection id="computer-use" title="Computer use">
+        <ComputerUseSetting />
+      </SettingsSection>
     </SettingsPageContainer>
   );
 }
