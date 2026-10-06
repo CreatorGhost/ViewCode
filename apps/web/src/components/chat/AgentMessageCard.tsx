@@ -71,7 +71,7 @@ function AgentMessageCardFrame({
   const clamped = long && !expanded;
   return (
     <div
-      className="mx-auto w-full max-w-3xl rounded-lg border border-border bg-card/40 px-3 py-2"
+      className="mx-auto w-full max-w-chat rounded-lg border border-border bg-card/40 px-3 py-2"
       {...dataAttributes}
     >
       <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">

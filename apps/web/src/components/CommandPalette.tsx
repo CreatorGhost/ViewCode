@@ -45,6 +45,7 @@ import {
   ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
+  KeyboardIcon,
   FolderIcon,
   FolderPlusIcon,
   LinkIcon,
@@ -78,6 +79,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { useShortcutsSheetStore } from "./shortcuts/shortcutsSheetStore";
 import { useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
@@ -1882,6 +1884,18 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:keyboard-shortcuts",
+    searchTerms: ["keyboard shortcuts", "keybindings", "hotkeys", "cheat sheet"],
+    title: "Keyboard shortcuts",
+    icon: <KeyboardIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "shortcuts.open",
+    run: async () => {
+      useShortcutsSheetStore.getState().setOpen(true);
+    },
+  });
 
   actionItems.push({
     kind: "action",

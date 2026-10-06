@@ -224,8 +224,8 @@ function buildProps() {
 }
 
 function buildLongUserMessageText(tail = "deep hidden detail only after expand") {
-  return Array.from({ length: 9 }, (_, index) =>
-    index === 8 ? tail : `Line ${index + 1}: ${"verbose prompt content ".repeat(8).trim()}`,
+  return Array.from({ length: 14 }, (_, index) =>
+    index === 13 ? tail : `Line ${index + 1}: ${"verbose prompt content ".repeat(8).trim()}`,
   ).join("\n");
 }
 
@@ -1099,7 +1099,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Show full message");
+    expect(markup).toContain("Show more");
     expect(markup).toContain('data-maintain-scroll-at-end="enabled"');
     expect(markup).toContain('data-maintain-scroll-at-end-animated="false"');
     expect(markup).toContain('data-maintain-scroll-at-end-data-change="true"');
@@ -1119,9 +1119,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).not.toContain("Show full message");
+    expect(markup).not.toContain("Show more");
     expect(markup).toContain('data-user-message-collapsible="false"');
-    expect(markup).toContain("rounded-2xl bg-message p-3");
+    expect(markup).toContain("rounded-xl bg-message px-3 py-2");
   });
 
   it("preserves arbitrary XML-like tags and comparisons in rendered user messages", async () => {
@@ -1283,7 +1283,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("lucide-terminal");
     expect(markup).toContain("yoo what&#x27;s");
     expect(markup).not.toContain("terminal_context");
-    expect(markup).toContain("Show full message");
+    expect(markup).toContain("Show more");
   }, 20_000);
 
   it("renders chips for standalone element-pick context messages", () => {

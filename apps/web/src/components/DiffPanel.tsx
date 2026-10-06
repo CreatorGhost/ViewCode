@@ -12,6 +12,7 @@ import {
   ArrowRightIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronUpIcon,
   ChevronRightIcon,
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
@@ -55,6 +56,8 @@ import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { DiffFileJumpDialog } from "./diffNav/DiffFileJumpDialog";
+import { useDiffNavigation } from "./diffNav/useDiffNavigation";
 import { DiffFileTree } from "./diffs/DiffFileTree";
 import { diffFileTreeEntries } from "./diffs/diffFileTree.logic";
 import { Button } from "./ui/button";
@@ -563,6 +566,12 @@ export default function DiffPanel({
     ],
   );
 
+  const diffFilePaths = useMemo(
+    () => renderableFileEntries.map((entry) => resolveFileDiffPath(entry.fileDiff)),
+    [renderableFileEntries],
+  );
+  const diffNav = useDiffNavigation(diffFilePaths, revealDiffFile);
+
   const externalRevealRef = useRef<{ cache: string; key: string } | null>(null);
   useEffect(() => {
     if (!lazySource || !selectedFilePath) return;
@@ -864,6 +873,28 @@ export default function DiffPanel({
               {isRefreshingDiff ? "Refreshing diff…" : "Refresh diff"}
             </TooltipPopup>
           </Tooltip>
+        )}
+        {diffFilePaths.length > 1 && (
+          <>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Previous changed file"
+              onClick={() => diffNav.step(-1)}
+            >
+              <ChevronUpIcon className="size-3.5" />
+            </Button>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Next changed file"
+              onClick={() => diffNav.step(1)}
+            >
+              <ChevronDownIcon className="size-3.5" />
+            </Button>
+          </>
         )}
         {diffFileKeys.length > 0 && (
           <Tooltip>
@@ -1200,6 +1231,12 @@ export default function DiffPanel({
           </div>
         </>
       )}
+      <DiffFileJumpDialog
+        open={diffNav.jumpOpen}
+        onOpenChange={diffNav.setJumpOpen}
+        paths={diffFilePaths}
+        onPick={diffNav.jump}
+      />
     </DiffPanelShell>
   );
 }

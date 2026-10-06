@@ -263,6 +263,13 @@ import {
 } from "../../reviewCommentContext";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { ComputerUseAppIcon } from "~/components/Icons";
+import { useClientSettings } from "~/hooks/useSettings";
+import { measureChatColumnMaxWidth } from "./appearance/chatAppearanceDom";
+import { WorkEntryDiffLinks } from "./WorkEntryDiffLinks";
+import {
+  shouldCollapseUserMessage,
+  USER_MESSAGE_COLLAPSED_MAX_LINES,
+} from "./appearance/chatAppearance";
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via Context.
@@ -354,7 +361,7 @@ function TimelineLoadEarlierHeader({
 }) {
   return (
     <div className={fade ? "pt-(--workspace-titlebar-scroll-fade-height)" : "pt-3 sm:pt-4"}>
-      <div className="mx-auto w-full max-w-3xl pb-2">
+      <div className="mx-auto w-full max-w-chat pb-2">
         <button
           type="button"
           onClick={onLoadEarlier}
@@ -538,6 +545,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
+  const chatWidth = useClientSettings((settings) => settings.chatWidth);
+  const collapseFinishedTurns = useClientSettings((settings) => settings.collapseFinishedTurns);
   const rememberedPosition = useMemo(
     () => readTimelinePosition(listIdentityKey),
     [listIdentityKey],
@@ -797,6 +806,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         worktreeSetup,
         queuedMessages,
         ...(undeliveredMessages ? { undeliveredMessages } : {}),
+        collapseFinishedTurns,
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -821,6 +831,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     worktreeSetup,
     queuedMessages,
     undeliveredMessages,
+    collapseFinishedTurns,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
@@ -1122,11 +1133,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
     const measure = () => {
       const viewportWidth = timelineViewportElement.getBoundingClientRect().width;
-      const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(viewportWidth);
+      const contentMaxWidth = measureChatColumnMaxWidth(timelineViewportElement);
+      const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(
+        viewportWidth,
+        contentMaxWidth,
+      );
       setMinimapHasPersistentGutter((current) =>
         current === nextHasPersistentGutter ? current : nextHasPersistentGutter,
       );
-      setMinimapHitStripWidth(resolveTimelineMinimapHitStripWidth(viewportWidth));
+      setMinimapHitStripWidth(resolveTimelineMinimapHitStripWidth(viewportWidth, contentMaxWidth));
       reportContentOverflow();
     };
 
@@ -1139,7 +1154,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [timelineViewportElement, rows.length, reportContentOverflow]);
+  }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth]);
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
@@ -1256,7 +1271,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip" data-timeline-root="true">
+      <div className="mx-auto w-full min-w-0 max-w-chat overflow-x-clip" data-timeline-root="true">
         <TimelineRowContent row={item} />
       </div>
     ),
@@ -1702,8 +1717,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "thinking" ||
                   row.kind === "worktree-setup" ||
                   row.kind === "html-render"
-                ? "pb-2"
-                : "pb-4",
+                ? "pb-(--chat-row-gap)"
+                : "pb-(--chat-turn-gap)",
         (row.kind === "message" && row.message.role === "assistant") ||
           row.kind === "assistant-meta"
           ? "group/assistant"
@@ -1938,7 +1953,7 @@ function ContextCompactionTimelineRow({
         role="separator"
         aria-label={row.label}
         data-timeline-handoff=""
-        className="mx-auto flex w-full max-w-3xl items-center gap-3 py-2 text-xs"
+        className="mx-auto flex w-full max-w-chat items-center gap-3 py-2 text-xs"
       >
         <span className="h-px flex-1 bg-update/30" />
         <span className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-update/30 bg-update-surface px-3 py-1 text-center text-update-foreground">
@@ -1953,7 +1968,7 @@ function ContextCompactionTimelineRow({
     <div
       role="separator"
       aria-label={row.label}
-      className="mx-auto flex w-full max-w-3xl items-center gap-3 py-1 text-muted-foreground text-xs"
+      className="mx-auto flex w-full max-w-chat items-center gap-3 py-1 text-muted-foreground text-xs"
     >
       <span className="h-px flex-1 bg-border/70" />
       <span className="flex shrink-0 items-center gap-1.5">
@@ -2178,7 +2193,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     <div className="group flex flex-col items-end gap-1">
       <div
         data-user-bubble
-        className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground"
+        className="relative max-w-[80%] rounded-xl bg-message px-3 py-2 text-message-foreground"
       >
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
@@ -2298,7 +2313,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
-            <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
+            <TooltipTrigger render={<p className="text-muted-foreground text-2xs tabular-nums" />}>
               {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
             </TooltipTrigger>
             <TooltipPopup>
@@ -2451,16 +2466,16 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
   const Icon = row.expanded ? ChevronDownIcon : ChevronRightIcon;
 
   return (
-    <div className="group/timeline-row relative flex items-center gap-1 border-b border-border/60 pb-2 pe-0.5 pt-1">
+    <div className="group/timeline-row relative flex min-w-0 items-center gap-1 pb-1 pe-0.5 pt-0.5">
       <button
         type="button"
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
         onClick={() => ctx.onToggleTurnFold(row.turnId)}
-        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="flex min-w-0 cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
-        <span>{row.label}</span>
-        <Icon className="size-3.5" />
+        <span className="truncate">{row.label}</span>
+        <Icon className="size-3.5 shrink-0" />
       </button>
       <TimelineRowTimestamp
         createdAt={row.createdAt}
@@ -2530,7 +2545,6 @@ function AssistantMetaTimelineRow({
         message={row.message}
         showCopyButton={row.showAssistantCopyButton}
         copyStreaming={row.assistantCopyStreaming}
-        alwaysVisible
       />
     </div>
   );
@@ -2568,7 +2582,7 @@ function AssistantMessageMeta({
       />
       {!message.streaming && (
         <Tooltip>
-          <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
+          <TooltipTrigger render={<p className="text-muted-foreground text-2xs tabular-nums" />}>
             {formatDayAwareTimestamp(message.updatedAt, ctx.timestampFormat)}
           </TooltipTrigger>
           <TooltipPopup>
@@ -4030,21 +4044,11 @@ function UserMessageContextReferenceChip(props: {
   });
 }
 
-const MAX_COLLAPSED_USER_MESSAGE_LINES = 8;
-const MAX_COLLAPSED_USER_MESSAGE_LENGTH = 600;
 const COLLAPSED_USER_MESSAGE_FADE_HEIGHT_REM = 1.75;
 const COLLAPSED_USER_MESSAGE_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${COLLAPSED_USER_MESSAGE_FADE_HEIGHT_REM}rem), transparent)`;
-
-function shouldCollapseUserMessage(text: string): boolean {
-  if (text.trim().length === 0) {
-    return false;
-  }
-
-  return (
-    text.length > MAX_COLLAPSED_USER_MESSAGE_LENGTH ||
-    text.split("\n").length > MAX_COLLAPSED_USER_MESSAGE_LINES
-  );
-}
+// Folded height in lines of the message's own line height, so the fold
+// lands on the 12th line whatever the prompt font size.
+const COLLAPSED_USER_MESSAGE_MAX_HEIGHT = `${USER_MESSAGE_COLLAPSED_MAX_LINES}lh`;
 
 const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(props: {
   text: string;
@@ -4062,7 +4066,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
     <div>
       {hasVisibleBody ? (
         <div
-          className={cn("relative", isCollapsed && "max-h-44 overflow-hidden")}
+          className={cn("relative", isCollapsed && "overflow-hidden")}
           data-user-message-body="true"
           data-user-message-collapsed={isCollapsed ? "true" : "false"}
           data-user-message-collapsible={canCollapse ? "true" : "false"}
@@ -4070,6 +4074,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
           style={
             isCollapsed
               ? {
+                  maxHeight: COLLAPSED_USER_MESSAGE_MAX_HEIGHT,
                   WebkitMaskImage: COLLAPSED_USER_MESSAGE_FADE_MASK,
                   maskImage: COLLAPSED_USER_MESSAGE_FADE_MASK,
                 }
@@ -4102,7 +4107,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
               onClick={() => setExpanded((value) => !value)}
               className="-ml-1"
             >
-              {expanded ? "Show less" : "Show full message"}
+              {expanded ? "Show less" : "Show more"}
             </Button>
           ) : null}
           {props.footer ? (
@@ -4722,7 +4727,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
   const { workEntry, workspaceRoot, isExpandedToolGroupEntry, displayLabel } = props;
-  const { threadRef, onImageExpand, timestampFormat } = use(TimelineRowCtx);
+  const { threadRef, onImageExpand, timestampFormat, onOpenTurnDiff } = use(TimelineRowCtx);
+  const { unsettledTurnId } = use(TimelineRowActivityCtx);
   const groupView = use(WorkGroupViewCtx);
   const [expanded, setExpanded] = useState(
     () => groupView?.state.expandedEntries.has(workEntry.id) ?? false,
@@ -4936,6 +4942,17 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
             ))}
           </pre>
         </div>
+      ) : null}
+      {expanded &&
+      workEntry.turnId &&
+      workEntry.turnId !== unsettledTurnId &&
+      workEntry.changedFiles?.length ? (
+        <WorkEntryDiffLinks
+          turnId={workEntry.turnId}
+          changedFiles={workEntry.changedFiles}
+          workspaceRoot={workspaceRoot}
+          onOpenTurnDiff={onOpenTurnDiff}
+        />
       ) : null}
     </div>
   );

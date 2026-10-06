@@ -92,6 +92,11 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "chat.new",
   "chat.newLocal",
   "editor.openFavorite",
+  // ViewCode: keyboard shortcuts sheet and diff panel change navigation.
+  "shortcuts.open",
+  "diff.change.previous",
+  "diff.change.next",
+  "diff.file.jump",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;
