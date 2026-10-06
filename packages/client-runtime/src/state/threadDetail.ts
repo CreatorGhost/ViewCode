@@ -70,6 +70,35 @@ export function mergeEnvironmentThread(
   };
 }
 
+const NO_UNDELIVERED_MESSAGES: ReadonlyMap<string, string> = new Map();
+
+/**
+ * User messages ViewCode cannot show reached the agent, keyed by message id,
+ * with what the provider reported. A turn start that failed records the
+ * message's id as its `requestId`; such a message is in ViewCode's history but
+ * maybe not in the provider's session, which is what the agent resumes from.
+ * Returns the same empty map when there are none, so callers can memoize on it.
+ */
+export function undeliveredUserMessages(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyMap<string, string> {
+  let undelivered: Map<string, string> | undefined;
+  for (const activity of activities) {
+    if (activity.kind !== "provider.turn.start.failed") continue;
+    const payload =
+      typeof activity.payload === "object" && activity.payload !== null
+        ? (activity.payload as { readonly requestId?: unknown; readonly detail?: unknown })
+        : null;
+    if (typeof payload?.requestId !== "string") continue;
+    undelivered ??= new Map();
+    undelivered.set(
+      payload.requestId,
+      typeof payload.detail === "string" ? payload.detail : activity.summary,
+    );
+  }
+  return undelivered ?? NO_UNDELIVERED_MESSAGES;
+}
+
 export function createEnvironmentThreadDetailAtoms<E>(
   threadStateAtom: (
     environmentId: ScopedThreadRef["environmentId"],

@@ -419,6 +419,8 @@ interface MessagesTimelineProps {
   latestTurn: TimelineLatestTurn | null;
   runningTurnId: TurnId | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
+  /** User messages the agent may never have received, by id, with the reason. */
+  undeliveredMessages?: ReadonlyMap<string, string> | undefined;
   routeThreadKey: string;
   /**
    * Thread whose entries are currently painted. Differs from `routeThreadKey`
@@ -495,6 +497,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   latestTurn,
   runningTurnId,
   turnDiffSummaries,
+  undeliveredMessages,
   routeThreadKey,
   displayThreadKey,
   onOpenTurnDiff,
@@ -789,6 +792,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         liveAgentTaskIds,
         worktreeSetup,
         queuedMessages,
+        ...(undeliveredMessages ? { undeliveredMessages } : {}),
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -812,6 +816,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     liveAgentTaskIds,
     worktreeSetup,
     queuedMessages,
+    undeliveredMessages,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
@@ -2254,6 +2259,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           />
         </div>
       </div>
+      {row.undeliveredReason !== undefined ? (
+        <UndeliveredMessageNotice reason={row.undeliveredReason} />
+      ) : null}
       <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
@@ -2291,6 +2299,27 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A sent message the provider never started a turn for. It stays in the
+ * history, so without this it reads as delivered while the agent, which
+ * resumes the provider's own session, may never have seen it.
+ */
+function UndeliveredMessageNotice({ reason }: { reason: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<p className="flex max-w-[80%] items-center gap-1 pe-1 text-destructive text-xs" />}
+      >
+        <CircleAlertIcon className="size-3 shrink-0" aria-hidden />
+        Not delivered. The agent may not have received this message.
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        <span className="block max-w-sm">{reason}</span>
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 

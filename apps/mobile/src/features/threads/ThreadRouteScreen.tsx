@@ -29,6 +29,7 @@ import {
 import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
+  undeliveredUserMessages,
 } from "@t3tools/client-runtime/state/threads";
 import {
   projectScriptCwd,
@@ -338,6 +339,10 @@ function ThreadRouteContent(
   } = useThreadSelection();
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
+  const undeliveredMessages = useMemo(
+    () => undeliveredUserMessages(selectedThreadDetail?.activities ?? []),
+    [selectedThreadDetail?.activities],
+  );
   // "Load earlier turns" header state for windowed (paginated) thread loads.
   const loadEarlierTurns = useMemo(() => {
     if (selectedThread === null || !threadHasOlderTurns(selectedThreadDetailState)) {
@@ -1046,6 +1051,7 @@ function ThreadRouteContent(
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
           queuedMessages={composer.selectedThreadQueuedMessages}
           dispatchingMessageId={composer.dispatchingQueuedMessageId}
+          undeliveredMessages={undeliveredMessages}
           layoutVariant={layout.variant}
           usesAutomaticContentInsets={usesNativeHeaderGlass}
           onOpenConnectionEditor={handleOpenConnectionEditor}

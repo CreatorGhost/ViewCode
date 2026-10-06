@@ -453,6 +453,8 @@ export type MessagesTimelineRow =
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
+      /** Set on a user message whose turn the provider never started: why. */
+      undeliveredReason?: string | undefined;
     }
   | {
       kind: "assistant-meta";
@@ -1016,6 +1018,8 @@ export function deriveMessagesTimelineRows(input: {
   worktreeSetup?: WorktreeSetupSnapshot | null;
   /** Messages sent during the running turn, rendered after the live rows. */
   queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
+  /** User messages the agent may never have received, by id (see `undeliveredUserMessages`). */
+  undeliveredMessages?: ReadonlyMap<string, string>;
 }): MessagesTimelineRow[] {
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
   for (const summary of input.turnDiffSummaries) {
@@ -1474,6 +1478,10 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.message.role === "user"
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
           : undefined,
+      undeliveredReason:
+        timelineEntry.message.role === "user"
+          ? input.undeliveredMessages?.get(timelineEntry.message.id)
+          : undefined,
     });
   }
 
@@ -1763,7 +1771,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
-        a.revertTurnCount === bm.revertTurnCount
+        a.revertTurnCount === bm.revertTurnCount &&
+        a.undeliveredReason === bm.undeliveredReason
       );
     }
   }

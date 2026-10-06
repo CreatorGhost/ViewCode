@@ -1855,6 +1855,40 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRow?.assistantTurnDiffSummary).toBe(assistantTurnDiffSummary);
   });
 
+  it("marks only the user message whose turn never started as undelivered", () => {
+    const userMessage = (id: string, createdAt: string) => ({
+      id,
+      kind: "message" as const,
+      createdAt,
+      message: {
+        id: id as never,
+        role: "user" as const,
+        text: id,
+        turnId: null,
+        createdAt,
+        updatedAt: createdAt,
+        streaming: false,
+      },
+    });
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        userMessage("rejected", "2026-01-01T00:00:00Z"),
+        userMessage("go-on", "2026-01-01T00:01:00Z"),
+      ],
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      undeliveredMessages: new Map([["rejected", "Cursor refused the request."]]),
+    });
+    const reasons = Object.fromEntries(
+      rows.flatMap((row) =>
+        row.kind === "message" ? [[row.message.id, row.undeliveredReason] as const] : [],
+      ),
+    );
+    expect(reasons).toEqual({ rejected: "Cursor refused the request.", "go-on": undefined });
+  });
+
   it("folds the first assistant message and settled work before the terminal response", () => {
     const timelineEntries = [
       {

@@ -58,6 +58,7 @@ import {
   parseCodexFeedbackCommand,
   submitCodexFeedback,
   type CodexFeedbackSubmission,
+  undeliveredUserMessages,
 } from "@t3tools/client-runtime/state/threads";
 import {
   parseScopedThreadKey,
@@ -2927,6 +2928,10 @@ export default function ChatView(props: ChatViewProps) {
     [threadActivities],
   );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const undeliveredMessages = useMemo(
+    () => undeliveredUserMessages(threadActivities),
+    [threadActivities],
+  );
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
   // until orchestration-v2 lands (source precedence lives in the derive).
@@ -9987,6 +9992,7 @@ export default function ChatView(props: ChatViewProps) {
                     ? EMPTY_HELD_TURN_DIFF_SUMMARIES
                     : activeThread.checkpoints
                 }
+                undeliveredMessages={paintOnlyDisplayedTimeline ? undefined : undeliveredMessages}
                 activeThreadEnvironmentId={
                   displayedThreadRef?.environmentId ?? activeThread.environmentId
                 }
