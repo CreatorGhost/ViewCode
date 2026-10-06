@@ -567,3 +567,17 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
     opacity: 1;
   }
 }
+
+/* Composer notices are part of the composer frame: solid surface, no feathered
+   top edge, so transcript text never shows through or around them. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-composer-banner-surface="attached"] {
+  --glass-opacity: 100%;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-composer-banner-surface="attached"]::before {
+  mask-image: none;
+  -webkit-mask-image: none;
+  backdrop-filter: none;
+  background-image: none;
+  background-color: var(--chat-composer-attached-surface);
+}
