@@ -151,7 +151,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   limit (24) stops ping-pong loops; spawning counts as a hop too.
 - Stopping an agent that belongs to a tree **pauses** it (user decision): any
   `thread.turn.interrupt` / session stop from any client, or the `agents.stop`
-  RPC (Stop all = whole tree). While paused, messages and replies to it queue,
+  RPC (Stop all = whole tree). The command palette's "Restart agent session"
+  stops with `restart: true`, which does not pause an idle agent (it only
+  reloads skills and plugins); one that cuts a running turn short still pauses. While paused, messages and replies to it queue,
   senders are told it is paused, and a stopped turn's pending reply is held.
   `agents.resume` sends "Continue where you left off." when a turn was cut
   short (its answer still goes to the original requester) and drains the queue.

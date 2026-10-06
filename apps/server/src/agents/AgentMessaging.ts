@@ -1449,6 +1449,15 @@ const make = Effect.gen(function* () {
         case "thread.session-stop-requested": {
           if (event.commandId && ownStopCommands.delete(event.commandId)) return Effect.void;
           const threadId = event.payload.threadId;
+          // Restarting an idle agent's session only reloads its setup; a
+          // restart that cuts a turn short still pauses it like a Stop.
+          if (
+            event.type === "thread.session-stop-requested" &&
+            event.payload.restart === true &&
+            !active.has(threadId)
+          ) {
+            return Effect.void;
+          }
           return worker.enqueue({ kind: "stopped", threadId, interrupted: active.has(threadId) });
         }
         case "thread.session-set": {

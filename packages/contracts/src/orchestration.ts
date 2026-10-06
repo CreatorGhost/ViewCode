@@ -1489,6 +1489,9 @@ const ThreadSessionStopCommand = Schema.Struct({
   // closes the race a post-settle snapshot read cannot: commands are decided
   // serially against the authoritative read model.
   onlyIfSettled: Schema.optional(Schema.Boolean),
+  // "Restart agent session": the next message starts a fresh process. An
+  // idle agent in a tree is not paused by it, as a user's Stop would.
+  restart: Schema.optional(Schema.Boolean),
 });
 
 const DispatchableClientOrchestrationCommand = Schema.Union([
@@ -2054,6 +2057,7 @@ export const ThreadRevertedPayload = Schema.Struct({
 export const ThreadSessionStopRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   createdAt: IsoDateTime,
+  restart: Schema.optional(Schema.Boolean),
 });
 
 export const ThreadSessionSetPayload = Schema.Struct({

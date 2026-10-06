@@ -435,6 +435,7 @@ const makeHarness = Effect.gen(function* () {
     endTurn,
     userPrompt,
     clientInterrupt,
+    events,
     layer: layer.pipe(Layer.provide(dependencies)),
   };
 });
@@ -1105,6 +1106,28 @@ describe("AgentMessaging", () => {
   );
 
   describe("stop and resume", () => {
+    it.effect("restarting an idle agent's session does not pause it; a Stop does", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          const stopRequested = (restart: boolean) =>
+            PubSub.publish(harness.events, {
+              type: "thread.session-stop-requested",
+              payload: { threadId: CHILD, ...(restart ? { restart: true } : {}) },
+            } as unknown as OrchestrationEvent);
+
+          yield* stopRequested(true);
+          yield* settle;
+          const afterRestart = yield* messaging.listAgents(LEAD);
+          assert.notEqual(afterRestart.find((agent) => agent.id === CHILD)?.status, "paused");
+
+          yield* stopRequested(false);
+          yield* settle;
+          const afterStop = yield* messaging.listAgents(LEAD);
+          assert.equal(afterStop.find((agent) => agent.id === CHILD)?.status, "paused");
+        }),
+      ),
+    );
+
     it.effect("Stop all pauses the tree: the stopped turn's reply and new messages are held", () =>
       withMessaging((harness, messaging, settle) =>
         Effect.gen(function* () {
