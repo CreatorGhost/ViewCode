@@ -827,6 +827,10 @@ export const ThreadPullRequestLink = Schema.Struct({
 });
 export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 
+/** ViewCode side chat: a quick-question thread docked beside its parent thread. */
+export const ThreadKind = Schema.Literal("sidechat");
+export type ThreadKind = typeof ThreadKind.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -882,6 +886,7 @@ export const OrchestrationThread = Schema.Struct({
   // ViewCode child agent: the thread that spawned this one. Child threads are
   // full agents (own session, model and composer) nested under their parent.
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  kind: Schema.optional(Schema.NullOr(ThreadKind)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
@@ -955,6 +960,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  kind: Schema.optional(Schema.NullOr(ThreadKind)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   session: Schema.NullOr(OrchestrationSession),
@@ -1174,6 +1180,7 @@ const ThreadCreateCommand = Schema.Struct({
   createdAt: IsoDateTime,
   historyImport: Schema.optional(Schema.Literal(true)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  kind: Schema.optional(Schema.NullOr(ThreadKind)),
 });
 
 const ThreadDeleteCommand = Schema.Struct({
@@ -1300,6 +1307,8 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   regenerateTitle: Schema.optional(Schema.Literal(true)),
   modelSelection: Schema.optional(ModelSelection),
+  /** Null promotes a side chat to an ordinary thread. */
+  kind: Schema.optional(Schema.NullOr(ThreadKind)),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1859,6 +1868,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  kind: Schema.optional(Schema.NullOr(ThreadKind)),
 });
 
 export const ThreadDeletedPayload = Schema.Struct({
@@ -1948,6 +1958,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   modelSelection: Schema.optional(ModelSelection),
+  kind: Schema.optional(Schema.NullOr(ThreadKind)),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // No longer produced; kept so persisted events from before

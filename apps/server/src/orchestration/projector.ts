@@ -441,6 +441,7 @@ export function projectEvent(
             activeOrderKey: null,
             autoSettleDisabledAt: null,
             parentThreadId: payload.parentThreadId ?? null,
+            ...(payload.kind ? { kind: payload.kind } : {}),
             snoozedUntil: null,
             snoozedAt: null,
             deletedAt: null,
@@ -633,6 +634,7 @@ export function projectEvent(
               ...(payload.modelSelection !== undefined
                 ? { modelSelection: payload.modelSelection }
                 : {}),
+              ...(payload.kind !== undefined ? { kind: payload.kind } : {}),
               ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
               ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
               ...(payload.activeOrderKey !== undefined
