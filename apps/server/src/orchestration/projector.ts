@@ -21,6 +21,10 @@ import {
   threadPullRequestKeysEqual,
 } from "@t3tools/shared/threadPullRequests";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+import {
+  checkpointStatusToTurnState,
+  turnStateAfterCheckpoint,
+} from "@t3tools/shared/turnSettlement";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Predicate from "effect/Predicate";
@@ -86,12 +90,6 @@ function retainThreadActivities(activities: OrchestrationThread["activities"]) {
       // setup script can outlast a chatty first turn.
       activity.kind === WORKTREE_SETUP_ACTIVITY_KIND,
   );
-}
-
-function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
-  if (status === "error") return "error" as const;
-  // Match SQL and client projections: a missing git ref is not an interruption.
-  return "completed" as const;
 }
 
 /**
@@ -976,11 +974,10 @@ export function projectEvent(
               ? thread.latestTurn
               : {
                   turnId: payload.turnId,
-                  state:
-                    thread.latestTurn?.turnId === payload.turnId &&
-                    thread.latestTurn.state === "interrupted"
-                      ? "interrupted"
-                      : checkpointStatusToLatestTurnState(payload.status),
+                  state: turnStateAfterCheckpoint(
+                    thread.latestTurn?.turnId === payload.turnId ? thread.latestTurn.state : null,
+                    payload.status,
+                  ),
                   requestedAt:
                     thread.latestTurn?.turnId === payload.turnId
                       ? thread.latestTurn.requestedAt
@@ -1027,7 +1024,7 @@ export function projectEvent(
               ? null
               : {
                   turnId: latestCheckpoint.turnId,
-                  state: checkpointStatusToLatestTurnState(latestCheckpoint.status),
+                  state: checkpointStatusToTurnState(latestCheckpoint.status),
                   requestedAt: latestCheckpoint.completedAt,
                   startedAt: latestCheckpoint.completedAt,
                   completedAt: latestCheckpoint.completedAt,

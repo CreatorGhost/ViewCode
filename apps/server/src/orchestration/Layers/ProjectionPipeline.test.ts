@@ -4091,6 +4091,127 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       ]);
     }),
   );
+
+  it.effect("keeps a failed turn failed when its checkpoint lands afterwards", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-failed-turn");
+      const turnId = TurnId.make("turn-failed");
+      let sequence = 0;
+      const appendAndProject = (
+        event: Omit<
+          Parameters<typeof eventStore.append>[0],
+          "eventId" | "commandId" | "causationEventId" | "correlationId" | "metadata"
+        >,
+      ) => {
+        sequence += 1;
+        return eventStore
+          .append({
+            ...event,
+            eventId: EventId.make(`evt-failed-turn-${sequence}`),
+            commandId: CommandId.make(`cmd-failed-turn-${sequence}`),
+            causationEventId: null,
+            correlationId: CorrelationId.make(`cmd-failed-turn-${sequence}`),
+            metadata: {},
+          } as Parameters<typeof eventStore.append>[0])
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+      };
+      const session = (status: "running" | "error", at: string) =>
+        appendAndProject({
+          type: "thread.session-set",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: at,
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status,
+              providerName: "cursor",
+              runtimeMode: "full-access",
+              activeTurnId: status === "running" ? turnId : null,
+              lastError: status === "error" ? "This model is not enabled for your team." : null,
+              updatedAt: at,
+            },
+          },
+        } as Parameters<typeof appendAndProject>[0]);
+
+      yield* appendAndProject({
+        type: "project.created",
+        aggregateKind: "project",
+        aggregateId: ProjectId.make("project-failed-turn"),
+        occurredAt: "2026-02-26T14:00:00.000Z",
+        payload: {
+          projectId: ProjectId.make("project-failed-turn"),
+          title: "Project Failed Turn",
+          workspaceRoot: "/tmp/project-failed-turn",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-02-26T14:00:00.000Z",
+          updatedAt: "2026-02-26T14:00:00.000Z",
+        },
+      } as Parameters<typeof appendAndProject>[0]);
+      yield* appendAndProject({
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-02-26T14:00:01.000Z",
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-failed-turn"),
+          title: "Thread Failed Turn",
+          modelSelection: { instanceId: ProviderInstanceId.make("cursor"), model: "gpt-5" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-02-26T14:00:01.000Z",
+          updatedAt: "2026-02-26T14:00:01.000Z",
+        },
+      } as Parameters<typeof appendAndProject>[0]);
+      yield* appendAndProject({
+        type: "thread.turn-start-requested",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-02-26T14:00:02.000Z",
+        payload: {
+          threadId,
+          messageId: MessageId.make("message-failed-turn"),
+          runtimeMode: "full-access",
+          createdAt: "2026-02-26T14:00:02.000Z",
+        },
+      } as Parameters<typeof appendAndProject>[0]);
+      yield* session("running", "2026-02-26T14:00:03.000Z");
+      // The provider rejected the turn: its session reports the failure.
+      yield* session("error", "2026-02-26T14:00:04.000Z");
+      // The end-of-turn checkpoint still lands, with a perfectly good ref.
+      yield* appendAndProject({
+        type: "thread.turn-diff-completed",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-02-26T14:00:05.000Z",
+        payload: {
+          threadId,
+          turnId,
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-failed-turn/turn/1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: null,
+          completedAt: "2026-02-26T14:00:05.000Z",
+        },
+      } as Parameters<typeof appendAndProject>[0]);
+
+      const rows = yield* sql<{ readonly state: string; readonly pendingMessageId: string }>`
+        SELECT state, pending_message_id AS "pendingMessageId"
+        FROM projection_turns
+        WHERE thread_id = 'thread-failed-turn' AND turn_id = 'turn-failed'
+      `;
+      assert.deepEqual(rows, [{ state: "error", pendingMessageId: "message-failed-turn" }]);
+    }),
+  );
 });
 
 it.layer(makeProjectionPipelinePrefixedTestLayer("t3-pending-turn-terminal-test-"))(

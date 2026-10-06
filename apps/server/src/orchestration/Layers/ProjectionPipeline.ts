@@ -8,6 +8,10 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+import {
+  checkpointStatusToTurnState,
+  turnStateAfterCheckpoint,
+} from "@t3tools/shared/turnSettlement";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -1704,7 +1708,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           ) {
             return;
           }
-          const nextState = event.payload.status === "error" ? "error" : "completed";
           yield* projectionTurnRepository.clearCheckpointTurnConflict({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
@@ -1715,10 +1718,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* projectionTurnRepository.upsertByTurnId({
               ...existingTurn.value,
               assistantMessageId: event.payload.assistantMessageId,
-              state:
-                turnStillRunning || existingTurn.value.state === "interrupted"
-                  ? existingTurn.value.state
-                  : nextState,
+              state: turnStillRunning
+                ? existingTurn.value.state
+                : turnStateAfterCheckpoint(existingTurn.value.state, event.payload.status),
               checkpointTurnCount: event.payload.checkpointTurnCount,
               checkpointRef: event.payload.checkpointRef,
               checkpointStatus: event.payload.status,
@@ -1736,7 +1738,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             sourceProposedPlanThreadId: null,
             sourceProposedPlanId: null,
             assistantMessageId: event.payload.assistantMessageId,
-            state: turnStillRunning ? "running" : nextState,
+            state: turnStillRunning ? "running" : checkpointStatusToTurnState(event.payload.status),
             requestedAt: event.payload.completedAt,
             startedAt: event.payload.completedAt,
             completedAt: event.payload.completedAt,

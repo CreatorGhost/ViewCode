@@ -333,6 +333,7 @@ describe("orchestration projector", () => {
   effectIt.effect.each([
     ["ready", "completed"],
     ["interrupted", "interrupted"],
+    ["error", "error"],
   ] as const)(
     "preserves the turn state after a %s session captures its checkpoint",
     ([status, state]) =>
@@ -415,7 +416,7 @@ describe("orchestration projector", () => {
                       providerThreadId: "provider-thread-1",
                       runtimeMode: "approval-required",
                       activeTurnId: null,
-                      lastError: null,
+                      lastError: status === "error" ? "The provider rejected the turn." : null,
                       updatedAt: settledAt,
                     },
                   },

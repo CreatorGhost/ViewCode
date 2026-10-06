@@ -1467,7 +1467,7 @@ describe("applyThreadDetailEvent", () => {
   });
 
   describe("thread.turn-diff-completed", () => {
-    it.each([null, "interrupted"] as const)(
+    it.each([null, "interrupted", "error"] as const)(
       "adds a checkpoint without replacing a %s turn outcome",
       (previousState) => {
         const result = applyThreadDetailEvent(

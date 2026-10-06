@@ -343,6 +343,10 @@
       "types": "./src/usageLimit.ts",
       "import": "./src/usageLimit.ts"
     },
+    "./turnSettlement": {
+      "types": "./src/turnSettlement.ts",
+      "import": "./src/turnSettlement.ts"
+    },
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"

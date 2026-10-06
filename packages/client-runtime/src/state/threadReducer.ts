@@ -16,6 +16,10 @@ import type {
 import { threadPullRequestKeysEqual } from "@t3tools/shared/threadPullRequests";
 import { isImportedAgentSessionMessageId } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+import {
+  checkpointStatusToTurnState,
+  turnStateAfterCheckpoint,
+} from "@t3tools/shared/turnSettlement";
 
 export type ThreadDetailReducerResult =
   | { readonly kind: "updated"; readonly thread: OrchestrationThread }
@@ -606,10 +610,7 @@ export function applyThreadDetailEvent(
         (thread.latestTurn === null || thread.latestTurn.turnId === event.payload.turnId)
           ? {
               turnId: event.payload.turnId,
-              state:
-                thread.latestTurn?.state === "interrupted"
-                  ? "interrupted"
-                  : checkpointStatusToTurnState(event.payload.status),
+              state: turnStateAfterCheckpoint(thread.latestTurn?.state, event.payload.status),
               requestedAt: thread.latestTurn?.requestedAt ?? event.payload.completedAt,
               startedAt: thread.latestTurn?.startedAt ?? event.payload.completedAt,
               completedAt: event.payload.completedAt,
@@ -769,19 +770,6 @@ function settledTurnStateForSessionStatus(
     case "starting":
     case "running":
       return null;
-  }
-}
-
-function checkpointStatusToTurnState(
-  status: "ready" | "missing" | "error",
-): OrchestrationLatestTurn["state"] {
-  switch (status) {
-    case "ready":
-      return "completed";
-    case "error":
-      return "error";
-    case "missing":
-      return "completed";
   }
 }
 
