@@ -13,7 +13,7 @@ import * as Effect from "effect/Effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { buildHandoff } from "./Handoff.ts";
-import { findExpiredSidechats, SIDECHAT_IDLE_EXPIRY_MS } from "./sidechatExpiry.ts";
+import { findExpiredSidechats } from "./sidechatExpiry.ts";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
@@ -154,7 +154,7 @@ describe("findExpiredSidechats", () => {
     const idle = shell({ id: ThreadId.make("idle") });
     const recent = shell({
       id: ThreadId.make("recent"),
-      latestUserMessageAt: new Date(nowMs - SIDECHAT_IDLE_EXPIRY_MS / 2).toISOString(),
+      latestUserMessageAt: "2026-01-09T12:00:00.000Z",
     });
     const ordinary = shell({ id: ThreadId.make("ordinary"), kind: null });
     const archived = shell({ id: ThreadId.make("archived"), archivedAt: NOW });

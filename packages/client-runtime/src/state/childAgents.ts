@@ -44,7 +44,9 @@ export function collectChildAgents<T extends ChildAgentShellInput>(
   const childrenByParent = new Map<ThreadId, T[]>();
   for (const thread of threads) {
     if (thread.environmentId !== root.environmentId) continue;
+    // A side chat sits beside its parent; it is not one of its agents.
     if (thread.archivedAt != null || thread.parentThreadId == null) continue;
+    if ((thread as { kind?: string | null }).kind === "sidechat") continue;
     const siblings = childrenByParent.get(thread.parentThreadId);
     if (siblings) siblings.push(thread);
     else childrenByParent.set(thread.parentThreadId, [thread]);

@@ -1,5 +1,6 @@
 import { CommandId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
@@ -31,7 +32,7 @@ export const make = Effect.gen(function* () {
 
   const sweep = Effect.gen(function* () {
     const snapshot = yield* projections.getShellSnapshot();
-    for (const thread of findExpiredSidechats(snapshot.threads, Date.now())) {
+    for (const thread of findExpiredSidechats(snapshot.threads, yield* Clock.currentTimeMillis)) {
       yield* engine
         .dispatch({
           type: "thread.archive",
@@ -39,20 +40,17 @@ export const make = Effect.gen(function* () {
           threadId: thread.id,
         })
         .pipe(
-          Effect.catchCauseIf(
-            (cause) => !Cause.hasInterruptsOnly(cause),
-            (cause) =>
-              Effect.logWarning("failed to archive an expired side chat", {
-                threadId: thread.id,
-                cause: Cause.pretty(cause),
-              }),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to archive an expired side chat", {
+              threadId: thread.id,
+              cause: Cause.pretty(cause),
+            }),
           ),
         );
     }
   }).pipe(
-    Effect.catchCauseIf(
-      (cause) => !Cause.hasInterruptsOnly(cause),
-      (cause) => Effect.logWarning("side chat expiry sweep failed", { cause: Cause.pretty(cause) }),
+    Effect.catchCause((cause) =>
+      Effect.logWarning("side chat expiry sweep failed", { cause: Cause.pretty(cause) }),
     ),
   );
 

@@ -277,7 +277,7 @@ const make = Effect.gen(function* () {
     const resetsAt = yield* resolveReset(thread, error, recorded, nowMs);
     // A child is left to its lead, who is told when it resets (see AgentMessaging).
     // The banner still says when, and Resume now still works.
-    const leftToLead = thread.parentThreadId != null;
+    const leftToLead = thread.parentThreadId != null && thread.kind !== "sidechat";
     if (resetsAt === null || resetsAt - nowMs > MAX_RESET_HORIZON_MS) {
       if (!leftToLead) yield* publishState(threadId, {});
       return yield* note(
@@ -318,7 +318,7 @@ const make = Effect.gen(function* () {
     nowMs: number,
   ) {
     const threadId = thread.id;
-    if (thread.parentThreadId != null) return;
+    if (thread.parentThreadId != null && thread.kind !== "sidechat") return;
     const settings = yield* settingsService.getSettings;
     if (!settings.resumeAfterUsageLimit) return;
     const done = retries.get(threadId) ?? 0;
