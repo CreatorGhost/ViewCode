@@ -278,14 +278,18 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="standalone-g
  * amber, messageSurface is an amber tint).
  * ------------------------------------------------------------------------- */
 
-/* Composer: an amber hairline on the input itself while it holds focus. Set on
+/* Composer: a faint amber hint on the input itself while it holds focus. Set on
    the host only: the shell's variable is shared by the attached strips (active
    agents above, checkout below), which must stay neutral or the stack reads as
    boxes inside boxes. */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   [data-slot="composer-shell"]:focus-within
   [data-slot="composer-host"] {
-  --chat-composer-outline: color-mix(in srgb, var(--app-theme-accent) 60%, transparent);
+  --chat-composer-outline: color-mix(
+    in srgb,
+    var(--foreground) 14%,
+    color-mix(in srgb, var(--app-theme-accent) 22%, transparent)
+  );
 }
 
 /* Banners attached to the composer (e.g. Active agents) sit inside the host;
