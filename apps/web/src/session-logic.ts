@@ -107,9 +107,9 @@ export interface WorkLogEntry {
   agentMessageSent?: AgentMessageSentPayload;
   /** A page the agent published with `html_render`, shown inline. */
   htmlRender?: HtmlRenderReference;
-  /** ViewCode: models (and provider instances) on either side of a handoff. */
   /** ViewCode: the thread a fork was taken from. */
   forkedFrom?: { threadId: string; title: string };
+  /** ViewCode: models (and provider instances) on either side of a handoff. */
   handoff?: { fromModel: string; toModel: string; fromInstanceId?: string; toInstanceId?: string };
 }
 

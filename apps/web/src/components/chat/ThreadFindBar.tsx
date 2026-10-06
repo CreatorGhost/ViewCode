@@ -18,7 +18,8 @@ const HIGHLIGHT = "viewcode-find";
 const HIGHLIGHT_ACTIVE = "viewcode-find-active";
 
 function setHighlights(all: Range[], active: Range | null) {
-  if (typeof CSS === "undefined" || !("highlights" in CSS) || typeof Highlight === "undefined") return;
+  if (typeof CSS === "undefined" || !("highlights" in CSS) || typeof Highlight === "undefined")
+    return;
   CSS.highlights.set(HIGHLIGHT, new Highlight(...all));
   if (active) CSS.highlights.set(HIGHLIGHT_ACTIVE, new Highlight(active));
   else CSS.highlights.delete(HIGHLIGHT_ACTIVE);
@@ -78,12 +79,15 @@ export function ThreadFindBar({
       const all = collectTextRanges(viewport, query);
       const inMessage = active
         ? collectTextRanges(
-            viewport.querySelector(`[data-message-id="${CSS.escape(active.messageId)}"]`) ?? viewport,
+            viewport.querySelector(`[data-message-id="${CSS.escape(active.messageId)}"]`) ??
+              viewport,
             query,
           )
         : [];
       // Source text and rendered text can differ (markdown syntax), so clamp.
-      const activeRange = active ? (inMessage[Math.min(active.occurrence, inMessage.length - 1)] ?? null) : null;
+      const activeRange = active
+        ? (inMessage[Math.min(active.occurrence, inMessage.length - 1)] ?? null)
+        : null;
       setHighlights(all, activeRange);
       activeRange?.startContainer.parentElement?.scrollIntoView({ block: "nearest" });
     })();
@@ -121,7 +125,11 @@ export function ThreadFindBar({
         }}
       />
       <span className="min-w-12 text-center text-muted-foreground text-xs tabular-nums">
-        {query.trim() === "" ? "" : matches.length === 0 ? "No results" : `${current + 1}/${matches.length}`}
+        {query.trim() === ""
+          ? ""
+          : matches.length === 0
+            ? "No results"
+            : `${current + 1}/${matches.length}`}
       </span>
       <Button size="icon-xs" variant="ghost" aria-label="Previous match" onClick={() => step(-1)}>
         <ChevronUpIcon />

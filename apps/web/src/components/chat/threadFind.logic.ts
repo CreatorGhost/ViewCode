@@ -26,7 +26,11 @@ export function findThreadMatches(
     if (role !== "user" && role !== "assistant") continue;
     const haystack = text.toLowerCase();
     let occurrence = 0;
-    for (let from = haystack.indexOf(needle); from >= 0; from = haystack.indexOf(needle, from + needle.length)) {
+    for (
+      let from = haystack.indexOf(needle);
+      from >= 0;
+      from = haystack.indexOf(needle, from + needle.length)
+    ) {
       matches.push({ entryId: entry.id, messageId: id, occurrence: occurrence++ });
     }
   }
@@ -48,7 +52,11 @@ export function collectTextRanges(root: Element, query: string): Range[] {
   const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const haystack = (node.nodeValue ?? "").toLowerCase();
-    for (let from = haystack.indexOf(needle); from >= 0; from = haystack.indexOf(needle, from + needle.length)) {
+    for (
+      let from = haystack.indexOf(needle);
+      from >= 0;
+      from = haystack.indexOf(needle, from + needle.length)
+    ) {
       const range = root.ownerDocument.createRange();
       range.setStart(node, from);
       range.setEnd(node, from + needle.length);
@@ -65,5 +73,8 @@ export function collectTextRanges(root: Element, query: string): Range[] {
 export function chatOwnsFindShortcut(target: EventTarget | null, terminalFocus: boolean): boolean {
   if (terminalFocus) return false;
   if (!(target instanceof Element)) return true;
-  return target.closest("[data-right-panel-surface-content], .cm-editor, [data-diffs-container]") === null;
+  return (
+    target.closest("[data-right-panel-surface-content], .cm-editor, [data-diffs-container]") ===
+    null
+  );
 }

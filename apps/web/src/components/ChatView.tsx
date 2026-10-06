@@ -515,6 +515,7 @@ import { ServerUpdateAction } from "./ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import { useUsageResumeBanner } from "./chat/useUsageResumeBanner";
 import { useViewcodeToolsBanner } from "./chat/useViewcodeToolsBanner";
+import { useLiveEditedFilesBanner } from "./chat/useLiveEditedFilesBanner";
 import { useImagePayloadBanner } from "./chat/useImagePayloadBanner";
 import {
   ComposerServerUpdateIcon,
@@ -6589,8 +6590,20 @@ export default function ChatView(props: ChatViewProps) {
     messages: activeThread?.messages ?? EMPTY_THREAD_MESSAGES,
     providerName: activeThread?.session?.providerName,
   });
+  // onOpenTurnDiff is declared further down; a ref keeps this callback stable.
+  const openTurnDiffRef = useRef<(turnId: TurnId, filePath?: string) => void>(() => {});
+  const openLiveEditedFileDiff = useCallback(
+    (turnId: string, filePath?: string) => openTurnDiffRef.current(turnId as TurnId, filePath),
+    [],
+  );
+  const liveEditedFilesBannerItem = useLiveEditedFilesBanner({
+    entries: workLogEntries,
+    runningTurnId: activeRunningTurnId,
+    onOpenDiff: openLiveEditedFileDiff,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const threadNoticeItems = [
+      ...(liveEditedFilesBannerItem === null ? [] : [liveEditedFilesBannerItem]),
       ...(imagePayloadBannerItem === null ? [] : [imagePayloadBannerItem]),
       ...(viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem]),
     ];
@@ -6671,6 +6684,7 @@ export default function ChatView(props: ChatViewProps) {
     feedbackBannerItems,
     handleRestoreThreadBranch,
     imagePayloadBannerItem,
+    liveEditedFilesBannerItem,
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
@@ -9611,6 +9625,7 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
   );
+  openTurnDiffRef.current = onOpenTurnDiff;
   // The revert handler is read from a ref at call-time so the callback
   // reference is fully stable and never busts TimelineRowCtx identity.
   const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
