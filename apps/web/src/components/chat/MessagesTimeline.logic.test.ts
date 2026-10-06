@@ -1534,6 +1534,46 @@ describe("deriveMessagesTimelineRows", () => {
       ).toEqual(["spawns:spawn-1,spawn-2", "agent-message-out", "spawns:spawn-3"]);
     });
 
+    it("shows a published HTML page as its own row that stays visible when the turn folds", () => {
+      const htmlRender = { attachmentId: "thread-1-page-html", title: "Revenue", height: 320 };
+      const rows = derive(
+        deriveTimelineEntries(
+          [assistant("assistant-first", 1), assistant("assistant-final", 5)],
+          [],
+          [
+            work("read-1", 2, {
+              command: "cat a.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            }),
+            work("page-entry", 3, {
+              tone: "info",
+              label: "Revenue",
+              sourceActivityKind: "html.render",
+              htmlRender,
+            }),
+            work("read-2", 4, {
+              command: "cat b.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            }),
+          ],
+        ),
+      );
+
+      expect(rows.map((row) => row.id)).toEqual([
+        "turn-fold:turn-1",
+        "page-entry",
+        "assistant-final",
+      ]);
+      expect(rows.find((row) => row.kind === "html-render")).toEqual({
+        kind: "html-render",
+        id: "page-entry",
+        createdAt: "2026-01-01T00:00:03Z",
+        htmlRender,
+      });
+    });
+
     it("renders a delivered agent message as an incoming card, not a user bubble", () => {
       const text = formatAgentMessage({
         messageId: "m-2",

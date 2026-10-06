@@ -16,6 +16,11 @@ Your harness's built-in sub-agents (for example a native spawn_agent or Task too
 If the user requires a particular provider or model, or a separate chat, that inline sub-agents cannot provide, say so instead of silently substituting. If the viewcode_* tools are missing from your tool list, name the likely cause (for example, the provider's MCP policy: "Cursor team policy may block MCP servers") and mention that the user can also create child agents from the ViewCode sidebar.
 </viewcode_agents>`;
 
+/** Kept apart from the agents block, which changes often, so edits to each merge cleanly. */
+export const VIEWCODE_VISUALS_INSTRUCTIONS = `<viewcode_visuals>
+When a chart, table, diagram, image collage, or mockup would say more than prose, and the viewcode MCP server exposes html_render, build a self-contained HTML page and publish it with html_render before your final reply. The reader sees the page above that reply, so don't announce or restate it; add only what it doesn't say.
+</viewcode_visuals>`;
+
 /**
  * Shared runtime context; omit model and effort when the harness manages them dynamically.
  * `modelName` is the display name users see in the model picker; `model` is the slug.
@@ -43,12 +48,12 @@ export function buildRuntimeInstructions(runtime: {
   if (runtime.viewcodeToolsUnavailable) {
     return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable)}`;
   }
-  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}`;
+  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}`;
 }
 
 const viewcodeToolsUnavailableInstructions = (reason: "managed-mcp" | "setting") =>
   `<viewcode_tools>
-ViewCode's own tools (the viewcode MCP server: browser preview, devices, pull request linking and ViewCode agents such as viewcode_spawn_agent) are not available in this session, because ${
+ViewCode's own tools (the viewcode MCP server: browser preview, devices, pull request linking, inline HTML pages and ViewCode agents such as viewcode_spawn_agent) are not available in this session, because ${
     reason === "managed-mcp"
       ? "the user's organization manages this harness's MCP servers"
       : "the user turned them off in ViewCode's settings"

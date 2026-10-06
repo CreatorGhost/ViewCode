@@ -267,6 +267,23 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - A provider CLI that exits on its own is reported as that exit, attributed to the process and carrying its stderr ("Claude Code exited (code 1): …", last ~2KB, redacted; `provider/providerProcessExit.ts`), in the runtime error, the failed turn and the top-level log line. A request that merely touched the dead process (Claude's `setPermissionMode` is usually first) waits for the stream to settle and fails with that exit instead of "`turn/setPermissionMode` failed". ACP adapters already attach stderr to `AcpProcessExitedError`.
 - The MCP endpoint is announced on `127.0.0.1` even on a wildcard bind, on purpose (`mcp/McpSessionRegistry.ts`, `getHttpMcpEndpointHost`). Provider subprocesses are local, and MCP never crosses remote connections or tunnels, so "MCP unreachable from remote" is expected, not a bug.
 
+### Inline HTML pages (`html_render`)
+
+- Ported from upstream's v2 feature onto v1. The `html_render` tool
+  (`apps/server/src/mcp/toolkits/html/`) stores the page as a `<id>-html`
+  thread attachment and then appends an `html.render` thread activity itself.
+  Upstream renders the page from the tool call's result, but v1 adapters do not
+  carry MCP tool results to clients reliably, so the activity is the only
+  thing clients read. The activity takes the thread's active turn, so
+  reverting that turn removes the page too.
+- Revert pruning (`ProjectionPipeline` `applyAttachmentSideEffects`) keeps only
+  attachments something still references; `html.render` activities count as a
+  reference, or a revert would delete every page in the thread.
+- Left out on purpose: `html_preview`, the headless Chrome download and
+  server-side height measurement. The page reports its own height
+  (`ui/notifications/size-changed`) and the web frame fits it; mobile shows the
+  agent's height and lets a taller page scroll inside its frame.
+
 ### Desktop local mode and phone access
 
 - By default the desktop backend listens on a Unix socket (named pipe on

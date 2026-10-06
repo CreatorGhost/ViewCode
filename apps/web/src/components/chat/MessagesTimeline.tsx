@@ -153,6 +153,7 @@ import {
 } from "./SnapShotAttachmentDetails";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ShellCommandBlock } from "./ShellCommandBlock";
+import { HtmlRenderFrame } from "./HtmlRenderFrame";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
@@ -1699,7 +1700,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "work-toggle" ||
                   row.kind === "activity-group" ||
                   row.kind === "thinking" ||
-                  row.kind === "worktree-setup"
+                  row.kind === "worktree-setup" ||
+                  row.kind === "html-render"
                 ? "pb-2"
                 : "pb-4",
         (row.kind === "message" && row.message.role === "assistant") ||
@@ -1740,6 +1742,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       ) : null}
       {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
+      {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "thinking" ? <ThinkingTimelineRow /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
@@ -2614,6 +2617,22 @@ function ProposedPlanTimelineRow({
         threadRef={ctx.threadRef ?? undefined}
         cwd={ctx.markdownCwd}
         workspaceRoot={ctx.workspaceRoot}
+      />
+    </div>
+  );
+}
+
+function HtmlRenderTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "html-render" }> }) {
+  const ctx = use(TimelineRowCtx);
+
+  return (
+    <div className="min-w-0 px-1">
+      <HtmlRenderFrame
+        // A recycled row must not keep another page's frame.
+        key={row.htmlRender.attachmentId}
+        environmentId={ctx.activeThreadEnvironmentId}
+        htmlRender={row.htmlRender}
+        onOpen={ctx.onFileOpen}
       />
     </div>
   );

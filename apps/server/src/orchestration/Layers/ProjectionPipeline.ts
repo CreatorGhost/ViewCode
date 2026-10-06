@@ -8,6 +8,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+import { HTML_RENDER_ACTIVITY_KIND, readHtmlRenderReference } from "@t3tools/shared/htmlRender";
 import {
   checkpointStatusToTurnState,
   turnStateAfterCheckpoint,
@@ -2025,6 +2026,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: ThreadId.make(threadId),
           });
           for (const activity of activities) {
+            // Pages agents published with html_render live only in their activity.
+            if (activity.kind === HTML_RENDER_ACTIVITY_KIND) {
+              const page = readHtmlRenderReference(activity.payload);
+              if (page) retainedPaths.add(`${page.attachmentId}.html`);
+              continue;
+            }
             if (activity.kind !== "user-input.answer-submitted") continue;
             const payload = decodeQuestionAttachmentAnswer(activity.payload);
             if (Option.isNone(payload)) continue;

@@ -27,6 +27,11 @@ import {
   readAgentMessageSentPayload,
 } from "@t3tools/shared/agentMessages";
 import {
+  HTML_RENDER_ACTIVITY_KIND,
+  readHtmlRenderReference,
+  type HtmlRenderReference,
+} from "@t3tools/shared/htmlRender";
+import {
   isToolLifecycleItemType,
   type AssetResource,
   type OrchestrationLatestTurn,
@@ -100,6 +105,8 @@ export interface WorkLogEntry {
   };
   /** ViewCode: a message this thread's agent sent to another agent. */
   agentMessageSent?: AgentMessageSentPayload;
+  /** A page the agent published with `html_render`, shown inline. */
+  htmlRender?: HtmlRenderReference;
   /** ViewCode: models (and provider instances) on either side of a handoff. */
   handoff?: { fromModel: string; toModel: string; fromInstanceId?: string; toInstanceId?: string };
 }
@@ -609,6 +616,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (activity.kind === AGENT_MESSAGE_SENT_ACTIVITY_KIND) {
     const sent = readAgentMessageSentPayload(payload);
     if (sent) entry.agentMessageSent = sent;
+  }
+  if (activity.kind === HTML_RENDER_ACTIVITY_KIND) {
+    const htmlRender = readHtmlRenderReference(payload);
+    if (htmlRender) entry.htmlRender = htmlRender;
   }
   if (activity.kind === "viewcode.handoff") {
     const fromModel = asTrimmedString(asRecord(payload?.from)?.model);

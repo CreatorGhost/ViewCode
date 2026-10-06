@@ -174,6 +174,8 @@ import {
   WORK_GROUP_TOGGLE_HEIGHT,
 } from "./thread-work-log";
 import { appendPendingThreadMessages, type PendingThreadFeedEntry } from "./pending-thread-feed";
+import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
+import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import {
@@ -1407,6 +1409,7 @@ function renderFeedEntry(
   props: Pick<
     ThreadFeedProps,
     | "environmentId"
+    | "threadId"
     | "onUseArtifactTemplate"
     | "skills"
     | "dispatchingMessageId"
@@ -1477,6 +1480,17 @@ function renderFeedEntry(
 
   if (entry.type === "thinking") {
     return <ThreadThinkingRow rowSizing={props.workRowSizing} iconSubtleColor={iconSubtleColor} />;
+  }
+
+  if (entry.type === "html-render") {
+    return (
+      <ThreadHtmlRender
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        render={entry.render}
+        iconColor={iconSubtleColor}
+      />
+    );
   }
 
   if (entry.type === "agent-message") {
@@ -2795,6 +2809,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // average once one of their type has been measured.
   const getFixedItemSize = useCallback(
     (entry: ThreadFeedEntry) => {
+      if (entry.type === "html-render") {
+        return htmlRenderRowHeight(htmlRenderFrameHeight(entry.render));
+      }
       if (workRowSizing.fixedRowHeight === undefined) {
         return undefined;
       }
@@ -2836,6 +2853,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         <ThreadMediaVisibility>
           {renderFeedEntry(info, {
             environmentId: props.environmentId,
+            threadId: props.threadId,
             dispatchingMessageId: props.dispatchingMessageId,
             undeliveredMessages: props.undeliveredMessages,
             onEditPendingMessage: props.onEditPendingMessage,

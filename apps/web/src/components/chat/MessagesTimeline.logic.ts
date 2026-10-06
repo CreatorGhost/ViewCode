@@ -45,6 +45,7 @@ import {
   type AgentMessageSentPayload,
 } from "@t3tools/shared/agentMessages";
 import { agentToolkitLabel, handoffDividerLabel } from "./agentTimeline.logic";
+import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 
 export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
 
@@ -70,7 +71,9 @@ export function incomingAgentMessage(message: ChatMessage): AgentMessageEnvelope
  */
 function isStandaloneTimelineWork(entry: WorkLogEntry): boolean {
   return (
-    isTimelineDividerActivityKind(entry.sourceActivityKind) || entry.agentMessageSent !== undefined
+    isTimelineDividerActivityKind(entry.sourceActivityKind) ||
+    entry.agentMessageSent !== undefined ||
+    entry.htmlRender !== undefined
   );
 }
 
@@ -450,6 +453,13 @@ export type MessagesTimelineRow =
       spawns: ReadonlyArray<AgentMessageSentPayload>;
     }
   | {
+      /** A page this thread's agent published with `html_render`. */
+      kind: "html-render";
+      id: string;
+      createdAt: string;
+      htmlRender: HtmlRenderReference;
+    }
+  | {
       kind: "message";
       id: string;
       createdAt: string;
@@ -779,7 +789,8 @@ function deriveTurnFolds(input: {
       (candidate, candidateIndex) =>
         candidateIndex > terminalEntryIndex &&
         !(candidate.kind === "message" && candidate.message.role === "reasoning") &&
-        !(candidate.kind === "work" && candidate.entry.agentMessageSent !== undefined),
+        !(candidate.kind === "work" && candidate.entry.agentMessageSent !== undefined) &&
+        !(candidate.kind === "work" && candidate.entry.htmlRender !== undefined),
     ).length;
     for (const [index, entry] of group.entries.entries()) {
       if (entry.id === group.terminalEntry?.id) {
@@ -802,13 +813,14 @@ function deriveTurnFolds(input: {
       ) {
         continue;
       }
-      // User input, subagent batches and agent-to-agent messages stay
-      // visible after their turn settles.
+      // User input, subagent batches, agent-to-agent messages and published
+      // pages stay visible after their turn settles.
       if (
         entry.kind === "work" &&
         (entry.entry.questionAnswer !== undefined ||
           entry.entry.agentSpawn !== undefined ||
-          entry.entry.agentMessageSent !== undefined)
+          entry.entry.agentMessageSent !== undefined ||
+          entry.entry.htmlRender !== undefined)
       ) {
         continue;
       }
@@ -1282,6 +1294,16 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "work" && timelineEntry.entry.htmlRender !== undefined) {
+      nextRows.push({
+        kind: "html-render",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        htmlRender: timelineEntry.entry.htmlRender,
+      });
+      continue;
+    }
+
     if (
       timelineEntry.kind === "work" &&
       isTimelineDividerActivityKind(timelineEntry.entry.sourceActivityKind)
@@ -1747,6 +1769,12 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.spawns.length === bs.spawns.length &&
         a.spawns.every((spawn, index) => Equal.equals(spawn, bs.spawns[index]))
       );
+    }
+
+    case "html-render": {
+      // An equal page must keep its mounted frame.
+      const bh = b as typeof a;
+      return a.createdAt === bh.createdAt && htmlRenderReferencesEqual(a.htmlRender, bh.htmlRender);
     }
 
     case "proposed-plan":

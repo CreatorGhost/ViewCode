@@ -34,6 +34,9 @@ import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handler
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { AgentsToolkitHandlersLive } from "./toolkits/agents/handlers.ts";
 import { AgentsToolkit } from "./toolkits/agents/tools.ts";
+import { HtmlToolkitHandlersLive } from "./toolkits/html/handlers.ts";
+import { HtmlToolkit } from "./toolkits/html/tools.ts";
+import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import {
   DeviceScreenshotToolkitHandlersLive,
   DeviceStandardToolkitHandlersLive,
@@ -653,6 +656,11 @@ export const AgentsToolkitRegistrationLive = McpServer.toolkit(AgentsToolkit).pi
   Layer.provide(AgentsToolkitHandlersLive),
 );
 
+export const HtmlToolkitRegistrationLive = McpServer.toolkit(HtmlToolkit).pipe(
+  Layer.provide(HtmlToolkitHandlersLive),
+  Layer.provide(HtmlRender.layer),
+);
+
 const DeviceStandardToolkitRegistrationLive = McpServer.toolkit(DeviceStandardToolkit).pipe(
   Layer.provide(DeviceStandardToolkitHandlersLive),
 );
@@ -678,4 +686,5 @@ export const layer = Layer.mergeAll(
   PullRequestsToolkitRegistrationLive,
   AgentsToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
+  HtmlToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

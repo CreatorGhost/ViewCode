@@ -21,6 +21,11 @@ import {
   type AgentMessageSentPayload,
 } from "@t3tools/shared/agentMessages";
 import {
+  HTML_RENDER_ACTIVITY_KIND,
+  readHtmlRenderReference,
+  type HtmlRenderReference,
+} from "@t3tools/shared/htmlRender";
+import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
   extractWorkLogToolLifecycleStatus,
@@ -126,6 +131,8 @@ export interface WorkLogEntry {
   toolData?: unknown;
   /** A message this thread's agent sent another agent; renders as a "to" card. */
   agentMessageSent?: AgentMessageSentPayload;
+  /** A page the agent published with `html_render`; renders inline. */
+  htmlRender?: HtmlRenderReference;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -224,6 +231,14 @@ export type ThreadFeedEntry =
       readonly createdAt: string;
       readonly turnId: TurnId | null;
       readonly sent: AgentMessageSentPayload;
+    }
+  | {
+      /** A page the agent published with `html_render`, shown inline. */
+      readonly type: "html-render";
+      readonly id: string;
+      readonly createdAt: string;
+      readonly turnId: TurnId | null;
+      readonly render: HtmlRenderReference;
     };
 
 export type ThreadFeedAgentMessageEntry = Extract<
@@ -305,6 +320,10 @@ function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
 
 function isAgentMessageActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return entry.activities.some((activity) => activity.workEntry.agentMessageSent !== undefined);
+}
+
+function isHtmlRenderActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return entry.activities.some((activity) => activity.workEntry.htmlRender !== undefined);
 }
 
 function normalizeDraftAnswer(value: string | undefined): string | null {
@@ -576,6 +595,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (activity.kind === AGENT_MESSAGE_SENT_ACTIVITY_KIND) {
     const sent = readAgentMessageSentPayload(payload);
     if (sent) entry.agentMessageSent = sent;
+  }
+  if (activity.kind === HTML_RENDER_ACTIVITY_KIND) {
+    const htmlRender = readHtmlRenderReference(payload);
+    if (htmlRender) entry.htmlRender = htmlRender;
   }
   const toolCallId =
     asTrimmedString(payload?.toolCallId) ?? asTrimmedString(asRecord(payload?.data)?.toolCallId);
@@ -1636,7 +1659,8 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
     const isStandalone =
       entry.activity.workEntry.sourceActivityKind === "context-compaction" ||
       entry.activity.workEntry.questionAnswer !== undefined ||
-      entry.activity.workEntry.agentMessageSent !== undefined;
+      entry.activity.workEntry.agentMessageSent !== undefined ||
+      entry.activity.workEntry.htmlRender !== undefined;
     if (isStandalone || firstActivityEntry?.turnId !== entry.turnId) {
       flushGroup();
     }
@@ -1765,7 +1789,9 @@ function deriveThreadFeedTurnFolds(
             entry.id !== terminalAssistantMessageId &&
             !(
               entry.type === "activity-group" &&
-              (isUserInputActivityGroup(entry) || isAgentMessageActivityGroup(entry))
+              (isUserInputActivityGroup(entry) ||
+                isAgentMessageActivityGroup(entry) ||
+                isHtmlRenderActivityGroup(entry))
             ),
         )
         .map((entry) => entry.id),
@@ -1842,7 +1868,8 @@ export function deriveThreadFeedPresentation(
       entry.type !== "work-toggle" &&
       entry.type !== "thinking" &&
       entry.type !== "agent-spawn" &&
-      entry.type !== "agent-message",
+      entry.type !== "agent-message" &&
+      entry.type !== "html-render",
   );
   const activeTailGroup = sourceFeed.findLast(
     (entry) => entry.type !== "message" || !isEmptyMessage(entry),
@@ -1963,6 +1990,7 @@ function activityRunTurnId(entry: ThreadFeedEntry): TurnId | null {
       (activity) =>
         !activity.workEntry.agentSpawn &&
         !activity.workEntry.agentMessageSent &&
+        !activity.workEntry.htmlRender &&
         activity.workEntry.tone !== "error",
     )
   ) {
@@ -2191,6 +2219,18 @@ function appendActivityGroupRows(
   for (const activity of activities) {
     const spawn = activity.workEntry.agentSpawn;
     const sent = activity.workEntry.agentMessageSent;
+    const render = activity.workEntry.htmlRender;
+    if (render !== undefined) {
+      flushGroupableRun(false);
+      result.push({
+        type: "html-render",
+        id: activity.id,
+        createdAt: activity.createdAt,
+        turnId: activity.turnId,
+        render,
+      });
+      continue;
+    }
     if (sent !== undefined) {
       flushGroupableRun(false);
       result.push({

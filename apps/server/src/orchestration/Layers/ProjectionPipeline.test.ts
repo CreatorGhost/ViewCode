@@ -14,6 +14,7 @@ import {
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import { HTML_RENDER_ACTIVITY_KIND } from "@t3tools/shared/htmlRender";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -1676,6 +1677,39 @@ it.layer(
           },
         });
       }
+      // Pages agents published with html_render are referenced only by their activity.
+      const pageKeepId = "thread-revert-files-00000000-0000-4000-8000-000000000008-html";
+      const pageRemoveId = "thread-revert-files-00000000-0000-4000-8000-000000000009-html";
+      for (const [id, turnId] of [
+        [pageKeepId, "turn-keep"],
+        [pageRemoveId, "turn-remove"],
+      ] as const) {
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make(`page-${id}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.make(`page-${id}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`page-${id}`),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make(`page-${id}`),
+              kind: HTML_RENDER_ACTIVITY_KIND,
+              tone: "info",
+              summary: "Chart",
+              createdAt: now,
+              turnId: TurnId.make(turnId),
+              payload: { attachmentId: id, title: "Chart", height: 300 },
+            },
+          },
+        });
+      }
+      const pageKeepPath = path.join(attachmentsDir, `${pageKeepId}.html`);
+      const pageRemovePath = path.join(attachmentsDir, `${pageRemoveId}.html`);
       const keepPath = path.join(attachmentsDir, `${keepAttachmentId}.png`);
       const keepFilePath = path.join(attachmentsDir, `${keepFileAttachmentId}.pdf`);
       const removePath = path.join(attachmentsDir, `${removeAttachmentId}.png`);
@@ -1687,6 +1721,8 @@ it.layer(
       );
       yield* fileSystem.writeFileString(keepPath, "keep");
       yield* fileSystem.writeFileString(keepFilePath, "keep");
+      yield* fileSystem.writeFileString(pageKeepPath, "<p>keep</p>");
+      yield* fileSystem.writeFileString(pageRemovePath, "<p>remove</p>");
       yield* fileSystem.writeFileString(removePath, "remove");
       const otherThreadPath = path.join(attachmentsDir, `${otherThreadAttachmentId}.png`);
       yield* fileSystem.writeFileString(otherThreadPath, "other");
@@ -1779,6 +1815,8 @@ it.layer(
       assert.isTrue(yield* exists(keepFilePath));
       assert.isTrue(yield* exists(path.join(attachmentsDir, `${answerKeepId}.txt`)));
       assert.isFalse(yield* exists(path.join(attachmentsDir, `${answerRemoveId}.txt`)));
+      assert.isTrue(yield* exists(pageKeepPath));
+      assert.isFalse(yield* exists(pageRemovePath));
       assert.isFalse(yield* exists(removePath));
       assert.isTrue(yield* exists(laterPath));
       assert.isTrue(yield* exists(otherThreadPath));

@@ -477,6 +477,30 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("reads a published HTML page from its activity and ignores a malformed one", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "page",
+        kind: "html.render",
+        summary: "Revenue",
+        tone: "info",
+        payload: { attachmentId: "thread-1-page-html", title: "Revenue", height: 5_000 },
+      }),
+      makeActivity({
+        id: "broken",
+        kind: "html.render",
+        summary: "Broken",
+        tone: "info",
+        payload: { title: "Broken" },
+        sequence: 1,
+      }),
+    ]);
+    expect(entries.map((entry) => [entry.id, entry.htmlRender])).toEqual([
+      ["page", { attachmentId: "thread-1-page-html", title: "Revenue", height: 2_000 }],
+      ["broken", undefined],
+    ]);
+  });
+
   it("omits internal turn acceptance receipts while keeping turn failures", () => {
     const entries = deriveWorkLogEntries([
       makeActivity({
