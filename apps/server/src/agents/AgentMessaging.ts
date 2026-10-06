@@ -1226,7 +1226,7 @@ const make = Effect.gen(function* () {
       if (next === null) {
         yield* Queue.take(limitChanged);
       } else {
-        // @effect-diagnostics-next-line raceFirstWithSleepToTimeout:off - one sleep to the earliest retry, cut short when the marks change
+        // One sleep to the earliest retry, cut short when the marks change.
         yield* Effect.raceFirst(
           Queue.take(limitChanged),
           Effect.sleep(Duration.millis(next - nowMs)),

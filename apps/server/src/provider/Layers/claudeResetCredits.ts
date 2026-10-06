@@ -256,7 +256,7 @@ const readLogin = (
   configDir: string,
   environment: NodeJS.ProcessEnv,
   keychain: ClaudeKeychainAccess,
-): Effect.Effect<ClaudeLogin, unknown, FileSystem.FileSystem | Path.Path> =>
+) =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
     if ((yield* HostProcessPlatform) === "darwin") {
