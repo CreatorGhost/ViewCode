@@ -4,7 +4,7 @@ import {
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { QuoteIcon } from "lucide-react";
+import { MessageSquarePlusIcon, QuoteIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -22,10 +22,16 @@ export function AssistantSelectionToolbar({
   viewport,
   threadRef,
   onCite,
+  onAskInNewChat,
+  onAskInSideChat,
 }: {
   viewport: HTMLElement | null;
   threadRef: ScopedThreadRef;
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  /** Opens a new thread with the selection quoted in its composer. */
+  onAskInNewChat?: (quotedText: string) => void;
+  /** Extension point for side chats; the action stays hidden while this is unset. */
+  onAskInSideChat?: (quotedText: string) => void;
 }) {
   const [selection, setSelection] = useState<{
     citation: AssistantCitation;
@@ -33,10 +39,11 @@ export function AssistantSelectionToolbar({
     sourceAnchor: AssistantCitationSourceAnchor;
   } | null>(null);
   const toolbarRef = useRef<HTMLButtonElement>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
 
   useLayoutEffect(() => {
-    const toolbar = toolbarRef.current;
+    const toolbar = groupRef.current;
     if (!toolbar || !selection) return;
     const rect = toolbar.getBoundingClientRect();
     toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
@@ -79,7 +86,7 @@ export function AssistantSelectionToolbar({
     };
     const actions = observeSelectionActions({
       element: viewport,
-      getActionElement: () => toolbarRef.current,
+      getActionElement: () => groupRef.current,
       onSelection: update,
       onDismiss: clear,
     });
@@ -95,7 +102,7 @@ export function AssistantSelectionToolbar({
         event.isComposing ||
         event.defaultPrevented ||
         !toolbar ||
-        toolbar.contains(event.target as Node)
+        groupRef.current?.contains(event.target as Node)
       ) {
         return;
       }
@@ -126,29 +133,64 @@ export function AssistantSelectionToolbar({
     dismiss();
     return true;
   };
+  const ask = (handler: (quotedText: string) => void) => () => {
+    handler(selection.citation.text);
+    window.getSelection()?.removeAllRanges();
+    dismiss();
+  };
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    event.stopPropagation();
+    if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      dismiss();
+    }
+  };
   return createPortal(
-    <Button
-      ref={toolbarRef}
-      type="button"
-      size="xs"
-      variant="glass"
-      disabled={tooLong}
-      aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
-      className="fixed z-50 max-w-[calc(100vw-1rem)]"
+    <div
+      className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
       style={{ left: selection.position.x, top: selection.position.y }}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={cite}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          dismiss();
-        }
-      }}
+      ref={groupRef}
     >
-      <QuoteIcon aria-hidden="true" className="size-3.5" />
-      {tooLong ? "Shorten selection" : "Cite"}
-    </Button>,
+      <Button
+        ref={toolbarRef}
+        type="button"
+        size="xs"
+        variant="glass"
+        disabled={tooLong}
+        aria-label={tooLong ? "Selection is too long to cite" : "Quote selection in this chat"}
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={cite}
+        onKeyDown={onKeyDown}
+      >
+        <QuoteIcon aria-hidden="true" className="size-3.5" />
+        {tooLong ? "Shorten selection" : "Quote in this chat"}
+      </Button>
+      {onAskInNewChat ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="glass"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={ask(onAskInNewChat)}
+          onKeyDown={onKeyDown}
+        >
+          <MessageSquarePlusIcon aria-hidden="true" className="size-3.5" />
+          Ask in new chat
+        </Button>
+      ) : null}
+      {onAskInSideChat ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="glass"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={ask(onAskInSideChat)}
+          onKeyDown={onKeyDown}
+        >
+          Ask in side chat
+        </Button>
+      ) : null}
+    </div>,
     document.body,
   );
 }

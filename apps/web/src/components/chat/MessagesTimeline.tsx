@@ -174,6 +174,7 @@ import { ForkSourceDivider } from "../agents/ForkSourceDivider";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { inferEntryKindFromPath } from "../../pierre-icons";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
+import { useAskInNewChat } from "./useAskInNewChat";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import {
   AssistantCitationSource,
@@ -595,6 +596,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     });
   }, []);
   const citationThreadRef = useMemo(() => parseScopedThreadKey(routeThreadKey), [routeThreadKey]);
+  const askInNewChat = useAskInNewChat(citationThreadRef);
   const openPullRequest = useOpenPrLink(citationThreadRef ?? undefined);
   const expandCitedTurn = useCallback((turnId: TurnId) => {
     setExpandedTurnIds((current) =>
@@ -1291,6 +1293,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               viewport={timelineViewportElement}
               threadRef={citationThreadRef}
               onCite={onCiteAssistantText}
+              onAskInNewChat={askInNewChat}
             />
           ) : null}
           <LegendList<MessagesTimelineRow>
