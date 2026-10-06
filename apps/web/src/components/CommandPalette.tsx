@@ -164,6 +164,7 @@ import {
 } from "./CommandPalette.logic";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
+import { buildThreadTabActions } from "./tabs/threadTabActions";
 import { CommandPaletteContent } from "./CommandPaletteContent";
 import { CommandPaletteResults } from "./CommandPaletteResults";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon, ForgejoIcon } from "./Icons";
@@ -1839,6 +1840,18 @@ function OpenCommandPaletteDialog(props: {
       });
     }
   }
+
+  actionItems.push(
+    ...buildThreadTabActions(
+      activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null,
+      (ref) =>
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId: ref.environmentId, threadId: ref.threadId },
+        }),
+      () => void navigate({ to: "/" }),
+    ),
+  );
 
   if (activeThread !== null) {
     const thread = activeThread;
