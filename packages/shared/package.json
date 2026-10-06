@@ -343,6 +343,10 @@
       "types": "./src/usageLimit.ts",
       "import": "./src/usageLimit.ts"
     },
+    "./providerFailure": {
+      "types": "./src/providerFailure.ts",
+      "import": "./src/providerFailure.ts"
+    },
     "./turnSettlement": {
       "types": "./src/turnSettlement.ts",
       "import": "./src/turnSettlement.ts"

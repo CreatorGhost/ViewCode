@@ -971,6 +971,71 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
+  effectIt.effect("records why a provider rejected a turn, not only that it did", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = ThreadId.make("thread-1");
+      const diagnostic = "Error: ConnectError: [permission_denied] Model not enabled for your team";
+      harness.sendTurn.mockImplementation(() =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "cursor",
+            method: "session/prompt",
+            detail: "Cursor refused the request.",
+            cause: diagnostic,
+          }),
+        ),
+      );
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const events = yield* harness.engine.subscribeDomainEvents;
+          const receipt = yield* events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "thread.activity-appended" &&
+                event.payload.activity.kind === "provider.turn.start.failed",
+            ),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+          yield* harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("rejected-model"),
+            threadId,
+            message: {
+              messageId: asMessageId("rejected-model-message"),
+              role: "user",
+              text: "a long, detailed prompt",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          });
+          yield* Fiber.join(receipt);
+        }),
+      );
+      yield* Effect.promise(() => harness.drain());
+
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(thread?.session).toMatchObject({
+        status: "error",
+        lastError: "Cursor refused the request.",
+      });
+      const failure = thread?.activities.find(
+        (activity) => activity.kind === "provider.turn.start.failed",
+      );
+      expect(failure?.payload).toMatchObject({
+        detail: "Cursor refused the request.",
+        requestId: "rejected-model-message",
+        failure: { class: "permission_error", code: "permission_denied", retryable: false },
+      });
+    }),
+  );
+
   effectIt.effect("records the accepted provider turn against its requesting message", () =>
     Effect.gen(function* () {
       const harness = yield* Effect.promise(() => createHarness());

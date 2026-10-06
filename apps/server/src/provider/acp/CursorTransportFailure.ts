@@ -1,7 +1,10 @@
 const maxLineLength = 4096;
-// Cursor also uses RetriableError for agent-loop failures; preserve those diagnostics.
+// A request Cursor's servers refused: dropped connections, but also invalid
+// requests and permission or entitlement rejections, which used to read as the
+// agent's answer. Cursor also uses RetriableError for agent-loop failures;
+// preserve those diagnostics.
 const transportError =
-  /^Error: (?:RetriableError: (?!\[internal\]).+|ConnectError: \[(?:unavailable|aborted|deadline_exceeded)\].*)$/;
+  /^Error: (?:RetriableError: (?!\[internal\]).+|ConnectError: \[[a-z_]+\].*)$/;
 const serverError = "Something went wrong communicating with the server. Please try again.";
 
 interface ReplyState {

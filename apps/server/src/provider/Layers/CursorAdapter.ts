@@ -70,6 +70,7 @@ import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { applyCursorAcpModelSelection, makeCursorAcpRuntime } from "../acp/CursorAcpSupport.ts";
 import { CursorSubagentEvents } from "../acp/CursorSubagentEvents.ts";
 import { CursorTransportFailure } from "../acp/CursorTransportFailure.ts";
+import { classifyProviderFailure, describeProviderFailure } from "@t3tools/shared/providerFailure";
 import {
   CursorAskQuestionRequest,
   CursorCreatePlanRequest,
@@ -1165,10 +1166,16 @@ export function makeCursorAdapter(
           const failure = ctx.assistantReply.failure;
           if (ctx.promptsInFlight === 1 && result.stopReason !== "cancelled" && failure) {
             yield* settleSubagentTasks("failed");
+            // The detail is what the user reads and what usage handling
+            // matches, so it explains the failure and keeps Cursor's own text.
+            const explanation = describeProviderFailure(classifyProviderFailure(failure), {
+              provider: "Cursor",
+              model: resolvedModel,
+            });
             return yield* new ProviderAdapterRequestError({
               provider: PROVIDER,
               method: "session/prompt",
-              detail: "Cursor reported a transport failure.",
+              detail: `${explanation} Cursor said: ${failure}`,
               cause: failure,
             });
           }

@@ -20,6 +20,7 @@ import {
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
+import { classifyProviderFailure, type ProviderFailure } from "@t3tools/shared/providerFailure";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -388,6 +389,8 @@ const make = Effect.gen(function* () {
     readonly turnId: TurnId | null;
     readonly createdAt: string;
     readonly requestId?: string;
+    /** Why the provider failed, recorded so it is not only a sentence of text. */
+    readonly failure?: Pick<ProviderFailure, "class" | "code" | "retryable">;
   }) =>
     Effect.all({
       commandId: serverCommandId("provider-failure-activity"),
@@ -406,6 +409,7 @@ const make = Effect.gen(function* () {
             payload: {
               detail: input.detail,
               ...(input.requestId ? { requestId: input.requestId } : {}),
+              ...(input.failure ? { failure: input.failure } : {}),
             },
             turnId: input.turnId,
             createdAt: input.createdAt,
@@ -495,6 +499,16 @@ const make = Effect.gen(function* () {
       return failReason.error.message;
     }
     return Cause.pretty(cause);
+  };
+
+  // The provider's own text when the adapter kept it as the error's cause:
+  // classifying that, rather than the explanation written for people, keeps
+  // the explanation's wording from deciding the class.
+  const failureCauseText = (cause: Cause.Cause<unknown>): string | undefined => {
+    const error = cause.reasons.find(Cause.isFailReason)?.error;
+    return isProviderAdapterRequestError(error) && typeof error.cause === "string"
+      ? error.cause
+      : undefined;
   };
 
   const setThreadSession = (input: {
@@ -1652,7 +1666,11 @@ const make = Effect.gen(function* () {
       return;
     }
     const { message, hasOtherUserMessages } = turnStart.value;
-    const appendTurnStartFailure = (summary: string, detail: string) =>
+    const appendTurnStartFailure = (
+      summary: string,
+      detail: string,
+      failure?: Pick<ProviderFailure, "class" | "code" | "retryable">,
+    ) =>
       appendProviderFailureActivity({
         threadId: event.payload.threadId,
         kind: "provider.turn.start.failed",
@@ -1661,6 +1679,7 @@ const make = Effect.gen(function* () {
         turnId: null,
         createdAt: event.payload.createdAt,
         requestId: event.payload.messageId,
+        ...(failure ? { failure } : {}),
       });
     if (resumed && turnsAfterCompaction.get(event.payload.threadId) !== resumed.queued) {
       return yield* appendTurnStartFailure(
@@ -1674,12 +1693,19 @@ const make = Effect.gen(function* () {
         return Effect.void;
       }
       const detail = formatFailureDetail(cause);
+      const failure = classifyProviderFailure(failureCauseText(cause) ?? detail);
       return setThreadSessionErrorOnTurnStartFailure({
         threadId: event.payload.threadId,
         detail,
         createdAt: event.payload.createdAt,
       }).pipe(
-        Effect.flatMap(() => appendTurnStartFailure("Provider turn start failed", detail)),
+        Effect.flatMap(() =>
+          appendTurnStartFailure("Provider turn start failed", detail, {
+            class: failure.class,
+            code: failure.code,
+            retryable: failure.retryable,
+          }),
+        ),
         Effect.asVoid,
       );
     };
