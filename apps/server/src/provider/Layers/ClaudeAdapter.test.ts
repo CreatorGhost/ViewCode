@@ -1624,6 +1624,68 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("shows Claude API retries of a turn as one work-log row", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "session.exited"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "hello", attachments: [] });
+      for (const [attempt, status, delay] of [
+        [1, 529, 500],
+        [2, 529, 2_000],
+        [3, null, 0],
+      ] as const) {
+        harness.query.emit({
+          type: "system",
+          subtype: "api_retry",
+          attempt,
+          max_retries: 10,
+          retry_delay_ms: delay,
+          error_status: status,
+          error: status === null ? "unknown" : "overloaded",
+          session_id: "sdk-session-1",
+          uuid: `retry-${attempt}`,
+        } as unknown as SDKMessage);
+      }
+      harness.query.finish();
+
+      const rows = Array.from(yield* Fiber.join(runtimeEventsFiber)).filter(
+        (event) => event.type === "runtime.warning",
+      );
+      assert.deepEqual(
+        rows.map((event) =>
+          event.type === "runtime.warning" ? [event.payload.message, event.payload.detail] : [],
+        ),
+        [
+          [
+            "Claude API retrying (attempt 1 of 10, HTTP 529)",
+            "Claude API overloaded. Retrying in 500ms.",
+          ],
+          [
+            "Claude API retrying (attempt 2 of 10, HTTP 529)",
+            "Claude API overloaded. Retrying in 2s.",
+          ],
+          ["Claude API retrying (attempt 3 of 10, no response)", "Claude API unknown."],
+        ],
+      );
+      // One id per turn: each attempt replaces the row instead of adding one.
+      assert.equal(new Set(rows.map((event) => event.eventId)).size, 1);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("steers a running turn instead of opening a new one on mid-turn sendTurn", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
@@ -4705,7 +4767,7 @@ describe("ClaudeAdapterLive", () => {
           uuid,
         } as unknown as SDKMessage);
       }
-      // api_retry maps to a session heartbeat, not a warning row.
+      // Outside a turn, api_retry is only a session heartbeat, not a row.
       harness.query.emit({
         type: "system",
         subtype: "api_retry",
@@ -4765,7 +4827,8 @@ describe("ClaudeAdapterLive", () => {
       let receipt: Deferred.Deferred<void> | undefined;
       const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
         Effect.gen(function* () {
-          runtimeEvents.push(event);
+          // The drain marker's own retry row is not under test here.
+          if (!String(event.eventId).startsWith("claude-api-retry:")) runtimeEvents.push(event);
           if (
             receipt &&
             event.type === "session.state.changed" &&

@@ -28,6 +28,7 @@ import {
 import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { classifyLimitError } from "@t3tools/shared/usageLimit";
+import { describeClaudeApiRetry } from "./claudeApiRetry.ts";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
 import {
   ApprovalRequestId,
@@ -4007,11 +4008,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         return;
       case "thinking_tokens":
         return;
-      case "api_retry":
-        // Transport-level retry heartbeat. Surfacing each attempt as a
-        // warning row spammed the work log (10 rows during a 502 storm);
-        // the terminal result/error path reports the actual failure. Keep
-        // the session visibly alive instead.
+      case "api_retry": {
+        // Transport-level retry heartbeat: keeps the session visibly alive.
         yield* offerRuntimeEvent({
           ...base,
           type: "session.state.changed",
@@ -4020,7 +4018,20 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             reason: `api_retry:${message.attempt}/${message.max_retries}`,
           },
         });
+        // One quiet row per turn says why the turn is waiting. Its id is fixed
+        // per turn, so each attempt replaces the row instead of adding one (a
+        // row per attempt spammed the work log during a 502 storm).
+        if (context.turnState) {
+          const retry = describeClaudeApiRetry(message);
+          yield* offerRuntimeEvent({
+            ...base,
+            eventId: EventId.make(`claude-api-retry:${context.turnState.turnId}`),
+            type: "runtime.warning",
+            payload: { message: retry.message, detail: retry.detail },
+          });
+        }
         return;
+      }
       case "session_state_changed":
         // Authoritative turn-over signal from the CLI.
         yield* offerRuntimeEvent({
