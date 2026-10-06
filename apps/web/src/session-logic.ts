@@ -100,8 +100,8 @@ export interface WorkLogEntry {
   };
   /** ViewCode: a message this thread's agent sent to another agent. */
   agentMessageSent?: AgentMessageSentPayload;
-  /** ViewCode: models on either side of a cross-provider handoff. */
-  handoff?: { fromModel: string; toModel: string };
+  /** ViewCode: models (and provider instances) on either side of a handoff. */
+  handoff?: { fromModel: string; toModel: string; fromInstanceId?: string; toInstanceId?: string };
 }
 
 const workLogCollapseKey = Symbol();
@@ -613,7 +613,16 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (activity.kind === "viewcode.handoff") {
     const fromModel = asTrimmedString(asRecord(payload?.from)?.model);
     const toModel = asTrimmedString(asRecord(payload?.to)?.model);
-    if (fromModel && toModel) entry.handoff = { fromModel, toModel };
+    const fromInstanceId = asTrimmedString(asRecord(payload?.from)?.instanceId);
+    const toInstanceId = asTrimmedString(asRecord(payload?.to)?.instanceId);
+    if (fromModel && toModel) {
+      entry.handoff = {
+        fromModel,
+        toModel,
+        ...(fromInstanceId ? { fromInstanceId } : {}),
+        ...(toInstanceId ? { toInstanceId } : {}),
+      };
+    }
   }
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);

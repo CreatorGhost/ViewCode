@@ -61,6 +61,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   whole request; the server decides the handoff. Clients only label it, from
   the continuation group of `session.providerInstanceId`, not of the staged
   selection. Upstream merges that bring the lock back must drop it again.
+- A handoff's "from" model is never read from `thread.modelSelection`: the
+  client saves the new selection (`thread.meta.update`) before the turn, so
+  once the live session is gone (idle reaper, restart) that field already
+  names the target, and every such switch was recorded as "opus → opus". The
+  reactor reads the leaving model from the live session, the persisted
+  binding, then the last turn's selection. Same model on both sides is a real
+  case (another account), so labels then name the instances instead.
 - The recap has one fixed budget for every incoming model,
   `HANDOFF_BUDGET_TOKENS` (50k tokens, ~200k characters), covering the **whole
   rendered prelude** (header, recap, omission note). It is not a share of the

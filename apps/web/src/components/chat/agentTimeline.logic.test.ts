@@ -100,6 +100,26 @@ describe("handoffDividerLabel", () => {
     ).toBe("Context handed off · claude-opus-4-6 → claude-sonnet-4-6");
     expect(handoffDividerLabel({ label: "Something else" })).toBe("Something else");
   });
+
+  it("names the instances when both sides ran the same model", () => {
+    expect(
+      handoffDividerLabel({
+        label: "ignored",
+        handoff: {
+          fromModel: "claude-opus-5-5",
+          toModel: "claude-opus-5-5",
+          fromInstanceId: "codex",
+          toInstanceId: "claudeAgent",
+        },
+      }),
+    ).toBe("Context handed off · claude-opus-5-5 · codex → claudeAgent");
+    expect(
+      handoffDividerLabel({
+        label: "ignored",
+        handoff: { fromModel: "gpt-6-astra", toModel: "gpt-6-astra" },
+      }),
+    ).toBe("Context handed off · gpt-6-astra");
+  });
 });
 
 describe("agent work log entries", () => {
@@ -124,7 +144,12 @@ describe("agent work log entries", () => {
     const sent = entries.find(
       (entry) => entry.sourceActivityKind === "viewcode.agent-message.sent",
     );
-    expect(handoff?.handoff).toEqual({ fromModel: "claude-opus-4-6", toModel: "gpt-5-codex" });
+    expect(handoff?.handoff).toEqual({
+      fromModel: "claude-opus-4-6",
+      toModel: "gpt-5-codex",
+      fromInstanceId: "claudeAgent",
+      toInstanceId: "codex",
+    });
     expect(sent?.agentMessageSent).toEqual({
       messageId: "m-1",
       toThreadId: "thread-2",

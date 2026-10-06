@@ -137,6 +137,16 @@ export function describeModel(selection: HandoffEndpoint): string {
   return `${selection.model} (${selection.instanceId})`;
 }
 
+/**
+ * The handoff activity's summary. When both sides ran the same model only the
+ * provider instance changed (another account), so that is what it names.
+ */
+export function describeHandoff(from: HandoffEndpoint, to: HandoffEndpoint): string {
+  return from.model === to.model
+    ? `Context handed off from ${from.instanceId} to ${to.instanceId}, both on ${to.model}`
+    : `Context handed off from ${describeModel(from)} to ${describeModel(to)}`;
+}
+
 /** Every string inside an activity payload, for fact extraction and the transcript. */
 function payloadText(payload: unknown, depth = 0): string[] {
   if (depth > 4 || payload === null || payload === undefined) return [];

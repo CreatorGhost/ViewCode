@@ -67,7 +67,7 @@ import {
 import { canReplaceThreadTitle, DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
 import {
   buildHandoff,
-  describeModel,
+  describeHandoff,
   HANDOFF_ACTIVITY_KIND,
   type HandoffEndpoint,
   selectionNeedsHandoff,
@@ -252,6 +252,18 @@ const PendingHandoffJson = Schema.fromJsonString(
   }),
 );
 const isModelSelection = Schema.is(ModelSelection);
+
+/** A handoff's "from" model when nothing recorded which model ran before. */
+const UNKNOWN_HANDOFF_MODEL = "previous model";
+
+function readBindingModelSelection(runtimePayload: unknown): ModelSelection | undefined {
+  return runtimePayload !== null &&
+    typeof runtimePayload === "object" &&
+    "modelSelection" in runtimePayload &&
+    isModelSelection(runtimePayload.modelSelection)
+    ? runtimePayload.modelSelection
+    : undefined;
+}
 type PendingHandoff = typeof PendingHandoffJson.Type;
 /** Reads a pending handoff persisted by the reactor; None when unreadable. */
 const decodePendingHandoff = Schema.decodeUnknownOption(PendingHandoffJson);
@@ -970,11 +982,20 @@ const make = Effect.gen(function* () {
         }
       }
       // Captured before the stop below: the native session being left.
+      const leavingBinding = yield* persistedBindingFor(threadId, boundInstanceId);
       const leavingResumeCursor = staleSessionRecovery
         ? undefined
-        : (activeSession?.resumeCursor ??
-          (yield* persistedBindingFor(threadId, boundInstanceId))?.resumeCursor ??
-          undefined);
+        : (activeSession?.resumeCursor ?? leavingBinding?.resumeCursor ?? undefined);
+      // The model being left. The thread's own selection already names the
+      // model being switched to (the client updates it before the turn), so it
+      // only counts when it still belongs to the instance being left.
+      const leavingModel =
+        activeSession?.model ??
+        readBindingModelSelection(leavingBinding?.runtimePayload)?.model ??
+        threadModelSelections.get(threadId)?.model ??
+        (thread.modelSelection.instanceId === boundInstanceId
+          ? thread.modelSelection.model
+          : undefined);
       if (activeSession !== undefined || staleSessionRecovery) {
         yield* providerService.stopSession({ threadId }).pipe(Effect.ignoreCause({ log: true }));
       }
@@ -998,7 +1019,7 @@ const make = Effect.gen(function* () {
       yield* rememberPendingHandoff(threadId, {
         from: earlierHandoff?.from ?? {
           instanceId: String(boundInstanceId ?? currentInstanceId),
-          model: activeSession?.model ?? thread.modelSelection.model,
+          model: leavingModel ?? UNKNOWN_HANDOFF_MODEL,
         },
         to: { instanceId: String(desiredInstanceId), model: desiredModelSelection.model },
         ...(fromResumeCursor != null ? { fromResumeCursor } : {}),
@@ -1208,7 +1229,7 @@ const make = Effect.gen(function* () {
               : STALE_SESSION_RECOVERY_ACTIVITY_KIND,
           summary:
             staleProvider === undefined
-              ? `Context handed off from ${describeModel(pending.from)} to ${describeModel(pending.to)}`
+              ? describeHandoff(pending.from, pending.to)
               : `Couldn't reopen the previous ${staleProvider} session; continued with a recap of this conversation`,
           payload: {
             from: pending.from,
