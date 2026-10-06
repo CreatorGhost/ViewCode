@@ -25,6 +25,25 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## App rail and open-thread tabs
+
+On web and desktop, a slim rail at the far left stays visible even when the thread sidebar
+is collapsed. Its bottom holds one ring per enabled provider account. A ring shows how much
+of that account's most constrained usage limit is left (green, blue, amber, red as it runs
+out); hover it for every limit and its reset time, or click it to open **Usage**. Below the
+rings are **Settings** and a **More** menu with Pull Requests, Usage, and Connect phone. On
+a phone these stay in the sidebar sheet.
+
+Once you have opened a second thread, tabs appear above the chat. Click a tab to switch,
+click its **x** or middle-click to close it. Tabs are remembered per environment. Hold
+`Ctrl` and press `Tab` (`Shift+Tab` to go back) for a list of recent threads; release
+`Ctrl` to switch. `ctrl+pagedown` / `ctrl+pageup` move between tabs and `mod+alt+w`
+closes the current one; all three are in the command palette and can be rebound in
+[Keybindings](./keybindings.md).
+
+Hovering a thread row shows its status and last activity, branch, model, and linked pull
+requests; hovering a project header shows its path and thread count.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.
