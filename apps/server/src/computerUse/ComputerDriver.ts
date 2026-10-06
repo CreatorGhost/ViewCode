@@ -11,6 +11,12 @@
  * The driver re-reads the element at dispatch and refuses with `stale` when
  * role or label no longer match, so an action cannot land on a control that
  * replaced the one the agent saw.
+ *
+ * Coordinate calls take points in logical screen coordinates (the service
+ * maps screenshot pixels using the bounds the screenshot reported) plus the
+ * window bounds that screenshot was taken at. The driver brings the window to
+ * the front, re-reads its bounds and refuses with `stale` when they differ, so
+ * a click cannot land on a window that moved or on something now covering it.
  */
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
@@ -42,6 +48,11 @@ export interface DriverElement {
 export interface DriverElementIdentity {
   readonly role: string;
   readonly label: string;
+}
+
+export interface DriverPoint {
+  readonly x: number;
+  readonly y: number;
 }
 
 export interface DriverStatus {
@@ -86,11 +97,19 @@ export interface ComputerDriverShape {
     { readonly elements: ReadonlyArray<DriverElement>; readonly truncated: boolean },
     ComputerDriverError
   >;
-  /** Writes a PNG to `outputPath`. */
+  /**
+   * Writes a PNG of the window to `outputPath`, its longest edge at most
+   * `maxSize` pixels. `bounds` is the screen region (logical coordinates) the
+   * image covers, which the service uses to map image pixels to the screen.
+   */
   readonly screenshot: (
     windowHandle: string,
     outputPath: string,
-  ) => Effect.Effect<{ readonly width: number; readonly height: number }, ComputerDriverError>;
+    options: { readonly maxSize: number },
+  ) => Effect.Effect<
+    { readonly width: number; readonly height: number; readonly bounds: ComputerUseRect },
+    ComputerDriverError
+  >;
   readonly press: (
     elementHandle: string,
     expect: DriverElementIdentity,
@@ -113,8 +132,46 @@ export interface ComputerDriverShape {
     dx: number,
     dy: number,
   ) => Effect.Effect<void, ComputerDriverError>;
+  /**
+   * Best effort, read only: the smallest labelled element under `point`, so
+   * approvals and the destructive check can name what a coordinate click hits.
+   * `null` when nothing labelled is there or the app exposes no tree.
+   */
+  readonly elementAt: (
+    windowHandle: string,
+    point: DriverPoint,
+  ) => Effect.Effect<DriverElementIdentity | null, ComputerDriverError>;
+  readonly click: (
+    windowHandle: string,
+    expectBounds: ComputerUseRect,
+    point: DriverPoint,
+    options: { readonly button: "left" | "right" | "middle"; readonly count: number },
+  ) => Effect.Effect<void, ComputerDriverError>;
+  readonly drag: (
+    windowHandle: string,
+    expectBounds: ComputerUseRect,
+    from: DriverPoint,
+    to: DriverPoint,
+  ) => Effect.Effect<void, ComputerDriverError>;
+  readonly move: (
+    windowHandle: string,
+    expectBounds: ComputerUseRect,
+    point: DriverPoint,
+  ) => Effect.Effect<void, ComputerDriverError>;
+  readonly scrollAt: (
+    windowHandle: string,
+    expectBounds: ComputerUseRect,
+    point: DriverPoint,
+    dx: number,
+    dy: number,
+  ) => Effect.Effect<void, ComputerDriverError>;
+  /** Brings the window to the front, then types into its focused element. */
+  readonly typeFocused: (
+    windowHandle: string,
+    text: string,
+  ) => Effect.Effect<void, ComputerDriverError>;
 }
 
 export class ComputerDriver extends Context.Service<ComputerDriver, ComputerDriverShape>()(
-  "@t3tools/server/computerUse/ComputerDriver",
+  "t3/computerUse/ComputerDriver",
 ) {}

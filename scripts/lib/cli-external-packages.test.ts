@@ -50,6 +50,8 @@ describe("shouldBundleCliDependency", () => {
       "@yuuang/ffi-rs-win32-x64-msvc",
       "@ff-labs/fff-node",
       "@napi-rs/keyring",
+      "@crowecawcaw/xa11y",
+      "@crowecawcaw/xa11y-darwin-arm64",
       "@clerk/electron-passkeys",
       "node-addon-api",
     ]) {
@@ -83,7 +85,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
   it("selects every external root declared by the server", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
-      ["@ff-labs/fff-node", "@napi-rs/keyring", "node-pty"],
+      ["@crowecawcaw/xa11y", "@ff-labs/fff-node", "@napi-rs/keyring", "node-pty"],
     );
   });
 });

@@ -20,6 +20,7 @@ import { serviceCommand } from "./cli/service.ts";
 import { uninstallCommand } from "./cli/uninstall.ts";
 import { updateCommand } from "./cli/update.ts";
 import { claudeHistoryCommand } from "./cli/claudeHistory.ts";
+import { computerUseDriverCommand, viewcodeComputerCommand } from "./cli/computerUse.ts";
 import { mcpStdioBridgeCommand } from "./cli/mcpStdioBridge.ts";
 import { serviceLauncherCommand } from "./cli/serviceLauncher.ts";
 import { servicePreflightCommand } from "./cli/servicePreflight.ts";
@@ -70,6 +71,8 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       serviceLauncherCommand,
       claudeHistoryCommand,
       mcpStdioBridgeCommand,
+      computerUseDriverCommand,
+      viewcodeComputerCommand,
       servicePreflightCommand,
       sshHelperCommand,
       themeCommand,

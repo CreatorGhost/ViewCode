@@ -1,9 +1,15 @@
 # Computer use
 
 Computer use lets an agent see the apps open on the machine that runs the environment server and,
-if you allow it, operate them: press buttons, fill in fields, type, scroll and send keyboard
-shortcuts. Agents reach it through the `viewcode-computer` command, which ViewCode puts on their
-path, so it works with providers whose organization blocks MCP servers.
+if you allow it, operate them: press buttons, fill in fields, type, click, drag, scroll and send
+keyboard shortcuts. Agents reach it through the `viewcode-computer` command, which ViewCode puts on
+their path, so it works with providers whose organization blocks MCP servers.
+
+Agents work in two ways and pick per step. Where an app describes its controls to the system, they
+act on a control by reference, which is exact. Where it does not, such as a 3D slicer's canvas, a
+game or a web page, they take a screenshot, look at it and click, drag or scroll at a point in it.
+Each action returns a fresh screenshot, so the agent sees the result before its next step. A point
+from an older screenshot, or from a window that has since moved, is refused rather than clicked.
 
 ## Turn it on
 
@@ -38,8 +44,10 @@ controlled by an agent.
 
 ## Limits
 
-- Agents work from the accessibility tree: what an app exposes to screen readers. Apps that expose
-  little can only be inspected through screenshots.
+- Clicking at a point brings that window to the front, because the system delivers pointer input
+  to whatever is on top.
+- Screenshot-based actions need Screen Recording; without it agents can only act on controls by
+  reference.
 - Codex in a sandboxed permission mode may be unable to reach ViewCode from its shell. Use
   **Full access** for those threads.
 - Command Code does not support computer use.

@@ -507,6 +507,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.276
         version: 0.3.276(@anthropic-ai/sdk@0.93.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(zod@4.6.5)
+      '@crowecawcaw/xa11y':
+        specifier: 0.13.0
+        version: 0.13.0
       '@effect/platform-node':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(bufferutil@4.1.0)(effect@4.0.0-rc.115(patch_hash=e7f58877e87996e73e44f697dd39ec71b3a05dcfd00047253c11eb9ee47d84ec))(redis@6.2.1)(utf-8-validate@6.0.6)

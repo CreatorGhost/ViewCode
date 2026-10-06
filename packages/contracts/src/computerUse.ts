@@ -37,6 +37,8 @@ export const ComputerUseErrorCode = Schema.Literals([
   "CU-NOT-001",
   /** Element ref unknown to this thread. */
   "CU-NOT-002",
+  /** Screenshot (shot) id unknown to this thread. */
+  "CU-NOT-003",
   /** Computer use is off on this server, or not granted to this session. */
   "CU-CON-001",
   /** Input requested while the server allows observation only. */
@@ -49,6 +51,11 @@ export const ComputerUseErrorCode = Schema.Literals([
   "CU-CON-005",
   /** No turn is running in this thread; computer actions belong to a turn. */
   "CU-CON-006",
+  /**
+   * Coordinates come from a screenshot that is no longer the window's newest,
+   * or the window moved, resized or closed since it was taken.
+   */
+  "CU-CON-007",
   /** Platform unsupported or the driver could not start. */
   "CU-EXT-001",
   /** Accessibility permission is missing for the app that runs ViewCode. */
@@ -76,6 +83,14 @@ export const COMPUTER_USE_KEY_PATTERN =
   /^(?:(?:cmd|ctrl|alt|shift|meta|option|super)\+){0,4}(?:[a-z0-9]|f(?:[1-9]|1[0-9]|2[0-4])|enter|return|tab|escape|space|backspace|delete|up|down|left|right|home|end|pageup|pagedown)$/;
 const KeyChord = Schema.String.check(Schema.isPattern(COMPUTER_USE_KEY_PATTERN));
 const ScrollDelta = Schema.Int.check(Schema.isBetween({ minimum: -50, maximum: 50 }));
+const ShotId = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
+/** Pixel in the screenshot image, from its top-left corner. Bounds are checked against the shot. */
+const ImagePixel = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+/** Longest edge of the returned image. Vision models read about 1568px best. */
+export const COMPUTER_USE_DEFAULT_SCREENSHOT_SIZE = 1568;
+const ScreenshotMaxSize = Schema.Int.check(Schema.isBetween({ minimum: 256, maximum: 2560 }));
+export const ComputerUseMouseButton = Schema.Literals(["left", "right", "middle"]);
+export type ComputerUseMouseButton = typeof ComputerUseMouseButton.Type;
 
 /** Body of `POST /api/computer-use`. One command per request. */
 export const ComputerUseRequest = Schema.Union([
@@ -87,7 +102,11 @@ export const ComputerUseRequest = Schema.Union([
     /** Case-insensitive substring over label and value; narrows a large tree. */
     query: Schema.optional(ShortText),
   }),
-  Schema.Struct({ command: Schema.Literal("screenshot"), window: WindowId }),
+  Schema.Struct({
+    command: Schema.Literal("screenshot"),
+    window: WindowId,
+    maxSize: Schema.optional(ScreenshotMaxSize),
+  }),
   Schema.Struct({ command: Schema.Literal("press"), ref: ElementRef }),
   Schema.Struct({ command: Schema.Literal("set-value"), ref: ElementRef, value: InputText }),
   Schema.Struct({ command: Schema.Literal("type"), ref: ElementRef, text: InputText }),
@@ -98,6 +117,37 @@ export const ComputerUseRequest = Schema.Union([
     dx: ScrollDelta,
     dy: ScrollDelta,
   }),
+  // Coordinate (vision) commands: x/y are pixels in screenshot `shot`, which
+  // must be the newest screenshot of its window. The server maps them to the
+  // screen and refuses if the window moved since. They bring the window to
+  // the front first, because synthetic pointer input lands on whatever is on top.
+  Schema.Struct({
+    command: Schema.Literal("click"),
+    shot: ShotId,
+    x: ImagePixel,
+    y: ImagePixel,
+    button: Schema.optional(ComputerUseMouseButton),
+    count: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3 }))),
+  }),
+  Schema.Struct({
+    command: Schema.Literal("drag"),
+    shot: ShotId,
+    fromX: ImagePixel,
+    fromY: ImagePixel,
+    toX: ImagePixel,
+    toY: ImagePixel,
+  }),
+  Schema.Struct({ command: Schema.Literal("move"), shot: ShotId, x: ImagePixel, y: ImagePixel }),
+  Schema.Struct({
+    command: Schema.Literal("scroll-at"),
+    shot: ShotId,
+    x: ImagePixel,
+    y: ImagePixel,
+    dx: ScrollDelta,
+    dy: ScrollDelta,
+  }),
+  /** Types into whatever has keyboard focus in the window (after bringing it to the front). */
+  Schema.Struct({ command: Schema.Literal("type-focused"), window: WindowId, text: InputText }),
 ]);
 export type ComputerUseRequest = typeof ComputerUseRequest.Type;
 export type ComputerUseCommand = ComputerUseRequest["command"];
@@ -115,6 +165,11 @@ export const COMPUTER_USE_INPUT_COMMANDS = [
   "type",
   "key",
   "scroll",
+  "click",
+  "drag",
+  "move",
+  "scroll-at",
+  "type-focused",
 ] as const satisfies ReadonlyArray<ComputerUseCommand>;
 
 export const ComputerUseRect = Schema.Struct({
@@ -170,6 +225,16 @@ export const ComputerUseEffect = Schema.Literals([
 ]);
 export type ComputerUseEffect = typeof ComputerUseEffect.Type;
 
+const ComputerUseShotFields = {
+  /** Id to pass as `shot` to coordinate commands. */
+  shot: ShotId,
+  window: WindowId,
+  /** PNG on the server's disk, readable by the agent's file tools. */
+  path: Schema.String,
+  width: Schema.Int,
+  height: Schema.Int,
+};
+
 export const ComputerUseResult = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("status"), status: ComputerUseStatus }),
   Schema.Struct({ kind: Schema.Literal("windows"), windows: Schema.Array(ComputerUseWindow) }),
@@ -180,15 +245,16 @@ export const ComputerUseResult = Schema.Union([
     /** True when the element cap cut the list; narrow with `query`. */
     truncated: Schema.Boolean,
   }),
+  Schema.Struct({ kind: Schema.Literal("screenshot"), ...ComputerUseShotFields }),
   Schema.Struct({
-    kind: Schema.Literal("screenshot"),
-    window: WindowId,
-    /** PNG on the server's disk, readable by the agent's file tools. */
-    path: Schema.String,
-    width: Schema.Int,
-    height: Schema.Int,
+    kind: Schema.Literal("input"),
+    effect: Schema.Literal("dispatched"),
+    /**
+     * The window shortly after the action, when Screen Recording allows it.
+     * Its `shot` is the one to use for the next coordinate command.
+     */
+    screenshot: Schema.optional(Schema.Struct(ComputerUseShotFields)),
   }),
-  Schema.Struct({ kind: Schema.Literal("input"), effect: Schema.Literal("dispatched") }),
 ]);
 export type ComputerUseResult = typeof ComputerUseResult.Type;
 
