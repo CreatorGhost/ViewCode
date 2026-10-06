@@ -727,6 +727,11 @@ export const make = Effect.gen(function* () {
     ).pipe(Effect.orElseSucceed(() => Option.none<ProjectId>()));
     return resolveProjectSettings(settings, Option.getOrNull(projectId)).settings;
   });
+  // Best effort: a settings read failure falls back to the default location.
+  const readWorktreesDirectory = serverSettingsService.getSettings.pipe(
+    Effect.map((settings) => settings.worktreesDirectory),
+    Effect.orElseSucceed(() => ""),
+  );
   const readRepositoryInstructions = (cwd: string, fileName: string) =>
     Effect.gen(function* () {
       const root = yield* fileSystem.realPath(cwd);
@@ -2582,6 +2587,7 @@ export const make = Effect.gen(function* () {
           path: null,
         },
         {
+          worktreesDirectory: yield* readWorktreesDirectory,
           // Best effort: a settings read failure falls back to the checkout's t3.json.
           submodules: yield* projectSettingsFor(input).pipe(
             Effect.map((settings) => settings.worktreeSubmodules),

@@ -1130,6 +1130,18 @@ export const ServerSettings = Schema.Struct({
   storageCleanup: StorageCleanupSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(StorageCleanupSettings)({}))),
   ),
+  /**
+   * Absolute directory new worktrees are created under, e.g. `D:\worktrees`
+   * or `~/worktrees`. Empty uses `<T3 home>/worktrees`.
+   */
+  worktreesDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /**
+   * Custom locations used before the current one. Server-maintained so
+   * worktrees left there stay eligible for cleanup and review diffs.
+   */
+  previousWorktreesDirectories: Schema.Array(TrimmedString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   // How assistant text reaches clients during a turn. Deliberately a fresh
   // key (was `enableLegacyTokenStreaming`, before that
   // `enableAssistantStreaming`): decoding drops the old key, so everyone,
@@ -1557,6 +1569,7 @@ export const ServerSettingsPatch = Schema.Struct({
       logsAfterDays: Schema.optionalKey(StorageRetentionDays),
     }),
   ),
+  worktreesDirectory: Schema.optionalKey(TrimmedString),
   // Server settings
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),

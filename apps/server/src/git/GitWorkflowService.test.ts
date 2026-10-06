@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -22,6 +23,7 @@ function makeLayer(input: {
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    Layer.provide(ServerSettings.layerTest()),
   );
 }
 
@@ -131,6 +133,7 @@ describe("GitWorkflowService", () => {
           status,
         }),
       ),
+      Layer.provide(ServerSettings.layerTest()),
     );
 
     return Effect.gen(function* () {
