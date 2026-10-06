@@ -19,7 +19,7 @@
   /* normal: Tailwind's max-w-3xl, the width upstream ships. */
   --chat-column-max-width: 48rem;
   /* Space under a turn-ending row (user message, final answer). */
-  --chat-turn-gap: 1.5rem;
+  --chat-turn-gap: 2.25rem;
   /* Space under rows inside a turn (tools, thinking, commentary). */
   --chat-row-gap: 0.5rem;
 }
@@ -35,4 +35,17 @@ html[data-chat-width="wide"] {
 html[data-chat-density="compact"] {
   --chat-turn-gap: 0.875rem;
   --chat-row-gap: 0.25rem;
+}
+
+/*
+ * Calm transcript: the user bubble is a soft tint instead of the solid accent
+ * fill, and assistant prose gets a roomier line height. Color tokens only, so
+ * every theme keeps its own surface.
+ */
+[data-user-bubble] {
+  background-color: color-mix(in srgb, var(--message-surface) 55%, transparent);
+}
+
+html[data-chat-density="comfortable"] [data-timeline-root] .chat-markdown {
+  line-height: 1.7;
 }

@@ -17,7 +17,9 @@ export function useDiffNavigation(paths: ReadonlyArray<string>, reveal: (path: s
   const [jumpOpen, setJumpOpen] = useState(false);
   const currentRef = useRef<number | null>(null);
   const pathsRef = useRef(paths);
-  pathsRef.current = paths;
+  useEffect(() => {
+    pathsRef.current = paths;
+  }, [paths]);
 
   const step = useCallback(
     (direction: 1 | -1) => {
