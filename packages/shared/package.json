@@ -331,6 +331,14 @@
       "types": "./src/thirdPartyLicenses.ts",
       "import": "./src/thirdPartyLicenses.ts"
     },
+    "./claudePromptCache": {
+      "types": "./src/claudePromptCache.ts",
+      "import": "./src/claudePromptCache.ts"
+    },
+    "./providerAccounts": {
+      "types": "./src/providerAccounts.ts",
+      "import": "./src/providerAccounts.ts"
+    },
     "./claudeCompaction": {
       "types": "./src/claudeCompaction.ts",
       "import": "./src/claudeCompaction.ts"
