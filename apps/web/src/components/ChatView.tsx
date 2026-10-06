@@ -512,6 +512,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ServerUpdateAction } from "./ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import { useUsageResumeBanner } from "./chat/useUsageResumeBanner";
+import { useClaudeCacheBanner } from "./chat/useClaudeCacheBanner";
 import { useViewcodeToolsBanner } from "./chat/useViewcodeToolsBanner";
 import { useImagePayloadBanner } from "./chat/useImagePayloadBanner";
 import {
@@ -6576,6 +6577,15 @@ export default function ChatView(props: ChatViewProps) {
     activities: threadActivities,
     sessionProviderName: activeThread?.session?.providerName,
   });
+  const { item: claudeCacheBannerItem, holdSend: holdSendForClaudeCache } = useClaudeCacheBanner({
+    threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
+    isClaude: activeThread?.session?.providerName === "claudeAgent",
+    running: phase === "running",
+    model: activeThread?.modelSelection.model,
+    activities: threadActivities,
+    onCompact: compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
+    sendAnyway: () => void onSendRef.current(),
+  });
   const imagePayloadBannerItem = useImagePayloadBanner({
     threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
     messages: activeThread?.messages ?? EMPTY_THREAD_MESSAGES,
@@ -6585,6 +6595,7 @@ export default function ChatView(props: ChatViewProps) {
     const threadNoticeItems = [
       ...(imagePayloadBannerItem === null ? [] : [imagePayloadBannerItem]),
       ...(viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem]),
+      ...(claudeCacheBannerItem === null ? [] : [claudeCacheBannerItem]),
     ];
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
@@ -6672,6 +6683,7 @@ export default function ChatView(props: ChatViewProps) {
     systemComposerBannerItems,
     usageLimitsBanner,
     viewcodeToolsBannerItem,
+    claudeCacheBannerItem,
     wokeThreadBannerItem,
   ]);
   // Pinned outside the stack: the stack keeps activity in front and folds
@@ -7394,6 +7406,8 @@ export default function ChatView(props: ChatViewProps) {
     queuedMessage?: QueuedComposerMessage,
   ) => {
     e?.preventDefault();
+    // Large idle Claude thread: keep the draft and let the cache notice ask first.
+    if (!queuedMessage && !directAnnotation && holdSendForClaudeCache()) return;
     // Typed out in full rather than picked from the menu. Attachments or contexts
     // mean the user is sending a prompt, so those go through as usual.
     if (

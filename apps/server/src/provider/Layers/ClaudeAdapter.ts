@@ -26,6 +26,7 @@ import {
   type ModelUsage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { parseCliArgs } from "@t3tools/shared/cliArgs";
+import { observedClaudeCacheTtlSeconds } from "@t3tools/shared/claudePromptCache";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { describeClaudeApiRetry } from "./claudeApiRetry.ts";
 import { isClaudeUsageLimit } from "./claudeUsageLimitRule.ts";
@@ -840,13 +841,17 @@ function normalizeClaudeActiveTokenUsage(
     return undefined;
   }
 
-  return makeClaudeTokenUsageSnapshot({
+  const snapshot = makeClaudeTokenUsageSnapshot({
     activeTokens,
     inputTokens,
     outputTokens,
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     ...(totalProcessedTokens !== undefined ? { totalProcessedTokens } : {}),
   });
+  const promptCacheTtlSeconds = observedClaudeCacheTtlSeconds(activeUsage);
+  return snapshot && promptCacheTtlSeconds !== undefined
+    ? { ...snapshot, promptCacheTtlSeconds }
+    : snapshot;
 }
 
 function normalizeClaudeTurnTokenUsage(

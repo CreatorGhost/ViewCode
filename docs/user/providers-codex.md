@@ -10,6 +10,12 @@ A shared Codex home with a shadow home lets work and personal accounts continue
 the same threads. The accounts share Codex sessions and configuration while keeping
 their own login and available models.
 
+Add one from **Settings → Providers**: open a Codex instance, choose **Add another
+account**, and give it a label. ViewCode creates the shadow home for you (or uses a
+directory you point it at) and opens a terminal that runs `codex login` for that
+account. **Sign in** on any Codex instance reruns the login, for example when a login
+expires.
+
 Keep your first account in `~/.codex`. On the environment's machine, sign the
 second account into a fresh directory:
 
