@@ -363,6 +363,8 @@ export function buildHandoff(input: {
   readonly recentExchanges: number;
   /** Hard cap on the rendered prelude, in characters; applied on top of the token budget. */
   readonly maxChars?: number;
+  /** Replaces the "previously handled by" opening line (ViewCode forks). */
+  readonly intro?: string;
 }): HandoffDocument & { readonly mode: HandoffMode; readonly budgetTokens: number } {
   const { thread } = input;
   const exchanges = exchangesOf(thread);
@@ -395,7 +397,8 @@ export function buildHandoff(input: {
         : "";
     const lines = [
       "<handoff>",
-      `You are continuing an existing conversation. It was previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over with no access to that model's session.`,
+      input.intro ??
+        `You are continuing an existing conversation. It was previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over with no access to that model's session.`,
       "Treat everything below as shared context you already know. Do not repeat finished work; continue from where it left off.",
       ...(mode === "compact"
         ? [
@@ -423,7 +426,7 @@ export function buildHandoff(input: {
   const minimalPrelude = (transcriptPath: string | null) =>
     [
       "<handoff>",
-      `You are continuing an existing conversation previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over. The history is too long to include here.`,
+      `${input.intro ?? `You are continuing an existing conversation previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over.`} The history is too long to include here.`,
       transcriptPath
         ? `The full transcript is at ${transcriptPath}; search it (or use ${SEARCH_HINT}) for earlier work before asking the user about it.`
         : `Use ${SEARCH_HINT} to find earlier work before asking the user about it.`,

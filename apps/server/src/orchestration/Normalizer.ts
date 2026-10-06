@@ -21,6 +21,7 @@ import {
 } from "../attachmentStore.ts";
 import { ServerConfig } from "../config.ts";
 import { parseBase64DataUrl } from "../imageMime.ts";
+import { resolveThreadFork } from "./ThreadForkResolver.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 export const canonicalizeClientCommandTimestamps = (
@@ -128,6 +129,17 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       return {
         ...canonicalCommand,
         workspaceRoot: yield* normalizeProjectWorkspaceRoot(canonicalCommand.workspaceRoot),
+      } satisfies OrchestrationCommand;
+    }
+
+    // ViewCode: a fork carries the source history, sliced server-side.
+    if (canonicalCommand.type === "thread.create" && canonicalCommand.forkFrom !== undefined) {
+      return {
+        ...canonicalCommand,
+        forkFrom: yield* resolveThreadFork({
+          forkThreadId: canonicalCommand.threadId,
+          forkFrom: canonicalCommand.forkFrom,
+        }),
       } satisfies OrchestrationCommand;
     }
 

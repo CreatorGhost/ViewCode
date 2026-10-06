@@ -1158,6 +1158,23 @@ const ProjectDeleteCommand = Schema.Struct({
   force: Schema.optional(Schema.Boolean),
 });
 
+export const ThreadForkSource = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  sourceTitle: Schema.optional(Schema.String),
+  messages: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        messageId: MessageId,
+        role: Schema.Literals(["user", "assistant"]),
+        text: Schema.String,
+        createdAt: IsoDateTime,
+      }),
+    ),
+  ),
+});
+export type ThreadForkSource = typeof ThreadForkSource.Type;
+
 const ThreadCreateCommand = Schema.Struct({
   type: Schema.Literal("thread.create"),
   commandId: CommandId,
@@ -1174,6 +1191,12 @@ const ThreadCreateCommand = Schema.Struct({
   createdAt: IsoDateTime,
   historyImport: Schema.optional(Schema.Literal(true)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  /**
+   * ViewCode: fork the conversation of another thread up to `messageId`.
+   * Clients send only the source; the server fills `sourceTitle` and
+   * `messages` from its own projection before deciding.
+   */
+  forkFrom: Schema.optional(ThreadForkSource),
 });
 
 const ThreadDeleteCommand = Schema.Struct({

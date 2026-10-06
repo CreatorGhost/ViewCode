@@ -48,6 +48,7 @@ import {
 } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { isStaleProviderSessionCause } from "../../provider/staleSession.ts";
+import { THREAD_FORKED_ACTIVITY_KIND, forkHandoffIntro } from "../ThreadFork.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -246,6 +247,8 @@ const PendingHandoffJson = Schema.fromJsonString(
     // Set when the handoff replaces a native session the provider could no
     // longer resume (the provider's display name, for the recovery notice).
     staleSessionProvider: Schema.optional(Schema.String),
+    // ViewCode: set when the recap is a fork's copied history (source title).
+    forkSourceTitle: Schema.optional(Schema.String),
     // The `from` instance's native resume cursor when the switch happened.
     // Switching back before the handoff is delivered resumes that session.
     fromResumeCursor: Schema.optional(Schema.Unknown),
@@ -698,6 +701,20 @@ const make = Effect.gen(function* () {
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
+  /** The source title when the thread is a fork (`ThreadFork.ts`), else null. */
+  const forkSourceTitleOf = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const detail = yield* projectionSnapshotQuery
+      .getThreadDetailById(threadId, { activityKinds: [THREAD_FORKED_ACTIVITY_KIND] })
+      .pipe(Effect.orElseSucceed(() => Option.none()));
+    if (Option.isNone(detail)) return null;
+    const marker = detail.value.activities.find(
+      (activity) => activity.kind === THREAD_FORKED_ACTIVITY_KIND,
+    );
+    if (marker === undefined || detail.value.messages.length === 0) return null;
+    const payload = marker.payload as { readonly sourceTitle?: unknown } | null;
+    return typeof payload?.sourceTitle === "string" ? payload.sourceTitle : "another thread";
+  });
+
   const startedThreadModelChangeRequiresNewSession = Effect.fnUntraced(function* (input: {
     readonly currentModelSelection: ModelSelection;
     readonly requestedModelSelection: ModelSelection | undefined;
@@ -1130,16 +1147,21 @@ const make = Effect.gen(function* () {
           .pipe(Effect.orElseSucceed(() => Option.none())),
         { onNone: () => true, onSome: (binding) => binding.resumeCursor == null },
       );
+    // ViewCode: a fork's copied history reaches the agent the same way.
+    const forkSourceTitle =
+      thread.session === null && thread.latestTurn === null && !recapImportedHistory
+        ? yield* forkSourceTitleOf(threadId)
+        : null;
     const startedSession = yield* startProviderSession(undefined);
     yield* bindSessionToThread(startedSession);
-    if (recapImportedHistory) {
+    if (recapImportedHistory || forkSourceTitle !== null) {
       yield* rememberPendingHandoff(threadId, {
         from: {
           instanceId: String(thread.modelSelection.instanceId),
           model: thread.modelSelection.model,
         },
         to: { instanceId: String(desiredInstanceId), model: desiredModelSelection.model },
-        staleSessionProvider: "T3 Code",
+        ...(forkSourceTitle !== null ? { forkSourceTitle } : { staleSessionProvider: "T3 Code" }),
       });
     }
     return startedSession.threadId;
@@ -1185,6 +1207,9 @@ const make = Effect.gen(function* () {
       from: pending.from,
       to: pending.to,
       recentExchanges: HANDOFF_RECENT_EXCHANGES,
+      ...(pending.forkSourceTitle !== undefined
+        ? { intro: forkHandoffIntro(pending.forkSourceTitle) }
+        : {}),
       // The user's message is never trimmed, so the recap gets what is left.
       maxChars: Math.max(
         0,
@@ -1216,6 +1241,8 @@ const make = Effect.gen(function* () {
         yield* forgetPendingHandoffFile(input.threadId);
       }
       const staleProvider = pending.staleSessionProvider;
+      // A fork's divider already marks where the history came from.
+      if (pending.forkSourceTitle !== undefined) return;
       yield* orchestrationEngine.dispatch({
         type: "thread.activity.append",
         commandId: yield* serverCommandId("handoff"),
