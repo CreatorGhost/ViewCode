@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* ViewCode: chat column width and density tokens (max-w-chat). */
+@import "./viewcode-chat.css";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));

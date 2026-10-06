@@ -1,0 +1,38 @@
+/*
+ * ViewCode chat transcript appearance: column width and row density.
+ *
+ * Imported from index.css so the `@theme` token below is a real Tailwind
+ * utility (`max-w-chat`). The transcript rows, the "load earlier" header and
+ * the composer all use `max-w-chat`, so they share one column whatever the
+ * width preset. `ChatAppearanceSync` (components/chat/appearance) mirrors the
+ * client settings onto `html[data-chat-width]` / `html[data-chat-density]`.
+ *
+ * Only custom properties change here; no transitions, so switching a preset
+ * is one layout pass and nothing repaints afterwards.
+ */
+
+@theme inline {
+  --container-chat: var(--chat-column-max-width);
+}
+
+:root {
+  /* normal: Tailwind's max-w-3xl, the width upstream ships. */
+  --chat-column-max-width: 48rem;
+  /* Space under a turn-ending row (user message, final answer). */
+  --chat-turn-gap: 1.5rem;
+  /* Space under rows inside a turn (tools, thinking, commentary). */
+  --chat-row-gap: 0.5rem;
+}
+
+html[data-chat-width="narrow"] {
+  --chat-column-max-width: 40rem;
+}
+
+html[data-chat-width="wide"] {
+  --chat-column-max-width: 64rem;
+}
+
+html[data-chat-density="compact"] {
+  --chat-turn-gap: 0.875rem;
+  --chat-row-gap: 0.25rem;
+}
