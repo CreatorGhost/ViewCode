@@ -1,3 +1,4 @@
+import { ComputerUseMode } from "./computerUse.ts";
 import { SshDeviceHostConfigs } from "./device.ts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
@@ -1221,6 +1222,12 @@ export const ServerSettings = Schema.Struct({
    */
   enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
+   * Whether agents may observe or control this machine's desktop through the
+   * `viewcode-computer` CLI. Server-authoritative and applied when the
+   * provider session is prepared, like `enableAgentDeviceAccess`.
+   */
+  computerUse: ComputerUseMode.pipe(Schema.withDecodingDefault(Effect.succeed("off" as const))),
+  /**
    * Whether this server may install and run T3's device helper processes.
    * Kept separate from agent access so enabling the user's Device panel does
    * not also grant providers control of simulators and emulators.
@@ -1601,6 +1608,7 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Record(ProjectId, Schema.NullOr(ProjectSettingsOverrides)),
   ),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
+  computerUse: Schema.optionalKey(ComputerUseMode),
   enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),
