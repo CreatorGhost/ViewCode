@@ -124,16 +124,16 @@ const TabItem = memo(function TabItem(props: {
         if (event.button === 1) event.preventDefault();
       }}
       className={cn(
-        "group/tab relative flex h-6 min-w-24 max-w-48 shrink-0 cursor-pointer items-center gap-1.5 rounded-md pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-ring",
+        "group/tab relative flex h-7 min-w-24 max-w-48 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-ring",
         props.active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+          ? "bg-foreground/10 text-foreground"
+          : "text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
       )}
     >
       {Icon ? <Icon className="size-3 shrink-0 opacity-70" /> : null}
       <span className="min-w-0 flex-1 truncate">{props.title}</span>
       {props.running ? (
-        <span aria-label="Running" className="size-1.5 shrink-0 rounded-full bg-info" />
+        <span aria-label="Running" className="size-1.5 shrink-0 rounded-full bg-primary" />
       ) : props.unread ? (
         <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-success" />
       ) : null}
@@ -221,7 +221,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs() {
         }
       }}
       className={cn(
-        "flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/40 bg-background px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        "flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-background px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
       )}
     >

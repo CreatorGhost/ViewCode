@@ -16,6 +16,9 @@ const buttonVariants = cva(
     },
     variants: {
       size: {
+        chip: "vc-chip h-7 gap-1.5 rounded-lg px-2 text-xs before:rounded-[calc(var(--radius-lg)-1px)] sm:text-xs [&_svg:not([class*='size-'])]:size-3.5 sm:[&_svg:not([class*='size-'])]:size-3.5",
+        "icon-chip":
+          "vc-chip size-7 rounded-lg p-0 before:rounded-[calc(var(--radius-lg)-1px)] [&_svg:not([class*='size-'])]:size-3.5 sm:[&_svg:not([class*='size-'])]:size-3.5",
         compact:
           "h-7 gap-1 rounded-md px-[calc(--spacing(2)-1px)] text-xs before:rounded-[calc(var(--radius-md)-1px)] [&_svg:not([class*='size-'])]:size-3.5",
         default: "h-9 px-[calc(--spacing(3)-1px)] sm:h-8",
@@ -47,8 +50,12 @@ const buttonVariants = cva(
           "border-input bg-popover not-dark:bg-clip-padding text-destructive-foreground shadow-xs/5 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] dark:bg-input/32 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)] [:disabled,:active,[data-pressed]]:shadow-none [:hover,[data-pressed]]:border-destructive/32 [:hover,[data-pressed]]:bg-destructive/4",
         ghost:
           "[--control-icon-color:var(--contrast-muted-foreground)] border-transparent text-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent",
+        chip: "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-foreground/8 [:hover,[data-pressed]]:bg-foreground/8 [:hover,[data-pressed]]:text-foreground",
         "ghost-muted":
           "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-foreground",
+        // Solid foreground disc/pill: the composer send and stop actions.
+        "primary-solid":
+          "[--control-icon-color:currentColor] border-transparent bg-foreground text-background shadow-xs [:hover,[data-pressed]]:bg-foreground/85 disabled:bg-foreground/12 disabled:text-foreground/40 disabled:opacity-100 disabled:shadow-none",
         "ghost-destructive":
           "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-destructive",
         glass:

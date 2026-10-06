@@ -55,7 +55,6 @@ import { Button } from "../ui/button";
 import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
-import { AccountUsagePopover } from "./ComposerUsageLimitsPopover";
 import { SidechatHeaderButton } from "./SidechatHeaderButton";
 
 interface ChatHeaderProps {
@@ -132,7 +131,6 @@ export function shouldShowOpenInPicker(input: {
 }
 
 export const ChatHeader = memo(function ChatHeader({
-  providerInstanceEntries,
   activeThreadEnvironmentId,
   activeThreadId,
   draftId,
@@ -500,7 +498,7 @@ export const ChatHeader = memo(function ChatHeader({
           <Link
             to="/$environmentId/$threadId"
             params={{ environmentId: activeThreadEnvironmentId, threadId: forkedFrom.threadId }}
-            className="ml-1 hidden max-w-44 shrink-0 items-center gap-1 truncate rounded-full border border-border/60 px-2 py-0.5 text-muted-foreground text-xs hover:text-foreground @2xl/header-actions:inline-flex"
+            className="ml-1 hidden max-w-44 shrink-0 items-center gap-1 truncate rounded-lg px-2 py-0.5 text-muted-foreground text-xs hover:bg-foreground/8 hover:text-foreground @2xl/header-actions:inline-flex"
             title={`Forked from ${forkedFrom.title}`}
           >
             <GitForkIcon aria-hidden="true" className="size-3 shrink-0" />
@@ -512,7 +510,7 @@ export const ChatHeader = memo(function ChatHeader({
         ref={headerActionsRef}
         data-chat-header-actions
         className={cn(
-          "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
+          "flex shrink-0 items-center justify-end gap-1",
           // Reserve two panel toggles plus their 4px gaps and 1px edge inset.
           // The page header adds 8px more right padding at sm.
           rightPanelOpen ? "pr-0" : "pr-18.25 sm:pr-14.25",
@@ -527,7 +525,7 @@ export const ChatHeader = memo(function ChatHeader({
                 ? undefined
                 : "hidden"
             }
-            render={<Button size="icon-sm" variant="ghost" aria-label="More header actions" />}
+            render={<Button size="icon-chip" variant="chip" aria-label="More header actions" />}
           >
             <EllipsisIcon className="size-4" />
           </MenuTrigger>
@@ -550,10 +548,6 @@ export const ChatHeader = memo(function ChatHeader({
             keybindings={keybindings}
           />
         ) : null}
-        <AccountUsagePopover
-          environmentId={activeThreadEnvironmentId}
-          instanceEntries={providerInstanceEntries}
-        />
       </div>
     </div>
   );
