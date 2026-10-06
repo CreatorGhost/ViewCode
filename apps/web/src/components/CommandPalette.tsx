@@ -53,6 +53,7 @@ import {
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
+  MessageSquareMoreIcon,
   RotateCcwIcon,
   SettingsIcon,
   SmartphoneIcon,
@@ -134,6 +135,7 @@ import {
 } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
+import { openSideChat } from "../sidechatDockStore";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -1204,12 +1206,16 @@ function OpenCommandPaletteDialog(props: {
             threads.filter(
               (thread) =>
                 thread.archivedAt === null &&
+                thread.kind !== "sidechat" &&
                 groupedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
             ),
             clientSettings.sidebarThreadSortOrder,
           )[0] ?? null)
         : getLatestThreadForProject(
-            threads.filter((thread) => thread.environmentId === project.environmentId),
+            threads.filter(
+              (thread) =>
+                thread.environmentId === project.environmentId && thread.kind !== "sidechat",
+            ),
             project.id,
             clientSettings.sidebarThreadSortOrder,
           );
@@ -1840,6 +1846,21 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
+  }
+
+  if (activeThread !== null && activeThread.kind !== "sidechat") {
+    const thread = activeThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:side-chat",
+      searchTerms: ["side chat", "sidechat", "quick question", "ask", "btw"],
+      title: "Ask in side chat",
+      icon: <MessageSquareMoreIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "sidechat.toggle",
+      run: async () => {
+        openSideChat(scopeThreadRef(thread.environmentId, thread.id));
+      },
+    });
   }
 
   if (activeThread !== null) {

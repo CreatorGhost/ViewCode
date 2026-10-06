@@ -94,6 +94,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "editor.openFavorite",
   // ViewCode: keyboard shortcuts sheet and diff panel change navigation.
   "shortcuts.open",
+  // ViewCode: docked side chat for quick questions beside the main thread.
+  "sidechat.toggle",
   "diff.change.previous",
   "diff.change.next",
   "diff.file.jump",

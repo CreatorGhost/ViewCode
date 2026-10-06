@@ -61,6 +61,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+arrowdown", command: "modelPicker.nextProvider", when: "modelPickerOpen" },
   { key: "mod+o", command: "editor.openFavorite" },
   { key: "mod+/", command: "shortcuts.open", when: "!terminalFocus" },
+  { key: "mod+shift+/", command: "sidechat.toggle", when: "!terminalFocus" },
   { key: "alt+arrowup", command: "diff.change.previous", when: "diffOpen && !editableFocus" },
   { key: "alt+arrowdown", command: "diff.change.next", when: "diffOpen && !editableFocus" },
   { key: "mod+alt+f", command: "diff.file.jump", when: "diffOpen && !terminalFocus" },

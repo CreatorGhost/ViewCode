@@ -2094,6 +2094,8 @@ export default function Sidebar() {
       threads.filter(
         (thread) =>
           thread.archivedAt === null &&
+          // Side chats live in their parent's dock, not the thread list.
+          thread.kind !== "sidechat" &&
           (scopedProjectKeys === null || scopedProjectKeys.has(physicalProjectKeyOf(thread))),
       ),
     [scopedProjectKeys, threads],

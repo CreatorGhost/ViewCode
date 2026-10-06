@@ -376,6 +376,7 @@ import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { SidechatHost } from "./chat/SidechatHost";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { expandedImageKey, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -6583,7 +6584,8 @@ export default function ChatView(props: ChatViewProps) {
     running: phase === "running",
     model: activeThread?.modelSelection.model,
     activities: threadActivities,
-    onCompact: compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
+    onCompact:
+      compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
     sendAnyway: () => void onSendRef.current(),
   });
   const imagePayloadBannerItem = useImagePayloadBanner({
@@ -10420,6 +10422,13 @@ export default function ChatView(props: ChatViewProps) {
             ) : null}
           </div>
           {/* end chat column */}
+          {routeKind === "server" ? (
+            <SidechatHost
+              thread={activeThreadShell}
+              keybindings={keybindings}
+              markdownCwd={gitCwd ?? undefined}
+            />
+          ) : null}
         </div>
         {/* end horizontal flex container */}
 
