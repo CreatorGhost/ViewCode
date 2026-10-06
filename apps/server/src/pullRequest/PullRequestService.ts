@@ -59,6 +59,7 @@ import {
   type PullRequestLabelCandidateList,
   type PullRequestLabelChangeInput,
   type PullRequestSetFilesViewedInput,
+  type PullRequestState,
   type PullRequestSubmitReviewInput,
   PullRequestStack,
   PullRequestSummary,
@@ -128,7 +129,16 @@ const REPOSITORY_SEARCH_CHUNK = 100;
  * `invalidate` rather than a flag on the read, so an ordinary read can never opt out.
  */
 const LIST_CACHE_TTL = Duration.seconds(30);
-const DETAIL_CACHE_TTL = Duration.seconds(15);
+/**
+ * Each connected client re-reads the pull request it shows on focus, on a timer, and after every
+ * turn, so detail, activity, and preview answers are shared for the clients' own minute of
+ * staleness. A merged change request cannot change again and is held for ten. A closed one is
+ * not: it can reopen, and a watch started on it reads it to learn whether it did.
+ */
+const DETAIL_CACHE_TTL = Duration.seconds(60);
+const MERGED_DETAIL_CACHE_TTL = Duration.minutes(10);
+const detailTimeToLive = (state: PullRequestState | undefined) =>
+  state === "merged" ? MERGED_DETAIL_CACHE_TTL : DETAIL_CACHE_TTL;
 const DIFF_CACHE_TTL = Duration.seconds(60);
 /** A commit is content-addressed, so its own diff cannot change under its key. */
 const COMMIT_DIFF_CACHE_TTL = Duration.minutes(10);
@@ -2934,7 +2944,8 @@ export const make = Effect.gen(function* () {
     },
     {
       capacity: DETAIL_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? DETAIL_CACHE_TTL : Duration.zero),
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? detailTimeToLive(exit.value.state) : Duration.zero,
     },
   );
   const summaryFromDetail = (
@@ -2995,7 +3006,9 @@ export const make = Effect.gen(function* () {
     },
     {
       capacity: DETAIL_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? DETAIL_CACHE_TTL : Duration.zero),
+      // Activity carries no state of its own; the detail or summary read under the same key does.
+      timeToLive: (exit, key) =>
+        Exit.isSuccess(exit) ? detailTimeToLive(lastGoodSummary.peek(key)?.state) : Duration.zero,
     },
   );
 
@@ -3005,7 +3018,8 @@ export const make = Effect.gen(function* () {
     },
     {
       capacity: DETAIL_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? DETAIL_CACHE_TTL : Duration.zero),
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? detailTimeToLive(exit.value.state) : Duration.zero,
     },
   );
   const preview: PullRequestService["Service"]["preview"] = (input) => {
