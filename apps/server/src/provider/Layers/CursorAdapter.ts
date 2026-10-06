@@ -876,6 +876,26 @@ export function makeCursorAdapter(
                       "session/update",
                     );
                     return;
+                  case "ContextWindowUpdated":
+                    // cursor-agent 2026.09.26 does not send this; reading it
+                    // keeps the meter working once Cursor does, without a
+                    // second CLI process or a guessed token formula.
+                    yield* offerRuntimeEvent({
+                      type: "thread.token-usage.updated",
+                      ...(yield* makeEventStamp()),
+                      provider: PROVIDER,
+                      threadId: ctx.threadId,
+                      ...(ctx.activeTurnId ? { turnId: ctx.activeTurnId } : {}),
+                      payload: {
+                        usage: { usedTokens: event.usedTokens, maxTokens: event.maxTokens },
+                      },
+                      raw: {
+                        source: "acp.jsonrpc",
+                        method: "session/update",
+                        payload: event.rawPayload,
+                      },
+                    });
+                    return;
                   case "ToolCallUpdated":
                     yield* logNative(
                       ctx.threadId,

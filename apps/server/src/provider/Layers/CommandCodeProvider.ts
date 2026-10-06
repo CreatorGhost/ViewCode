@@ -32,6 +32,8 @@ import {
 
 const PRESENTATION = {
   displayName: "Command Code",
+  // Its CLI reports per-request usage, which feeds the context meter.
+  reportsContextWindow: true,
   supportsConversationRollback: false,
   supportsTurnSteering: false,
   badgeLabel: "Early Access",
