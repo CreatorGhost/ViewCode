@@ -230,6 +230,8 @@ import {
   foldSubagentActivities,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
+import { ThreadFindBar, THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
+import { chatOwnsFindShortcut } from "./chat/threadFind.logic";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -1780,6 +1782,12 @@ export default function ChatView(props: ChatViewProps) {
     LastInvokedScriptByProjectSchema,
   );
   const legendListRef = useRef<LegendListRef | null>(null);
+  const [threadFindOpen, setThreadFindOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setThreadFindOpen(true);
+    window.addEventListener(THREAD_FIND_OPEN_EVENT, open);
+    return () => window.removeEventListener(THREAD_FIND_OPEN_EVENT, open);
+  }, []);
   const getTimelineScrollableNode = useCallback(
     () => legendListRef.current?.getScrollableNode() ?? null,
     [],
@@ -6841,6 +6849,15 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "thread.find") {
+        // Terminal, editor and diff keep their own find.
+        if (!chatOwnsFindShortcut(event.target, shortcutContext.terminalFocus)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setThreadFindOpen(true);
+        return;
+      }
+
       if (command === "thread.pin") {
         event.preventDefault();
         event.stopPropagation();
@@ -9991,6 +10008,15 @@ export default function ChatView(props: ChatViewProps) {
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
               {/* Messages — LegendList handles virtualization and scrolling internally */}
+              {threadFindOpen ? (
+                <ThreadFindBar
+                  key={String(activeThread.id)}
+                  entries={displayedTimeline.entries}
+                  listRef={legendListRef}
+                  getViewport={getTimelineScrollableNode}
+                  onClose={() => setThreadFindOpen(false)}
+                />
+              ) : null}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}

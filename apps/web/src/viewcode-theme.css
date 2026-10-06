@@ -476,3 +476,13 @@ html[data-window-glass="true"] body {
     opacity: 0;
   }
 }
+
+/* Find in thread: CSS Custom Highlight API ranges set by ThreadFindBar. */
+::highlight(viewcode-find) {
+  background-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  color: inherit;
+}
+::highlight(viewcode-find-active) {
+  background-color: var(--warning);
+  color: var(--background);
+}
