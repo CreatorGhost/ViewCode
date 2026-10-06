@@ -372,10 +372,20 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Opening either usage panel reuses readings less than a minute old. A shared
   per-environment, per-instance guard coalesces in-flight probes and limits retry
   attempts after failure. Closing the panel stops UI updates, not the server probe.
-- Claude's macOS reset count can come from a recent Claude Desktop usage-cache
-  response for the selected CLI organization. This avoids Keychain prompts.
-  Cache-only counts cannot authorize redemption; missing or stale data means
-  unknown, not zero. A banked credit can exist before it is usable immediately.
+- On macOS, Claude's banked resets need its Keychain login, which ViewCode reads
+  only after the per-environment opt-in `claudeKeychainUsageEnabled`
+  (Settings → Providers), like Cursor: a read can raise a macOS prompt on the
+  server's screen that a remote client cannot answer. The read is bounded at 30
+  seconds and cached until the account in `~/.claude.json` changes, the opt-in
+  toggles, Claude refuses the token, or (at most every 15 minutes) the token has
+  expired. Only the default config directory is read, because any
+  `CLAUDE_CONFIG_DIR` makes the CLI suffix the Keychain service name
+  (`claudeCredentialStore.ts`). With the opt-in off, the count can still come
+  from a recent Claude Desktop usage-cache response for the selected CLI
+  organization; cache-only counts cannot authorize redemption. A login that
+  cannot be read sets `resetCreditsUnavailableReason` so clients explain the
+  gap instead of showing nothing; missing data is unknown, never zero. A banked
+  credit can exist before it is usable immediately.
 
 ### Phone notifications
 

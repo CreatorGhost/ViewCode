@@ -25,6 +25,8 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { useAgentControlByThreadKey } from "../../state/agentControl";
 import { useThreadShells } from "../../state/entities";
 import { environmentPresentations } from "../../state/presentation";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { ResetCredits } from "./UsageLimitsSection";
 import { useProviderColors } from "./usageProviders";
 import {
@@ -546,10 +548,69 @@ export function UsageLimitAccountScreen({ route }: AccountScreenProps) {
                   now={now}
                 />
               </View>
+            ) : !account.limits.resetCredits && account.limits.resetCreditsUnavailableReason ? (
+              <View className="gap-3 rounded-lg border border-border-subtle bg-card p-4">
+                <Text className="text-sm font-t3-medium text-foreground">Reset credits</Text>
+                <Text className="text-sm text-foreground-muted">
+                  {account.limits.resetCreditsUnavailableReason}
+                </Text>
+                {account.driver === "claudeAgent"
+                  ? account.environments.map((environment) => (
+                      <ClaudeKeychainEnableAction
+                        key={environment.environmentId}
+                        environmentId={environment.environmentId}
+                        label={environment.label}
+                      />
+                    ))
+                  : null}
+              </View>
             ) : null}
           </>
         )}
       </ScrollView>
     </SettingsScreen>
+  );
+}
+
+/**
+ * Turns on reading Claude's macOS Keychain login for banked resets. The phone
+ * has no provider settings, so this is its only way in; Settings → Providers
+ * on web and desktop turns it back off.
+ */
+function ClaudeKeychainEnableAction({
+  environmentId,
+  label,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly label: string;
+}) {
+  const settings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    label: "enable Claude account usage",
+  });
+  const [pending, setPending] = useState(false);
+  if (settings?.claudeKeychainUsageEnabled !== false) return null;
+  const enable = async () => {
+    setPending(true);
+    try {
+      await updateSettings({
+        environmentId,
+        input: { patch: { claudeKeychainUsageEnabled: true } },
+      });
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Turn on Claude account usage on ${label}`}
+      accessibilityHint="Requires access to your Claude login in macOS Keychain."
+      disabled={pending}
+      onPress={() => void enable()}
+      className="self-start rounded-full bg-primary px-4 py-2"
+    >
+      <Text className="text-sm font-medium text-primary-foreground">Turn on</Text>
+    </Pressable>
   );
 }

@@ -167,6 +167,7 @@ describe("searchSettings", () => {
       "publish-agent-activity",
       "provider-health-check-interval",
       "cursor-keychain-usage",
+      "claude-keychain-usage",
       "source-control-writer-model",
       "source-control-writing-style",
       "t3-connect",
@@ -196,6 +197,8 @@ describe("searchSettings", () => {
       }).map((item) => item.id);
     expect(itemIds(false)).not.toContain("cursor-keychain-usage");
     expect(itemIds(true)).toContain("cursor-keychain-usage");
+    expect(itemIds(false)).not.toContain("claude-keychain-usage");
+    expect(itemIds(true)).toContain("claude-keychain-usage");
   });
 
   it("keeps the local toggle searchable without offering hidden host publishing controls", () => {

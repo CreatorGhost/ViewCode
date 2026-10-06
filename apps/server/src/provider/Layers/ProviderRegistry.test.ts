@@ -2746,7 +2746,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
 
       it.effect("reads banked resets only for subscription logins", () =>
         Effect.gen(function* () {
-          const check = (overrides: Partial<TestClaudeCapabilities>) =>
+          const check = (
+            overrides: Partial<TestClaudeCapabilities>,
+            reading: {
+              readonly credits?: { readonly availableCount: number };
+              readonly unavailableReason?: string;
+            } = { credits: { availableCount: 2 } },
+          ) =>
             checkClaudeProviderStatus(
               defaultClaudeSettings,
               () =>
@@ -2763,12 +2769,22 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               undefined,
               undefined,
               undefined,
-              () => Effect.succeed({ availableCount: 2 }),
+              () => Effect.succeed(reading),
             );
           const subscription = yield* check({ subscriptionType: "max" });
           const bedrock = yield* check({ apiProvider: "bedrock" });
           assert.deepStrictEqual(subscription.usageLimits?.resetCredits, { availableCount: 2 });
           assert.strictEqual(bedrock.usageLimits?.resetCredits, undefined);
+          const unreadable = yield* check(
+            { subscriptionType: "max" },
+            { unavailableReason: "No Claude login was found in the Keychain." },
+          );
+          assert.strictEqual(unreadable.usageLimits?.resetCredits, undefined);
+          assert.strictEqual(
+            unreadable.usageLimits?.resetCreditsUnavailableReason,
+            "No Claude login was found in the Keychain.",
+          );
+          assert.strictEqual(unreadable.usageLimits?.unavailable, undefined);
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {

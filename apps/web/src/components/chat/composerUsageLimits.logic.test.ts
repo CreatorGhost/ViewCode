@@ -200,6 +200,18 @@ describe("buildUsageSections", () => {
       refreshingInstanceIds: noRefresh,
     });
     expect(unreported?.resetCredits).toBeNull();
+    expect(unreported?.resetCreditsUnavailableReason).toBeNull();
+    const reason = "No Claude login was found in the Keychain.";
+    const [unreadable] = buildUsageSections({
+      lead: provider(
+        "claudeAgent",
+        limits([window("five-hour", "session", 5)], { resetCreditsUnavailableReason: reason }),
+      ),
+      agentProviders: [],
+      refreshingInstanceIds: noRefresh,
+    });
+    expect(unreadable?.status).toBe("ready");
+    expect(unreadable?.resetCreditsUnavailableReason).toBe(reason);
   });
 
   it("shortens the plan label in the subtitle", () => {

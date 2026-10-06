@@ -27,17 +27,19 @@ export function UsageProviderSettings({
   environmentLabel,
   sources,
   cursorKeychainUsageEnabled,
+  claudeKeychainUsageEnabled,
   readOnly,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly sources: UnifiedSettings["usageLimitSources"];
   readonly cursorKeychainUsageEnabled: boolean;
+  readonly claudeKeychainUsageEnabled: boolean;
   readonly readOnly: boolean;
 }) {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
-  const updateCursorSettings = useAtomCommand(serverEnvironment.updateSettings, {
-    label: "update Cursor account usage",
+  const updateAccountUsageSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    label: "update account usage",
   });
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -46,12 +48,13 @@ export function UsageProviderSettings({
     .platform;
   const [adding, setAdding] = useState(false);
   const [updatingCursor, setUpdatingCursor] = useState(false);
+  const [updatingClaude, setUpdatingClaude] = useState(false);
   const entries = Object.entries(sources);
 
   const setCursorUsageEnabled = async (enabled: boolean) => {
     setUpdatingCursor(true);
     try {
-      const result = await updateCursorSettings({
+      const result = await updateAccountUsageSettings({
         environmentId,
         input: { patch: { cursorKeychainUsageEnabled: enabled } },
       });
@@ -60,6 +63,21 @@ export function UsageProviderSettings({
       }
     } finally {
       setUpdatingCursor(false);
+    }
+  };
+
+  const setClaudeUsageEnabled = async (enabled: boolean) => {
+    setUpdatingClaude(true);
+    try {
+      const result = await updateAccountUsageSettings({
+        environmentId,
+        input: { patch: { claudeKeychainUsageEnabled: enabled } },
+      });
+      if (result._tag === "Success") {
+        await refreshProviders({ environmentId, input: {} });
+      }
+    } finally {
+      setUpdatingClaude(false);
     }
   };
 
@@ -87,6 +105,21 @@ export function UsageProviderSettings({
                 checked={cursorKeychainUsageEnabled}
                 disabled={readOnly || updatingCursor}
                 onCheckedChange={(enabled) => void setCursorUsageEnabled(enabled)}
+              />
+            }
+          />
+        ) : null}
+        {platform?.os === "darwin" ? (
+          <SettingsRow
+            id="claude-keychain-usage"
+            title="Claude account usage"
+            description="Read your existing Claude Code login from macOS Keychain to show and use banked resets. macOS may ask you to allow access."
+            control={
+              <Switch
+                aria-label="Claude account usage"
+                checked={claudeKeychainUsageEnabled}
+                disabled={readOnly || updatingClaude}
+                onCheckedChange={(enabled) => void setClaudeUsageEnabled(enabled)}
               />
             }
           />

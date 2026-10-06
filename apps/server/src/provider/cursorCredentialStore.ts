@@ -37,8 +37,17 @@ const readCliIdentity = async () =>
 
 const requireForKeyring = NodeModule.createRequire(import.meta.url);
 
-/** Cache outcomes until login changes or an explicit retry; refreshing usage must not prompt. */
-export function makeCachedCursorAccessTokenReader(
+/** One generic-password item from the login Keychain, or null when it does not exist. */
+export async function readKeychainPassword(service: string, account: string) {
+  const { AsyncEntry } = requireForKeyring("@napi-rs/keyring") as typeof import("@napi-rs/keyring");
+  return (await new AsyncEntry(service, account).getPassword()) ?? null;
+}
+
+/**
+ * Cache outcomes until login changes or an explicit retry; refreshing usage must not prompt.
+ * Shared by every Keychain-backed provider login (Cursor, Claude).
+ */
+export function makeCachedKeychainSecretReader(
   read: () => Promise<string | null>,
   readLoginRevision: () => Promise<string> = async () => "process",
 ) {
@@ -78,14 +87,12 @@ export function makeCachedCursorAccessTokenReader(
   });
 }
 
+export type KeychainSecretReader = ReturnType<typeof makeCachedKeychainSecretReader>;
+
 /** Read the CLI account only. The editor may be signed into an unrelated account. */
-export const readMacCursorAccessToken = makeCachedCursorAccessTokenReader(
+export const readMacCursorAccessToken = makeCachedKeychainSecretReader(
   async () => {
-    const { AsyncEntry } = requireForKeyring(
-      "@napi-rs/keyring",
-    ) as typeof import("@napi-rs/keyring");
-    const token =
-      (await new AsyncEntry("cursor-access-token", "cursor-user").getPassword()) ?? null;
+    const token = await readKeychainPassword("cursor-access-token", "cursor-user");
     if (token && !cursorTokenMatchesIdentity(token, await readCliIdentity())) {
       throw new Error("Cursor Keychain login does not match the CLI account");
     }

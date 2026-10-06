@@ -53,6 +53,8 @@ export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
   resetCredits: Schema.optional(ServerProviderResetCredits),
+  /** Why reset credits could not be read, when that is known; absent credits alone mean unknown. */
+  resetCreditsUnavailableReason: Schema.optional(TrimmedNonEmptyString),
   /** Last refresh failed; windows and checkedAt still describe the last successful reading. */
   refreshError: Schema.optional(TrimmedNonEmptyString),
   unavailable: Schema.optional(

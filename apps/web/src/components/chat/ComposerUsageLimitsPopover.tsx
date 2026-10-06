@@ -400,6 +400,8 @@ function UsageSectionView(props: {
             {formatBankedResets(section.resetCredits)}
           </span>
         </div>
+      ) : section.resetCreditsUnavailableReason ? (
+        <p className="text-xs text-muted-foreground">{section.resetCreditsUnavailableReason}</p>
       ) : section.driver === "claudeAgent" ? (
         <p className="text-xs text-muted-foreground">
           Reset credits are not reported by this Claude connection.

@@ -315,7 +315,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
       hasServerConfig: environment.serverConfig !== null,
     }),
   )?.environmentId;
-  const searchableCursorEnvironmentId = options.find(
+  const searchableMacEnvironmentId = options.find(
     (environment) =>
       environment.serverConfig?.environment.platform.os === "darwin" &&
       isProviderSettingsEnvironmentAvailable({
@@ -326,12 +326,13 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
   useEffect(() => {
     if (
       !target.scoped &&
-      searchTargetId === searchableSetting("cursor-keychain-usage").id &&
+      (searchTargetId === searchableSetting("cursor-keychain-usage").id ||
+        searchTargetId === searchableSetting("claude-keychain-usage").id) &&
       (!selectedEnvironmentCanRenderSettings ||
         selectedEnvironment?.serverConfig?.environment.platform.os !== "darwin") &&
-      searchableCursorEnvironmentId !== undefined
+      searchableMacEnvironmentId !== undefined
     ) {
-      setSelectedEnvironmentId(searchableCursorEnvironmentId);
+      setSelectedEnvironmentId(searchableMacEnvironmentId);
       return;
     }
     if (
@@ -345,7 +346,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
     }
   }, [
     searchTargetId,
-    searchableCursorEnvironmentId,
+    searchableMacEnvironmentId,
     searchableEnvironmentId,
     selectedEnvironment,
     selectedEnvironmentCanRenderSettings,
@@ -1136,6 +1137,7 @@ export function EnvironmentProviderSettings({
         environmentLabel={environmentLabel}
         sources={settings.usageLimitSources}
         cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
+        claudeKeychainUsageEnabled={settings.claudeKeychainUsageEnabled}
         readOnly={readOnly}
       />
 

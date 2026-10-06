@@ -114,6 +114,10 @@ function UsageLimitsBannerBody({
                   credits={account.limits.resetCredits}
                   now={now}
                 />
+              ) : account.limits.resetCreditsUnavailableReason ? (
+                <span className="text-xs text-muted-foreground">
+                  {account.limits.resetCreditsUnavailableReason}
+                </span>
               ) : null}
             </div>
           );

@@ -580,6 +580,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     macProviderSettingsOnly: true,
   },
   {
+    id: "claude-keychain-usage",
+    title: "Claude account usage",
+    to: "/settings/providers",
+    searchTerms: ["claude macOS keychain banked resets reset credits login permission"],
+    providerSettingsOnly: true,
+    macProviderSettingsOnly: true,
+  },
+  {
     id: "provider-health-check-interval",
     title: "Health check interval",
     to: "/settings/providers",

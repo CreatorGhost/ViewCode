@@ -102,6 +102,8 @@ export type UsageSection = {
   message: string | null;
   windows: ReadonlyArray<ServerProviderUsageWindow>;
   resetCredits: ServerProviderResetCredits | null;
+  /** Why banked resets could not be read, shown in their place. */
+  resetCreditsUnavailableReason: string | null;
 };
 
 function toSection(
@@ -134,6 +136,9 @@ function toSection(
           : null,
     windows: limits && !notice ? orderUsageWindows(limits.windows) : [],
     resetCredits: limits?.resetCredits ?? null,
+    resetCreditsUnavailableReason: limits?.resetCredits
+      ? null
+      : (limits?.resetCreditsUnavailableReason ?? null),
   };
 }
 
