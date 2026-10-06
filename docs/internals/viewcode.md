@@ -7,17 +7,18 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ## Where the ViewCode code lives
 
-| Feature                                  | Main files                                                                                                                                                                                      |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mid-chat model/provider switch + handoff | `apps/server/src/orchestration/Handoff.ts`, `orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`)                                                                             |
-| Child agents                             | `parentThreadId` on threads (contracts `orchestration.ts`, migration `055_ProjectionThreadsParentThreadId`), web `components/agents/*`, tree client-runtime `state/threadTree.ts`               |
-| Agent-to-agent messaging                 | `apps/server/src/agents/AgentMessaging.ts`, `agents/searchHistory.ts`, MCP toolkit `apps/server/src/mcp/toolkits/agents/`, envelope in `packages/shared/src/agentMessages.ts`                   |
-| Command Code provider                    | `apps/server/src/provider/commandCodeCli.ts`, `Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`, `Layers/commandCodeUsageLimits.ts`                                                      |
-| Desktop local mode (no TCP port)         | `apps/server/src/socketListener.ts`, `mcp/McpStdioBridge.ts`, desktop `backend/DesktopLocalBackend*.ts`, web `lib/desktopBackendWebSocket.ts`                                                   |
-| Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                           |
-| Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, `T3CodeHistory.ts`, web `components/agentSessions/`                 |
-| Phone notifications (Expo push)          | `apps/server/src/notifications/`, contracts `pushNotifications.ts`, mobile `features/agent-awareness/directPush*.ts` and `useDirectPushRegistration.ts`                                         |
-| Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME`, web-only default), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids) |
+| Feature                                  | Main files                                                                                                                                                                                                                                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mid-chat model/provider switch + handoff | `apps/server/src/orchestration/Handoff.ts`, `orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`)                                                                                                                                                         |
+| Child agents                             | `parentThreadId` on threads (contracts `orchestration.ts`, migration `055_ProjectionThreadsParentThreadId`), web `components/agents/*`, tree client-runtime `state/threadTree.ts`                                                                                           |
+| Side chats (quick questions)             | `kind: "sidechat"` on threads (migration `057_ProjectionThreadsKind`), server `orchestration/sidechatExpiry.ts`, `SidechatExpiryReactor.ts`, `ProviderCommandReactor.ts` (`sidechatOf`), web `components/chat/SidechatDock.tsx`, `SidechatHost.tsx`, `sidechatDockStore.ts` |
+| Agent-to-agent messaging                 | `apps/server/src/agents/AgentMessaging.ts`, `agents/searchHistory.ts`, MCP toolkit `apps/server/src/mcp/toolkits/agents/`, envelope in `packages/shared/src/agentMessages.ts`                                                                                               |
+| Command Code provider                    | `apps/server/src/provider/commandCodeCli.ts`, `Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`, `Layers/commandCodeUsageLimits.ts`                                                                                                                                  |
+| Desktop local mode (no TCP port)         | `apps/server/src/socketListener.ts`, `mcp/McpStdioBridge.ts`, desktop `backend/DesktopLocalBackend*.ts`, web `lib/desktopBackendWebSocket.ts`                                                                                                                               |
+| Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                                                                                                       |
+| Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, `T3CodeHistory.ts`, web `components/agentSessions/`                                                                                             |
+| Phone notifications (Expo push)          | `apps/server/src/notifications/`, contracts `pushNotifications.ts`, mobile `features/agent-awareness/directPush*.ts` and `useDirectPushRegistration.ts`                                                                                                                     |
+| Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME`, web-only default), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids)                                                                             |
 
 ## Decisions
 
@@ -264,6 +265,33 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Left out of the port for now: upstream's required-check gate (`isRequired` in the GraphQL core
   read), its host fingerprint gating, paging long review threads, and edited-comment wakes. A
   pull request with nothing in flight and an unmoved sync snapshot is re-read every 10 minutes.
+
+### Side chats
+
+- A side chat is an ordinary thread with `parentThreadId` plus the optional
+  `kind: "sidechat"` (contracts `ThreadKind`, shell and detail, create and
+  `thread.meta.update`). Reusing `parentThreadId` makes the parent's archive,
+  unarchive and delete cascade cover its side chats for free. `kind` is what
+  separates it from a child agent: `agentTree` (server) and `collectChildAgents`
+  (client-runtime) skip it, so stopping the main agent never pauses a side chat
+  and the lead never sees it as one of its agents. Anything new that walks
+  `parentThreadId` as "agents" must do the same.
+- Context is a handoff, not a copy: on its first turn the reactor queues a
+  pending handoff whose recap is built from the **parent's** detail
+  (`sidechatOf` in `PendingHandoff`, `sidechat: true` in `buildHandoff` for the
+  "read-only context" header). It is a snapshot at that first turn; a side chat
+  does not follow later work. Everything else about the budget and shrinking is
+  the ordinary handoff.
+- Expiry archives (never deletes) a side chat idle for 24h and not working,
+  swept every ten minutes (`findExpiredSidechats`). Archiving it is the same
+  command as any thread, so it is reversible.
+- The dock is its own compact transcript and composer, not an embedded
+  `ChatView`: `ChatView` is route-bound with global key handlers, so a second
+  instance would fight the first. It uses `ProviderModelPicker`, never the
+  composer's `ComposerModelEffortPicker`. The sidebar, the mobile home list and
+  the palette's "latest thread" hide side chats; mobile has no dock.
+- `openSideChat(parentRef, prefill?)` (`sidechatDockStore.ts`) is the hook for
+  other code, such as a selection toolbar's "Ask in side chat".
 
 ### Command Code
 

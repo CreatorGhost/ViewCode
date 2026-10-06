@@ -55,6 +55,7 @@ import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { AccountUsagePopover } from "./ComposerUsageLimitsPopover";
+import { SidechatHeaderButton } from "./SidechatHeaderButton";
 
 interface ChatHeaderProps {
   providerInstanceEntries: ReadonlyArray<ProviderInstanceEntry>;
@@ -527,6 +528,13 @@ export const ChatHeader = memo(function ChatHeader({
             {createPortal(headerActions, actionsContainer)}
           </MenuPopup>
         </Menu>
+        {isServerThread ? (
+          <SidechatHeaderButton
+            environmentId={activeThreadEnvironmentId}
+            threadId={activeThreadId}
+            keybindings={keybindings}
+          />
+        ) : null}
         <AccountUsagePopover
           environmentId={activeThreadEnvironmentId}
           instanceEntries={providerInstanceEntries}

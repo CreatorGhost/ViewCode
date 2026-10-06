@@ -365,6 +365,8 @@ export function buildHandoff(input: {
   readonly maxChars?: number;
   /** Replaces the "previously handled by" opening line (ViewCode forks). */
   readonly intro?: string;
+  /** Side chat: the recap is the main thread's context, which keeps working on its own. */
+  readonly sidechat?: boolean;
 }): HandoffDocument & { readonly mode: HandoffMode; readonly budgetTokens: number } {
   const { thread } = input;
   const exchanges = exchangesOf(thread);
@@ -397,9 +399,16 @@ export function buildHandoff(input: {
         : "";
     const lines = [
       "<handoff>",
-      input.intro ??
-        `You are continuing an existing conversation. It was previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over with no access to that model's session.`,
-      "Treat everything below as shared context you already know. Do not repeat finished work; continue from where it left off.",
+      ...(input.sidechat
+        ? [
+            `You are a side chat opened next to a main conversation that ${describeModel(input.from)} is still working on. You (${describeModel(input.to)}) answer the user's quick questions about it.`,
+            "Treat everything below as read-only context. Keep answers short, and do not change files or continue the main task unless the user asks you to here.",
+          ]
+        : [
+            input.intro ??
+              `You are continuing an existing conversation. It was previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over with no access to that model's session.`,
+            "Treat everything below as shared context you already know. Do not repeat finished work; continue from where it left off.",
+          ]),
       ...(mode === "compact"
         ? [
             "This conversation is too long to hand over whole, so part of it is condensed or left out below.",
@@ -426,7 +435,9 @@ export function buildHandoff(input: {
   const minimalPrelude = (transcriptPath: string | null) =>
     [
       "<handoff>",
-      `${input.intro ?? `You are continuing an existing conversation previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over.`} The history is too long to include here.`,
+      input.sidechat
+        ? `You are a side chat next to a main conversation that ${describeModel(input.from)} is still working on; answer the user's quick questions about it. The history is too long to include here.`
+        : `${input.intro ?? `You are continuing an existing conversation previously handled by ${describeModel(input.from)}; you (${describeModel(input.to)}) are taking over.`} The history is too long to include here.`,
       transcriptPath
         ? `The full transcript is at ${transcriptPath}; search it (or use ${SEARCH_HINT}) for earlier work before asking the user about it.`
         : `Use ${SEARCH_HINT} to find earlier work before asking the user about it.`,

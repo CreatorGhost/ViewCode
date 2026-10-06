@@ -516,6 +516,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
           ...(command.parentThreadId ? { parentThreadId: command.parentThreadId } : {}),
+          ...(command.kind ? { kind: command.kind } : {}),
         },
       };
       if (command.forkFrom === undefined) return threadCreatedEvent;
@@ -1238,6 +1239,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
+          ...(command.kind !== undefined ? { kind: command.kind } : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
           ...(command.linkedPullRequest !== undefined
