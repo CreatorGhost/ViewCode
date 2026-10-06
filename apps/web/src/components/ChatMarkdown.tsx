@@ -139,6 +139,7 @@ import { GitHubIcon } from "./Icons";
 import { createIncrementalHighlightedDocument } from "../lib/incrementalHighlighting";
 import { HighlightedCodeLines } from "./chat/HighlightedCodeLines";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
+import { MermaidCodeBlock } from "./chat/MermaidCodeBlock";
 import { useTheme } from "../hooks/useTheme";
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
 import {
@@ -941,6 +942,9 @@ function MarkdownCodeBlock({
   theme,
   onRunShellCommand,
   isStreaming,
+  title,
+  leadingActions,
+  canWrap = true,
   children,
 }: {
   code: string;
@@ -949,6 +953,10 @@ function MarkdownCodeBlock({
   theme: "light" | "dark";
   onRunShellCommand?: ((command: string) => void) | undefined;
   isStreaming: boolean;
+  /** Replaces the language or file name in the header. */
+  title?: ReactNode;
+  leadingActions?: ReactNode;
+  canWrap?: boolean;
   children: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
@@ -1014,30 +1022,35 @@ function MarkdownCodeBlock({
     >
       <div className="chat-markdown-codeblock-header flex items-center justify-between gap-2 pt-1.5 pr-1.5 pb-0 pl-3 select-none">
         <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-2xs">
-          <MarkdownCodeBlockTitleContent
-            fenceTitle={fenceTitle}
-            language={language}
-            theme={theme}
-          />
+          {title ?? (
+            <MarkdownCodeBlockTitleContent
+              fenceTitle={fenceTitle}
+              language={language}
+              theme={theme}
+            />
+          )}
         </span>
         <span className="flex items-center gap-0.5" role="toolbar" aria-label="Code block actions">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant={wrapped ? "secondary" : "ghost-muted"}
-                  size="icon-xs"
-                  aria-pressed={wrapped}
-                  onClick={() => setWrapped((value) => !value)}
-                  aria-label={wrapLabel}
-                />
-              }
-            >
-              <WrapTextIcon className="size-3" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">{wrapLabel}</TooltipPopup>
-          </Tooltip>
+          {leadingActions}
+          {canWrap ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant={wrapped ? "secondary" : "ghost-muted"}
+                    size="icon-xs"
+                    aria-pressed={wrapped}
+                    onClick={() => setWrapped((value) => !value)}
+                    aria-label={wrapLabel}
+                  />
+                }
+              >
+                <WrapTextIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">{wrapLabel}</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {canRun ? (
             <Tooltip>
               <TooltipTrigger
@@ -3276,6 +3289,54 @@ const CHAT_MARKDOWN_COMPONENTS = {
 
     const language = extractFenceLanguage(codeBlock.className);
     const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
+    const highlightedCode = (
+      <RenderErrorBoundary
+        resetKeys={[codeBlock.code, language, diffThemeName, isStreaming]}
+        fallback={<pre {...props}>{children}</pre>}
+      >
+        {/* Reserve the block's height but stay hidden until Shiki has colored
+           it, so plain text never flashes before the highlighted version. */}
+        <Suspense
+          fallback={
+            <pre {...props} className="invisible" aria-hidden>
+              {children}
+            </pre>
+          }
+        >
+          <SuspenseShikiCodeBlock
+            className={codeBlock.className}
+            code={codeBlock.code}
+            themeName={diffThemeName}
+            isStreaming={isStreaming}
+          />
+        </Suspense>
+      </RenderErrorBoundary>
+    );
+    if (language === "mermaid") {
+      return (
+        <MermaidCodeBlock
+          code={codeBlock.code}
+          fenceTitle={fenceTitle}
+          ready={!isStreaming || isClosedCodeFence(node, text)}
+          source={highlightedCode}
+        >
+          {(frame) => (
+            <MarkdownCodeBlock
+              code={codeBlock.code}
+              language={language}
+              fenceTitle={fenceTitle}
+              theme={resolvedTheme}
+              isStreaming={isStreaming}
+              title={frame.title}
+              leadingActions={frame.actions}
+              canWrap={frame.canWrap}
+            >
+              {frame.body}
+            </MarkdownCodeBlock>
+          )}
+        </MermaidCodeBlock>
+      );
+    }
     return (
       <MarkdownCodeBlock
         code={codeBlock.code}
@@ -3289,27 +3350,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
         }
         isStreaming={isStreaming}
       >
-        <RenderErrorBoundary
-          resetKeys={[codeBlock.code, language, diffThemeName, isStreaming]}
-          fallback={<pre {...props}>{children}</pre>}
-        >
-          {/* Reserve the block's height but stay hidden until Shiki has colored
-              it, so plain text never flashes before the highlighted version. */}
-          <Suspense
-            fallback={
-              <pre {...props} className="invisible" aria-hidden>
-                {children}
-              </pre>
-            }
-          >
-            <SuspenseShikiCodeBlock
-              className={codeBlock.className}
-              code={codeBlock.code}
-              themeName={diffThemeName}
-              isStreaming={isStreaming}
-            />
-          </Suspense>
-        </RenderErrorBoundary>
+        {highlightedCode}
       </MarkdownCodeBlock>
     );
   },

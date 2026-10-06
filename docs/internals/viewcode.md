@@ -475,6 +475,22 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   keep T3's blueprint icons in `assets/dev/`.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
 
+### Mermaid diagrams
+
+- Ported from upstream `5e35272fd` with our own look. On an upstream merge,
+  keep ours for `apps/web/src/components/chat/MermaidDiagram.tsx` and for the
+  mermaid branch of `pre` in `ChatMarkdown.tsx`; upstream's in-file
+  `MarkdownMermaidCodeBlock` and the frameless `diagram` mode of
+  `MarkdownCodeBlock` are replaced by `chat/MermaidCodeBlock.tsx`.
+- Colours come from the live CSS tokens (`chat/mermaidTheme.ts`), resolved
+  through a canvas because palettes are written in oklch, and the palette is
+  part of the render cache key, so a theme switch re-renders. `theme`,
+  `themeVariables` and `themeCSS` are secure keys: a diagram's own `init` or
+  frontmatter cannot restyle it, though `look: handDrawn` still works.
+- Group colours are appended to the source as Mermaid `class` statements,
+  planned from a pre-parse of the flowchart. Author `style`/`classDef` colours
+  win: Mermaid inlines them with `!important`, so we skip styled nodes.
+
 ## Traps (things that cost hours)
 
 - **Running as root in a sandbox:** Claude refuses `bypassPermissions` as root;
