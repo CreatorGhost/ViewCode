@@ -53,6 +53,23 @@ export function resolveAgentToolkitToolName(
 }
 
 /**
+ * A ViewCode spawn or message call whose card already shows in the timeline,
+ * so its tool row would only repeat it. A failed call keeps its row: no card
+ * follows it. Only MCP calls count, so a harness's own spawn_agent stays.
+ */
+export function isAgentMessagingToolCallWithCard(
+  entry: Pick<
+    WorkLogEntry,
+    "label" | "toolTitle" | "toolData" | "toolLifecycleStatus" | "tone" | "itemType"
+  >,
+): boolean {
+  if (entry.itemType !== "mcp_tool_call") return false;
+  if (entry.tone === "error" || entry.toolLifecycleStatus === "failed") return false;
+  const name = resolveAgentToolkitToolName(entry);
+  return name === "spawn_agent" || name === "send_message";
+}
+
+/**
  * Friendly label ("Spawned agent", "Messaging agent") for a call to the
  * ViewCode agents MCP toolkit; null for any other entry.
  */
@@ -91,9 +108,21 @@ export function agentMessageBodyIsLong(body: string): boolean {
 
 const HANDOFF_SUMMARY = /^Context handed off from (\S+)(?: \([^)]*\))? to (\S+)(?: \([^)]*\))?$/;
 
-/** "Context handed off · claude-opus-4-6 → gpt-5-codex" for a handoff divider. */
+/**
+ * "Context handed off · claude-opus-4-6 → gpt-5-codex" for a handoff divider.
+ * When both sides name the same model the move was between provider
+ * instances (another account, or a switch recorded before the "from" model
+ * was fixed), so the instances are what changed: "… · claude-opus-5-5 ·
+ * codex → claudeAgent".
+ */
 export function handoffDividerLabel(entry: Pick<WorkLogEntry, "label" | "handoff">): string {
   const fromModel = entry.handoff?.fromModel ?? HANDOFF_SUMMARY.exec(entry.label)?.[1];
   const toModel = entry.handoff?.toModel ?? HANDOFF_SUMMARY.exec(entry.label)?.[2];
-  return fromModel && toModel ? `Context handed off · ${fromModel} → ${toModel}` : entry.label;
+  if (!fromModel || !toModel) return entry.label;
+  if (fromModel !== toModel) return `Context handed off · ${fromModel} → ${toModel}`;
+  const fromInstance = entry.handoff?.fromInstanceId;
+  const toInstance = entry.handoff?.toInstanceId;
+  return fromInstance && toInstance && fromInstance !== toInstance
+    ? `Context handed off · ${toModel} · ${fromInstance} → ${toInstance}`
+    : `Context handed off · ${toModel}`;
 }

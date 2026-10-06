@@ -2134,7 +2134,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const reserveContextWindowMeter = shouldReserveContextWindowMeter({
     meterEnabled: settings.contextWindowMeterEnabled,
-    detailLoading: props.threadSyncPhase === "loading",
+    detailLoading: props.threadSyncPhase === "loading" || props.threadSyncPhase === "stalled",
     threadStarted: threadShellHasStarted(props.activeThreadShell),
     providerReportsContextWindow: selectedProviderStatus
       ? selectedProviderStatus.reportsContextWindow === true

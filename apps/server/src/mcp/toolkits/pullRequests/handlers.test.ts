@@ -225,6 +225,50 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
+  it.effect("watching an unlinked pull request links it in the same command", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const result = yield* harness.call("watch_pull_request", {
+        url: "https://github.com/t3tools/t3code/pull/9",
+      });
+      expect(result).toMatchObject({ number: 9, watching: true, wasWatching: false });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        {
+          type: "thread.pull-request.watch",
+          number: 9,
+          watching: true,
+          link: { url: "https://github.com/t3tools/t3code/pull/9", source: "agent" },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("reports why a watch was refused, and stops without a command when not watched", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: makeThread([makeLink(1, { headBranch: "done" }), makeLink(2)]),
+        reject: (command) =>
+          command.type === "thread.pull-request.watch"
+            ? new OrchestrationCommandInvariantError({
+                commandType: command.type,
+                detail: "the pull request is merged",
+              })
+            : null,
+      });
+      const error = yield* harness
+        .call("watch_pull_request", { repository: "t3tools/t3code", number: 1 })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "PullRequestNotWatchableError",
+        reason: "the pull request is merged",
+      });
+      expect(
+        yield* harness.call("unwatch_pull_request", { repository: "t3tools/t3code", number: 2 }),
+      ).toMatchObject({ watching: false, wasWatching: false });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
   it.effect("links by repository and number, defaulting the host to the project's", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
@@ -407,6 +451,7 @@ describe("pull request toolkit handlers", () => {
         number: 3,
         url: "https://github.com/t3tools/t3code/pull/3",
         source: "agent",
+        watching: false,
         state: "open",
         title: "PR 3",
         headBranch: "feat-c",

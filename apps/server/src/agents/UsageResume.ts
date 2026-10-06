@@ -600,7 +600,7 @@ const make = Effect.gen(function* () {
       if (next === null) {
         yield* Queue.take(changed);
       } else {
-        // @effect-diagnostics-next-line raceFirstWithSleepToTimeout:off - one sleep to the earliest resume, cut short when the schedule set changes
+        // One sleep to the earliest resume, cut short when the schedule set changes.
         yield* Effect.raceFirst(Queue.take(changed), Effect.sleep(Duration.millis(next - nowMs)));
       }
     }

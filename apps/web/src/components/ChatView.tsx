@@ -58,6 +58,7 @@ import {
   parseCodexFeedbackCommand,
   submitCodexFeedback,
   type CodexFeedbackSubmission,
+  undeliveredUserMessages,
 } from "@t3tools/client-runtime/state/threads";
 import {
   parseScopedThreadKey,
@@ -512,6 +513,7 @@ import { ServerUpdateAction } from "./ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import { useUsageResumeBanner } from "./chat/useUsageResumeBanner";
 import { useViewcodeToolsBanner } from "./chat/useViewcodeToolsBanner";
+import { useImagePayloadBanner } from "./chat/useImagePayloadBanner";
 import {
   ComposerServerUpdateIcon,
   ComposerServerUpdateStatus,
@@ -1448,6 +1450,9 @@ function chatActionErrorMessage(error: unknown): string {
 }
 
 const ENVIRONMENT_UNAVAILABLE_SEND_TOAST_TRAIL_SIZE = 3;
+/** How long another thread's messages may stand in while a thread loads. */
+const OTHER_THREAD_HOLD_MS = 1_500;
+const EMPTY_THREAD_MESSAGES: ReadonlyArray<ChatMessage> = [];
 const EMPTY_HELD_TURN_DIFF_SUMMARIES: readonly never[] = [];
 const noopHeldTurnDiff = (_turnId: TurnId, _filePath?: string) => {};
 const noopHeldRevert = (_targetTurnCount: number) => {};
@@ -1478,7 +1483,8 @@ export default function ChatView(props: ChatViewProps) {
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
-  const threadDetailLoading = threadSyncPhase === "loading";
+  // A stalled first load has no detail either; it renders like a load.
+  const threadDetailLoading = threadSyncPhase === "loading" || threadSyncPhase === "stalled";
   const handleNewThread = useNewThreadHandler();
   const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
   const routeThreadRef = useMemo(
@@ -2927,6 +2933,10 @@ export default function ChatView(props: ChatViewProps) {
     [threadActivities],
   );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const undeliveredMessages = useMemo(
+    () => undeliveredUserMessages(threadActivities),
+    [threadActivities],
+  );
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
   // until orchestration-v2 lands (source precedence lives in the derive).
@@ -3551,11 +3561,25 @@ export default function ChatView(props: ChatViewProps) {
     timelineMessages,
     workLogEntries,
   ]);
+  const timelineLoading = timelineEntries.length === 0 && threadSyncPhase !== null;
+  // Another thread may stand in only briefly, to avoid an empty frame on a
+  // quick switch. A slow or stuck load then shows this thread's own state.
+  const [otherThreadHoldExpiredFor, setOtherThreadHoldExpiredFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!timelineLoading || activeThreadKey === null) return;
+    const timer = window.setTimeout(
+      () => setOtherThreadHoldExpiredFor(activeThreadKey),
+      OTHER_THREAD_HOLD_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [activeThreadKey, timelineLoading]);
   const displayedTimeline = resolveThreadSwitchTimeline({
-    loading: timelineEntries.length === 0 && threadSyncPhase !== null,
+    loading: timelineLoading,
     activeThreadKey,
     nextEntries: timelineEntries,
     rememberedForActive: peekRememberedThreadTimeline<typeof timelineEntries>(activeThreadKey),
+    allowOtherThread:
+      threadSyncPhase !== "stalled" && otherThreadHoldExpiredFor !== activeThreadKey,
   });
   const displayedTimelineKey = displayedTimeline.displayThreadKey ?? routeThreadKey;
   const paintOnlyDisplayedTimeline = isPaintOnlyThreadTimeline(
@@ -6552,8 +6576,16 @@ export default function ChatView(props: ChatViewProps) {
     activities: threadActivities,
     sessionProviderName: activeThread?.session?.providerName,
   });
+  const imagePayloadBannerItem = useImagePayloadBanner({
+    threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
+    messages: activeThread?.messages ?? EMPTY_THREAD_MESSAGES,
+    providerName: activeThread?.session?.providerName,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
-    const viewcodeToolsItems = viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem];
+    const threadNoticeItems = [
+      ...(imagePayloadBannerItem === null ? [] : [imagePayloadBannerItem]),
+      ...(viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem]),
+    ];
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
     const resumeCompactionItems =
@@ -6572,7 +6604,7 @@ export default function ChatView(props: ChatViewProps) {
         ...backgroundLivenessItems,
         ...resumeCompactionItems,
         ...wokeThreadItems,
-        ...viewcodeToolsItems,
+        ...threadNoticeItems,
         ...parkedThreadItems,
       ];
     }
@@ -6622,7 +6654,7 @@ export default function ChatView(props: ChatViewProps) {
           setBranchMismatchDismissTick((tick) => tick + 1);
         },
       },
-      ...viewcodeToolsItems,
+      ...threadNoticeItems,
       ...parkedThreadItems,
     ];
   }, [
@@ -6630,6 +6662,7 @@ export default function ChatView(props: ChatViewProps) {
     backgroundLivenessBannerItem,
     feedbackBannerItems,
     handleRestoreThreadBranch,
+    imagePayloadBannerItem,
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
@@ -9987,6 +10020,7 @@ export default function ChatView(props: ChatViewProps) {
                     ? EMPTY_HELD_TURN_DIFF_SUMMARIES
                     : activeThread.checkpoints
                 }
+                undeliveredMessages={paintOnlyDisplayedTimeline ? undefined : undeliveredMessages}
                 activeThreadEnvironmentId={
                   displayedThreadRef?.environmentId ?? activeThread.environmentId
                 }

@@ -13,6 +13,26 @@ describe("resolveThreadSyncPhase", () => {
     ).toBe("loading");
   });
 
+  it("says a stalled first load is stalled instead of loading forever", () => {
+    expect(
+      resolveThreadSyncPhase({
+        detailExists: false,
+        shellExists: true,
+        status: "synchronizing",
+        stalled: true,
+      }),
+    ).toBe("stalled");
+    // Data that arrives later wins over the stall.
+    expect(
+      resolveThreadSyncPhase({
+        detailExists: true,
+        shellExists: true,
+        status: "synchronizing",
+        stalled: true,
+      }),
+    ).toBe("syncing");
+  });
+
   it("syncs when cached detail is already visible", () => {
     expect(
       resolveThreadSyncPhase({

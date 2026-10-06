@@ -73,6 +73,8 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
   public closeCalls = 0;
   public closeError: unknown | undefined;
+  /** Set by tests that exercise Claude's graceful interrupt. */
+  public interrupt?: () => Promise<unknown>;
 
   emit(message: SDKMessage): void {
     if (this.done) {
@@ -1555,6 +1557,135 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("keeps a turn open past the result of a Claude-initiated turn", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "session.exited"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      const turn = yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "/compact",
+        attachments: [],
+      });
+
+      // Recorded order after a resume: Claude first reports a background task
+      // the previous process left behind, then runs the queued `/compact`.
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        num_turns: 0,
+        origin: { kind: "task-notification" },
+        session_id: "sdk-session-1",
+        uuid: "result-task-notification",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "compact_boundary",
+        compact_metadata: { trigger: "manual", pre_tokens: 959489, post_tokens: 10107 },
+        session_id: "sdk-session-1",
+        uuid: "compact-boundary",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        num_turns: 0,
+        user_message_uuid: turn.turnId,
+        user_message_uuids: [turn.turnId],
+        local_command: "compact",
+        session_id: "sdk-session-1",
+        uuid: "result-compact",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const compactedIndex = runtimeEvents.findIndex(
+        (event) => event.type === "thread.state.changed" && event.payload.state === "compacted",
+      );
+      const completedIndex = runtimeEvents.findIndex((event) => event.type === "turn.completed");
+      assert.equal(runtimeEvents.filter((event) => event.type === "turn.completed").length, 1);
+      assert.equal(String(runtimeEvents[completedIndex]?.turnId), String(turn.turnId));
+      assert.equal(String(runtimeEvents[compactedIndex]?.turnId), String(turn.turnId));
+      assert.isAbove(completedIndex, compactedIndex);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("shows Claude API retries of a turn as one work-log row", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "session.exited"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "hello", attachments: [] });
+      for (const [attempt, status, delay] of [
+        [1, 529, 500],
+        [2, 529, 2_000],
+        [3, null, 0],
+      ] as const) {
+        harness.query.emit({
+          type: "system",
+          subtype: "api_retry",
+          attempt,
+          max_retries: 10,
+          retry_delay_ms: delay,
+          error_status: status,
+          error: status === null ? "unknown" : "overloaded",
+          session_id: "sdk-session-1",
+          uuid: `retry-${attempt}`,
+        } as unknown as SDKMessage);
+      }
+      harness.query.finish();
+
+      const rows = Array.from(yield* Fiber.join(runtimeEventsFiber)).filter(
+        (event) => event.type === "runtime.warning",
+      );
+      assert.deepEqual(
+        rows.map((event) =>
+          event.type === "runtime.warning" ? [event.payload.message, event.payload.detail] : [],
+        ),
+        [
+          [
+            "Claude API retrying (attempt 1 of 10, HTTP 529)",
+            "Claude API overloaded. Retrying in 500ms.",
+          ],
+          [
+            "Claude API retrying (attempt 2 of 10, HTTP 529)",
+            "Claude API overloaded. Retrying in 2s.",
+          ],
+          ["Claude API retrying (attempt 3 of 10, no response)", "Claude API unknown."],
+        ],
+      );
+      // One id per turn: each attempt replaces the row instead of adding one.
+      assert.equal(new Set(rows.map((event) => event.eventId)).size, 1);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("steers a running turn instead of opening a new one on mid-turn sendTurn", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
@@ -2628,6 +2759,11 @@ describe("ClaudeAdapterLive", () => {
     uuid: "result-limit",
   };
 
+  const rejectedWindow = {
+    type: "rate_limit_event",
+    rate_limit_info: { status: "rejected", rateLimitType: "five_hour" },
+    session_id: "sdk-session-limit",
+  };
   const assistantLimitText = "You've hit your session limit";
   const proxyThrottleText =
     "API Error: Server is temporarily limiting requests (not your usage limit) · litellm.RateLimitError: rate_limit_error. Please try again later";
@@ -2653,6 +2789,45 @@ describe("ClaudeAdapterLive", () => {
       expected: proxyThrottleText,
     },
     {
+      // The CLI can report a rejected window for a gateway's 429; the response
+      // saying outright that it is not the usage limit wins.
+      name: "a proxy's transient 429 with a rejected window",
+      messages: [
+        {
+          type: "rate_limit_event",
+          rate_limit_info: { status: "rejected" },
+          session_id: "sdk-session-limit",
+        },
+        {
+          ...rateLimitAssistant,
+          message: {
+            ...rateLimitAssistant.message,
+            content: [{ type: "text", text: proxyThrottleText }],
+          },
+        },
+      ],
+      expected: proxyThrottleText,
+    },
+    {
+      // A rejected window does not make another HTTP failure the usage limit.
+      name: "a server error with a rejected window",
+      messages: [rejectedWindow],
+      result: { ...rateLimitResult, api_error_status: 500 },
+      expected: genericApiErrorMessage,
+    },
+    {
+      name: "a rejected window ending for another reason",
+      messages: [rejectedWindow],
+      result: { ...rateLimitResult, terminal_reason: "prompt_too_long" },
+      expected: "Claude stopped: the prompt exceeds the model's context window.",
+    },
+    {
+      name: "a 429 with a rejected window",
+      messages: [rejectedWindow],
+      result: { ...rateLimitResult, api_error_status: 429 },
+      expected: usageLimitMessage,
+    },
+    {
       name: "a normal parent response after a rate limit",
       messages: [rateLimitAssistant, { ...rateLimitAssistant, error: undefined }],
       expected: genericApiErrorMessage,
@@ -2675,7 +2850,7 @@ describe("ClaudeAdapterLive", () => {
       ],
       expected: assistantLimitText,
     },
-  ])("classifies the terminal API failure after $name", ({ messages, expected }) => {
+  ])("classifies the terminal API failure after $name", ({ messages, result, expected }) => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -2693,7 +2868,7 @@ describe("ClaudeAdapterLive", () => {
       for (const [index, message] of messages.entries()) {
         harness.query.emit({ ...message, uuid: `assistant-${index}` } as unknown as SDKMessage);
       }
-      harness.query.emit(rateLimitResult as unknown as SDKMessage);
+      harness.query.emit((result ?? rateLimitResult) as unknown as SDKMessage);
 
       const events = Array.from(yield* Fiber.join(eventsFiber));
       const errors = events.filter((event) => event.type === "runtime.error");
@@ -2701,6 +2876,44 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(errors[0]?.payload.message, expected);
       assert.equal(completedTurn(events).state, "failed");
       assert.equal(completedTurn(events).errorMessage, expected);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("does not pause on the usage limit when the API called it a throttle", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "hello", attachments: [] });
+      harness.query.emit({
+        ...rateLimitAssistant,
+        uuid: "assistant-throttle",
+        message: {
+          ...rateLimitAssistant.message,
+          content: [{ type: "text", text: proxyThrottleText }],
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({ ...rejectedWindow, uuid: "window" } as unknown as SDKMessage);
+      harness.query.emit(rateLimitResult as unknown as SDKMessage);
+
+      const events = Array.from(yield* Fiber.join(eventsFiber));
+      assert.deepEqual(
+        events.filter((event) => event.type === "runtime.warning"),
+        [],
+      );
+      assert.equal(completedTurn(events).errorMessage, proxyThrottleText);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -3315,6 +3528,83 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(stoppedTaskEvent.payload.taskType, "local_agent");
         assert.equal(stoppedTaskEvent.payload.title, "Agent A");
       }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("interruptTurn lets Claude abort the turn before closing the session", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello",
+        attachments: [],
+      });
+
+      const turnCompletedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "turn.completed"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      let closeCallsAtInterrupt: number | undefined;
+      harness.query.interrupt = async () => {
+        closeCallsAtInterrupt = harness.query.closeCalls;
+        harness.query.emit({
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: false,
+          errors: ["Error: Request was aborted."],
+          session_id: "sdk-session",
+          uuid: "result-interrupted",
+        } as unknown as SDKMessage);
+      };
+
+      yield* adapter.interruptTurn(session.threadId);
+
+      assert.equal(closeCallsAtInterrupt, 0);
+      assert.equal(harness.query.closeCalls, 1);
+      const [turnCompleted] = Array.from(yield* Fiber.join(turnCompletedFiber));
+      assert.equal(turnCompleted?.type, "turn.completed");
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(turnCompleted.payload.state, "interrupted");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("interruptTurn closes the session when Claude never aborts the turn", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "hello",
+        attachments: [],
+      });
+      harness.query.interrupt = () => new Promise(() => {});
+
+      const interruptFiber = yield* adapter.interruptTurn(session.threadId).pipe(Effect.forkChild);
+      yield* TestClock.adjust("3 seconds");
+      yield* Fiber.join(interruptFiber);
+
+      assert.equal(harness.query.closeCalls, 1);
+      assert.equal(yield* adapter.hasSession(session.threadId), false);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -4539,7 +4829,7 @@ describe("ClaudeAdapterLive", () => {
           uuid,
         } as unknown as SDKMessage);
       }
-      // api_retry maps to a session heartbeat, not a warning row.
+      // Outside a turn, api_retry is only a session heartbeat, not a row.
       harness.query.emit({
         type: "system",
         subtype: "api_retry",
@@ -4599,7 +4889,8 @@ describe("ClaudeAdapterLive", () => {
       let receipt: Deferred.Deferred<void> | undefined;
       const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
         Effect.gen(function* () {
-          runtimeEvents.push(event);
+          // The drain marker's own retry row is not under test here.
+          if (!String(event.eventId).startsWith("claude-api-retry:")) runtimeEvents.push(event);
           if (
             receipt &&
             event.type === "session.state.changed" &&

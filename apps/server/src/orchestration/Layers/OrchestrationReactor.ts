@@ -11,6 +11,7 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
 import * as ThreadSettlementReactor from "../ThreadSettlementReactor.ts";
 import * as PullRequestSyncReactor from "../PullRequestSyncReactor.ts";
+import * as PullRequestWatchReactor from "../PullRequestWatchReactor.ts";
 import * as ThreadPullRequestReactor from "../ThreadPullRequestReactor.ts";
 import * as AgentAwarenessRelay from "../../relay/AgentAwarenessRelay.ts";
 import * as StorageCleanup from "../../storageCleanup.ts";
@@ -31,6 +32,9 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
   const agentMessaging = yield* Effect.serviceOption(AgentMessaging.AgentMessaging);
   const usageResume = yield* Effect.serviceOption(UsageResume.UsageResume);
   const pushNotifications = yield* Effect.serviceOption(PushNotifications.PushNotifications);
+  const pullRequestWatchReactor = yield* Effect.serviceOption(
+    PullRequestWatchReactor.PullRequestWatchReactor,
+  );
 
   const start: OrchestrationReactorShape["start"] = Effect.fn("start")(function* () {
     yield* providerRuntimeIngestion.start();
@@ -45,6 +49,7 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
     if (agentMessaging._tag === "Some") yield* agentMessaging.value.start();
     if (usageResume._tag === "Some") yield* usageResume.value.start();
     if (pushNotifications._tag === "Some") yield* pushNotifications.value.start();
+    if (pullRequestWatchReactor._tag === "Some") yield* pullRequestWatchReactor.value.start();
   });
 
   return {

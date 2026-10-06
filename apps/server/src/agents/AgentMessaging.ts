@@ -262,6 +262,7 @@ export interface AgentMessagingShape {
       readonly effort?: string | undefined;
       readonly fastMode?: boolean | undefined;
       readonly replyExpected?: boolean | undefined;
+      readonly task?: string | undefined;
     },
   ) => Effect.Effect<SpawnResult, AgentMessagingError>;
   readonly sendMessage: (
@@ -320,6 +321,16 @@ export interface AgentMessagingShape {
     messageId: MessageId,
     reason: "usage" | "transient",
   ) => Effect.Effect<"started" | "busy" | "paused" | "gone", AgentMessagingError>;
+  /**
+   * Starts a server-written turn (a pull request watch wake) when the thread is free. "held"
+   * means the user paused it or it is out of usage; "busy" means a turn or queued mail comes
+   * first. Either way the caller tries again later.
+   */
+  readonly wake: (
+    threadId: ThreadId,
+    messageId: MessageId,
+    text: string,
+  ) => Effect.Effect<"started" | "busy" | "held" | "gone", AgentMessagingError>;
   /**
    * Records what happens to a thread stopped on a usage limit (`resumeAt` when
    * an automatic resume is scheduled), or clears it with null. Clients read it
@@ -501,6 +512,7 @@ const make = Effect.gen(function* () {
     toName: string,
     kind: "message" | "spawn",
     status: "started" | "queued",
+    task?: string,
   ) =>
     Effect.gen(function* () {
       const createdAt = yield* nowIso;
@@ -513,6 +525,7 @@ const make = Effect.gen(function* () {
         inReplyTo: delivery.inReplyTo,
         kind,
         delivery: status,
+        ...(task ? { task } : {}),
       };
       yield* engine.dispatch({
         type: "thread.activity.append",
@@ -816,7 +829,13 @@ const make = Effect.gen(function* () {
         inReplyTo: null,
       };
       const status = yield* deliver(delivery);
-      yield* recordSent(delivery, input.name.trim() || "Sub-agent", "spawn", status);
+      yield* recordSent(
+        delivery,
+        input.name.trim() || "Sub-agent",
+        "spawn",
+        status,
+        input.task?.trim() || undefined,
+      );
       return {
         agentId: childId,
         name: input.name.trim() || "Sub-agent",
@@ -1207,7 +1226,7 @@ const make = Effect.gen(function* () {
       if (next === null) {
         yield* Queue.take(limitChanged);
       } else {
-        // @effect-diagnostics-next-line raceFirstWithSleepToTimeout:off - one sleep to the earliest retry, cut short when the marks change
+        // One sleep to the earliest retry, cut short when the marks change.
         yield* Effect.raceFirst(
           Queue.take(limitChanged),
           Effect.sleep(Duration.millis(next - nowMs)),
@@ -1430,6 +1449,15 @@ const make = Effect.gen(function* () {
         case "thread.session-stop-requested": {
           if (event.commandId && ownStopCommands.delete(event.commandId)) return Effect.void;
           const threadId = event.payload.threadId;
+          // Restarting an idle agent's session only reloads its setup; a
+          // restart that cuts a turn short still pauses it like a Stop.
+          if (
+            event.type === "thread.session-stop-requested" &&
+            event.payload.restart === true &&
+            !active.has(threadId)
+          ) {
+            return Effect.void;
+          }
           return worker.enqueue({ kind: "stopped", threadId, interrupted: active.has(threadId) });
         }
         case "thread.session-set": {
@@ -1641,6 +1669,20 @@ const make = Effect.gen(function* () {
       return "started" as const;
     });
 
+  const wake: AgentMessagingShape["wake"] = (threadId, messageId, text) =>
+    Effect.gen(function* () {
+      const thread = (yield* shells).find((entry) => entry.id === threadId);
+      if (!thread || thread.archivedAt !== null) return "gone" as const;
+      if (paused.has(threadId) || blocks(threadId, yield* now)) return "held" as const;
+      if (ownTurns.has(threadId) || isBusy(thread) || (queues.get(threadId)?.length ?? 0) > 0) {
+        return "busy" as const;
+      }
+      yield* startTurn(thread, text, null, messageId).pipe(
+        Effect.mapError((cause) => new AgentMessagingError({ reason: String(cause) })),
+      );
+      return "started" as const;
+    });
+
   const start: AgentMessagingShape["start"] = Effect.fn("AgentMessaging.start")(function* () {
     const events = yield* engine.subscribeDomainEvents;
     const providerChanges = providerRegistry.streamChanges;
@@ -1683,6 +1725,7 @@ const make = Effect.gen(function* () {
     resume,
     discard,
     continueAfterLimit,
+    wake,
     setUsageResume,
     controlChanges: SubscriptionRef.changes(control),
     start,

@@ -11,6 +11,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse, UrlParams } from "effect/unstable/http";
 import { describe, expect, it } from "vite-plus/test";
 
+import { makeCachedKeychainSecretReader } from "../cursorCredentialStore.ts";
 import * as ClaudeResetCredits from "./claudeResetCredits.ts";
 
 const NOW = Date.parse("2026-09-22T12:00:00.000Z");
@@ -39,6 +40,45 @@ const respond = (status: number, body: unknown) =>
     Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body, { status }))),
   );
 const refuseRequests = HttpClient.make(() => Effect.die("must not send a request"));
+const cedarEmber = {
+  cedar_ember: { eligible: true, next_grant_id: "grant_a", grants: [grant({})] },
+};
+
+/** A Keychain stand-in with the production cache, counting how often it is opened. */
+const fakeKeychain = (read: () => Promise<string | null>) => {
+  let reads = 0;
+  const reader = makeCachedKeychainSecretReader(() => {
+    reads++;
+    return read();
+  });
+  return { reader, reads: () => reads };
+};
+const keychainLogin = (accessToken: string, expiresAt = NOW + 3_600_000) =>
+  JSON.stringify({
+    claudeAiOauth: { accessToken, refreshToken: "refresh", expiresAt, scopes: [] },
+  });
+const readOnMac = (
+  keychain: Partial<ClaudeResetCredits.ClaudeKeychainAccess>,
+  client: HttpClient.HttpClient,
+  configDir = "/no/credentials/file",
+) =>
+  TestClock.setTime(NOW).pipe(
+    Effect.andThen(
+      ClaudeResetCredits.readClaudeResetCredits(
+        configDir,
+        "2.1.0",
+        undefined,
+        {},
+        {
+          enabled: true,
+          defaultItem: true,
+          ...keychain,
+        },
+      ),
+    ),
+    Effect.provideService(HostProcessPlatform, "darwin"),
+    Effect.provideService(HttpClient.HttpClient, client),
+  );
 
 describe("claudeResetCreditsToContract", () => {
   it("counts live grants and pins the next usable one", () => {
@@ -140,7 +180,113 @@ effectIt.layer(NodeServices.layer)("readClaudeResetCredits", (it) => {
         Effect.provideService(HostProcessPlatform, "linux"),
         Effect.provideService(HttpClient.HttpClient, client),
       );
-      expect(credits).toEqual({ availableCount: 1, canRedeem: true, nextCreditId: "grant_a" });
+      expect(credits).toEqual({
+        credits: { availableCount: 1, canRedeem: true, nextCreditId: "grant_a" },
+      });
+    }),
+  );
+
+  it.effect("reads the login from the Keychain on macOS once turned on", () =>
+    Effect.gen(function* () {
+      const keychain = fakeKeychain(async () => keychainLogin("keychain-token"));
+      const client = HttpClient.make((request) => {
+        expect(request.url).toBe("https://api.anthropic.com/api/oauth/usage");
+        expect(request.headers.authorization).toBe("Bearer keychain-token");
+        return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(cedarEmber)));
+      });
+      expect(yield* readOnMac({ read: keychain.reader }, client)).toEqual({
+        credits: { availableCount: 1, canRedeem: true, nextCreditId: "grant_a" },
+      });
+      // Later probes reuse the login instead of opening the Keychain again.
+      yield* readOnMac({ read: keychain.reader }, client);
+      expect(keychain.reads()).toBe(1);
+    }),
+  );
+
+  it.effect("explains an unreadable Keychain login instead of failing", () =>
+    Effect.gen(function* () {
+      const cases = [
+        [
+          async () => Promise.reject(new Error("User interaction is not allowed.")),
+          "could not read",
+        ],
+        [async () => null, "No Claude login"],
+        [async () => "not json", "could not read"],
+        [async () => JSON.stringify({ claudeAiOauth: {} }), "No Claude login"],
+        [async () => keychainLogin("expired", NOW - 1), "expired"],
+      ] as const;
+      for (const [read, reason] of cases) {
+        const result = yield* readOnMac({ read: fakeKeychain(read).reader }, refuseRequests);
+        expect(result.credits).toBeUndefined();
+        expect(result.unavailableReason).toContain(reason);
+      }
+    }),
+  );
+
+  it.effect("gives up on a Keychain prompt nobody answers after 30 seconds", () =>
+    Effect.gen(function* () {
+      let opened!: () => void;
+      const reading = new Promise<void>((resolve) => (opened = resolve));
+      const keychain = fakeKeychain(() => {
+        opened();
+        return new Promise<never>(() => {});
+      });
+      const probe = yield* readOnMac({ read: keychain.reader }, refuseRequests).pipe(
+        Effect.forkChild,
+      );
+      yield* Effect.promise(() => reading);
+      yield* TestClock.adjust("31 seconds");
+      expect(yield* Fiber.join(probe)).toEqual({
+        unavailableReason: "ViewCode could not read Claude's login from the Keychain.",
+      });
+    }),
+  );
+
+  it.effect("re-reads the Keychain once after Claude refuses the token", () =>
+    Effect.gen(function* () {
+      const keychain = fakeKeychain(async () => keychainLogin("revoked"));
+      for (let attempt = 0; attempt < 3; attempt++) {
+        expect(yield* readOnMac({ read: keychain.reader }, respond(401, {}))).toEqual({});
+      }
+      // One re-read for the refused token, then no more prompts for the same item.
+      expect(keychain.reads()).toBe(2);
+    }),
+  );
+
+  it.effect("never opens the Keychain while the setting is off or the item is unknown", () =>
+    Effect.gen(function* () {
+      const keychain = fakeKeychain(async () => keychainLogin("keychain-token"));
+      const off = yield* readOnMac({ enabled: false, read: keychain.reader }, refuseRequests);
+      const custom = yield* readOnMac(
+        { defaultItem: false, read: keychain.reader },
+        refuseRequests,
+      );
+      expect(keychain.reads()).toBe(0);
+      expect(off.unavailableReason).toContain("Turn on Claude account usage");
+      expect(custom.unavailableReason).toContain("default config directory");
+    }),
+  );
+
+  it.effect("keeps reading the credentials file on Linux even with the setting on", () =>
+    Effect.gen(function* () {
+      const { configDir } = yield* writeLogin;
+      const keychain = fakeKeychain(async () => keychainLogin("keychain-token"));
+      const client = HttpClient.make((request) => {
+        expect(request.headers.authorization).toBe("Bearer oauth-token");
+        return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(cedarEmber)));
+      });
+      const credits = yield* ClaudeResetCredits.readClaudeResetCredits(
+        configDir,
+        "2.1.0",
+        undefined,
+        {},
+        { enabled: true, defaultItem: true, read: keychain.reader },
+      ).pipe(
+        Effect.provideService(HostProcessPlatform, "linux"),
+        Effect.provideService(HttpClient.HttpClient, client),
+      );
+      expect(credits.credits?.availableCount).toBe(1);
+      expect(keychain.reads()).toBe(0);
     }),
   );
 
@@ -159,7 +305,7 @@ effectIt.layer(NodeServices.layer)("readClaudeResetCredits", (it) => {
         }),
       ),
       Effect.provideService(HttpClient.HttpClient, refuseRequests),
-      Effect.tap((credits) => Effect.sync(() => expect(credits).toBeUndefined())),
+      Effect.tap((reading) => Effect.sync(() => expect(reading.credits).toBeUndefined())),
     ),
   );
 
@@ -174,7 +320,9 @@ effectIt.layer(NodeServices.layer)("readClaudeResetCredits", (it) => {
         Effect.provideService(HostProcessPlatform, "linux"),
         Effect.provideService(HttpClient.HttpClient, respond(429, {})),
       );
-      expect([darwin, limited]).toEqual([undefined, undefined]);
+      expect(darwin.credits).toBeUndefined();
+      expect(darwin.unavailableReason).toContain("Turn on Claude account usage");
+      expect(limited).toEqual({});
     }),
   );
 });
@@ -219,6 +367,38 @@ effectIt.layer(NodeServices.layer)("consumeClaudeResetCredit", (it) => {
         }).pipe(Effect.orDie),
       );
       expect(yield* consume(client)).toMatchObject({ _tag: "Success", success: "reset" });
+    }),
+  );
+
+  it.effect("claims with the Keychain login on macOS once turned on", () =>
+    Effect.gen(function* () {
+      const login = yield* writeLogin;
+      const keychain = fakeKeychain(async () => keychainLogin("keychain-token"));
+      const client = HttpClient.make((request) => {
+        expect(request.headers.authorization).toBe("Bearer keychain-token");
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, Response.json({ result: "reset" })),
+        );
+      });
+      const claim = (enabled: boolean) =>
+        ClaudeResetCredits.consumeClaudeResetCredit({
+          ...login,
+          version: "2.1.0",
+          grantId: "grant_a",
+          requestId: "r-1",
+          environment: {},
+          keychain: { enabled, defaultItem: true, read: keychain.reader },
+        }).pipe(
+          Effect.provideService(HostProcessPlatform, "darwin"),
+          Effect.provideService(HttpClient.HttpClient, client),
+          Effect.result,
+        );
+      yield* TestClock.setTime(NOW);
+      expect(yield* claim(true)).toMatchObject({ _tag: "Success", success: "reset" });
+      expect(yield* claim(false)).toMatchObject({
+        _tag: "Failure",
+        failure: { reason: "signedOut" },
+      });
     }),
   );
 

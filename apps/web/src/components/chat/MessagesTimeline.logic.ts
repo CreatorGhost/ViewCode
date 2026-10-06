@@ -45,6 +45,7 @@ import {
   type AgentMessageSentPayload,
 } from "@t3tools/shared/agentMessages";
 import { agentToolkitLabel, handoffDividerLabel } from "./agentTimeline.logic";
+import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 
 export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
 
@@ -70,7 +71,9 @@ export function incomingAgentMessage(message: ChatMessage): AgentMessageEnvelope
  */
 function isStandaloneTimelineWork(entry: WorkLogEntry): boolean {
   return (
-    isTimelineDividerActivityKind(entry.sourceActivityKind) || entry.agentMessageSent !== undefined
+    isTimelineDividerActivityKind(entry.sourceActivityKind) ||
+    entry.agentMessageSent !== undefined ||
+    entry.htmlRender !== undefined
   );
 }
 
@@ -96,7 +99,7 @@ export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string
   if (agentToolLabel) return agentToolLabel;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
-  if (entry.command) return entry.command;
+  if (entry.command?.trim()) return entry.command;
   if (entry.detail) return entry.detail;
   const [firstPath] = entry.changedFiles ?? [];
   if (firstPath) {
@@ -443,6 +446,20 @@ export type MessagesTimelineRow =
       sent: AgentMessageSentPayload;
     }
   | {
+      /** Child agents this thread started back to back: one compact row each, grouped. */
+      kind: "agent-spawns";
+      id: string;
+      createdAt: string;
+      spawns: ReadonlyArray<AgentMessageSentPayload>;
+    }
+  | {
+      /** A page this thread's agent published with `html_render`. */
+      kind: "html-render";
+      id: string;
+      createdAt: string;
+      htmlRender: HtmlRenderReference;
+    }
+  | {
       kind: "message";
       id: string;
       createdAt: string;
@@ -453,6 +470,8 @@ export type MessagesTimelineRow =
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
+      /** Set on a user message whose turn the provider never started: why. */
+      undeliveredReason?: string | undefined;
     }
   | {
       kind: "assistant-meta";
@@ -770,7 +789,8 @@ function deriveTurnFolds(input: {
       (candidate, candidateIndex) =>
         candidateIndex > terminalEntryIndex &&
         !(candidate.kind === "message" && candidate.message.role === "reasoning") &&
-        !(candidate.kind === "work" && candidate.entry.agentMessageSent !== undefined),
+        !(candidate.kind === "work" && candidate.entry.agentMessageSent !== undefined) &&
+        !(candidate.kind === "work" && candidate.entry.htmlRender !== undefined),
     ).length;
     for (const [index, entry] of group.entries.entries()) {
       if (entry.id === group.terminalEntry?.id) {
@@ -793,13 +813,14 @@ function deriveTurnFolds(input: {
       ) {
         continue;
       }
-      // User input, subagent batches and agent-to-agent messages stay
-      // visible after their turn settles.
+      // User input, subagent batches, agent-to-agent messages and published
+      // pages stay visible after their turn settles.
       if (
         entry.kind === "work" &&
         (entry.entry.questionAnswer !== undefined ||
           entry.entry.agentSpawn !== undefined ||
-          entry.entry.agentMessageSent !== undefined)
+          entry.entry.agentMessageSent !== undefined ||
+          entry.entry.htmlRender !== undefined)
       ) {
         continue;
       }
@@ -1016,6 +1037,8 @@ export function deriveMessagesTimelineRows(input: {
   worktreeSetup?: WorktreeSetupSnapshot | null;
   /** Messages sent during the running turn, rendered after the live rows. */
   queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
+  /** User messages the agent may never have received, by id (see `undeliveredUserMessages`). */
+  undeliveredMessages?: ReadonlyMap<string, string>;
 }): MessagesTimelineRow[] {
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
   for (const summary of input.turnDiffSummaries) {
@@ -1245,12 +1268,38 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "work" && timelineEntry.entry.agentMessageSent?.kind === "spawn") {
+      const sent = timelineEntry.entry.agentMessageSent;
+      const previous = nextRows.at(-1);
+      if (previous?.kind === "agent-spawns") {
+        nextRows[nextRows.length - 1] = { ...previous, spawns: [...previous.spawns, sent] };
+      } else {
+        nextRows.push({
+          kind: "agent-spawns",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          spawns: [sent],
+        });
+      }
+      continue;
+    }
+
     if (timelineEntry.kind === "work" && timelineEntry.entry.agentMessageSent !== undefined) {
       nextRows.push({
         kind: "agent-message-out",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         sent: timelineEntry.entry.agentMessageSent,
+      });
+      continue;
+    }
+
+    if (timelineEntry.kind === "work" && timelineEntry.entry.htmlRender !== undefined) {
+      nextRows.push({
+        kind: "html-render",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        htmlRender: timelineEntry.entry.htmlRender,
       });
       continue;
     }
@@ -1473,6 +1522,10 @@ export function deriveMessagesTimelineRows(input: {
       revertTurnCount:
         timelineEntry.message.role === "user"
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
+          : undefined,
+      undeliveredReason:
+        timelineEntry.message.role === "user"
+          ? input.undeliveredMessages?.get(timelineEntry.message.id)
           : undefined,
     });
   }
@@ -1709,6 +1762,21 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return a.createdAt === bo.createdAt && Equal.equals(a.sent, bo.sent);
     }
 
+    case "agent-spawns": {
+      const bs = b as typeof a;
+      return (
+        a.createdAt === bs.createdAt &&
+        a.spawns.length === bs.spawns.length &&
+        a.spawns.every((spawn, index) => Equal.equals(spawn, bs.spawns[index]))
+      );
+    }
+
+    case "html-render": {
+      // An equal page must keep its mounted frame.
+      const bh = b as typeof a;
+      return a.createdAt === bh.createdAt && htmlRenderReferencesEqual(a.htmlRender, bh.htmlRender);
+    }
+
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
 
@@ -1763,7 +1831,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
-        a.revertTurnCount === bm.revertTurnCount
+        a.revertTurnCount === bm.revertTurnCount &&
+        a.undeliveredReason === bm.undeliveredReason
       );
     }
   }

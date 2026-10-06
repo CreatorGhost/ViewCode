@@ -6,7 +6,9 @@ import {
   flattenSidebarThreadNode,
   partitionThreadTreeNodes,
   selectThreadTreeSearchMatches,
+  sidebarLeadsWhoseAgentsFinished,
   sidebarThreadAncestorKeys,
+  sidebarWorkingDescendantCounts,
   type SidebarThreadTreeNode,
 } from "./threadTree.ts";
 
@@ -260,5 +262,29 @@ describe("partitionThreadTreeNodes", () => {
     );
     expect(shape(active)).toEqual(["open"]);
     expect(shape(settled)).toEqual([{ lead: ["child"] }]);
+  });
+});
+
+describe("sidebarLeadsWhoseAgentsFinished", () => {
+  const threads = (working: boolean): TestThread[] => [
+    { id: "lead", project: "a", order: 1 },
+    { id: "child-1", project: "a", parent: "lead", working, order: 2 },
+    { id: "child-2", project: "a", parent: "lead", order: 3 },
+    { id: "solo", project: "a", order: 4 },
+  ];
+
+  it("names a lead once its last working agent finishes", () => {
+    const before = sidebarWorkingDescendantCounts(build(threads(true)));
+    const after = sidebarWorkingDescendantCounts(build(threads(false)));
+    expect(before).toEqual(new Map([["lead", 1]]));
+    expect(sidebarLeadsWhoseAgentsFinished(before, after)).toEqual(["lead"]);
+  });
+
+  it("ignores leads whose agents were already idle or still work", () => {
+    const idle = sidebarWorkingDescendantCounts(build(threads(false)));
+    const working = sidebarWorkingDescendantCounts(build(threads(true)));
+    expect(sidebarLeadsWhoseAgentsFinished(idle, idle)).toEqual([]);
+    expect(sidebarLeadsWhoseAgentsFinished(working, working)).toEqual([]);
+    expect(sidebarLeadsWhoseAgentsFinished(new Map(), idle)).toEqual([]);
   });
 });

@@ -2,7 +2,6 @@ import {
   type ClaudeSettings,
   type ModelCapabilities,
   type ServerProviderSlashCommand,
-  type ServerProviderResetCredits,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -44,6 +43,7 @@ import {
   claudeUsageResponseToLimits,
   recordClaudeUsageResponse,
 } from "./claudeUsageLimits.ts";
+import type { ClaudeResetCreditsReading } from "./claudeResetCredits.ts";
 import {
   BUNDLED_CLAUDE_MODEL_CATALOG,
   type ClaudeModelCatalog,
@@ -374,8 +374,10 @@ const probeClaudeCapabilities = (
     Effect.flatMap(({ q, init }) =>
       Effect.gen(function* () {
         // Usage has its own deadline so a slow optional request cannot discard initialization.
+        // Only the rate limits are read, so skip the local transcript scan that fills
+        // `behaviors`: with a few GB of transcripts it outlasts the deadline.
         const usageResult = yield* Effect.tryPromise(() =>
-          q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(),
+          q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }),
         ).pipe(Effect.timeout(DEFAULT_TIMEOUT_MS), Effect.result);
         const usage = Result.isSuccess(usageResult)
           ? {
@@ -496,7 +498,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   /** Shared with the adapter so turn events reuse the scoped-bucket names this probe saw. */
   scopedLimitNames?: Ref.Ref<ClaudeScopedLimitNames>,
   /** Banked resets for a subscription login, given the CLI version for the user agent. */
-  resolveResetCredits?: (version: string) => Effect.Effect<ServerProviderResetCredits | undefined>,
+  resolveResetCredits?: (version: string) => Effect.Effect<ClaudeResetCreditsReading>,
 ): Effect.fn.Return<
   ServerProviderDraft,
   never,
@@ -683,7 +685,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
           checkedAt,
         })
       : claudeUsageResponseToLimits({ response: capabilities.usage, checkedAt }).limits;
-  const resetCredits =
+  const resetReading =
     resolveResetCredits &&
     capabilities.subscriptionType &&
     !usageLimits.unavailable &&
@@ -707,7 +709,12 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         ...(authMetadata ? authMetadata : {}),
       },
       ...(versionUpgradeMessage ? { message: versionUpgradeMessage } : {}),
-      usageLimits: resetCredits ? { ...usageLimits, resetCredits } : usageLimits,
+      usageLimits: resetReading?.credits
+        ? { ...usageLimits, resetCredits: resetReading.credits }
+        : // Credits the CLI's own usage payload carried still win over a reason.
+          resetReading?.unavailableReason && !usageLimits.resetCredits
+          ? { ...usageLimits, resetCreditsUnavailableReason: resetReading.unavailableReason }
+          : usageLimits,
     },
   });
 });

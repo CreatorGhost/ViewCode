@@ -174,6 +174,8 @@ import {
   WORK_GROUP_TOGGLE_HEIGHT,
 } from "./thread-work-log";
 import { appendPendingThreadMessages, type PendingThreadFeedEntry } from "./pending-thread-feed";
+import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
+import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import {
@@ -252,6 +254,8 @@ export interface ThreadFeedProps {
   readonly setupWorkingStartedAt?: string | null;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
   readonly dispatchingMessageId: MessageId | null;
+  /** User messages the agent may never have received, by id. */
+  readonly undeliveredMessages?: ReadonlyMap<string, string> | undefined;
   readonly onEditPendingMessage: (message: QueuedThreadMessage) => void;
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -1405,9 +1409,11 @@ function renderFeedEntry(
   props: Pick<
     ThreadFeedProps,
     | "environmentId"
+    | "threadId"
     | "onUseArtifactTemplate"
     | "skills"
     | "dispatchingMessageId"
+    | "undeliveredMessages"
     | "onEditPendingMessage"
   > & {
     readonly copiedRowId: string | null;
@@ -1474,6 +1480,17 @@ function renderFeedEntry(
 
   if (entry.type === "thinking") {
     return <ThreadThinkingRow rowSizing={props.workRowSizing} iconSubtleColor={iconSubtleColor} />;
+  }
+
+  if (entry.type === "html-render") {
+    return (
+      <ThreadHtmlRender
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        render={entry.render}
+        iconColor={iconSubtleColor}
+      />
+    );
   }
 
   if (entry.type === "agent-message") {
@@ -1708,6 +1725,12 @@ function renderFeedEntry(
               </MarkdownImageAvailableWidthContext>
             ) : null}
           </View>
+          {props.undeliveredMessages?.has(message.id) ? (
+            // The provider never started this turn; the agent may not have seen it.
+            <Text className="mt-1 pr-0.5 text-right font-t3-medium text-xs text-danger-foreground">
+              Not delivered. The agent may not have received this message.
+            </Text>
+          ) : null}
           <View className="mt-1 flex-row items-center justify-end gap-1 pr-0.5">
             <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
               {entry.pendingMessage && !entry.acknowledged ? "Pending" : timestampLabel}
@@ -2361,6 +2384,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       worktreeSetup: props.worktreeSetup,
       setupWorkingStartedAt: props.setupWorkingStartedAt,
       dispatchingMessageId: props.dispatchingMessageId,
+      undeliveredMessages: props.undeliveredMessages,
       unsettledTurnId,
       copiedRowId,
       expandedWorkRows,
@@ -2377,6 +2401,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.worktreeSetup,
       props.setupWorkingStartedAt,
       props.dispatchingMessageId,
+      props.undeliveredMessages,
       unsettledTurnId,
       copiedRowId,
       expandedWorkRows,
@@ -2784,6 +2809,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // average once one of their type has been measured.
   const getFixedItemSize = useCallback(
     (entry: ThreadFeedEntry) => {
+      if (entry.type === "html-render") {
+        return htmlRenderRowHeight(htmlRenderFrameHeight(entry.render));
+      }
       if (workRowSizing.fixedRowHeight === undefined) {
         return undefined;
       }
@@ -2825,7 +2853,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         <ThreadMediaVisibility>
           {renderFeedEntry(info, {
             environmentId: props.environmentId,
+            threadId: props.threadId,
             dispatchingMessageId: props.dispatchingMessageId,
+            undeliveredMessages: props.undeliveredMessages,
             onEditPendingMessage: props.onEditPendingMessage,
             copiedRowId,
             expandedWorkRows,
@@ -2871,6 +2901,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.threadId,
       setupAnchorIndex,
       props.dispatchingMessageId,
+      props.undeliveredMessages,
       props.onEditPendingMessage,
       copiedRowId,
       disclosureToggleSettling,

@@ -139,6 +139,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "storage-worktrees-location",
+    title: "Worktree location",
+    to: "/settings/storage",
+    scope: "environment-defaults",
+    searchTerms: ["worktree location folder directory path drive external disk"],
+  },
+  {
     id: "storage-artifacts",
     title: "Artifacts and logs",
     to: "/settings/storage",
@@ -576,6 +583,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Cursor account usage",
     to: "/settings/providers",
     searchTerms: ["cursor macOS keychain usage tokens cost limits permission"],
+    providerSettingsOnly: true,
+    macProviderSettingsOnly: true,
+  },
+  {
+    id: "claude-keychain-usage",
+    title: "Claude account usage",
+    to: "/settings/providers",
+    searchTerms: ["claude macOS keychain banked resets reset credits login permission"],
     providerSettingsOnly: true,
     macProviderSettingsOnly: true,
   },

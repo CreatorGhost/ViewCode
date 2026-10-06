@@ -18,6 +18,7 @@ import {
   type ProviderRuntimeEvent,
   type ResponseStreamingMode,
   RuntimeRequestId,
+  type RuntimeTurnState,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -389,17 +390,21 @@ function compactedTokenCountsFromActivities(
   return { beforeTokens, afterTokens };
 }
 
-function normalizeRuntimeTurnState(
-  value: string | undefined,
-): "completed" | "failed" | "interrupted" | "cancelled" {
-  switch (value) {
+/**
+ * The session status a finished provider turn leaves behind. The projections
+ * settle the turn from it, so only a completed turn may map to "ready".
+ * Exhaustive with no default: a new provider outcome must be mapped here
+ * rather than silently become success.
+ */
+function sessionStatusAfterTurn(state: RuntimeTurnState): "ready" | "error" | "interrupted" {
+  switch (state) {
+    case "completed":
+      return "ready";
     case "failed":
+      return "error";
     case "interrupted":
     case "cancelled":
-    case "completed":
-      return value;
-    default:
-      return "completed";
+      return "interrupted";
   }
 }
 
@@ -1891,9 +1896,7 @@ const make = Effect.gen(function* () {
             case "turn.aborted":
               return "interrupted";
             case "turn.completed":
-              return normalizeRuntimeTurnState(event.payload.state) === "failed"
-                ? "error"
-                : "ready";
+              return sessionStatusAfterTurn(event.payload.state);
             case "session.started":
             case "thread.started":
               // Provider thread/session start notifications can arrive during an
@@ -1915,8 +1918,7 @@ const make = Effect.gen(function* () {
         const lastError =
           event.type === "session.state.changed" && event.payload.state === "error"
             ? (event.payload.reason ?? thread.session?.lastError ?? "Provider session error")
-            : event.type === "turn.completed" &&
-                normalizeRuntimeTurnState(event.payload.state) === "failed"
+            : event.type === "turn.completed" && event.payload.state === "failed"
               ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
               : // A provider going idle after a failed turn (Claude's CLI reports
                 // idle after the result) is not a new outcome: keep the failure,

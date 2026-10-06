@@ -1,7 +1,13 @@
 import type { OrchestrationThread } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
-import { buildHandoff, estimateTokens, extractKeyFacts, HANDOFF_BUDGET_TOKENS } from "./Handoff.ts";
+import {
+  buildHandoff,
+  describeHandoff,
+  HANDOFF_BUDGET_TOKENS,
+  estimateTokens,
+  extractKeyFacts,
+} from "./Handoff.ts";
 
 function message(role: "user" | "assistant", text: string, index: number) {
   const at = `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`;
@@ -315,5 +321,25 @@ describe("buildHandoff", () => {
       expect(prelude).not.toContain("END");
       expect(prelude).toContain("more chars; viewcode_search_history or the transcript");
     });
+  });
+});
+
+describe("describeHandoff", () => {
+  it("names both models when the model changed", () => {
+    expect(
+      describeHandoff(
+        { instanceId: "codex", model: "gpt-6-astra" },
+        { instanceId: "claudeAgent", model: "claude-opus-5-5" },
+      ),
+    ).toBe("Context handed off from gpt-6-astra (codex) to claude-opus-5-5 (claudeAgent)");
+  });
+
+  it("names the accounts when only the provider instance changed", () => {
+    expect(
+      describeHandoff(
+        { instanceId: "claudeWork", model: "claude-opus-5-5" },
+        { instanceId: "claudePersonal", model: "claude-opus-5-5" },
+      ),
+    ).toBe("Context handed off from claudeWork to claudePersonal, both on claude-opus-5-5");
   });
 });

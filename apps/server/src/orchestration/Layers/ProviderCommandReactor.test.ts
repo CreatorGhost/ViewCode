@@ -971,6 +971,71 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
+  effectIt.effect("records why a provider rejected a turn, not only that it did", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = ThreadId.make("thread-1");
+      const diagnostic = "Error: ConnectError: [permission_denied] Model not enabled for your team";
+      harness.sendTurn.mockImplementation(() =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "cursor",
+            method: "session/prompt",
+            detail: "Cursor refused the request.",
+            cause: diagnostic,
+          }),
+        ),
+      );
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const events = yield* harness.engine.subscribeDomainEvents;
+          const receipt = yield* events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "thread.activity-appended" &&
+                event.payload.activity.kind === "provider.turn.start.failed",
+            ),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+          yield* harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("rejected-model"),
+            threadId,
+            message: {
+              messageId: asMessageId("rejected-model-message"),
+              role: "user",
+              text: "a long, detailed prompt",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          });
+          yield* Fiber.join(receipt);
+        }),
+      );
+      yield* Effect.promise(() => harness.drain());
+
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(thread?.session).toMatchObject({
+        status: "error",
+        lastError: "Cursor refused the request.",
+      });
+      const failure = thread?.activities.find(
+        (activity) => activity.kind === "provider.turn.start.failed",
+      );
+      expect(failure?.payload).toMatchObject({
+        detail: "Cursor refused the request.",
+        requestId: "rejected-model-message",
+        failure: { class: "permission_error", code: "permission_denied", retryable: false },
+      });
+    }),
+  );
+
   effectIt.effect("records the accepted provider turn against its requesting message", () =>
     Effect.gen(function* () {
       const harness = yield* Effect.promise(() => createHarness());
@@ -3777,6 +3842,94 @@ describe("ProviderCommandReactor", () => {
       String((harness.sendTurn.mock.calls[0]?.[0] as { input?: string } | undefined)?.input ?? ""),
     ).toContain("<handoff>");
   });
+
+  it.each([
+    ["the stopped session's binding", true, "gpt-5-codex"],
+    ["nothing", false, "previous model"],
+  ] as const)(
+    "records the model being left, read from %s, when the client already switched the thread",
+    async (_source, withBinding, expectedFromModel) => {
+      const codex = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" };
+      const claude = {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "claude-opus-4-6",
+      };
+      const harness = await createHarness(
+        withBinding
+          ? {
+              persistedBinding: {
+                threadId: ThreadId.make("thread-1"),
+                provider: ProviderDriverKind.make("codex"),
+                providerInstanceId: codex.instanceId,
+                resumeCursor: { resume: "idle-codex" },
+                runtimePayload: { modelSelection: codex },
+              },
+            }
+          : undefined,
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-session-set-idle-reaped"),
+          threadId: ThreadId.make("thread-1"),
+          session: {
+            threadId: ThreadId.make("thread-1"),
+            status: "stopped",
+            providerName: "codex",
+            providerInstanceId: codex.instanceId,
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        }),
+      );
+      // The client saves the new selection before it starts the turn.
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.make("cmd-meta-switch-to-claude"),
+          threadId: ThreadId.make("thread-1"),
+          modelSelection: claude,
+        }),
+      );
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-after-idle-switch"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("user-message-after-idle-switch"),
+            role: "user",
+            text: "continue with claude",
+            attachments: [],
+          },
+          modelSelection: claude,
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+      await waitFor(async () => {
+        const readModel = await harness.readModel();
+        const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+        return thread?.activities.some((activity) => activity.kind === "viewcode.handoff") ?? false;
+      });
+      const readModel = await harness.readModel();
+      const handoff = readModel.threads
+        .find((entry) => entry.id === ThreadId.make("thread-1"))
+        ?.activities.find((activity) => activity.kind === "viewcode.handoff");
+      expect(handoff?.payload).toMatchObject({
+        from: { instanceId: "codex", model: expectedFromModel },
+        to: { instanceId: "claudeAgent", model: "claude-opus-4-6" },
+      });
+      expect(handoff?.summary).toBe(
+        `Context handed off from ${expectedFromModel} (codex) to claude-opus-4-6 (claudeAgent)`,
+      );
+    },
+  );
 
   describe("handoff delivery and sizing", () => {
     const claude = {

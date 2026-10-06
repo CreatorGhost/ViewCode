@@ -1497,7 +1497,81 @@ describe("deriveMessagesTimelineRows", () => {
           ],
         ),
       );
-      expect(rows.map((row) => row.kind)).toEqual(["work", "agent-message-out", "work"]);
+      expect(rows.map((row) => row.kind)).toEqual(["work", "agent-spawns", "work"]);
+    });
+
+    it("groups back-to-back spawns into one row and keeps a later message apart", () => {
+      const spawn = (id: string, order: number) =>
+        work(id, order, {
+          tone: "info",
+          sourceActivityKind: "viewcode.agent-message.sent",
+          agentMessageSent: { ...sent, messageId: id, kind: "spawn" },
+          turnId: null,
+        });
+      const rows = derive(
+        deriveTimelineEntries(
+          [],
+          [],
+          [
+            spawn("spawn-1", 1),
+            spawn("spawn-2", 2),
+            work("message", 3, {
+              tone: "info",
+              sourceActivityKind: "viewcode.agent-message.sent",
+              agentMessageSent: sent,
+              turnId: null,
+            }),
+            spawn("spawn-3", 4),
+          ],
+        ),
+      );
+      expect(
+        rows.map((row) =>
+          row.kind === "agent-spawns"
+            ? `spawns:${row.spawns.map((spawned) => spawned.messageId).join(",")}`
+            : row.kind,
+        ),
+      ).toEqual(["spawns:spawn-1,spawn-2", "agent-message-out", "spawns:spawn-3"]);
+    });
+
+    it("shows a published HTML page as its own row that stays visible when the turn folds", () => {
+      const htmlRender = { attachmentId: "thread-1-page-html", title: "Revenue", height: 320 };
+      const rows = derive(
+        deriveTimelineEntries(
+          [assistant("assistant-first", 1), assistant("assistant-final", 5)],
+          [],
+          [
+            work("read-1", 2, {
+              command: "cat a.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            }),
+            work("page-entry", 3, {
+              tone: "info",
+              label: "Revenue",
+              sourceActivityKind: "html.render",
+              htmlRender,
+            }),
+            work("read-2", 4, {
+              command: "cat b.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            }),
+          ],
+        ),
+      );
+
+      expect(rows.map((row) => row.id)).toEqual([
+        "turn-fold:turn-1",
+        "page-entry",
+        "assistant-final",
+      ]);
+      expect(rows.find((row) => row.kind === "html-render")).toEqual({
+        kind: "html-render",
+        id: "page-entry",
+        createdAt: "2026-01-01T00:00:03Z",
+        htmlRender,
+      });
     });
 
     it("renders a delivered agent message as an incoming card, not a user bubble", () => {
@@ -1853,6 +1927,40 @@ describe("deriveMessagesTimelineRows", () => {
 
     expect(userRow?.revertTurnCount).toBe(1);
     expect(assistantRow?.assistantTurnDiffSummary).toBe(assistantTurnDiffSummary);
+  });
+
+  it("marks only the user message whose turn never started as undelivered", () => {
+    const userMessage = (id: string, createdAt: string) => ({
+      id,
+      kind: "message" as const,
+      createdAt,
+      message: {
+        id: id as never,
+        role: "user" as const,
+        text: id,
+        turnId: null,
+        createdAt,
+        updatedAt: createdAt,
+        streaming: false,
+      },
+    });
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        userMessage("rejected", "2026-01-01T00:00:00Z"),
+        userMessage("go-on", "2026-01-01T00:01:00Z"),
+      ],
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      undeliveredMessages: new Map([["rejected", "Cursor refused the request."]]),
+    });
+    const reasons = Object.fromEntries(
+      rows.flatMap((row) =>
+        row.kind === "message" ? [[row.message.id, row.undeliveredReason] as const] : [],
+      ),
+    );
+    expect(reasons).toEqual({ rejected: "Cursor refused the request.", "go-on": undefined });
   });
 
   it("folds the first assistant message and settled work before the terminal response", () => {

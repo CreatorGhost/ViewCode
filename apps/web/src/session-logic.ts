@@ -3,6 +3,7 @@ import {
   type PendingApproval,
 } from "@t3tools/client-runtime/pending-requests";
 import { UserInputAttachmentAnswerPayload } from "@t3tools/contracts";
+import { isAgentMessagingToolCallWithCard } from "./components/chat/agentTimeline.logic";
 import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -25,6 +26,11 @@ import {
   type AgentMessageSentPayload,
   readAgentMessageSentPayload,
 } from "@t3tools/shared/agentMessages";
+import {
+  HTML_RENDER_ACTIVITY_KIND,
+  readHtmlRenderReference,
+  type HtmlRenderReference,
+} from "@t3tools/shared/htmlRender";
 import {
   isToolLifecycleItemType,
   type AssetResource,
@@ -99,8 +105,10 @@ export interface WorkLogEntry {
   };
   /** ViewCode: a message this thread's agent sent to another agent. */
   agentMessageSent?: AgentMessageSentPayload;
-  /** ViewCode: models on either side of a cross-provider handoff. */
-  handoff?: { fromModel: string; toModel: string };
+  /** A page the agent published with `html_render`, shown inline. */
+  htmlRender?: HtmlRenderReference;
+  /** ViewCode: models (and provider instances) on either side of a handoff. */
+  handoff?: { fromModel: string; toModel: string; fromInstanceId?: string; toInstanceId?: string };
 }
 
 const workLogCollapseKey = Symbol();
@@ -499,6 +507,7 @@ export function deriveWorkLogEntries(
     if (isPlanBoundaryToolActivity(activity)) continue;
     if (isAgentInternalActivity(activity)) continue;
     const entry = toDerivedWorkLogEntry(activity);
+    if (isAgentMessagingToolCallWithCard(entry)) continue;
     // Native agent launches get their visible row from task.started. Defer
     // their active tool row so another launch cannot duplicate the batch.
     if (
@@ -608,10 +617,23 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     const sent = readAgentMessageSentPayload(payload);
     if (sent) entry.agentMessageSent = sent;
   }
+  if (activity.kind === HTML_RENDER_ACTIVITY_KIND) {
+    const htmlRender = readHtmlRenderReference(payload);
+    if (htmlRender) entry.htmlRender = htmlRender;
+  }
   if (activity.kind === "viewcode.handoff") {
     const fromModel = asTrimmedString(asRecord(payload?.from)?.model);
     const toModel = asTrimmedString(asRecord(payload?.to)?.model);
-    if (fromModel && toModel) entry.handoff = { fromModel, toModel };
+    const fromInstanceId = asTrimmedString(asRecord(payload?.from)?.instanceId);
+    const toInstanceId = asTrimmedString(asRecord(payload?.to)?.instanceId);
+    if (fromModel && toModel) {
+      entry.handoff = {
+        fromModel,
+        toModel,
+        ...(fromInstanceId ? { fromInstanceId } : {}),
+        ...(toInstanceId ? { toInstanceId } : {}),
+      };
+    }
   }
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);

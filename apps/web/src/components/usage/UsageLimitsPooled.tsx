@@ -210,6 +210,10 @@ function SegmentPopover({
             ) : null}
           </span>
         </div>
+      ) : !account.limits.resetCredits && account.limits.resetCreditsUnavailableReason ? (
+        <div className="border-t border-border/60 pt-2.5 text-muted-foreground">
+          {account.limits.resetCreditsUnavailableReason}
+        </div>
       ) : null}
     </div>
   );

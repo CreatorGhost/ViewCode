@@ -61,6 +61,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   whole request; the server decides the handoff. Clients only label it, from
   the continuation group of `session.providerInstanceId`, not of the staged
   selection. Upstream merges that bring the lock back must drop it again.
+- A handoff's "from" model is never read from `thread.modelSelection`: the
+  client saves the new selection (`thread.meta.update`) before the turn, so
+  once the live session is gone (idle reaper, restart) that field already
+  names the target, and every such switch was recorded as "opus → opus". The
+  reactor reads the leaving model from the live session, the persisted
+  binding, then the last turn's selection. Same model on both sides is a real
+  case (another account), so labels then name the instances instead.
 - The recap has one fixed budget for every incoming model,
   `HANDOFF_BUDGET_TOKENS` (50k tokens, ~200k characters), covering the **whole
   rendered prelude** (header, recap, omission note). It is not a share of the
@@ -113,12 +120,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `traycer_*`). Codex has its own built-in `spawn_agent`; with the bare name the
   model picked the built-in one, so "sub-agents" never became visible ViewCode
   agents. The runtime instructions (`provider/RuntimeInstructions.ts`) name the
-  ViewCode path and say when the harness's own sub-agents are appropriate. If
-  `viewcode_spawn_agent` is missing or fails, Cursor reports the failure and
-  may continue with native Tasks without another confirmation. These remain
-  inline agents, not separate chats with model pickers. It must report a
-  limitation if the fallback cannot satisfy a requested provider/model or
-  separate chat. Other providers still ask before substituting native agents.
+  ViewCode path as the default and say when the harness's own sub-agents are
+  appropriate. On every provider, a missing or failing `viewcode_spawn_agent`
+  is announced in one sentence and the agent continues with native sub-agents
+  without asking (the user chose this over a confirmation prompt). Native
+  sub-agents stay inline, with no chat or model picker of their own, so a
+  request for a specific provider/model or a separate chat is reported as a
+  limitation instead of substituted. An agent may also pick native sub-agents
+  itself for a quick lookup when the user did not ask for agents.
 
 - A message is a normal `thread.turn.start` whose text begins with a
   `<viewcode-agent-message …>` envelope. Idle receiver → starts now; busy,
@@ -142,7 +151,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   limit (24) stops ping-pong loops; spawning counts as a hop too.
 - Stopping an agent that belongs to a tree **pauses** it (user decision): any
   `thread.turn.interrupt` / session stop from any client, or the `agents.stop`
-  RPC (Stop all = whole tree). While paused, messages and replies to it queue,
+  RPC (Stop all = whole tree). The command palette's "Restart agent session"
+  stops with `restart: true`, which does not pause an idle agent (it only
+  reloads skills and plugins); one that cuts a running turn short still pauses. While paused, messages and replies to it queue,
   senders are told it is paused, and a stopped turn's pending reply is held.
   `agents.resume` sends "Continue where you left off." when a turn was cut
   short (its answer still goes to the original requester) and drains the queue.
@@ -167,9 +178,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   not evidence: a live litellm 429 used to read as "Claude usage limit reached" and mark a whole
   tree out of usage. The server's `limitKindOf` (`agents/usageResetTime.ts`) also treats a retry
   hint under five minutes ("try again in 1.2s") as a throttle, unless the turn saw a rejected
-  usage window. Claude's adapter only says "Claude usage limit reached" when a
-  `rate_limit_event` rejected a window during the turn; a bare `rate_limit` response keeps its
-  own text.
+  usage window. Claude's adapter only says "Claude usage limit reached" (in the result and in
+  the mid-turn "paused" row) when a `rate_limit_event` rejected a window during the turn and
+  nothing contradicts it: not the reply's own words ("not your usage limit"), not another HTTP
+  status than 429, not a terminal reason other than an API error or blocking limit
+  (`isClaudeUsageLimit`, `provider/Layers/claudeUsageLimitRule.ts`). A bare `rate_limit`
+  response keeps its own text.
 - A turn that ends with a usage limit marks the agent out of usage in AgentMessaging
   (`limited`, a `LimitMark`); a throttle never does. The mark never refuses a send: messages
   queue until `retryAfter` (the reset plus 60s; ten minutes on when no reset time is known),
@@ -231,6 +245,26 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   tells agents to use a vendor's own provider (GPT → Codex) over resellers
   (Command Code, OpenCode, Cursor) unless the user names the reseller.
 
+### Pull request watches (port of upstream's v2 PR watch onto v1)
+
+- The watch is an optional `watch` on the thread's pull request link, persisted in
+  `projection_thread_pull_requests.watch_json` (migration 056, idempotent like 055 so it can be
+  renumbered after upstream's). `thread.pull-request.watch` and the internal
+  `thread.pull-request-watch.sync` emit the existing `thread.pull-request-linked` event with the
+  new link, so the projector, projection pipeline and client reducers needed no new case and older
+  clients ignore the field. A side effect: each recorded watch change also triggers one pull
+  request sync read (`PullRequestSyncReactor` refreshes on every linked event).
+- The watch records what the agent was **told**, not what was seen. `PullRequestWatchReactor`
+  starts the wake through `AgentMessaging.wake` (the same turn path as agent messages and usage
+  resume), and only a started turn records the new state. A busy, paused or out-of-usage thread
+  keeps the wake in memory and gets it on the next `thread.session-set` that is not live, or the
+  next pass; a restart loses it and the next pass reports the same news again. Passes and those
+  turn-end deliveries are serialized, and a sync applies only to the watch whose `startedAt` it
+  read, so a stop wins over a pass in flight.
+- Left out of the port for now: upstream's required-check gate (`isRequired` in the GraphQL core
+  read), its host fingerprint gating, paging long review threads, and edited-comment wakes. A
+  pull request with nothing in flight and an unmoved sync snapshot is re-read every 10 minutes.
+
 ### Command Code
 
 - Headless CLI adapter (`cmd -p --output-format json`, `--resume <id>`). Its stdin
@@ -257,6 +291,23 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Claude Code with an enterprise MCP config (`managed-mcp.json`, paths in `Drivers/ClaudeEnterprisePolicy.ts`) exits 1 at startup on any client-supplied MCP server ("You cannot dynamically configure MCP servers when an enterprise MCP config is present"), which used to kill every Claude turn. The managed config is the organization's security control: ViewCode **respects it and never routes around it** (no project `.mcp.json`, settings files, env vars or edits to the managed file). `ClaudeAdapter` starts without `mcpServers` when the file exists, when the `runWithoutViewCodeTools` instance setting is on, or after the CLI refused once on that instance (remembered for the server's lifetime; the refusal triggers one relaunch of the same session without MCP that resends the unstarted prompts, and only that exact stderr does). Such sessions get instructions without the PR-linking and agents blocks, and a `runtime.warning` whose detail is `ViewcodeToolsUnavailableDetail`; clients turn the latest one into the thread notice (`client-runtime/viewcodeTools.ts`). Unmanaged machines get byte-identical options and no notice. The supported fix for such users is their IT adding ViewCode's server to the managed config.
 - A provider CLI that exits on its own is reported as that exit, attributed to the process and carrying its stderr ("Claude Code exited (code 1): …", last ~2KB, redacted; `provider/providerProcessExit.ts`), in the runtime error, the failed turn and the top-level log line. A request that merely touched the dead process (Claude's `setPermissionMode` is usually first) waits for the stream to settle and fails with that exit instead of "`turn/setPermissionMode` failed". ACP adapters already attach stderr to `AcpProcessExitedError`.
 - The MCP endpoint is announced on `127.0.0.1` even on a wildcard bind, on purpose (`mcp/McpSessionRegistry.ts`, `getHttpMcpEndpointHost`). Provider subprocesses are local, and MCP never crosses remote connections or tunnels, so "MCP unreachable from remote" is expected, not a bug.
+
+### Inline HTML pages (`html_render`)
+
+- Ported from upstream's v2 feature onto v1. The `html_render` tool
+  (`apps/server/src/mcp/toolkits/html/`) stores the page as a `<id>-html`
+  thread attachment and then appends an `html.render` thread activity itself.
+  Upstream renders the page from the tool call's result, but v1 adapters do not
+  carry MCP tool results to clients reliably, so the activity is the only
+  thing clients read. The activity takes the thread's active turn, so
+  reverting that turn removes the page too.
+- Revert pruning (`ProjectionPipeline` `applyAttachmentSideEffects`) keeps only
+  attachments something still references; `html.render` activities count as a
+  reference, or a revert would delete every page in the thread.
+- Left out on purpose: `html_preview`, the headless Chrome download and
+  server-side height measurement. The page reports its own height
+  (`ui/notifications/size-changed`) and the web frame fits it; mobile shows the
+  agent's height and lets a taller page scroll inside its frame.
 
 ### Desktop local mode and phone access
 
@@ -372,10 +423,20 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Opening either usage panel reuses readings less than a minute old. A shared
   per-environment, per-instance guard coalesces in-flight probes and limits retry
   attempts after failure. Closing the panel stops UI updates, not the server probe.
-- Claude's macOS reset count can come from a recent Claude Desktop usage-cache
-  response for the selected CLI organization. This avoids Keychain prompts.
-  Cache-only counts cannot authorize redemption; missing or stale data means
-  unknown, not zero. A banked credit can exist before it is usable immediately.
+- On macOS, Claude's banked resets need its Keychain login, which ViewCode reads
+  only after the per-environment opt-in `claudeKeychainUsageEnabled`
+  (Settings → Providers), like Cursor: a read can raise a macOS prompt on the
+  server's screen that a remote client cannot answer. The read is bounded at 30
+  seconds and cached until the account in `~/.claude.json` changes, the opt-in
+  toggles, Claude refuses the token, or (at most every 15 minutes) the token has
+  expired. Only the default config directory is read, because any
+  `CLAUDE_CONFIG_DIR` makes the CLI suffix the Keychain service name
+  (`claudeCredentialStore.ts`). With the opt-in off, the count can still come
+  from a recent Claude Desktop usage-cache response for the selected CLI
+  organization; cache-only counts cannot authorize redemption. A login that
+  cannot be read sets `resetCreditsUnavailableReason` so clients explain the
+  gap instead of showing nothing; missing data is unknown, never zero. A banked
+  credit can exist before it is usable immediately.
 
 ### Phone notifications
 
@@ -455,6 +516,22 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   OS masks them). `.icns` is built from the PNG at package time. Dev builds
   keep T3's blueprint icons in `assets/dev/`.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
+
+### Mermaid diagrams
+
+- Ported from upstream `5e35272fd` with our own look. On an upstream merge,
+  keep ours for `apps/web/src/components/chat/MermaidDiagram.tsx` and for the
+  mermaid branch of `pre` in `ChatMarkdown.tsx`; upstream's in-file
+  `MarkdownMermaidCodeBlock` and the frameless `diagram` mode of
+  `MarkdownCodeBlock` are replaced by `chat/MermaidCodeBlock.tsx`.
+- Colours come from the live CSS tokens (`chat/mermaidTheme.ts`), resolved
+  through a canvas because palettes are written in oklch, and the palette is
+  part of the render cache key, so a theme switch re-renders. `theme`,
+  `themeVariables` and `themeCSS` are secure keys: a diagram's own `init` or
+  frontmatter cannot restyle it, though `look: handDrawn` still works.
+- Group colours are appended to the source as Mermaid `class` statements,
+  planned from a pre-parse of the flowchart. Author `style`/`classDef` colours
+  win: Mermaid inlines them with `!important`, so we skip styled nodes.
 
 ## Traps (things that cost hours)
 

@@ -169,6 +169,18 @@ review is terminal. An open or unsynced link keeps it active.
 Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked
 out from the matching organization and repository.
 
+### Watching a pull request
+
+Ask the agent to watch, monitor, or babysit a pull request and it calls `watch_pull_request`. The
+server checks the pull request every two minutes and wakes the agent with a new message when a check
+fails, all checks pass, someone else comments or reviews, or the branch starts to conflict. Comments
+from your own host account do not wake it. If the agent is busy, paused, or out of usage, the update
+waits until its turn ends. Watching ends when the pull request merges or closes, after 10 wakes in a
+row that bring only comments, after 8 failed reads in a row, when the thread settles or is archived,
+or when the agent calls `unwatch_pull_request`. A watched review shows an eye in the **Linked pull
+requests** panel; use the row menu's **Watch for changes** or **Stop watching** to start or stop it
+yourself. Unsettle a thread before starting a new watch on it.
+
 ## GitHub stacks
 
 The Pull Requests page shows each PR's position in its GitHub stack. Open the stack badge in a

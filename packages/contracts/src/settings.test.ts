@@ -29,6 +29,15 @@ describe("Command Code usage settings", () => {
   });
 });
 
+describe("Claude Keychain usage setting", () => {
+  it("stays off until the user opts in", () => {
+    expect(decodeServerSettings({}).claudeKeychainUsageEnabled).toBe(false);
+    expect(
+      decodeServerSettingsPatch({ claudeKeychainUsageEnabled: true }).claudeKeychainUsageEnabled,
+    ).toBe(true);
+  });
+});
+
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

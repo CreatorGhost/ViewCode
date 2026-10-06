@@ -83,6 +83,8 @@ export interface AgentMessageSentPayload {
   /** "spawn" when the message created the receiving agent. */
   readonly kind: "message" | "spawn";
   readonly delivery: "started" | "queued";
+  /** For a spawn: the few-word task the caller gave, shown as the row's title. */
+  readonly task?: string;
 }
 
 /** Reads a sent-message activity payload; null when it is malformed. */
@@ -90,7 +92,8 @@ export function readAgentMessageSentPayload(
   payload: Record<string, unknown> | null,
 ): AgentMessageSentPayload | null {
   if (!payload) return null;
-  const { messageId, toThreadId, toName, body, replyExpected, inReplyTo, kind, delivery } = payload;
+  const { messageId, toThreadId, toName, body, replyExpected, inReplyTo, kind, delivery, task } =
+    payload;
   if (
     typeof messageId !== "string" ||
     typeof toThreadId !== "string" ||
@@ -108,5 +111,6 @@ export function readAgentMessageSentPayload(
     inReplyTo: typeof inReplyTo === "string" ? inReplyTo : null,
     kind: kind === "spawn" ? "spawn" : "message",
     delivery: delivery === "queued" ? "queued" : "started",
+    ...(typeof task === "string" && task.trim() !== "" ? { task: task.trim() } : {}),
   };
 }

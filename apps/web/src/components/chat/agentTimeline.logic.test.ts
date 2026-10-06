@@ -100,6 +100,26 @@ describe("handoffDividerLabel", () => {
     ).toBe("Context handed off · claude-opus-4-6 → claude-sonnet-4-6");
     expect(handoffDividerLabel({ label: "Something else" })).toBe("Something else");
   });
+
+  it("names the instances when both sides ran the same model", () => {
+    expect(
+      handoffDividerLabel({
+        label: "ignored",
+        handoff: {
+          fromModel: "claude-opus-5-5",
+          toModel: "claude-opus-5-5",
+          fromInstanceId: "codex",
+          toInstanceId: "claudeAgent",
+        },
+      }),
+    ).toBe("Context handed off · claude-opus-5-5 · codex → claudeAgent");
+    expect(
+      handoffDividerLabel({
+        label: "ignored",
+        handoff: { fromModel: "gpt-6-astra", toModel: "gpt-6-astra" },
+      }),
+    ).toBe("Context handed off · gpt-6-astra");
+  });
 });
 
 describe("agent work log entries", () => {
@@ -124,7 +144,12 @@ describe("agent work log entries", () => {
     const sent = entries.find(
       (entry) => entry.sourceActivityKind === "viewcode.agent-message.sent",
     );
-    expect(handoff?.handoff).toEqual({ fromModel: "claude-opus-4-6", toModel: "gpt-5-codex" });
+    expect(handoff?.handoff).toEqual({
+      fromModel: "claude-opus-4-6",
+      toModel: "gpt-5-codex",
+      fromInstanceId: "claudeAgent",
+      toInstanceId: "codex",
+    });
     expect(sent?.agentMessageSent).toEqual({
       messageId: "m-1",
       toThreadId: "thread-2",
@@ -135,6 +160,20 @@ describe("agent work log entries", () => {
       kind: "message",
       delivery: "queued",
     });
+  });
+
+  it("drops a ViewCode spawn call whose card shows, but keeps a failed one", () => {
+    const call = (status: "completed" | "failed") => ({
+      ...activity("tool.completed", "viewcode_spawn_agent", {
+        itemType: "mcp_tool_call",
+        status,
+        data: { item: { server: "viewcode", tool: "viewcode_spawn_agent" } },
+      }),
+      id: EventId.make(`activity-spawn-${status}`),
+      ...(status === "failed" ? { tone: "error" as const } : {}),
+    });
+    expect(deriveWorkLogEntries([call("completed")])).toEqual([]);
+    expect(deriveWorkLogEntries([call("failed")])).toHaveLength(1);
   });
 
   it("leaves a malformed sent payload as an ordinary entry", () => {

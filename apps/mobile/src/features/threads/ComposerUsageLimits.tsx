@@ -76,6 +76,10 @@ export function ComposerUsageLimits({
                     credits={account.limits.resetCredits}
                     now={now}
                   />
+                ) : account.limits.resetCreditsUnavailableReason ? (
+                  <Text className="text-sm text-foreground-muted">
+                    {account.limits.resetCreditsUnavailableReason}
+                  </Text>
                 ) : undefined
               }
             />

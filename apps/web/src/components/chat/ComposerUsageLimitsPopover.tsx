@@ -303,6 +303,24 @@ function UsageLimitsPanel(props: {
           </section>
           <div className="mx-4 border-border/70 border-t" />
         </>
+      ) : props.scope === "selected" &&
+        instanceEntries[0] &&
+        instanceEntries[0].snapshot.reportsContextWindow !== true ? (
+        // Say so rather than leave a gap under "Context and usage": a missing
+        // row reads as broken, and account usage below is a different measure.
+        <>
+          <section className="flex flex-col gap-1 px-4 py-3" aria-label="Context window">
+            <div className="flex items-baseline gap-2 text-xs">
+              <span className="min-w-0 flex-1 truncate font-medium">Context window</span>
+              <span className="shrink-0 text-muted-foreground">Not reported</span>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {instanceEntries[0].displayName} does not report how much of the context window this
+              thread uses.
+            </p>
+          </section>
+          <div className="mx-4 border-border/70 border-t" />
+        </>
       ) : null}
       {sections.map((section, index) => (
         <Fragment key={section.key}>
@@ -382,6 +400,8 @@ function UsageSectionView(props: {
             {formatBankedResets(section.resetCredits)}
           </span>
         </div>
+      ) : section.resetCreditsUnavailableReason ? (
+        <p className="text-xs text-muted-foreground">{section.resetCreditsUnavailableReason}</p>
       ) : section.driver === "claudeAgent" ? (
         <p className="text-xs text-muted-foreground">
           Reset credits are not reported by this Claude connection.

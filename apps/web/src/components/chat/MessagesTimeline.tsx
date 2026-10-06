@@ -57,6 +57,7 @@ import { getProjectFaviconCacheKey } from "@t3tools/shared/projectFavicon";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
   createContext,
+  Fragment,
   memo,
   use,
   useCallback,
@@ -151,8 +152,11 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { ShellCommandBlock } from "./ShellCommandBlock";
+import { HtmlRenderFrame } from "./HtmlRenderFrame";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
+import { SpawnedAgentRows } from "./SpawnedAgentRows";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useAtomValue } from "@effect/atom-react";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
@@ -419,6 +423,8 @@ interface MessagesTimelineProps {
   latestTurn: TimelineLatestTurn | null;
   runningTurnId: TurnId | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
+  /** User messages the agent may never have received, by id, with the reason. */
+  undeliveredMessages?: ReadonlyMap<string, string> | undefined;
   routeThreadKey: string;
   /**
    * Thread whose entries are currently painted. Differs from `routeThreadKey`
@@ -495,6 +501,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   latestTurn,
   runningTurnId,
   turnDiffSummaries,
+  undeliveredMessages,
   routeThreadKey,
   displayThreadKey,
   onOpenTurnDiff,
@@ -789,6 +796,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         liveAgentTaskIds,
         worktreeSetup,
         queuedMessages,
+        ...(undeliveredMessages ? { undeliveredMessages } : {}),
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -812,6 +820,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     liveAgentTaskIds,
     worktreeSetup,
     queuedMessages,
+    undeliveredMessages,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
@@ -1691,7 +1700,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "work-toggle" ||
                   row.kind === "activity-group" ||
                   row.kind === "thinking" ||
-                  row.kind === "worktree-setup"
+                  row.kind === "worktree-setup" ||
+                  row.kind === "html-render"
                 ? "pb-2"
                 : "pb-4",
         (row.kind === "message" && row.message.role === "assistant") ||
@@ -1722,6 +1732,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "agent-message-in" || row.kind === "agent-message-out" ? (
         <AgentMessageTimelineRow row={row} />
       ) : null}
+      {row.kind === "agent-spawns" ? <SpawnedAgentsTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
@@ -1731,6 +1742,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       ) : null}
       {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
+      {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "thinking" ? <ThinkingTimelineRow /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
@@ -1886,6 +1898,32 @@ function AgentMessageTimelineRow({
     <IncomingAgentMessageCard envelope={row.envelope} context={context} />
   ) : (
     <OutgoingAgentMessageCard sent={row.sent} context={context} />
+  );
+}
+
+function SpawnedAgentsTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "agent-spawns" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const context = useMemo(
+    () => ({
+      environmentId: ctx.activeThreadEnvironmentId,
+      markdownCwd: ctx.markdownCwd,
+      threadRef: ctx.threadRef,
+      skills: ctx.skills,
+    }),
+    [ctx.activeThreadEnvironmentId, ctx.markdownCwd, ctx.threadRef, ctx.skills],
+  );
+  return (
+    <SpawnedAgentRows
+      rowId={row.id}
+      spawns={row.spawns}
+      context={context}
+      expandedKeys={ctx.expandedSpawnEntryIds}
+      onToggle={ctx.onToggleSpawnRow}
+    />
   );
 }
 
@@ -2254,6 +2292,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           />
         </div>
       </div>
+      {row.undeliveredReason !== undefined ? (
+        <UndeliveredMessageNotice reason={row.undeliveredReason} />
+      ) : null}
       <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
@@ -2291,6 +2332,27 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A sent message the provider never started a turn for. It stays in the
+ * history, so without this it reads as delivered while the agent, which
+ * resumes the provider's own session, may never have seen it.
+ */
+function UndeliveredMessageNotice({ reason }: { reason: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<p className="flex max-w-[80%] items-center gap-1 pe-1 text-destructive text-xs" />}
+      >
+        <CircleAlertIcon className="size-3 shrink-0" aria-hidden />
+        Not delivered. The agent may not have received this message.
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        <span className="block max-w-sm">{reason}</span>
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -2555,6 +2617,22 @@ function ProposedPlanTimelineRow({
         threadRef={ctx.threadRef ?? undefined}
         cwd={ctx.markdownCwd}
         workspaceRoot={ctx.workspaceRoot}
+      />
+    </div>
+  );
+}
+
+function HtmlRenderTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "html-render" }> }) {
+  const ctx = use(TimelineRowCtx);
+
+  return (
+    <div className="min-w-0 px-1">
+      <HtmlRenderFrame
+        // A recycled row must not keep another page's frame.
+        key={row.htmlRender.attachmentId}
+        environmentId={ctx.activeThreadEnvironmentId}
+        htmlRender={row.htmlRender}
+        onOpen={ctx.onFileOpen}
       />
     </div>
   );
@@ -4442,19 +4520,20 @@ function workEntryRawCommand(
   return rawCommand === workEntry.command.trim() ? null : rawCommand;
 }
 
+/** The expanded body's blocks; the command block is shown syntax highlighted. */
 function buildToolCallExpandedBody(
   workEntry: TimelineWorkEntry,
   workspaceRoot: string | undefined,
   visibleLabel: string,
   viewedImagePath: string | null,
-): string | null {
-  const blocks: string[] = [];
+): Array<{ text: string; command: boolean }> | null {
+  const blocks: Array<{ text: string; command: boolean }> = [];
   const seen = new Set<string>([visibleLabel.trim()]);
-  const addBlock = (value: string | null | undefined) => {
+  const addBlock = (value: string | null | undefined, command = false) => {
     const text = value?.trim();
     if (!text || seen.has(text)) return;
     seen.add(text);
-    blocks.push(text);
+    blocks.push({ text, command });
   };
   if (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) {
     addBlock(`MCP call\n${JSON.stringify(workEntry.toolData, null, 2)}`);
@@ -4464,7 +4543,7 @@ function buildToolCallExpandedBody(
   if (command === visibleLabel.trim()) {
     seen.add(command);
   } else {
-    addBlock(raw ?? command);
+    addBlock(raw ?? command, true);
   }
   const detail = workEntry.detail?.trim();
   if (detail !== viewedImagePath?.trim()) {
@@ -4487,7 +4566,7 @@ function buildToolCallExpandedBody(
   if (changedFiles.length > 0) {
     addBlock([...new Set(changedFiles)].join("\n"));
   }
-  return blocks.length > 0 ? blocks.join("\n\n") : null;
+  return blocks.length > 0 ? blocks : null;
 }
 
 const toolCallExpandedBodyClassName =
@@ -4778,7 +4857,11 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                 onClick={expanded ? stopRowToggleWhileSelectingText : undefined}
                 onPointerDown={expanded ? stopRowToggle : undefined}
               >
-                {previewText}
+                {expanded && workEntry.command?.trim() === previewText.trim() ? (
+                  <ShellCommandBlock command={previewText} />
+                ) : (
+                  previewText
+                )}
               </span>
               {answerPreview ? (
                 <span
@@ -4844,7 +4927,14 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           onClick={stopRowToggle}
           onPointerDown={stopRowToggle}
         >
-          <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>
+          <pre className={toolCallExpandedBodyClassName}>
+            {expandedBody.map((block, index) => (
+              <Fragment key={block.text}>
+                {index > 0 ? "\n\n" : null}
+                {block.command ? <ShellCommandBlock command={block.text} /> : block.text}
+              </Fragment>
+            ))}
+          </pre>
         </div>
       ) : null}
     </div>

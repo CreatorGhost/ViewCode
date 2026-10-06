@@ -70,6 +70,7 @@ import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { applyCursorAcpModelSelection, makeCursorAcpRuntime } from "../acp/CursorAcpSupport.ts";
 import { CursorSubagentEvents } from "../acp/CursorSubagentEvents.ts";
 import { CursorTransportFailure } from "../acp/CursorTransportFailure.ts";
+import { classifyProviderFailure, describeProviderFailure } from "@t3tools/shared/providerFailure";
 import {
   CursorAskQuestionRequest,
   CursorCreatePlanRequest,
@@ -875,6 +876,26 @@ export function makeCursorAdapter(
                       "session/update",
                     );
                     return;
+                  case "ContextWindowUpdated":
+                    // cursor-agent 2026.09.26 does not send this; reading it
+                    // keeps the meter working once Cursor does, without a
+                    // second CLI process or a guessed token formula.
+                    yield* offerRuntimeEvent({
+                      type: "thread.token-usage.updated",
+                      ...(yield* makeEventStamp()),
+                      provider: PROVIDER,
+                      threadId: ctx.threadId,
+                      ...(ctx.activeTurnId ? { turnId: ctx.activeTurnId } : {}),
+                      payload: {
+                        usage: { usedTokens: event.usedTokens, maxTokens: event.maxTokens },
+                      },
+                      raw: {
+                        source: "acp.jsonrpc",
+                        method: "session/update",
+                        payload: event.rawPayload,
+                      },
+                    });
+                    return;
                   case "ToolCallUpdated":
                     yield* logNative(
                       ctx.threadId,
@@ -1145,7 +1166,6 @@ export function makeCursorAdapter(
                       text: buildRuntimeInstructions({
                         harness: "Cursor",
                         model: resolvedModel,
-                        allowNativeAgentFallback: true,
                       }),
                     },
                   ],
@@ -1165,10 +1185,16 @@ export function makeCursorAdapter(
           const failure = ctx.assistantReply.failure;
           if (ctx.promptsInFlight === 1 && result.stopReason !== "cancelled" && failure) {
             yield* settleSubagentTasks("failed");
+            // The detail is what the user reads and what usage handling
+            // matches, so it explains the failure and keeps Cursor's own text.
+            const explanation = describeProviderFailure(classifyProviderFailure(failure), {
+              provider: "Cursor",
+              model: resolvedModel,
+            });
             return yield* new ProviderAdapterRequestError({
               provider: PROVIDER,
               method: "session/prompt",
-              detail: "Cursor reported a transport failure.",
+              detail: `${explanation} Cursor said: ${failure}`,
               cause: failure,
             });
           }

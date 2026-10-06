@@ -166,6 +166,8 @@ export interface ThreadDetailScreenProps {
   readonly selectedThreadQueueCount: number;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
   readonly dispatchingMessageId: MessageId | null;
+  /** User messages the agent may never have received, by id. */
+  readonly undeliveredMessages?: ReadonlyMap<string, string>;
   readonly serverConfig: T3ServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
@@ -933,6 +935,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               setupWorkingStartedAt={props.setupWorkingStartedAt}
               queuedMessages={props.queuedMessages}
               dispatchingMessageId={props.dispatchingMessageId}
+              undeliveredMessages={props.undeliveredMessages}
               onEditPendingMessage={handleEditPendingMessage}
               contentPresentation={props.contentPresentation}
               agentLabel={agentLabel}

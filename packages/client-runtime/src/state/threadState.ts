@@ -22,6 +22,11 @@ export interface EnvironmentThreadState {
   readonly status: EnvironmentThreadStatus;
   readonly error: Option.Option<string>;
   readonly page: Option.Option<EnvironmentThreadPageState>;
+  /**
+   * Set when a thread with no data stopped making progress while connected
+   * (see the stall watchdog in threads.ts). Dropped once data arrives.
+   */
+  readonly stalled?: true;
 }
 
 export const EMPTY_ENVIRONMENT_THREAD_STATE: EnvironmentThreadState = {

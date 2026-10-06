@@ -3,7 +3,7 @@ import { assert, describe, expect, it } from "@effect/vitest";
 import {
   cursorCliLoginIdentity,
   cursorTokenMatchesIdentity,
-  makeCachedCursorAccessTokenReader,
+  makeCachedKeychainSecretReader,
 } from "./cursorCredentialStore.ts";
 
 describe("Cursor Keychain reader", () => {
@@ -22,7 +22,7 @@ describe("Cursor Keychain reader", () => {
   it("shares concurrent reads and keeps the credential until the CLI login changes", async () => {
     let reads = 0;
     let revision = "account-a";
-    const read = makeCachedCursorAccessTokenReader(
+    const read = makeCachedKeychainSecretReader(
       async () => `token-${++reads}`,
       async () => revision,
     );
@@ -35,7 +35,7 @@ describe("Cursor Keychain reader", () => {
 
   it("does not reopen Keychain after a denied read until explicitly retried", async () => {
     let reads = 0;
-    const read = makeCachedCursorAccessTokenReader(async () => {
+    const read = makeCachedKeychainSecretReader(async () => {
       if (++reads === 1) throw new Error("access denied");
       return "granted";
     });
@@ -48,14 +48,14 @@ describe("Cursor Keychain reader", () => {
 
   it("caches missing credentials and synchronous bridge failures", async () => {
     let reads = 0;
-    const missing = makeCachedCursorAccessTokenReader(async () => {
+    const missing = makeCachedKeychainSecretReader(async () => {
       reads++;
       return null;
     });
     assert.strictEqual(await missing(), null);
     assert.strictEqual(await missing(), null);
     assert.strictEqual(reads, 1);
-    const failed = makeCachedCursorAccessTokenReader(() => {
+    const failed = makeCachedKeychainSecretReader(() => {
       reads++;
       throw new Error("native module unavailable");
     });
@@ -66,7 +66,7 @@ describe("Cursor Keychain reader", () => {
 
   it("reloads a rejected token once without repeatedly prompting for the same item", async () => {
     let reads = 0;
-    const read = makeCachedCursorAccessTokenReader(async () => {
+    const read = makeCachedKeychainSecretReader(async () => {
       reads++;
       return "stale";
     });
@@ -84,7 +84,7 @@ describe("Cursor Keychain reader", () => {
   it("reloads a rotated token after rejection and does not reuse an account whose config is unreadable", async () => {
     let available = true;
     let reads = 0;
-    const read = makeCachedCursorAccessTokenReader(
+    const read = makeCachedKeychainSecretReader(
       async () => `token-${++reads}`,
       async () => {
         if (!available) throw new Error("login config unavailable");

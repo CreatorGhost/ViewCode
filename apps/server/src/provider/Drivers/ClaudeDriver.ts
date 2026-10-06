@@ -12,7 +12,7 @@
  *
  * @module provider/Drivers/ClaudeDriver
  */
-import { ClaudeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { ClaudeSettings, ProviderDriverKind, type ServerSettings } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
@@ -20,6 +20,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
@@ -28,6 +29,7 @@ import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { readMacClaudeCredentials } from "../claudeCredentialStore.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeClaudeAdapter } from "../Layers/ClaudeAdapter.ts";
 import { makeClaudeScopedLimitNames } from "../Layers/claudeUsageLimits.ts";
@@ -58,7 +60,6 @@ import {
 } from "../providerMaintenance.ts";
 import {
   haveProviderSnapshotSettingsChanged,
-  makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
 import {
@@ -153,6 +154,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
           ? configDir
           : undefined,
       );
+      const defaultKeychainItem = ClaudeResetCredits.usesDefaultClaudeKeychainItem(
+        effectiveConfig.homePath,
+        processEnv,
+      );
+      // Read per use: the opt-in can change while the instance lives.
+      const keychainAccess = serverSettings.getSettings.pipe(
+        Effect.map((settings) => settings.claudeKeychainUsageEnabled),
+        Effect.orElseSucceed(() => false),
+        Effect.map((enabled) => ({ enabled, defaultItem: defaultKeychainItem })),
+      );
       const stampIdentity = withInstanceIdentity({
         instanceId,
         driverKind: DRIVER_KIND,
@@ -208,12 +219,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
                 resolveClaudeModelCatalog(manifest),
                 scopedLimitNames,
                 (version) =>
-                  ClaudeResetCredits.readClaudeResetCredits(
-                    configDir,
-                    version,
-                    accountConfigPath,
-                    processEnv,
-                  ).pipe(
+                  keychainAccess.pipe(
+                    Effect.flatMap((keychain) =>
+                      ClaudeResetCredits.readClaudeResetCredits(
+                        configDir,
+                        version,
+                        accountConfigPath,
+                        processEnv,
+                        keychain,
+                      ),
+                    ),
                     Effect.provideService(HttpClient.HttpClient, httpClient),
                     Effect.provideService(FileSystem.FileSystem, fileSystem),
                     Effect.provideService(Path.Path, path),
@@ -228,8 +243,31 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         Effect.provideService(Path.Path, path),
       );
 
-      const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
-      const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<ClaudeSettings>>({
+      // The Keychain opt-in is part of the snapshot settings so turning it on or
+      // off re-probes, and a change forgets the cached login (as Cursor does).
+      let previousKeychainUsageEnabled: boolean | undefined;
+      const toSnapshotSettings = (settings: ServerSettings) => {
+        const keychainEnabled = settings.claudeKeychainUsageEnabled;
+        if (
+          previousKeychainUsageEnabled !== undefined &&
+          previousKeychainUsageEnabled !== keychainEnabled
+        ) {
+          readMacClaudeCredentials.invalidate();
+        }
+        previousKeychainUsageEnabled = keychainEnabled;
+        return {
+          provider: effectiveConfig,
+          enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+          claudeKeychainUsageEnabled: keychainEnabled,
+        };
+      };
+      const snapshotSettings = {
+        getSettings: serverSettings.getSettings.pipe(Effect.map(toSnapshotSettings)),
+        streamSettings: serverSettings.streamChanges.pipe(Stream.map(toSnapshotSettings)),
+      };
+      const snapshot = yield* makeManagedServerProvider<
+        ProviderSnapshotSettings<ClaudeSettings> & { readonly claudeKeychainUsageEnabled: boolean }
+      >({
         resolveMaintenance,
         getSettings: snapshotSettings.getSettings,
         streamSettings: snapshotSettings.streamSettings,
@@ -284,6 +322,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
           const grantId = current.usageLimits?.resetCredits?.nextCreditId;
           if (!grantId || !current.version) return "noCredit" as const;
           const version = current.version;
+          const keychain = yield* keychainAccess;
           return yield* resetCreditCoordinator.redeem(
             configDir,
             (requestId) =>
@@ -293,6 +332,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
                 version,
                 grantId,
                 requestId,
+                environment: processEnv,
+                keychain,
               }),
             ClaudeResetCredits.isSettledClaudeResetCreditFailure,
           );

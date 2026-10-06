@@ -573,3 +573,61 @@ it.layer(NodeServices.layer)("pull request link decider", (it) => {
     }),
   );
 });
+
+it.layer(NodeServices.layer)("pull request watch decider", (it) => {
+  it.effect("starts, records and stops a watch through link events", () =>
+    Effect.gen(function* () {
+      let model = makeReadModel([makeLink({ source: "stack" })]);
+      const watch = yield* decodeCommand({
+        type: "thread.pull-request.watch",
+        commandId: "watch",
+        threadId: THREAD_ID,
+        host: "github.com",
+        repository: "t3tools/t3code",
+        number: 42,
+        watching: true,
+      });
+      const started = expectSingleEvent(
+        yield* decideOrchestrationCommand({ readModel: model, command: watch }),
+        "thread.pull-request-linked",
+      );
+      model = yield* projectEvent(model, { ...started, sequence: 1 });
+      const startedAt = model.threads[0]!.pullRequests[0]!.watch!.startedAt;
+
+      const sync = yield* decodeCommand({
+        type: "thread.pull-request-watch.sync",
+        commandId: "sync",
+        threadId: THREAD_ID,
+        host: "github.com",
+        repository: "t3tools/t3code",
+        number: 42,
+        startedAt,
+        watch: { ...model.threads[0]!.pullRequests[0]!.watch!, headSha: "abc1234" },
+      });
+      const synced = expectSingleEvent(
+        yield* decideOrchestrationCommand({ readModel: model, command: sync }),
+        "thread.pull-request-linked",
+      );
+      // Recorded progress is not thread activity.
+      expect(synced.payload.updatedAt).toBe(model.threads[0]!.updatedAt);
+      model = yield* projectEvent(model, { ...synced, sequence: 2 });
+      expect(model.threads[0]!.pullRequests[0]!.watch?.headSha).toBe("abc1234");
+
+      // Dismissing a stack member drops its watch with it.
+      const dismiss = yield* decodeCommand({
+        type: "thread.pull-request.unlink",
+        commandId: "dismiss",
+        threadId: THREAD_ID,
+        host: "github.com",
+        repository: "t3tools/t3code",
+        number: 42,
+      });
+      const dismissed = expectSingleEvent(
+        yield* decideOrchestrationCommand({ readModel: model, command: dismiss }),
+        "thread.pull-request-linked",
+      );
+      expect(dismissed.payload.link.source).toBe("stack-dismissed");
+      expect(dismissed.payload.link.watch).toBeUndefined();
+    }),
+  );
+});

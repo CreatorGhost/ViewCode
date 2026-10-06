@@ -153,6 +153,23 @@ describe("AcpRuntimeModel", () => {
     expect(response.modes?.availableModes).toHaveLength(2);
   });
 
+  it("reads the agent's own context-window report", () => {
+    const parsed = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: { sessionUpdate: "usage_update", used: 55_845, size: 200_000 },
+    } as EffectAcpSchema.SessionNotification);
+    expect(parsed.events).toMatchObject([
+      { _tag: "ContextWindowUpdated", usedTokens: 55_845, maxTokens: 200_000 },
+    ]);
+    // A report without a window size cannot drive a meter.
+    expect(
+      parseSessionUpdateEvent({
+        sessionId: "session-1",
+        update: { sessionUpdate: "usage_update", used: 10, size: 0 },
+      } as EffectAcpSchema.SessionNotification).events,
+    ).toEqual([]);
+  });
+
   it("projects typed ACP tool call updates into runtime events", () => {
     const created = parseSessionUpdateEvent({
       sessionId: "session-1",

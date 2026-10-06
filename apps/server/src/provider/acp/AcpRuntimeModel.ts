@@ -109,6 +109,13 @@ export type AcpParsedSessionEvent =
       readonly rawPayload: unknown;
     }
   | {
+      /** The agent's own context-window reading (ACP `usage_update`, unstable). */
+      readonly _tag: "ContextWindowUpdated";
+      readonly usedTokens: number;
+      readonly maxTokens: number;
+      readonly rawPayload: unknown;
+    }
+  | {
       readonly _tag: "ToolCallUpdated";
       readonly toolCall: AcpToolCallState;
       readonly rawPayload: unknown;
@@ -855,6 +862,19 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
           _tag: "ToolCallUpdated",
           toolCall,
           rawPayload: boundToolCallRawPayload(params, upd, toolCall),
+        });
+      }
+      break;
+    }
+    case "usage_update": {
+      // `used` out of `size` is the context in use, reported by the agent
+      // itself, so no formula over per-request token counts is needed.
+      if (Number.isSafeInteger(upd.used) && Number.isSafeInteger(upd.size) && upd.size > 0) {
+        events.push({
+          _tag: "ContextWindowUpdated",
+          usedTokens: upd.used,
+          maxTokens: upd.size,
+          rawPayload: params,
         });
       }
       break;

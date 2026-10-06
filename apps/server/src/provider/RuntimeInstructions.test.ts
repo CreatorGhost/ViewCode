@@ -10,19 +10,32 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).toContain("call list_thread_pull_requests and link any PR");
   });
 
-  it("routes requests for sub-agents to ViewCode agents, not the harness's own", () => {
+  it("sends requests to babysit a PR to watch_pull_request instead of polling", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
-    expect(instructions).toContain("When the viewcode MCP server exposes viewcode_spawn_agent");
-    expect(instructions).toContain("call viewcode_list_models");
-    expect(instructions).toContain(
-      "only when the user explicitly asks for built-in, inline or in-chat sub-agents",
-    );
-    // A failed or missing ViewCode spawn is reported, never silently replaced.
-    expect(instructions).toContain(
-      "If viewcode_spawn_agent is unavailable or fails, do not fall back on your own: tell the user what failed and ask whether to use your built-in sub-agents instead.",
-    );
-    expect(instructions).not.toContain("or when viewcode_spawn_agent is unavailable or fails");
+    expect(instructions).toContain("exposes watch_pull_request, call it and end your turn");
+    expect(instructions).toContain("do not poll, sleep, or run your own watcher");
   });
+
+  it("routes requests for sub-agents to visible ViewCode agents by default", () => {
+    const instructions = buildRuntimeInstructions({ harness: "Codex" });
+    expect(instructions).toContain("create ViewCode agents by default");
+    expect(instructions).toContain("call viewcode_list_models");
+    expect(instructions).toContain("a short task (3 to 8 words");
+  });
+
+  it.each(["Codex", "Claude Code", "Cursor", "Grok"])(
+    "lets %s fall back to inline sub-agents, announced and without asking",
+    (harness) => {
+      const instructions = buildRuntimeInstructions({ harness });
+      expect(instructions).toContain(
+        "as the fallback when viewcode_spawn_agent is missing from your tools or fails",
+      );
+      expect(instructions).toContain("then proceed without asking");
+      expect(instructions).not.toContain("ask whether to use your built-in sub-agents");
+      // A provider/model the inline agents cannot honour is reported, never swapped silently.
+      expect(instructions).toContain("say so instead of silently substituting");
+    },
+  );
 
   it.each(["managed-mcp", "setting"] as const)(
     "does not advertise ViewCode tools when they are unavailable (%s)",
@@ -34,6 +47,7 @@ describe("buildRuntimeInstructions", () => {
       expect(instructions).toContain("<runtime_info>");
       expect(instructions).toContain("are not available in this session");
       expect(instructions).not.toContain("<pull_request_linking>");
+      expect(instructions).not.toContain("<pull_request_watch>");
       expect(instructions).not.toContain("<viewcode_agents>");
       expect(instructions).not.toContain("call viewcode_list_models");
     },
@@ -49,21 +63,10 @@ describe("buildRuntimeInstructions", () => {
     ).toContain("through the Codex harness, as custom model with high reasoning effort.");
   });
 
-  it("allows an announced native fallback without confirmation when enabled", () => {
-    const instructions = buildRuntimeInstructions({
-      harness: "Cursor",
-      allowNativeAgentFallback: true,
-    });
-    expect(instructions).toContain("create ViewCode agents");
-    expect(instructions).toContain("proceed without an extra confirmation");
-    expect(instructions).toContain("Explain the failure and that you are using native tasks");
-    expect(instructions).toContain("a particular provider/model or a separate child chat");
-    expect(instructions).not.toContain("ask whether to use your built-in sub-agents instead");
-  });
-
   it("tells the agent to report missing viewcode tools instead of falling back silently", () => {
     const instructions = buildRuntimeInstructions({ harness: "Cursor" });
     expect(instructions).toContain("If the viewcode_* tools are missing");
+    expect(instructions).toContain("name the likely cause");
     expect(instructions).toContain("Cursor team policy may block MCP servers");
     expect(instructions).toContain("sidebar");
   });

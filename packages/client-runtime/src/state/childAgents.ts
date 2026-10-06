@@ -168,3 +168,102 @@ export function summarizeAgentTreeControl(
   }
   return { running, paused, queued };
 }
+
+export type SpawnedAgentRowStatus =
+  | "running"
+  | "approval"
+  | "input"
+  | "failed"
+  | "stopped"
+  | "done"
+  | "queued"
+  | "idle";
+
+export const SPAWNED_AGENT_STATUS_LABEL: Record<SpawnedAgentRowStatus, string> = {
+  running: "Running",
+  approval: "Needs approval",
+  input: "Needs input",
+  failed: "Failed",
+  stopped: "Stopped",
+  done: "Done",
+  queued: "Queued",
+  idle: "Idle",
+};
+
+/**
+ * The status a spawned child agent's one-line row shows in its lead's chat.
+ * Anything waiting on the user outranks running; a finished turn reads as
+ * Done, a stopped one as Stopped; before its first turn a queued spawn says
+ * so. `null` when the child thread is not loaded here.
+ */
+export function resolveSpawnedAgentRowStatus(
+  thread: Pick<
+    OrchestrationThreadShell,
+    "session" | "latestTurn" | "hasPendingApprovals" | "hasPendingUserInput"
+  > | null,
+  delivery: "started" | "queued",
+): SpawnedAgentRowStatus | null {
+  if (!thread) return null;
+  const status = resolveChildAgentStatus(thread);
+  switch (status) {
+    case "approval":
+    case "input":
+    case "failed":
+      return status;
+    case "working":
+      return "running";
+    case "idle":
+      break;
+  }
+  switch (thread.latestTurn?.state) {
+    case "completed":
+      return "done";
+    case "interrupted":
+      return "stopped";
+    case "error":
+      return "failed";
+    case "running":
+    case undefined:
+      return delivery === "queued" ? "queued" : "idle";
+  }
+}
+
+/**
+ * When the child's latest turn ran, for its row's elapsed time; `endMs` is
+ * null while it still runs. Null before any turn started.
+ */
+export function spawnedAgentElapsedRange(
+  thread: Pick<OrchestrationThreadShell, "latestTurn"> | null,
+): { readonly startMs: number; readonly endMs: number | null } | null {
+  const turn = thread?.latestTurn;
+  const start = turn?.startedAt ?? turn?.requestedAt ?? null;
+  const startMs = start === null ? Number.NaN : Date.parse(start);
+  if (!Number.isFinite(startMs)) return null;
+  const endMs = turn?.completedAt ? Date.parse(turn.completedAt) : Number.NaN;
+  return { startMs, endMs: Number.isFinite(endMs) ? endMs : null };
+}
+
+/** Whole-second elapsed time for agent rows: "7s", "2m 14s", "1h 5m". */
+export function formatAgentElapsed(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1_000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+/** A spawn's row title: its task, or the first line of its prompt, trimmed for one line. */
+export function spawnedAgentTaskTitle(sent: {
+  readonly task?: string | undefined;
+  readonly body: string;
+}): string {
+  if (sent.task) return sent.task;
+  const firstLine =
+    sent.body
+      .split("\n")
+      .map((line) => line.replace(/^[#>*\-\s]+/, "").trim())
+      .find((line) => line.length > 0) ?? "";
+  return firstLine.length > 120 ? `${firstLine.slice(0, 119).trimEnd()}…` : firstLine;
+}

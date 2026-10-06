@@ -406,6 +406,50 @@ describe("EnvironmentThreads", () => {
     );
   }
 
+  it.effect("restarts a first load that stalls while connected, then says it stalled", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* SubscriptionRef.set(h.supervisorState, {
+        ...AVAILABLE_CONNECTION_STATE,
+        desired: true,
+        phase: "connected" as const,
+      });
+      // Fibers settle without the clock moving; a sleep would never wake under TestClock.
+      const subscriptionsReach = (count: number) =>
+        Effect.gen(function* () {
+          for (let spins = 0; spins < 1_000; spins += 1) {
+            if ((yield* Ref.get(h.subscriptionCount)) >= count) return;
+            yield* Effect.yieldNow;
+          }
+        });
+      yield* subscriptionsReach(1);
+      expect(yield* Ref.get(h.subscriptionCount)).toBe(1);
+
+      // The server never answers: the first stall restarts the subscription.
+      yield* TestClock.adjust("15 seconds");
+      yield* subscriptionsReach(2);
+      expect(yield* Ref.get(h.subscriptionCount)).toBe(2);
+      expect((yield* Ref.get(h.latest)).stalled).toBeUndefined();
+
+      // A second stall is reported instead of retried forever.
+      yield* TestClock.adjust("15 seconds");
+      yield* awaitThreadState(h.observed, (value) => value.stalled === true);
+
+      // Data that arrives late still loads, and clears the stall.
+      yield* Queue.offer(h.inputs, snapshot(BASE_THREAD));
+      const loaded = yield* awaitThreadState(h.observed, (value) => Option.isSome(value.data));
+      expect(loaded.stalled).toBeUndefined();
+    }),
+  );
+
+  it.effect("does not count waiting offline as a stalled load", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* TestClock.adjust("60 seconds");
+      expect((yield* Ref.get(h.latest)).stalled).toBeUndefined();
+    }),
+  );
+
   it.effect("retries a failed background cache write when the scope closes", () =>
     Effect.gen(function* () {
       let attempts = 0;

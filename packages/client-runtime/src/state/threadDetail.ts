@@ -70,6 +70,51 @@ export function mergeEnvironmentThread(
   };
 }
 
+/**
+ * Bytes of image attachments across the loaded messages. Providers that
+ * replay the whole conversation (Cursor) resend these on every turn, and past
+ * a size limit reject every turn of the thread; token counts do not predict
+ * that. Only loaded messages count, so a paginated thread reads low.
+ */
+export function threadImagePayloadBytes(messages: ReadonlyArray<OrchestrationMessage>): number {
+  let bytes = 0;
+  for (const message of messages) {
+    for (const attachment of message.attachments ?? []) {
+      if (attachment.type === "image") bytes += attachment.sizeBytes;
+    }
+  }
+  return bytes;
+}
+
+const NO_UNDELIVERED_MESSAGES: ReadonlyMap<string, string> = new Map();
+
+/**
+ * User messages ViewCode cannot show reached the agent, keyed by message id,
+ * with what the provider reported. A turn start that failed records the
+ * message's id as its `requestId`; such a message is in ViewCode's history but
+ * maybe not in the provider's session, which is what the agent resumes from.
+ * Returns the same empty map when there are none, so callers can memoize on it.
+ */
+export function undeliveredUserMessages(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyMap<string, string> {
+  let undelivered: Map<string, string> | undefined;
+  for (const activity of activities) {
+    if (activity.kind !== "provider.turn.start.failed") continue;
+    const payload =
+      typeof activity.payload === "object" && activity.payload !== null
+        ? (activity.payload as { readonly requestId?: unknown; readonly detail?: unknown })
+        : null;
+    if (typeof payload?.requestId !== "string") continue;
+    undelivered ??= new Map();
+    undelivered.set(
+      payload.requestId,
+      typeof payload.detail === "string" ? payload.detail : activity.summary,
+    );
+  }
+  return undelivered ?? NO_UNDELIVERED_MESSAGES;
+}
+
 export function createEnvironmentThreadDetailAtoms<E>(
   threadStateAtom: (
     environmentId: ScopedThreadRef["environmentId"],
@@ -112,6 +157,13 @@ export function createEnvironmentThreadDetailAtoms<E>(
     Atom.make((get) => Option.getOrNull(get(threadStateValueAtomFamily(key)).error)).pipe(
       Atom.setIdleTTL(0),
       Atom.withLabel(`environment-thread-error:${key}`),
+    ),
+  );
+
+  const threadStalledAtomFamily = Atom.family((key: string) =>
+    Atom.make((get) => get(threadStateValueAtomFamily(key)).stalled === true).pipe(
+      Atom.setIdleTTL(0),
+      Atom.withLabel(`environment-thread-stalled:${key}`),
     ),
   );
 
@@ -160,6 +212,7 @@ export function createEnvironmentThreadDetailAtoms<E>(
     detailAtom: (ref: ScopedThreadRef) => threadDetailAtomFamily(threadKey(ref)),
     statusAtom: (ref: ScopedThreadRef) => threadStatusAtomFamily(threadKey(ref)),
     errorAtom: (ref: ScopedThreadRef) => threadErrorAtomFamily(threadKey(ref)),
+    stalledAtom: (ref: ScopedThreadRef) => threadStalledAtomFamily(threadKey(ref)),
     messagesAtom: (ref: ScopedThreadRef) => threadMessagesAtomFamily(threadKey(ref)),
     activitiesAtom: (ref: ScopedThreadRef) => threadActivitiesAtomFamily(threadKey(ref)),
     proposedPlansAtom: (ref: ScopedThreadRef) => threadProposedPlansAtomFamily(threadKey(ref)),

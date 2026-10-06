@@ -27,6 +27,8 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import { describeClaudeApiRetry } from "./claudeApiRetry.ts";
+import { isClaudeUsageLimit } from "./claudeUsageLimitRule.ts";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
 import {
   ApprovalRequestId,
@@ -399,6 +401,8 @@ interface ClaudeTaskAgentState {
  * lifetime; oldest entries evict first.
  */
 const PENDING_TASK_MODEL_CAP = 64;
+/** How long Stop waits for Claude to abort a turn before killing the process. */
+const CLAUDE_INTERRUPT_GRACE = "3 seconds";
 
 /**
  * Buffers a subagent snapshot's authoritative model under its
@@ -485,10 +489,14 @@ interface ClaudeSessionContext {
   lastThreadStartedId: string | undefined;
   /** Limits already announced for the running turn, keyed `window:resetsAt`. */
   announcedUsageLimits: { turnId: string; keys: Set<string> } | undefined;
+  /** Resolved by completeTurn while Stop waits for Claude to abort the turn. */
+  interruptedTurnSettled: Deferred.Deferred<void> | undefined;
   stopped: boolean;
 }
 
 interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
+  /** SDK Query.interrupt — present on real queries; optional for test doubles. */
+  readonly interrupt?: () => Promise<unknown>;
   readonly setModel: (model?: string) => Promise<void>;
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
@@ -1718,6 +1726,27 @@ function isOverloadedResult(result: SDKResultMessage): boolean {
   return result.subtype === "success" && result.api_error_status === 529;
 }
 
+/**
+ * True when a result answers a different Claude turn than the active real
+ * turn. Claude runs turns of its own between user prompts (a resumed session
+ * first reports background tasks the previous process left behind; peer
+ * messages wake the agent), and a queued prompt waits behind them. Real turns
+ * send their turn id as the prompt uuid, which newer CLIs echo in
+ * `user_message_uuids`. Claude-initiated turns echo nothing and carry a
+ * non-human `origin`. Results with neither field (older CLIs) still complete
+ * the active turn.
+ */
+function isResultForOtherTurn(result: SDKResultMessage, turn: ClaudeTurnState): boolean {
+  // A synthetic turn mirrors a Claude-initiated turn, so any result is its own.
+  if (turn.synthetic) return false;
+  const echoed = [
+    ...(result.user_message_uuids ?? []),
+    ...(result.user_message_uuid ? [result.user_message_uuid] : []),
+  ];
+  if (echoed.length > 0) return !echoed.includes(turn.turnId);
+  return result.origin !== undefined && result.origin.kind !== "human";
+}
+
 /** Derives turn status and its error from the same provider result. */
 function resultOutcome(
   result: SDKResultMessage,
@@ -2890,6 +2919,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     const updatedAt = yield* nowIso;
     context.turnState = undefined;
+    if (context.interruptedTurnSettled) {
+      yield* Deferred.succeed(context.interruptedTurnSettled, undefined);
+    }
     context.session = {
       ...context.session,
       status: "ready",
@@ -3543,12 +3575,31 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     const turn = context.turnState;
-    // Only a usage window Claude reported as rejected is the usage limit. A
-    // bare 429 (a proxy or the API throttling for a moment) keeps its own words,
-    // so it is retried rather than reported as out of usage.
+    if (turn && isResultForOtherTurn(message, turn)) {
+      // Completing here would end the user's turn before its prompt runs. A
+      // `/compact` would then compact with no turn open and leave the thread
+      // looking busy.
+      yield* Effect.logInfo("claude.turn.result-for-other-turn", {
+        threadId: context.session.threadId,
+        turnId: turn.turnId,
+        origin: message.origin?.kind,
+        numTurns: message.num_turns,
+      });
+      return;
+    }
+    // A bare 429 (a proxy or the API throttling for a moment) keeps its own
+    // words, so it is retried rather than reported as out of usage.
+    const usageLimited =
+      turn !== undefined &&
+      isClaudeUsageLimit({
+        rejectedWindows: turn.rejectedRateLimitTypes.size,
+        assistantRateLimitText: turn.latestAssistantRateLimitText,
+        apiErrorStatus: message.subtype === "success" ? message.api_error_status : undefined,
+        terminalReason: message.terminal_reason,
+      });
     const failureHint =
       turn?.authenticationFailureMessage ??
-      (turn && turn.rejectedRateLimitTypes.size > 0
+      (usageLimited
         ? "Claude usage limit reached. Send the message again once the limit resets."
         : turn?.latestAssistantRateLimited
           ? (turn.latestAssistantRateLimitText ?? "Claude API rate limited the request (429).")
@@ -3958,11 +4009,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         return;
       case "thinking_tokens":
         return;
-      case "api_retry":
-        // Transport-level retry heartbeat. Surfacing each attempt as a
-        // warning row spammed the work log (10 rows during a 502 storm);
-        // the terminal result/error path reports the actual failure. Keep
-        // the session visibly alive instead.
+      case "api_retry": {
+        // Transport-level retry heartbeat: keeps the session visibly alive.
         yield* offerRuntimeEvent({
           ...base,
           type: "session.state.changed",
@@ -3971,7 +4019,20 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             reason: `api_retry:${message.attempt}/${message.max_retries}`,
           },
         });
+        // One quiet row per turn says why the turn is waiting. Its id is fixed
+        // per turn, so each attempt replaces the row instead of adding one (a
+        // row per attempt spammed the work log during a 502 storm).
+        if (context.turnState) {
+          const retry = describeClaudeApiRetry(message);
+          yield* offerRuntimeEvent({
+            ...base,
+            eventId: EventId.make(`claude-api-retry:${context.turnState.turnId}`),
+            type: "runtime.warning",
+            payload: { message: retry.message, detail: retry.detail },
+          });
+        }
         return;
+      }
       case "session_state_changed":
         // Authoritative turn-over signal from the CLI.
         yield* offerRuntimeEvent({
@@ -4181,7 +4242,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           context.turnState.rejectedRateLimitTypes.delete(limitType);
         }
       }
-      if (blocked && context.turnState !== undefined) {
+      if (
+        blocked &&
+        context.turnState !== undefined &&
+        // The result decides with the same rule; a turn whose API reply
+        // already called this a throttle is not paused on the usage limit.
+        isClaudeUsageLimit({
+          rejectedWindows: context.turnState.rejectedRateLimitTypes.size,
+          assistantRateLimitText: context.turnState.latestAssistantRateLimitText,
+        })
+      ) {
         // Tracked per turn as a set of limit identities, not as the rendered
         // row: a parked window re-fires while the remaining wait shrinks, and a
         // turn can park on more than one window, so a single slot would let an
@@ -5197,6 +5267,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
         announcedUsageLimits: undefined,
+        interruptedTurnSettled: undefined,
         stopped: false,
         relaunchWithoutViewcodeTools: undefined,
         unstartedPrompts: undefined,
@@ -5522,12 +5593,32 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const interruptTurn: ClaudeAdapterShape["interruptTurn"] = Effect.fn("interruptTurn")(
     function* (threadId, _turnId) {
       const context = yield* requireSession(threadId);
+      yield* settleInterruptedTurn(context);
       // interrupt() can acknowledge while resumed background tasks keep the
       // CLI alive. Stop is a hard session boundary for Claude, so close the
       // query and let the SDK escalate to SIGKILL when graceful exit fails.
       yield* stopSessionInternal(context);
     },
   );
+
+  // Lets Claude abort the running turn through its own path before Stop kills
+  // the process, so the prompt reaches the transcript. Killing a first turn
+  // before Claude writes it leaves a resume cursor for a session Claude never
+  // saved, and every later message fails with "No conversation found".
+  const settleInterruptedTurn = Effect.fn("settleInterruptedTurn")(function* (
+    context: ClaudeSessionContext,
+  ) {
+    const interrupt = context.query.interrupt?.bind(context.query);
+    if (context.stopped || !context.turnState || !interrupt) return;
+    const settled = yield* Deferred.make<void>();
+    context.interruptedTurnSettled = settled;
+    yield* Effect.tryPromise(interrupt).pipe(
+      Effect.ignore,
+      Effect.andThen(Deferred.await(settled)),
+      Effect.timeoutOption(CLAUDE_INTERRUPT_GRACE),
+    );
+    context.interruptedTurnSettled = undefined;
+  });
 
   const readThread: ClaudeAdapterShape["readThread"] = Effect.fn("readThread")(
     function* (threadId) {

@@ -343,6 +343,43 @@ describe("buildThreadFeed", () => {
     ]);
   });
 
+  it("shows a published HTML page as its own row between tool calls", () => {
+    const turnId = TurnId.make("turn-1");
+    const command = (id: string, second: number) =>
+      makeActivity({
+        id: EventId.make(id),
+        kind: "tool.completed",
+        tone: "tool",
+        summary: "Ran command",
+        createdAt: `2026-04-01T00:00:0${second}.000Z`,
+        turnId,
+        payload: { itemType: "command_execution", status: "completed", detail: `ls ${id}` },
+      });
+    const thread = makeThread({
+      id: ThreadId.make("lead"),
+      projectId: ProjectId.make("project-1"),
+      title: "Lead",
+      activities: [
+        command("before", 1),
+        makeActivity({
+          id: EventId.make("page"),
+          kind: "html.render",
+          summary: "Revenue",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: { attachmentId: "lead-page-html", title: "Revenue", height: 320 },
+        }),
+        command("after", 3),
+      ],
+    });
+    const feed = deriveThreadFeedPresentation(buildThreadFeed(thread), null, new Set());
+    expect(feed.find((entry) => entry.type === "html-render")).toMatchObject({
+      id: "page",
+      render: { attachmentId: "lead-page-html", title: "Revenue", height: 320 },
+    });
+    expect(feed.filter((entry) => entry.type === "html-render")).toHaveLength(1);
+  });
+
   it("keeps another MCP server's send_message tool call in the work log", () => {
     const thread = makeThread({
       id: ThreadId.make("lead"),

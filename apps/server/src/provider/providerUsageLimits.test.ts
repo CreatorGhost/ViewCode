@@ -76,6 +76,17 @@ describe("applyUsageLimitsUpdate", () => {
       resetCredits,
     });
   });
+
+  it("keeps the reason reset credits are unreadable through a streamed update", () => {
+    const reason = "No Claude login was found in the Keychain.";
+    const next = applyUsageLimitsUpdate({
+      previous: { ...published, resetCreditsUnavailableReason: reason },
+      checkedAt: "2026-09-03T12:00:05.000Z",
+      update: { windows: [{ ...session, usedPercent: 55 }] },
+    });
+
+    expect(next?.resetCreditsUnavailableReason).toBe(reason);
+  });
 });
 
 describe("resolveUsageLimitsAfterProbe", () => {

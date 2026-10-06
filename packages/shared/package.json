@@ -219,6 +219,10 @@
       "types": "./src/agentMessages.ts",
       "import": "./src/agentMessages.ts"
     },
+    "./htmlRender": {
+      "types": "./src/htmlRender.ts",
+      "import": "./src/htmlRender.ts"
+    },
     "./assistantCitations": {
       "types": "./src/assistantCitations.ts",
       "import": "./src/assistantCitations.ts"
@@ -342,6 +346,14 @@
     "./usageLimit": {
       "types": "./src/usageLimit.ts",
       "import": "./src/usageLimit.ts"
+    },
+    "./providerFailure": {
+      "types": "./src/providerFailure.ts",
+      "import": "./src/providerFailure.ts"
+    },
+    "./turnSettlement": {
+      "types": "./src/turnSettlement.ts",
+      "import": "./src/turnSettlement.ts"
     },
     "./dateTime": {
       "types": "./src/dateTime.ts",

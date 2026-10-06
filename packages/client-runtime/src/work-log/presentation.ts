@@ -123,6 +123,7 @@ const T3_MCP_TOOL_LABELS: Record<
     "the device",
   ],
   device_close: ["Close", "Closing", "Closed", "a device"],
+  html_render: ["Render", "Rendering", "Rendered", "an HTML page"],
 };
 
 const PR_TOOL_ACTIONS: Readonly<Record<string, ToolGroupAction>> = {

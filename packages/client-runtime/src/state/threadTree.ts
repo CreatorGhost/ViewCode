@@ -226,6 +226,40 @@ export function sidebarThreadAncestorKeys<P, T>(
   return ancestors;
 }
 
+/**
+ * Working child-agent counts for every thread that has child agents, so the
+ * sidebar can notice when a lead's agents have all finished.
+ */
+export function sidebarWorkingDescendantCounts<P, T>(
+  tree: SidebarThreadTree<P, T>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const visit = (node: SidebarThreadTreeNode<T>) => {
+    if (node.descendantCount === 0) return;
+    counts.set(node.key, node.workingDescendantCount);
+    for (const child of node.children) visit(child);
+  };
+  for (const node of tree.pinned) visit(node);
+  for (const folder of tree.folders) for (const node of folder.nodes) visit(node);
+  return counts;
+}
+
+/**
+ * Leads whose child agents were working and have all finished since the
+ * previous counts: the sidebar folds those away once, and the user can open
+ * them again.
+ */
+export function sidebarLeadsWhoseAgentsFinished(
+  previous: ReadonlyMap<string, number>,
+  next: ReadonlyMap<string, number>,
+): string[] {
+  const finished: string[] = [];
+  for (const [key, working] of next) {
+    if (working === 0 && (previous.get(key) ?? 0) > 0) finished.push(key);
+  }
+  return finished;
+}
+
 export interface ThreadTreeSearchSelection {
   /** Threads to keep: every match, the path above it and the agents below it. */
   readonly keys: ReadonlySet<string>;
