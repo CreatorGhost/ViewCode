@@ -11,7 +11,8 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon, EllipsisIcon } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ChevronDownIcon, EllipsisIcon, GitForkIcon } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -63,6 +64,8 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   draftId?: DraftId;
   activeThreadTitle: string;
+  /** ViewCode: the thread this one was forked from, shown as a link chip. */
+  forkedFrom?: { threadId: string; title: string } | null;
   /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
@@ -134,6 +137,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   draftId,
   activeThreadTitle,
+  forkedFrom,
   isServerThread,
   activeProject,
   openInCwd,
@@ -492,6 +496,17 @@ export const ChatHeader = memo(function ChatHeader({
             </Tooltip>
           )}
         </WorkspaceBreadcrumbItem>
+        {forkedFrom ? (
+          <Link
+            to="/$environmentId/$threadId"
+            params={{ environmentId: activeThreadEnvironmentId, threadId: forkedFrom.threadId }}
+            className="ml-1 hidden max-w-44 shrink-0 items-center gap-1 truncate rounded-full border border-border/60 px-2 py-0.5 text-muted-foreground text-xs hover:text-foreground @2xl/header-actions:inline-flex"
+            title={`Forked from ${forkedFrom.title}`}
+          >
+            <GitForkIcon aria-hidden="true" className="size-3 shrink-0" />
+            <span className="truncate">Forked from {forkedFrom.title}</span>
+          </Link>
+        ) : null}
       </WorkspaceBreadcrumb>
       <div
         ref={headerActionsRef}
