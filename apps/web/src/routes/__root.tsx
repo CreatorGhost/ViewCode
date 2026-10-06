@@ -51,6 +51,7 @@ import { isElectron } from "../env";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
+import { ShortcutsSheet } from "../components/shortcuts/ShortcutsSheet";
 import { ChatAppearanceSync } from "../components/chat/appearance/ChatAppearanceSync";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
@@ -180,6 +181,7 @@ function RootRouteView() {
           <GlassAppearanceSync />
           <FontAppearanceSync />
           <ChatAppearanceSync />
+          <ShortcutsSheet />
           <CustomSnoozeDialogHost />
           <CommandPalette>
             <AppSidebarLayout>
