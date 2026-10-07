@@ -47,6 +47,7 @@ const THREAD_KEYBINDING_COMMANDS = [
   "tab.next",
   "tab.previous",
   "tab.close",
+  "thread.split",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];

@@ -5304,6 +5304,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       });
       if (command !== "composer.stash") return;
+      // Split view mounts two composers; only the focused pane's one stashes.
+      if (composerFormRef.current?.closest('[data-split-pane-focused="false"]')) return;
       // Always claim the shortcut so the browser save dialog never opens,
       // even when the composer is in a state that can't stash.
       event.preventDefault();
