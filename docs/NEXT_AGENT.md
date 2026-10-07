@@ -8,7 +8,7 @@ spec). `AGENTS.md` rules still apply: never kill processes by pattern, never
 write to `~/.t3/userdata`, never set `VITE_HTTP_URL`/`VITE_WS_URL`, no PR
 unless asked, no repo-wide checks.
 
-Branch: `claude/modest-meitner-9cuywa`. Status of the original goals (G1–G14)
+Work lands on `dev` through PRs (the last batch was #33). Status of the original goals (G1–G14)
 is in [`END_GOALS.md`](END_GOALS.md); product intent in [`PLAN.md`](PLAN.md).
 
 **Setting ViewCode up on the user's managed company Mac (EDR, no admin)?**
@@ -84,7 +84,71 @@ keep that cheap.
   (handoff, AgentMessaging, sidebarThreadTree, commandCode*, composer logic),
   and look at the app once.
 
+### Where ViewCode stands against upstream (October 2026)
+
+Upstream replaced its orchestrator: `apps/server/src/orchestration-v2/`
+(commit `de3439142`, ~84k lines) is now the only one upstream, with no flag,
+its own event store, a `statev2.sqlite` copy on first launch and WebSocket
+protocol 2. It still drives the provider CLIs/SDKs; it is not its own agent.
+ViewCode stays on v1 for now. Plan: port standalone upstream work onto v1,
+and once v2 stops churning, do one cutover on its own branch (re-home
+handoff, child agents, agent messaging, Command Code, usage resume and the
+enterprise-MCP fallback as v2 services/adapters; keep ViewCode migration ids
+out of upstream's range, per upstream's
+`docs/internals/legacy-orchestration-migration.md`).
+
+Already ported onto v1 (PR #33): DrainableWorker survival, busy RPC stream
+stall, Claude limits `skipBehaviors`, `appendedEventIds`, Claude `/compact`,
+SQLite `BEGIN IMMEDIATE`, Claude stop grace, startup sync, subscription
+backoff, Claude API retry row, the narrower usage-limit rule, ⌘K restart
+session, worktree location, mermaid diagrams (ViewCode look), shell
+highlighting, inline HTML pages (`html_render`, no `html_preview`), PR watches
+(migration 056).
+
+Needs v2 (do with the cutover, not before): `/goal` (`a172e1c4e`), the secrets
+card (`9f61ba674`), webhooks and scheduled tasks (`7dfb86a32` and follow-ups),
+the Pi provider (`PiAdapterV2`), upstream's subagent nodes. Deliberately not
+taken: the Cursor SDK (ACP stays: no CLI login reuse, no approvals), the
+server-side preview browser and headless Chrome.
+
 ## Open work, in priority order
+
+### 0. Verify the PR #33 batch in a real client — **do first**
+
+None of it has been seen on screen; tests and typechecks pass. One pass in
+light and dark, web then mobile (`test-t3-app`, `test-t3-mobile`; ask the
+user before launching anything, and never on their live install):
+
+- Compact child-agent row: spawn two agents from one turn, check the grouped
+  row, status dot, elapsed time, chevron; sidebar folds the lead once both
+  finish and stays open while one of them is the open thread.
+- Mermaid: flowchart with subgraphs, sequence, pie; theme switch re-renders;
+  expand dialog pan/zoom; a broken diagram falls back to its source.
+- `html_render`: page height, theme follow, links open outside, maximize,
+  revert keeps the page; remote client through signed URLs.
+- PR watches: watch/unwatch from the Linked pull requests panel; a failing
+  check wakes the agent once.
+- Handoff divider after an idle provider switch reads "gpt → opus", not
+  "opus → opus".
+- "Not delivered" marker, stalled-load message, image-size warning, Cursor
+  context row, Claude API retry row.
+
+### 0b. Follow-ups left from PR #33
+
+- PR watches: upstream's required-checks rule (today "passed" means every
+  check finished), wakes on edited comments, mobile display, paging long
+  review threads.
+- Mobile: mermaid still shows as code; an HTML page keeps the agent's height
+  and scrolls inside (the WebView doesn't report its size).
+- Mermaid group colours use `mermaid.mermaidAPI.getDiagramFromText`
+  (deprecated); if it breaks, diagrams render in one colour. No touch
+  pinch-zoom in the expand dialog.
+- `apps/server/src/server.test.ts` has 8 failures that also fail on `dev`
+  (archive tests mock a method the archive code no longer calls; a
+  workspace-root stat test; transfer budgets). Mobile typecheck errors in
+  `threadActivity.test.ts` are also old.
+- Optional, ask first: snooze usage-limited threads until reset (needs the
+  sidebar snooze/settle feature from upstream `1826fb55c`).
 
 ### 1. Professional re-theme, Droppy-inspired — **blocking daily use**
 
