@@ -28,7 +28,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeURL from "node:url";
 
-import { ComputerUseRect } from "@t3tools/contracts";
+import { ComputerUseErrorCode, ComputerUseRect, type ComputerUseError } from "@t3tools/contracts";
 import { HostProcessIsExecutable, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -37,6 +37,8 @@ import * as Schema from "effect/Schema";
 import {
   ComputerDriver,
   ComputerDriverError,
+  ComputerDriverDispatchCheck,
+  type DriverDispatchTarget,
   type ComputerDriverShape,
   type DriverStatus,
 } from "./ComputerDriver.ts";
@@ -101,6 +103,7 @@ const unsupportedReason = (platform: NodeJS.Platform) =>
 
 const DriverFailure = Schema.Struct({
   kind: Schema.Literals([
+    "policy",
     "unavailable",
     "permission-accessibility",
     "permission-screen",
@@ -111,6 +114,7 @@ const DriverFailure = Schema.Struct({
   ]),
   message: Schema.String,
   dispatched: Schema.Literals(["no", "yes", "unknown"]),
+  code: Schema.optionalKey(ComputerUseErrorCode),
 });
 
 type DriverReply<T> =
@@ -227,7 +231,10 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
     return worker;
   };
 
-  const run = (request: DriverRequest): Promise<CallOutcome> =>
+  const run = (
+    request: DriverRequest,
+    authorize?: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>,
+  ): Promise<CallOutcome> =>
     new Promise((resolve) => {
       if (closed) return resolve({ type: "not-sent" });
       child ??= start();
@@ -243,6 +250,31 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
       }, options.timeouts?.[request.op] ?? DEFAULT_TIMEOUTS[request.op]);
       const settle = (outcome: CallOutcome) => {
         if (settlePending !== settle) return;
+        if (
+          outcome.type === "reply" &&
+          isReplyTo(outcome.message, id) &&
+          typeof outcome.message === "object" &&
+          outcome.message !== null &&
+          "authorize" in outcome.message
+        ) {
+          const target = outcome.message.authorize as DriverDispatchTarget;
+          void (authorize ? authorize(target) : Promise.resolve(undefined)).then(
+            (decision) => {
+              if (settlePending === settle)
+                worker.send({ id, nonce, decision: decision ?? null }, (error) => {
+                  if (error) {
+                    discard(worker);
+                    settle({ type: "exited" });
+                  }
+                });
+            },
+            () => {
+              discard(worker);
+              settle({ type: "exited" });
+            },
+          );
+          return;
+        }
         settlePending = undefined;
         clearTimeout(timeout);
         // A reply that does not answer this request means the channel is out
@@ -272,14 +304,19 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
     });
 
   return {
-    call: (request: DriverRequest, cancelled: () => boolean): Promise<CallOutcome> => {
+    call: (
+      request: DriverRequest,
+      cancelled: () => boolean,
+      authorize: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>,
+    ): Promise<CallOutcome> => {
       const result = queue.then(async (): Promise<CallOutcome> => {
         if (cancelled()) return { type: "cancelled" };
         if (releaseMouse) {
           releaseMouse = false;
           await run({ op: "releaseMouse" });
         }
-        return run(request);
+        if (cancelled()) return { type: "cancelled" };
+        return run(request, authorize);
       });
       queue = result;
       return result;
@@ -312,9 +349,24 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
       });
     }
     // Interrupting the caller marks the queued request so it is never sent.
+    const check = yield* ComputerDriverDispatchCheck;
+    const context = yield* Effect.context();
     const outcome = yield* Effect.callback<CallOutcome>((resume, signal) => {
       void client
-        .call(request, () => signal.aborted)
+        .call(
+          request,
+          () => signal.aborted,
+          async (target) => {
+            const cancelled: ComputerUseError = {
+              code: "CU-CON-004",
+              message: "The action was cancelled before dispatch.",
+              effect: "not-dispatched",
+            };
+            if (signal.aborted) return cancelled;
+            const refusal = await Effect.runPromiseWith(context)(check(target));
+            return signal.aborted ? cancelled : refusal;
+          },
+        )
         .then((value) => resume(Effect.succeed(value)));
     });
     if (outcome.type !== "reply") {

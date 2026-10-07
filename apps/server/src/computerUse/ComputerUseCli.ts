@@ -125,7 +125,7 @@ export const parseComputerArgs = async (
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index]!;
     if (!arg.startsWith("--")) {
-      return invalid("CU-VAL-004", `Unexpected argument "${arg}" for ${command}.`);
+      return invalid("CU-VAL-004", `Unexpected argument for ${command}.`);
     }
     const equals = arg.indexOf("=");
     const name = arg.slice(2, equals === -1 ? undefined : equals);
@@ -330,7 +330,7 @@ const oneOf =
   (value: unknown) =>
     isString(value) && options.includes(value);
 
-const ERROR_CODE = /^CU-(?:VAL-00[1-4]|NOT-00[1-3]|CON-00[1-7]|EXT-00[1-6]|INT-001)$/;
+const ERROR_CODE = /^CU-(?:VAL-00[1-4]|NOT-00[1-3]|CON-00[1-8]|EXT-00[1-6]|INT-001)$/;
 const isEffect = oneOf("dispatched", "not-dispatched", "dispatched-unknown");
 
 const isRect = (value: unknown) =>
@@ -562,7 +562,7 @@ Every command prints one JSON line: {"ok":true,"result":…} (exit 0) or
 
 TWO WAYS TO ACT
   Refs (accessibility): observe lists a window's controls with refs; act on a
-    ref. Exact and survives layout shifts. Prefer it whenever observe shows the
+    ref. Exact; observe again after layout changes. Prefer it when observe shows the
     control you need.
   Coordinates (vision): screenshot a window, open the PNG with your image/file
     tool, then act at pixel x,y in that image. Use it for canvases, 3D views,
@@ -625,6 +625,8 @@ ERRORS
   CU-CON-007       the shot is not the window's newest, or the window moved,
                    resized or closed since: take a new screenshot, look at it,
                    and pick the point again.
+  CU-CON-008       input is paused while an approval waits anywhere in the
+                   environment. Wait for the user to answer, then observe again.
   CU-EXT-001       the driver cannot run on this machine.
   CU-EXT-002       Accessibility permission is missing: ask the user to grant it
                    to ViewCode in System Settings > Privacy & Security > Accessibility.

@@ -18,7 +18,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                                                                                                       |
 | Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, `T3CodeHistory.ts`, web `components/agentSessions/`                                                                                             |
 | Phone notifications (Expo push)          | `apps/server/src/notifications/`, contracts `pushNotifications.ts`, mobile `features/agent-awareness/directPush*.ts` and `useDirectPushRegistration.ts`                                                                                                                     |
-| Computer use (agents drive the desktop)  | `apps/server/src/computerUse/` (`ComputerUseService.ts` gate, `ComputerUseCli.ts` CLI + manual, `Xa11yDriverCore.ts` driver), contracts `computerUse.ts`, web `settings/ComputerUseSetting.tsx` |
+| Computer use (agents drive the desktop)  | `apps/server/src/computerUse/` (`ComputerUseService.ts` gate, `ComputerUseCli.ts` CLI + manual, `Xa11yDriverCore.ts` driver), contracts `computerUse.ts`, web `settings/ComputerUseSetting.tsx`                                                                             |
 | Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME`, web-only default), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids)                                                                             |
 
 ## Decisions
@@ -278,8 +278,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   window identity, is what stops an agent answering an approval for itself in a ViewCode window, a
   browser tab or a mirrored screen. The denylist (protected apps, ViewCode by name and `.app` path,
   the server's own process ancestry, browser tabs titled like ViewCode) is defense in depth. Every
-  input path goes through one pre-dispatch check under an environment-wide lock that re-reads the
-  mode, the turn, pending approvals and the target.
+  input holds an environment-wide lock. After queueing and activation, the worker asks the server
+  to re-read the mode, turn, approvals and freshly resolved native target before dispatch. Provider
+  approvals are tracked before publication, because the projection can lag; approval publication
+  shares the dispatch lock so a new card cannot open during input. Turn-end receipts invalidate
+  input immediately, without waiting for the thread projection.
 - Two ways to act, chosen per step by the agent: accessibility refs (exact) and screenshot pixel
   coordinates (Codex style, for canvases, browsers and apps with no tree). Window ids, refs and
   shots are per-thread integers starting at a random per-run base; a newer observe retires a
@@ -287,7 +290,10 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   element or window bounds at dispatch and refuses on change. Every input returns a fresh shot.
 - xa11y elements and window lists are snapshots (`tree(0)` reads no live state), so the driver
   records each element's child-index path at observe and re-walks it from a fresh window read at
-  dispatch, refusing on any role, label or bounds change. Handles carry a per-worker random epoch,
+  dispatch, refusing on any role, label, native identifier or bounds change. A retained window
+  must still have a native parent before a fresh snapshot can be matched: titles and
+  `AXIdentifier` values can be reused after close, even without an intervening empty listing.
+  Handles carry a per-worker random epoch,
   so a restarted worker can never resolve an old handle to another app. On macOS, AXRaise does not
   activate an app; the driver runs `open -a <bundle>` and then requires the exact target window to
   be active. Windows is refused until there is a real win32 window model (xa11y treats each

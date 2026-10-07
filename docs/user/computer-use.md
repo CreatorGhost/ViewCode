@@ -8,8 +8,9 @@ their path, so it works with providers whose organization blocks MCP servers.
 Agents work in two ways and pick per step. Where an app describes its controls to the system, they
 act on a control by reference, which is exact. Where it does not, such as a 3D slicer's canvas, a
 game or a web page, they take a screenshot, look at it and click, drag or scroll at a point in it.
-Each action returns a fresh screenshot, so the agent sees the result before its next step. A point
-from an older screenshot, or from a window that has since moved, is refused rather than clicked.
+Each action returns a fresh screenshot when Screen Recording allows it, so the agent sees the
+result before its next step. A point from an older screenshot, or from a window that has since
+moved, is refused rather than clicked.
 
 ## Turn it on
 
@@ -39,8 +40,8 @@ destructive, such as delete, send, submit, purchase or sign out, and shortcuts t
 windows always ask, in every mode. This check reads the control's label, so treat it as a safety
 net rather than a guarantee.
 
-Password managers, Keychain Access, System Settings, ViewCode itself and the app or terminal that
-started ViewCode can never be read or controlled by an agent. Screenshots are refused while a
+Password managers such as 1Password, NordPass and Bitwarden, Keychain Access, System Settings,
+ViewCode itself and the app or terminal that started ViewCode can never be read or controlled by an agent. Screenshots are refused while a
 password manager or System Settings window overlaps the window being captured. While any approval in the environment is waiting for you, agents cannot
 send input at all, so an agent can never answer an approval for itself, whether in ViewCode, in a
 browser tab showing ViewCode or on a mirrored screen.

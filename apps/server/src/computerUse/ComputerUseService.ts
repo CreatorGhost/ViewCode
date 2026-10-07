@@ -52,7 +52,12 @@ import * as ServerConfig from "../config.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { ServerProcessAncestry } from "./computerUseAncestry.ts";
-import { ComputerDriver, ComputerDriverError } from "./ComputerDriver.ts";
+import {
+  ComputerDriver,
+  ComputerDriverError,
+  ComputerDriverDispatchCheck,
+  type DriverDispatchTarget,
+} from "./ComputerDriver.ts";
 import {
   computerUseError,
   describeInputForApproval,
@@ -109,6 +114,8 @@ export interface ComputerUseServiceShape {
   /** The thread's session stopped: forget its windows, refs, grant and approvals. */
   readonly releaseThread: (threadId: ThreadId) => Effect.Effect<void>;
   readonly releaseAll: Effect.Effect<void>;
+  /** Records provider approvals before clients see them, without waiting for projection. */
+  readonly trackProviderApproval: (event: ProviderRuntimeEvent) => Effect.Effect<void>;
 }
 
 /**
@@ -251,7 +258,10 @@ export const make = Effect.gen(function* () {
 
   const targetsByThread = new Map<ThreadId, ThreadTargets>();
   const turnGrants = new Map<ThreadId, TurnId>();
+  const lastRunningTurn = new Map<ThreadId, TurnId>();
+  const endedTurns = new Map<ThreadId, TurnId>();
   const pending = new Map<string, PendingApproval>();
+  const liveProviderApprovals = new Map<string, ThreadId>();
   const screenshotCounters = new Map<ThreadId, number>();
   const screenshotNumbering = yield* Semaphore.make(1);
   let publisher: ((event: ProviderRuntimeEvent) => Effect.Effect<void>) | undefined;
@@ -294,6 +304,8 @@ export const make = Effect.gen(function* () {
           return undefined;
         }
         if (!isProviderDriverKind(session.providerName)) return undefined;
+        if (endedTurns.get(caller.threadId) === session.activeTurnId) return undefined;
+        lastRunningTurn.set(caller.threadId, session.activeTurnId);
         return {
           turnId: session.activeTurnId,
           provider: session.providerName,
@@ -338,37 +350,46 @@ export const make = Effect.gen(function* () {
       if (!publisher) return "decline" as const;
       const requestId = `${REQUEST_ID_PREFIX}${NodeCrypto.randomUUID()}`;
       const deferred = yield* Deferred.make<ProviderApprovalDecision>();
-      pending.set(requestId, {
-        threadId: input.caller.threadId,
-        turnId: input.turn.turnId,
-        provider: input.turn.provider,
-        providerInstanceId: input.caller.providerInstanceId,
-        deferred,
-      });
-      yield* publish({
-        eventId: EventId.make(`${requestId}:opened`),
-        type: "request.opened",
-        provider: input.turn.provider,
-        providerInstanceId: input.caller.providerInstanceId,
-        threadId: input.caller.threadId,
-        turnId: input.turn.turnId,
-        requestId: RuntimeRequestId.make(requestId),
-        createdAt: yield* nowIso,
-        payload: {
-          requestType: "permission_approval",
-          appName: APPROVAL_APP_NAME,
-          detail: input.detail,
-          options: input.destructive ? DESTRUCTIVE_OPTIONS : ROUTINE_OPTIONS,
-        },
-      });
-      const decision = yield* Deferred.await(deferred).pipe(
-        Effect.timeoutOption(APPROVAL_TIMEOUT),
-        Effect.map(Option.getOrElse((): ProviderApprovalDecision => "cancel")),
-        // The CLI gave up (its shell tool timed out or was stopped): close the card.
-        Effect.onInterrupt(() => settle(requestId, "cancel")),
-      );
-      yield* settle(requestId, decision);
-      return decision;
+      return yield* Effect.gen(function* () {
+        const opened = yield* dispatchLock.withPermits(1)(
+          Effect.gen(function* () {
+            if (yield* approvalPending) return false;
+            pending.set(requestId, {
+              threadId: input.caller.threadId,
+              turnId: input.turn.turnId,
+              provider: input.turn.provider,
+              providerInstanceId: input.caller.providerInstanceId,
+              deferred,
+            });
+            yield* publish({
+              eventId: EventId.make(`${requestId}:opened`),
+              type: "request.opened",
+              provider: input.turn.provider,
+              providerInstanceId: input.caller.providerInstanceId,
+              threadId: input.caller.threadId,
+              turnId: input.turn.turnId,
+              requestId: RuntimeRequestId.make(requestId),
+              createdAt: yield* nowIso,
+              payload: {
+                requestType: "permission_approval",
+                appName: APPROVAL_APP_NAME,
+                detail: input.detail,
+                options: input.destructive ? DESTRUCTIVE_OPTIONS : ROUTINE_OPTIONS,
+              },
+            });
+            return true;
+          }),
+        );
+        if (!opened) return "paused" as const;
+        const decision = yield* Deferred.await(deferred).pipe(
+          Effect.timeoutOption(APPROVAL_TIMEOUT),
+          Effect.map(Option.getOrElse((): ProviderApprovalDecision => "cancel")),
+          // The CLI gave up (its shell tool timed out or was stopped): close the card.
+          Effect.onInterrupt(() => settle(requestId, "cancel")),
+        );
+        yield* settle(requestId, decision);
+        return decision;
+      }).pipe(Effect.ensuring(settle(requestId, "cancel")));
     });
 
   const logOutcome = (
@@ -459,6 +480,10 @@ export const make = Effect.gen(function* () {
 
   const observe = (caller: ComputerUseCaller, windowId: number, query: string | undefined) =>
     Effect.gen(function* () {
+      const cached = windowFor(caller, windowId);
+      if ("ok" in cached) return cached;
+      const listed = yield* driver.listWindows();
+      targetsFor(caller.threadId).recordWindows(listed);
       const window = windowFor(caller, windowId);
       if ("ok" in window) return window;
       const observed = yield* driver
@@ -551,7 +576,9 @@ export const make = Effect.gen(function* () {
   const protectedOverlay = (window: WindowRecord) =>
     driver.listWindows().pipe(
       Effect.map((listed) => {
-        const target = listed.find((entry) => entry.handle === window.handle)?.bounds;
+        const live = listed.find((entry) => entry.handle === window.handle);
+        if (live && isDenied(live)) return true;
+        const target = live?.bounds;
         return listed.some(
           (entry) =>
             entry.handle !== window.handle &&
@@ -602,6 +629,9 @@ export const make = Effect.gen(function* () {
 
   const screenshot = (caller: ComputerUseCaller, windowId: number, maxSize: number | undefined) =>
     Effect.gen(function* () {
+      const cached = windowFor(caller, windowId);
+      if ("ok" in cached) return cached;
+      targetsFor(caller.threadId).recordWindows(yield* driver.listWindows());
       const window = windowFor(caller, windowId);
       if ("ok" in window) return window;
       const captured = yield* capture(
@@ -837,7 +867,9 @@ export const make = Effect.gen(function* () {
    * approval card, wherever it is shown. Unreadable counts as pending.
    */
   const approvalPending = Effect.suspend(() =>
-    pending.size > 0 ? Effect.succeed(true) : pendingProviderApprovals.anyPending,
+    pending.size > 0 || liveProviderApprovals.size > 0
+      ? Effect.succeed(true)
+      : pendingProviderApprovals.anyPending,
   );
 
   const sameTarget = (left: ResolvedInputTarget, right: ResolvedInputTarget) =>
@@ -859,41 +891,78 @@ export const make = Effect.gen(function* () {
     turn: TurnContext,
     resolved: ResolvedInputTarget,
     asked: boolean,
+    destructive: boolean,
   ) =>
     dispatchLock.withPermits(1)(
       Effect.gen(function* () {
-        if ((yield* currentMode) !== "control") {
-          return refused(
-            computerUseError(
-              "CU-CON-002",
-              "Computer use no longer allows input.",
-              "not-dispatched",
+        const check = (native?: DriverDispatchTarget) =>
+          Effect.gen(function* () {
+            if ((yield* currentMode) !== "control") {
+              return refused(
+                computerUseError(
+                  "CU-CON-002",
+                  "Computer use no longer allows input.",
+                  "not-dispatched",
+                ),
+              );
+            }
+            const stillRunning = yield* runningTurn(caller);
+            if (stillRunning?.turnId !== turn.turnId) {
+              return noTurn(
+                "The turn ended before the action ran.",
+                asked ? "CU-CON-004" : "CU-CON-006",
+              );
+            }
+            if (yield* approvalPending) return inputPaused;
+            if (
+              !asked &&
+              !stillRunning.fullAccess &&
+              turnGrants.get(caller.threadId) !== turn.turnId
+            ) {
+              return noTurn(
+                "The thread now requires approval; request the action again.",
+                "CU-CON-004",
+              );
+            }
+            const fresh = resolveInputTarget(caller, request);
+            if ("ok" in fresh) return fresh;
+            if (!sameTarget(resolved, fresh)) {
+              return refused(
+                computerUseError(
+                  fresh._tag === "Shot" ? "CU-CON-007" : "CU-CON-003",
+                  "The target changed since this action was checked; look again.",
+                  "not-dispatched",
+                ),
+              );
+            }
+            if (native) {
+              if (native.window.handle !== fresh.window.handle) {
+                return noTurn("The native target changed before dispatch.", "CU-CON-004");
+              }
+              if (isDenied(native.window)) return deniedApp("not-dispatched");
+              if (!destructive && native.element && isDestructiveTarget(native.element)) {
+                return refused(
+                  computerUseError(
+                    fresh._tag === "Shot" ? "CU-CON-007" : "CU-CON-003",
+                    "The target now looks destructive; look again and request approval.",
+                    "not-dispatched",
+                  ),
+                );
+              }
+            }
+            return undefined;
+          });
+        const refusal = yield* check();
+        if (refusal) return refusal;
+        return yield* dispatchInput(request, resolved).pipe(
+          Effect.provideService(ComputerDriverDispatchCheck, (native) =>
+            check(native).pipe(
+              Effect.map((response) => (response && !response.ok ? response.error : undefined)),
             ),
-          );
-        }
-        const stillRunning = yield* runningTurn(caller);
-        if (stillRunning?.turnId !== turn.turnId) {
-          return noTurn(
-            "The turn ended before the action ran.",
-            asked ? "CU-CON-004" : "CU-CON-006",
-          );
-        }
-        if (yield* approvalPending) return inputPaused;
-        const fresh = resolveInputTarget(caller, request);
-        if ("ok" in fresh) return fresh;
-        if (!sameTarget(resolved, fresh)) {
-          return refused(
-            computerUseError(
-              fresh._tag === "Shot" ? "CU-CON-007" : "CU-CON-003",
-              "The target changed since this action was checked; look again.",
-              "not-dispatched",
-            ),
-          );
-        }
-        return yield* dispatchInput(request, fresh).pipe(
+          ),
           Effect.as(undefined),
           Effect.catchTag("ComputerDriverError", (error) =>
-            Effect.succeed(inputFailure(caller, fresh, error)),
+            Effect.succeed(inputFailure(caller, resolved, error)),
           ),
         );
       }),
@@ -932,6 +1001,7 @@ export const make = Effect.gen(function* () {
             ...(hit !== undefined ? { hit } : {}),
           }),
         });
+        if (decision === "paused") return inputPaused;
         if (decision === "decline" || decision === "cancel") {
           return refused(
             computerUseError(
@@ -945,7 +1015,7 @@ export const make = Effect.gen(function* () {
           turnGrants.set(caller.threadId, turn.turnId);
         }
       }
-      const refusal = yield* checkAndDispatch(caller, request, turn, resolved, asked);
+      const refusal = yield* checkAndDispatch(caller, request, turn, resolved, asked, destructive);
       if (refusal) return refusal;
       const after = yield* afterAction(caller, resolved.window);
       return ok({ kind: "input", effect: "dispatched", ...(after ? { screenshot: after } : {}) });
@@ -1036,6 +1106,22 @@ export const make = Effect.gen(function* () {
   return ComputerUseService.of({
     handle,
     status,
+    trackProviderApproval: (event) => {
+      if (!event.requestId || event.requestId.startsWith(REQUEST_ID_PREFIX)) return Effect.void;
+      const key = `${event.threadId}:${event.requestId}`;
+      if (event.type === "request.opened" && event.payload.requestType === "permission_approval") {
+        return dispatchLock.withPermits(1)(
+          Effect.sync(() => {
+            liveProviderApprovals.set(key, event.threadId);
+          }),
+        );
+      }
+      return event.type === "request.resolved"
+        ? Effect.sync(() => {
+            liveProviderApprovals.delete(key);
+          })
+        : Effect.void;
+    },
     attachRuntimeEventPublisher: (publishEvent) =>
       Effect.acquireRelease(
         Effect.sync(() => {
@@ -1056,6 +1142,8 @@ export const make = Effect.gen(function* () {
       }),
     endTurn: (threadId, turnId) =>
       Effect.gen(function* () {
+        const ended = turnId ?? lastRunningTurn.get(threadId);
+        if (ended) endedTurns.set(threadId, ended);
         if (turnId === undefined || turnGrants.get(threadId) === turnId)
           turnGrants.delete(threadId);
         yield* cancelPending(
@@ -1065,11 +1153,14 @@ export const make = Effect.gen(function* () {
       }),
     releaseThread: (threadId) =>
       Effect.gen(function* () {
+        for (const [key, owner] of liveProviderApprovals)
+          if (owner === threadId) liveProviderApprovals.delete(key);
         targetsByThread.get(threadId)?.reset();
         turnGrants.delete(threadId);
         yield* cancelPending((entry) => entry.threadId === threadId);
       }),
     releaseAll: Effect.gen(function* () {
+      liveProviderApprovals.clear();
       for (const targets of targetsByThread.values()) targets.reset();
       turnGrants.clear();
       yield* cancelPending(() => true);

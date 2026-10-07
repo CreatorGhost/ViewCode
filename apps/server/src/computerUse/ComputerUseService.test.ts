@@ -1,8 +1,12 @@
+// @effect-diagnostics nodeBuiltinImport:off - exercises the IPC client with a synthetic worker.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
+  EventId,
+  RuntimeRequestId,
   ProjectId,
   ProviderInstanceId,
+  ProviderDriverKind,
   ThreadId,
   TurnId,
   type ComputerUseMode,
@@ -35,6 +39,11 @@ import {
 } from "./ComputerDriver.ts";
 import { ServerProcessAncestry } from "./computerUseAncestry.ts";
 import * as ComputerUseService from "./ComputerUseService.ts";
+import { makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
+import * as NodeHttp from "node:http";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 const NOW = "2026-10-06T00:00:00.000Z";
 const threadId = ThreadId.make("thread-computer-use");
@@ -127,7 +136,10 @@ interface Harness {
 /** A 1568×980 image of a 784×490-point window at (100, 50): half a point per pixel. */
 const SHOT_BOUNDS: ComputerUseRect = { x: 100, y: 50, width: 784, height: 490 };
 
-const makeHarness = (initialMode: ComputerUseMode = "control") =>
+const makeHarness = (
+  initialMode: ComputerUseMode = "control",
+  override?: (driver: ComputerDriverShape) => ComputerDriverShape,
+) =>
   Effect.gen(function* () {
     const calls: Array<string> = [];
     const events: Array<ProviderRuntimeEvent> = [];
@@ -252,7 +264,7 @@ const makeHarness = (initialMode: ComputerUseMode = "control") =>
 
     const layer = ComputerUseService.layer.pipe(
       Layer.provideMerge(ServerSettings.layerTest({ computerUse: initialMode })),
-      Layer.provide(Layer.succeed(ComputerDriver, driver)),
+      Layer.provide(Layer.succeed(ComputerDriver, override ? override(driver) : driver)),
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery)({
           getThreadShellById: () => Effect.sync(() => Option.some(shell())),
@@ -586,7 +598,7 @@ describe("ComputerUseService targets", () => {
         "CU-NOT-002",
         "not-dispatched",
       );
-      expect(harness.calls).toEqual(["listWindows", `observe:${notes.handle}`]);
+      expect(harness.calls).toEqual(["listWindows", "listWindows", `observe:${notes.handle}`]);
       expect(refs.save).toBeGreaterThan(0);
     }).pipe(Effect.scoped),
   );
@@ -982,3 +994,185 @@ describe("ComputerUseService identity and overlays", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+describe("Computer use audit regressions", () => {
+  it.effect("refuses observing or controlling NordPass", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      h.windows = [
+        {
+          ...notes,
+          app: "NordPass",
+          appIdentifier: "/Applications/NordPass.app/Contents/MacOS/NordPass",
+        },
+      ];
+      const listed = yield* send(h, { command: "list-windows" });
+      if (!listed.ok || listed.result.kind !== "windows") throw new Error("list failed");
+      const window = listed.result.windows[0]!.id;
+      expectError(yield* send(h, { command: "observe", window }), "CU-CON-005");
+      expectError(yield* send(h, { command: "type-focused", window, text: "audit" }), "CU-CON-005");
+    }).pipe(Effect.scoped),
+  );
+  it.effect("refreshes the browser title before observation and capture", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      h.windows = [{ ...notes, app: "Google Chrome", title: "Documentation" }];
+      const listed = yield* send(h, { command: "list-windows" });
+      if (!listed.ok || listed.result.kind !== "windows") throw new Error("list failed");
+      const window = listed.result.windows[0]!.id;
+      h.windows = [{ ...h.windows[0]!, title: "ViewCode" }];
+      expectError(yield* send(h, { command: "observe", window }), "CU-CON-005");
+      expectError(yield* send(h, { command: "screenshot", window }), "CU-CON-005");
+      expectError(yield* send(h, { command: "type-focused", window, text: "audit" }), "CU-CON-005");
+    }).pipe(Effect.scoped),
+  );
+  it.effect("refuses unapproved input after a Full access downgrade during hit-test", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      const shot = yield* send(h, { command: "screenshot", window: refs.window });
+      if (!shot.ok || shot.result.kind !== "screenshot") throw new Error("shot failed");
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      h.elementAtGate = { entered, release };
+      const action = yield* Effect.forkChild(
+        send(h, { command: "click", shot: shot.result.shot, x: 10, y: 10 }),
+      );
+      yield* Deferred.await(entered);
+      h.thread.runtimeMode = "approval-required";
+      yield* Deferred.succeed(release, undefined);
+      expectError(yield* Fiber.join(action), "CU-CON-004", "not-dispatched");
+      expect(h.events.filter((e) => e.type === "request.opened")).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+});
+
+for (const changed of ["mode", "pending", "turn"] as const) {
+  it.effect(`real driver IPC queue rechecks ${changed} before dispatch`, () =>
+    Effect.gen(function* () {
+      const blocked = Promise.withResolvers<void>();
+      const enteredKey = yield* Deferred.make<void>();
+      let delivered = false;
+      let releaseRead: (() => void) | undefined;
+      const server = NodeHttp.createServer((req, res) => {
+        if (req.url === "/read") {
+          releaseRead = () => res.end("release");
+          blocked.resolve();
+        } else {
+          delivered = true;
+          res.end("delivered");
+        }
+      });
+      yield* Effect.promise(() => new Promise<void>((r) => server.listen(0, "127.0.0.1", r)));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("server");
+      const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-audit-worker-"));
+      const script = NodePath.join(dir, "worker.cjs");
+      NodeFS.writeFileSync(
+        script,
+        `const http=require('node:http');
+const get = path => new Promise(resolve => http.get('http://127.0.0.1:${address.port}'+path, res => {res.resume(); res.on('end',resolve);}));
+process.on('message', async message => {
+ const {id,request,decision}=message;
+ if ('decision' in message) {
+  if(decision) process.send({id,ok:false,error:{kind:'policy',code:decision.code,message:decision.message,dispatched:'no'}});
+  else {await get('/sent');process.send({id,ok:true,result:null});}
+ } else if(request.op==='listWindows') {await get('/read'); process.send({id,ok:true,result:[]});}
+ else if(request.op==='key') process.send({id,authorize:{window:{handle:'w-notes',app:'Notes',pid:10,title:'Shopping list',focused:true}}});
+}); process.once('disconnect',()=>process.exit(0));`,
+      );
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(
+          () =>
+            new Promise<void>((r) => {
+              releaseRead?.();
+              server.close(() => r());
+              NodeFS.rmSync(dir, { recursive: true, force: true });
+            }),
+        ),
+      );
+      const real = yield* makeXa11yComputerDriver({
+        platform: "darwin",
+        launch: () => ({ command: process.execPath, args: [script], env: { ...process.env } }),
+      });
+      const h = yield* makeHarness("control", (driver) => ({
+        ...driver,
+        key: (window, keys) =>
+          Effect.gen(function* () {
+            yield* Deferred.succeed(enteredKey, undefined);
+            return yield* real.key(window, keys);
+          }),
+      }));
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      const reading = yield* Effect.forkChild(real.listWindows());
+      yield* Effect.promise(() => blocked.promise);
+      const action = yield* Effect.forkChild(
+        send(h, { command: "key", window: refs.window, keys: "enter" }),
+      );
+      yield* Deferred.await(enteredKey);
+      yield* Effect.yieldNow;
+      if (changed === "mode") yield* h.setMode("off");
+      if (changed === "pending") h.providerApprovalPending = true;
+      if (changed === "turn") yield* h.service.endTurn(threadId);
+      releaseRead!();
+
+      yield* Fiber.join(reading);
+      expectError(
+        yield* Fiber.join(action),
+        changed === "mode" ? "CU-CON-002" : changed === "pending" ? "CU-CON-008" : "CU-CON-006",
+        "not-dispatched",
+      );
+      expect(delivered).toBe(false);
+    }).pipe(Effect.scoped),
+  );
+}
+
+it.effect("provider approvals pause input before their projection catches up", () =>
+  Effect.gen(function* () {
+    const h = yield* makeHarness();
+    h.thread.runtimeMode = "full-access";
+    const refs = yield* observeNotes(h);
+    const opened: ProviderRuntimeEvent = {
+      eventId: EventId.make("provider-open"),
+      type: "request.opened",
+      provider: ProviderDriverKind.make("codex"),
+      providerInstanceId,
+      threadId,
+      turnId: h.thread.turnId,
+      requestId: RuntimeRequestId.make("provider-approval"),
+      createdAt: NOW,
+      payload: { requestType: "permission_approval" },
+    };
+    yield* h.service.trackProviderApproval(opened);
+    expectError(
+      yield* send(h, { command: "press", ref: refs.save }),
+      "CU-CON-008",
+      "not-dispatched",
+    );
+    yield* h.service.trackProviderApproval({
+      ...opened,
+      eventId: EventId.make("provider-resolved"),
+      type: "request.resolved",
+      payload: { requestType: "permission_approval", decision: "decline" },
+    });
+    expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+  }).pipe(Effect.scoped),
+);
+it.effect("a failed approval publication does not leave input permanently paused", () =>
+  Effect.gen(function* () {
+    const h = yield* makeHarness();
+    const refs = yield* observeNotes(h);
+    yield* h.service.attachRuntimeEventPublisher((event) =>
+      event.type === "request.opened"
+        ? Effect.die(new Error("synthetic publication failure"))
+        : Effect.void,
+    );
+    expectError(yield* send(h, { command: "press", ref: refs.save }), "CU-INT-001");
+    h.thread.runtimeMode = "full-access";
+    expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+  }).pipe(Effect.scoped),
+);

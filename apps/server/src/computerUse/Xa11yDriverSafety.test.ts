@@ -29,6 +29,8 @@ type Sent = Array<readonly [string, ...unknown[]]>;
 
 const notSupported = () => Object.assign(new Error("x"), { name: "ActionNotSupportedError" });
 
+const snapshots = new WeakMap<Element, Spec>();
+
 const fake = (spec: Spec, sent: Sent): Element => {
   const snapshot = {
     role: spec.role,
@@ -38,7 +40,7 @@ const fake = (spec: Spec, sent: Sent): Element => {
     bounds: spec.bounds ? { ...spec.bounds } : null,
     actions: spec.actions ?? ["press"],
   };
-  return {
+  const element = {
     ...snapshot,
     value: null,
     raw: {},
@@ -53,9 +55,12 @@ const fake = (spec: Spec, sent: Sent): Element => {
       sent.push(["press", snapshot.name]);
     },
     setValue: async () => void sent.push(["setValue", snapshot.name]),
+    typeText: async (text: string) => void sent.push(["AXtype", snapshot.name, text]),
     performAction: async () => undefined,
     focus: async () => undefined,
   } as unknown as Element;
+  snapshots.set(element, spec);
+  return element;
 };
 
 const BOUNDS = { x: 0, y: 0, width: 500, height: 400 };
@@ -84,6 +89,7 @@ const makeCore = (
     foreground?: number | null;
     readonly activate?: (pid: number) => void;
     readonly primaryDisplay?: () => Rect | null;
+    readonly capture?: Xa11yApi["screenshot"];
   } = {},
 ) => {
   const sent: Sent = [];
@@ -110,12 +116,16 @@ const makeCore = (
       const app = apps.find((candidate) => candidate.pid === pid);
       return app ? app.windows.map((spec) => fake(spec, sent)) : [];
     },
+    windowIsAlive: async (element) =>
+      apps.some((app) => app.windows.includes(snapshots.get(element)!)),
     foregroundPid: async () =>
       options.foreground === undefined ? (apps[0]?.pid ?? null) : options.foreground,
     inputSim: () => input,
-    screenshot: async () => {
-      throw new Error("no capture in these tests");
-    },
+    screenshot:
+      options.capture ??
+      (async () => {
+        throw new Error("no capture in these tests");
+      }),
     executablePaths: async () => new Map(),
     writeFile: async () => undefined,
     activateApp: async (pid) => {
@@ -187,7 +197,7 @@ describe("refs act on the live element", () => {
     expect(core.sent).toEqual([]);
   });
 
-  it("clicks the element where it is now when press is unsupported", async () => {
+  it("refuses a moved element even when its role and label still match", async () => {
     const row: Spec = {
       role: "cell",
       name: "Row 3",
@@ -206,8 +216,8 @@ describe("refs act on the live element", () => {
         element: cell.handle,
         expect: { role: "cell", label: "Row 3" },
       }),
-    ).toEqual(ok);
-    expect(core.sent).toEqual([["click", { x: 10, y: 200, width: 50, height: 20 }]]);
+    ).toMatchObject(staleNo);
+    expect(core.sent).toEqual([]);
   });
 
   it("refuses refs once their window moved", async () => {
@@ -344,7 +354,7 @@ describe("window identity fails closed", () => {
 });
 
 describe("screenshots and the mouse", () => {
-  it("refuses windows that are not fully on the primary display, re-reading it once", async () => {
+  it("refuses windows that are not fully on the primary display", async () => {
     const display = { x: 0, y: 0, width: 400, height: 900 };
     const core = makeCore([{ name: "Notes", pid: 5, windows: [window("Note")] }], {
       primaryDisplay: () => display,
@@ -364,7 +374,7 @@ describe("screenshots and the mouse", () => {
         message: "The window is not fully on the main display; move it there.",
       },
     });
-    expect(core.calls.primaryDisplay).toBe(2);
+    expect(core.calls.primaryDisplay).toBe(1);
   });
 
   it("releases the left mouse button on request", async () => {
@@ -384,4 +394,115 @@ describe("screenshots and the mouse", () => {
     ).toBe("/Applications/Foo.app/Contents/Frameworks/Foo Helper.app");
     expect(appBundlePath("/usr/bin/vim")).toBeUndefined();
   });
+});
+
+describe("Native target audit regressions", () => {
+  it("refuses a replacement window without needing an empty listing", async () => {
+    const app: FakeApp = { name: "TextEdit", pid: 10, windows: [window("Untitled")] };
+    const core = makeCore([app]);
+    const [old] = await core.list();
+    app.windows = [window("Untitled", { bounds: { ...BOUNDS, x: 600 } })];
+    expect(await core.call({ op: "key", window: old!.handle, keys: "enter" })).toMatchObject(
+      staleNo,
+    );
+    expect(core.sent).toEqual([]);
+    expect((await core.list())[0]!.handle).not.toBe(old!.handle);
+  });
+  it("refuses a reused AXIdentifier on a replacement window", async () => {
+    const app: FakeApp = {
+      name: "TextEdit",
+      pid: 10,
+      windows: [window("Before", { stableId: "MainWindow" })],
+    };
+    const core = makeCore([app]);
+    const [old] = await core.list();
+    app.windows = [window("After", { stableId: "MainWindow" })];
+    expect(await core.call({ op: "key", window: old!.handle, keys: "enter" })).toMatchObject(
+      staleNo,
+    );
+    expect(core.sent).toEqual([]);
+  });
+  it("refuses a replacement same-label control at the old path", async () => {
+    const app: FakeApp = {
+      name: "Mail",
+      pid: 10,
+      windows: [
+        window("Inbox", {
+          children: [
+            { role: "button", name: "Open", bounds: { x: 10, y: 20, width: 50, height: 20 } },
+          ],
+        }),
+      ],
+    };
+    const core = makeCore([app]);
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    app.windows[0]!.children = [
+      { role: "button", name: "Open", bounds: { x: 300, y: 200, width: 50, height: 20 } },
+    ];
+    expect(
+      await core.call({
+        op: "press",
+        element: ref!.handle,
+        expect: { role: "button", label: "Open" },
+      }),
+    ).toMatchObject(staleNo);
+    expect(core.sent).toEqual([]);
+  });
+});
+
+it("accessible type brings its target app to the front", async () => {
+  const app: FakeApp = {
+    name: "TextEdit",
+    pid: 10,
+    windows: [
+      window("Notes", {
+        active: false,
+        focused: false,
+        children: [{ role: "text field", name: "Body" }],
+      }),
+    ],
+  };
+  const options = {
+    foreground: 99,
+    activate: (_pid: number) => {
+      options.foreground = 10;
+      app.windows[0]!.active = true;
+      app.windows[0]!.focused = true;
+    },
+  };
+  const core = makeCore([app], options);
+  const [win] = await core.list();
+  const [ref] = await core.observe(win!.handle);
+  expect(
+    await core.call({
+      op: "typeText",
+      element: ref!.handle,
+      expect: { role: "text field", label: "Body" },
+      text: "audit",
+    }),
+  ).toEqual(ok);
+  expect(core.calls.activate).toBe(1);
+  expect(core.sent).toEqual([["AXtype", "Body", "audit"]]);
+});
+
+it("refuses screenshots when the main display cannot be resolved", async () => {
+  const app: FakeApp = {
+    name: "TextEdit",
+    pid: 10,
+    windows: [window("Notes", { bounds: { ...BOUNDS, x: 9000 } })],
+  };
+  const core = makeCore([app], {
+    primaryDisplay: () => null,
+    capture: async () => ({ width: 2, height: 2, toPng: () => new Uint8Array([1]) }) as never,
+  });
+  const [win] = await core.list();
+  expect(
+    await core.call({
+      op: "screenshot",
+      window: win!.handle,
+      outputPath: "/unused.png",
+      maxSize: 256,
+    }),
+  ).toMatchObject(refusedNo);
 });
