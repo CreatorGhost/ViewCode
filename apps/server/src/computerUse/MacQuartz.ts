@@ -132,6 +132,17 @@ export const pngDimensions = (bytes: Uint8Array): { width: number; height: numbe
 const permissionDenied = () =>
   Object.assign(new Error("Screen Recording is not granted."), { name: "PermissionDeniedError" });
 
+/** Reject extra capture extent that cannot share the window's coordinate mapping. */
+export const captureMatchesBounds = (
+  size: { readonly width: number; readonly height: number },
+  bounds: Rect,
+): boolean =>
+  bounds.width > 0 &&
+  bounds.height > 0 &&
+  size.width > 0 &&
+  size.height > 0 &&
+  Math.abs(size.height - (size.width * bounds.height) / bounds.width) <= 2;
+
 /**
  * Captures only the window's own pixels, even where other windows cover it,
  * scaled so its longest edge is at most `maxSize`. Null when the window has
@@ -158,9 +169,11 @@ export const macCaptureWindow = async (
   const fullPath = `${outputPath}.window.png`;
   await NodeFSP.mkdir(NodePath.dirname(outputPath), { recursive: true });
   try {
-    await run(SCREENCAPTURE, ["-x", "-o", "-t", "png", `-l${ids[0]}`, fullPath], 10_000);
+    // Attached menus extend the PNG outside the AX window bounds, changing
+    // its pixel-to-screen mapping. Capture the window alone, without them.
+    await run(SCREENCAPTURE, ["-x", "-o", "-a", "-t", "png", `-l${ids[0]}`, fullPath], 10_000);
     const full = pngDimensions(await NodeFSP.readFile(fullPath));
-    if (!full) return null;
+    if (!full || !captureMatchesBounds(full, bounds)) return null;
     if (Math.max(full.width, full.height) > maxSize) {
       await run(SIPS, ["-Z", String(maxSize), fullPath, "--out", outputPath], 10_000);
     } else {
