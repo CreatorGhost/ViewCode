@@ -42,7 +42,7 @@ export interface Xa11yApi {
    * Whether the native object behind a retained snapshot still has a native
    * parent; checked before a fresh snapshot is matched to it by attributes.
    */
-  readonly isAlive: (element: Element) => Promise<boolean>;
+  readonly elementIsAlive: (element: Element) => Promise<boolean>;
   /** Pid of the foreground application, or null when the platform cannot say. */
   readonly foregroundPid: () => Promise<number | null>;
   readonly inputSim: () => InputSim;
@@ -536,7 +536,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
 
   /** A fresh snapshot of the window (live bounds and state), or a `stale` refusal. */
   const refreshWindow = async (entry: WindowEntry): Promise<Element> => {
-    if (!(await api.isAlive(entry.element).catch(() => false))) {
+    if (!(await api.elementIsAlive(entry.element).catch(() => false))) {
       throw stale("The original window has closed.");
     }
     let children: ReadonlyArray<Element>;
@@ -608,7 +608,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     if (expect.role !== entry.role || expect.label !== clipValue(entry.label)) {
       throw stale("The element changed since it was observed.");
     }
-    if (!(await api.isAlive(entry.element).catch(() => false))) {
+    if (!(await api.elementIsAlive(entry.element).catch(() => false))) {
       throw stale("The observed element is gone; observe again.");
     }
     const windowEntry = requireWindow(entry.windowHandle);
@@ -776,7 +776,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       const claimed = new Map<Element, string>();
       for (const [handle, entry] of windows) {
         if (entry.pid !== pid || kept.has(handle)) continue;
-        if (!(await api.isAlive(entry.element).catch(() => false))) continue;
+        if (!(await api.elementIsAlive(entry.element).catch(() => false))) continue;
         const found = findWindow(entry, keyed);
         if (!found || claimed.has(found.window)) continue;
         adopt(entry, found);

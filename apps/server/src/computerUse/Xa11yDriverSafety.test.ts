@@ -136,7 +136,7 @@ const makeCore = (
       return app ? app.windows.map((spec) => fake(spec, sent)) : [];
     },
     // Like a retained AXUIElement: alive while that exact object is in the tree.
-    isAlive: async (element) => {
+    elementIsAlive: async (element) => {
       const target = snapshots.get(element);
       const inTree = (specs: Spec[]): boolean =>
         specs.some((spec) => spec === target || inTree(spec.children ?? []));
