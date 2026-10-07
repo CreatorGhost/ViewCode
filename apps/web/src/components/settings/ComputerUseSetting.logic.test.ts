@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { ComputerUseStatus } from "@t3tools/contracts";
 
-import { describeComputerUseStatus } from "./ComputerUseSetting.logic";
+import {
+  describeComputerUseApprovals,
+  describeComputerUseStatus,
+  showsComputerUseApprovals,
+} from "./ComputerUseSetting.logic";
 
 const status = (overrides: Partial<ComputerUseStatus> = {}): ComputerUseStatus => ({
   mode: "control",
@@ -41,5 +45,19 @@ describe("describeComputerUseStatus", () => {
     expect(
       describeComputerUseStatus(status({ platform: "linux", accessibility: "denied" })).message,
     ).not.toContain("System Settings");
+  });
+});
+
+describe("computer use approvals row", () => {
+  it("shows only when agents can send input", () => {
+    expect(showsComputerUseApprovals("control")).toBe(true);
+    expect(showsComputerUseApprovals("observe")).toBe(false);
+    expect(showsComputerUseApprovals("off")).toBe(false);
+  });
+
+  it("warns only when approvals are off", () => {
+    expect(describeComputerUseApprovals("never")).toContain("Agents act without asking.");
+    expect(describeComputerUseApprovals("thread")).not.toContain("without asking");
+    expect(describeComputerUseApprovals("risky")).not.toContain("without asking");
   });
 });

@@ -641,6 +641,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Agent browser access"]
         : []),
       ...(settings.computerUse !== DEFAULT_UNIFIED_SETTINGS.computerUse ? ["Computer use"] : []),
+      ...(settings.computerUseApprovals !== DEFAULT_UNIFIED_SETTINGS.computerUseApprovals
+        ? ["Ask before computer input"]
+        : []),
     ],
     [
       isTextGenerationModelDirty,
@@ -657,6 +660,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffColorScheme,
       settings.enableAgentBrowserAccess,
       settings.computerUse,
+      settings.computerUseApprovals,
       settings.confirmQuit,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
@@ -834,6 +838,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       // rather than discovering it later.
       enableAgentBrowserAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess,
       computerUse: DEFAULT_UNIFIED_SETTINGS.computerUse,
+      computerUseApprovals: DEFAULT_UNIFIED_SETTINGS.computerUseApprovals,
     });
     onRestored?.();
   }, [

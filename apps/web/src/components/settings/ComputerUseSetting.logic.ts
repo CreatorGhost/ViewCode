@@ -1,4 +1,4 @@
-import type { ComputerUseMode, ComputerUseStatus } from "@t3tools/contracts";
+import type { ComputerUseApprovals, ComputerUseMode, ComputerUseStatus } from "@t3tools/contracts";
 
 export const COMPUTER_USE_MODES: ReadonlyArray<ComputerUseMode> = ["off", "observe", "control"];
 
@@ -9,7 +9,34 @@ export const COMPUTER_USE_MODE_LABELS: Readonly<Record<ComputerUseMode, string>>
 };
 
 export const COMPUTER_USE_DESCRIPTION =
-  "Let agents see, and with control operate, apps on this machine through ViewCode. Input actions ask for approval unless the thread runs in full access. Password managers, System Settings and ViewCode itself are never controlled. Applies to new agent sessions; restart the current one from the command palette.";
+  "Let agents see, and with control operate, apps on this machine through ViewCode. With control, you choose when input asks first. Password managers, System Settings and ViewCode itself are never controlled. Applies to new agent sessions; restart the current one from the command palette.";
+
+export const COMPUTER_USE_APPROVALS: ReadonlyArray<ComputerUseApprovals> = [
+  "thread",
+  "risky",
+  "never",
+];
+
+export const COMPUTER_USE_APPROVALS_LABELS: Readonly<Record<ComputerUseApprovals, string>> = {
+  thread: "Follow thread permissions",
+  risky: "Only for risky actions",
+  never: "Never",
+};
+
+const COMPUTER_USE_APPROVALS_DESCRIPTION =
+  "When agents ask before clicking or typing. Blocked apps stay blocked, and input pauses while any approval waits.";
+
+/** Only control mode sends input, so only it has approvals to configure. */
+export function showsComputerUseApprovals(mode: ComputerUseMode): boolean {
+  return mode === "control";
+}
+
+/** The approvals row description; `never` adds the caution that agents stop asking. */
+export function describeComputerUseApprovals(approvals: ComputerUseApprovals): string {
+  return approvals === "never"
+    ? `${COMPUTER_USE_APPROVALS_DESCRIPTION} Agents act without asking.`
+    : COMPUTER_USE_APPROVALS_DESCRIPTION;
+}
 
 const MACOS_ACCESSIBILITY_GUIDANCE =
   "Grant Accessibility to ViewCode in System Settings → Privacy & Security → Accessibility, then check again.";

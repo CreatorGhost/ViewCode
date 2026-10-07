@@ -648,6 +648,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "computer-use-approvals",
+    title: "Ask before computer input",
+    to: "/settings/integrations",
+    searchTerms: [
+      "computer use approval ask permission risky never thread full access click type confirm",
+    ],
+  },
+  {
     id: "device-hub",
     title: "Device hub",
     to: "/settings/integrations",

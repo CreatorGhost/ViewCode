@@ -31,20 +31,32 @@ System Settings still looks on. Remove ViewCode from the list and add it again.
 
 ## Approvals
 
-Observing never asks. Every input action asks for your approval in the conversation, showing the
-app, the window and the control it will act on. Text the agent wants to type is counted, not shown.
-**Allow for the rest of this turn** covers routine actions until the current turn ends.
+Observing never asks. With **Observe and control**, **Ask before computer input** in the same
+settings section decides when an input action asks for your approval in the conversation. The
+prompt shows the app, the window and the control it will act on. Text the agent wants to type is
+counted, not shown.
 
-In **Full access** threads, routine actions run without asking. Actions on controls that look
-destructive, such as delete, send, submit, purchase or sign out, and shortcuts that quit or close
-windows always ask, in every mode. This check reads the control's label, so treat it as a safety
-net rather than a guarantee.
+- **Follow thread permissions** (default): in **Full access** threads, routine actions run without
+  asking; in every other mode, each input action asks. **Allow for the rest of this turn** covers
+  routine actions until the current turn ends.
+- **Only for risky actions**: only input that looks destructive asks, in any permission mode. That
+  means controls labeled delete, send, submit, purchase or sign out, and shortcuts that quit or
+  close windows. The check reads the control's label, so treat it as a safety net rather than a
+  guarantee.
+- **Never**: agents act without asking. Use it only when you trust what the agent is doing.
 
-Password managers such as 1Password, NordPass and Bitwarden, Keychain Access, System Settings,
-ViewCode itself and the app or terminal that started ViewCode can never be read or controlled by an agent. Screenshots are refused while a
-password manager or System Settings window overlaps the window being captured. While any approval in the environment is waiting for you, agents cannot
-send input at all, so an agent can never answer an approval for itself, whether in ViewCode, in a
-browser tab showing ViewCode or on a mirrored screen.
+Whichever you choose, the safety floor stays. Password managers such as 1Password, NordPass and
+Bitwarden, Keychain Access, System Settings, ViewCode itself and the app or terminal that started
+ViewCode can never be read or controlled by an agent. Screenshots are refused while a password
+manager or System Settings window overlaps the window being captured. While any approval in the
+environment is waiting for you, agents cannot send input at all, so an agent can never answer an
+approval for itself, whether in ViewCode, in a browser tab showing ViewCode or on a mirrored
+screen.
+
+When computer use is on, a provider's own prompt to run a plain `viewcode-computer` command, such as
+listing windows or taking a screenshot, is approved for you, so it does not stack a second prompt
+on top of the ones above. Other commands, and anything the provider would ask about that is not a
+plain `viewcode-computer` command, still ask as usual.
 
 These rules apply to `viewcode-computer`. macOS grants Accessibility and Screen Recording to
 ViewCode as a whole, and programs an agent starts from its shell run as part of ViewCode, so an

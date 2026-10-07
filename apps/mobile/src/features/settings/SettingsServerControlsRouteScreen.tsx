@@ -4,6 +4,7 @@ import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollVie
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import {
+  type ComputerUseApprovals,
   type ComputerUseMode,
   type ResponseStreamingMode,
   type ServerSettings,
@@ -136,8 +137,29 @@ const COMPUTER_USE_CHOICES: ReadonlyArray<{
   {
     mode: "control",
     label: "Observe and control",
-    description:
-      "Agents can also click and type. Input asks for approval unless the thread runs in full access.",
+    description: "Agents can also click and type. Choose below when input asks first.",
+  },
+];
+
+const COMPUTER_USE_APPROVAL_CHOICES: ReadonlyArray<{
+  readonly mode: ComputerUseApprovals;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  {
+    mode: "thread",
+    label: "Follow thread permissions",
+    description: "Full access runs routine input without asking; other modes ask every time.",
+  },
+  {
+    mode: "risky",
+    label: "Only for risky actions",
+    description: "Delete, send, submit, purchase and quit-style input asks, in any mode.",
+  },
+  {
+    mode: "never",
+    label: "Never",
+    description: "Agents act without asking. Blocked apps stay blocked.",
   },
 ];
 
@@ -441,6 +463,28 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                         />
                       ))}
                     </SettingsSection>
+                    {uniform("computerUse") === "control" ? (
+                      <SettingsSection
+                        title="Ask before computer input"
+                        trailing={
+                          pendingWrites === 0 && uniform("computerUseApprovals") === null ? (
+                            <MixedValuesLabel projectSelected={projectSelected} />
+                          ) : null
+                        }
+                      >
+                        {COMPUTER_USE_APPROVAL_CHOICES.map((choice, index) => (
+                          <ChoiceRow
+                            key={choice.mode}
+                            label={choice.label}
+                            description={choice.description}
+                            selected={uniform("computerUseApprovals") === choice.mode}
+                            separated={index > 0}
+                            disabled={disabledFor("computerUseApprovals")}
+                            onPress={() => write({ computerUseApprovals: choice.mode })}
+                          />
+                        ))}
+                      </SettingsSection>
+                    ) : null}
                     <Text className="px-2 text-sm text-foreground-muted">
                       Password managers, System Settings and ViewCode itself are never controlled.
                       Applies to new agent sessions.
