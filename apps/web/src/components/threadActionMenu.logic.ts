@@ -20,6 +20,7 @@ export type ThreadActionMenuId =
   | "snooze"
   | `snooze:${string}`
   | "unsnooze"
+  | "open-in-split"
   | "rename"
   | "regenerate-title"
   | "mark-unread"

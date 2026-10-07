@@ -4,6 +4,8 @@ import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { ThreadRouteView } from "../components/ThreadRouteView";
+import { SplitChatSurface } from "../splitView/SplitChatSurface";
+import { useActiveSplit, useSplitActions } from "../splitView/useSplitView";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
@@ -33,6 +35,7 @@ function ChatRouteGlobalShortcuts() {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const { toggleSplit } = useSplitActions();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();
@@ -90,6 +93,13 @@ function ChatRouteGlobalShortcuts() {
       if (event.key === "Escape" && selectedThreadKeysSize > 0) {
         event.preventDefault();
         clearSelection();
+        return;
+      }
+
+      if (command === "thread.split") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleSplit();
         return;
       }
 
@@ -185,6 +195,7 @@ function ChatRouteGlobalShortcuts() {
     selectedThreadKeysSize,
     legacySidebarEnabled,
     terminalOpen,
+    toggleSplit,
   ]);
 
   return null;
@@ -197,10 +208,17 @@ function ChatRouteLayout() {
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
   });
+  const split = useActiveSplit();
   return (
     <>
       <ChatRouteGlobalShortcuts />
-      {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
+      {threadTarget && split && threadTarget.kind === "server" ? (
+        <SplitChatSurface pair={split.pair} focusedIndex={split.focusedIndex} />
+      ) : threadTarget ? (
+        <ThreadRouteView target={threadTarget} />
+      ) : (
+        <Outlet />
+      )}
     </>
   );
 }

@@ -59,6 +59,7 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  Columns2Icon,
 } from "lucide-react";
 import {
   useCallback,
@@ -194,6 +195,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
+import { useSplitActions } from "../splitView/useSplitView";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import {
@@ -1415,6 +1417,25 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  const { openSplitWith, toggleSplit } = useSplitActions();
+  const splitThreadItems = useMemo(
+    () =>
+      buildThreadActionItems({
+        threads: threads.filter((thread) => thread.id !== activeThreadId),
+        projectTitleById,
+        sortOrder: clientSettings.sidebarThreadSortOrder,
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+        limit: 50,
+        runThread: async (thread) => openSplitWith(scopeThreadRef(thread.environmentId, thread.id)),
+      }),
+    [
+      activeThreadId,
+      clientSettings.sidebarThreadSortOrder,
+      openSplitWith,
+      projectTitleById,
+      threads,
+    ],
+  );
 
   const pushPaletteView = useCallback(
     (view: CommandPaletteView): void => {
@@ -1800,6 +1821,26 @@ function OpenCommandPaletteDialog(props: {
   }
 
   if (activeThread !== null) {
+    actionItems.push(
+      {
+        kind: "submenu",
+        value: "action:split-with",
+        searchTerms: ["split", "side by side", "two threads", "compare"],
+        title: "Split with...",
+        icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+        addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+        groups: [{ value: "threads", label: "Threads", items: splitThreadItems }],
+      },
+      {
+        kind: "action",
+        value: "action:toggle-split",
+        searchTerms: ["split", "toggle split", "close split", "side by side"],
+        title: "Toggle split view",
+        icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.split",
+        run: async () => toggleSplit(),
+      },
+    );
     actionItems.push({
       kind: "action",
       value: "action:find-in-thread",

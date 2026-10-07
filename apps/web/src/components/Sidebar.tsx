@@ -73,6 +73,7 @@ import {
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { useRightPanelStore } from "../rightPanelStore";
+import { useSplitActions } from "../splitView/useSplitView";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -2474,6 +2475,7 @@ export default function Sidebar() {
   }, [keybindings, orderedThreadKeys]);
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
 
+  const { openSplitWith } = useSplitActions();
   const navigateToThread = useCallback(
     (threadRef: ScopedThreadRef) => {
       if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
@@ -2642,12 +2644,17 @@ export default function Sidebar() {
         rangeSelectTo(threadKey, orderedThreadKeysRef.current);
         return;
       }
+      if (event.altKey) {
+        event.preventDefault();
+        openSplitWith(threadRef);
+        return;
+      }
       if (isTrailingDoubleClick(event.detail)) {
         return;
       }
       navigateToThread(threadRef);
     },
-    [navigateToThread, rangeSelectTo, toggleThreadSelection],
+    [navigateToThread, openSplitWith, rangeSelectTo, toggleThreadSelection],
   );
 
   const attemptPin = useCallback(
@@ -3055,36 +3062,42 @@ export default function Sidebar() {
         const isChildAgent = treeRef.current.parentKeyByKey.has(threadKey);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            buildThreadActionMenuItems({
-              branch: thread.branch ?? null,
-              projectFilter: threadProjectGroup
-                ? {
-                    label: threadProjectGroup.displayName,
-                    isActive: projectScopeKey === threadProjectGroup.projectKey,
-                  }
-                : null,
-              isPinned: thread.pinnedAt != null,
-              isSettled: settledThreadKeysRef.current.has(threadKey),
-              autoSettleEnabled: thread.autoSettleDisabledAt == null,
-              isSnoozed: false,
-              canSnoozeNow: false,
-              isRegeneratingTitle,
-              isRunning:
-                thread.session?.status === "running" && thread.session.activeTurnId != null,
-              supports: {
-                settlement: !isChildAgent && capabilities?.threadSettlement === true,
-                autoSettleOptOut: !isChildAgent && capabilities?.threadAutoSettleOptOut === true,
-                snooze: false,
-                pinning: capabilities?.threadPinning === true,
-                titleRegeneration: capabilities?.threadTitleRegeneration === true,
-              },
-              snoozePresets: [],
-            }),
+            [
+              { id: "open-in-split" as const, label: "Open in split", icon: "columns-2" },
+              ...buildThreadActionMenuItems({
+                branch: thread.branch ?? null,
+                projectFilter: threadProjectGroup
+                  ? {
+                      label: threadProjectGroup.displayName,
+                      isActive: projectScopeKey === threadProjectGroup.projectKey,
+                    }
+                  : null,
+                isPinned: thread.pinnedAt != null,
+                isSettled: settledThreadKeysRef.current.has(threadKey),
+                autoSettleEnabled: thread.autoSettleDisabledAt == null,
+                isSnoozed: false,
+                canSnoozeNow: false,
+                isRegeneratingTitle,
+                isRunning:
+                  thread.session?.status === "running" && thread.session.activeTurnId != null,
+                supports: {
+                  settlement: !isChildAgent && capabilities?.threadSettlement === true,
+                  autoSettleOptOut: !isChildAgent && capabilities?.threadAutoSettleOptOut === true,
+                  snooze: false,
+                  pinning: capabilities?.threadPinning === true,
+                  titleRegeneration: capabilities?.threadTitleRegeneration === true,
+                },
+                snoozePresets: [],
+              }),
+            ],
             position,
           ),
         );
         if (clicked._tag === "Failure") return;
         switch (clicked.value) {
+          case "open-in-split":
+            openSplitWith(threadRef);
+            return;
           case "filter-by-project":
             // Picking the already-scoped project again returns to all projects.
             if (threadProjectGroup) {
@@ -3231,6 +3244,7 @@ export default function Sidebar() {
       })();
     },
     [
+      openSplitWith,
       attemptArchive,
       attemptPin,
       attemptSettle,

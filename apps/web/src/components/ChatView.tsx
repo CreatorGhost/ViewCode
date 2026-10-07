@@ -231,6 +231,7 @@ import {
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { ThreadFindBar, THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
+import { useSplitPaneFocused } from "../splitView/SplitPaneContext";
 import { chatOwnsFindShortcut } from "./chat/threadFind.logic";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
@@ -1489,6 +1490,8 @@ export default function ChatView(props: ChatViewProps) {
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   // A stalled first load has no detail either; it renders like a load.
   const threadDetailLoading = threadSyncPhase === "loading" || threadSyncPhase === "stalled";
+  // In a split view only the focused pane answers shortcuts, find and refocus.
+  const splitPaneFocused = useSplitPaneFocused();
   const handleNewThread = useNewThreadHandler();
   const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
   const routeThreadRef = useMemo(
@@ -1786,10 +1789,11 @@ export default function ChatView(props: ChatViewProps) {
   const legendListRef = useRef<LegendListRef | null>(null);
   const [threadFindOpen, setThreadFindOpen] = useState(false);
   useEffect(() => {
+    if (!splitPaneFocused) return;
     const open = () => setThreadFindOpen(true);
     window.addEventListener(THREAD_FIND_OPEN_EVENT, open);
     return () => window.removeEventListener(THREAD_FIND_OPEN_EVENT, open);
-  }, []);
+  }, [splitPaneFocused]);
   const getTimelineScrollableNode = useCallback(
     () => legendListRef.current?.getScrollableNode() ?? null,
     [],
@@ -5806,14 +5810,14 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeThread?.id, routeThreadKey]);
 
   useEffect(() => {
-    if (!activeThread?.id || terminalUiState.terminalOpen) return;
+    if (!activeThread?.id || terminalUiState.terminalOpen || !splitPaneFocused) return;
     const frame = window.requestAnimationFrame(() => {
       focusComposer();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, terminalUiState.terminalOpen]);
+  }, [activeThread?.id, focusComposer, splitPaneFocused, terminalUiState.terminalOpen]);
 
   // Tabbing back into the app lands focus wherever it last was, often the right panel or the
   // body. Put it in the composer unless something that takes typing already holds it. The
@@ -5821,7 +5825,8 @@ export default function ChatView(props: ChatViewProps) {
   // terminal is a surface and is recognized by the predicate instead. Mobile is left alone so
   // returning to the app does not raise the keyboard.
   useEffect(() => {
-    if (!activeThread?.id || terminalUiState.terminalOpen || isMobileViewport) return;
+    if (!activeThread?.id || terminalUiState.terminalOpen || isMobileViewport || !splitPaneFocused)
+      return;
     let frame: number | null = null;
     const onWindowFocus = () => {
       if (frame !== null) window.cancelAnimationFrame(frame);
@@ -5840,7 +5845,13 @@ export default function ChatView(props: ChatViewProps) {
       window.removeEventListener("focus", onWindowFocus);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, isMobileViewport, terminalUiState.terminalOpen]);
+  }, [
+    activeThread?.id,
+    focusComposer,
+    isMobileViewport,
+    splitPaneFocused,
+    terminalUiState.terminalOpen,
+  ]);
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -6592,7 +6603,8 @@ export default function ChatView(props: ChatViewProps) {
     running: phase === "running",
     model: activeThread?.modelSelection.model,
     activities: threadActivities,
-    onCompact: compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
+    onCompact:
+      compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
     sendAnyway: () => void onSendRef.current(),
   });
   const imagePayloadBannerItem = useImagePayloadBanner({
@@ -6807,6 +6819,7 @@ export default function ChatView(props: ChatViewProps) {
   );
 
   useEffect(() => {
+    if (!splitPaneFocused) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
         event.stopPropagation();
@@ -7098,12 +7111,14 @@ export default function ChatView(props: ChatViewProps) {
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
     composerRef,
+    splitPaneFocused,
   ]);
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
   // so a paste that follows has no editable target and would be dropped.
   // Route it to the composer like a typed key, which also expands it.
   useEffect(() => {
+    if (!splitPaneFocused) return;
     const keyHandler = (event: KeyboardEvent) => {
       if (
         shouldRedirectInputToComposer(event) &&
@@ -7136,7 +7151,7 @@ export default function ChatView(props: ChatViewProps) {
       window.removeEventListener("keydown", keyHandler, true);
       window.removeEventListener("paste", handler, true);
     };
-  }, [activeThreadId, composerRef]);
+  }, [activeThreadId, composerRef, splitPaneFocused]);
 
   const [pendingRevert, setPendingRevert] = useState<{
     turnCount: number;

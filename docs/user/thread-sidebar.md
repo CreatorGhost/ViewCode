@@ -164,3 +164,14 @@ Choose **Snooze → Custom…** from a thread's menu to pick a date and time in 
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. On web and desktop, you can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
+
+## Split view
+
+Watch one agent while steering another. Right-click a thread and choose **Open in
+split**, Alt+click it, run **Split with...** from the command palette, or press
+`Cmd/Ctrl+\` to pair the current thread with the most recent other one (press it
+again to close). Each pane is a full chat; the focused pane has a subtle ring, and
+find and shortcuts act on it. Click a pane to focus it, drag the divider to resize
+(double-click to reset), and use the pane buttons to swap or close. Split needs a
+window at least 1024px wide and falls back to a single chat below that; opening any
+thread outside the pair returns to one chat.
