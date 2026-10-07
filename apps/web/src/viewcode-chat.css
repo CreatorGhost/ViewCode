@@ -259,7 +259,11 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 /* Runtime mode chip: mode-coloured, borderless. Full access is amber. */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   [data-chat-composer-footer]
-  [data-runtime-mode="full-access"] {
+  [data-runtime-mode="full-access"],
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-chat-composer-footer]
+  [data-runtime-mode="full-access"]
+  * {
   color: var(--warning);
 }
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
