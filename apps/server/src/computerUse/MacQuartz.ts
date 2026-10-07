@@ -81,6 +81,16 @@ function run(argv) {
   }
 }`;
 
+/**
+ * Seconds since the last mouse or keyboard event from the hardware event
+ * system (kCGAnyInputEventType). Events the driver posts may count too; the
+ * driver tells them apart by when its own input ended.
+ */
+const SECONDS_SINCE_INPUT_SCRIPT = `ObjC.import("CoreGraphics");
+function run() {
+  return String($.CGEventSourceSecondsSinceLastEventType(1, 4294967295));
+}`;
+
 /** Releases the left button wherever the pointer is now. */
 const RELEASE_SCRIPT = `ObjC.import("CoreGraphics");
 function run() {
@@ -128,6 +138,12 @@ const coordinate = (value: number) => String(Math.round(value * 100) / 100);
 /** True when the app accepted `AXManualAccessibility`, so its tree is being built. */
 export const macEnableManualAccessibility = async (pid: number): Promise<boolean> =>
   (await jxa(MANUAL_ACCESSIBILITY_SCRIPT, [pid], 5_000)).trim() === "0";
+
+/** Null when the answer is not a number. */
+export const macSecondsSinceInput = async (): Promise<number | null> => {
+  const seconds = Number((await jxa(SECONDS_SINCE_INPUT_SCRIPT, [], 5_000)).trim());
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+};
 
 export const macReleaseMouse = async (): Promise<void> => {
   await jxa(RELEASE_SCRIPT, [], 5_000);

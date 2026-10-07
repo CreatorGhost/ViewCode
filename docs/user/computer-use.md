@@ -56,6 +56,11 @@ environment is waiting for you, agents cannot send input at all, so an agent can
 approval for itself, whether in ViewCode, in a browser tab showing ViewCode or on a mirrored
 screen.
 
+When an action needs the window in front, such as a click, a keyboard shortcut or typing into
+whatever has focus, it waits while you are using the mouse or keyboard. The agent tries again a
+moment later, so it does not fight you for the screen. Actions by reference in the background
+go ahead.
+
 When computer use is on, a provider's own prompt to run a plain `viewcode-computer` command, such as
 listing windows or taking a screenshot, is approved for you, so it does not stack a second prompt
 on top of the ones above. Agents are told to run it by the full path ViewCode installed it at, and

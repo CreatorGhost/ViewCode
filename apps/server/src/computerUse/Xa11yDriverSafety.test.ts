@@ -112,6 +112,7 @@ const makeCore = (
     readonly capture?: Xa11yApi["screenshot"];
     readonly captureWindow?: Xa11yApi["captureWindow"];
     readonly enableAccessibility?: Xa11yApi["enableAccessibility"];
+    readonly secondsSinceInput?: Xa11yApi["secondsSinceInput"];
     readonly executablePaths?: Xa11yApi["executablePaths"];
     /** The server's check; allows everything unless given. */
     readonly authorize?: (
@@ -162,6 +163,7 @@ const makeCore = (
     pointerDrag: async (from, to) => void sent.push(["drag", from, to]),
     releaseMouse: async () => void sent.push(["mouseUp", "left"]),
     enableAccessibility: options.enableAccessibility ?? (async () => false),
+    secondsSinceInput: options.secondsSinceInput ?? (async () => null),
     captureWindow: options.captureWindow ?? (async () => null),
     screenshot:
       options.capture ??
@@ -469,6 +471,74 @@ describe("window identity fails closed", () => {
       staleNo,
     );
     expect(core.sent).toEqual([]);
+  });
+});
+
+describe("input waits while the user is using the computer", () => {
+  const keyEnter = (window: string) => ({ op: "key", window, keys: "enter" }) as const;
+
+  it("refuses screen-taking input right after the user's own input, without activating", async () => {
+    const notes = window("Notes", { active: false, focused: false });
+    const core = makeCore([{ name: "Notes", pid: 8, windows: [notes] }], {
+      secondsSinceInput: async () => 0.2,
+    });
+    const [win] = await core.list();
+    expect(await core.call(keyEnter(win!.handle))).toMatchObject({
+      ok: false,
+      error: { kind: "policy", code: "CU-CON-009", dispatched: "no" },
+    });
+    expect(core.calls.activate).toBe(0);
+    expect(core.sent).toEqual([]);
+  });
+
+  it("goes ahead once the user has paused, and for background actions", async () => {
+    let idle = 0.2;
+    const field: Spec = { role: "button", name: "Go" };
+    const core = makeCore(
+      [{ name: "Notes", pid: 8, windows: [window("Notes", { children: [field] })] }],
+      {
+        secondsSinceInput: async () => idle,
+      },
+    );
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    expect(
+      await core.call({
+        op: "press",
+        element: ref!.handle,
+        expect: { role: "button", label: "Go" },
+      }),
+    ).toMatchObject({ ok: true, result: { tookFocus: false } });
+    idle = 2;
+    expect(await core.call(keyEnter(win!.handle))).toMatchObject({ ok: true });
+  });
+
+  it("does not mistake its own last input for the user's", async () => {
+    const clock = { now: 10_000 };
+    let lastInputAt = 0;
+    const core = makeCore([{ name: "Notes", pid: 8, windows: [window("Notes")] }], {
+      clock,
+      secondsSinceInput: async () => (clock.now - lastInputAt) / 1000,
+      receiveText: () => {
+        lastInputAt = clock.now;
+      },
+    });
+    const [win] = await core.list();
+    clock.now = 20_000;
+    lastInputAt = 0;
+    expect(await core.call({ op: "typeFocused", window: win!.handle, text: "a" })).toMatchObject({
+      ok: true,
+    });
+    // Its own keystroke is the newest input half a second later.
+    clock.now += 500;
+    expect(await core.call(keyEnter(win!.handle))).toMatchObject({ ok: true });
+    // Input that arrives after its own input ended is the user's.
+    clock.now += 500;
+    lastInputAt = clock.now - 50;
+    expect(await core.call(keyEnter(win!.handle))).toMatchObject({
+      ok: false,
+      error: { code: "CU-CON-009" },
+    });
   });
 });
 

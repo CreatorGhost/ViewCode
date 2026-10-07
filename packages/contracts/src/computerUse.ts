@@ -71,6 +71,11 @@ export const ComputerUseErrorCode = Schema.Literals([
    * mirrored screen) for itself or another agent.
    */
   "CU-CON-008",
+  /**
+   * The user is using the mouse or keyboard, so input that would take the
+   * screen waits until they pause instead of fighting them for it.
+   */
+  "CU-CON-009",
   /** Platform unsupported or the driver could not start. */
   "CU-EXT-001",
   /** Accessibility permission is missing for the app that runs ViewCode. */

@@ -356,7 +356,7 @@ const oneOf =
   (value: unknown) =>
     isString(value) && options.includes(value);
 
-const ERROR_CODE = /^CU-(?:VAL-00[1-4]|NOT-00[1-3]|CON-00[1-8]|EXT-00[1-6]|INT-001)$/;
+const ERROR_CODE = /^CU-(?:VAL-00[1-4]|NOT-00[1-3]|CON-00[1-9]|EXT-00[1-6]|INT-001)$/;
 const isEffect = oneOf("dispatched", "not-dispatched", "dispatched-unknown");
 
 const isRect = (value: unknown) =>
@@ -698,6 +698,8 @@ ERRORS
                    and pick the point again.
   CU-CON-008       input is paused while an approval waits anywhere in the
                    environment. Wait for the user to answer, then observe again.
+  CU-CON-009       the user is using the mouse or keyboard. Wait a few seconds,
+                   then observe again and retry; never retry in a tight loop.
   CU-EXT-001       the driver cannot run on this machine.
   CU-EXT-002       Accessibility permission is missing: ask the user to grant it
                    to ViewCode in System Settings > Privacy & Security > Accessibility.

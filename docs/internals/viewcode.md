@@ -362,6 +362,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   sends 20 characters per key event and some apps keep only the first, so text goes one code
   point per event. AXValue and AXSelectedText writes can succeed without changing a web field
   (Safari), so the driver re-reads the value and types by keyboard when it did not change.
+- Input that takes the screen refuses with CU-CON-009 while the hardware event system reports
+  input in the last 1.5 s (`CGEventSourceSecondsSinceLastEventType`, no Input Monitoring needed).
+  The driver's own posted events can count as that input, so only input newer than the driver's
+  last dispatch counts as the user's. It is a time window, never a latched pause: Synara's
+  latched "input paused" state stayed on and blocked every action.
 - Logs and approval text never carry typed text or values (approvals show a character count).
   The service logs one INFO line per request (thread, command, outcome or CU code, effect,
   tookFocus, duration) and one when the pause or a policy check refuses input (code, stage); the

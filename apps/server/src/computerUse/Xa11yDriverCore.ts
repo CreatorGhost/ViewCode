@@ -71,6 +71,11 @@ export interface Xa11yApi {
    * tree is still being built.
    */
   readonly enableAccessibility: (pid: number) => Promise<boolean>;
+  /**
+   * Seconds since the last mouse or keyboard event, or null when the
+   * platform cannot say; may include events the driver posted itself.
+   */
+  readonly secondsSinceInput: () => Promise<number | null>;
   readonly screenshot: (element: Element) => Promise<Screenshot>;
   /**
    * Captures only the window's own pixels (covering windows left out) as a
@@ -220,6 +225,13 @@ export const BOUNDS_TOLERANCE = 0;
  */
 export const ACTIVATION_TIMEOUT_MS = 3_000;
 const ACTIVATION_POLL_MS = 50;
+/**
+ * Input that takes the screen waits while the user touched the mouse or
+ * keyboard this recently. It is a time window, so it clears by itself.
+ */
+const USER_ACTIVE_MS = 1_500;
+/** Margin for the driver's own events showing up as the latest input. */
+const OWN_INPUT_SLACK_MS = 100;
 /** How long a Chromium or Electron app gets to build its tree after it is first asked. */
 const ACCESSIBILITY_BUILD_MS = 500;
 /** How long a text change made through accessibility may take to show in the element's value. */
@@ -676,6 +688,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   const activate = async (entry: WindowEntry): Promise<Element> => {
     let live = await refreshWindow(entry);
     if (await isFront(entry, live)) return live;
+    await refuseWhileUserActive();
     await api.activateApp(entry.pid).catch(() => undefined);
     if (live.actions.includes("raise")) await live.performAction("raise").catch(() => undefined);
     await live.focus().catch(() => undefined);
@@ -687,6 +700,34 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       }
       await api.sleep(ACTIVATION_POLL_MS);
     }
+  };
+
+  /** When the driver's last native input ended (`api.now()`), to tell it apart from the user's. */
+  let ownInputEndedAt: number | undefined;
+
+  /**
+   * Refuses input that would take the screen while the user is using the
+   * mouse or keyboard. Input newer than the driver's own last input is theirs.
+   */
+  const refuseWhileUserActive = async () => {
+    const seconds = await api.secondsSinceInput().catch(() => null);
+    if (seconds === null || seconds * 1000 >= USER_ACTIVE_MS) return;
+    if (
+      ownInputEndedAt !== undefined &&
+      seconds * 1000 >= api.now() - ownInputEndedAt - OWN_INPUT_SLACK_MS
+    ) {
+      return;
+    }
+    throw new Refusal({
+      ok: false,
+      error: {
+        kind: "policy",
+        code: "CU-CON-009",
+        message:
+          "The user is using the mouse or keyboard. Wait a few seconds, then observe again and retry.",
+        dispatched: "no",
+      },
+    });
   };
 
   /** The last check before input: the target window is still the active one. */
@@ -794,6 +835,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     phase: DriverDispatchPhase,
     { element, point, background = false }: InputTarget,
   ) => {
+    if (phase === "dispatch" && !background) await refuseWhileUserActive();
     const expectedBounds = entry.bounds;
     const live = await refreshWindow(entry);
     if (!sameBounds(expectedBounds, live.bounds)) throw stale("The window moved before dispatch.");
@@ -848,6 +890,8 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     } catch (error) {
       if (error instanceof Refusal) return error.result;
       return { ok: false, error: classifyXa11yError(error, { afterDispatch: true }) };
+    } finally {
+      ownInputEndedAt = api.now();
     }
   };
 
@@ -1338,6 +1382,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           await Promise.resolve()
             .then(() => api.releaseMouse())
             .catch(() => undefined);
+          ownInputEndedAt = api.now();
           return { ok: true, result: null };
         }
         case "observe":
