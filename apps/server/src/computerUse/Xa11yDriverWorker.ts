@@ -22,7 +22,12 @@ import * as NodePath from "node:path";
 
 import type { ComputerUseError } from "@t3tools/contracts";
 
-import { macCaptureWindow, macDrag, macReleaseMouse } from "./MacQuartz.ts";
+import {
+  macCaptureWindow,
+  macDrag,
+  macEnableManualAccessibility,
+  macReleaseMouse,
+} from "./MacQuartz.ts";
 import {
   appBundlePath,
   DRIVER_EPOCH_ENV,
@@ -97,6 +102,8 @@ export const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput
       ? macDrag
       : (from, to) => xa11y.inputSim().drag([from.x, from.y], [to.x, to.y]),
   releaseMouse: PLATFORM === "darwin" ? macReleaseMouse : () => xa11y.inputSim().mouseUp("left"),
+  enableAccessibility: async (pid) =>
+    PLATFORM === "darwin" ? macEnableManualAccessibility(pid) : false,
   screenshot: (element) => xa11y.screenshot({ element }),
   captureWindow: async (pid, bounds, outputPath, maxSize) =>
     PLATFORM === "darwin" ? macCaptureWindow(pid, bounds, outputPath, maxSize) : null,

@@ -111,6 +111,7 @@ const makeCore = (
     readonly primaryDisplay?: () => Rect | null;
     readonly capture?: Xa11yApi["screenshot"];
     readonly captureWindow?: Xa11yApi["captureWindow"];
+    readonly enableAccessibility?: Xa11yApi["enableAccessibility"];
     readonly executablePaths?: Xa11yApi["executablePaths"];
     /** The server's check; allows everything unless given. */
     readonly authorize?: (
@@ -160,6 +161,7 @@ const makeCore = (
     inputSim: () => input,
     pointerDrag: async (from, to) => void sent.push(["drag", from, to]),
     releaseMouse: async () => void sent.push(["mouseUp", "left"]),
+    enableAccessibility: options.enableAccessibility ?? (async () => false),
     captureWindow: options.captureWindow ?? (async () => null),
     screenshot:
       options.capture ??
@@ -467,6 +469,25 @@ describe("window identity fails closed", () => {
       staleNo,
     );
     expect(core.sent).toEqual([]);
+  });
+});
+
+describe("full accessibility trees", () => {
+  it("asks an app for its tree once, and waits for it the first time", async () => {
+    const asked: number[] = [];
+    const slept: number[] = [];
+    const core = makeCore([{ name: "Chrome", pid: 7, windows: [window("Docs")] }], {
+      enableAccessibility: async (pid) => {
+        asked.push(pid);
+        return true;
+      },
+      sleep: async (ms) => void slept.push(ms),
+    });
+    const [win] = await core.list();
+    await core.observe(win!.handle);
+    await core.observe(win!.handle);
+    expect(asked).toEqual([7]);
+    expect(slept).toEqual([500]);
   });
 });
 

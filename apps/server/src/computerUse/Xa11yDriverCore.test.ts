@@ -83,6 +83,7 @@ const makeHarness = (
     inputSim: () => input,
     pointerDrag: async (from, to) => void sent.push(["drag", [from.x, from.y], [to.x, to.y]]),
     releaseMouse: async () => void sent.push(["releaseMouse"]),
+    enableAccessibility: async () => false,
     captureWindow: options.captureWindow ?? (async () => null),
     screenshot: async () => retinaShot,
     executablePaths: async (pids) => new Map(pids.map((pid) => [pid, `/apps/${pid}`])),

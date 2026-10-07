@@ -21,27 +21,33 @@ const OSASCRIPT = "/usr/bin/osascript";
 const SCREENCAPTURE = "/usr/sbin/screencapture";
 const SIPS = "/usr/bin/sips";
 
-/** Interpolated mouse-dragged events: ~60 Hz for a third of a second. */
+/** Interpolated mouse-dragged events: 20 steps over half a second. */
 const DRAG_STEPS = 20;
-const DRAG_STEP_MS = 16;
+const DRAG_STEP_MS = 25;
 
 /**
  * A left-button drag as positioned Quartz events: move, down, dragged steps,
  * up. xa11y 0.13 posts its macOS mouse down and up at (0,0) instead of at the
- * pointer, so its own drag presses the screen corner. The pauses let apps
- * such as Blender register the press before the motion. The button is
- * released even when a later event fails.
+ * pointer, so its own drag presses the screen corner. Events come from a
+ * HID-state source after the real cursor is moved to the start, because
+ * WebKit and Chromium filter drags that do not look like hardware input; the
+ * pauses let apps such as Blender register the press before the motion. The
+ * button is released even when a later event fails.
  */
 const DRAG_SCRIPT = `ObjC.import("CoreGraphics");
 function run(argv) {
   var n = argv.map(Number);
   var from = { x: n[0], y: n[1] }, to = { x: n[2], y: n[3] };
   var steps = n[4], pause = n[5] / 1000;
+  var source = $.CGEventSourceCreate(1);
   function post(type, point) {
-    var event = $.CGEventCreateMouseEvent(null, type, point, 0);
+    var event = $.CGEventCreateMouseEvent(source, type, point, 0);
     if (type === 1 || type === 2) $.CGEventSetIntegerValueField(event, 1, 1);
     $.CGEventPost(0, event);
   }
+  $.CGWarpMouseCursorPosition(from);
+  post(5, from);
+  delay(0.03);
   post(5, from);
   delay(0.05);
   post(1, from);
@@ -55,6 +61,24 @@ function run(argv) {
     post(2, to);
   }
   return "ok";
+}`;
+
+/**
+ * Asks a Chromium or Electron app to build its accessibility tree, which it
+ * otherwise only does for screen readers, so its web content has controls to
+ * observe. Prints the AXError (0 = accepted). AXEnhancedUserInterface would
+ * also work but changes how other apps animate and resize windows.
+ */
+const MANUAL_ACCESSIBILITY_SCRIPT = `ObjC.import("ApplicationServices");
+function run(argv) {
+  var app = $.AXUIElementCreateApplication(Number(argv[0]));
+  var name = $("AXManualAccessibility");
+  var value = $.kCFBooleanTrue || $.NSNumber.numberWithBool(true);
+  try {
+    return String($.AXUIElementSetAttributeValue(app, name, value));
+  } catch (error) {
+    return String($.AXUIElementSetAttributeValue(app, ObjC.castObjectToRef(name), ObjC.castObjectToRef(value)));
+  }
 }`;
 
 /** Releases the left button wherever the pointer is now. */
@@ -100,6 +124,10 @@ const jxa = (script: string, args: ReadonlyArray<string | number>, timeoutMs: nu
   run(OSASCRIPT, ["-l", "JavaScript", "-e", script, ...args.map(String)], timeoutMs);
 
 const coordinate = (value: number) => String(Math.round(value * 100) / 100);
+
+/** True when the app accepted `AXManualAccessibility`, so its tree is being built. */
+export const macEnableManualAccessibility = async (pid: number): Promise<boolean> =>
+  (await jxa(MANUAL_ACCESSIBILITY_SCRIPT, [pid], 5_000)).trim() === "0";
 
 export const macReleaseMouse = async (): Promise<void> => {
   await jxa(RELEASE_SCRIPT, [], 5_000);
