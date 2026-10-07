@@ -7,7 +7,7 @@ import ChatView from "./ChatView";
 import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
 import { waitForDraftHeroTransition } from "./chat/draftHeroTransition";
 import { SidebarInset } from "./ui/sidebar";
-import { OpenThreadTabs, ThreadTabsHost } from "./tabs/OpenThreadTabs";
+import { ThreadTabsHost } from "./tabs/OpenThreadTabs";
 import { RecentThreadSwitcher } from "./tabs/RecentThreadSwitcher";
 import {
   finalizePromotedDraftThreadByRef,
@@ -215,7 +215,6 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh">
       <ThreadTabsHost />
       <RecentThreadSwitcher />
-      <OpenThreadTabs />
       {view}
     </SidebarInset>
   );

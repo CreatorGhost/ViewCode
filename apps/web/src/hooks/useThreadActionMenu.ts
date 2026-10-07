@@ -68,8 +68,10 @@ export function useThreadActionMenu(input: {
   /** Fallback for "Copy path" when the thread has no worktree. */
   readonly projectCwd: string | null;
   readonly onStartRename: () => void;
+  /** Header-only: starts a new thread in the thread's project (the old breadcrumb button). */
+  readonly newThreadInProject?: { readonly label: string; readonly run: () => void } | undefined;
 }) {
-  const { threadRef, projectCwd, onStartRename } = input;
+  const { threadRef, projectCwd, onStartRename, newThreadInProject } = input;
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -149,7 +151,15 @@ export function useThreadActionMenu(input: {
           label: "New child agent",
           icon: "message-square-plus",
         };
+        const newThreadInProjectItem: ContextMenuItem<
+          ThreadActionMenuId | "new-thread-in-project"
+        > = {
+          id: "new-thread-in-project",
+          label: newThreadInProject?.label ?? "New thread",
+          icon: "message-square-plus",
+        };
         const items = [
+          ...(newThreadInProject ? [newThreadInProjectItem] : []),
           newChildAgentItem,
           ...buildThreadActionMenuItems({
             branch: thread.branch ?? null,
@@ -169,6 +179,10 @@ export function useThreadActionMenu(input: {
         ];
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
+        if (clicked.value === "new-thread-in-project") {
+          newThreadInProject?.run();
+          return;
+        }
         if (clicked.value === "new-child-agent") {
           await createChildAgent(thread);
           return;
@@ -353,6 +367,7 @@ export function useThreadActionMenu(input: {
       handleNewThread,
       logicalProjectKeyByPhysicalKey,
       markThreadUnread,
+      newThreadInProject,
       onStartRename,
       pinThread,
       projectCwd,

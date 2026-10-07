@@ -2,7 +2,7 @@ import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/e
 import { useAtomValue } from "@effect/atom-react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { XIcon } from "lucide-react";
+import { ChevronDownIcon, XIcon } from "lucide-react";
 import { memo, useEffect, useMemo, useRef } from "react";
 
 import { cn } from "~/lib/utils";
@@ -12,7 +12,6 @@ import { useThreadShells } from "../../state/entities";
 import { resolveThreadRouteRef } from "../../threadRoutes";
 import { useThreadTabsStore } from "../../threadTabsStore";
 import { useUiStateStore } from "../../uiStateStore";
-import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { hasUnseenCompletion, resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { adjacentThreadTab } from "./threadTabs.logic";
@@ -84,6 +83,16 @@ export function ThreadTabsHost() {
   return null;
 }
 
+export interface ActiveTabExtras {
+  /** Replaces the provider glyph on the active tab (the project favicon). */
+  readonly glyph?: React.ReactNode;
+  /** Replaces the title while the thread is being renamed inline. */
+  readonly renameField?: React.ReactNode;
+  /** Present when the thread has an action menu: clicking the active tab or its chevron opens it. */
+  readonly onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+  readonly onDoubleClick?: (event: React.MouseEvent<HTMLElement>) => void;
+}
+
 const TabItem = memo(function TabItem(props: {
   threadKey: string;
   title: string;
@@ -93,7 +102,11 @@ const TabItem = memo(function TabItem(props: {
   active: boolean;
   onSelect: (key: string) => void;
   onClose: (key: string) => void;
+  /** Header-supplied behaviour for the active tab: leading glyph, rename field, thread menu. */
+  activeExtras?: ActiveTabExtras | undefined;
+  closable?: boolean;
 }) {
+  const extras = props.active ? props.activeExtras : undefined;
   const Icon = props.driverKind
     ? (PROVIDER_ICON_BY_PROVIDER as Record<string, React.ComponentType<{ className?: string }>>)[
         props.driverKind
@@ -106,7 +119,11 @@ const TabItem = memo(function TabItem(props: {
       aria-selected={props.active}
       data-active={props.active}
       data-thread-tab=""
-      onClick={() => props.onSelect(props.threadKey)}
+      onClick={(event) => {
+        if (extras?.onClick) extras.onClick(event);
+        else props.onSelect(props.threadKey);
+      }}
+      onDoubleClick={extras?.onDoubleClick}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -124,38 +141,55 @@ const TabItem = memo(function TabItem(props: {
         if (event.button === 1) event.preventDefault();
       }}
       className={cn(
-        "group/tab relative flex h-7 min-w-24 max-w-48 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-ring",
+        "group/tab relative flex h-7 min-w-24 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-ring",
         props.active
           ? "bg-foreground/10 text-foreground"
           : "text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
       )}
     >
-      {Icon ? <Icon className="size-3 shrink-0 opacity-70" /> : null}
-      <span className="min-w-0 flex-1 truncate">{props.title}</span>
+      {extras?.glyph ?? (Icon ? <Icon className="size-3 shrink-0 opacity-70" /> : null)}
+      {extras?.renameField ?? <span className="min-w-0 flex-1 truncate">{props.title}</span>}
+      {extras?.onClick && !extras.renameField ? (
+        <ChevronDownIcon
+          aria-hidden
+          data-thread-title-chevron
+          className="size-3.5 shrink-0 text-muted-foreground"
+        />
+      ) : null}
       {props.running ? (
         <span aria-label="Running" className="size-1.5 shrink-0 rounded-full bg-primary" />
       ) : props.unread ? (
         <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-success" />
       ) : null}
-      <button
-        type="button"
-        aria-label={`Close ${props.title}`}
-        onClick={(event) => {
-          event.stopPropagation();
-          props.onClose(props.threadKey);
-        }}
-        className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 hover:bg-foreground/10 hover:text-foreground group-hover/tab:opacity-100 focus-visible:opacity-100 group-data-[active=true]/tab:opacity-100"
-      >
-        <XIcon className="size-3" />
-      </button>
+      {props.closable === false ? null : (
+        <button
+          type="button"
+          aria-label={`Close ${props.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onClose(props.threadKey);
+          }}
+          className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 hover:bg-foreground/10 hover:text-foreground group-hover/tab:opacity-100 focus-visible:opacity-100 group-data-[active=true]/tab:opacity-100"
+        >
+          <XIcon className="size-3" />
+        </button>
+      )}
     </div>
   );
 });
 
-/** The open-thread strip above the chat. Hidden until a second thread has been opened. */
-export const OpenThreadTabs = memo(function OpenThreadTabs() {
+/**
+ * The open-thread tabs, rendered on the left of each chat's single top bar. With one thread open
+ * (or a draft) the strip is just the current thread as one tab, so the left side is never empty.
+ * `activeRef` is the pane's own thread, so a split-view pane shows its own active tab.
+ */
+export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
+  activeRef: ScopedThreadRef;
+  fallbackTitle: string;
+  activeExtras?: ActiveTabExtras | undefined;
+}) {
   const navigate = useNavigate();
-  const active = useActiveThreadRef();
+  const active = props.activeRef;
   const activeKey = active ? scopedThreadKey(active) : null;
   const tabs = useThreadTabsStore((state) =>
     active ? state.tabsByEnvironmentId[active.environmentId] : undefined,
@@ -191,7 +225,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs() {
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey, tabs]);
 
-  if (!active || !tabs || tabs.length < 2) return null;
+  const showList = !!tabs && tabs.length >= 2 && activeKey !== null && tabs.includes(activeKey);
 
   const select = (key: string) => {
     const ref = parseScopedThreadKey(key);
@@ -209,6 +243,25 @@ export const OpenThreadTabs = memo(function OpenThreadTabs() {
     else void navigate({ to: "/" });
   };
 
+  if (!showList || !tabs) {
+    return (
+      <div role="tablist" aria-label="Open threads" className="flex min-w-0 items-center">
+        <TabItem
+          threadKey={activeKey ?? ""}
+          title={props.fallbackTitle}
+          driverKind={null}
+          running={false}
+          unread={false}
+          active
+          onSelect={select}
+          onClose={close}
+          activeExtras={props.activeExtras}
+          closable={false}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       role="tablist"
@@ -221,8 +274,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs() {
         }
       }}
       className={cn(
-        "flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-background px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-        COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+        "flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
       )}
     >
       {tabs.map((key) => {
@@ -240,6 +292,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs() {
             active={key === activeKey}
             onSelect={select}
             onClose={close}
+            activeExtras={props.activeExtras}
           />
         );
       })}
