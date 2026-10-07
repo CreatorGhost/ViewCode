@@ -262,6 +262,23 @@ describe("DesktopServerExposure", () => {
     ),
   );
 
+  it.effect("never reads network interfaces for a local-only launch", () =>
+    withHarness(
+      lanNetworkInterfaces,
+      Effect.gen(function* () {
+        const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+        const state = yield* serverExposure.configureFromSettings({ port: 4173 });
+        yield* serverExposure.getState;
+        yield* serverExposure.getAdvertisedEndpoints;
+        assert.equal(state.mode, "local-only");
+      }),
+      {},
+      undefined,
+      undefined,
+      Effect.die("network interfaces were read in local-only mode"),
+    ),
+  );
+
   it.effect("falls back to local-only without losing the requested network preference", () =>
     withHarness(
       emptyNetworkInterfaces,
