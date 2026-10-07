@@ -34,6 +34,8 @@
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 
 import { ComputerUseErrorCode, ComputerUseRect, type ComputerUseError } from "@t3tools/contracts";
@@ -64,6 +66,8 @@ export interface DriverWorkerLaunch {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
+  /** Which executable hosts the driver, for logs: the app itself or its Helper. */
+  readonly host?: "main" | "helper";
 }
 
 export interface Xa11yComputerDriverOptions {
@@ -306,7 +310,8 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
     workerEpochs.set(worker, epoch);
     // `pid` is unset only when the spawn itself failed.
     if (worker.pid === undefined) log("computer-use driver could not start", {});
-    else log("computer-use driver started", { pid: worker.pid, epoch });
+    else
+      log("computer-use driver started", { pid: worker.pid, epoch, host: launch.host ?? "main" });
     worker.on("message", (message) => settlePending?.({ type: "reply", message }));
     worker.once("error", () => {
       const spawned = worker.pid !== undefined;
@@ -588,16 +593,62 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
   } satisfies ComputerDriverShape;
 });
 
+/** Opt-in experiment: host the driver in the app's Helper executable instead of the app itself. */
+export const DRIVER_HOST_ENV = "VIEWCODE_COMPUTER_DRIVER_HOST";
+
+/**
+ * The `<Name> Helper.app` executable Electron ships beside a macOS app's main
+ * executable, or undefined when `execPath` is not inside an app bundle or the
+ * Helper is missing. The Helper is marked `LSUIElement`, so a driver it hosts
+ * should get no Dock icon when it connects to the window server; the main
+ * executable gets one (the server never connects, so it shows none).
+ * Unproven: whether a Helper spawned by us (not by Electron, which disclaims
+ * responsibility for its helpers) still inherits the app's Accessibility
+ * grant, so this stays opt-in via `VIEWCODE_COMPUTER_DRIVER_HOST=helper`
+ * until verified on a Mac.
+ */
+export const macHelperExecutable = (
+  execPath: string,
+  exists: (path: string) => boolean,
+): string | undefined => {
+  const match = /^(.*\.app)\/Contents\/MacOS\/([^/]+)$/.exec(execPath);
+  if (!match) return undefined;
+  const [, bundle, name] = match;
+  const helper = NodePath.join(
+    bundle!,
+    "Contents",
+    "Frameworks",
+    `${name} Helper.app`,
+    "Contents",
+    "MacOS",
+    `${name} Helper`,
+  );
+  return exists(helper) ? helper : undefined;
+};
+
+const driverHostCommand = (
+  platform: NodeJS.Platform,
+): { readonly command: string; readonly host: "main" | "helper" } => {
+  if (platform === "darwin" && process.env[DRIVER_HOST_ENV] === "helper") {
+    const helper = macHelperExecutable(process.execPath, (path) => NodeFS.existsSync(path));
+    if (helper) return { command: helper, host: "helper" };
+  }
+  return { command: process.execPath, host: "main" };
+};
+
 /**
  * The driver script beside this module: the TS source in development, the
  * built `computer-use-driver.mjs` in `dist`, or a hidden subcommand of the
  * single executable, which has no sibling scripts.
  */
-const resolveDriverLaunch = (isExecutable: boolean): DriverWorkerLaunch =>
+const resolveDriverLaunch = (
+  isExecutable: boolean,
+  platform: NodeJS.Platform,
+): DriverWorkerLaunch =>
   isExecutable
     ? { command: process.execPath, args: ["__computer-use-driver"], env: { ...process.env } }
     : {
-        command: process.execPath,
+        ...driverHostCommand(platform),
         args: [
           NodeURL.fileURLToPath(
             new URL(
@@ -615,9 +666,10 @@ export const layer: Layer.Layer<ComputerDriver> = Layer.effect(
   ComputerDriver,
   Effect.gen(function* () {
     const isExecutable = yield* HostProcessIsExecutable;
+    const platform = yield* HostProcessPlatform;
     return yield* makeXa11yComputerDriver({
-      platform: yield* HostProcessPlatform,
-      launch: () => resolveDriverLaunch(isExecutable),
+      platform,
+      launch: () => resolveDriverLaunch(isExecutable, platform),
     });
   }),
 );
