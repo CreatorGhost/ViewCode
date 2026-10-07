@@ -3,6 +3,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeUtil from "node:util";
 
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -61,6 +62,11 @@ process.on("message", (message) => {
     case "status":
       return process.send({ id, ok: true, result: { available: true, accessibility: "granted" } });
     case "listWindows":
+      if (process.argv.includes("--enumeration-diagnostic")) {
+        return process.send({ id, ok: true, result: [target.window], diagnostics: {
+          windowEnumerationFailures: 2,
+        } });
+      }
       return process.send({ id, ok: true, result: [{ handle: 7 }] });
     case "observe":
       return process.send({ id: id + 1, ok: true, result: { elements: [], truncated: false } });
@@ -89,6 +95,7 @@ const makeDriver = (
     readonly platform?: NodeJS.Platform;
     readonly log?: string;
     readonly recycleAfter?: number;
+    readonly enumerationDiagnostic?: boolean;
   } = {},
 ) => {
   const script = stubScript();
@@ -96,7 +103,11 @@ const makeDriver = (
     platform: options.platform ?? "darwin",
     launch: () => ({
       command: options.command ?? process.execPath,
-      args: options.log ? [script, options.log] : [script],
+      args: [
+        script,
+        options.log ?? "",
+        ...(options.enumerationDiagnostic ? ["--enumeration-diagnostic"] : []),
+      ],
       env: { ...process.env },
     }),
     timeouts: { key: 300, drag: 300, scrollAt: 300 },
@@ -306,6 +317,26 @@ describe("Xa11yComputerDriver", () => {
       }),
     ).pipe(allowAll),
   );
+
+  it.effect("logs partial window discovery without app names or titles", () => {
+    const entries: unknown[] = [];
+    const logger = Logger.make<unknown, void>(({ message, logLevel }) => {
+      if (logLevel === "Info") entries.push(message);
+    });
+    return Effect.gen(function* () {
+      const driver = yield* makeDriver({ enumerationDiagnostic: true });
+      const windows = yield* driver.listWindows();
+      assert.lengthOf(windows, 1);
+      assert.includeDeepMembers(entries, [
+        [
+          "computer-use window enumeration incomplete",
+          { op: "listWindows", windowEnumerationFailures: 2 },
+        ],
+      ]);
+      assert.notInclude(NodeUtil.inspect(entries), "Notes");
+      assert.notInclude(NodeUtil.inspect(entries), "title:");
+    }).pipe(Effect.scoped, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
 
   it.effect("logs worker lifecycle and timeouts without request contents", () => {
     const entries: Array<{ readonly text: unknown; readonly fields: Record<string, unknown> }> = [];

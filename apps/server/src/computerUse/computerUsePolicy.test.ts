@@ -66,6 +66,20 @@ describe("isDenylistedApp", () => {
 });
 
 describe("destructive heuristic", () => {
+  it("does not treat a canvas formatting description as a format action", () => {
+    expect(
+      isDestructiveTarget({
+        role: "group",
+        label: "Format, move, and resize items within the Canvas",
+      }),
+    ).toBe(false);
+    expect(isDestructiveTarget({ role: "group", label: "Delete all items" })).toBe(true);
+    expect(isDestructiveTarget({ role: "group", label: "Format disk" })).toBe(true);
+    expect(isDestructiveTarget({ role: "button", label: "Format disk" })).toBe(true);
+    expect(isDestructiveTarget({ role: "menu item", label: "Format" })).toBe(true);
+    expect(isDestructiveTarget({ role: "unknown", label: "Format disk" })).toBe(true);
+  });
+
   it("flags committing labels and quit or close chords only", () => {
     expect(isDestructiveTarget({ role: "button", label: "Place order" })).toBe(true);
     expect(isDestructiveTarget({ role: "button", label: "Send" })).toBe(true);

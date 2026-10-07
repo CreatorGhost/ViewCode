@@ -45,7 +45,12 @@ const pngSize = (png: Uint8Array) => {
 };
 
 const makeHarness = (
-  options: { readonly foregroundPid?: number | null; readonly screenshotDenied?: boolean } = {},
+  options: {
+    readonly foregroundPid?: number | null | (() => number | null);
+    readonly screenshotDenied?: boolean;
+    readonly platform?: NodeJS.Platform;
+    readonly receiveText?: (text: string) => Promise<void>;
+  } = {},
 ) => {
   const sent: Array<readonly [string, ...unknown[]]> = [];
   const written: Uint8Array[] = [];
@@ -58,7 +63,10 @@ const makeHarness = (
     chord: async (key: string, held?: string[] | null) => void sent.push(["chord", key, held]),
     scroll: async (_target: unknown, dx?: number | null, dy?: number | null) =>
       void sent.push(["scroll", dx, dy]),
-    typeText: async (text: string) => void sent.push(["typeText", text]),
+    typeText: async (text: string) => {
+      sent.push(["typeText", text]);
+      await options.receiveText?.(text);
+    },
   } as unknown as InputSim;
   // The native test app lacks the JS wrapper's `subscribe` overrides, which the driver never uses.
   const app = xa11y._makeTestApp() as unknown as App;
@@ -67,7 +75,11 @@ const makeHarness = (
     appWindows: async () => app.children(),
     elementIsAlive: async () => true,
     foregroundPid: async () =>
-      options.foregroundPid === undefined ? TEST_PID : options.foregroundPid,
+      typeof options.foregroundPid === "function"
+        ? options.foregroundPid()
+        : options.foregroundPid === undefined
+          ? TEST_PID
+          : options.foregroundPid,
     inputSim: () => input,
     screenshot: async () => {
       if (!options.screenshotDenied) return retinaShot;
@@ -81,7 +93,7 @@ const makeHarness = (
     now: () => 0,
     authorizeInput: async () => undefined,
   };
-  const core = makeDriverCore(api, { platform: "darwin", epoch: "t" });
+  const core = makeDriverCore(api, { platform: options.platform ?? "darwin", epoch: "t" });
   const call = async (request: DriverRequest) => core.handle(request);
   const firstWindow = async () => {
     const reply = await call({ op: "listWindows" });
@@ -101,10 +113,37 @@ const makeHarness = (
       readonly truncated: boolean;
     };
   };
-  return { call, sent, written, firstWindow, observe };
+  return { call, sent, written, firstWindow, observe, api };
 };
 
 describe("driver core over the xa11y test app", () => {
+  it("reports partial enumeration without losing readable apps or including error contents", async () => {
+    const harness = makeHarness();
+    const readable = await harness.api.listApps();
+    const unreadable = {
+      pid: 99,
+      name: "PRIVATE APP",
+      children: async () => {
+        throw new Error("PRIVATE WINDOW VALUE");
+      },
+    } as unknown as App;
+    const core = makeDriverCore(
+      {
+        ...harness.api,
+        listApps: async () => [...readable, unreadable],
+      },
+      { platform: "darwin", epoch: "diagnostic" },
+    );
+    const result = await core.handle({ op: "listWindows" });
+    expect(result).toMatchObject({
+      ok: true,
+      diagnostics: { windowEnumerationFailures: 1 },
+    });
+    if (!result.ok) throw new Error("list failed");
+    expect((result.result as ReadonlyArray<unknown>).length).toBeGreaterThan(0);
+    expect(JSON.stringify(result)).not.toContain("PRIVATE");
+  });
+
   it("lists windows with a handle that survives relisting", async () => {
     const harness = makeHarness();
     const first = await harness.call({ op: "listWindows" });
@@ -300,7 +339,104 @@ describe("driver core over the xa11y test app", () => {
       ["drag", [150, 60], [400, 300]],
       ["moveTo", [150, 60]],
       ["scroll", 0, 4],
-      ["typeText", "abc"],
+      ["typeText", "a"],
+      ["typeText", "b"],
+      ["typeText", "c"],
+    ]);
+  });
+
+  it("preserves complete Mac text when an app consumes one character per key event", async () => {
+    let value = "";
+    const harness = makeHarness({
+      receiveText: async (text) => {
+        // Model a receiver that consumes only the first code point of an event.
+        value += [...text][0] ?? "";
+      },
+    });
+    const window = await harness.firstWindow();
+    const text = "Library/Application Support/🧪 e\u0301";
+    expect(await harness.call({ op: "typeFocused", window: window.handle, text })).toMatchObject({
+      ok: true,
+      result: { tookFocus: true },
+    });
+    expect(value).toBe(text);
+  });
+
+  it("keeps the batched native typing path on Linux", async () => {
+    let value = "";
+    const harness = makeHarness({
+      platform: "linux",
+      receiveText: async (text) => {
+        value += text;
+      },
+    });
+    const window = await harness.firstWindow();
+    const text = "Library/🧪";
+    await harness.call({ op: "typeFocused", window: window.handle, text });
+    expect(value).toBe(text);
+    expect(harness.sent).toEqual([["typeText", text]]);
+  });
+
+  it("stops Mac text when focus changes after a character, without reclaiming focus", async () => {
+    let foreground = TEST_PID;
+    let value = "";
+    const harness = makeHarness({
+      foregroundPid: () => foreground,
+      receiveText: async (text) => {
+        value += text;
+        foreground = TEST_PID + 1;
+      },
+    });
+    const window = await harness.firstWindow();
+    expect(
+      await harness.call({ op: "typeFocused", window: window.handle, text: "abc" }),
+    ).toMatchObject({ ok: false, error: { kind: "failed", dispatched: "unknown" } });
+    expect(value).toBe("a");
+    expect(foreground).toBe(TEST_PID + 1);
+    expect(harness.sent).toEqual([["typeText", "a"]]);
+  });
+
+  it.each(["PermissionDeniedError", "ActionNotSupportedError", "SelectorNotMatchedError"])(
+    "reports partial Mac text as uncertain when a later event throws %s",
+    async (name) => {
+      let value = "";
+      const harness = makeHarness({
+        receiveText: async (text) => {
+          if (text === "b") throw Object.assign(new Error("Native event refused"), { name });
+          value += text;
+        },
+      });
+      const window = await harness.firstWindow();
+      expect(
+        await harness.call({ op: "typeFocused", window: window.handle, text: "abc" }),
+      ).toMatchObject({ ok: false, error: { dispatched: "unknown" } });
+      expect(value).toBe("a");
+      expect(harness.sent).toEqual([
+        ["typeText", "a"],
+        ["typeText", "b"],
+      ]);
+    },
+  );
+
+  it("does not replay or finish Mac text after uncertain partial native delivery", async () => {
+    let value = "";
+    const harness = makeHarness({
+      receiveText: async (text) => {
+        if (text === "b") throw new Error("Native input failed after an uncertain key event");
+        value += text;
+      },
+    });
+    const window = await harness.firstWindow();
+    expect(
+      await harness.call({ op: "typeFocused", window: window.handle, text: "abc" }),
+    ).toMatchObject({
+      ok: false,
+      error: { dispatched: "unknown" },
+    });
+    expect(value).toBe("a");
+    expect(harness.sent).toEqual([
+      ["typeText", "a"],
+      ["typeText", "b"],
     ]);
   });
 

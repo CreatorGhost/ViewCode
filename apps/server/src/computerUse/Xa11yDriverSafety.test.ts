@@ -111,6 +111,7 @@ const makeCore = (
     ) => ComputerUseError | undefined;
     readonly clock?: { now: number };
     readonly sleep?: (ms: number) => Promise<void>;
+    readonly receiveText?: (text: string) => void;
   } = {},
 ) => {
   const sent: Sent = [];
@@ -118,7 +119,10 @@ const makeCore = (
   const input = {
     press: async (key: string) => void sent.push(["key", key]),
     chord: async (key: string, held: string[]) => void sent.push(["chord", key, held]),
-    typeText: async (text: string) => void sent.push(["typeText", text]),
+    typeText: async (text: string) => {
+      sent.push(["typeText", text]);
+      options.receiveText?.(text);
+    },
     click: async (target: unknown) =>
       void sent.push(["click", Array.isArray(target) ? target : (target as Element).bounds]),
     scroll: async (target: Element) => void sent.push(["scroll", target.bounds]),
@@ -820,8 +824,50 @@ describe("fallback input is authorized after its own preparation", () => {
     const type = await typeFallback();
     type.resume.resolve();
     expect(await type.result).toEqual(focused);
-    expect(type.core.sent).toEqual([["typeText", "secret"]]);
+    expect(type.core.sent).toEqual([
+      ["typeText", "s"],
+      ["typeText", "e"],
+      ["typeText", "c"],
+      ["typeText", "r"],
+      ["typeText", "e"],
+      ["typeText", "t"],
+    ]);
   });
+
+  it.each(["typeFocused", "typeText"] as const)(
+    "%s stops partial typing when a sibling window takes focus",
+    async (op) => {
+      const field: Spec = { role: "text field", name: "Body", typeUnsupported: true };
+      const notes = window("Notes", { children: [field] });
+      const sibling = window("Other", { active: false, focused: false });
+      const app: FakeApp = { name: "TextEdit", pid: 10, windows: [notes, sibling] };
+      const core = makeCore([app], {
+        receiveText: () => {
+          notes.active = notes.focused = false;
+          sibling.active = sibling.focused = true;
+        },
+      });
+      const [win] = await core.list();
+      const [ref] = await core.observe(win!.handle);
+      const result = await core.call(
+        op === "typeFocused"
+          ? { op, window: win!.handle, text: "secret" }
+          : {
+              op,
+              element: ref!.handle,
+              expect: { role: "text field", label: "Body" },
+              text: "secret",
+            },
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { kind: "failed", dispatched: "unknown" },
+      });
+      expect(core.sent).toEqual([["typeText", "s"]]);
+      expect(core.calls.activate).toBe(0);
+      expect(sibling.active).toBe(true);
+    },
+  );
 });
 
 describe("a replacement element that matches every observed field", () => {

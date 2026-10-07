@@ -144,13 +144,27 @@ const DriverFailure = Schema.Struct({
   reason: Schema.optionalKey(Schema.Literal("restarted")),
 });
 
+const DriverDiagnostics = Schema.Struct({
+  windowEnumerationFailures: Schema.Int.check(Schema.isGreaterThan(0)),
+});
+
 type DriverReply<T> =
-  | { readonly id: number; readonly ok: true; readonly result: T }
+  | {
+      readonly id: number;
+      readonly ok: true;
+      readonly result: T;
+      readonly diagnostics?: typeof DriverDiagnostics.Type;
+    }
   | { readonly id: number; readonly ok: false; readonly error: typeof DriverFailure.Type };
 
 const replyOf = <S extends Schema.Top>(result: S) =>
   Schema.Union([
-    Schema.Struct({ id: Schema.Number, ok: Schema.Literal(true), result }),
+    Schema.Struct({
+      id: Schema.Number,
+      ok: Schema.Literal(true),
+      result,
+      diagnostics: Schema.optionalKey(DriverDiagnostics),
+    }),
     Schema.Struct({ id: Schema.Number, ok: Schema.Literal(false), error: DriverFailure }),
   ]);
 
@@ -525,6 +539,12 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
         dispatched: decoded.error.dispatched,
       });
       return yield* new ComputerDriverError(decoded.error);
+    }
+    if (decoded.diagnostics) {
+      yield* Effect.logInfo("computer-use window enumeration incomplete", {
+        op: request.op,
+        windowEnumerationFailures: decoded.diagnostics.windowEnumerationFailures,
+      });
     }
     return decoded.result;
   });

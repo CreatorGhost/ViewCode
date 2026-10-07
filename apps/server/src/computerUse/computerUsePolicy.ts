@@ -300,11 +300,20 @@ export function rectsIntersect(left: ComputerUseRect, right: ComputerUseRect): b
 // ── Destructive heuristic ───────────────────────────────────────────────────
 
 const DESTRUCTIVE_WORDS =
-  /\b(delete|remove|erase|discard|uninstall|purchase|buy|pay|checkout|check out|place order|transfer|send|submit|sign out|signout|log out|logout|reset|format)\b/;
+  /\b(delete|remove|erase|discard|uninstall|purchase|buy|pay|checkout|check out|place order|transfer|send|submit|sign out|signout|log out|logout|reset)\b/;
+
+// Freeform describes its canvas using this sentence, which is not a format
+// command. Other group labels, including "Format disk", remain conservative.
+const CANVAS_FORMAT_DESCRIPTION = /^format,\s*move,\s*and resize items within the canvas$/i;
 
 /** A label or role that looks like it commits, pays, sends or destroys something. */
 export function isDestructiveTarget(target: { readonly role: string; readonly label: string }) {
-  return DESTRUCTIVE_WORDS.test(`${target.label} ${target.role}`.toLowerCase());
+  const role = target.role.toLowerCase().trim();
+  const description = `${target.label} ${role}`.toLowerCase();
+  const describesCanvas = role === "group" && CANVAS_FORMAT_DESCRIPTION.test(target.label.trim());
+  return (
+    DESTRUCTIVE_WORDS.test(description) || (/\bformat\b/.test(description) && !describesCanvas)
+  );
 }
 
 /** Quit, close and delete chords: cmd/ctrl+q|w, alt+f4, cmd/ctrl+delete|backspace. */

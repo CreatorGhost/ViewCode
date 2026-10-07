@@ -1,23 +1,86 @@
 import * as NodeFS from "node:fs";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { assert, describe, it } from "vite-plus/test";
 
 import {
-  makeDevelopmentEnvironmentScript,
-  makeDevelopmentLauncherScript,
+  makeLocalEnvironmentScript,
+  makeLocalLauncherScript,
   resolveElectronBinaryPath,
   resolveMacBundleInfoPlistStrings,
   resolveMacCodeSignArguments,
   resolveMacLauncherIconPaths,
   resolveMacLauncherPaths,
-  writeDevelopmentLauncherScript,
+  writeLocalLauncherScript,
 } from "./electron-launcher.mjs";
 
 describe("electron development launcher", () => {
+  it.each([{ args: [] }, { args: ["t3code://callback?value=with spaces"] }])(
+    "boots a local non-dev relaunch without needing the original CLI arguments: $args",
+    ({ args }) => {
+      const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-relaunch-"));
+      try {
+        const capture = NodePath.join(directory, "capture.cjs");
+        NodeFS.writeFileSync(
+          capture,
+          "process.stdout.write(JSON.stringify({ args: process.argv.slice(2), home: process.env.T3CODE_HOME }));",
+        );
+        const fakeElectron = NodePath.join(directory, "fake Electron");
+        NodeFS.writeFileSync(
+          fakeElectron,
+          `#!/bin/sh\nexec '${process.execPath}' '${capture}' "$@"\n`,
+          { mode: 0o755 },
+        );
+        const environmentFilePath = NodePath.join(directory, "alpha-environment.sh");
+        const isolatedHome = NodePath.join(directory, "isolated home");
+        NodeFS.writeFileSync(
+          environmentFilePath,
+          makeLocalEnvironmentScript(
+            {
+              T3CODE_HOME: isolatedHome,
+              VITE_DEV_SERVER_URL: "http://stale-dev-origin.invalid",
+            },
+            false,
+          ),
+        );
+        const mainEntryPath = NodePath.join(directory, "app's main.cjs");
+        const script = makeLocalLauncherScript({
+          electronBinaryPath: fakeElectron,
+          mainEntryPath,
+          desktopRoot: directory,
+          environmentFilePath,
+          development: false,
+        });
+        const launcher = NodePath.join(directory, "launcher");
+        NodeFS.writeFileSync(launcher, script);
+        const run = (env) =>
+          JSON.parse(
+            NodeChildProcess.execFileSync("/bin/sh", [launcher, ...args], {
+              env,
+              encoding: "utf8",
+            }),
+          );
+        assert.deepEqual(run({}), { args: [mainEntryPath, ...args], home: isolatedHome });
+        assert.deepEqual(run({ T3CODE_HOME: "/live/home" }), {
+          args: [mainEntryPath, ...args],
+          home: "/live/home",
+        });
+        assert.notInclude(script, "--t3code-dev-root");
+        assert.notInclude(NodeFS.readFileSync(environmentFilePath, "utf8"), "VITE_DEV_SERVER_URL");
+        assert.equal(
+          resolveMacBundleInfoPlistStrings("ViewCode (Alpha) Launcher").CFBundleExecutable,
+          "ViewCode (Alpha) Launcher",
+        );
+      } finally {
+        NodeFS.rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("uses captured values only as fallbacks for a live runner environment", () => {
-    const environmentScript = makeDevelopmentEnvironmentScript({
+    const environmentScript = makeLocalEnvironmentScript({
       VITE_DEV_SERVER_URL: "http://127.0.0.1:8526",
       T3CODE_PORT: "16566",
       T3CODE_HOME: "/tmp/t3",
@@ -36,7 +99,7 @@ describe("electron development launcher", () => {
   });
 
   it("keeps the launcher script free of volatile environment values", () => {
-    const script = makeDevelopmentLauncherScript({
+    const script = makeLocalLauncherScript({
       electronBinaryPath: "/repo/node_modules/electron/Electron",
       mainEntryPath: "/repo/apps/desktop/dist-electron/main.cjs",
       desktopRoot: "/repo/apps/desktop",
@@ -90,7 +153,7 @@ describe("electron development launcher", () => {
       "/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/Electron",
     );
 
-    const script = makeDevelopmentLauncherScript({
+    const script = makeLocalLauncherScript({
       electronBinaryPath: paths.runtimeElectronBinaryPath,
       mainEntryPath: "/repo/apps/desktop/dist-electron/main.cjs",
       desktopRoot: "/repo/apps/desktop",
@@ -131,10 +194,10 @@ describe("electron development launcher", () => {
     const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-launcher-"));
     const launcherPath = NodePath.join(directory, "launcher");
     try {
-      writeDevelopmentLauncherScript(launcherPath, "/runtime/Electron");
+      writeLocalLauncherScript(launcherPath, "/runtime/Electron");
       NodeFS.chmodSync(launcherPath, 0o644);
 
-      assert.isFalse(writeDevelopmentLauncherScript(launcherPath, "/runtime/Electron"));
+      assert.isFalse(writeLocalLauncherScript(launcherPath, "/runtime/Electron"));
       assert.equal(NodeFS.statSync(launcherPath).mode & 0o777, 0o755);
     } finally {
       NodeFS.rmSync(directory, { recursive: true, force: true });

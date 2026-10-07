@@ -167,7 +167,11 @@ export interface DriverFailure {
 }
 
 export type DriverResult =
-  | { readonly ok: true; readonly result: unknown }
+  | {
+      readonly ok: true;
+      readonly result: unknown;
+      readonly diagnostics?: { readonly windowEnumerationFailures: number };
+    }
   | { readonly ok: false; readonly error: DriverFailure };
 
 /** Every value the driver reports is clipped to this many characters. */
@@ -812,7 +816,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     }
   };
 
-  const listWindows = async (): Promise<ReadonlyArray<DriverWindow>> => {
+  const listWindows = async () => {
     const apps = await api.listApps().catch((error: unknown) => {
       throw new Refusal(
         errorName(error) === "PermissionDeniedError"
@@ -820,10 +824,14 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           : failure("unavailable", STATUS_MESSAGES.unavailable),
       );
     });
+    let windowEnumerationFailures = 0;
     const perApp = await Promise.all(
       apps.map(async (app) => ({
         app,
-        children: await app.children().catch(() => [] as Element[]),
+        children: await app.children().catch(() => {
+          windowEnumerationFailures += 1;
+          return [] as Element[];
+        }),
       })),
     );
     const pids = [...new Set(perApp.flatMap(({ app }) => (app.pid === null ? [] : [app.pid])))];
@@ -886,7 +894,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       dropElementHandles(entry.elementHandles);
       windows.delete(handle);
     }
-    return listed;
+    return { listed, windowEnumerationFailures };
   };
 
   /**
@@ -1119,13 +1127,48 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     return input;
   };
 
+  const typeInputText = async (input: InputSim, text: string, window: WindowEntry) => {
+    if (platform !== "darwin") {
+      await input.typeText(text);
+      return;
+    }
+    // xa11y batches up to 20 Unicode characters into one macOS key pair.
+    // Some app fields can consume only its first character. Send complete code
+    // points individually without clipboard mutation or replay. The dispatch
+    // check covers the first event; stop if focus changes before later events.
+    let sent = false;
+    try {
+      for (const character of text) {
+        if (sent) await verifyFront(window);
+        await input.typeText(character);
+        sent = true;
+      }
+    } catch (error) {
+      if (!sent) throw error;
+      const failure =
+        error instanceof Refusal && !error.result.ok
+          ? error.result.error
+          : classifyXa11yError(error, { afterDispatch: true });
+      // Earlier characters were already sent, even if this event was refused.
+      throw new Refusal({ ok: false, error: { ...failure, dispatched: "unknown" } });
+    }
+  };
+
   const handle = async (request: DriverRequest): Promise<DriverResult> => {
     try {
       switch (request.op) {
         case "status":
           return { ok: true, result: await status() };
-        case "listWindows":
-          return { ok: true, result: await listWindows() };
+        case "listWindows": {
+          const { listed, windowEnumerationFailures } = await listWindows();
+          return {
+            ok: true,
+            result: listed,
+            ...(windowEnumerationFailures > 0
+              ? { diagnostics: { windowEnumerationFailures } }
+              : {}),
+          };
+        }
         case "releaseMouse": {
           await Promise.resolve()
             .then(() => api.inputSim().mouseUp("left"))
@@ -1182,7 +1225,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           const input = requireInput();
           await authorize(window, "prepare");
           await activate(window);
-          return await dispatch(() => input.typeText(request.text), window);
+          return await dispatch(() => typeInputText(input, request.text, window), window);
         }
         case "key": {
           const window = requireWindow(request.window);
@@ -1260,7 +1303,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               const fresh = await resolveElement(request.element, request.expect);
               await beforeDispatch(() => fresh.element.focus());
               await authorize(fresh.window, "dispatch", { element: fresh.element });
-              await input.typeText(request.text);
+              await typeInputText(input, request.text, fresh.window);
               return true;
             },
             target.window,

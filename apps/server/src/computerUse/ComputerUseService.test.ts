@@ -1509,6 +1509,29 @@ process.on('message', async message => {
 });
 
 describe("ComputerUseService approvals setting", () => {
+  for (const approvals of ["thread", "risky"] as const) {
+    it.effect(`${approvals}: a formatting canvas does not create a destructive approval`, () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness();
+        h.thread.runtimeMode = "full-access";
+        yield* h.setApprovals(approvals);
+        h.autoDecision = "decline";
+        h.hit = { role: "group", label: "Format, move, and resize items within the Canvas" };
+        const { shot } = yield* shootNotes(h);
+        expectDispatched(yield* send(h, { command: "click", shot, x: 10, y: 10 }));
+        expect(h.events).toEqual([]);
+
+        h.hit = { role: "group", label: "Format disk" };
+        const next = yield* shootNotes(h);
+        expectError(
+          yield* send(h, { command: "click", shot: next.shot, x: 10, y: 10 }),
+          "CU-CON-004",
+        );
+        expect(h.events.filter((event) => event.type === "request.opened")).toHaveLength(1);
+      }).pipe(Effect.scoped),
+    );
+  }
+
   it.effect(
     "risky: routine input runs unasked in a supervised thread, destructive still asks",
     () =>
