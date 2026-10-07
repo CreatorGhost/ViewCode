@@ -15,78 +15,81 @@ export const TURN_STALL_TIMEOUT_MS = 10 * 60 * 1_000;
 /** A tool call can run silently much longer (builds, test suites). */
 export const TURN_STALL_ACTIVE_TOOL_TIMEOUT_MS = 30 * 60 * 1_000;
 
+/**
+ * One tracked turn. Mutable on purpose: every provider delta touches
+ * `lastActivityAt`, and that must stay O(1) without copying the state.
+ */
 export interface TurnStallEntry {
   readonly turnId: string | undefined;
-  readonly lastActivityAt: number;
-  readonly openTools: ReadonlySet<string>;
+  lastActivityAt: number;
+  readonly openTools: Set<string>;
   /** Approvals and questions block on the user, never on the provider. */
-  readonly waitingOnUser: ReadonlySet<string>;
+  readonly waitingOnUser: Set<string>;
 }
 
-export type TurnStallState = ReadonlyMap<string, TurnStallEntry>;
+export type TurnStallState = Map<string, TurnStallEntry>;
 
-const empty = (turnId: string | undefined, at: number): TurnStallEntry => ({
-  turnId,
-  lastActivityAt: at,
-  openTools: new Set(),
-  waitingOnUser: new Set(),
-});
-
-const withItem = (set: ReadonlySet<string>, id: string | undefined, add: boolean) => {
-  if (id === undefined) return set;
-  const next = new Set(set);
-  if (add) next.add(id);
-  else next.delete(id);
-  return next;
+const toggle = (set: Set<string>, id: string | undefined, add: boolean): boolean => {
+  if (id === undefined) return false;
+  if (!add) return set.delete(id);
+  if (set.has(id)) return false;
+  set.add(id);
+  return true;
 };
 
-/** Folds one provider event into the tracker. Unknown threads only start on `turn.started`. */
+/**
+ * Folds one provider event into the tracker in place. Unknown threads only
+ * start on `turn.started`.
+ *
+ * Returns true when the set of deadlines changed shape (a turn started or
+ * ended, a tool or a user request opened or closed), which is when the earliest
+ * deadline can move earlier and the check loop must re-plan. Plain activity
+ * only pushes a deadline later, so it returns false: the loop wakes at the old
+ * deadline, finds nothing stalled and re-plans from there.
+ */
 export function recordTurnStallEvent(
   state: TurnStallState,
   event: ProviderRuntimeEvent,
   at: number,
-): TurnStallState {
+): boolean {
   const threadId = String(event.threadId);
-  const current = state.get(threadId);
-  const next = new Map(state);
-
   switch (event.type) {
     case "turn.started":
-      next.set(threadId, empty(event.turnId, at));
-      return next;
+      state.set(threadId, {
+        turnId: event.turnId,
+        lastActivityAt: at,
+        openTools: new Set(),
+        waitingOnUser: new Set(),
+      });
+      return true;
     case "turn.completed":
     case "turn.aborted":
     case "session.exited":
-      next.delete(threadId);
-      return next;
+      return state.delete(threadId);
     default:
       break;
   }
-  if (current === undefined) return state;
+  const entry = state.get(threadId);
+  if (entry === undefined) return false;
 
-  let entry: TurnStallEntry = { ...current, lastActivityAt: at };
+  entry.lastActivityAt = at;
   switch (event.type) {
     case "item.started":
-      if (isToolLifecycleItemType(event.payload.itemType)) {
-        entry = { ...entry, openTools: withItem(entry.openTools, event.itemId, true) };
-      }
-      break;
+      return (
+        isToolLifecycleItemType(event.payload.itemType) &&
+        toggle(entry.openTools, event.itemId, true)
+      );
     case "item.completed":
-      entry = { ...entry, openTools: withItem(entry.openTools, event.itemId, false) };
-      break;
+      return toggle(entry.openTools, event.itemId, false);
     case "request.opened":
     case "user-input.requested":
-      entry = { ...entry, waitingOnUser: withItem(entry.waitingOnUser, event.requestId, true) };
-      break;
+      return toggle(entry.waitingOnUser, event.requestId, true);
     case "request.resolved":
     case "user-input.resolved":
-      entry = { ...entry, waitingOnUser: withItem(entry.waitingOnUser, event.requestId, false) };
-      break;
+      return toggle(entry.waitingOnUser, event.requestId, false);
     default:
-      break;
+      return false;
   }
-  next.set(threadId, entry);
-  return next;
 }
 
 export interface StalledTurn {
@@ -96,7 +99,10 @@ export interface StalledTurn {
 }
 
 /** Threads whose turn has been silent past its deadline, oldest silence first. */
-export function findStalledTurns(state: TurnStallState, now: number): ReadonlyArray<StalledTurn> {
+export function findStalledTurns(
+  state: ReadonlyMap<string, TurnStallEntry>,
+  now: number,
+): ReadonlyArray<StalledTurn> {
   const stalled: StalledTurn[] = [];
   for (const [threadId, entry] of state) {
     if (entry.waitingOnUser.size > 0) continue;
@@ -109,7 +115,7 @@ export function findStalledTurns(state: TurnStallState, now: number): ReadonlyAr
 }
 
 /** The earliest moment any tracked turn could stall, or null when none can. */
-export function nextStallCheckAt(state: TurnStallState): number | null {
+export function nextStallCheckAt(state: ReadonlyMap<string, TurnStallEntry>): number | null {
   let next: number | null = null;
   for (const entry of state.values()) {
     if (entry.waitingOnUser.size > 0) continue;
@@ -119,6 +125,20 @@ export function nextStallCheckAt(state: TurnStallState): number | null {
     if (next === null || at < next) next = at;
   }
   return next;
+}
+
+/**
+ * Whether the projected session is still on the turn the tracker holds. A
+ * stall error is only worth posting for that turn; anything else means the
+ * turn already ended (an event the tracker missed) or a new one replaced it.
+ */
+export function sessionStillOnTurn(
+  session: { readonly activeTurnId: string | null } | null | undefined,
+  turnId: string | undefined,
+): boolean {
+  const active = session?.activeTurnId ?? null;
+  if (active === null) return false;
+  return turnId === undefined || String(active) === turnId;
 }
 
 export function describeStall(silentForMs: number): string {

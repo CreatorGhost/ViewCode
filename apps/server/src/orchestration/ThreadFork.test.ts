@@ -84,7 +84,12 @@ it.layer(NodeServices.layer)("thread.create with forkFrom", (it) => {
             messageId: MessageId.make("m1"),
             sourceTitle: "Source",
             messages: [
-              { messageId: MessageId.make("fork:fork-1:m1"), role: "user", text: "hi", createdAt: at },
+              {
+                messageId: MessageId.make("fork:fork-1:m1"),
+                role: "user",
+                text: "hi",
+                createdAt: at,
+              },
             ],
           },
         },
@@ -99,6 +104,12 @@ it.layer(NodeServices.layer)("thread.create with forkFrom", (it) => {
       expect(list[2]).toMatchObject({
         payload: { activity: { kind: THREAD_FORKED_ACTIVITY_KIND, summary: "Forked from Source" } },
       });
+      // Strictly before the first copied message: clients sort messages first on a tie.
+      const divider = list[2] as Extract<
+        (typeof list)[number],
+        { readonly type: "thread.activity-appended" }
+      >;
+      expect(Date.parse(divider.payload.activity.createdAt)).toBe(Date.parse(at) - 1);
     }),
   );
 });

@@ -1,4 +1,4 @@
-import { CommandId } from "@t3tools/contracts";
+import { CommandId, type ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -9,9 +9,11 @@ import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 
 import { forkParked } from "../serverActivation.ts";
+import * as TerminalManager from "../terminal/Manager.ts";
 import * as OrchestrationEngine from "./Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./Services/ProjectionSnapshotQuery.ts";
 import { findExpiredSidechats } from "./sidechatExpiry.ts";
+import { cleanUpArchivedThreads, readArchiveCleanupTargets } from "./threadArchiveCleanup.ts";
 
 /** How often side chats are checked for idleness; expiry is measured in hours. */
 export const SIDECHAT_EXPIRY_SWEEP_MS = 10 * 60 * 1_000;
@@ -28,25 +30,34 @@ export class SidechatExpiryReactor extends Context.Service<
 export const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const terminals = yield* TerminalManager.TerminalManager;
   const crypto = yield* Crypto.Crypto;
+
+  /** The same archive a client sends, with the same session stop and terminal close (ws.ts). */
+  const archive = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const commandId = CommandId.make(`server:sidechat-expiry:${yield* crypto.randomUUIDv4}`);
+    const targets = yield* readArchiveCleanupTargets(projections, threadId);
+    yield* engine.dispatch({ type: "thread.archive", commandId, threadId });
+    yield* cleanUpArchivedThreads({
+      archiveCommandId: commandId,
+      rootThreadId: threadId,
+      targets,
+      dispatch: engine.dispatch,
+      terminals,
+    });
+  });
 
   const sweep = Effect.gen(function* () {
     const snapshot = yield* projections.getShellSnapshot();
     for (const thread of findExpiredSidechats(snapshot.threads, yield* Clock.currentTimeMillis)) {
-      yield* engine
-        .dispatch({
-          type: "thread.archive",
-          commandId: CommandId.make(`server:sidechat-expiry:${yield* crypto.randomUUIDv4}`),
-          threadId: thread.id,
-        })
-        .pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("failed to archive an expired side chat", {
-              threadId: thread.id,
-              cause: Cause.pretty(cause),
-            }),
-          ),
-        );
+      yield* archive(thread.id).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("failed to archive an expired side chat", {
+            threadId: thread.id,
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
     }
   }).pipe(
     Effect.catchCause((cause) =>

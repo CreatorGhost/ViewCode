@@ -374,6 +374,20 @@ const makeDefaultOrchestrationReadModel = () => {
   };
 };
 
+/** Archive cleanup reads the shell snapshot; derive it from a test's one-thread lookup. */
+const archiveLookups = (lookup: () => Effect.Effect<Option.Option<OrchestrationThreadShell>>) => ({
+  getThreadShellById: lookup,
+  getShellSnapshot: () =>
+    lookup().pipe(
+      Effect.map((shell) => ({
+        snapshotSequence: 0,
+        projects: [],
+        threads: Option.toArray(shell),
+        updatedAt: "1970-01-01T00:00:00.000Z",
+      })),
+    ),
+});
+
 const makeDefaultOrchestrationThreadShell = (
   overrides: Partial<OrchestrationThreadShell> = {},
 ): OrchestrationThreadShell => {
@@ -10734,24 +10748,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 return { sequence: dispatchedCommands.length };
               }),
           },
-          projectionSnapshotQuery: {
-            getThreadShellById: () =>
-              Effect.succeedSome(
-                makeDefaultOrchestrationThreadShell({
-                  id: threadId,
+          projectionSnapshotQuery: archiveLookups(() =>
+            Effect.succeedSome(
+              makeDefaultOrchestrationThreadShell({
+                id: threadId,
+                updatedAt: now,
+                session: {
+                  threadId,
+                  status: "ready",
+                  providerName: "claudeAgent",
+                  runtimeMode: "full-access",
+                  activeTurnId: null,
+                  lastError: null,
                   updatedAt: now,
-                  session: {
-                    threadId,
-                    status: "ready",
-                    providerName: "claudeAgent",
-                    runtimeMode: "full-access",
-                    activeTurnId: null,
-                    lastError: null,
-                    updatedAt: now,
-                  },
-                }),
-              ),
-          },
+                },
+              }),
+            ),
+          ),
         },
       });
 
@@ -10807,29 +10820,28 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 return { sequence: dispatchedCommands.length };
               }),
           },
-          projectionSnapshotQuery: {
-            getThreadShellById: () =>
-              Effect.sync(() => {
-                effects.push(`query:thread-shell:${archived ? "archived" : "active"}`);
-                return archived
-                  ? Option.none()
-                  : Option.some(
-                      makeDefaultOrchestrationThreadShell({
-                        id: threadId,
+          projectionSnapshotQuery: archiveLookups(() =>
+            Effect.sync(() => {
+              effects.push(`query:thread-shell:${archived ? "archived" : "active"}`);
+              return archived
+                ? Option.none()
+                : Option.some(
+                    makeDefaultOrchestrationThreadShell({
+                      id: threadId,
+                      updatedAt: now,
+                      session: {
+                        threadId,
+                        status: "ready",
+                        providerName: "claudeAgent",
+                        runtimeMode: "full-access",
+                        activeTurnId: null,
+                        lastError: null,
                         updatedAt: now,
-                        session: {
-                          threadId,
-                          status: "ready",
-                          providerName: "claudeAgent",
-                          runtimeMode: "full-access",
-                          activeTurnId: null,
-                          lastError: null,
-                          updatedAt: now,
-                        },
-                      }),
-                    );
-              }),
-          },
+                      },
+                    }),
+                  );
+            }),
+          ),
         },
       });
 
@@ -10880,12 +10892,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 return { sequence: dispatchedCommands.length };
               }),
           },
-          projectionSnapshotQuery: {
-            getThreadShellById: () =>
-              Effect.succeedSome(
-                makeDefaultOrchestrationThreadShell({ id: threadId, session: null }),
-              ),
-          },
+          projectionSnapshotQuery: archiveLookups(() =>
+            Effect.succeedSome(
+              makeDefaultOrchestrationThreadShell({ id: threadId, session: null }),
+            ),
+          ),
         },
       });
 
@@ -10934,24 +10945,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   return { sequence: dispatchedCommands.length };
                 }),
             },
-            projectionSnapshotQuery: {
-              getThreadShellById: () =>
-                Effect.succeedSome(
-                  makeDefaultOrchestrationThreadShell({
-                    id: threadId,
+            projectionSnapshotQuery: archiveLookups(() =>
+              Effect.succeedSome(
+                makeDefaultOrchestrationThreadShell({
+                  id: threadId,
+                  updatedAt: now,
+                  session: {
+                    threadId,
+                    status: "stopped",
+                    providerName: "claudeAgent",
+                    runtimeMode: "full-access",
+                    activeTurnId: null,
+                    lastError: null,
                     updatedAt: now,
-                    session: {
-                      threadId,
-                      status: "stopped",
-                      providerName: "claudeAgent",
-                      runtimeMode: "full-access",
-                      activeTurnId: null,
-                      lastError: null,
-                      updatedAt: now,
-                    },
-                  }),
-                ),
-            },
+                  },
+                }),
+              ),
+            ),
           },
         });
 
@@ -11099,24 +11109,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               return Effect.succeed({ sequence: dispatchedCommands.length });
             },
           },
-          projectionSnapshotQuery: {
-            getThreadShellById: () =>
-              Effect.succeedSome(
-                makeDefaultOrchestrationThreadShell({
-                  id: threadId,
+          projectionSnapshotQuery: archiveLookups(() =>
+            Effect.succeedSome(
+              makeDefaultOrchestrationThreadShell({
+                id: threadId,
+                updatedAt: now,
+                session: {
+                  threadId,
+                  status: "ready",
+                  providerName: "claudeAgent",
+                  runtimeMode: "full-access",
+                  activeTurnId: null,
+                  lastError: null,
                   updatedAt: now,
-                  session: {
-                    threadId,
-                    status: "ready",
-                    providerName: "claudeAgent",
-                    runtimeMode: "full-access",
-                    activeTurnId: null,
-                    lastError: null,
-                    updatedAt: now,
-                  },
-                }),
-              ),
-          },
+                },
+              }),
+            ),
+          ),
         },
       });
 
@@ -11169,24 +11178,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               return Effect.succeed({ sequence: dispatchedCommands.length });
             },
           },
-          projectionSnapshotQuery: {
-            getThreadShellById: () =>
-              Effect.succeedSome(
-                makeDefaultOrchestrationThreadShell({
-                  id: threadId,
+          projectionSnapshotQuery: archiveLookups(() =>
+            Effect.succeedSome(
+              makeDefaultOrchestrationThreadShell({
+                id: threadId,
+                updatedAt: now,
+                session: {
+                  threadId,
+                  status: "ready",
+                  providerName: "claudeAgent",
+                  runtimeMode: "full-access",
+                  activeTurnId: null,
+                  lastError: null,
                   updatedAt: now,
-                  session: {
-                    threadId,
-                    status: "ready",
-                    providerName: "claudeAgent",
-                    runtimeMode: "full-access",
-                    activeTurnId: null,
-                    lastError: null,
-                    updatedAt: now,
-                  },
-                }),
-              ),
-          },
+                },
+              }),
+            ),
+          ),
         },
       });
 

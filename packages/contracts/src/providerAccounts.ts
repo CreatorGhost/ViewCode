@@ -5,8 +5,11 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 
 /**
  * ViewCode: add a Codex or Claude account from Settings and sign it in through
- * a server-side terminal. The server owns the paths (state dir, home dirs) so
- * this works for remote environments too.
+ * a server-side terminal. The server owns the paths (state dir, home dirs), so
+ * the account lands on the environment that runs it. Sign-in itself is not
+ * always remote-safe: `codex login` finishes through a browser callback on the
+ * server's own localhost (port 1455), which a browser on another machine
+ * cannot reach.
  */
 export const ProviderAccountDriver = Schema.Literals(["codex", "claudeAgent"]);
 export type ProviderAccountDriver = typeof ProviderAccountDriver.Type;

@@ -36,7 +36,7 @@ import {
   ThreadPullRequestStack,
   ThreadPullRequestWatch,
   type ThreadPullRequestLink,
-  type ThreadKind,
+  ThreadKind,
 } from "@t3tools/contracts";
 import { legacyLinkedPullRequestOf } from "@t3tools/shared/threadPullRequests";
 import * as Arr from "effect/Array";
@@ -495,6 +495,16 @@ function mapThreadPullRequests(
     pullRequests,
     ...(linkedPullRequest === null ? {} : { linkedPullRequest }),
   };
+}
+
+const isThreadKind = Schema.is(ThreadKind);
+
+/**
+ * The stored `kind` when this server knows it, else no kind. A value written by
+ * a newer server must not fail the encode of a whole shell or snapshot.
+ */
+export function threadKindField(kind: string | null | undefined): { readonly kind?: ThreadKind } {
+  return isThreadKind(kind) ? { kind } : {};
 }
 
 function mapThreadActivityRow(
@@ -2438,7 +2448,7 @@ pending_approval_requests AS (
                 activeOrderKey: row.activeOrderKey ?? null,
                 autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                 parentThreadId: row.parentThreadId ?? null,
-                ...((row.kind ?? null) !== null ? { kind: row.kind as ThreadKind } : {}),
+                ...threadKindField(row.kind),
                 titleRegeneration: mapTitleRegeneration(row),
                 titleState: row.titleState,
                 deletedAt: row.deletedAt,
@@ -2686,7 +2696,7 @@ pending_approval_requests AS (
                   activeOrderKey: row.activeOrderKey ?? null,
                   autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   parentThreadId: row.parentThreadId ?? null,
-                  ...((row.kind ?? null) !== null ? { kind: row.kind as ThreadKind } : {}),
+                  ...threadKindField(row.kind),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   deletedAt: row.deletedAt,
@@ -2846,7 +2856,7 @@ pending_approval_requests AS (
                         activeOrderKey: row.activeOrderKey ?? null,
                         autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                         parentThreadId: row.parentThreadId ?? null,
-                        ...((row.kind ?? null) !== null ? { kind: row.kind as ThreadKind } : {}),
+                        ...threadKindField(row.kind),
                         titleRegeneration: mapTitleRegeneration(row),
                         titleState: row.titleState,
                         session: sessionByThread.get(row.threadId) ?? null,
@@ -3013,7 +3023,7 @@ pending_approval_requests AS (
                   activeOrderKey: row.activeOrderKey ?? null,
                   autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   parentThreadId: row.parentThreadId ?? null,
-                  ...((row.kind ?? null) !== null ? { kind: row.kind as ThreadKind } : {}),
+                  ...threadKindField(row.kind),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   session: sessionByThread.get(row.threadId) ?? null,
@@ -3374,9 +3384,7 @@ pending_approval_requests AS (
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
         autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         parentThreadId: threadRow.value.parentThreadId ?? null,
-        ...((threadRow.value.kind ?? null) !== null
-          ? { kind: threadRow.value.kind as ThreadKind }
-          : {}),
+        ...threadKindField(threadRow.value.kind),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
@@ -3682,9 +3690,7 @@ pending_approval_requests AS (
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
         autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         parentThreadId: threadRow.value.parentThreadId ?? null,
-        ...((threadRow.value.kind ?? null) !== null
-          ? { kind: threadRow.value.kind as ThreadKind }
-          : {}),
+        ...threadKindField(threadRow.value.kind),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         deletedAt: null,

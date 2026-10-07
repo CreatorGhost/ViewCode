@@ -328,12 +328,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 - A side chat is an ordinary thread with `parentThreadId` plus the optional
   `kind: "sidechat"` (contracts `ThreadKind`, shell and detail, create and
-  `thread.meta.update`). Reusing `parentThreadId` makes the parent's archive,
-  unarchive and delete cascade cover its side chats for free. `kind` is what
-  separates it from a child agent: `agentTree` (server) and `collectChildAgents`
-  (client-runtime) skip it, so stopping the main agent never pauses a side chat
-  and the lead never sees it as one of its agents. Anything new that walks
-  `parentThreadId` as "agents" must do the same.
+  `thread.meta.update`, which can only clear it). The decider refuses a side
+  chat without a parent. Reusing `parentThreadId` makes the parent's archive
+  and delete cascade cover its side chats; unarchive deliberately skips them,
+  since they expired for a reason. `kind` is what separates it from a child
+  agent: walks of `parentThreadId` as "agents" go through `isChildAgent`
+  (`agents/AgentMessaging.ts`: the tree, usage-limit release, usage resume)
+  and `collectChildAgents` (client-runtime), and push titles stop at a side
+  chat. Anything new that walks `parentThreadId` must do the same: a usage
+  limit on a side chat used to start a turn on its parent.
 - Context is a handoff, not a copy: on its first turn the reactor queues a
   pending handoff whose recap is built from the **parent's** detail
   (`sidechatOf` in `PendingHandoff`, `sidechat: true` in `buildHandoff` for the
@@ -341,13 +344,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   does not follow later work. Everything else about the budget and shrinking is
   the ordinary handoff.
 - Expiry archives (never deletes) a side chat idle for 24h and not working,
-  swept every ten minutes (`findExpiredSidechats`). Archiving it is the same
-  command as any thread, so it is reversible.
+  swept every ten minutes (`findExpiredSidechats`). It runs the same archive
+  cleanup as a client archive (`orchestration/threadArchiveCleanup.ts`: stop
+  sessions, close terminals) and stays reversible.
 - The dock is its own compact transcript and composer, not an embedded
   `ChatView`: `ChatView` is route-bound with global key handlers, so a second
   instance would fight the first. It uses `ProviderModelPicker`, never the
   composer's `ComposerModelEffortPicker`. The sidebar, the mobile home list and
-  the palette's "latest thread" hide side chats; mobile has no dock.
+  the palette, tabs, Ctrl-Tab and the split companion hide side chats; mobile
+  has no dock.
 - `openSideChat(parentRef, prefill?)` (`sidechatDockStore.ts`) is the hook for
   other code, such as a selection toolbar's "Ask in side chat".
 

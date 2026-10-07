@@ -35,7 +35,7 @@ import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
 import { DesktopTelemetryReceiver } from "../resourceTelemetry/DesktopTelemetryReceiver.ts";
 import { forkParked } from "../serverActivation.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { AgentMessaging, AgentMessagingError } from "./AgentMessaging.ts";
+import { AgentMessaging, AgentMessagingError, isChildAgent } from "./AgentMessaging.ts";
 import {
   type RateLimitSignal,
   USAGE_RESET_MARGIN_MS,
@@ -277,7 +277,7 @@ const make = Effect.gen(function* () {
     const resetsAt = yield* resolveReset(thread, error, recorded, nowMs);
     // A child is left to its lead, who is told when it resets (see AgentMessaging).
     // The banner still says when, and Resume now still works.
-    const leftToLead = thread.parentThreadId != null && thread.kind !== "sidechat";
+    const leftToLead = isChildAgent(thread);
     if (resetsAt === null || resetsAt - nowMs > MAX_RESET_HORIZON_MS) {
       if (!leftToLead) yield* publishState(threadId, {});
       return yield* note(
@@ -318,7 +318,7 @@ const make = Effect.gen(function* () {
     nowMs: number,
   ) {
     const threadId = thread.id;
-    if (thread.parentThreadId != null && thread.kind !== "sidechat") return;
+    if (isChildAgent(thread)) return;
     const settings = yield* settingsService.getSettings;
     if (!settings.resumeAfterUsageLimit) return;
     const done = retries.get(threadId) ?? 0;
