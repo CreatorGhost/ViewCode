@@ -78,6 +78,8 @@ const makeHarness = (
     activateApp: async () => undefined,
     primaryDisplay: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     sleep: async () => undefined,
+    now: () => 0,
+    authorizeInput: async () => undefined,
   };
   const core = makeDriverCore(api, { platform: "darwin", epoch: "t" });
   const call = async (request: DriverRequest) => core.handle(request);

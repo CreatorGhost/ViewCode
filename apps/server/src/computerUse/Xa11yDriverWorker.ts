@@ -21,7 +21,6 @@ import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 
 import type { ComputerUseError } from "@t3tools/contracts";
-import type { DriverDispatchTarget } from "./ComputerDriver.ts";
 
 import {
   appBundlePath,
@@ -85,7 +84,7 @@ const activateApp = async (pid: number) => {
   if (bundle) await execFileQuietly("/usr/bin/open", ["-a", bundle]);
 };
 
-export const makeXa11yApi = (xa11y: Xa11yModule): Xa11yApi => ({
+export const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput"> => ({
   listApps: () => xa11y.App.list(),
   appWindows: async (pid) => (await xa11y.App.byPid(pid, { timeout: 0 })).children(),
   isAlive: async (element) => (await element.parent()) !== null,
@@ -104,6 +103,7 @@ export const makeXa11yApi = (xa11y: Xa11yModule): Xa11yApi => ({
     return { x: 0, y: 0, width: shot.width / shot.scale, height: shot.height / shot.scale };
   },
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  now: () => performance.now(),
 });
 
 type Envelope = { readonly id: number; readonly nonce: string; readonly request: DriverRequest };
@@ -122,7 +122,7 @@ const unavailable =
       : { ok: false, error: { kind: "unavailable", message: reason, dispatched: "no" } };
 
 const loadHandler = (
-  authorizeInput: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>,
+  authorizeInput: Xa11yApi["authorizeInput"],
 ): ((request: DriverRequest) => Promise<DriverResult> | DriverResult) => {
   if (!SUPPORTED_PLATFORMS.has(PLATFORM)) {
     return unavailable(
@@ -178,10 +178,10 @@ export const runComputerUseDriverWorker = (): Promise<void> =>
       queue = queue.then(async () => {
         activeId = message.id;
         handler ??= loadHandler(
-          (target) =>
+          (target, phase) =>
             new Promise((complete) => {
               authorize = complete;
-              send({ id: activeId, authorize: target });
+              send({ id: activeId, authorize: target, phase });
             }),
         );
         let reply: DriverResult;

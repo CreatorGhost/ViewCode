@@ -9,7 +9,7 @@ import {
   type DriverResult,
   type Xa11yApi,
 } from "./Xa11yDriverCore.ts";
-import type { DriverDispatchTarget } from "./ComputerDriver.ts";
+import type { DriverDispatchPhase, DriverDispatchTarget } from "./ComputerDriver.ts";
 
 // A mutable fake desktop. Like xa11y, `fake` copies properties when an
 // element is fetched: an old element never sees later changes, only a fresh
@@ -102,7 +102,13 @@ const makeCore = (
     readonly activate?: (pid: number) => void | Promise<void>;
     readonly primaryDisplay?: () => Rect | null;
     readonly capture?: Xa11yApi["screenshot"];
-    readonly authorize?: (target: DriverDispatchTarget) => ComputerUseError | undefined;
+    readonly executablePaths?: Xa11yApi["executablePaths"];
+    /** The server's check; allows everything unless given. */
+    readonly authorize?: (
+      target: DriverDispatchTarget,
+      phase: DriverDispatchPhase,
+    ) => ComputerUseError | undefined;
+    readonly clock?: { now: number };
   } = {},
 ) => {
   const sent: Sent = [];
@@ -144,7 +150,7 @@ const makeCore = (
       (async () => {
         throw new Error("no capture in these tests");
       }),
-    executablePaths: async () => new Map(),
+    executablePaths: options.executablePaths ?? (async () => new Map()),
     writeFile: async () => undefined,
     activateApp: async (pid) => {
       calls.activate += 1;
@@ -155,7 +161,8 @@ const makeCore = (
       return options.primaryDisplay?.() ?? null;
     },
     sleep: async () => undefined,
-    ...(options.authorize ? { authorizeInput: async (target) => options.authorize!(target) } : {}),
+    now: () => options.clock?.now ?? 0,
+    authorizeInput: async (target, phase) => options.authorize?.(target, phase),
   };
   const core = makeDriverCore(api, { platform: "darwin", epoch: options.epoch ?? "a" });
   const call = (request: DriverRequest) => core.handle(request);
@@ -708,4 +715,99 @@ describe("a replacement element that matches every observed field", () => {
     ).toEqual(ok);
     expect(hits).toEqual(["twin"]);
   });
+});
+
+describe("nothing is prepared or sent once the policy refuses", () => {
+  const field: Spec = {
+    role: "text field",
+    name: "Body",
+    bounds: { x: 10, y: 10, width: 100, height: 20 },
+  };
+  const expect_ = { role: "text field", label: "Body" };
+  const requests: Array<(window: string, element: string) => DriverRequest> = [
+    (_window, element) => ({ op: "press", element, expect: expect_ }),
+    (_window, element) => ({ op: "setValue", element, expect: expect_, value: "v" }),
+    (_window, element) => ({ op: "typeText", element, expect: expect_, text: "t" }),
+    (_window, element) => ({ op: "scroll", element, expect: expect_, dx: 0, dy: 1 }),
+    (window) => ({ op: "key", window, keys: "enter" }),
+    (window) => ({ op: "typeFocused", window, text: "t" }),
+    (window) => ({
+      op: "click",
+      window,
+      expectBounds: BOUNDS,
+      point: { x: 5, y: 5 },
+      button: "left",
+      count: 1,
+    }),
+  ];
+
+  for (const request of requests) {
+    const op = request("w", "e").op;
+    it(`${op} does not activate its window after the turn ended`, async () => {
+      const app: FakeApp = {
+        name: "Notes",
+        pid: 5,
+        windows: [window("Note", { active: false, focused: false, children: [{ ...field }] })],
+      };
+      const phases: string[] = [];
+      const core = makeCore([app], {
+        foreground: 99,
+        authorize: (_target, phase) => {
+          phases.push(phase);
+          return { code: "CU-CON-006", message: "ended", effect: "not-dispatched" };
+        },
+      });
+      const [note] = await core.list();
+      const [ref] = await core.observe(note!.handle);
+      expect(await core.call(request(note!.handle, ref!.handle))).toMatchObject({
+        ok: false,
+        error: { kind: "policy", code: "CU-CON-006", dispatched: "no" },
+      });
+      expect(phases).toEqual(["prepare"]);
+      expect(core.calls.activate).toBe(0);
+      expect(core.sent).toEqual([]);
+    });
+  }
+
+  it("reports a failure before the input as not dispatched", async () => {
+    let fail = false;
+    const core = makeCore([{ name: "Notes", pid: 5, windows: [window("Note")] }], {
+      executablePaths: async () => {
+        if (fail) throw new Error("ps failed");
+        return new Map();
+      },
+    });
+    const [note] = await core.list();
+    fail = true;
+    expect(await core.call({ op: "key", window: note!.handle, keys: "enter" })).toMatchObject({
+      ok: false,
+      error: { dispatched: "no" },
+    });
+    expect(core.sent).toEqual([]);
+  });
+});
+
+it("reuses a display read briefly and re-reads it when it misses or ages", async () => {
+  const clock = { now: 0 };
+  let display = { x: 0, y: 0, width: 1000, height: 800 };
+  const app: FakeApp = { name: "Notes", pid: 5, windows: [window("Note")] };
+  const core = makeCore([app], {
+    clock,
+    primaryDisplay: () => display,
+    capture: async () => ({ width: 2, height: 2, toPng: () => new Uint8Array([1]) }) as never,
+  });
+  const [note] = await core.list();
+  const shoot = () =>
+    core.call({ op: "screenshot", window: note!.handle, outputPath: "/unused.png", maxSize: 256 });
+  expect(await shoot()).toMatchObject({ ok: true });
+  expect(await shoot()).toMatchObject({ ok: true });
+  expect(core.calls.primaryDisplay).toBe(1);
+  // Off the cached display: read again before refusing.
+  app.windows[0]!.bounds = { ...BOUNDS, x: 900 };
+  display = { ...display, width: 2000 };
+  expect(await shoot()).toMatchObject({ ok: true });
+  expect(core.calls.primaryDisplay).toBe(2);
+  clock.now = 5_000;
+  expect(await shoot()).toMatchObject({ ok: true });
+  expect(core.calls.primaryDisplay).toBe(3);
 });

@@ -277,12 +277,18 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   the environment waits** (`CU-CON-008`, computer-use and provider approvals alike): that, not
   window identity, is what stops an agent answering an approval for itself in a ViewCode window, a
   browser tab or a mirrored screen. The denylist (protected apps, ViewCode by name and `.app` path,
-  the server's own process ancestry, browser tabs titled like ViewCode) is defense in depth. Every
-  input holds an environment-wide lock. After queueing and activation, the worker asks the server
-  to re-read the mode, turn, approvals and freshly resolved native target before dispatch. Provider
-  approvals are tracked before publication, because the projection can lag; approval publication
-  shares the dispatch lock so a new card cannot open during input. Turn-end receipts invalidate
-  input immediately, without waiting for the thread projection.
+  the server's own process ancestry, browser tabs titled like ViewCode) is defense in depth. The
+  worker asks the server to re-read the mode, turn, approvals and the freshly resolved native
+  target twice per input: before it activates, raises or focuses anything, and immediately before
+  native input, including an accessibility action's fallback click or typing. Only that last check
+  takes the environment-wide dispatch lock, and an allowed one keeps it until the native action
+  returns, even when the caller gave up; waiting in the worker queue and preparing the target hold
+  nothing, so a slow observe cannot stall provider events. Approval publication and the tracking of
+  provider requests share the lock, so no card can open between the final check and the input
+  landing. Every provider `request.opened` except a `tool_user_input` question (the projection's
+  rule for approval cards) is tracked before publication, because the projection can lag; a turn's
+  end clears what it left open. Turn-end receipts and interrupts invalidate input immediately,
+  without waiting for the thread projection.
 - Two ways to act, chosen per step by the agent: accessibility refs (exact) and screenshot pixel
   coordinates (Codex style, for canvases, browsers and apps with no tree). Window ids, refs and
   shots are per-thread integers starting at a random per-run base; a newer observe retires a
@@ -290,9 +296,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   element or window bounds at dispatch and refuses on change. Every input returns a fresh shot.
 - xa11y elements and window lists are snapshots (`tree(0)` reads no live state), so the driver
   records each element's child-index path at observe and re-walks it from a fresh window read at
-  dispatch, refusing on any role, label, native identifier or bounds change. A retained window
-  must still have a native parent before a fresh snapshot can be matched: titles and
-  `AXIdentifier` values can be reused after close, even without an intervening empty listing.
+  dispatch, refusing on any role, label, native identifier or bounds change. The retained window
+  and observed element must still have a native parent before a fresh snapshot can be matched:
+  titles and `AXIdentifier` values can be reused after close, even without an intervening empty
+  listing. xa11y exposes no native identity (no AXUIElement handle or `CFEqual`), so a twin
+  identical in every compared field, at the same path while the observed control is still alive
+  elsewhere, cannot be told apart and receives the action.
   Handles carry a per-worker random epoch,
   so a restarted worker can never resolve an old handle to another app. On macOS, AXRaise does not
   activate an app; the driver runs `open -a <bundle>` and then requires the exact target window to

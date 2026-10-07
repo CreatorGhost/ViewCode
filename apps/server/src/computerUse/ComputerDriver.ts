@@ -29,11 +29,40 @@ export interface DriverDispatchTarget {
   readonly element?: DriverElementIdentity;
 }
 
-/** The server rechecks policy when the worker is ready to send native input. */
+/**
+ * When the driver asks: `prepare` before it activates, raises or focuses
+ * anything; `dispatch` immediately before native input.
+ */
+export type DriverDispatchPhase = "prepare" | "dispatch";
+
+export type DriverDispatchDecision =
+  | { readonly allowed: false; readonly error: ComputerUseError }
+  /**
+   * An allowed `dispatch` holds the environment's dispatch lock until
+   * `release` runs, which the driver does once that native input returned.
+   */
+  | { readonly allowed: true; readonly release: Effect.Effect<void> };
+
+const NO_DISPATCH_CHECK: DriverDispatchDecision = {
+  allowed: false,
+  error: {
+    code: "CU-CON-004",
+    message: "No computer-use policy check is installed.",
+    effect: "not-dispatched",
+  },
+};
+
+/**
+ * The server's policy check, asked by the driver for the exact native target.
+ * Without one installed every input is refused.
+ */
 export const ComputerDriverDispatchCheck = Context.Reference<
-  (target: DriverDispatchTarget) => Effect.Effect<ComputerUseError | undefined>
+  (
+    target: DriverDispatchTarget,
+    phase: DriverDispatchPhase,
+  ) => Effect.Effect<DriverDispatchDecision>
 >("t3/computerUse/ComputerDriverDispatchCheck", {
-  defaultValue: () => () => Effect.undefined,
+  defaultValue: () => () => Effect.succeed(NO_DISPATCH_CHECK),
 });
 
 export interface DriverWindow {

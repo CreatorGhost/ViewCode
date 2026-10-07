@@ -119,7 +119,8 @@ export const parseComputerArgs = async (
   }
   const accepted = COMMAND_FLAGS[command];
   if (!accepted) {
-    return invalid("CU-VAL-001", `Unknown command "${command}". Run \`viewcode-computer help\`.`);
+    // Never echo argv: an agent may have put typed text in the wrong place.
+    return invalid("CU-VAL-001", "Unknown command. Run `viewcode-computer help`.");
   }
   const values = new Map<string, FlagValue>();
   for (let index = 0; index < rest.length; index += 1) {
@@ -131,7 +132,12 @@ export const parseComputerArgs = async (
     const name = arg.slice(2, equals === -1 ? undefined : equals);
     const kind = FLAG_KINDS[name];
     if (!kind || !accepted.includes(name)) {
-      return invalid("CU-VAL-004", `${command} does not accept --${name}.`);
+      return invalid(
+        "CU-VAL-004",
+        kind
+          ? `${command} does not accept --${name}.`
+          : `${command} got an unknown flag. Run \`viewcode-computer help\`.`,
+      );
     }
     if (values.has(name)) return invalid("CU-VAL-004", `--${name} was given more than once.`);
     let raw: string | undefined;
@@ -243,7 +249,7 @@ const buildRequest = (command: string, values: ReadonlyMap<string, FlagValue>): 
         : parsed;
     }
     default:
-      return invalid("CU-VAL-001", `Unknown command "${command}".`);
+      return invalid("CU-VAL-001", "Unknown command. Run `viewcode-computer help`.");
   }
 };
 

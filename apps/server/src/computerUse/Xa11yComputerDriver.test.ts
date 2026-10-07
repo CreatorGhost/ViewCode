@@ -9,7 +9,11 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import { afterAll } from "vite-plus/test";
 
-import { ComputerDriver, ComputerDriverError } from "./ComputerDriver.ts";
+import {
+  ComputerDriver,
+  ComputerDriverDispatchCheck,
+  ComputerDriverError,
+} from "./ComputerDriver.ts";
 import { layer, makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
 
 // Answers by op instead of driving xa11y: each op exercises one way a real
@@ -18,7 +22,23 @@ const STUB_WORKER = `
 const fs = require("node:fs");
 const log = process.argv[2];
 const nonce = process.env.VIEWCODE_COMPUTER_DRIVER_NONCE;
-process.on("message", ({ id, nonce: sent, request }) => {
+const target = { window: { handle: "w1", app: "Notes", pid: 1, title: "t", focused: true } };
+let authorizing;
+process.on("message", (message) => {
+  const { id, nonce: sent, request } = message;
+  if ("decision" in message) {
+    if (message.decision) {
+      return process.send({ id, ok: false, error: { kind: "policy", message: "no", dispatched: "no" } });
+    }
+    switch (authorizing) {
+      case "press":
+        return process.exit(3); // dies during the allowed input
+      case "key":
+      case "drag":
+        return; // never answers after the allowed input
+    }
+    return;
+  }
   if (log) fs.appendFileSync(log, request.op + "\\n");
   switch (request.op) {
     case "elementAt": // probe: which process answered, and did it get the nonce
@@ -29,17 +49,20 @@ process.on("message", ({ id, nonce: sent, request }) => {
     case "releaseMouse":
       return process.send({ id, ok: true, result: null });
     case "drag":
-      return; // never answers
+    case "press":
+    case "key":
+      authorizing = request.op;
+      return process.send({ id, authorize: target, phase: "dispatch" });
+    case "move":
+      return process.exit(3); // dies before asking to dispatch
+    case "scrollAt":
+      return; // never asks to dispatch
     case "status":
       return process.send({ id, ok: true, result: { available: true, accessibility: "granted" } });
     case "listWindows":
       return process.send({ id, ok: true, result: [{ handle: 7 }] });
     case "observe":
       return process.send({ id: id + 1, ok: true, result: { elements: [], truncated: false } });
-    case "press":
-      return process.exit(3);
-    case "key":
-      return; // never answers
     case "setValue":
       return process.send({ id, ok: true, result: null });
     case "scroll":
@@ -73,7 +96,7 @@ const makeDriver = (
       args: options.log ? [script, options.log] : [script],
       env: { ...process.env },
     }),
-    timeouts: { key: 300, drag: 300 },
+    timeouts: { key: 300, drag: 300, scrollAt: 300 },
     ...(options.recycleAfter ? { recycleAfter: options.recycleAfter } : {}),
   });
 };
@@ -87,6 +110,11 @@ const opLog = () => {
 const probe = { x: 1, y: 1 };
 
 const identity = { role: "button", label: "OK" };
+
+/** The server's dispatch check, allowing everything. */
+const allowAll = Effect.provideService(ComputerDriverDispatchCheck, () =>
+  Effect.succeed({ allowed: true as const, release: Effect.void }),
+);
 
 const failureOf = <A>(effect: Effect.Effect<A, ComputerDriverError>) =>
   Effect.flip(effect).pipe(Effect.map(({ kind, dispatched }) => ({ kind, dispatched })));
@@ -138,7 +166,7 @@ describe("Xa11yComputerDriver", () => {
           accessibility: "granted",
         });
       }),
-    ),
+    ).pipe(allowAll),
   );
 
   it.effect("times out a silent worker as dispatched-unknown and replaces it", () =>
@@ -150,6 +178,31 @@ describe("Xa11yComputerDriver", () => {
           dispatched: "unknown",
         });
         yield* driver.setValue("e1", identity, "x");
+      }),
+    ).pipe(allowAll),
+  );
+
+  it.effect("a worker lost before any allowed dispatch sent nothing", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const log = opLog();
+        const driver = yield* makeDriver({ log: log.path });
+        const rect = { x: 0, y: 0, width: 10, height: 10 };
+        assert.deepStrictEqual(yield* failureOf(driver.move("w1", rect, probe)), {
+          kind: "failed",
+          dispatched: "no",
+        });
+        assert.deepStrictEqual(yield* failureOf(driver.scrollAt("w1", rect, probe, 0, 1)), {
+          kind: "timeout",
+          dispatched: "no",
+        });
+        // Refused at the dispatch check: no input, so no mouse release either.
+        assert.deepStrictEqual(yield* failureOf(driver.drag("w1", rect, probe, probe)), {
+          kind: "policy",
+          dispatched: "no",
+        });
+        yield* driver.setValue("e1", identity, "x");
+        assert.deepStrictEqual(log.read(), ["move", "scrollAt", "drag", "setValue"]);
       }),
     ),
   );
@@ -222,7 +275,7 @@ describe("Xa11yComputerDriver", () => {
         yield* driver.setValue("e1", identity, "x");
         assert.deepStrictEqual(log.read(), ["drag", "releaseMouse", "setValue"]);
       }),
-    ),
+    ).pipe(allowAll),
   );
 
   it.effect("never sends a queued request whose caller was interrupted", () =>
@@ -238,7 +291,7 @@ describe("Xa11yComputerDriver", () => {
         yield* driver.status();
         assert.deepStrictEqual(log.read(), ["key", "status"]);
       }),
-    ),
+    ).pipe(allowAll),
   );
 
   it.effect("refuses on Windows without starting a worker", () =>

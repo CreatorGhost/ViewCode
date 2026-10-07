@@ -31,6 +31,7 @@ import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSna
 import * as ServerSettings from "../serverSettings.ts";
 import {
   ComputerDriver,
+  ComputerDriverDispatchCheck,
   ComputerDriverError,
   type ComputerDriverShape,
   type DriverElement,
@@ -131,6 +132,14 @@ interface Harness {
   elementAtGate:
     | { readonly entered: Deferred.Deferred<void>; readonly release: Deferred.Deferred<void> }
     | undefined;
+  /** What `observe` returns. */
+  elements: Array<DriverElement>;
+  /** The live element the driver reports at dispatch, by handle; defaults to the observed one. */
+  readonly native: Map<string, DriverElementIdentity>;
+  /** Makes `listWindows` fail with this. */
+  listFailure: ComputerDriverError | undefined;
+  /** Runs inside `screenshot`, as the capture happens. */
+  duringCapture: ((outputPath: string) => void) | undefined;
 }
 
 /** A 1568×980 image of a 784×490-point window at (100, 50): half a point per pixel. */
@@ -158,7 +167,11 @@ const makeHarness = (
       windows: [notes, onePassword, viewCode] as Array<DriverWindow>,
       providerApprovalPending: false,
       elementAtGate: undefined as Harness["elementAtGate"],
+      elements: [save, remove, field] as Array<DriverElement>,
+      listFailure: undefined as ComputerDriverError | undefined,
+      duringCapture: undefined as Harness["duringCapture"],
     };
+    const native = new Map<string, DriverElementIdentity>();
     const ancestry = new Set<number>();
     const staleUnlessListed = (handle: string) =>
       state.windows.some((window) => window.handle === handle)
@@ -175,21 +188,38 @@ const makeHarness = (
         return action(`${name}:${points.map(({ x, y }) => `${x},${y}`).join(">")}`)(handle);
       };
 
+    /** Like the worker: asks the server's dispatch check for the native target first. */
     const action =
       (name: string) =>
       (handle: string): Effect.Effect<void, ComputerDriverError> =>
-        Effect.suspend(() => {
+        Effect.gen(function* () {
+          const window = state.windows.find((entry) => entry.handle === handle) ?? notes;
+          const observed = state.elements.find((entry) => entry.handle === handle);
+          const element =
+            native.get(handle) ??
+            (observed ? { role: observed.role, label: observed.label } : state.hit);
+          const check = yield* ComputerDriverDispatchCheck;
+          const decision = yield* check({ window, ...(element ? { element } : {}) }, "dispatch");
+          if (!decision.allowed) {
+            return yield* new ComputerDriverError({
+              kind: "policy",
+              code: decision.error.code,
+              message: decision.error.message,
+              dispatched: "no",
+            });
+          }
           calls.push(`${name}:${handle}`);
           const failure = state.failNext;
           state.failNext = undefined;
-          return failure ? Effect.fail(failure) : Effect.void;
+          yield* decision.release;
+          if (failure) return yield* failure;
         });
     const driver: ComputerDriverShape = {
       status: () => Effect.succeed({ available: true, accessibility: "granted" }),
       listWindows: () =>
-        Effect.sync(() => {
+        Effect.suspend(() => {
           calls.push("listWindows");
-          return state.windows;
+          return state.listFailure ? Effect.fail(state.listFailure) : Effect.succeed(state.windows);
         }),
       observe: (handle) =>
         Effect.suspend(() => {
@@ -198,11 +228,12 @@ const makeHarness = (
           state.failNext = undefined;
           return failure
             ? Effect.fail(failure)
-            : Effect.succeed({ elements: [save, remove, field], truncated: false });
+            : Effect.succeed({ elements: state.elements, truncated: false });
         }),
-      screenshot: (handle) =>
+      screenshot: (handle, outputPath) =>
         Effect.suspend(() => {
           calls.push(`screenshot:${handle}`);
+          state.duringCapture?.(outputPath);
           return state.screenshotFailure
             ? Effect.fail(state.screenshotFailure)
             : Effect.succeed({ width: 1568, height: 980, bounds: SHOT_BOUNDS });
@@ -335,6 +366,25 @@ const makeHarness = (
       },
       set elementAtGate(value) {
         state.elementAtGate = value;
+      },
+      get elements() {
+        return state.elements;
+      },
+      set elements(value) {
+        state.elements = value;
+      },
+      native,
+      get listFailure() {
+        return state.listFailure;
+      },
+      set listFailure(value) {
+        state.listFailure = value;
+      },
+      get duringCapture() {
+        return state.duringCapture;
+      },
+      set duringCapture(value) {
+        state.duringCapture = value;
       },
     };
 
@@ -1176,3 +1226,263 @@ it.effect("a failed approval publication does not leave input permanently paused
     expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
   }).pipe(Effect.scoped),
 );
+
+const providerRequest = (
+  harness: Harness,
+  requestType: "tool_user_input" | "command_execution_approval",
+  id: string,
+): ProviderRuntimeEvent => ({
+  eventId: EventId.make(`${id}-open`),
+  type: "request.opened",
+  provider: ProviderDriverKind.make("codex"),
+  providerInstanceId,
+  threadId,
+  turnId: harness.thread.turnId,
+  requestId: RuntimeRequestId.make(id),
+  createdAt: NOW,
+  payload: { requestType },
+});
+
+describe("Computer use review regressions", () => {
+  it.effect("every provider approval pauses input until answered or its turn ends", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      // A question for the user is not an approval card.
+      yield* h.service.trackProviderApproval(providerRequest(h, "tool_user_input", "question"));
+      expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+      yield* h.service.trackProviderApproval(
+        providerRequest(h, "command_execution_approval", "command"),
+      );
+      expectError(
+        yield* send(h, { command: "press", ref: refs.save }),
+        "CU-CON-008",
+        "not-dispatched",
+      );
+      // Never resolved: the turn ending clears it.
+      yield* h.service.endTurn(threadId, h.thread.turnId);
+      h.thread.turnId = TurnId.make("turn-2");
+      expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("an interrupt without a turn id ends the turn the projection still shows", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      yield* h.service.endTurn(threadId);
+      expectError(
+        yield* send(h, { command: "press", ref: refs.save }),
+        "CU-CON-006",
+        "not-dispatched",
+      );
+      expect(inputCalls(h)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("moving or scrolling over a destructive-looking control is not refused", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      const { shot } = yield* shootNotes(h);
+      h.hit = { role: "button", label: "Delete" };
+      const moved = yield* send(h, { command: "move", shot, x: 1, y: 1 });
+      expectDispatched(moved);
+      if (!moved.ok || moved.result.kind !== "input") throw new Error("move failed");
+      expectDispatched(
+        yield* send(h, {
+          command: "scroll-at",
+          shot: moved.result.screenshot!.shot,
+          x: 1,
+          y: 1,
+          dx: 0,
+          dy: 1,
+        }),
+      );
+      expect(h.events).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("judges a long label by the clipped text the agent and approval saw", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      const full = `Open ${"x".repeat(250)} delete`;
+      h.elements = [{ ...save, handle: "e-long", label: `${full.slice(0, 199)}…` }];
+      h.native.set("e-long", { role: "button", label: full });
+      const refs = yield* observeNotes(h);
+      expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("reports a driver failure while refreshing windows, not an internal error", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      const refs = yield* observeNotes(h);
+      h.listFailure = new ComputerDriverError({
+        kind: "permission-accessibility",
+        message: "Accessibility is off.",
+        dispatched: "no",
+      });
+      expectError(yield* send(h, { command: "observe", window: refs.window }), "CU-EXT-002");
+      expectError(yield* send(h, { command: "screenshot", window: refs.window }), "CU-EXT-002");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("discards a capture when a protected window appeared during it", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      const listed = yield* send(h, { command: "list-windows" });
+      if (!listed.ok || listed.result.kind !== "windows") throw new Error("list failed");
+      const window = listed.result.windows.find((entry) => entry.app === "Notes")!.id;
+      let written: string | undefined;
+      h.duringCapture = (outputPath) => {
+        NodeFS.writeFileSync(outputPath, "pixels");
+        written = outputPath;
+        h.windows = [
+          notes,
+          { ...onePassword, bounds: { x: 700, y: 500, width: 400, height: 400 } },
+          viewCode,
+        ];
+      };
+      expectError(yield* send(h, { command: "screenshot", window }), "CU-CON-005");
+      expect(written).toBeDefined();
+      expect(NodeFS.existsSync(written!)).toBe(false);
+    }).pipe(Effect.scoped),
+  );
+});
+
+/** A stub worker script whose requests can be held over HTTP by the test. */
+const stubWorker = (handlers: Record<string, () => void>, source: (port: number) => string) =>
+  Effect.gen(function* () {
+    const server = NodeHttp.createServer((req, res) => {
+      const handler = handlers[req.url ?? ""];
+      if (handler) {
+        held.set(req.url ?? "", () => res.end("ok"));
+        handler();
+      } else res.end("ok");
+    });
+    const held = new Map<string, () => void>();
+    yield* Effect.promise(() => new Promise<void>((r) => server.listen(0, "127.0.0.1", r)));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("server");
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-review-worker-"));
+    const script = NodePath.join(dir, "worker.cjs");
+    NodeFS.writeFileSync(script, source(address.port));
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(
+        () =>
+          new Promise<void>((r) => {
+            for (const release of held.values()) release();
+            server.close(() => r());
+            NodeFS.rmSync(dir, { recursive: true, force: true });
+          }),
+      ),
+    );
+    const driver = yield* makeXa11yComputerDriver({
+      platform: "darwin",
+      launch: () => ({ command: process.execPath, args: [script], env: { ...process.env } }),
+    });
+    return { driver, release: (path: string) => held.get(path)?.() };
+  });
+
+const workerPrelude = (port: number) => `const http=require('node:http');
+const get = path => new Promise(resolve => http.get('http://127.0.0.1:${port}'+path, res => {res.resume(); res.on('end',resolve);}));
+const notes = {window:{handle:'w-notes',app:'Notes',pid:10,title:'Shopping list',focused:true}};`;
+
+const settledNow = (fiber: Fiber.Fiber<unknown, unknown>) =>
+  Effect.gen(function* () {
+    for (let index = 0; index < 10; index += 1) yield* Effect.yieldNow;
+    return fiber.pollUnsafe() !== undefined;
+  });
+
+describe("Computer use dispatch lock", () => {
+  it.effect("an interrupted input keeps the dispatch lock until the worker replies", () =>
+    Effect.gen(function* () {
+      const typing = Promise.withResolvers<void>();
+      const stub = yield* stubWorker(
+        { "/typing": () => typing.resolve() },
+        (port) => `${workerPrelude(port)}
+process.on('message', async message => {
+ const {id,request,decision}=message;
+ if ('decision' in message) {
+  if (decision) return process.send({id,ok:false,error:{kind:'policy',code:decision.code,message:decision.message,dispatched:'no'}});
+  await get('/typing');
+  return process.send({id,ok:true,result:null});
+ }
+ if (request.op==='key') process.send({id,authorize:notes,phase:'dispatch'});
+}); process.once('disconnect',()=>process.exit(0));`,
+      );
+      const h = yield* makeHarness("control", (driver) => ({ ...driver, key: stub.driver.key }));
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      const action = yield* Effect.forkChild(
+        send(h, { command: "key", window: refs.window, keys: "enter" }),
+      );
+      yield* Effect.promise(() => typing.promise);
+      const interrupting = yield* Effect.forkChild(Fiber.interrupt(action));
+      const tracking = yield* Effect.forkChild(
+        h.service.trackProviderApproval(providerRequest(h, "command_execution_approval", "late")),
+      );
+      const whileTyping = {
+        interrupted: yield* settledNow(interrupting),
+        tracked: yield* settledNow(tracking),
+      };
+      stub.release("/typing");
+      yield* Fiber.join(interrupting);
+      yield* Fiber.join(tracking);
+      expect(whileTyping).toEqual({ interrupted: false, tracked: false });
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("input waiting for the driver does not hold the dispatch lock", () =>
+    Effect.gen(function* () {
+      const reading = Promise.withResolvers<void>();
+      let delivered = false;
+      const stub = yield* stubWorker(
+        { "/read": () => reading.resolve() },
+        (port) => `${workerPrelude(port)}
+process.on('message', async message => {
+ const {id,request,decision}=message;
+ if ('decision' in message) {
+  if (decision) return process.send({id,ok:false,error:{kind:'policy',code:decision.code,message:decision.message,dispatched:'no'}});
+  await get('/sent');
+  return process.send({id,ok:true,result:null});
+ }
+ if (request.op==='listWindows') {await get('/read'); process.send({id,ok:true,result:[]});}
+ else if (request.op==='key') process.send({id,authorize:notes,phase:'dispatch'});
+}); process.once('disconnect',()=>process.exit(0));`,
+      );
+      const enteredKey = yield* Deferred.make<void>();
+      const h = yield* makeHarness("control", (driver) => ({
+        ...driver,
+        key: (window, keys) =>
+          Deferred.succeed(enteredKey, undefined).pipe(
+            Effect.andThen(stub.driver.key(window, keys)),
+            Effect.tap(() => Effect.sync(() => (delivered = true))),
+          ),
+      }));
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      // Another request occupies the worker; the key queues behind it.
+      const listing = yield* Effect.forkChild(stub.driver.listWindows());
+      yield* Effect.promise(() => reading.promise);
+      const action = yield* Effect.forkChild(
+        send(h, { command: "key", window: refs.window, keys: "enter" }),
+      );
+      yield* Deferred.await(enteredKey);
+      const tracking = yield* Effect.forkChild(
+        h.service.trackProviderApproval(providerRequest(h, "command_execution_approval", "card")),
+      );
+      const trackedWhileQueued = yield* settledNow(tracking);
+      stub.release("/read");
+      yield* Fiber.join(listing);
+      yield* Fiber.join(tracking);
+      expect(trackedWhileQueued).toBe(true);
+      expectError(yield* Fiber.join(action), "CU-CON-008", "not-dispatched");
+      expect(delivered).toBe(false);
+    }).pipe(Effect.scoped),
+  );
+});

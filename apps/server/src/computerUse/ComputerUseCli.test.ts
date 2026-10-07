@@ -418,6 +418,17 @@ describe("Computer use CLI audit regressions", () => {
     );
     expect(JSON.stringify(r)).not.toContain("typed-value-tail");
   });
+  it("does not echo an unknown command or flag name", async () => {
+    for (const argv of [
+      ["sentinel-command-7f3a"],
+      ["type", "--ref", "1", "--sentinel-flag-7f3a", "x"],
+      ["type", "--ref", "1", "--sentinel-flag-7f3a=x"],
+    ]) {
+      const r = await parseComputerArgs(argv, async () => "");
+      expect(r.type).toBe("error");
+      expect(JSON.stringify(r)).not.toContain("sentinel");
+    }
+  });
   it("preserves pending-approval refusal through the CLI", async () => {
     const server = NodeHttp.createServer((_req, res) =>
       res.end(

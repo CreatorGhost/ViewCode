@@ -29,6 +29,7 @@ import type {
   DriverPoint,
   DriverStatus,
   DriverWindow,
+  DriverDispatchPhase,
   DriverDispatchTarget,
 } from "./ComputerDriver.ts";
 import { downscaleRgba, encodePng, fitWithin } from "./ScreenshotImage.ts";
@@ -57,7 +58,13 @@ export interface Xa11yApi {
   /** Logical rect of the primary display, or null when unknown. Re-read before each capture. */
   readonly primaryDisplay: () => Promise<Rect | null>;
   readonly sleep: (ms: number) => Promise<void>;
-  readonly authorizeInput?: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>;
+  /** Milliseconds; only for how long a display read is reused. */
+  readonly now: () => number;
+  /** The server's policy check (`ComputerDriverDispatchCheck`); a refusal comes back as the error. */
+  readonly authorizeInput: (
+    target: DriverDispatchTarget,
+    phase: DriverDispatchPhase,
+  ) => Promise<ComputerUseError | undefined>;
 }
 
 /** Env var carrying the per-spawn nonce the worker requires on every request. */
@@ -164,6 +171,12 @@ export const BOUNDS_TOLERANCE = 0;
 /** How long activation may take before input is refused. */
 const ACTIVATION_TIMEOUT_MS = 500;
 const ACTIVATION_POLL_MS = 50;
+/**
+ * How long a primary display read is reused. Reading it is a full-screen
+ * capture; a window outside the cached rect re-reads at once, so staleness
+ * can only wrongly accept a window for this long after displays change.
+ */
+const DISPLAY_CACHE_MS = 5_000;
 
 const WINDOW_ROLES = new Set(["window", "dialog", "alert"]);
 
@@ -647,36 +660,61 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   };
 
   /**
-   * Asks the server to re-read policy for this exact native target, then
-   * requires the window unmoved and in front. Run immediately before every
-   * native input, including a fallback that prepared its target again.
+   * Asks the server to re-read policy for this exact native target: in the
+   * `prepare` phase before activating, raising or focusing anything, and in
+   * the `dispatch` phase immediately before native input (including a
+   * fallback that prepared its target again), where the window must also
+   * still be unmoved and in front. Nothing has been sent when it refuses.
    */
-  const authorize = async (entry: WindowEntry, element?: Element, point?: DriverPoint) => {
+  const authorize = async (
+    entry: WindowEntry,
+    phase: DriverDispatchPhase,
+    element?: Element,
+    point?: DriverPoint,
+  ) => {
+    try {
+      await authorizeChecked(entry, phase, element, point);
+    } catch (error) {
+      if (error instanceof Refusal) throw error;
+      throw new Refusal({ ok: false, error: classifyXa11yError(error, { afterDispatch: false }) });
+    }
+  };
+
+  const authorizeChecked = async (
+    entry: WindowEntry,
+    phase: DriverDispatchPhase,
+    element?: Element,
+    point?: DriverPoint,
+  ) => {
     const expectedBounds = entry.bounds;
     const live = await refreshWindow(entry);
     if (!sameBounds(expectedBounds, live.bounds)) throw stale("The window moved before dispatch.");
     const path = (await api.executablePaths([entry.pid])).get(entry.pid) ?? entry.appIdentifier;
     const identity = element
       ? { role: element.role, label: elementLabel(element.name, element.description) }
-      : point
+      : point && phase === "dispatch"
         ? await elementAtHandle(entry, point, false)
         : undefined;
-    const refusal = await api.authorizeInput?.({
-      window: {
-        handle: entry.handle,
-        app: entry.app,
-        pid: entry.pid,
-        title: live.name ?? "",
-        focused: live.active,
-        ...(path ? { appIdentifier: path } : {}),
+    const refusal = await api.authorizeInput(
+      {
+        window: {
+          handle: entry.handle,
+          app: entry.app,
+          pid: entry.pid,
+          title: live.name ?? "",
+          focused: live.active,
+          ...(path ? { appIdentifier: path } : {}),
+        },
+        ...(identity ? { element: identity } : {}),
       },
-      ...(identity ? { element: identity } : {}),
-    });
+      phase,
+    );
     if (refusal)
       throw new Refusal({
         ok: false,
         error: { kind: "policy", code: refusal.code, message: refusal.message, dispatched: "no" },
       });
+    if (phase === "prepare") return;
     const current = await refreshWindow(entry);
     if (!sameBounds(live.bounds, current.bounds)) throw stale("The window moved before dispatch.");
     if (!(await isFront(entry, current))) {
@@ -690,8 +728,8 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     element?: Element,
     point?: DriverPoint,
   ): Promise<DriverResult> => {
+    await authorize(entry, "dispatch", element, point);
     try {
-      await authorize(entry, element, point);
       await run();
       return { ok: true, result: null };
     } catch (error) {
@@ -887,27 +925,42 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     return { elements: observed, truncated };
   };
 
-  /**
-   * xa11y's macOS capture reads the primary display only, so a window
-   * elsewhere would come back as the wrong pixels. Re-read the display before
-   * every capture because the main display and its scale can change.
-   */
-  const onPrimaryDisplay = async (bounds: Rect): Promise<boolean> => {
-    if (platform !== "darwin") return true;
-    let primaryDisplay: Rect | null;
+  let display: { readonly rect: Rect; readonly at: number } | undefined;
+
+  /** A fresh primary display rect; an unknown one refuses the capture. */
+  const readDisplay = async (): Promise<Rect> => {
+    display = undefined;
+    let rect: Rect | null;
     try {
-      primaryDisplay = await api.primaryDisplay();
+      rect = await api.primaryDisplay();
     } catch (error) {
       throw new Refusal({
         ok: false,
         error: classifyXa11yError(error, { afterDispatch: false, screen: true }),
       });
     }
-    if (!primaryDisplay)
+    if (!rect) {
       throw new Refusal(
         failure("failed", "Could not resolve the main display for this screenshot."),
       );
-    return rectInside(primaryDisplay, bounds);
+    }
+    display = { rect, at: api.now() };
+    return rect;
+  };
+
+  /**
+   * xa11y's macOS capture reads the primary display only, so a window
+   * elsewhere would come back as the wrong pixels. The main display and its
+   * scale can change, so a read is reused for `DISPLAY_CACHE_MS` at most and
+   * a window outside it re-reads before refusing.
+   */
+  const onPrimaryDisplay = async (bounds: Rect): Promise<boolean> => {
+    if (platform !== "darwin") return true;
+    const cached = display;
+    if (cached && api.now() - cached.at < DISPLAY_CACHE_MS && rectInside(cached.rect, bounds)) {
+      return true;
+    }
+    return rectInside(await readDisplay(), bounds);
   };
 
   /**
@@ -992,6 +1045,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   ): Promise<InputSim> => {
     const entry = requireWindow(windowHandle);
     const input = requireInput();
+    await authorize(entry, "prepare");
     const live = await activate(entry);
     const area = live.bounds;
     if (!area || !boundsMatch(expectBounds, area)) {
@@ -1068,6 +1122,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         case "typeFocused": {
           const window = requireWindow(request.window);
           const input = requireInput();
+          await authorize(window, "prepare");
           await activate(window);
           return await dispatch(() => input.typeText(request.text), window);
         }
@@ -1076,6 +1131,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           const chord = translateKeyChord(request.keys, platform);
           if (!chord) return failure("failed", "Unsupported key chord.");
           const input = requireInput();
+          await authorize(window, "prepare");
           await activate(window);
           return await dispatch(
             () =>
@@ -1087,6 +1143,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "press": {
           const first = await resolveElement(request.element, request.expect);
+          await authorize(first.window, "prepare", first.element);
           await activate(first.window);
           const target = await resolveElement(request.element, request.expect);
           return await dispatch(
@@ -1101,12 +1158,13 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               // preparation can outlast the policy, so the click is authorized
               // again, with its window verifiably the active one.
               const input = requireInput();
+              await authorize(target.window, "prepare", target.element);
               await activate(target.window);
               const fresh = await resolveElement(request.element, request.expect);
               if (!fresh.element.bounds) {
                 throw new Refusal(failure("failed", "The element cannot be pressed."));
               }
-              await authorize(fresh.window, fresh.element);
+              await authorize(fresh.window, "dispatch", fresh.element);
               await input.click(fresh.element);
             },
             target.window,
@@ -1115,6 +1173,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "setValue": {
           const target = await resolveElement(request.element, request.expect);
+          await authorize(target.window, "prepare", target.element);
           await activate(target.window);
           const fresh = await resolveElement(request.element, request.expect);
           return await dispatch(
@@ -1125,6 +1184,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "typeText": {
           const first = await resolveElement(request.element, request.expect);
+          await authorize(first.window, "prepare", first.element);
           await activate(first.window);
           const target = await resolveElement(request.element, request.expect);
           return await dispatch(
@@ -1138,10 +1198,11 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               // No accessible text insertion: focus the element and type,
               // authorized again after that preparation.
               const input = requireInput();
+              await authorize(target.window, "prepare", target.element);
               await activate(target.window);
               const fresh = await resolveElement(request.element, request.expect);
               await beforeDispatch(() => fresh.element.focus());
-              await authorize(fresh.window, fresh.element);
+              await authorize(fresh.window, "dispatch", fresh.element);
               await input.typeText(request.text);
             },
             target.window,
@@ -1151,6 +1212,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         case "scroll": {
           const input = requireInput();
           const first = await resolveElement(request.element, request.expect);
+          await authorize(first.window, "prepare", first.element);
           await activate(first.window);
           const target = await resolveElement(request.element, request.expect);
           await verifyFront(target.window);

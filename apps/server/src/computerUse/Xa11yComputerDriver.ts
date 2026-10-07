@@ -12,12 +12,16 @@
  * Calls are serialized. A worker that dies or times out is killed and
  * restarted on the next call; its handles die with it, which the service
  * sees as `stale`. Every reply is decoded; anything else is `malformed`,
- * never a partial success. After an input request reached the worker, a
- * crash, timeout or malformed reply reports `dispatched: "unknown"`.
+ * never a partial success. The worker asks the server's dispatch check
+ * before it prepares a target and again before native input (see
+ * `ComputerDriverDispatchCheck`). A crash, timeout or malformed reply after
+ * an allowed `dispatch` reports `dispatched: "unknown"`; before one,
+ * nothing was sent.
  *
- * A call interrupted while still queued is never sent. Once sent it runs to
- * completion in the worker; an interrupted caller does not learn the
- * outcome, so it must treat the input as possibly delivered.
+ * A call interrupted while still queued is never sent. Once sent, the
+ * interruption waits for the worker's reply: a pending dispatch check is
+ * refused, but input already allowed may be landing, and the dispatch lock
+ * stays held until it returns.
  *
  * The worker is recycled after `recycleAfter` requests (xa11y's macOS
  * element cache never shrinks); old handles then read as stale. If a worker
@@ -38,6 +42,8 @@ import {
   ComputerDriver,
   ComputerDriverError,
   ComputerDriverDispatchCheck,
+  type DriverDispatchDecision,
+  type DriverDispatchPhase,
   type DriverDispatchTarget,
   type ComputerDriverShape,
   type DriverStatus,
@@ -174,7 +180,7 @@ const ElementAtReply = replyOf(
 );
 const InputReply = replyOf(Schema.Null);
 
-type CallOutcome =
+type WorkerOutcome =
   | { readonly type: "reply"; readonly message: unknown }
   /** The request never reached a worker. */
   | { readonly type: "not-sent" }
@@ -182,6 +188,24 @@ type CallOutcome =
   | { readonly type: "cancelled" }
   | { readonly type: "exited" }
   | { readonly type: "timeout" };
+
+/** `authorized`: an allowed `dispatch` decision went to the worker, so input may have run. */
+type CallOutcome = WorkerOutcome & { readonly authorized: boolean };
+
+type Authorize = (
+  target: DriverDispatchTarget,
+  phase: DriverDispatchPhase,
+) => Promise<DriverDispatchDecision>;
+
+const releaseNow = (decision: DriverDispatchDecision) => {
+  if (decision.allowed) Effect.runSync(decision.release);
+};
+
+const CANCELLED_BEFORE_DISPATCH: ComputerUseError = {
+  code: "CU-CON-004",
+  message: "The action was cancelled before dispatch.",
+  effect: "not-dispatched",
+};
 
 const isReplyTo = (message: unknown, id: number): boolean =>
   typeof message === "object" && message !== null && "id" in message && message.id === id;
@@ -193,7 +217,7 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
   let served = 0;
   let releaseMouse = false;
   let nextId = 1;
-  let settlePending: ((outcome: CallOutcome) => void) | undefined;
+  let settlePending: ((outcome: WorkerOutcome) => void) | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   let closed = false;
 
@@ -231,11 +255,18 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
     return worker;
   };
 
-  const run = (
-    request: DriverRequest,
-    authorize?: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>,
-  ): Promise<CallOutcome> =>
-    new Promise((resolve) => {
+  const run = (request: DriverRequest, authorize?: Authorize): Promise<CallOutcome> =>
+    new Promise((done) => {
+      let authorized = false;
+      // The dispatch lock behind the last allowed `dispatch`: held until the
+      // worker's next message, which it sends only once that input returned.
+      let held: DriverDispatchDecision | undefined;
+      const releaseHeld = () => {
+        const decision = held;
+        held = undefined;
+        if (decision) releaseNow(decision);
+      };
+      const resolve = (outcome: WorkerOutcome) => done({ ...outcome, authorized });
       if (closed) return resolve({ type: "not-sent" });
       child ??= start();
       const worker = child;
@@ -248,8 +279,9 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
         discard(worker);
         settle({ type: "timeout" });
       }, options.timeouts?.[request.op] ?? DEFAULT_TIMEOUTS[request.op]);
-      const settle = (outcome: CallOutcome) => {
+      const settle = (outcome: WorkerOutcome) => {
         if (settlePending !== settle) return;
+        releaseHeld();
         if (
           outcome.type === "reply" &&
           isReplyTo(outcome.message, id) &&
@@ -258,15 +290,35 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
           "authorize" in outcome.message
         ) {
           const target = outcome.message.authorize as DriverDispatchTarget;
-          void (authorize ? authorize(target) : Promise.resolve(undefined)).then(
+          const phase: DriverDispatchPhase =
+            "phase" in outcome.message && outcome.message.phase === "prepare"
+              ? "prepare"
+              : "dispatch";
+          void (
+            authorize
+              ? authorize(target, phase)
+              : Promise.resolve<DriverDispatchDecision>({
+                  allowed: false,
+                  error: CANCELLED_BEFORE_DISPATCH,
+                })
+          ).then(
             (decision) => {
-              if (settlePending === settle)
-                worker.send({ id, nonce, decision: decision ?? null }, (error) => {
+              if (settlePending !== settle) return releaseNow(decision);
+              if (decision.allowed && phase === "dispatch") {
+                held = decision;
+                authorized = true;
+              } else {
+                releaseNow(decision);
+              }
+              worker.send(
+                { id, nonce, decision: decision.allowed ? null : decision.error },
+                (error) => {
                   if (error) {
                     discard(worker);
                     settle({ type: "exited" });
                   }
-                });
+                },
+              );
             },
             () => {
               discard(worker);
@@ -284,7 +336,9 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
           resolve({ type: "reply", message: undefined });
           return;
         }
-        if (outcome.type !== "reply" && MOUSE_BUTTON_OPS.has(request.op)) releaseMouse = true;
+        if (outcome.type !== "reply" && authorized && MOUSE_BUTTON_OPS.has(request.op)) {
+          releaseMouse = true;
+        }
         served += 1;
         if (served >= (options.recycleAfter ?? DEFAULT_RECYCLE_AFTER)) discard(worker);
         resolve(outcome);
@@ -304,22 +358,24 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
     });
 
   return {
-    call: (
-      request: DriverRequest,
-      cancelled: () => boolean,
-      authorize: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>,
-    ): Promise<CallOutcome> => {
+    /** `inFlight` settles at once for a request not yet sent, else with its reply. */
+    call: (request: DriverRequest, cancelled: () => boolean, authorize: Authorize) => {
+      let sent = false;
       const result = queue.then(async (): Promise<CallOutcome> => {
-        if (cancelled()) return { type: "cancelled" };
+        if (cancelled()) return { type: "cancelled", authorized: false };
         if (releaseMouse) {
           releaseMouse = false;
           await run({ op: "releaseMouse" });
         }
-        if (cancelled()) return { type: "cancelled" };
+        if (cancelled()) return { type: "cancelled", authorized: false };
+        sent = true;
         return run(request, authorize);
       });
       queue = result;
-      return result;
+      return {
+        result,
+        inFlight: (): Promise<void> => (sent ? result.then(() => undefined) : Promise.resolve()),
+      };
     },
     close: () => {
       closed = true;
@@ -340,7 +396,6 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
     reply: Schema.Decoder<DriverReply<T>>,
   ) {
     const input = INPUT_OPS.has(request.op);
-    const afterSend = input ? "unknown" : "no";
     if (!SUPPORTED_PLATFORMS.has(options.platform)) {
       return yield* new ComputerDriverError({
         kind: "unavailable",
@@ -348,27 +403,31 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
         dispatched: "no",
       });
     }
-    // Interrupting the caller marks the queued request so it is never sent.
     const check = yield* ComputerDriverDispatchCheck;
     const context = yield* Effect.context();
     const outcome = yield* Effect.callback<CallOutcome>((resume, signal) => {
-      void client
-        .call(
-          request,
-          () => signal.aborted,
-          async (target) => {
-            const cancelled: ComputerUseError = {
-              code: "CU-CON-004",
-              message: "The action was cancelled before dispatch.",
-              effect: "not-dispatched",
-            };
-            if (signal.aborted) return cancelled;
-            const refusal = await Effect.runPromiseWith(context)(check(target));
-            return signal.aborted ? cancelled : refusal;
-          },
-        )
-        .then((value) => resume(Effect.succeed(value)));
+      // Interrupting the caller marks a queued request so it is never sent,
+      // and refuses a dispatch check still to come.
+      const pending = client.call(
+        request,
+        () => signal.aborted,
+        async (target, phase) => {
+          const cancelled: DriverDispatchDecision = {
+            allowed: false,
+            error: CANCELLED_BEFORE_DISPATCH,
+          };
+          if (signal.aborted) return cancelled;
+          const decision = await Effect.runPromiseWith(context)(check(target, phase));
+          if (!signal.aborted) return decision;
+          releaseNow(decision);
+          return cancelled;
+        },
+      );
+      void pending.result.then((value) => resume(Effect.succeed(value)));
+      // A sent request may already be delivering input: wait for its reply.
+      return Effect.promise(pending.inFlight);
     });
+    const afterSend = input && outcome.authorized ? "unknown" : "no";
     if (outcome.type !== "reply") {
       yield* Effect.logDebug("computer-use driver call did not complete", {
         op: request.op,
