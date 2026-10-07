@@ -12,6 +12,8 @@
  */
 import { Schema } from "effect";
 
+import { ThreadId } from "./baseSchemas.ts";
+
 /**
  * `off`: no CLI, no instructions. `observe`: windows, element trees and
  * screenshots only. `control`: also input, each mutation gated by the
@@ -305,3 +307,27 @@ export const ComputerUseResponse = Schema.Union([
   Schema.Struct({ ok: Schema.Literal(false), error: ComputerUseError }),
 ]);
 export type ComputerUseResponse = typeof ComputerUseResponse.Type;
+
+/**
+ * One finished request, for the settings "Recent actions" list. Names the
+ * command and how it ended, never what it carried: no text, values, labels,
+ * titles, paths, coordinates, or window and element ids.
+ */
+export const ComputerUseActivityEntry = Schema.Struct({
+  /** ISO timestamp of when the request finished. */
+  at: Schema.String,
+  threadId: ThreadId,
+  /** The request's command, or `invalid` when it did not validate. */
+  command: Schema.String,
+  outcome: Schema.Union([Schema.Literal("ok"), ComputerUseErrorCode]),
+  effect: Schema.optional(ComputerUseEffect),
+  tookFocus: Schema.optional(Schema.Boolean),
+  durationMs: Schema.Number,
+});
+export type ComputerUseActivityEntry = typeof ComputerUseActivityEntry.Type;
+
+/** Newest first. */
+export const ComputerUseActivity = Schema.Struct({
+  entries: Schema.Array(ComputerUseActivityEntry),
+});
+export type ComputerUseActivity = typeof ComputerUseActivity.Type;

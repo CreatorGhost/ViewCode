@@ -1817,3 +1817,65 @@ describe("ComputerUseService show on screen", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+describe("ComputerUseService recent activity", () => {
+  it.effect("records command, outcome, effect and focus, newest first, without request text", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      harness.thread.runtimeMode = "full-access";
+      expect(yield* harness.service.recentActivity).toEqual([]);
+      const refs = yield* observeNotes(harness);
+      const secret = "hunter2-secret";
+      yield* send(harness, { command: "press", ref: refs.save });
+      yield* send(harness, { command: "type", ref: refs.field, text: secret });
+      yield* send(harness, { command: "key", window: refs.window, keys: "enter" });
+      expectError(yield* send(harness, { command: "press", ref: 9_999 }), "CU-NOT-002");
+      yield* send(harness, { command: "no-such-command", text: secret });
+
+      const entries = yield* harness.service.recentActivity;
+      expect(
+        entries.map(({ command, outcome, effect, tookFocus }) => ({
+          command,
+          outcome,
+          effect,
+          tookFocus,
+        })),
+      ).toEqual([
+        { command: "invalid", outcome: "CU-VAL-001", effect: undefined, tookFocus: undefined },
+        {
+          command: "press",
+          outcome: "CU-NOT-002",
+          effect: "not-dispatched",
+          tookFocus: undefined,
+        },
+        { command: "key", outcome: "ok", effect: "dispatched", tookFocus: true },
+        { command: "type", outcome: "ok", effect: "dispatched", tookFocus: false },
+        { command: "press", outcome: "ok", effect: "dispatched", tookFocus: false },
+        { command: "observe", outcome: "ok", effect: undefined, tookFocus: undefined },
+        { command: "list-windows", outcome: "ok", effect: undefined, tookFocus: undefined },
+      ]);
+      for (const entry of entries) {
+        expect(entry.threadId).toBe(threadId);
+        expect(Number.isNaN(Date.parse(entry.at))).toBe(false);
+      }
+      const serialized = entries.flatMap((entry) => Object.values(entry).map(String)).join("|");
+      expect(serialized).not.toContain(secret);
+      expect(serialized).not.toContain("Shopping list");
+      expect(serialized).not.toContain("Notes");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("keeps only the newest entries", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const total = ComputerUseService.ACTIVITY_ENTRIES_KEPT + 5;
+      for (let index = 0; index < total; index += 1) {
+        yield* send(harness, { command: index === total - 1 ? "status" : "list-windows" });
+      }
+      const entries = yield* harness.service.recentActivity;
+      expect(entries).toHaveLength(ComputerUseService.ACTIVITY_ENTRIES_KEPT);
+      expect(entries[0]?.command).toBe("status");
+      expect(entries.slice(1).every((entry) => entry.command === "list-windows")).toBe(true);
+    }).pipe(Effect.scoped),
+  );
+});

@@ -79,3 +79,11 @@ export function describeComputerUseStatus(status: ComputerUseStatus): {
       };
   }
 }
+
+export const COMPUTER_USE_GETTING_STARTED_STEPS: ReadonlyArray<string> = [
+  "Choose Observe only to let agents look at your apps, or Observe and control to let them operate them too.",
+  "On macOS, grant ViewCode Accessibility, and Screen Recording for screenshots, in System Settings → Privacy & Security. Use Check again afterwards.",
+  "Ask an agent in any thread, for example: “Use computer use to open Safari and search for …”.",
+];
+
+export const COMPUTER_USE_ACTIVITY_EMPTY = "No computer actions yet.";

@@ -17,6 +17,7 @@ import {
   EventId,
   isProviderDriverKind,
   RuntimeRequestId,
+  type ComputerUseActivityEntry,
   type ComputerUseApprovals,
   type ComputerUseScreen,
   type ComputerUseElement,
@@ -106,6 +107,11 @@ export interface ComputerUseServiceShape {
   /** Fresh every call: the setting plus what the driver can do right now. */
   readonly status: Effect.Effect<ComputerUseStatus>;
   /**
+   * The last requests this server handled, newest first: command, outcome and
+   * numbers only, never anything an agent typed or a target's details.
+   */
+  readonly recentActivity: Effect.Effect<ReadonlyArray<ComputerUseActivityEntry>>;
+  /**
    * Where approval requests are published. `ProviderService` attaches its
    * runtime event bus so every client renders them like provider approvals.
    */
@@ -174,6 +180,8 @@ const APPROVAL_APP_NAME = "Computer use";
 /** No answer within this long counts as a decline. */
 const APPROVAL_TIMEOUT = Duration.minutes(10);
 const MAX_OBSERVED_ELEMENTS = 300;
+/** Requests kept for the settings "Recent actions" list. */
+export const ACTIVITY_ENTRIES_KEPT = 100;
 /** Recent screenshots are the agent's working memory in coordinate mode. */
 const SCREENSHOTS_KEPT = 8;
 
@@ -454,10 +462,13 @@ export const make = Effect.gen(function* () {
       }).pipe(Effect.ensuring(settle(requestId, "cancel")));
     });
 
+  /** Newest first, in memory; a server restart forgets it. */
+  const activity: Array<ComputerUseActivityEntry> = [];
+
   /**
-   * One INFO line per request, plus the existing debug line with ids. Both
-   * carry the command, outcome and numbers only: never text, values, labels,
-   * titles, paths or coordinates.
+   * One INFO line per request, the same fields in the activity list, plus the
+   * existing debug line with ids. All carry the command, outcome and numbers
+   * only: never text, values, labels, titles, paths or coordinates.
    */
   const logOutcome = (
     caller: ComputerUseCaller,
@@ -468,14 +479,18 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const input = response.ok && response.result.kind === "input" ? response.result : undefined;
       const effect = input ? input.effect : response.ok ? undefined : response.error.effect;
-      yield* Effect.logInfo("computer use request completed", {
+      const outcomeFields = {
         threadId: caller.threadId,
         command: request?.command ?? "invalid",
-        outcome: response.ok ? "ok" : response.error.code,
+        outcome: response.ok ? ("ok" as const) : response.error.code,
         ...(effect ? { effect } : {}),
         ...(input?.tookFocus !== undefined ? { tookFocus: input.tookFocus } : {}),
         durationMs,
-      });
+      };
+      yield* Effect.logInfo("computer use request completed", outcomeFields);
+      const at = yield* nowIso;
+      activity.unshift({ at, ...outcomeFields });
+      activity.length = Math.min(activity.length, ACTIVITY_ENTRIES_KEPT);
       yield* Effect.logDebug("computer use request", {
         threadId: caller.threadId,
         command: request?.command,
@@ -1338,6 +1353,10 @@ export const make = Effect.gen(function* () {
     };
   });
 
+  const recentActivity: ComputerUseServiceShape["recentActivity"] = Effect.sync(() => [
+    ...activity,
+  ]);
+
   const cancelPending = (predicate: (entry: PendingApproval) => boolean) =>
     Effect.forEach(
       [...pending].filter(([, entry]) => predicate(entry)).map(([requestId]) => requestId),
@@ -1348,6 +1367,7 @@ export const make = Effect.gen(function* () {
   return ComputerUseService.of({
     handle,
     status,
+    recentActivity,
     trackProviderApproval: (event) => {
       if (!event.requestId || event.requestId.startsWith(REQUEST_ID_PREFIX)) return Effect.void;
       const key = `${event.threadId}:${event.requestId}`;
