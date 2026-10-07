@@ -19,3 +19,17 @@ export function deriveLiveEditedFiles(
   }
   return [...files];
 }
+
+/**
+ * `filePath` relative to the workspace root, the form diff file paths take.
+ * Tool rows may carry absolute paths; anything outside the root stays as is.
+ */
+export function toWorkspaceRelativePath(
+  filePath: string,
+  workspaceRoot: string | undefined,
+): string {
+  const path = filePath.replaceAll("\\", "/");
+  const root = workspaceRoot?.replaceAll("\\", "/").replace(/\/+$/, "");
+  if (root && path.startsWith(`${root}/`)) return path.slice(root.length + 1);
+  return path.replace(/^(\.\/)+/, "");
+}

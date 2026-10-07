@@ -51,12 +51,20 @@ export function remainingAfterClose(pair: SplitPair, index: 0 | 1): ScopedThread
   return pair[index === 0 ? 1 : 0];
 }
 
-/** Most recent thread other than the current one; callers pass threads newest first. */
+/**
+ * Most recent thread other than the current one; callers pass threads newest
+ * first. Side chats belong to their parent's dock and are never paired.
+ */
 export function pickSplitCompanion<
-  T extends { environmentId: string; id: string; archivedAt: string | null },
+  T extends {
+    environmentId: string;
+    id: string;
+    archivedAt: string | null;
+    kind?: string | null | undefined;
+  },
 >(threadsNewestFirst: ReadonlyArray<T>, current: ScopedThreadRef | null): T | null {
   for (const thread of threadsNewestFirst) {
-    if (thread.archivedAt !== null) continue;
+    if (thread.archivedAt !== null || thread.kind === "sidechat") continue;
     if (
       current !== null &&
       thread.environmentId === current.environmentId &&
@@ -67,6 +75,22 @@ export function pickSplitCompanion<
     return thread;
   }
   return null;
+}
+
+/**
+ * A pane whose thread is provably gone: archived, deleted, or absent from its
+ * environment's live thread list. While the environment is still connecting
+ * (or was removed) absence proves nothing, so the pane waits with a close button.
+ */
+export function isSplitPaneThreadGone(input: {
+  readonly shellExists: boolean;
+  readonly detailExists: boolean;
+  readonly archived: boolean;
+  readonly deleted: boolean;
+  readonly environmentLive: boolean;
+}): boolean {
+  if (input.archived || input.deleted) return true;
+  return input.environmentLive && !input.shellExists && !input.detailExists;
 }
 
 function parseRef(value: unknown): ScopedThreadRef | null {

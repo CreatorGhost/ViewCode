@@ -5,7 +5,12 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { closeThreadTab, openThreadTab, touchRecentView } from "./components/tabs/threadTabs.logic";
+import {
+  closeThreadTab,
+  openThreadTab,
+  pruneThreadTabs,
+  touchRecentView,
+} from "./components/tabs/threadTabs.logic";
 import { resolveStorage } from "./lib/storage";
 
 interface ThreadTabsState {
@@ -14,7 +19,8 @@ interface ThreadTabsState {
   recentThreadKeys: ReadonlyArray<string>;
   open: (environmentId: string, threadKey: string) => void;
   close: (environmentId: string, threadKey: string, activeKey: string | null) => string | null;
-  prune: (environmentId: string, exists: (threadKey: string) => boolean) => void;
+  /** Drops tabs `keep` rejects, in the environments whose live thread list has loaded. */
+  prune: (loadedEnvironmentIds: ReadonlySet<string>, keep: (threadKey: string) => boolean) => void;
 }
 
 export const useThreadTabsStore = create<ThreadTabsState>()(
@@ -44,13 +50,16 @@ export const useThreadTabsStore = create<ThreadTabsState>()(
         }));
         return result.nextActiveKey;
       },
-      prune: (environmentId, exists) =>
+      prune: (loadedEnvironmentIds, keep) =>
         set((state) => {
-          const tabs = state.tabsByEnvironmentId[environmentId] ?? [];
-          const kept = tabs.filter(exists);
-          return kept.length === tabs.length
+          const tabsByEnvironmentId = pruneThreadTabs(
+            state.tabsByEnvironmentId,
+            loadedEnvironmentIds,
+            keep,
+          );
+          return tabsByEnvironmentId === state.tabsByEnvironmentId
             ? state
-            : { tabsByEnvironmentId: { ...state.tabsByEnvironmentId, [environmentId]: kept } };
+            : { tabsByEnvironmentId };
         }),
     }),
     {

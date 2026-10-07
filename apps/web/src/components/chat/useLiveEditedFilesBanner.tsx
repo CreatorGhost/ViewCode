@@ -4,20 +4,27 @@ import { useMemo } from "react";
 import type { WorkLogEntry } from "../../session-logic";
 import { Button } from "../ui/button";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
-import { deriveLiveEditedFiles, LIVE_EDITED_FILES_INLINE_LIMIT } from "./liveEditedFiles.logic";
+import {
+  deriveLiveEditedFiles,
+  LIVE_EDITED_FILES_INLINE_LIMIT,
+  toWorkspaceRelativePath,
+} from "./liveEditedFiles.logic";
 
 const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 /**
- * "Editing 3 files" strip above the composer while a turn runs. Each file opens
- * its diff; past a few files it collapses to a count that opens the turn's diff.
+ * "Editing 3 files" strip above the composer while a turn runs. A running turn
+ * has no turn diff until its checkpoint lands, so each file opens the working
+ * tree diff at that file (a workspace-relative path, as the diff names it);
+ * past a few files it collapses to a count that opens the whole working tree.
  */
 export function useLiveEditedFilesBanner(input: {
   readonly entries: ReadonlyArray<WorkLogEntry>;
   readonly runningTurnId: string | null;
-  readonly onOpenDiff: (turnId: string, filePath?: string) => void;
+  readonly workspaceRoot: string | undefined;
+  readonly onOpenWorkingTreeDiff: (filePath?: string) => void;
 }): ComposerBannerStackItem | null {
-  const { entries, runningTurnId, onOpenDiff } = input;
+  const { entries, runningTurnId, workspaceRoot, onOpenWorkingTreeDiff } = input;
   const files = useMemo(
     () => deriveLiveEditedFiles(entries, runningTurnId),
     [entries, runningTurnId],
@@ -35,7 +42,7 @@ export function useLiveEditedFilesBanner(input: {
       icon: <FileDiffIcon className="size-4" />,
       title: `Editing ${files.length} ${files.length === 1 ? "file" : "files"}`,
       actions: collapsed ? (
-        <Button size="xs" variant="ghost" onClick={() => onOpenDiff(turnId)}>
+        <Button size="xs" variant="ghost" onClick={() => onOpenWorkingTreeDiff()}>
           View changes
         </Button>
       ) : (
@@ -47,7 +54,7 @@ export function useLiveEditedFilesBanner(input: {
               variant="ghost"
               title={file}
               className="max-w-40"
-              onClick={() => onOpenDiff(turnId, file)}
+              onClick={() => onOpenWorkingTreeDiff(toWorkspaceRelativePath(file, workspaceRoot))}
             >
               <span className="truncate">{baseName(file)}</span>
             </Button>
@@ -55,5 +62,5 @@ export function useLiveEditedFilesBanner(input: {
         </div>
       ),
     };
-  }, [files, onOpenDiff, runningTurnId]);
+  }, [files, onOpenWorkingTreeDiff, runningTurnId, workspaceRoot]);
 }

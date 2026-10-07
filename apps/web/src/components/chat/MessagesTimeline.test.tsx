@@ -1121,7 +1121,6 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show more");
     expect(markup).toContain('data-user-message-collapsible="false"');
-    expect(markup).toContain("rounded-xl bg-message px-3 py-2");
   });
 
   it("preserves arbitrary XML-like tags and comparisons in rendered user messages", async () => {

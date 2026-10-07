@@ -403,6 +403,21 @@ describe("buildThreadActionItems", () => {
     }
   });
 
+  it("leaves side chats out of thread lists and split targets", () => {
+    const items = buildThreadActionItems({
+      threads: [
+        makeThread({ id: ThreadId.make("thread-main"), title: "Main" }),
+        makeThread({ id: ThreadId.make("thread-side"), title: "Side", kind: "sidechat" }),
+      ],
+      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      sortOrder: "updated_at",
+      icon: null,
+      runThread: async (_thread) => undefined,
+    });
+
+    expect(items.map((item) => item.value)).toEqual(["thread:thread-main"]);
+  });
+
   it("ranks thread title matches ahead of contextual project-name matches", () => {
     const threadItems = buildThreadActionItems({
       threads: [

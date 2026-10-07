@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { deriveLiveEditedFiles } from "./liveEditedFiles.logic";
+import { deriveLiveEditedFiles, toWorkspaceRelativePath } from "./liveEditedFiles.logic";
 
 describe("deriveLiveEditedFiles", () => {
   const entries = [
@@ -16,5 +16,15 @@ describe("deriveLiveEditedFiles", () => {
 
   it("is empty when no turn is running", () => {
     expect(deriveLiveEditedFiles(entries, null)).toEqual([]);
+  });
+});
+
+describe("toWorkspaceRelativePath", () => {
+  it("names files the way the diff does, relative to the workspace root", () => {
+    expect(toWorkspaceRelativePath("/repo/src/app.ts", "/repo")).toBe("src/app.ts");
+    expect(toWorkspaceRelativePath("/repo/src/app.ts", "/repo/")).toBe("src/app.ts");
+    expect(toWorkspaceRelativePath("C:\\repo\\src\\app.ts", "C:\\repo")).toBe("src/app.ts");
+    expect(toWorkspaceRelativePath("./src/app.ts", "/repo")).toBe("src/app.ts");
+    expect(toWorkspaceRelativePath("/elsewhere/x.ts", "/repo")).toBe("/elsewhere/x.ts");
   });
 });

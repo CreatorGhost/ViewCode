@@ -84,6 +84,16 @@ describe("diffPanelStore", () => {
     ).toEqual({ kind: "turn", turnId, filePath: "src/app.ts", revealRequestId: 2 });
   });
 
+  it("opens working tree changes at a file, re-revealing it on repeat", () => {
+    const store = useDiffPanelStore.getState();
+    store.selectWorkingTreeFile(THREAD_REF, "src/app.ts");
+    store.selectWorkingTreeFile(THREAD_REF, "src/app.ts");
+
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toEqual({ kind: "unstaged", filePath: "src/app.ts", revealRequestId: 2 });
+  });
+
   it("restores the selected branch base after visiting another scope", () => {
     useDiffPanelStore.getState().selectBranchBaseRef(THREAD_REF, "origin/main");
     useDiffPanelStore.getState().selectGitScope(THREAD_REF, "unstaged");

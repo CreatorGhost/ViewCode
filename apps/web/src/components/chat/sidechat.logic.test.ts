@@ -2,6 +2,8 @@ import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  FRESH_SIDECHAT,
+  isPinnedToBottom,
   isSidechat,
   resolveActiveSidechat,
   SIDECHAT_TITLE,
@@ -52,6 +54,18 @@ describe("resolveActiveSidechat", () => {
   it("falls back to the first when the remembered one is gone", () => {
     expect(resolveActiveSidechat(chats, ThreadId.make("gone"))?.id).toBe("a");
     expect(resolveActiveSidechat([], null)).toBeNull();
+  });
+
+  it("shows an empty dock after New side chat even when side chats exist", () => {
+    expect(resolveActiveSidechat(chats, FRESH_SIDECHAT)).toBeNull();
+  });
+});
+
+describe("isPinnedToBottom", () => {
+  it("is true only within a few pixels of the bottom edge", () => {
+    expect(isPinnedToBottom({ scrollHeight: 1000, clientHeight: 400, scrollTop: 600 })).toBe(true);
+    expect(isPinnedToBottom({ scrollHeight: 1000, clientHeight: 400, scrollTop: 590 })).toBe(true);
+    expect(isPinnedToBottom({ scrollHeight: 1000, clientHeight: 400, scrollTop: 300 })).toBe(false);
   });
 });
 

@@ -1,22 +1,32 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { memo, useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import ChatView from "../components/ChatView";
 import { SidebarInset } from "../components/ui/sidebar";
-import { cn } from "../lib/utils";
 import {
   useThreadDetail,
   useThreadShell,
   useThreadStalled,
   useThreadStatus,
 } from "../state/entities";
+import { environmentShell } from "../state/shell";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { resolveThreadSyncPhase } from "../threadSync";
 import { SplitPaneContext } from "./SplitPaneContext";
+import { SplitPaneControls } from "./SplitPaneControls";
 import {
   clampSplitRatio,
+  isSplitPaneThreadGone,
   remainingAfterClose,
   SPLIT_DEFAULT_RATIO,
   type SplitPair,
@@ -49,6 +59,19 @@ const SplitPane = memo(function SplitPane(props: SplitPaneProps) {
     status,
     stalled,
   });
+  const environmentLive =
+    useAtomValue(environmentShell.stateValueAtom(threadRef.environmentId)).status === "live";
+  const gone = isSplitPaneThreadGone({
+    shellExists: shell !== null,
+    detailExists: detail !== null,
+    archived: (shell?.archivedAt ?? detail?.archivedAt ?? null) !== null,
+    deleted: status === "deleted",
+    environmentLive,
+  });
+  // A thread archived or deleted elsewhere drops the split; the other thread stays.
+  useEffect(() => {
+    if (gone) onClose(index);
+  }, [gone, index, onClose]);
   const context = useMemo(
     () => ({ focused, onSwap, onClose: () => onClose(index) }),
     [focused, onSwap, onClose, index],
@@ -71,7 +94,18 @@ const SplitPane = memo(function SplitPane(props: SplitPaneProps) {
               threadSyncPhase={syncPhase}
               reserveTitleBarControlInset={index === 1}
             />
-          ) : null}
+          ) : (
+            // Not loaded (its environment is connecting or was removed): ChatView's header with
+            // the pane controls is not there, so offer them here.
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex h-11 shrink-0 items-center justify-end px-2">
+                <SplitPaneControls onSwap={onSwap} onClose={context.onClose} />
+              </div>
+              <p className="px-6 pt-10 text-center text-muted-foreground text-sm">
+                This thread is not available right now.
+              </p>
+            </div>
+          )}
         </div>
         {focused ? (
           <div

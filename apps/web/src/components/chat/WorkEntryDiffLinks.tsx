@@ -2,6 +2,7 @@ import type { TurnId } from "@t3tools/contracts";
 import { FileDiffIcon } from "lucide-react";
 
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import { toWorkspaceRelativePath } from "./liveEditedFiles.logic";
 import { Button } from "../ui/button";
 
 /**
@@ -29,7 +30,12 @@ export function WorkEntryDiffLinks(props: {
             size="micro"
             variant="ghost-muted"
             aria-label={`Open diff for ${label}`}
-            onClick={() => props.onOpenTurnDiff(props.turnId, label)}
+            onClick={() =>
+              props.onOpenTurnDiff(
+                props.turnId,
+                toWorkspaceRelativePath(filePath, props.workspaceRoot),
+              )
+            }
           >
             <FileDiffIcon />
             <span className="max-w-64 truncate font-mono">{label}</span>

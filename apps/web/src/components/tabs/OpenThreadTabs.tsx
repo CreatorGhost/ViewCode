@@ -1,24 +1,45 @@
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import { useAtomValue } from "@effect/atom-react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { Atom } from "effect/unstable/reactivity";
 import { ChevronDownIcon, XIcon } from "lucide-react";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { cn } from "~/lib/utils";
-import { resolveShortcutCommand } from "../../keybindings";
+import { environmentCatalog } from "../../connection/catalog";
+import { isEditableFocused } from "../../lib/editableFocus";
+import { isPreviewFocused } from "../../lib/previewFocus";
+import { isTerminalFocused } from "../../lib/terminalFocus";
 import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../../state/server";
 import { useThreadShells } from "../../state/entities";
+import { environmentShell } from "../../state/shell";
 import { resolveThreadRouteRef } from "../../threadRoutes";
 import { useThreadTabsStore } from "../../threadTabsStore";
 import { useUiStateStore } from "../../uiStateStore";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
+import { isSidechat } from "../chat/sidechat.logic";
 import { hasUnseenCompletion, resolveSidebarThreadStatus } from "../Sidebar.logic";
-import { adjacentThreadTab } from "./threadTabs.logic";
+import { adjacentThreadTab, resolveThreadTabCommand } from "./threadTabs.logic";
 
 function useActiveThreadRef(): ScopedThreadRef | null {
   return useParams({ strict: false, select: (params) => resolveThreadRouteRef(params) });
 }
+
+/**
+ * Environments whose live thread list has arrived, newline-joined so the value
+ * only changes when the set does (not on every shell update).
+ */
+const liveShellEnvironmentIdsAtom = Atom.make((get) => {
+  const live: string[] = [];
+  for (const environmentId of enabledEnvironmentIds(get(environmentCatalog.catalogValueAtom))) {
+    if (get(environmentShell.stateValueAtom(environmentId)).status === "live") {
+      live.push(environmentId);
+    }
+  }
+  return live.join("\n");
+}).pipe(Atom.withLabel("web-thread-tabs-live-environments"));
 
 /** Records visits, keeps the tab list tidy, and owns the next/previous/close tab shortcuts. */
 export function ThreadTabsHost() {
@@ -27,28 +48,34 @@ export function ThreadTabsHost() {
   const activeKey = active ? scopedThreadKey(active) : null;
   const shells = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const liveEnvironmentIds = useAtomValue(liveShellEnvironmentIdsAtom);
 
   useEffect(() => {
     if (active) useThreadTabsStore.getState().open(active.environmentId, scopedThreadKey(active));
   }, [active]);
 
-  // Tabs for threads that no longer exist (archived on another device, deleted) quietly go away.
+  // Tabs for threads that no longer exist or were archived (here or on another
+  // device) quietly go away, once that environment's live thread list is in.
   const liveKeys = useMemo(
     () =>
       new Set(
-        shells.map((shell) =>
-          scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
-        ),
+        shells
+          .filter((shell) => shell.archivedAt == null && !isSidechat(shell))
+          .map((shell) =>
+            scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
+          ),
       ),
     [shells],
   );
   useEffect(() => {
-    if (shells.length === 0) return;
-    const store = useThreadTabsStore.getState();
-    for (const environmentId of Object.keys(store.tabsByEnvironmentId)) {
-      store.prune(environmentId, (key) => liveKeys.has(key));
-    }
-  }, [liveKeys, shells.length]);
+    if (liveEnvironmentIds === "") return;
+    useThreadTabsStore
+      .getState()
+      .prune(
+        new Set(liveEnvironmentIds.split("\n")),
+        (key) => key === activeKey || liveKeys.has(key),
+      );
+  }, [activeKey, liveEnvironmentIds, liveKeys]);
 
   useEffect(() => {
     const go = (key: string | null) => {
@@ -61,8 +88,14 @@ export function ThreadTabsHost() {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || !active) return;
-      const command = resolveShortcutCommand(event, keybindings);
-      if (command !== "tab.next" && command !== "tab.previous" && command !== "tab.close") return;
+      const command = resolveThreadTabCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+          previewFocus: isPreviewFocused(),
+          editableFocus: isEditableFocused(event.target),
+        },
+      });
+      if (command === null) return;
       const store = useThreadTabsStore.getState();
       const tabs = store.tabsByEnvironmentId[active.environmentId] ?? [];
       event.preventDefault();
@@ -233,21 +266,29 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
   const showList =
     !props.paneOnly && !!tabs && tabs.length >= 2 && activeKey !== null && tabs.includes(activeKey);
 
-  const select = (key: string) => {
-    const ref = parseScopedThreadKey(key);
-    if (ref) {
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId: ref.environmentId, threadId: ref.threadId },
-      });
-    }
-  };
-  const close = (key: string) => {
-    const next = useThreadTabsStore.getState().close(active.environmentId, key, activeKey);
-    if (key !== activeKey) return;
-    if (next) select(next);
-    else void navigate({ to: "/" });
-  };
+  // Stable callbacks keep the memoised tabs from re-rendering on every strip render.
+  const select = useCallback(
+    (key: string) => {
+      const ref = parseScopedThreadKey(key);
+      if (ref) {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId: ref.environmentId, threadId: ref.threadId },
+        });
+      }
+    },
+    [navigate],
+  );
+  const environmentId = active.environmentId;
+  const close = useCallback(
+    (key: string) => {
+      const next = useThreadTabsStore.getState().close(environmentId, key, activeKey);
+      if (key !== activeKey) return;
+      if (next) select(next);
+      else void navigate({ to: "/" });
+    },
+    [activeKey, environmentId, navigate, select],
+  );
 
   if (!showList || !tabs) {
     return (
@@ -304,7 +345,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
             active={key === activeKey}
             onSelect={select}
             onClose={close}
-            activeExtras={props.activeExtras}
+            activeExtras={key === activeKey ? props.activeExtras : undefined}
           />
         );
       })}

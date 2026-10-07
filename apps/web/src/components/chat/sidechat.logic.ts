@@ -13,6 +13,14 @@ type SidechatShell = Pick<
 
 export const SIDECHAT_TITLE = "Side chat";
 
+/**
+ * The dock's remembered side chat: a thread id, `FRESH_SIDECHAT` after "New side
+ * chat" (an empty composer until the next question creates one), or null when
+ * nothing was picked yet.
+ */
+export const FRESH_SIDECHAT = "fresh";
+export type SidechatPreference = ThreadId | typeof FRESH_SIDECHAT | null;
+
 /** Whether a thread is a side chat. Sidebars hide these and the dock owns them. */
 export function isSidechat(thread: Pick<OrchestrationThreadShell, "kind">): boolean {
   return thread.kind === "sidechat";
@@ -32,18 +40,28 @@ export function sidechatsOf<T extends SidechatShell>(
 }
 
 /**
- * The side chat the dock shows: the one the user last had open when it still
- * exists, otherwise the newest. Null means the dock starts a fresh one.
+ * The side chat the dock shows: none after "New side chat", else the one the
+ * user last had open when it still exists, otherwise the newest. Null means the
+ * dock starts a fresh one.
  */
 export function resolveActiveSidechat<T extends SidechatShell>(
   sidechats: ReadonlyArray<T>,
-  preferredId: ThreadId | null,
+  preferred: SidechatPreference,
 ): T | null {
+  if (preferred === FRESH_SIDECHAT) return null;
   return (
-    (preferredId === null ? undefined : sidechats.find((thread) => thread.id === preferredId)) ??
+    (preferred === null ? undefined : sidechats.find((thread) => thread.id === preferred)) ??
     sidechats[0] ??
     null
   );
+}
+
+/** Whether a scroller sits at (or within a few pixels of) its bottom edge. */
+export function isPinnedToBottom(
+  scroller: Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">,
+  tolerancePx = 24,
+): boolean {
+  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= tolerancePx;
 }
 
 /** A side chat's tab label: the question it started with, trimmed to one line. */

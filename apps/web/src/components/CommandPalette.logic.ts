@@ -243,6 +243,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "createdAt"
   | "environmentId"
   | "id"
+  | "kind"
   | "modelSelection"
   | "projectId"
   | "session"
@@ -270,8 +271,9 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
+  // Side chats live in their parent's dock, never as palette threads or split targets.
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    input.threads.filter((thread) => thread.archivedAt === null && thread.kind !== "sidechat"),
     input.sortOrder,
   );
   const visibleThreads =

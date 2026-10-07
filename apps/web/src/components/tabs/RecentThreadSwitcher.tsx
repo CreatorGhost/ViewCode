@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { useThreadShells } from "../../state/entities";
 import { useThreadTabsStore } from "../../threadTabsStore";
+import { isSidechat } from "../chat/sidechat.logic";
 import { recentViewCandidates, stepRecentSelection } from "./threadTabs.logic";
 
 /**
@@ -54,7 +55,10 @@ export function RecentThreadSwitcher() {
       if (selectedRef.current === null) {
         candidates.current = recentViewCandidates(
           useThreadTabsStore.getState().recentThreadKeys,
-          (key) => shellsByKey.has(key),
+          (key) => {
+            const shell = shellsByKey.get(key);
+            return shell !== undefined && shell.archivedAt == null && !isSidechat(shell);
+          },
         );
         if (candidates.current.length < 2) return;
         setKeys(candidates.current);
@@ -99,7 +103,7 @@ export function RecentThreadSwitcher() {
         aria-label="Recent threads"
         className="pointer-events-auto flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-0.5 rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-lg"
       >
-        {keys.slice(0, 9).map((key, index) => (
+        {keys.map((key, index) => (
           <div
             key={key}
             role="option"
