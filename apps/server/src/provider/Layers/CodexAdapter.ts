@@ -2303,6 +2303,9 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                 },
                 appServerArgs: [...McpProviderSession.codexMcpConfigArgs(mcpSession)],
                 mcpCapabilities: mcpSession.capabilities,
+                ...(mcpSession.computerUseMode
+                  ? { computerUseMode: mcpSession.computerUseMode }
+                  : {}),
               }
             : {}),
         };

@@ -187,6 +187,8 @@ export interface CodexSessionRuntimeOptions {
   readonly models?: Effect.Effect<ReadonlyArray<ServerProviderModel>>;
   /** Capabilities the session's `viewcode` MCP credential grants; drives the prompt blocks. */
   readonly mcpCapabilities?: ReadonlySet<string>;
+  /** Set when the environment carries the computer-use CLI; adds its prompt block. */
+  readonly computerUseMode?: "observe" | "control";
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -592,6 +594,7 @@ function buildCodexTurnInstructions(input: {
   readonly modelName?: string;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly browserToolsAvailable?: boolean | T3CodeToolAvailability;
+  readonly computerUse?: "observe" | "control";
 }): Pick<CodexTurnStartParamsWithCollaborationMode, "collaborationMode" | "additionalContext"> {
   if (input.interactionMode === undefined) {
     return {};
@@ -608,7 +611,7 @@ function buildCodexTurnInstructions(input: {
       },
     },
     additionalContext: buildCodexAdditionalContext(
-      { model, modelName: input.modelName, reasoningEffort },
+      { model, modelName: input.modelName, reasoningEffort, computerUse: input.computerUse },
       input.browserToolsAvailable ?? true,
     ),
   };
@@ -634,6 +637,8 @@ export function buildTurnStartParams(input: {
   readonly interactionMode?: ProviderInteractionMode;
   /** Defaults to true so callers that predate the agent-access gate are unchanged. */
   readonly browserToolsAvailable?: boolean | T3CodeToolAvailability;
+  /** Set when the session was spawned with the computer-use CLI. */
+  readonly computerUse?: "observe" | "control" | undefined;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError
@@ -656,6 +661,7 @@ export function buildTurnStartParams(input: {
     ...(input.modelName ? { modelName: input.modelName } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
     browserToolsAvailable: input.browserToolsAvailable ?? true,
+    ...(input.computerUse ? { computerUse: input.computerUse } : {}),
   });
 
   return decodeCodexTurnStartParamsWithCollaborationMode({
@@ -2581,6 +2587,7 @@ export const makeCodexSessionRuntime = (
               options.appServerArgs,
               options.mcpCapabilities,
             ),
+            computerUse: options.computerUseMode,
           });
           yield* Ref.set(lastAdditionalContextRef, params.additionalContext);
           const rawResponse = yield* client.raw.request("turn/start", params);

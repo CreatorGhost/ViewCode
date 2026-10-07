@@ -53,6 +53,24 @@ describe("buildRuntimeInstructions", () => {
     },
   );
 
+  it("offers computer use only when granted, with or without ViewCode's MCP tools", () => {
+    expect(buildRuntimeInstructions({ harness: "Codex" })).not.toContain("viewcode_computer_use");
+    for (const viewcodeToolsUnavailable of [undefined, "managed-mcp"] as const) {
+      const control = buildRuntimeInstructions({
+        harness: "Claude Code",
+        viewcodeToolsUnavailable,
+        computerUse: "control",
+      });
+      expect(control).toContain("<viewcode_computer_use>");
+      expect(control).toContain("viewcode-computer help");
+      expect(control).toContain("Never use osascript");
+      expect(control).not.toContain("input actions are unavailable");
+    }
+    expect(buildRuntimeInstructions({ harness: "Cursor", computerUse: "observe" })).toContain(
+      "input actions are unavailable",
+    );
+  });
+
   it("keeps known model and effort metadata on one line", () => {
     expect(
       buildRuntimeInstructions({

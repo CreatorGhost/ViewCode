@@ -26,6 +26,22 @@ When a chart, table, diagram, image collage, or mockup would say more than prose
 </viewcode_visuals>`;
 
 /**
+ * Computer use goes through a CLI, not MCP, so it is offered even when the
+ * session runs without ViewCode's MCP server. `viewcode-computer help` is the
+ * manual; this block only points at it and rules out the workarounds.
+ */
+export function computerUseInstructions(mode: "observe" | "control"): string {
+  const scope =
+    mode === "observe"
+      ? "This session may only observe (list windows, read their elements, take screenshots); input actions are unavailable."
+      : "Input actions (press, type, keys, scroll) only work while your turn is running and may wait for the user to approve them.";
+  return `<viewcode_computer_use>
+You can see and operate apps on the user's computer with the viewcode-computer command, run through your shell tool. Run \`viewcode-computer help\` before first use; its output is the manual. ${scope}
+Never use osascript, AppleScript, JXA, screencapture, xdotool, cliclick, PowerShell UI automation or similar tools to observe or control the desktop instead. If viewcode-computer refuses an action, tell the user what was refused and why instead of working around it.
+</viewcode_computer_use>`;
+}
+
+/**
  * Shared runtime context; omit model and effort when the harness manages them dynamically.
  * `modelName` is the display name users see in the model picker; `model` is the slug.
  */
@@ -39,6 +55,8 @@ export function buildRuntimeInstructions(runtime: {
    * never advertises tools the session does not have.
    */
   readonly viewcodeToolsUnavailable?: "managed-mcp" | "setting" | undefined;
+  /** Set when the session was granted computer use (its CLI is on PATH). */
+  readonly computerUse?: "observe" | "control" | undefined;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
@@ -49,10 +67,13 @@ export function buildRuntimeInstructions(runtime: {
   const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
   const runtimeInfo = `<runtime_info>In case you're asked: you are running in ViewCode through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>`;
+  const computerUse = runtime.computerUse
+    ? `\n\n${computerUseInstructions(runtime.computerUse)}`
+    : "";
   if (runtime.viewcodeToolsUnavailable) {
-    return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable)}`;
+    return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable)}${computerUse}`;
   }
-  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${PULL_REQUEST_WATCH_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}`;
+  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${PULL_REQUEST_WATCH_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}${computerUse}`;
 }
 
 const viewcodeToolsUnavailableInstructions = (reason: "managed-mcp" | "setting") =>

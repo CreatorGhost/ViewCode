@@ -510,6 +510,15 @@ export const make = Effect.gen(function* () {
   );
 
   const readNetworkInterfaces = networkInterfaces.read;
+  /**
+   * Local-only exposure never advertises an address, so it never reads the
+   * interfaces: on managed Macs, endpoint security watches for interface
+   * enumeration, and a plain launch should not do it.
+   */
+  const readNetworkInterfacesFor = (mode: DesktopServerExposureMode) =>
+    mode === "network-accessible"
+      ? readNetworkInterfaces
+      : Effect.succeed<DesktopNetworkInterfaces.NetworkInterfaces>({});
 
   /**
    * Re-resolves the advertised LAN address from the current interfaces. The
@@ -545,7 +554,7 @@ export const make = Effect.gen(function* () {
     function* ({ port }: { readonly port: number }) {
       yield* Effect.annotateCurrentSpan({ port });
       const settings = yield* desktopSettings.get;
-      const currentNetworkInterfaces = yield* readNetworkInterfaces;
+      const currentNetworkInterfaces = yield* readNetworkInterfacesFor(settings.serverExposureMode);
       const resolved = resolveRuntimeState({
         requestedMode: settings.serverExposureMode,
         settings,
@@ -569,7 +578,7 @@ export const make = Effect.gen(function* () {
       ...currentSettings,
       serverExposureMode: mode,
     };
-    const currentNetworkInterfaces = yield* readNetworkInterfaces;
+    const currentNetworkInterfaces = yield* readNetworkInterfacesFor(mode);
     const resolved = resolveRuntimeState({
       requestedMode: mode,
       settings: nextSettings,
@@ -647,7 +656,6 @@ export const make = Effect.gen(function* () {
 
   const getAdvertisedEndpoints = Effect.gen(function* () {
     const state = yield* refreshLanEndpoint;
-    const currentNetworkInterfaces = yield* readNetworkInterfaces;
     const coreEndpoints = resolveDesktopCoreAdvertisedEndpoints({
       port: state.port,
       exposure: toResolvedExposure(state),
@@ -660,6 +668,7 @@ export const make = Effect.gen(function* () {
     if (state.mode !== "network-accessible" && !state.tailscaleServeEnabled) {
       return coreEndpoints;
     }
+    const currentNetworkInterfaces = yield* readNetworkInterfaces;
 
     const tailscaleEndpoints = yield* resolveTailscaleAdvertisedEndpoints({
       port: state.port,

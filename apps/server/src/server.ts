@@ -72,6 +72,10 @@ import * as ForgejoCli from "./sourceControl/ForgejoCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as ComputerUseAncestry from "./computerUse/computerUseAncestry.ts";
+import * as ComputerUseService from "./computerUse/ComputerUseService.ts";
+import { computerUseRouteLayer } from "./computerUse/ComputerUseRoute.ts";
+import * as Xa11yComputerDriver from "./computerUse/Xa11yComputerDriver.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as AgentMessaging from "./agents/AgentMessaging.ts";
 import * as UsageResume from "./agents/UsageResume.ts";
@@ -501,11 +505,22 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
   ),
 );
 
+// Computer use reads the thread's running turn from orchestration, and
+// ProviderService routes its approvals and turn ends to it, so it sits
+// between the two.
+const ComputerUseLayerLive = ComputerUseService.layer.pipe(
+  Layer.provide(Xa11yComputerDriver.layer),
+  Layer.provide(ComputerUseService.pendingApprovalsLayer),
+  Layer.provide(ComputerUseAncestry.layer.pipe(Layer.provide(ProcessRunner.layer))),
+  Layer.provide(ServerSettingsLayerLive),
+);
+
 const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   // Subscribes to `account.rate-limits.updated` so usage bars track live
   // telemetry instead of waiting for the next status probe.
   Layer.provideMerge(ProviderUsageLimitsIngestionLive),
   Layer.provideMerge(ProviderLayerLive),
+  Layer.provideMerge(ComputerUseLayerLive),
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
@@ -640,7 +655,10 @@ export const makeRoutesLayer = Layer.mergeAll(
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),
-  McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
+  // `/api/computer-use` authenticates with the same session credentials as `/mcp`.
+  Layer.mergeAll(McpHttpServer.layer, computerUseRouteLayer).pipe(
+    Layer.provide(McpSessionRegistry.layer),
+  ),
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.

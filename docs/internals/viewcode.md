@@ -18,6 +18,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                                                                                                       |
 | Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, `T3CodeHistory.ts`, web `components/agentSessions/`                                                                                             |
 | Phone notifications (Expo push)          | `apps/server/src/notifications/`, contracts `pushNotifications.ts`, mobile `features/agent-awareness/directPush*.ts` and `useDirectPushRegistration.ts`                                                                                                                     |
+| Computer use (agents drive the desktop)  | `apps/server/src/computerUse/` (`ComputerUseService.ts` gate, `ComputerUseCli.ts` CLI + manual, `Xa11yDriverCore.ts` driver), contracts `computerUse.ts`, web `settings/ComputerUseSetting.tsx` |
 | Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME`, web-only default), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids)                                                                             |
 
 ## Decisions
@@ -245,6 +246,63 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - `viewcode_list_models` lists every enabled provider with `usable` and a `note`, and
   tells agents to use a vendor's own provider (GPT → Codex) over resellers
   (Command Code, OpenCode, Cursor) unless the user names the reseller.
+
+### Computer use
+
+- No MCP. Managed Macs block client-supplied MCP servers for Cursor (team policy, enforced
+  server-side; a server sent over ACP is accepted and silently ignored) and Claude
+  (`managed-mcp.json`), so agents run the `viewcode-computer` CLI through their own shell. The
+  CLI is a thin client: it POSTs to `/api/computer-use` with the session's credential, and the
+  **server is the only gate**. The provider's own permission prompt is not one: in full access
+  Cursor runs `--force`, Grok `--always-approve`, Codex `never` and Claude `bypassPermissions`, so
+  ViewCode never sees the command. Everything (mode, running turn, denylist, approval, stale
+  targets) is enforced in `ComputerUseService` against the contract schema, assuming the agent
+  ignores every instruction and crafts raw requests with its credential.
+- The credential is the MCP session credential with a `computer` capability, issued even when the
+  provider never loads MCP; the thread always comes from the credential. The CLI's env
+  (`VIEWCODE_COMPUTER_ENDPOINT`, `VIEWCODE_COMPUTER_AUTH`, PATH shim) rides the agent-device env
+  seam every adapter already applies at spawn. Names avoid KEY/SECRET/TOKEN because Codex's shell
+  env policy strips those. The mode is re-read on every request, so turning it off is immediate;
+  turning it on needs a new provider session (env and instructions are fixed at spawn).
+- Instructions are a few lines pointing at `viewcode-computer help`, whose output is the manual.
+  Like agent-device, and unlike a SKILL.md: no files to manage in six providers' skill folders,
+  nothing loaded when unused, and it cannot drift from the CLI. Security never depends on the
+  model following it.
+- Approvals are ViewCode's own `permission_approval` requests published on the provider runtime
+  stream (`computer-use:<uuid>` ids), so web, desktop and mobile render them unchanged;
+  `ProviderService.respondToRequest` answers ids it owns before routing to an adapter. Only full
+  access (on both the thread and the live session) skips routine approval; "for the rest of this
+  turn" ends with the turn. Targets that look destructive and quit/close chords always ask; that
+  check is a heuristic over labels, not a detector. **No input is dispatched while any approval in
+  the environment waits** (`CU-CON-008`, computer-use and provider approvals alike): that, not
+  window identity, is what stops an agent answering an approval for itself in a ViewCode window, a
+  browser tab or a mirrored screen. The denylist (protected apps, ViewCode by name and `.app` path,
+  the server's own process ancestry, browser tabs titled like ViewCode) is defense in depth. Every
+  input path goes through one pre-dispatch check under an environment-wide lock that re-reads the
+  mode, the turn, pending approvals and the target.
+- Two ways to act, chosen per step by the agent: accessibility refs (exact) and screenshot pixel
+  coordinates (Codex style, for canvases, browsers and apps with no tree). Window ids, refs and
+  shots are per-thread integers starting at a random per-run base; a newer observe retires a
+  window's refs, only a window's newest shot accepts coordinates, and the driver re-reads the
+  element or window bounds at dispatch and refuses on change. Every input returns a fresh shot.
+- xa11y elements and window lists are snapshots (`tree(0)` reads no live state), so the driver
+  records each element's child-index path at observe and re-walks it from a fresh window read at
+  dispatch, refusing on any role, label or bounds change. Handles carry a per-worker random epoch,
+  so a restarted worker can never resolve an old handle to another app. On macOS, AXRaise does not
+  activate an app; the driver runs `open -a <bundle>` and then requires the exact target window to
+  be active. Windows is refused until there is a real win32 window model (xa11y treats each
+  top-level window as an app there).
+- The driver is xa11y in a child process spawned from the app's own executable with
+  `ELECTRON_RUN_AS_NODE=1`: macOS keys the Accessibility grant to the responsible app, and
+  Electron's Helper executable does not share it (same reason as SnapShot's reader). xa11y 0.13
+  cannot set `AXManualAccessibility`, so Chromium and Electron apps expose no tree on macOS and
+  work through coordinates.
+- Logs and approval text never carry typed text or values (approvals show a character count).
+  Ad-hoc signed builds lose the TCC grant on every rebuild while System Settings still shows it on;
+  the settings status line is a fresh check for that reason. Unverified on real hardware: the TCC
+  grant under Electron-as-node, xa11y input on macOS and Windows, and whether managed-Mac security
+  software tolerates synthetic input; the first run on such a machine should be one
+  `list-windows`.
 
 ### Pull request watches (port of upstream's v2 PR watch onto v1)
 

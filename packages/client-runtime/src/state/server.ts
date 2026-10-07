@@ -1141,6 +1141,13 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverDetectProviders,
       concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
+    // A command, not a query atom: what the server's machine can do right now
+    // (driver, OS permission) must never be served from a cache.
+    getComputerUseStatus: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:get-computer-use-status",
+      tag: WS_METHODS.serverGetComputerUseStatus,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
     chooseProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:choose-providers",
       tag: WS_METHODS.serverChooseProviders,

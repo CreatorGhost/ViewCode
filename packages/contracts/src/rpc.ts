@@ -219,6 +219,7 @@ import {
   DeviceSession,
   DeviceShutdownInput,
 } from "./device.ts";
+import { ComputerUseStatus } from "./computerUse.ts";
 import {
   PreviewAutomationError,
   PreviewAutomationHost,
@@ -399,6 +400,7 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
   serverGetProviderWorkspaceSnapshot: "server.getProviderWorkspaceSnapshot",
+  serverGetComputerUseStatus: "server.getComputerUseStatus",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -556,6 +558,13 @@ const WsServerGetProviderWorkspaceSnapshotRpc = Rpc.make(
     error: EnvironmentAuthorizationError,
   },
 );
+
+/** Fresh check of what computer use can do on this server's machine. */
+const WsServerGetComputerUseStatusRpc = Rpc.make(WS_METHODS.serverGetComputerUseStatus, {
+  payload: Schema.Struct({}),
+  success: ComputerUseStatus,
+  error: EnvironmentAuthorizationError,
+});
 
 const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
   payload: ServerProviderUpdateInput,
@@ -1572,6 +1581,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerGetProviderWorkspaceSnapshotRpc,
+  WsServerGetComputerUseStatusRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,

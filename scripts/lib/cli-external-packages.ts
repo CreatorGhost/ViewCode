@@ -31,6 +31,7 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   "@yuuang/",
   "@ff-labs/",
   "@napi-rs/keyring",
+  "@crowecawcaw/xa11y",
   "@clerk/electron-passkeys",
   "node-gyp-build",
   "node-addon-api",
