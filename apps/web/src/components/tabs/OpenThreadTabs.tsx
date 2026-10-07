@@ -99,6 +99,8 @@ const TabItem = memo(function TabItem(props: {
   driverKind: string | null;
   running: boolean;
   unread: boolean;
+  /** The agent finished or is waiting on the user, and the tab hasn't been opened since. */
+  attention?: boolean | undefined;
   active: boolean;
   onSelect: (key: string) => void;
   onClose: (key: string) => void;
@@ -119,6 +121,7 @@ const TabItem = memo(function TabItem(props: {
       aria-selected={props.active}
       data-active={props.active}
       data-thread-tab=""
+      data-attention={props.attention && !props.active ? "true" : undefined}
       onClick={(event) => {
         if (extras?.onClick) extras.onClick(event);
         else props.onSelect(props.threadKey);
@@ -248,7 +251,11 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
 
   if (!showList || !tabs) {
     return (
-      <div role="tablist" aria-label="Open threads" className="flex min-w-0 items-center [-webkit-app-region:no-drag]">
+      <div
+        role="tablist"
+        aria-label="Open threads"
+        className="flex min-w-0 items-center [-webkit-app-region:no-drag]"
+      >
         <TabItem
           threadKey={activeKey ?? ""}
           title={props.fallbackTitle}
@@ -284,6 +291,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
         const shell = byKey.get(key);
         if (!shell) return null;
         const status = resolveSidebarThreadStatus(shell);
+        const unread = hasUnseenCompletion({ ...shell, lastVisitedAt: visited[key] });
         return (
           <TabItem
             key={key}
@@ -291,7 +299,8 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
             title={shell.title}
             driverKind={driverByInstance.get(shell.modelSelection.instanceId) ?? null}
             running={status === "working"}
-            unread={hasUnseenCompletion({ ...shell, lastVisitedAt: visited[key] })}
+            unread={unread}
+            attention={unread || status === "approval" || status === "input"}
             active={key === activeKey}
             onSelect={select}
             onClose={close}
