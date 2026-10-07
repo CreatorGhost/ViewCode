@@ -557,6 +557,13 @@ export const runComputerCli = async (io: ComputerCliIo): Promise<number> => {
         "The ViewCode server rejected this session's credential. Ask the user to restart the agent session.",
     });
   }
+  if (outcome.status === 404) {
+    return fail({
+      code: "CU-EXT-006",
+      message:
+        "The ViewCode server at this session's endpoint does not serve computer use; it probably restarted on another address. Ask the user to restart the agent session.",
+    });
+  }
   let response: unknown;
   try {
     response = JSON.parse(outcome.body);
@@ -644,7 +651,8 @@ and Ctrl elsewhere.
 FOCUS
   press, set-value and type --ref act in the background and do not take
   focus from the user: prefer them. (A control with no accessible press or
-  text input gets a click or typing in front instead.) list-windows, observe
+  text input, or a field that ignored the change, gets a click or typing in
+  front instead.) list-windows, observe
   and screenshot never take focus. key, type --window, scroll --ref and
   everything at --shot coordinates bring the window to the front and take
   focus from the user: use them only when refs cannot do the job, and batch
@@ -653,7 +661,9 @@ FOCUS
   the window to the front.
 
 THE LOOP
-  1. list-windows to find the window id.
+  1. list-windows to find the window id. Windows on other desktops (Spaces),
+     including full-screen apps, may be missing. If the app you need is not
+     listed, ask the user to bring its window onto the current desktop.
   2. observe --window N (add --query to narrow; truncated:true means the list
      was cut). If what you need is not there, screenshot --window N instead.
   3. Act once: by --ref, or at x,y from the newest shot of that window.

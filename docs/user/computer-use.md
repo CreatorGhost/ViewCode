@@ -71,11 +71,14 @@ permissions off in System Settings when you are not using computer use.
 
 - Clicking at a point, keyboard shortcuts, typing into whatever has focus and scrolling bring that
   window to the front, because the system delivers that input to whatever is on top. So does an
-  action by reference on a control that cannot be pressed or typed into directly.
+  action by reference on a control that cannot be pressed or typed into directly, or on a field
+  that ignores the change, as some web page fields do.
 - Screenshot-based actions need Screen Recording; without it agents can only act on controls by
   reference.
 - Codex in a sandboxed permission mode may be unable to reach ViewCode from its shell. Use
   **Full access** for those threads.
 - Screenshots work for windows that sit entirely on the main display.
+- Agents only see windows on the current desktop. To let an agent work in an app on another
+  desktop (Space) or in full screen, bring its window onto the desktop you are using.
 - Computer use runs on macOS and Linux. Windows is not supported yet.
 - Command Code does not support computer use.

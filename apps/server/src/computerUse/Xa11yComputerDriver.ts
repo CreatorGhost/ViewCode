@@ -101,7 +101,8 @@ const DEFAULT_TIMEOUTS: Record<DriverOp, number> = {
   screenshot: 30_000,
   elementAt: 8_000,
   press: INPUT_TIMEOUT_MS,
-  setValue: INPUT_TIMEOUT_MS,
+  // An ignored accessibility change falls back to typing the value.
+  setValue: TYPING_TIMEOUT_MS,
   typeText: TYPING_TIMEOUT_MS,
   key: INPUT_TIMEOUT_MS,
   scroll: INPUT_TIMEOUT_MS,

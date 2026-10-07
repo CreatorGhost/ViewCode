@@ -26,6 +26,9 @@ interface Spec {
   focused?: boolean;
   pressUnsupported?: boolean;
   typeUnsupported?: boolean;
+  value?: string;
+  /** Accepts accessibility text changes without applying them, like Safari's web fields. */
+  ignoresTextChanges?: boolean;
   /** Runs when the accessible press is attempted, before it fails or lands. */
   onPress?: () => void;
   onFocus?: () => Promise<void>;
@@ -49,7 +52,7 @@ const fake = (spec: Spec, sent: Sent): Element => {
   };
   const element = {
     ...snapshot,
-    value: null,
+    value: spec.value ?? null,
     raw: {},
     editable: false,
     enabled: true,
@@ -62,10 +65,14 @@ const fake = (spec: Spec, sent: Sent): Element => {
       if (spec.pressUnsupported) throw notSupported();
       sent.push(["press", snapshot.name]);
     },
-    setValue: async () => void sent.push(["setValue", snapshot.name]),
+    setValue: async (value: string) => {
+      sent.push(["setValue", snapshot.name]);
+      if (!spec.ignoresTextChanges) spec.value = value;
+    },
     typeText: async (text: string) => {
       if (spec.typeUnsupported) throw notSupported();
       sent.push(["AXtype", snapshot.name, text]);
+      if (!spec.ignoresTextChanges) spec.value = `${spec.value ?? ""}${text}`;
     },
     performAction: async () => undefined,
     focus: async () => {
@@ -103,6 +110,7 @@ const makeCore = (
     readonly activate?: (pid: number) => void | Promise<void>;
     readonly primaryDisplay?: () => Rect | null;
     readonly capture?: Xa11yApi["screenshot"];
+    readonly captureWindow?: Xa11yApi["captureWindow"];
     readonly executablePaths?: Xa11yApi["executablePaths"];
     /** The server's check; allows everything unless given. */
     readonly authorize?: (
@@ -126,7 +134,6 @@ const makeCore = (
     click: async (target: unknown) =>
       void sent.push(["click", Array.isArray(target) ? target : (target as Element).bounds]),
     scroll: async (target: Element) => void sent.push(["scroll", target.bounds]),
-    mouseUp: async (button: string) => void sent.push(["mouseUp", button]),
   } as unknown as InputSim;
   const asApp = (app: FakeApp) =>
     ({
@@ -151,6 +158,9 @@ const makeCore = (
     foregroundPid: async () =>
       options.foreground === undefined ? (apps[0]?.pid ?? null) : options.foreground,
     inputSim: () => input,
+    pointerDrag: async (from, to) => void sent.push(["drag", from, to]),
+    releaseMouse: async () => void sent.push(["mouseUp", "left"]),
+    captureWindow: options.captureWindow ?? (async () => null),
     screenshot:
       options.capture ??
       (async () => {
@@ -423,6 +433,27 @@ describe("window identity fails closed", () => {
     expect(await core.call(click(doc!.handle))).toMatchObject(staleNo);
   });
 
+  it("keeps a window's handle when only its title changed", async () => {
+    const doc = window("Untitled");
+    const app: FakeApp = { name: "Blender", pid: 3, windows: [doc] };
+    const core = makeCore([app]);
+    const [before] = await core.list();
+    doc.name = "scene.blend";
+    const [after] = await core.list();
+    expect(after).toMatchObject({ handle: before!.handle, title: "scene.blend" });
+    expect(await core.call(click(before!.handle))).toMatchObject({ ok: true });
+  });
+
+  it("does not follow a retitled window when another window sits at the same spot", async () => {
+    const doc = window("Untitled");
+    const app: FakeApp = { name: "Blender", pid: 3, windows: [doc, window("Preferences")] };
+    const core = makeCore([app]);
+    const [before] = await core.list();
+    doc.name = "scene.blend";
+    expect(await core.call(click(before!.handle))).toMatchObject(staleNo);
+    expect(core.sent).toEqual([]);
+  });
+
   it("refuses a same-titled window that is no longer where it was", async () => {
     const app: FakeApp = {
       name: "Editor",
@@ -436,6 +467,86 @@ describe("window identity fails closed", () => {
       staleNo,
     );
     expect(core.sent).toEqual([]);
+  });
+});
+
+describe("accessibility text changes are checked", () => {
+  const setup = (field: Spec, options: Parameters<typeof makeCore>[1] = {}) => {
+    const notes = window("Notes", { children: [field], active: false, focused: false });
+    const core = makeCore([{ name: "Safari", pid: 12, windows: [notes] }], {
+      ...options,
+      activate: () => {
+        notes.active = notes.focused = true;
+      },
+    });
+    return core;
+  };
+  const target = { role: "text field", label: "Search" };
+
+  it("keeps a change that showed up in the field's value, in the background", async () => {
+    const core = setup({ role: "text field", name: "Search", value: "" });
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    expect(
+      await core.call({ op: "typeText", element: ref!.handle, expect: target, text: "hi" }),
+    ).toEqual({ ok: true, result: { tookFocus: false } });
+    expect(core.sent).toEqual([["AXtype", "Search", "hi"]]);
+    expect(core.calls.activate).toBe(0);
+  });
+
+  it("types by keyboard when an accepted insertion left the value unchanged", async () => {
+    const core = setup({ role: "text field", name: "Search", value: "", ignoresTextChanges: true });
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    expect(
+      await core.call({ op: "typeText", element: ref!.handle, expect: target, text: "hi" }),
+    ).toEqual({ ok: true, result: { tookFocus: true } });
+    expect(core.sent).toEqual([
+      ["AXtype", "Search", "hi"],
+      ["typeText", "h"],
+      ["typeText", "i"],
+    ]);
+  });
+
+  it("replaces the contents by keyboard when an accepted value did not take", async () => {
+    const core = setup({
+      role: "text field",
+      name: "Search",
+      value: "old",
+      ignoresTextChanges: true,
+    });
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    expect(
+      await core.call({ op: "setValue", element: ref!.handle, expect: target, value: "ok" }),
+    ).toEqual({ ok: true, result: { tookFocus: true } });
+    expect(core.sent).toEqual([
+      ["setValue", "Search"],
+      ["chord", "a", ["Meta"]],
+      ["typeText", "o"],
+      ["typeText", "k"],
+    ]);
+  });
+
+  it("reports an ignored change as uncertain when the keyboard fallback is refused", async () => {
+    let prepares = 0;
+    const core = setup(
+      { role: "text field", name: "Search", value: "", ignoresTextChanges: true },
+      {
+        authorize: (_target, phase) => {
+          if (phase === "prepare") prepares += 1;
+          return prepares > 1
+            ? { code: "CU-CON-008", message: "paused", effect: "not-dispatched" }
+            : undefined;
+        },
+      },
+    );
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    expect(
+      await core.call({ op: "typeText", element: ref!.handle, expect: target, text: "hi" }),
+    ).toMatchObject({ ok: false, error: { kind: "policy", dispatched: "unknown" } });
+    expect(core.sent).toEqual([["AXtype", "Search", "hi"]]);
   });
 });
 
@@ -461,6 +572,47 @@ describe("screenshots and the mouse", () => {
       },
     });
     expect(core.calls.primaryDisplay).toBe(1);
+  });
+
+  it("captures only a window's own pixels when it is behind another", async () => {
+    const note = window("Note", { active: false, focused: false });
+    const captured: Array<readonly [number, Rect, number]> = [];
+    const core = makeCore([{ name: "Notes", pid: 5, windows: [note] }], {
+      primaryDisplay: () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
+      captureWindow: async (pid, bounds, _path, maxSize) => {
+        captured.push([pid, bounds, maxSize]);
+        return { width: 400, height: 320 };
+      },
+    });
+    const [win] = await core.list();
+    expect(
+      await core.call({
+        op: "screenshot",
+        window: win!.handle,
+        outputPath: "/x.png",
+        maxSize: 400,
+      }),
+    ).toEqual({ ok: true, result: { width: 400, height: 320, bounds: BOUNDS } });
+    expect(captured).toEqual([[5, BOUNDS, 400]]);
+  });
+
+  it("refuses a covered window's capture when Screen Recording is missing", async () => {
+    const note = window("Note", { active: false, focused: false });
+    const core = makeCore([{ name: "Notes", pid: 5, windows: [note] }], {
+      primaryDisplay: () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
+      captureWindow: async () => {
+        throw Object.assign(new Error("denied"), { name: "PermissionDeniedError" });
+      },
+    });
+    const [win] = await core.list();
+    expect(
+      await core.call({
+        op: "screenshot",
+        window: win!.handle,
+        outputPath: "/x.png",
+        maxSize: 400,
+      }),
+    ).toMatchObject({ ok: false, error: { kind: "permission-screen" } });
   });
 
   it("releases the left mouse button on request", async () => {
@@ -841,8 +993,12 @@ describe("fallback input is authorized after its own preparation", () => {
       const notes = window("Notes", { children: [field] });
       const sibling = window("Other", { active: false, focused: false });
       const app: FakeApp = { name: "TextEdit", pid: 10, windows: [notes, sibling] };
+      // Each event takes longer than the focus re-check interval.
+      const clock = { now: 0 };
       const core = makeCore([app], {
+        clock,
         receiveText: () => {
+          clock.now += 100;
           notes.active = notes.focused = false;
           sibling.active = sibling.focused = true;
         },

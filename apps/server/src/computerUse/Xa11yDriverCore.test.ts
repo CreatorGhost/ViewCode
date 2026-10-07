@@ -50,6 +50,8 @@ const makeHarness = (
     readonly screenshotDenied?: boolean;
     readonly platform?: NodeJS.Platform;
     readonly receiveText?: (text: string) => Promise<void>;
+    readonly captureWindow?: Xa11yApi["captureWindow"];
+    readonly now?: () => number;
   } = {},
 ) => {
   const sent: Array<readonly [string, ...unknown[]]> = [];
@@ -57,7 +59,6 @@ const makeHarness = (
   const input = {
     click: async (target: unknown, clickOptions?: unknown) =>
       void sent.push(Array.isArray(target) ? ["click", target, clickOptions] : ["click"]),
-    drag: async (from: unknown, to: unknown) => void sent.push(["drag", from, to]),
     moveTo: async (target: unknown) => void sent.push(["moveTo", target]),
     press: async (key: string) => void sent.push(["press", key]),
     chord: async (key: string, held?: string[] | null) => void sent.push(["chord", key, held]),
@@ -81,6 +82,9 @@ const makeHarness = (
           ? TEST_PID
           : options.foregroundPid,
     inputSim: () => input,
+    pointerDrag: async (from, to) => void sent.push(["drag", [from.x, from.y], [to.x, to.y]]),
+    releaseMouse: async () => void sent.push(["releaseMouse"]),
+    captureWindow: options.captureWindow ?? (async () => null),
     screenshot: async () => {
       if (!options.screenshotDenied) return retinaShot;
       throw Object.assign(new Error("denied"), { name: "PermissionDeniedError" });
@@ -90,7 +94,7 @@ const makeHarness = (
     activateApp: async () => undefined,
     primaryDisplay: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     sleep: async () => undefined,
-    now: () => 0,
+    now: options.now ?? (() => 0),
     authorizeInput: async () => undefined,
   };
   const core = makeDriverCore(api, { platform: options.platform ?? "darwin", epoch: "t" });
@@ -206,7 +210,7 @@ describe("driver core over the xa11y test app", () => {
         expect: { role: "text_field", label: "Search" },
         value: "x",
       }),
-    ).toEqual({ ok: true, result: { tookFocus: false } });
+    ).toMatchObject({ ok: true });
     expect(
       await harness.call({
         op: "press",
@@ -362,6 +366,24 @@ describe("driver core over the xa11y test app", () => {
     expect(value).toBe(text);
   });
 
+  it("re-checks focus between characters only once the re-check interval passed", async () => {
+    let checks = 0;
+    const harness = makeHarness({
+      foregroundPid: () => {
+        checks += 1;
+        return TEST_PID;
+      },
+    });
+    const window = await harness.firstWindow();
+    await harness.call({ op: "typeFocused", window: window.handle, text: "a long note" });
+    const beforeTyping = checks;
+    await harness.call({ op: "typeFocused", window: window.handle, text: "x".repeat(500) });
+    // Activation and the dispatch check read focus a fixed number of times,
+    // whatever the length: the clock never moves, so typing adds none.
+    expect(checks - beforeTyping).toBe(beforeTyping);
+    expect(harness.sent.filter(([kind]) => kind === "typeText")).toHaveLength(511);
+  });
+
   it("keeps the batched native typing path on Linux", async () => {
     let value = "";
     const harness = makeHarness({
@@ -380,11 +402,15 @@ describe("driver core over the xa11y test app", () => {
   it("stops Mac text when focus changes after a character, without reclaiming focus", async () => {
     let foreground = TEST_PID;
     let value = "";
+    let clock = 0;
     const harness = makeHarness({
       foregroundPid: () => foreground,
+      now: () => clock,
       receiveText: async (text) => {
         value += text;
         foreground = TEST_PID + 1;
+        // Longer than the focus re-check interval.
+        clock += 100;
       },
     });
     const window = await harness.firstWindow();

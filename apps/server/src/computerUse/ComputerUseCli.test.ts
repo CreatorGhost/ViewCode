@@ -364,6 +364,16 @@ describe("transport", () => {
     expect(outputOf(refused.stdout)).toMatchObject({ error: { code: "CU-EXT-006" } });
   });
 
+  it("tells the agent to restart its session when the endpoint has no computer use", async () => {
+    const server = await startServer({ status: 404, body: "Not Found" });
+    const result = await run(["status"], { endpoint: server.httpEndpoint });
+    expect(result.code).toBe(1);
+    expect(outputOf(result.stdout)).toMatchObject({
+      ok: false,
+      error: { code: "CU-EXT-006", message: expect.stringContaining("restart the agent session") },
+    });
+  });
+
   it.each([
     ["non-JSON", "<html>oops</html>"],
     ["schema-invalid", JSON.stringify({ ok: true, result: { kind: "input", effect: "maybe" } })],

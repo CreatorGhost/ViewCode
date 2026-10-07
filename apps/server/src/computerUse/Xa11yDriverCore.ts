@@ -58,7 +58,25 @@ export interface Xa11yApi {
   /** Pid of the foreground application, or null when the platform cannot say. */
   readonly foregroundPid: () => Promise<number | null>;
   readonly inputSim: () => InputSim;
+  /**
+   * A left-button drag between screen points. On macOS this cannot be
+   * InputSim's drag, which presses at the screen corner (see `MacQuartz.ts`).
+   */
+  readonly pointerDrag: (from: DriverPoint, to: DriverPoint) => Promise<void>;
+  /** Releases the left button wherever the pointer is. */
+  readonly releaseMouse: () => Promise<void>;
   readonly screenshot: (element: Element) => Promise<Screenshot>;
+  /**
+   * Captures only the window's own pixels (covering windows left out) as a
+   * PNG at `outputPath`, longest edge at most `maxSize`. Null when the
+   * platform cannot isolate this window; the driver then captures its region.
+   */
+  readonly captureWindow: (
+    pid: number,
+    bounds: Rect,
+    outputPath: string,
+    maxSize: number,
+  ) => Promise<{ readonly width: number; readonly height: number } | null>;
   /** Executable path per pid, best effort; feeds `DriverWindow.appIdentifier`. */
   readonly executablePaths: (pids: ReadonlyArray<number>) => Promise<ReadonlyMap<number, string>>;
   readonly writeFile: (path: string, bytes: Uint8Array) => Promise<void>;
@@ -70,7 +88,7 @@ export interface Xa11yApi {
   /** Logical rect of the primary display, or null when unknown. Re-read before each capture. */
   readonly primaryDisplay: () => Promise<Rect | null>;
   readonly sleep: (ms: number) => Promise<void>;
-  /** Milliseconds; only for how long a display read is reused. */
+  /** Milliseconds; for how long a display read is reused and how often typing re-checks focus. */
   readonly now: () => number;
   /** The server's policy check (`ComputerDriverDispatchCheck`); a refusal comes back as the error. */
   readonly authorizeInput: (
@@ -195,6 +213,10 @@ export const BOUNDS_TOLERANCE = 0;
  */
 export const ACTIVATION_TIMEOUT_MS = 3_000;
 const ACTIVATION_POLL_MS = 50;
+/** How long a text change made through accessibility may take to show in the element's value. */
+const VALUE_SETTLE_MS = 300;
+/** How often typing re-checks that its window is still the active one. */
+const FOCUS_RECHECK_MS = 100;
 /**
  * How long a primary display read is reused. Reading it is a full-screen
  * capture; a window outside the cached rect re-reads at once, so staleness
@@ -494,9 +516,12 @@ export const keyedWindows = (
 /**
  * Finds `entry`'s window among fresh snapshots, failing closed: by key
  * (a window that has or had a same-titled sibling must also still be where
- * it was), else, only for a
- * window without a native id, the single window with the same role and
- * title at the same place. Anything else means the window is gone.
+ * it was), else, only for a window without a native id, the single window
+ * with the same role and title at the same place, else (its title changed,
+ * as editors do when a document is saved or renamed) the single window of
+ * that role at exactly the same place, when none still has the old title.
+ * Callers have already checked that the observed native window is alive.
+ * Anything else means the window is gone.
  */
 export const findWindow = (
   entry: Pick<WindowEntry, "key" | "stable" | "unique" | "role" | "title" | "bounds">,
@@ -519,7 +544,20 @@ export const findWindow = (
       (candidate.window.name ?? "") === entry.title &&
       boundsMatch(entry.bounds, candidate.window.bounds),
   );
-  return sameSpot.length === 1 ? sameSpot[0] : undefined;
+  if (sameSpot.length === 1) return sameSpot[0];
+  if (
+    sameSpot.length > 1 ||
+    keyed.some((candidate) => (candidate.window.name ?? "") === entry.title)
+  ) {
+    return undefined;
+  }
+  const retitled = keyed.filter(
+    (candidate) =>
+      !candidate.stable &&
+      candidate.window.role === entry.role &&
+      boundsMatch(entry.bounds, candidate.window.bounds),
+  );
+  return retitled.length === 1 ? retitled[0] : undefined;
 };
 
 const sameBounds = (left: Rect | null, right: Rect | null): boolean =>
@@ -1040,7 +1078,8 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
    * pixels to screen points whatever the display scale.
    */
   const screenshot = async (windowHandle: string, outputPath: string, maxSize: number) => {
-    const window = await refreshWindow(requireWindow(windowHandle));
+    const entry = requireWindow(windowHandle);
+    const window = await refreshWindow(entry);
     const bounds = window.bounds;
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
       throw new Refusal(failure("failed", "The window is not on screen."));
@@ -1049,6 +1088,24 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       throw new Refusal(
         failure("failed", "The window is not fully on the main display; move it there."),
       );
+    }
+    // A window in front is captured as its screen region, which is quicker.
+    // Behind others, only its own pixels: the region would show what covers
+    // it, while coordinate input brings it to the front before acting.
+    if (!(await isFront(entry, window))) {
+      let isolated: { readonly width: number; readonly height: number } | null;
+      try {
+        isolated = await api.captureWindow(entry.pid, bounds, outputPath, maxSize);
+      } catch (error) {
+        if (errorName(error) === "PermissionDeniedError") {
+          throw new Refusal({
+            ok: false,
+            error: classifyXa11yError(error, { afterDispatch: false, screen: true }),
+          });
+        }
+        isolated = null;
+      }
+      if (isolated) return { ...isolated, bounds: { ...bounds } };
     }
     let shot: Screenshot;
     try {
@@ -1136,10 +1193,17 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     // Some app fields can consume only its first character. Send complete code
     // points individually without clipboard mutation or replay. The dispatch
     // check covers the first event; stop if focus changes before later events.
+    // A focus check costs several accessibility reads, so it runs at most
+    // every FOCUS_RECHECK_MS rather than per character: long text would
+    // otherwise outlast the typing timeout.
     let sent = false;
+    let checkedAt = api.now();
     try {
       for (const character of text) {
-        if (sent) await verifyFront(window);
+        if (sent && api.now() - checkedAt >= FOCUS_RECHECK_MS) {
+          await verifyFront(window);
+          checkedAt = api.now();
+        }
         await input.typeText(character);
         sent = true;
       }
@@ -1151,6 +1215,82 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           : classifyXa11yError(error, { afterDispatch: true });
       // Earlier characters were already sent, even if this event was refused.
       throw new Refusal({ ok: false, error: { ...failure, dispatched: "unknown" } });
+    }
+  };
+
+  /**
+   * Whether an accessibility text change visibly took: a fresh read of the
+   * element's value differs from the observed one within VALUE_SETTLE_MS.
+   * Assumed taken when that cannot be told: no readable value, a secure
+   * field, a `setValue` to the value it already had, or an element that no
+   * longer resolves by its identity.
+   */
+  const textMutationTook = async (
+    handle: string,
+    expect: DriverElementIdentity,
+    before: Element,
+    requested?: string,
+  ): Promise<boolean> => {
+    const original = before.value;
+    const label = elementLabel(before.name, before.description);
+    if (
+      original === null ||
+      original === requested ||
+      isSecureElement({ raw: before.raw, editable: before.editable, label })
+    ) {
+      return true;
+    }
+    for (let waited = 0; ; waited += ACTIVATION_POLL_MS) {
+      let value: string | null;
+      try {
+        value = (await resolveElement(handle, expect)).element.value;
+      } catch {
+        return true;
+      }
+      if (value !== original) return true;
+      if (waited >= VALUE_SETTLE_MS) return false;
+      await api.sleep(ACTIVATION_POLL_MS);
+    }
+  };
+
+  /**
+   * Types into an element by keyboard: brings its window to the front,
+   * focuses it and types, authorized again after that preparation. With
+   * `replace`, selects the field's contents first so the text replaces them.
+   */
+  const typeIntoElement = async (
+    target: { readonly element: Element; readonly window: WindowEntry },
+    handle: string,
+    expect: DriverElementIdentity,
+    text: string,
+    replace: boolean,
+  ) => {
+    const input = requireInput();
+    await authorize(target.window, "prepare", { element: target.element });
+    await activate(target.window);
+    const fresh = await resolveElement(handle, expect);
+    await beforeDispatch(() => fresh.element.focus());
+    await authorize(fresh.window, "dispatch", { element: fresh.element });
+    if (replace) {
+      const selectAll = translateKeyChord("cmd+a", platform)!;
+      await input.chord(selectAll.key, [...selectAll.held]);
+    }
+    await typeInputText(input, text, fresh.window);
+  };
+
+  /**
+   * Runs a keyboard fallback after an accessibility change that reported
+   * success but showed no effect: if the fallback is refused, that change
+   * may still land, so nothing-sent becomes uncertain.
+   */
+  const afterUncertainInput = async (run: () => Promise<void>) => {
+    try {
+      await run();
+    } catch (error) {
+      if (error instanceof Refusal && !error.result.ok && error.result.error.dispatched === "no") {
+        throw new Refusal({ ok: false, error: { ...error.result.error, dispatched: "unknown" } });
+      }
+      throw error;
     }
   };
 
@@ -1171,7 +1311,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "releaseMouse": {
           await Promise.resolve()
-            .then(() => api.inputSim().mouseUp("left"))
+            .then(() => api.releaseMouse())
             .catch(() => undefined);
           return { ok: true, result: null };
         }
@@ -1195,12 +1335,10 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "drag": {
           const { from, to } = request;
-          const input = await prepareCoordinate(request.window, request.expectBounds, [from, to]);
-          return await dispatch(
-            () => input.drag([from.x, from.y], [to.x, to.y]),
-            requireWindow(request.window),
-            { point: from },
-          );
+          await prepareCoordinate(request.window, request.expectBounds, [from, to]);
+          return await dispatch(() => api.pointerDrag(from, to), requireWindow(request.window), {
+            point: from,
+          });
         }
         case "move": {
           const { point } = request;
@@ -1277,10 +1415,29 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           const target = await resolveElement(request.element, request.expect);
           await authorize(target.window, "prepare", { element: target.element });
           const fresh = await resolveElement(request.element, request.expect);
-          return await dispatch(() => fresh.element.setValue(request.value), fresh.window, {
-            element: fresh.element,
-            background: true,
-          });
+          return await dispatch(
+            async () => {
+              await fresh.element.setValue(request.value);
+              if (
+                await textMutationTook(
+                  request.element,
+                  request.expect,
+                  fresh.element,
+                  request.value,
+                )
+              ) {
+                return false;
+              }
+              // Accepted but ignored (web fields in Safari, for one): replace
+              // the field's contents by keyboard instead.
+              await afterUncertainInput(() =>
+                typeIntoElement(fresh, request.element, request.expect, request.value, true),
+              );
+              return true;
+            },
+            fresh.window,
+            { element: fresh.element, background: true },
+          );
         }
         case "typeText": {
           const first = await resolveElement(request.element, request.expect);
@@ -1288,22 +1445,25 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           const target = await resolveElement(request.element, request.expect);
           return await dispatch(
             async () => {
+              let inserted = false;
               try {
                 await target.element.typeText(request.text);
-                return false;
+                inserted = true;
               } catch (error) {
                 if (errorName(error) !== "ActionNotSupportedError") throw error;
               }
-              // No accessible text insertion: bring the window to the front,
-              // focus the element and type, authorized again after that
-              // preparation.
-              const input = requireInput();
-              await authorize(target.window, "prepare", { element: target.element });
-              await activate(target.window);
-              const fresh = await resolveElement(request.element, request.expect);
-              await beforeDispatch(() => fresh.element.focus());
-              await authorize(fresh.window, "dispatch", { element: fresh.element });
-              await typeInputText(input, request.text, fresh.window);
+              if (inserted) {
+                if (await textMutationTook(request.element, request.expect, target.element)) {
+                  return false;
+                }
+                // Accepted but ignored (web fields in Safari, for one).
+                await afterUncertainInput(() =>
+                  typeIntoElement(target, request.element, request.expect, request.text, false),
+                );
+                return true;
+              }
+              // No accessible text insertion.
+              await typeIntoElement(target, request.element, request.expect, request.text, false);
               return true;
             },
             target.window,
