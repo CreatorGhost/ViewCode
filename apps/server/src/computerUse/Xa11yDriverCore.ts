@@ -6,10 +6,21 @@
  *
  * Handles carry a random per-process epoch (`w<epoch>.<n>`), so a handle
  * minted by a worker that has since crashed can never name something in its
- * replacement. Element handles hold no native object: every action resolves
- * a fresh element from the window by the child-index path recorded at
- * observe and checks it is still the same control, because xa11y elements
- * are snapshots whose properties (and bounds) never update.
+ * replacement; it is refused as `stale` with a message saying the driver
+ * restarted, not that the window closed. Element handles hold no native
+ * object: every action resolves a fresh element from the window by the
+ * child-index path recorded at observe and checks it is still the same
+ * control, because xa11y elements are snapshots whose properties (and
+ * bounds) never update.
+ *
+ * Focus: the accessibility actions behind refs (`press` = AXPress,
+ * `setValue` = AXValue, `typeText` = accessible text insertion) act on the
+ * element itself, so they run in the background: they never activate, raise
+ * or focus anything and do not need the window in front. Only their
+ * synthetic fallbacks (an InputSim click or typing after
+ * `ActionNotSupported`) and every other input (`key`, `typeFocused`,
+ * coordinate input, `scroll`) bring the exact target window to the front
+ * and verify it is still there right before the native call.
  *
  * Messages it returns never carry element values, labels or titles: they are
  * fixed strings per failure class, because the server forwards them to the
@@ -69,6 +80,8 @@ export interface Xa11yApi {
 
 /** Env var carrying the per-spawn nonce the worker requires on every request. */
 export const DRIVER_NONCE_ENV = "VIEWCODE_COMPUTER_DRIVER_NONCE";
+/** Env var carrying the epoch the parent chose for this worker, so it can log it. */
+export const DRIVER_EPOCH_ENV = "VIEWCODE_COMPUTER_DRIVER_EPOCH";
 
 export interface DriverCoreOptions {
   readonly platform: NodeJS.Platform;
@@ -168,8 +181,12 @@ const MAX_ELEMENT_HANDLES = 20_000;
 const ELEMENT_AT_TIME_BUDGET_MS = 3_000;
 /** Coordinate input must refer to exactly the geometry in its screenshot. */
 export const BOUNDS_TOLERANCE = 0;
-/** How long activation may take before input is refused. */
-const ACTIVATION_TIMEOUT_MS = 500;
+/**
+ * How long activation may take before input is refused. `open -a` on a busy
+ * or managed Mac can take seconds; the worker timeouts in
+ * `Xa11yComputerDriver.ts` leave room for it.
+ */
+export const ACTIVATION_TIMEOUT_MS = 3_000;
 const ACTIVATION_POLL_MS = 50;
 /**
  * How long a primary display read is reused. Reading it is a full-screen
@@ -318,6 +335,18 @@ export const translateKeyChord = (
       ? last.toUpperCase()
       : NAMED_KEYS[last];
   return key === undefined ? undefined : { key, held };
+};
+
+/** A handle minted by an earlier worker: the window may well still be open. */
+const RESTARTED_MESSAGES = {
+  window: "The computer-use driver restarted; list windows again.",
+  element: "The computer-use driver restarted; observe again.",
+} as const;
+
+/** The epoch part of a `<prefix><epoch>.<n>` handle, or undefined when it has none. */
+const handleEpoch = (handle: string): string | undefined => {
+  const dot = handle.lastIndexOf(".");
+  return dot > 1 ? handle.slice(1, dot) : undefined;
 };
 
 const STATUS_MESSAGES = {
@@ -489,6 +518,14 @@ export const findWindow = (
 const sameBounds = (left: Rect | null, right: Rect | null): boolean =>
   left === null || right === null ? left === right : boundsMatch(left, right);
 
+/** What an input acts on, for the server's check. */
+interface InputTarget {
+  readonly element?: Element;
+  readonly point?: DriverPoint;
+  /** An accessibility action on the element itself: the window need not be in front. */
+  readonly background?: boolean;
+}
+
 interface ElementEntry {
   readonly windowHandle: string;
   /** The observed snapshot, kept for its retained native object. */
@@ -518,7 +555,14 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
 
   const stale = (message: string) => new Refusal(failure("stale", message));
 
+  /** Refuses a handle minted by another worker with the restart message. */
+  const requireOwnEpoch = (handle: string, kind: keyof typeof RESTARTED_MESSAGES) => {
+    const owner = handleEpoch(handle);
+    if (owner !== undefined && owner !== epoch) throw stale(RESTARTED_MESSAGES[kind]);
+  };
+
   const requireWindow = (handle: string): WindowEntry => {
+    requireOwnEpoch(handle, "window");
     const entry = windows.get(handle);
     if (!entry) throw stale("Unknown window; list windows again.");
     return entry;
@@ -603,6 +647,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
    * that keeps answering AXParent for a destroyed object), is acted on.
    */
   const resolveElement = async (handle: string, expect: DriverElementIdentity) => {
+    requireOwnEpoch(handle, "element");
     const entry = elements.get(handle);
     if (!entry) throw stale("Unknown element; observe again.");
     if (expect.role !== entry.role || expect.label !== clipValue(entry.label)) {
@@ -664,16 +709,16 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
    * `prepare` phase before activating, raising or focusing anything, and in
    * the `dispatch` phase immediately before native input (including a
    * fallback that prepared its target again), where the window must also
-   * still be unmoved and in front. Nothing has been sent when it refuses.
+   * still be unmoved and, unless the input is a `background` accessibility
+   * action, in front. Nothing has been sent when it refuses.
    */
   const authorize = async (
     entry: WindowEntry,
     phase: DriverDispatchPhase,
-    element?: Element,
-    point?: DriverPoint,
+    target: InputTarget = {},
   ) => {
     try {
-      await authorizeChecked(entry, phase, element, point);
+      await authorizeChecked(entry, phase, target);
     } catch (error) {
       if (error instanceof Refusal) throw error;
       throw new Refusal({ ok: false, error: classifyXa11yError(error, { afterDispatch: false }) });
@@ -683,8 +728,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   const authorizeChecked = async (
     entry: WindowEntry,
     phase: DriverDispatchPhase,
-    element?: Element,
-    point?: DriverPoint,
+    { element, point, background = false }: InputTarget,
   ) => {
     const expectedBounds = entry.bounds;
     const live = await refreshWindow(entry);
@@ -717,7 +761,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     if (phase === "prepare") return;
     const current = await refreshWindow(entry);
     if (!sameBounds(live.bounds, current.bounds)) throw stale("The window moved before dispatch.");
-    if (!(await isFront(entry, current))) {
+    if (!background && !(await isFront(entry, current))) {
       throw new Refusal(failure("failed", "The target window lost focus before the input."));
     }
   };
@@ -725,10 +769,9 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   const dispatch = async (
     run: () => Promise<void>,
     entry: WindowEntry,
-    element?: Element,
-    point?: DriverPoint,
+    target: InputTarget = {},
   ): Promise<DriverResult> => {
-    await authorize(entry, "dispatch", element, point);
+    await authorize(entry, "dispatch", target);
     try {
       await run();
       return { ok: true, result: null };
@@ -1085,8 +1128,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           return await dispatch(
             () => input.click([point.x, point.y], { button, count }),
             requireWindow(request.window),
-            undefined,
-            point,
+            { point },
           );
         }
         case "drag": {
@@ -1095,8 +1137,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           return await dispatch(
             () => input.drag([from.x, from.y], [to.x, to.y]),
             requireWindow(request.window),
-            undefined,
-            from,
+            { point: from },
           );
         }
         case "move": {
@@ -1105,8 +1146,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           return await dispatch(
             () => input.moveTo([point.x, point.y]),
             requireWindow(request.window),
-            undefined,
-            point,
+            { point },
           );
         }
         case "scrollAt": {
@@ -1115,8 +1155,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           return await dispatch(
             () => input.scroll([point.x, point.y], request.dx, request.dy),
             requireWindow(request.window),
-            undefined,
-            point,
+            { point },
           );
         }
         case "typeFocused": {
@@ -1143,8 +1182,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "press": {
           const first = await resolveElement(request.element, request.expect);
-          await authorize(first.window, "prepare", first.element);
-          await activate(first.window);
+          await authorize(first.window, "prepare", { element: first.element });
           const target = await resolveElement(request.element, request.expect);
           return await dispatch(
             async () => {
@@ -1154,38 +1192,36 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               } catch (error) {
                 if (errorName(error) !== "ActionNotSupportedError") throw error;
               }
-              // No accessible press: click the live element's centre. The
-              // preparation can outlast the policy, so the click is authorized
-              // again, with its window verifiably the active one.
+              // No accessible press: bring the window to the front and click
+              // the live element's centre. The preparation can outlast the
+              // policy, so the click is authorized again, with its window
+              // verifiably the active one.
               const input = requireInput();
-              await authorize(target.window, "prepare", target.element);
+              await authorize(target.window, "prepare", { element: target.element });
               await activate(target.window);
               const fresh = await resolveElement(request.element, request.expect);
               if (!fresh.element.bounds) {
                 throw new Refusal(failure("failed", "The element cannot be pressed."));
               }
-              await authorize(fresh.window, "dispatch", fresh.element);
+              await authorize(fresh.window, "dispatch", { element: fresh.element });
               await input.click(fresh.element);
             },
             target.window,
-            target.element,
+            { element: target.element, background: true },
           );
         }
         case "setValue": {
           const target = await resolveElement(request.element, request.expect);
-          await authorize(target.window, "prepare", target.element);
-          await activate(target.window);
+          await authorize(target.window, "prepare", { element: target.element });
           const fresh = await resolveElement(request.element, request.expect);
-          return await dispatch(
-            () => fresh.element.setValue(request.value),
-            fresh.window,
-            fresh.element,
-          );
+          return await dispatch(() => fresh.element.setValue(request.value), fresh.window, {
+            element: fresh.element,
+            background: true,
+          });
         }
         case "typeText": {
           const first = await resolveElement(request.element, request.expect);
-          await authorize(first.window, "prepare", first.element);
-          await activate(first.window);
+          await authorize(first.window, "prepare", { element: first.element });
           const target = await resolveElement(request.element, request.expect);
           return await dispatch(
             async () => {
@@ -1195,31 +1231,32 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               } catch (error) {
                 if (errorName(error) !== "ActionNotSupportedError") throw error;
               }
-              // No accessible text insertion: focus the element and type,
-              // authorized again after that preparation.
+              // No accessible text insertion: bring the window to the front,
+              // focus the element and type, authorized again after that
+              // preparation.
               const input = requireInput();
-              await authorize(target.window, "prepare", target.element);
+              await authorize(target.window, "prepare", { element: target.element });
               await activate(target.window);
               const fresh = await resolveElement(request.element, request.expect);
               await beforeDispatch(() => fresh.element.focus());
-              await authorize(fresh.window, "dispatch", fresh.element);
+              await authorize(fresh.window, "dispatch", { element: fresh.element });
               await input.typeText(request.text);
             },
             target.window,
-            target.element,
+            { element: target.element, background: true },
           );
         }
         case "scroll": {
           const input = requireInput();
           const first = await resolveElement(request.element, request.expect);
-          await authorize(first.window, "prepare", first.element);
+          await authorize(first.window, "prepare", { element: first.element });
           await activate(first.window);
           const target = await resolveElement(request.element, request.expect);
           await verifyFront(target.window);
           return await dispatch(
             () => input.scroll(target.element, request.dx, request.dy),
             target.window,
-            target.element,
+            { element: target.element },
           );
         }
       }

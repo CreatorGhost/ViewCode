@@ -7,6 +7,7 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Logger from "effect/Logger";
 
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
@@ -32,8 +33,13 @@ it.layer(NodeServices.layer)("ComputerUseShim", (it) => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("leaves an up-to-date launcher alone and swaps a stale one in whole", () =>
-    Effect.gen(function* () {
+  it.effect("leaves an up-to-date launcher alone and swaps a stale one in whole", () => {
+    const written: Array<unknown> = [];
+    const logger = Logger.make<unknown, void>(({ message }) => {
+      const [text, fields] = Array.isArray(message) ? message : [message];
+      if (text === "computer-use shim written") written.push(fields);
+    });
+    return Effect.gen(function* () {
       const stateDir = yield* tempStateDir;
       const shimDir = yield* ensureComputerUseShim({ stateDir });
       const shim = NodePath.join(shimDir, "viewcode-computer");
@@ -41,6 +47,8 @@ it.layer(NodeServices.layer)("ComputerUseShim", (it) => {
       NodeFS.utimesSync(shim, past, past);
       yield* ensureComputerUseShim({ stateDir });
       assert.strictEqual(NodeFS.statSync(shim).mtimeMs, past * 1000);
+      // Logged when written, not on every session spawn.
+      assert.deepStrictEqual(written, [{ dir: shimDir }]);
 
       NodeFS.writeFileSync(shim, "#!/bin/sh\nexit 1\n");
       const staleInode = NodeFS.statSync(shim).ino;
@@ -49,8 +57,9 @@ it.layer(NodeServices.layer)("ComputerUseShim", (it) => {
       assert.notStrictEqual(NodeFS.statSync(shim).ino, staleInode);
       assert.include(NodeFS.readFileSync(shim, "utf8"), "ELECTRON_RUN_AS_NODE=1 exec");
       assert.deepStrictEqual(NodeFS.readdirSync(shimDir), ["viewcode-computer"]);
-    }).pipe(Effect.scoped),
-  );
+      assert.strictEqual(written.length, 2);
+    }).pipe(Effect.scoped, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
 
   // oxlint-disable-next-line t3code/no-global-process-runtime -- the skip decision needs the real host platform; the launcher it runs is a POSIX script.
   it.effect.skipIf(process.platform === "win32")(

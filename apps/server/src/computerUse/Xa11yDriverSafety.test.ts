@@ -3,6 +3,7 @@ import type { ComputerUseError } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  ACTIVATION_TIMEOUT_MS,
   appBundlePath,
   makeDriverCore,
   type DriverRequest,
@@ -109,6 +110,7 @@ const makeCore = (
       phase: DriverDispatchPhase,
     ) => ComputerUseError | undefined;
     readonly clock?: { now: number };
+    readonly sleep?: (ms: number) => Promise<void>;
   } = {},
 ) => {
   const sent: Sent = [];
@@ -160,7 +162,7 @@ const makeCore = (
       calls.primaryDisplay += 1;
       return options.primaryDisplay?.() ?? null;
     },
-    sleep: async () => undefined,
+    sleep: options.sleep ?? (async () => undefined),
     now: () => options.clock?.now ?? 0,
     authorizeInput: async (target, phase) => options.authorize?.(target, phase),
   };
@@ -195,6 +197,52 @@ describe("handles never outlive their worker", () => {
       staleNo,
     );
     expect(after.sent).toEqual([]);
+  });
+
+  // The server forwards this message; "the window closed" would be a lie.
+  it("says the driver restarted for handles minted by an earlier worker", async () => {
+    const app: FakeApp = {
+      name: "Mail",
+      pid: 7,
+      windows: [window("Inbox", { children: [{ role: "button", name: "Archive" }] })],
+    };
+    const before = makeCore([app], { epoch: "old" });
+    const [inbox] = await before.list();
+    const [archive] = await before.observe(inbox!.handle);
+
+    const after = makeCore([app], { epoch: "new" });
+    const [current] = await after.list();
+    expect(await after.call({ op: "observe", window: inbox!.handle, maxElements: 5 })).toEqual({
+      ok: false,
+      error: {
+        kind: "stale",
+        message: "The computer-use driver restarted; list windows again.",
+        dispatched: "no",
+      },
+    });
+    expect(
+      await after.call({
+        op: "press",
+        element: archive!.handle,
+        expect: { role: "button", label: "Archive" },
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        kind: "stale",
+        message: "The computer-use driver restarted; observe again.",
+        dispatched: "no",
+      },
+    });
+    expect(after.sent).toEqual([]);
+    // A handle this worker minted and forgot is still just unknown.
+    await after.observe(current!.handle);
+    app.windows = [];
+    await after.list();
+    expect(await after.call({ op: "key", window: current!.handle, keys: "enter" })).toMatchObject({
+      ok: false,
+      error: { kind: "stale", message: "Unknown window; list windows again." },
+    });
   });
 });
 
@@ -477,39 +525,147 @@ describe("Native target audit regressions", () => {
   });
 });
 
-it("accessible type brings its target app to the front", async () => {
-  const app: FakeApp = {
-    name: "TextEdit",
-    pid: 10,
-    windows: [
-      window("Notes", {
-        active: false,
-        focused: false,
-        children: [{ role: "text field", name: "Body" }],
-      }),
-    ],
+describe("accessibility actions run in the background", () => {
+  const field = { role: "text field", label: "Body" };
+  /** A background TextEdit window while another app (99, e.g. ViewCode) is in front. */
+  const background = (extra: Partial<Spec> = {}) => {
+    const app: FakeApp = {
+      name: "TextEdit",
+      pid: 10,
+      windows: [
+        window("Notes", {
+          active: false,
+          focused: false,
+          children: [{ role: "text field", name: "Body", ...extra }],
+        }),
+      ],
+    };
+    const phases: string[] = [];
+    const options = {
+      foreground: 99 as number | null,
+      activate: (pid: number) => {
+        options.foreground = pid;
+        app.windows[0]!.active = true;
+        app.windows[0]!.focused = true;
+      },
+      authorize: (_target: DriverDispatchTarget, phase: DriverDispatchPhase) =>
+        void phases.push(phase),
+    };
+    return { app, options, phases, core: makeCore([app], options) };
   };
-  const options = {
-    foreground: 99,
-    activate: (_pid: number) => {
-      options.foreground = 10;
-      app.windows[0]!.active = true;
-      app.windows[0]!.focused = true;
-    },
+
+  const requests: Array<(element: string) => DriverRequest> = [
+    (element) => ({ op: "press", element, expect: field }),
+    (element) => ({ op: "setValue", element, expect: field, value: "v" }),
+    (element) => ({ op: "typeText", element, expect: field, text: "t" }),
+  ];
+
+  for (const request of requests) {
+    const op = request("e").op;
+    it(`${op} acts without taking focus or needing the front`, async () => {
+      const { app, options, phases, core } = background();
+      const [win] = await core.list();
+      const [ref] = await core.observe(win!.handle);
+      expect(await core.call(request(ref!.handle))).toEqual(ok);
+      expect(core.calls.activate).toBe(0);
+      expect(options.foreground).toBe(99);
+      expect(app.windows[0]!.active).toBe(false);
+      expect(phases).toEqual(["prepare", "dispatch"]);
+      expect(core.sent).toHaveLength(1);
+    });
+  }
+
+  it("still refuses a background element that changed", async () => {
+    const { app, core } = background();
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    app.windows[0]!.children = [{ role: "text field", name: "Password" }];
+    expect(
+      await core.call({ op: "typeText", element: ref!.handle, expect: field, text: "t" }),
+    ).toMatchObject(staleNo);
+    expect(core.sent).toEqual([]);
+  });
+
+  it("brings the window to the front only for the synthetic fallbacks", async () => {
+    const press = background({
+      pressUnsupported: true,
+      bounds: { x: 1, y: 2, width: 3, height: 4 },
+    });
+    const [pressWin] = await press.core.list();
+    const [pressRef] = await press.core.observe(pressWin!.handle);
+    expect(
+      await press.core.call({ op: "press", element: pressRef!.handle, expect: field }),
+    ).toEqual(ok);
+    expect(press.core.calls.activate).toBe(1);
+    expect(press.phases).toEqual(["prepare", "dispatch", "prepare", "dispatch"]);
+    expect(press.core.sent).toEqual([["click", { x: 1, y: 2, width: 3, height: 4 }]]);
+
+    const type = background({ typeUnsupported: true });
+    const [typeWin] = await type.core.list();
+    const [typeRef] = await type.core.observe(typeWin!.handle);
+    expect(
+      await type.core.call({ op: "typeText", element: typeRef!.handle, expect: field, text: "t" }),
+    ).toEqual(ok);
+    expect(type.core.calls.activate).toBe(1);
+    expect(type.core.sent).toEqual([["typeText", "t"]]);
+  });
+
+  it("refuses a fallback whose window cannot be brought to the front", async () => {
+    const { options, core } = background({ typeUnsupported: true });
+    options.activate = () => undefined; // something keeps the front
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    expect(
+      await core.call({ op: "typeText", element: ref!.handle, expect: field, text: "t" }),
+    ).toMatchObject(refusedNo);
+    expect(core.sent).toEqual([]);
+  });
+});
+
+describe("activation budget", () => {
+  /** A window whose app reaches the front once `delayMs` of injected sleep has passed. */
+  const slowToActivate = (delayMs: number) => {
+    const app: FakeApp = {
+      name: "Notes",
+      pid: 5,
+      windows: [window("Note", { active: false, focused: false })],
+    };
+    let slept = 0;
+    const options = {
+      foreground: 99 as number | null,
+      sleep: async (ms: number) => {
+        slept += ms;
+        if (slept >= delayMs) {
+          options.foreground = 5;
+          app.windows[0]!.active = true;
+        }
+      },
+    };
+    return { core: makeCore([app], options), slept: () => slept };
   };
-  const core = makeCore([app], options);
-  const [win] = await core.list();
-  const [ref] = await core.observe(win!.handle);
-  expect(
-    await core.call({
-      op: "typeText",
-      element: ref!.handle,
-      expect: { role: "text field", label: "Body" },
-      text: "audit",
-    }),
-  ).toEqual(ok);
-  expect(core.calls.activate).toBe(1);
-  expect(core.sent).toEqual([["AXtype", "Body", "audit"]]);
+
+  it("waits for a slow activation, such as `open -a` on a busy Mac", async () => {
+    const { core, slept } = slowToActivate(2_000);
+    const [note] = await core.list();
+    expect(await core.call({ op: "key", window: note!.handle, keys: "enter" })).toEqual(ok);
+    expect(slept()).toBe(2_000);
+    expect(core.sent).toEqual([["key", "Enter"]]);
+  });
+
+  it("still refuses once the budget is spent", async () => {
+    const { core, slept } = slowToActivate(Number.POSITIVE_INFINITY);
+    const [note] = await core.list();
+    expect(await core.call({ op: "key", window: note!.handle, keys: "enter" })).toEqual({
+      ok: false,
+      error: {
+        kind: "failed",
+        message: "Could not bring the target window to the front.",
+        dispatched: "no",
+      },
+    });
+    expect(slept()).toBe(ACTIVATION_TIMEOUT_MS);
+    expect(core.sent).toEqual([]);
+  });
 });
 
 it("refuses screenshots when the main display cannot be resolved", async () => {

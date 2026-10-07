@@ -7,6 +7,7 @@ import * as NodePath from "node:path";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Logger from "effect/Logger";
 import { afterAll } from "vite-plus/test";
 
 import {
@@ -293,6 +294,57 @@ describe("Xa11yComputerDriver", () => {
       }),
     ).pipe(allowAll),
   );
+
+  it.effect("logs worker lifecycle and timeouts without request contents", () => {
+    const entries: Array<{ readonly text: unknown; readonly fields: Record<string, unknown> }> = [];
+    const logger = Logger.make<unknown, void>(({ message, logLevel }) => {
+      const [text, fields] = Array.isArray(message) ? message : [message];
+      if (logLevel === "Info") entries.push({ text, fields: fields ?? {} });
+    });
+    const stops = () =>
+      entries.filter((entry) => entry.text === "computer-use driver stopped").map((e) => e.fields);
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const driver = yield* makeDriver();
+        yield* driver.setValue("e1", { role: "text field", label: "Account" }, "secret-value");
+        const [started] = entries;
+        assert.strictEqual(started?.text, "computer-use driver started");
+        assert.strictEqual(typeof started?.fields.pid, "number");
+        assert.match(String(started?.fields.epoch), /^[0-9a-f]{8}$/);
+
+        yield* Effect.flip(driver.key("w1", "cmd+q"));
+        assert.deepStrictEqual(
+          entries.find((entry) => entry.text === "computer-use driver call timed out")?.fields,
+          { op: "key", timeoutMs: 300 },
+        );
+        yield* Effect.flip(driver.press("e1", identity));
+        yield* Effect.flip(driver.observe("w1", { maxElements: 10 }));
+        assert.deepStrictEqual(
+          stops().map(({ reason, code }) => [reason, code]),
+          [
+            ["timeout", undefined],
+            ["crash", 3],
+            ["malformed", undefined],
+          ],
+        );
+        assert.deepStrictEqual(
+          stops().map(({ epoch }) => typeof epoch),
+          ["string", "string", "string"],
+        );
+
+        const recycling = yield* makeDriver({ recycleAfter: 1 });
+        yield* recycling.status();
+        assert.strictEqual(stops().at(-1)?.reason, "recycle");
+
+        const text = entries
+          .flatMap((entry) => [String(entry.text), ...Object.values(entry.fields).map(String)])
+          .join("\n");
+        for (const secret of ["secret-value", "Account", "cmd+q", "OK"]) {
+          assert.notInclude(text, secret);
+        }
+      }),
+    ).pipe(allowAll, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
 
   it.effect("refuses on Windows without starting a worker", () =>
     Effect.scoped(

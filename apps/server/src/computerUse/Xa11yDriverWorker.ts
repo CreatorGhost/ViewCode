@@ -24,6 +24,7 @@ import type { ComputerUseError } from "@t3tools/contracts";
 
 import {
   appBundlePath,
+  DRIVER_EPOCH_ENV,
   DRIVER_NONCE_ENV,
   makeDriverCore,
   type DriverRequest,
@@ -123,6 +124,7 @@ const unavailable =
 
 const loadHandler = (
   authorizeInput: Xa11yApi["authorizeInput"],
+  epoch: string,
 ): ((request: DriverRequest) => Promise<DriverResult> | DriverResult) => {
   if (!SUPPORTED_PLATFORMS.has(PLATFORM)) {
     return unavailable(
@@ -139,13 +141,8 @@ const loadHandler = (
   }
   // App lookups would otherwise poll for 5 s on a miss.
   xa11y.setDefaultTimeout(0);
-  return makeDriverCore(
-    { ...makeXa11yApi(xa11y), authorizeInput },
-    {
-      platform: PLATFORM,
-      epoch: NodeCrypto.randomBytes(4).toString("hex"),
-    },
-  ).handle;
+  return makeDriverCore({ ...makeXa11yApi(xa11y), authorizeInput }, { platform: PLATFORM, epoch })
+    .handle;
 };
 
 /** Answers one request at a time over the fork IPC channel until the parent disconnects. */
@@ -154,6 +151,13 @@ export const runComputerUseDriverWorker = (): Promise<void> =>
     const send = process.send?.bind(process);
     const nonce = process.env[DRIVER_NONCE_ENV] ?? "";
     delete process.env[DRIVER_NONCE_ENV];
+    // The parent's choice, so its logs name this worker's handles; it is
+    // part of every handle, so anything but plain hex gets a fresh one.
+    const parentEpoch = process.env[DRIVER_EPOCH_ENV] ?? "";
+    delete process.env[DRIVER_EPOCH_ENV];
+    const epoch = /^[0-9a-f]{8,32}$/.test(parentEpoch)
+      ? parentEpoch
+      : NodeCrypto.randomBytes(4).toString("hex");
     if (!send || nonce.length < 32) {
       process.stderr.write("computer-use-driver is started by the ViewCode server only.\n");
       process.exitCode = 2;
@@ -183,6 +187,7 @@ export const runComputerUseDriverWorker = (): Promise<void> =>
               authorize = complete;
               send({ id: activeId, authorize: target, phase });
             }),
+          epoch,
         );
         let reply: DriverResult;
         try {

@@ -30,17 +30,18 @@ const shQuote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 /**
  * Sessions spawn concurrently and each ensures the shim: rewrite only when
  * the content differs, and swap it in by rename so no session ever runs a
- * half-written launcher.
+ * half-written launcher. Returns whether it wrote.
  */
 const writeIfChanged = Effect.fnUntraced(function* (target: string, content: string) {
   const fs = yield* FileSystem.FileSystem;
   const current = yield* fs.readFileString(target).pipe(Effect.orElseSucceed(() => undefined));
-  if (current === content) return;
+  if (current === content) return false;
   const now = yield* Clock.currentTimeMillis;
   const temporary = `${target}.${process.pid}.${now.toString(36)}.tmp`;
   yield* fs.writeFileString(temporary, content);
   yield* fs.chmod(temporary, 0o755);
   yield* fs.rename(temporary, target);
+  return true;
 });
 
 export const ensureComputerUseShim = Effect.fn("ComputerUseShim.ensure")(function* (input: {
@@ -68,16 +69,18 @@ export const ensureComputerUseShim = Effect.fn("ComputerUseShim.ensure")(functio
 
   // Git Bash and other POSIX shells on Windows cannot run a `.cmd` by bare
   // name, so Windows gets both launchers, as npm's cmd-shim does.
+  let written = false;
   if (platform === "win32") {
     const quoted = [executable, ...args].map((value) => (value === "--" ? value : `"${value}"`));
-    yield* writeIfChanged(
+    written = yield* writeIfChanged(
       path.join(shimDir, `${COMPUTER_CLI_NAME}.cmd`),
       `@echo off\r\nsetlocal\r\nset ELECTRON_RUN_AS_NODE=1\r\n${quoted.join(" ")} %*\r\n`,
     );
   }
-  yield* writeIfChanged(
+  const posixWritten = yield* writeIfChanged(
     path.join(shimDir, COMPUTER_CLI_NAME),
     `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${[executable, ...args].map(shQuote).join(" ")} "$@"\n`,
   );
+  if (written || posixWritten) yield* Effect.logInfo("computer-use shim written", { dir: shimDir });
   return shimDir;
 });

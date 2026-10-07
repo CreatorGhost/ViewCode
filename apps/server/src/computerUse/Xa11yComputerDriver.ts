@@ -24,9 +24,13 @@
  * stays held until it returns.
  *
  * The worker is recycled after `recycleAfter` requests (xa11y's macOS
- * element cache never shrinks); old handles then read as stale. If a worker
- * died during a click or drag, its replacement first releases the left
- * mouse button, which may still be held.
+ * element cache never shrinks); old handles then read as stale, with a
+ * message saying the driver restarted (each worker gets a fresh epoch). If a
+ * worker died during a click or drag, its replacement first releases the
+ * left mouse button, which may still be held.
+ *
+ * Worker starts, stops (with the reason) and per-op timeouts are logged at
+ * INFO with pids, epochs, op names and timeouts only, never request contents.
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
@@ -48,7 +52,13 @@ import {
   type ComputerDriverShape,
   type DriverStatus,
 } from "./ComputerDriver.ts";
-import { DRIVER_NONCE_ENV, type DriverOp, type DriverRequest } from "./Xa11yDriverCore.ts";
+import {
+  ACTIVATION_TIMEOUT_MS,
+  DRIVER_EPOCH_ENV,
+  DRIVER_NONCE_ENV,
+  type DriverOp,
+  type DriverRequest,
+} from "./Xa11yDriverCore.ts";
 
 export interface DriverWorkerLaunch {
   readonly command: string;
@@ -69,6 +79,16 @@ const DEFAULT_RECYCLE_AFTER = 500;
 /** Ops that press a mouse button and could leave it held if the worker dies mid-call. */
 const MOUSE_BUTTON_OPS: ReadonlySet<DriverOp> = new Set(["click", "drag"]);
 
+/**
+ * Input may resolve its element, activate the window (up to
+ * `ACTIVATION_TIMEOUT_MS`), name a coordinate target (a walk of up to 3 s)
+ * and, for an accessibility action the app does not support, activate again
+ * for the fallback, all before the input itself.
+ */
+const INPUT_TIMEOUT_MS = 2 * ACTIVATION_TIMEOUT_MS + 14_000;
+/** Typing long text adds its own time on top. */
+const TYPING_TIMEOUT_MS = INPUT_TIMEOUT_MS + 10_000;
+
 const DEFAULT_TIMEOUTS: Record<DriverOp, number> = {
   status: 10_000,
   releaseMouse: 5_000,
@@ -76,16 +96,16 @@ const DEFAULT_TIMEOUTS: Record<DriverOp, number> = {
   observe: 15_000,
   screenshot: 30_000,
   elementAt: 8_000,
-  press: 10_000,
-  setValue: 10_000,
-  typeText: 20_000,
-  key: 10_000,
-  scroll: 10_000,
-  click: 10_000,
-  drag: 10_000,
-  move: 10_000,
-  scrollAt: 10_000,
-  typeFocused: 20_000,
+  press: INPUT_TIMEOUT_MS,
+  setValue: INPUT_TIMEOUT_MS,
+  typeText: TYPING_TIMEOUT_MS,
+  key: INPUT_TIMEOUT_MS,
+  scroll: INPUT_TIMEOUT_MS,
+  click: INPUT_TIMEOUT_MS,
+  drag: INPUT_TIMEOUT_MS,
+  move: INPUT_TIMEOUT_MS,
+  scrollAt: INPUT_TIMEOUT_MS,
+  typeFocused: TYPING_TIMEOUT_MS,
 };
 
 const INPUT_OPS: ReadonlySet<DriverOp> = new Set([
@@ -210,8 +230,14 @@ const CANCELLED_BEFORE_DISPATCH: ComputerUseError = {
 const isReplyTo = (message: unknown, id: number): boolean =>
   typeof message === "object" && message !== null && "id" in message && message.id === id;
 
+/** Why a worker went away; `crash` is any exit or channel loss we did not cause. */
+type StopReason = "timeout" | "crash" | "recycle" | "malformed";
+
+/** Lifecycle lines; fields carry pids, epochs, ops and numbers only. */
+type WorkerLog = (message: string, fields: Record<string, unknown>) => void;
+
 /** Plain child-process client; the Effect surface wraps it below. */
-const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
+const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) => {
   let child: NodeChildProcess.ChildProcess | undefined;
   let nonce = "";
   let served = 0;
@@ -221,35 +247,59 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
   let queue: Promise<unknown> = Promise.resolve();
   let closed = false;
 
-  const discard = (worker: NodeChildProcess.ChildProcess) => {
+  const workerEpochs = new WeakMap<NodeChildProcess.ChildProcess, string>();
+
+  /**
+   * Kills a worker and stops listening to it, so it is reported once. A
+   * `reason` logs the stop; shutdown and failed spawns pass none.
+   */
+  const discard = (
+    worker: NodeChildProcess.ChildProcess,
+    reason?: StopReason,
+    exit?: { readonly code: number | null; readonly signal: NodeJS.Signals | null },
+  ) => {
     if (child === worker) child = undefined;
     worker.removeAllListeners();
     worker.on("error", () => undefined);
     worker.kill("SIGKILL");
+    if (reason) {
+      log("computer-use driver stopped", {
+        pid: worker.pid,
+        epoch: workerEpochs.get(worker),
+        reason,
+        ...(exit ? { code: exit.code, signal: exit.signal } : {}),
+      });
+    }
   };
 
   const start = (): NodeChildProcess.ChildProcess | undefined => {
     const launch = options.launch();
     nonce = NodeCrypto.randomBytes(32).toString("hex");
+    const epoch = NodeCrypto.randomBytes(4).toString("hex");
     served = 0;
     let worker: NodeChildProcess.ChildProcess;
     try {
       worker = NodeChildProcess.spawn(launch.command, [...launch.args], {
-        env: { ...launch.env, [DRIVER_NONCE_ENV]: nonce },
+        env: { ...launch.env, [DRIVER_NONCE_ENV]: nonce, [DRIVER_EPOCH_ENV]: epoch },
         stdio: ["ignore", "ignore", "inherit", "ipc"],
         windowsHide: true,
       });
     } catch {
+      log("computer-use driver could not start", {});
       return undefined;
     }
+    workerEpochs.set(worker, epoch);
+    // `pid` is unset only when the spawn itself failed.
+    if (worker.pid === undefined) log("computer-use driver could not start", {});
+    else log("computer-use driver started", { pid: worker.pid, epoch });
     worker.on("message", (message) => settlePending?.({ type: "reply", message }));
     worker.once("error", () => {
-      if (child === worker) child = undefined;
-      // `pid` is unset only when the spawn itself failed.
-      settlePending?.(worker.pid === undefined ? { type: "not-sent" } : { type: "exited" });
+      const spawned = worker.pid !== undefined;
+      discard(worker, spawned ? "crash" : undefined);
+      settlePending?.(spawned ? { type: "exited" } : { type: "not-sent" });
     });
-    worker.once("exit", () => {
-      if (child === worker) child = undefined;
+    worker.once("exit", (code, signal) => {
+      discard(worker, "crash", { code, signal });
       settlePending?.({ type: "exited" });
     });
     return worker;
@@ -271,14 +321,16 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
       child ??= start();
       const worker = child;
       if (!worker?.connected) {
-        if (worker) discard(worker);
+        if (worker) discard(worker, worker.pid === undefined ? undefined : "crash");
         return resolve({ type: "not-sent" });
       }
       const id = nextId++;
+      const timeoutMs = options.timeouts?.[request.op] ?? DEFAULT_TIMEOUTS[request.op];
       const timeout = setTimeout(() => {
-        discard(worker);
+        log("computer-use driver call timed out", { op: request.op, timeoutMs });
+        discard(worker, "timeout");
         settle({ type: "timeout" });
-      }, options.timeouts?.[request.op] ?? DEFAULT_TIMEOUTS[request.op]);
+      }, timeoutMs);
       const settle = (outcome: WorkerOutcome) => {
         if (settlePending !== settle) return;
         releaseHeld();
@@ -314,14 +366,14 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
                 { id, nonce, decision: decision.allowed ? null : decision.error },
                 (error) => {
                   if (error) {
-                    discard(worker);
+                    discard(worker, "crash");
                     settle({ type: "exited" });
                   }
                 },
               );
             },
             () => {
-              discard(worker);
+              discard(worker, "crash");
               settle({ type: "exited" });
             },
           );
@@ -332,7 +384,7 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
         // A reply that does not answer this request means the channel is out
         // of step: answer malformed and start over rather than misattribute.
         if (outcome.type === "reply" && !isReplyTo(outcome.message, id)) {
-          discard(worker);
+          discard(worker, "malformed");
           resolve({ type: "reply", message: undefined });
           return;
         }
@@ -340,19 +392,19 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
           releaseMouse = true;
         }
         served += 1;
-        if (served >= (options.recycleAfter ?? DEFAULT_RECYCLE_AFTER)) discard(worker);
+        if (served >= (options.recycleAfter ?? DEFAULT_RECYCLE_AFTER)) discard(worker, "recycle");
         resolve(outcome);
       };
       settlePending = settle;
       try {
         worker.send({ id, nonce, request }, (error) => {
           if (error) {
-            discard(worker);
+            discard(worker, "crash");
             settle({ type: "not-sent" });
           }
         });
       } catch {
-        discard(worker);
+        discard(worker, "crash");
         settle({ type: "not-sent" });
       }
     });
@@ -388,7 +440,10 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
 export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
   options: Xa11yComputerDriverOptions,
 ) {
-  const client = makeWorkerClient(options);
+  const logContext = yield* Effect.context();
+  const client = makeWorkerClient(options, (message, fields) =>
+    Effect.runSyncWith(logContext)(Effect.logInfo(message, fields)),
+  );
   yield* Effect.addFinalizer(() => Effect.sync(client.close));
 
   const call = Effect.fnUntraced(function* <T>(
@@ -450,6 +505,9 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
       );
     }
     const decoded = yield* Schema.decodeUnknownEffect(reply)(outcome.message).pipe(
+      Effect.tapError(() =>
+        Effect.logInfo("computer-use driver answered with an invalid reply", { op: request.op }),
+      ),
       Effect.mapError(
         () =>
           new ComputerDriverError({

@@ -596,7 +596,17 @@ positive dy scrolls content down. --text - and --value - read stdin (one
 trailing newline dropped). Keys: modifiers cmd ctrl alt option shift meta
 super, then one key: a-z 0-9 f1-f24 enter return tab escape space backspace
 delete up down left right home end pageup pagedown. cmd is Command on macOS
-and Ctrl elsewhere. Input commands bring the window to the front first.
+and Ctrl elsewhere.
+
+FOCUS
+  press, set-value and type --ref act in the background and do not take
+  focus from the user: prefer them. (A control with no accessible press or
+  text input gets a click or typing in front instead.) list-windows, observe
+  and screenshot never take focus. key, type --window, scroll --ref and
+  everything at --shot coordinates bring the window to the front and take
+  focus from the user: use them only when refs cannot do the job, and batch
+  them. Never use keyboard shortcuts (e.g. cmd+t) to navigate an app when a
+  ref can do it.
 
 THE LOOP
   1. list-windows to find the window id.
