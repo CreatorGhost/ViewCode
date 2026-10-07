@@ -170,6 +170,7 @@ const PROTECTED_APP_NAMES: ReadonlySet<string> = new Set([
   "1password",
   "1password 7",
   "1password 8",
+  "nordpass",
   "bitwarden",
   "lastpass",
   "dashlane",
@@ -195,6 +196,7 @@ const VIEWCODE_APP_NAMES: ReadonlySet<string> = new Set(["viewcode", "t3 code", 
 /** Executable file names (normalized, without extension) that mark an app. */
 const PROTECTED_EXECUTABLES: ReadonlySet<string> = new Set([
   "1password",
+  "nordpass",
   "bitwarden",
   "lastpass",
   "dashlane",
@@ -423,6 +425,8 @@ export function driverErrorToComputerUseError(
 ): ComputerUseError {
   const effect = options.input ? effectOf(error.dispatched) : undefined;
   switch (error.kind) {
+    case "policy":
+      return computerUseError(error.code ?? "CU-CON-004", error.message, effect);
     case "unavailable":
       return computerUseError("CU-EXT-001", error.message, effect);
     case "permission-accessibility":

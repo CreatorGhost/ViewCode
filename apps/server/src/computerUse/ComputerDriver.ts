@@ -20,9 +20,21 @@
  */
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
 
-import type { ComputerUseRect } from "@t3tools/contracts";
+import type { ComputerUseError, ComputerUseErrorCode, ComputerUseRect } from "@t3tools/contracts";
+
+export interface DriverDispatchTarget {
+  readonly window: DriverWindow;
+  readonly element?: DriverElementIdentity;
+}
+
+/** The server rechecks policy when the worker is ready to send native input. */
+export const ComputerDriverDispatchCheck = Context.Reference<
+  (target: DriverDispatchTarget) => Effect.Effect<ComputerUseError | undefined>
+>("t3/computerUse/ComputerDriverDispatchCheck", {
+  defaultValue: () => () => Effect.undefined,
+});
 
 export interface DriverWindow {
   readonly handle: string;
@@ -62,6 +74,7 @@ export interface DriverStatus {
 }
 
 export type DriverErrorKind =
+  | "policy"
   /** Platform unsupported, native module missing, or the worker would not start. */
   | "unavailable"
   /** Accessibility not granted to the process the driver runs as. */
@@ -85,6 +98,7 @@ export class ComputerDriverError extends Data.TaggedError("ComputerDriverError")
    * when the driver died or timed out after dispatching.
    */
   readonly dispatched: "no" | "yes" | "unknown";
+  readonly code?: ComputerUseErrorCode;
 }> {}
 
 export interface ComputerDriverShape {

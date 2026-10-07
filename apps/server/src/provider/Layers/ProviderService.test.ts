@@ -5193,6 +5193,7 @@ describe("agent browser access", () => {
           options?.computerUse
             ? Layer.mock(ComputerUseService)({
                 attachRuntimeEventPublisher: () => Effect.void,
+                trackProviderApproval: () => Effect.void,
                 releaseThread: () => Effect.void,
                 releaseAll: Effect.void,
               })
@@ -5360,6 +5361,7 @@ describe("computer-use approvals", () => {
               answered.push(requestId);
               return answer;
             }),
+          trackProviderApproval: () => Effect.void,
           releaseAll: Effect.void,
         }),
       ),

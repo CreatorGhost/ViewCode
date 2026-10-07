@@ -20,6 +20,8 @@
  */
 import type { App, Element, InputSim, Rect, Screenshot } from "@crowecawcaw/xa11y";
 
+import type { ComputerUseError, ComputerUseErrorCode } from "@t3tools/contracts";
+
 import type {
   DriverElement,
   DriverElementIdentity,
@@ -27,6 +29,7 @@ import type {
   DriverPoint,
   DriverStatus,
   DriverWindow,
+  DriverDispatchTarget,
 } from "./ComputerDriver.ts";
 import { downscaleRgba, encodePng, fitWithin } from "./ScreenshotImage.ts";
 
@@ -34,6 +37,8 @@ export interface Xa11yApi {
   readonly listApps: () => Promise<ReadonlyArray<App>>;
   /** Fresh snapshots of one app's top-level children, to re-read a window's bounds. */
   readonly appWindows: (pid: number) => Promise<ReadonlyArray<Element>>;
+  /** Checks the retained native object, before matching a fresh snapshot by title or AXIdentifier. */
+  readonly windowIsAlive: (window: Element) => Promise<boolean>;
   /** Pid of the foreground application, or null when the platform cannot say. */
   readonly foregroundPid: () => Promise<number | null>;
   readonly inputSim: () => InputSim;
@@ -46,9 +51,10 @@ export interface Xa11yApi {
    * an app, so on macOS this has to activate the app itself.
    */
   readonly activateApp: (pid: number) => Promise<void>;
-  /** Logical rect of the primary display, or null when unknown. Costly; the core caches it. */
+  /** Logical rect of the primary display, or null when unknown. Re-read before each capture. */
   readonly primaryDisplay: () => Promise<Rect | null>;
   readonly sleep: (ms: number) => Promise<void>;
+  readonly authorizeInput?: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>;
 }
 
 /** Env var carrying the per-spawn nonce the worker requires on every request. */
@@ -131,6 +137,7 @@ export interface DriverFailure {
   readonly kind: DriverErrorKind;
   readonly message: string;
   readonly dispatched: "no" | "yes" | "unknown";
+  readonly code?: ComputerUseErrorCode;
 }
 
 export type DriverResult =
@@ -149,8 +156,8 @@ const OBSERVE_TIME_BUDGET_MS = 8_000;
 const MAX_ELEMENT_HANDLES = 20_000;
 /** `elementAt` only names the target for an approval; it must stay quick. */
 const ELEMENT_AT_TIME_BUDGET_MS = 3_000;
-/** Points a window may drift between screenshot and action and still be the same layout. */
-export const BOUNDS_TOLERANCE = 2;
+/** Coordinate input must refer to exactly the geometry in its screenshot. */
+export const BOUNDS_TOLERANCE = 0;
 /** How long activation may take before input is refused. */
 const ACTIVATION_TIMEOUT_MS = 500;
 const ACTIVATION_POLL_MS = 50;
@@ -203,10 +210,10 @@ const containsPoint = (rect: Rect, point: DriverPoint): boolean =>
   point.y <= rect.y + rect.height;
 
 const rectInside = (outer: Rect, inner: Rect): boolean =>
-  inner.x >= outer.x - 1 &&
-  inner.y >= outer.y - 1 &&
-  inner.x + inner.width <= outer.x + outer.width + 1 &&
-  inner.y + inner.height <= outer.y + outer.height + 1;
+  inner.x >= outer.x &&
+  inner.y >= outer.y &&
+  inner.x + inner.width <= outer.x + outer.width &&
+  inner.y + inner.height <= outer.y + outer.height;
 
 /**
  * The `.app` bundle that owns a macOS executable path, for `open -a`:
@@ -372,8 +379,11 @@ export const classifyXa11yError = (
 };
 
 interface WindowEntry {
+  readonly handle: string;
   element: Element;
   readonly pid: number;
+  readonly app: string;
+  readonly appIdentifier?: string;
   /** How listings recognise this window again; see `keyedWindows`. */
   key: string;
   /** Recognised by a native id; such a window is never matched any other way. */
@@ -472,6 +482,8 @@ interface ElementEntry {
   readonly label: string;
   /** Window bounds at observe: a moved window invalidates its refs. */
   readonly windowBounds: Rect | null;
+  readonly bounds: Rect | null;
+  readonly stableId: string | null;
 }
 
 export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
@@ -479,7 +491,6 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   let nextHandle = 1;
   const windows = new Map<string, WindowEntry>();
   const elements = new Map<string, ElementEntry>();
-  let primaryDisplay: Rect | null | undefined;
 
   const mint = (prefix: string) => `${prefix}${epoch}.${nextHandle++}`;
 
@@ -507,6 +518,9 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
 
   /** A fresh snapshot of the window (live bounds and state), or a `stale` refusal. */
   const refreshWindow = async (entry: WindowEntry): Promise<Element> => {
+    if (!(await api.windowIsAlive(entry.element).catch(() => false))) {
+      throw stale("The original window has closed.");
+    }
     let children: ReadonlyArray<Element>;
     try {
       children = await api.appWindows(entry.pid);
@@ -589,7 +603,9 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     }
     if (
       current.role !== entry.role ||
-      elementLabel(current.name, current.description) !== entry.label
+      elementLabel(current.name, current.description) !== entry.label ||
+      !sameBounds(entry.bounds, current.bounds) ||
+      current.stableId !== entry.stableId
     ) {
       throw stale("The element changed since it was observed.");
     }
@@ -614,8 +630,45 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     }
   };
 
-  const dispatch = async (run: () => Promise<void>): Promise<DriverResult> => {
+  const dispatch = async (
+    run: () => Promise<void>,
+    entry: WindowEntry,
+    element?: Element,
+    point?: DriverPoint,
+  ): Promise<DriverResult> => {
     try {
+      const expectedBounds = entry.bounds;
+      const live = await refreshWindow(entry);
+      if (!sameBounds(expectedBounds, live.bounds))
+        throw stale("The window moved before dispatch.");
+      const path = (await api.executablePaths([entry.pid])).get(entry.pid) ?? entry.appIdentifier;
+      const identity = element
+        ? { role: element.role, label: elementLabel(element.name, element.description) }
+        : point
+          ? await elementAtHandle(entry, point, false)
+          : undefined;
+      const refusal = await api.authorizeInput?.({
+        window: {
+          handle: entry.handle,
+          app: entry.app,
+          pid: entry.pid,
+          title: live.name ?? "",
+          focused: live.active,
+          ...(path ? { appIdentifier: path } : {}),
+        },
+        ...(identity ? { element: identity } : {}),
+      });
+      if (refusal)
+        return {
+          ok: false,
+          error: { kind: "policy", code: refusal.code, message: refusal.message, dispatched: "no" },
+        };
+      const current = await refreshWindow(entry);
+      if (!sameBounds(live.bounds, current.bounds))
+        throw stale("The window moved before dispatch.");
+      if (!(await isFront(entry, current))) {
+        throw new Refusal(failure("failed", "The target window lost focus before the input."));
+      }
       await run();
       return { ok: true, result: null };
     } catch (error) {
@@ -662,6 +715,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       const claimed = new Map<Element, string>();
       for (const [handle, entry] of windows) {
         if (entry.pid !== pid || kept.has(handle)) continue;
+        if (!(await api.windowIsAlive(entry.element).catch(() => false))) continue;
         const found = findWindow(entry, keyed);
         if (!found || claimed.has(found.window)) continue;
         adopt(entry, found);
@@ -674,8 +728,11 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           handle = mint("w");
           const window = found.window;
           windows.set(handle, {
+            handle,
             element: window,
             pid,
+            app: app.name,
+            ...(paths.get(pid) ? { appIdentifier: paths.get(pid)! } : {}),
             key: found.key,
             stable: found.stable,
             unique: found.unique,
@@ -783,6 +840,8 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         role: element.role,
         label,
         windowBounds: root.bounds,
+        bounds: element.bounds,
+        stableId: element.stableId,
       });
       window.elementHandles.add(handle);
       const value = nonEmpty(element.value);
@@ -806,16 +865,25 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
 
   /**
    * xa11y's macOS capture reads the primary display only, so a window
-   * elsewhere would come back as the wrong pixels. The display rect is cached
-   * and re-read once on a miss (displays get rearranged).
+   * elsewhere would come back as the wrong pixels. Re-read the display before
+   * every capture because the main display and its scale can change.
    */
   const onPrimaryDisplay = async (bounds: Rect): Promise<boolean> => {
     if (platform !== "darwin") return true;
-    primaryDisplay ??= await api.primaryDisplay().catch(() => null);
-    if (primaryDisplay && rectInside(primaryDisplay, bounds)) return true;
-    primaryDisplay = await api.primaryDisplay().catch(() => null);
-    // Unknown display (e.g. capture refused): let the capture itself report.
-    return primaryDisplay === null || rectInside(primaryDisplay, bounds);
+    let primaryDisplay: Rect | null;
+    try {
+      primaryDisplay = await api.primaryDisplay();
+    } catch (error) {
+      throw new Refusal({
+        ok: false,
+        error: classifyXa11yError(error, { afterDispatch: false, screen: true }),
+      });
+    }
+    if (!primaryDisplay)
+      throw new Refusal(
+        failure("failed", "Could not resolve the main display for this screenshot."),
+      );
+    return rectInside(primaryDisplay, bounds);
   };
 
   /**
@@ -858,11 +926,12 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   };
 
   /** Best effort: names what a coordinate action would hit, for the approval. */
-  const elementAt = async (
-    windowHandle: string,
+  const elementAtHandle = async (
+    entry: WindowEntry,
     point: DriverPoint,
+    clip = true,
   ): Promise<DriverElementIdentity | null> => {
-    const root = await refreshWindow(requireWindow(windowHandle));
+    const root = await refreshWindow(entry);
     const candidates: Array<{
       readonly bounds: Rect | null;
       readonly label: string;
@@ -882,8 +951,11 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       return "continue";
     });
     const hit = smallestContaining(candidates, point);
-    return hit ? { role: hit.role, label: clipValue(hit.label) } : null;
+    return hit ? { role: hit.role, label: clip ? clipValue(hit.label) : hit.label } : null;
   };
+
+  const elementAt = (windowHandle: string, point: DriverPoint) =>
+    elementAtHandle(requireWindow(windowHandle), point);
 
   /**
    * Coordinate input: input ready, the window active and still exactly where
@@ -901,13 +973,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     if (!area || !boundsMatch(expectBounds, area)) {
       throw stale("The window moved or resized since the screenshot.");
     }
-    const slack = {
-      x: area.x - 1,
-      y: area.y - 1,
-      width: area.width + 2,
-      height: area.height + 2,
-    };
-    if (!points.every((point) => containsPoint(slack, point))) {
+    if (!points.every((point) => containsPoint(area, point))) {
       throw new Refusal(failure("failed", "The point is outside the window."));
     }
     return input;
@@ -938,28 +1004,48 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         case "click": {
           const { point, button, count } = request;
           const input = await prepareCoordinate(request.window, request.expectBounds, [point]);
-          return await dispatch(() => input.click([point.x, point.y], { button, count }));
+          return await dispatch(
+            () => input.click([point.x, point.y], { button, count }),
+            requireWindow(request.window),
+            undefined,
+            point,
+          );
         }
         case "drag": {
           const { from, to } = request;
           const input = await prepareCoordinate(request.window, request.expectBounds, [from, to]);
-          return await dispatch(() => input.drag([from.x, from.y], [to.x, to.y]));
+          return await dispatch(
+            () => input.drag([from.x, from.y], [to.x, to.y]),
+            requireWindow(request.window),
+            undefined,
+            from,
+          );
         }
         case "move": {
           const { point } = request;
           const input = await prepareCoordinate(request.window, request.expectBounds, [point]);
-          return await dispatch(() => input.moveTo([point.x, point.y]));
+          return await dispatch(
+            () => input.moveTo([point.x, point.y]),
+            requireWindow(request.window),
+            undefined,
+            point,
+          );
         }
         case "scrollAt": {
           const { point } = request;
           const input = await prepareCoordinate(request.window, request.expectBounds, [point]);
-          return await dispatch(() => input.scroll([point.x, point.y], request.dx, request.dy));
+          return await dispatch(
+            () => input.scroll([point.x, point.y], request.dx, request.dy),
+            requireWindow(request.window),
+            undefined,
+            point,
+          );
         }
         case "typeFocused": {
           const window = requireWindow(request.window);
           const input = requireInput();
           await activate(window);
-          return await dispatch(() => input.typeText(request.text));
+          return await dispatch(() => input.typeText(request.text), window);
         }
         case "key": {
           const window = requireWindow(request.window);
@@ -967,54 +1053,74 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           if (!chord) return failure("failed", "Unsupported key chord.");
           const input = requireInput();
           await activate(window);
-          return await dispatch(() =>
-            chord.held.length === 0
-              ? input.press(chord.key)
-              : input.chord(chord.key, [...chord.held]),
+          return await dispatch(
+            () =>
+              chord.held.length === 0
+                ? input.press(chord.key)
+                : input.chord(chord.key, [...chord.held]),
+            window,
           );
         }
         case "press": {
+          const first = await resolveElement(request.element, request.expect);
+          await activate(first.window);
           const target = await resolveElement(request.element, request.expect);
-          return await dispatch(async () => {
-            try {
-              await target.element.press();
-              return;
-            } catch (error) {
-              if (errorName(error) !== "ActionNotSupportedError") throw error;
-            }
-            // No accessible press: click the live element's centre, once its
-            // window is verifiably the active one.
-            const input = requireInput();
-            await activate(target.window);
-            const fresh = await resolveElement(request.element, request.expect);
-            if (!fresh.element.bounds) {
-              throw new Refusal(failure("failed", "The element cannot be pressed."));
-            }
-            await verifyFront(fresh.window);
-            await input.click(fresh.element);
-          });
+          return await dispatch(
+            async () => {
+              try {
+                await target.element.press();
+                return;
+              } catch (error) {
+                if (errorName(error) !== "ActionNotSupportedError") throw error;
+              }
+              // No accessible press: click the live element's centre, once its
+              // window is verifiably the active one.
+              const input = requireInput();
+              await activate(target.window);
+              const fresh = await resolveElement(request.element, request.expect);
+              if (!fresh.element.bounds) {
+                throw new Refusal(failure("failed", "The element cannot be pressed."));
+              }
+              await verifyFront(fresh.window);
+              await input.click(fresh.element);
+            },
+            target.window,
+            target.element,
+          );
         }
         case "setValue": {
           const target = await resolveElement(request.element, request.expect);
-          return await dispatch(() => target.element.setValue(request.value));
+          await activate(target.window);
+          const fresh = await resolveElement(request.element, request.expect);
+          return await dispatch(
+            () => fresh.element.setValue(request.value),
+            fresh.window,
+            fresh.element,
+          );
         }
         case "typeText": {
+          const first = await resolveElement(request.element, request.expect);
+          await activate(first.window);
           const target = await resolveElement(request.element, request.expect);
-          return await dispatch(async () => {
-            try {
-              await target.element.typeText(request.text);
-              return;
-            } catch (error) {
-              if (errorName(error) !== "ActionNotSupportedError") throw error;
-            }
-            // No accessible text insertion: focus the element and type.
-            const input = requireInput();
-            await activate(target.window);
-            const fresh = await resolveElement(request.element, request.expect);
-            await beforeDispatch(() => fresh.element.focus());
-            await verifyFront(fresh.window);
-            await input.typeText(request.text);
-          });
+          return await dispatch(
+            async () => {
+              try {
+                await target.element.typeText(request.text);
+                return;
+              } catch (error) {
+                if (errorName(error) !== "ActionNotSupportedError") throw error;
+              }
+              // No accessible text insertion: focus the element and type.
+              const input = requireInput();
+              await activate(target.window);
+              const fresh = await resolveElement(request.element, request.expect);
+              await beforeDispatch(() => fresh.element.focus());
+              await verifyFront(fresh.window);
+              await input.typeText(request.text);
+            },
+            target.window,
+            target.element,
+          );
         }
         case "scroll": {
           const input = requireInput();
@@ -1022,7 +1128,11 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           await activate(first.window);
           const target = await resolveElement(request.element, request.expect);
           await verifyFront(target.window);
-          return await dispatch(() => input.scroll(target.element, request.dx, request.dy));
+          return await dispatch(
+            () => input.scroll(target.element, request.dx, request.dy),
+            target.window,
+            target.element,
+          );
         }
       }
     } catch (error) {

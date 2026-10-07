@@ -1152,6 +1152,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const canonicalEvent = yield* Effect.sync(() =>
         correlateRuntimeEventWithInstance(source, event),
       );
+      if (Option.isSome(computerUse)) {
+        yield* computerUse.value.trackProviderApproval(canonicalEvent);
+      }
       yield* increment(providerRuntimeEventsTotal, {
         provider: canonicalEvent.provider,
         eventType: canonicalEvent.type,

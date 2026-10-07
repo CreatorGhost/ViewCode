@@ -20,6 +20,9 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 
+import type { ComputerUseError } from "@t3tools/contracts";
+import type { DriverDispatchTarget } from "./ComputerDriver.ts";
+
 import {
   appBundlePath,
   DRIVER_NONCE_ENV,
@@ -85,6 +88,7 @@ const activateApp = async (pid: number) => {
 export const makeXa11yApi = (xa11y: Xa11yModule): Xa11yApi => ({
   listApps: () => xa11y.App.list(),
   appWindows: async (pid) => (await xa11y.App.byPid(pid, { timeout: 0 })).children(),
+  windowIsAlive: async (window) => (await window.parent()) !== null,
   foregroundPid: async () => (await xa11y.App.foreground({ timeout: 0 })).pid,
   inputSim: () => xa11y.inputSim(),
   screenshot: (element) => xa11y.screenshot({ element }),
@@ -117,7 +121,9 @@ const unavailable =
       ? { ok: true, result: { available: false, accessibility: "unknown", reason } }
       : { ok: false, error: { kind: "unavailable", message: reason, dispatched: "no" } };
 
-const loadHandler = (): ((request: DriverRequest) => Promise<DriverResult> | DriverResult) => {
+const loadHandler = (
+  authorizeInput: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>,
+): ((request: DriverRequest) => Promise<DriverResult> | DriverResult) => {
   if (!SUPPORTED_PLATFORMS.has(PLATFORM)) {
     return unavailable(
       PLATFORM === "win32"
@@ -133,10 +139,13 @@ const loadHandler = (): ((request: DriverRequest) => Promise<DriverResult> | Dri
   }
   // App lookups would otherwise poll for 5 s on a miss.
   xa11y.setDefaultTimeout(0);
-  return makeDriverCore(makeXa11yApi(xa11y), {
-    platform: PLATFORM,
-    epoch: NodeCrypto.randomBytes(4).toString("hex"),
-  }).handle;
+  return makeDriverCore(
+    { ...makeXa11yApi(xa11y), authorizeInput },
+    {
+      platform: PLATFORM,
+      epoch: NodeCrypto.randomBytes(4).toString("hex"),
+    },
+  ).handle;
 };
 
 /** Answers one request at a time over the fork IPC channel until the parent disconnects. */
@@ -155,10 +164,26 @@ export const runComputerUseDriverWorker = (): Promise<void> =>
     const expected = Buffer.from(nonce);
     let handler: ReturnType<typeof loadHandler> | undefined;
     let queue = Promise.resolve();
+    let activeId: number | undefined;
+    let authorize: ((error: ComputerUseError | undefined) => void) | undefined;
     process.on("message", (message: Envelope) => {
       if (!sameNonce(expected, message?.nonce)) process.exit(2);
+      if ("decision" in message) {
+        if (message.id !== activeId || !authorize) process.exit(2);
+        const complete = authorize;
+        authorize = undefined;
+        complete((message.decision ?? undefined) as ComputerUseError | undefined);
+        return;
+      }
       queue = queue.then(async () => {
-        handler ??= loadHandler();
+        activeId = message.id;
+        handler ??= loadHandler(
+          (target) =>
+            new Promise((complete) => {
+              authorize = complete;
+              send({ id: activeId, authorize: target });
+            }),
+        );
         let reply: DriverResult;
         try {
           reply = await handler(message.request);
@@ -173,6 +198,7 @@ export const runComputerUseDriverWorker = (): Promise<void> =>
           };
         }
         send({ id: message.id, ...reply });
+        activeId = undefined;
       });
     });
     process.once("disconnect", () => {

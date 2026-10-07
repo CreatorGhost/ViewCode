@@ -401,3 +401,52 @@ describe("transport", () => {
     });
   });
 });
+
+describe("Computer use CLI audit regressions", () => {
+  it("accepts the CU-CON-008 response", () => {
+    expect(
+      isComputerUseResponse({
+        ok: false,
+        error: { code: "CU-CON-008", message: "Paused", effect: "not-dispatched" },
+      }),
+    ).toBe(true);
+  });
+  it("does not echo a split typed argument into its error output", async () => {
+    const r = await parseComputerArgs(
+      ["type", "--ref", "1", "--text", "secret", "typed-value-tail"],
+      async () => "",
+    );
+    expect(JSON.stringify(r)).not.toContain("typed-value-tail");
+  });
+  it("preserves pending-approval refusal through the CLI", async () => {
+    const server = NodeHttp.createServer((_req, res) =>
+      res.end(
+        JSON.stringify({
+          ok: false,
+          error: { code: "CU-CON-008", message: "Paused", effect: "not-dispatched" },
+        }),
+      ),
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("address");
+      let output = "";
+      const exit = await runComputerCli({
+        argv: ["key", "--window", "1", "--keys", "enter"],
+        env: {
+          VIEWCODE_COMPUTER_ENDPOINT: `http://127.0.0.1:${addr.port}/api/computer-use`,
+          VIEWCODE_COMPUTER_AUTH: "Bearer audit",
+        },
+        readStdin: async () => "",
+        writeStdout: (s) => (output += s),
+      });
+      expect(exit).toBe(1);
+      expect(JSON.parse(output).error.code).toBe("CU-CON-008");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((e) => (e ? reject(e) : resolve())),
+      );
+    }
+  });
+});

@@ -65,6 +65,7 @@ const makeHarness = (
   const api: Xa11yApi = {
     listApps: async () => [app],
     appWindows: async () => app.children(),
+    windowIsAlive: async () => true,
     foregroundPid: async () =>
       options.foregroundPid === undefined ? TEST_PID : options.foregroundPid,
     inputSim: () => input,
@@ -266,8 +267,13 @@ describe("driver core over the xa11y test app", () => {
         count: 2,
       });
 
-    expect(await click({ ...WINDOW_BOUNDS, x: 102 })).toEqual({ ok: true, result: null });
+    expect(await click(WINDOW_BOUNDS)).toEqual({ ok: true, result: null });
     expect(harness.sent).toEqual([["click", [300, 200], { button: "right", count: 2 }]]);
+
+    expect(await click({ ...WINDOW_BOUNDS, x: 102 })).toMatchObject({
+      ok: false,
+      error: { kind: "stale", dispatched: "no" },
+    });
 
     expect(await click({ ...WINDOW_BOUNDS, width: 803 })).toMatchObject({
       ok: false,
@@ -310,9 +316,11 @@ describe("driver core over the xa11y test app", () => {
 });
 
 describe("pure helpers", () => {
-  it("tolerates two points of drift in window bounds", () => {
+  it("refuses any drift in window bounds", () => {
     const rect = { x: 10, y: 20, width: 300, height: 200 };
-    expect(boundsMatch(rect, { x: 12, y: 18, width: 302, height: 198 })).toBe(true);
+    expect(boundsMatch(rect, { ...rect })).toBe(true);
+    expect(boundsMatch(rect, { x: 12, y: 18, width: 302, height: 198 })).toBe(false);
+    expect(boundsMatch(rect, { ...rect, x: 10.5 })).toBe(false);
     expect(boundsMatch(rect, { ...rect, x: 13 })).toBe(false);
     expect(boundsMatch(rect, { ...rect, height: 197 })).toBe(false);
     expect(boundsMatch(rect, null)).toBe(false);
