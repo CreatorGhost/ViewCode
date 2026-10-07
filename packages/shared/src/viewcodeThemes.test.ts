@@ -1,6 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { VIEWCODE_THEME, WEB_BUILT_IN_THEMES, RESERVED_THEME_IDS } from "./themePalettes.ts";
+import {
+  isViewCodeThemeId,
+  RESERVED_THEME_IDS,
+  VIEWCODE_TEAL_THEME_ID,
+  VIEWCODE_THEME,
+  VIEWCODE_THEME_ID,
+  WEB_BUILT_IN_THEMES,
+} from "./themePalettes.ts";
 import { VIEWCODE_NAMED_THEME_IDS } from "./viewcodeThemes.ts";
 
 function themeById(id: string) {
@@ -68,6 +75,19 @@ describe("ViewCode named themes", () => {
       expect(id.startsWith("viewcode-")).toBe(true);
       expect(RESERVED_THEME_IDS.has(id)).toBe(true);
     }
+  });
+
+  it("reserves the plain and teal default ids so a custom theme cannot take them", () => {
+    expect(RESERVED_THEME_IDS.has(VIEWCODE_THEME_ID)).toBe(true);
+    expect(RESERVED_THEME_IDS.has(VIEWCODE_TEAL_THEME_ID)).toBe(true);
+  });
+
+  it("recognises every ViewCode glass theme id and nothing else", () => {
+    for (const id of [VIEWCODE_THEME_ID, VIEWCODE_TEAL_THEME_ID, ...VIEWCODE_NAMED_THEME_IDS]) {
+      expect(isViewCodeThemeId(id)).toBe(true);
+    }
+    expect(isViewCodeThemeId("ocean")).toBe(false);
+    expect(isViewCodeThemeId("viewcode-custom-unknown")).toBe(false);
   });
 });
 

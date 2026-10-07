@@ -28,10 +28,11 @@ and worktree while you stay in the new thread composer. This requires a Git proj
 ## App rail and open-thread tabs
 
 On web and desktop, a slim rail at the far left stays visible even when the thread sidebar
-is collapsed. Its bottom holds one ring per enabled provider account. A ring shows how much
-of that account's most constrained usage limit is left (green, blue, amber, red as it runs
-out); hover it for every limit and its reset time, or click it to open **Usage**. Below the
-rings are **Settings** and a **More** menu with Pull Requests, Usage, and Connect phone. On
+is collapsed. Its bottom holds one ring per enabled provider account in the environment of the
+open thread (your local environment when no thread is open). A ring shows how much of that
+account's most constrained usage limit is left (green, blue, amber, red as it runs out); hover
+it for every limit and its reset time, or click it to open **Usage**. Below the rings are
+**Settings**, **Pull Requests** (when the environment supports them), and **Connect phone**. On
 a phone these stay in the sidebar sheet.
 
 Once you have opened a second thread, tabs appear above the chat. Click a tab to switch,

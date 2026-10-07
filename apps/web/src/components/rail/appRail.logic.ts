@@ -1,4 +1,4 @@
-import type { ServerProviderUsageWindow } from "@t3tools/contracts";
+import type { EnvironmentId, ServerProviderUsageWindow } from "@t3tools/contracts";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { planUsageWindow } from "../chat/composerUsageLimits.logic";
@@ -54,4 +54,21 @@ export function buildRailUsageRings(
       const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent));
       return [{ entry, window, remainingPercent, tone: railRingTone(remainingPercent) }];
     });
+}
+
+/**
+ * The environment whose accounts the rail shows: the one the open thread (or its
+ * draft) belongs to, so a remote thread reads that server's limits, else the
+ * primary environment when no thread is open.
+ */
+export function resolveRailEnvironmentId(input: {
+  readonly routeEnvironmentId: string | null;
+  readonly draftEnvironmentId: EnvironmentId | null;
+  readonly primaryEnvironmentId: EnvironmentId | null;
+}): EnvironmentId | null {
+  return (
+    (input.routeEnvironmentId as EnvironmentId | null) ??
+    input.draftEnvironmentId ??
+    input.primaryEnvironmentId
+  );
 }

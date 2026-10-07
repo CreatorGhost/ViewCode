@@ -3,13 +3,13 @@ import { useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
-import { usePrimaryEnvironmentId } from "../../state/environments";
 import { formatUsedPercent } from "../chat/composerUsageLimits.logic";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { useUsageRefreshOnOpen } from "../chat/useUsageRefreshOnOpen";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ResetCreditDialog, resetCreditsSummary, useResetCredit } from "../usage/UsageLimits";
 import { type RailRingTone, type RailUsageRing } from "./appRail.logic";
 import { buildRailUsageCardRows, railPlanLabel } from "./railUsageCard.logic";
@@ -85,10 +85,7 @@ function UsageCardBody({
   const credits = limits?.resetCredits;
   const canRedeem = !!credits && credits.availableCount > 0 && credits.canRedeem !== false;
   return (
-    <div
-      data-rail-usage-card=""
-      className="flex w-76 flex-col gap-3 rounded-[inherit] p-4 text-xs"
-    >
+    <div data-rail-usage-card="" className="flex w-76 flex-col gap-3 rounded-[inherit] p-4 text-xs">
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate font-semibold text-sm">{ring.entry.displayName}</span>
         {plan ? (
@@ -100,10 +97,15 @@ function UsageCardBody({
       ) : (
         <ul className="flex flex-col gap-3">
           {rows.map((row) => (
-            <li key={row.id} className="flex flex-col gap-1.5" title={row.label}>
+            <li key={row.id} className="flex flex-col gap-1.5">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="flex min-w-0 items-baseline gap-1.5">
-                  <span className="min-w-0 truncate">{row.label}</span>
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="min-w-0 truncate" />}>
+                      {row.label}
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">{row.label}</TooltipPopup>
+                  </Tooltip>
                   <span className="shrink-0 whitespace-nowrap font-medium tabular-nums">
                     {row.remainingText}
                   </span>
@@ -134,7 +136,7 @@ function UsageCardBody({
       {credits || limits?.resetCreditsUnavailableReason ? (
         <div className="border-sidebar-border border-t pt-2.5">
           <Collapsible>
-            <CollapsibleTrigger className="group flex w-full items-center gap-1 text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground">
+            <CollapsibleTrigger className="group flex w-full items-center gap-1 text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring">
               <ChevronRightIcon className="size-3.5 transition-transform group-data-panel-open:rotate-90" />
               Details
             </CollapsibleTrigger>
@@ -211,8 +213,12 @@ function UsageRingWithCard({
   );
 }
 
-export function RailUsageRingButton({ ring }: { ring: RailUsageRing }) {
-  const environmentId = usePrimaryEnvironmentId();
-  if (!environmentId) return null;
+export function RailUsageRingButton({
+  ring,
+  environmentId,
+}: {
+  ring: RailUsageRing;
+  environmentId: EnvironmentId;
+}) {
   return <UsageRingWithCard ring={ring} environmentId={environmentId} />;
 }

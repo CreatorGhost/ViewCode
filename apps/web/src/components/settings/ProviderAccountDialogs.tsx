@@ -4,10 +4,15 @@ import {
   type ProviderAccountAddResult,
   type ProviderAccountSignInPlan,
 } from "@t3tools/contracts";
-import { deriveAccountInstanceId, validateAccountInstanceId } from "@t3tools/shared/providerAccounts";
+import {
+  deriveAccountInstanceId,
+  validateAccountInstanceId,
+} from "@t3tools/shared/providerAccounts";
 import { useAtomValue } from "@effect/atom-react";
 import { useMemo, useState } from "react";
 
+import { isElectron } from "../../env";
+import { usePrimaryEnvironmentId } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { AgentInstallTerminal } from "../onboarding/WelcomeWizard";
@@ -23,6 +28,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
+import { signInNeedsServerBrowser } from "./providerSignIn.logic";
 
 export type AccountDriver = "codex" | "claudeAgent";
 
@@ -44,6 +50,14 @@ export function ProviderSignInDialog(props: {
   });
   const refresh = useAtomCommand(serverEnvironment.refreshProviders, { reportFailure: false });
   const keybindings = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.keybindings;
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const needsServerBrowser = signInNeedsServerBrowser({
+    driver,
+    environmentId,
+    primaryEnvironmentId,
+    isDesktop: isElectron,
+    locationHostname: window.location.hostname,
+  });
   const [plan, setPlan] = useState<ProviderAccountSignInPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +80,9 @@ export function ProviderSignInDialog(props: {
           <DialogDescription>
             Runs the login for this account in a terminal on the environment. Close this when it
             finishes.
+            {needsServerBrowser
+              ? " Codex finishes sign-in in a browser on the environment's own machine, so complete it there."
+              : ""}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -159,33 +176,33 @@ export function AddProviderAccountDialog(props: {
         </DialogHeader>
         <DialogPanel>
           <div className="grid gap-3">
-          <label className="grid gap-1 text-sm font-medium">
-            Label
-            <Input
-              autoFocus
-              value={label}
-              placeholder="Work"
-              onChange={(event) => setLabel(event.target.value)}
-            />
-            <span className="text-xs font-normal text-muted-foreground">
-              {idError ?? (instanceId ? `Instance id: ${instanceId}` : " ")}
-            </span>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={useExisting}
-              onChange={(event) => setUseExisting(event.target.checked)}
-            />
-            Use an existing directory
-          </label>
-          {useExisting ? (
-            <Input
-              value={directory}
-              placeholder={driver === "codex" ? "/path/to/codex-home" : "/path/to/claude-config"}
-              onChange={(event) => setDirectory(event.target.value)}
-            />
-          ) : null}
+            <label className="grid gap-1 text-sm font-medium">
+              Label
+              <Input
+                autoFocus
+                value={label}
+                placeholder="Work"
+                onChange={(event) => setLabel(event.target.value)}
+              />
+              <span className="text-xs font-normal text-muted-foreground">
+                {idError ?? (instanceId ? `Instance id: ${instanceId}` : " ")}
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={useExisting}
+                onChange={(event) => setUseExisting(event.target.checked)}
+              />
+              Use an existing directory
+            </label>
+            {useExisting ? (
+              <Input
+                value={directory}
+                placeholder={driver === "codex" ? "/path/to/codex-home" : "/path/to/claude-config"}
+                onChange={(event) => setDirectory(event.target.value)}
+              />
+            ) : null}
           </div>
         </DialogPanel>
         <DialogFooter>

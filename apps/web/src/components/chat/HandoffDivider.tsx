@@ -154,7 +154,7 @@ export const HandoffDivider = memo(function HandoffDivider({
                   {isCopied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
                 </Button>
               </div>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs leading-relaxed">
                 {summary}
               </pre>
             </div>

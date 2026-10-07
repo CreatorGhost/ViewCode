@@ -8,7 +8,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildUsageSections,
-  buildAccountUsageSections,
   formatBankedResets,
   formatContextWindowSummary,
   formatTokenCount,
@@ -277,12 +276,4 @@ describe("shouldRefreshUsage", () => {
     ).toBe(false);
     expect(shouldRefreshUsage(undefined, checkedAt)).toBe(false);
   });
-});
-
-it("lists accounts once per instance without lead or child-agent roles", () => {
-  const codex = provider("codex", limits([window("primary", "session", 20)]));
-  const claude = provider("claudeAgent", limits([], { resetCredits: { availableCount: 1 } }));
-  const sections = buildAccountUsageSections([codex, claude, codex], new Set());
-  expect(sections.map((section) => section.title)).toEqual([codex.displayName, claude.displayName]);
-  expect(sections[1]?.resetCredits?.availableCount).toBe(1);
 });

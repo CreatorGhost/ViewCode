@@ -116,7 +116,7 @@ function showViewCodeLookToast() {
       type: "info",
       title: "ViewCode has a new look",
       description:
-        "Switched to the ViewCode theme with the glass window. Change it any time in Settings → Appearance.",
+        "Switched to the ViewCode teal theme with the glass window. Change it any time in Settings → Appearance.",
       timeout: 20000,
       actionProps: {
         children: "Undo",

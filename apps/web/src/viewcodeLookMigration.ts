@@ -48,8 +48,11 @@ export function migrateToTealLook(storage: Storage): boolean {
   storage.setItem(TEAL_MIGRATION_KEY, "1");
   const theme = storage.getItem(THEME_KEY);
   if (theme !== "viewcode") return false;
-  const previous: PreviousLook = { theme, halves: storage.getItem(THEME_HALVES_KEY) };
-  storage.setItem(LOOK_MIGRATION_PREVIOUS_KEY, JSON.stringify(previous));
+  // A profile the first migration already moved keeps its original look as the undo target.
+  if (storage.getItem(LOOK_MIGRATION_PREVIOUS_KEY) === null) {
+    const previous: PreviousLook = { theme, halves: storage.getItem(THEME_HALVES_KEY) };
+    storage.setItem(LOOK_MIGRATION_PREVIOUS_KEY, JSON.stringify(previous));
+  }
   storage.setItem(THEME_KEY, "viewcode-teal");
   storage.removeItem(THEME_HALVES_KEY);
   return true;

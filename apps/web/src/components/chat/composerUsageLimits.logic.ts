@@ -92,7 +92,7 @@ export type UsageProviderInput = {
 
 export type UsageSection = {
   key: string;
-  role: "lead" | "agents" | "account";
+  role: "lead" | "agents";
   title: string;
   subtitle: string;
   instanceId: ProviderInstanceId;
@@ -118,10 +118,7 @@ function toSection(
   return {
     key: `${role}:${provider.instanceId}`,
     role,
-    title:
-      role === "account"
-        ? provider.displayName
-        : `${role === "lead" ? "Lead" : "Agents"} · ${provider.displayName}`,
+    title: `${role === "lead" ? "Lead" : "Agents"} · ${provider.displayName}`,
     subtitle: provider.plan
       ? `Plan usage limits · ${shortPlanName(provider.plan)}`
       : "Plan usage limits",
@@ -224,15 +221,4 @@ export function resolveUsageRing(input: {
     return { source: "plan", percent: Math.max(0, Math.min(100, input.planPercent)) };
   }
   return null;
-}
-
-/** Accounts keep instance identity even when two logins use the same driver. */
-export function buildAccountUsageSections(
-  providers: ReadonlyArray<UsageProviderInput>,
-  refreshing: ReadonlySet<ProviderInstanceId>,
-): ReadonlyArray<UsageSection> {
-  const unique = new Map(providers.map((provider) => [provider.instanceId, provider]));
-  return [...unique.values()].map((provider) =>
-    toSection("account", provider, refreshing.has(provider.instanceId)),
-  );
 }

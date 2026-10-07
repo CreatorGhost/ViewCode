@@ -1,5 +1,5 @@
 import { CheckIcon, CopyIcon } from "lucide-react";
-import { type ComponentProps, useEffect, useRef, useState } from "react";
+import { type ComponentProps, createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { writeTextToClipboard } from "../../hooks/useCopyToClipboard";
 import { Button } from "../ui/button";
@@ -32,8 +32,15 @@ export function blockquoteToPlainText(root: HTMLElement): string {
   return lines.join("\n\n");
 }
 
-/** A quoted block in a reply (often a drafted message) with its own copy button on hover. */
+/** Set inside a copyable quote: a nested quote is copied with its parent, not on its own. */
+const InsideQuoteContext = createContext(false);
+
+/**
+ * A quoted block in a reply (often a drafted message) with its own copy button, shown on
+ * hover or focus and always on touch screens.
+ */
 export function CopyableBlockquote({ children, ...props }: ComponentProps<"blockquote">) {
+  const nested = useContext(InsideQuoteContext);
   const quoteRef = useRef<HTMLQuoteElement>(null);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -51,12 +58,14 @@ export function CopyableBlockquote({ children, ...props }: ComponentProps<"block
     );
   };
 
+  if (nested) return <blockquote {...props}>{children}</blockquote>;
+
   return (
     <div className="group/quote relative" data-copyable-quote="">
       <blockquote ref={quoteRef} {...props}>
-        {children}
+        <InsideQuoteContext.Provider value>{children}</InsideQuoteContext.Provider>
       </blockquote>
-      <div className="absolute top-0 right-0 opacity-0 transition-opacity group-hover/quote:opacity-100 focus-within:opacity-100">
+      <div className="absolute top-0 right-0 opacity-0 transition-opacity group-hover/quote:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
         <Tooltip>
           <TooltipTrigger
             render={

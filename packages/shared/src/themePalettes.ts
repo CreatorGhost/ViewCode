@@ -7,6 +7,15 @@ export const VIEWCODE_THEME_ID = "viewcode";
 /** ViewCode's default look: navy-slate surfaces with a teal accent. */
 export const VIEWCODE_TEAL_THEME_ID = "viewcode-teal";
 
+/** True for ViewCode's own glass themes: the plain one, the teal default and the named set. */
+export function isViewCodeThemeId(id: string): boolean {
+  return (
+    id === VIEWCODE_THEME_ID ||
+    id === VIEWCODE_TEAL_THEME_ID ||
+    VIEWCODE_NAMED_THEME_IDS.includes(id)
+  );
+}
+
 /** Carbon and silver from the brand lab's "Instrument" direction. ViewCode mobile's default. */
 export const INSTRUMENT_THEME_ID = "instrument";
 
@@ -32,6 +41,7 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "light",
   "dark",
   VIEWCODE_THEME_ID,
+  VIEWCODE_TEAL_THEME_ID,
   INSTRUMENT_THEME_ID,
   ...VIEWCODE_NAMED_THEME_IDS,
   ...BUILT_IN_THEME_IDS,
