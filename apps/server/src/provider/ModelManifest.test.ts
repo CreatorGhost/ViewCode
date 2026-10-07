@@ -75,6 +75,39 @@ describe("classifyModels", () => {
       ],
     );
   });
+  it("keeps Codex models newer than every current GPT version visible", () => {
+    const manifest: ModelManifestData = {
+      version: 1,
+      currentModels: { codex: ["gpt-8-a", "gpt-8.2-b", "gpt-named-latest"] },
+    };
+    const models = [
+      model({ slug: "gpt-8.3-b" }),
+      model({ slug: "openai.gpt-9-a" }),
+      model({ slug: "gpt-8.2-c" }),
+      model({ slug: "gpt-7.9-b" }),
+      model({ slug: "gpt-other-latest" }),
+    ];
+    assert.deepStrictEqual(
+      classifyModels(models, manifest, CODEX).map((entry) => [entry.slug, entry.isLegacy ?? false]),
+      [
+        ["gpt-8.3-b", false],
+        ["openai.gpt-9-a", false],
+        // Same version as a current model but not named by the manifest.
+        ["gpt-8.2-c", true],
+        ["gpt-7.9-b", true],
+        ["gpt-other-latest", true],
+      ],
+    );
+    // Only Codex gets the version rule.
+    const claude = ProviderDriverKind.make("claudeAgent");
+    assert.isTrue(
+      classifyModels(
+        [model({ slug: "gpt-9-a" })],
+        { version: 1, currentModels: { claudeAgent: ["gpt-8-a"] } },
+        claude,
+      )[0]!.isLegacy,
+    );
+  });
 });
 
 describe("applyManifestDefault", () => {

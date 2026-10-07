@@ -245,7 +245,16 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   the new, empty session. Mobile has no such offer.
 - `viewcode_list_models` lists every enabled provider with `usable` and a `note`, and
   tells agents to use a vendor's own provider (GPT → Codex) over resellers
-  (Command Code, OpenCode, Cursor) unless the user names the reseller.
+  (Command Code, OpenCode, Cursor) unless the user names the reseller. It hides
+  models the manifest classifies as legacy; a Codex model whose GPT version is
+  newer than every one in the manifest's `currentModels` is never legacy, since
+  Codex's `model/list` ships new models before the manifest names them.
+- A turn that names no model (every agent message, resume and continue) runs on
+  the thread's `modelSelection` when that belongs to the live session's
+  instance. A restarted session can come back on another model (Codex reported
+  its default after an error), and the turn used to inherit it while
+  `viewcode_list_agents` named the configured one. `list_agents` also reports
+  `runningModel` when the live session's model differs.
 
 ### Computer use
 
