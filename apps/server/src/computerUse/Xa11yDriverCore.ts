@@ -590,6 +590,8 @@ interface InputTarget {
   readonly point?: DriverPoint;
   /** An accessibility action on the element itself: the window need not be in front. */
   readonly background?: boolean;
+  /** The driver will bring the window to the front after this `prepare` check. */
+  readonly foreground?: boolean;
 }
 
 interface ElementEntry {
@@ -833,7 +835,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   const authorizeChecked = async (
     entry: WindowEntry,
     phase: DriverDispatchPhase,
-    { element, point, background = false }: InputTarget,
+    { element, point, background = false, foreground = false }: InputTarget,
   ) => {
     if (phase === "dispatch" && !background) await refuseWhileUserActive();
     const expectedBounds = entry.bounds;
@@ -856,6 +858,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           ...(path ? { appIdentifier: path } : {}),
         },
         ...(identity ? { element: identity } : {}),
+        ...(foreground ? { foreground: true } : {}),
       },
       phase,
     );
@@ -1241,7 +1244,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   ): Promise<InputSim> => {
     const entry = requireWindow(windowHandle);
     const input = requireInput();
-    await authorize(entry, "prepare");
+    await authorize(entry, "prepare", { foreground: true });
     const live = await activate(entry);
     const area = live.bounds;
     if (!area || !boundsMatch(expectBounds, area)) {
@@ -1335,7 +1338,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     replace: boolean,
   ) => {
     const input = requireInput();
-    await authorize(target.window, "prepare", { element: target.element });
+    await authorize(target.window, "prepare", { element: target.element, foreground: true });
     await activate(target.window);
     const fresh = await resolveElement(handle, expect);
     await beforeDispatch(() => fresh.element.focus());
@@ -1431,7 +1434,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         case "typeFocused": {
           const window = requireWindow(request.window);
           const input = requireInput();
-          await authorize(window, "prepare");
+          await authorize(window, "prepare", { foreground: true });
           await activate(window);
           return await dispatch(() => typeInputText(input, request.text, window), window);
         }
@@ -1440,7 +1443,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           const chord = translateKeyChord(request.keys, platform);
           if (!chord) return failure("failed", "Unsupported key chord.");
           const input = requireInput();
-          await authorize(window, "prepare");
+          await authorize(window, "prepare", { foreground: true });
           await activate(window);
           return await dispatch(
             () =>
@@ -1467,7 +1470,10 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               // policy, so the click is authorized again, with its window
               // verifiably the active one.
               const input = requireInput();
-              await authorize(target.window, "prepare", { element: target.element });
+              await authorize(target.window, "prepare", {
+                element: target.element,
+                foreground: true,
+              });
               await activate(target.window);
               const fresh = await resolveElement(request.element, request.expect);
               if (!fresh.element.bounds) {
@@ -1543,7 +1549,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         case "scroll": {
           const input = requireInput();
           const first = await resolveElement(request.element, request.expect);
-          await authorize(first.window, "prepare", { element: first.element });
+          await authorize(first.window, "prepare", { element: first.element, foreground: true });
           await activate(first.window);
           const target = await resolveElement(request.element, request.expect);
           await verifyFront(target.window);

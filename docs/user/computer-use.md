@@ -56,6 +56,12 @@ environment is waiting for you, agents cannot send input at all, so an agent can
 approval for itself, whether in ViewCode, in a browser tab showing ViewCode or on a mirrored
 screen.
 
+**Show on screen** in the same section decides whether agents may bring windows to the front.
+With **Whenever needed** (default) they do so for clicks, keyboard shortcuts and typing. With **Ask
+once per task**, the first such action in a response asks whether to show the task on screen or
+keep it in the background; in the background the agent can only act on controls by reference and
+take screenshots until the response ends.
+
 When an action needs the window in front, such as a click, a keyboard shortcut or typing into
 whatever has focus, it waits while you are using the mouse or keyboard. The agent tries again a
 moment later, so it does not fight you for the screen. Actions by reference in the background

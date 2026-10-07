@@ -18,6 +18,7 @@ import {
   isProviderDriverKind,
   RuntimeRequestId,
   type ComputerUseApprovals,
+  type ComputerUseScreen,
   type ComputerUseElement,
   type ComputerUseError,
   type ComputerUseMode,
@@ -199,6 +200,14 @@ const DESTRUCTIVE_OPTIONS: ReadonlyArray<ProviderApprovalOption> = [
   { decision: "decline", label: "Decline" },
 ];
 
+const SCREEN_OPTIONS: ReadonlyArray<ProviderApprovalOption> = [
+  { decision: "acceptForSession", label: "Show on screen for this task" },
+  { decision: "decline", label: "Keep it in the background" },
+];
+
+const KEPT_IN_BACKGROUND =
+  "The user chose to keep this task in the background, so nothing may bring a window to the front until the turn ends. Act on controls by reference (press, set-value, type --ref) and use screenshots to look; if the task cannot be done that way, tell the user.";
+
 interface TurnContext {
   readonly turnId: TurnId;
   readonly provider: ProviderDriverKind;
@@ -274,6 +283,11 @@ export const make = Effect.gen(function* () {
 
   const targetsByThread = new Map<ThreadId, ThreadTargets>();
   const turnGrants = new Map<ThreadId, TurnId>();
+  /** The user's answer to "Show this on your screen?" for a thread's current turn. */
+  const screenChoices = new Map<
+    ThreadId,
+    { readonly turnId: TurnId; readonly onScreen: boolean }
+  >();
   const lastRunningTurn = new Map<ThreadId, TurnId>();
   const endedTurns = new Map<ThreadId, TurnId>();
   const pending = new Map<string, PendingApproval>();
@@ -306,6 +320,25 @@ export const make = Effect.gen(function* () {
   );
 
   /** Re-read per request and at the final check, like the mode. */
+  const currentScreen: Effect.Effect<ComputerUseScreen> = settings.getSettings.pipe(
+    Effect.map((value) => value.computerUseScreen),
+    Effect.orElseSucceed(() => "ask" as const),
+  );
+
+  /**
+   * Whether this turn may bring windows to the front: always under `allow`;
+   * under `ask` only once the user chose to show it on screen. Undefined
+   * while the user has not been asked yet.
+   */
+  const screenAllowed = (caller: ComputerUseCaller, turnId: TurnId) =>
+    currentScreen.pipe(
+      Effect.map((screen) => {
+        if (screen === "allow") return true;
+        const choice = screenChoices.get(caller.threadId);
+        return choice?.turnId === turnId ? choice.onScreen : undefined;
+      }),
+    );
+
   const currentApprovals: Effect.Effect<ComputerUseApprovals> = settings.getSettings.pipe(
     Effect.map((value) => value.computerUseApprovals),
     // Unreadable settings fall back to the strictest behaviour.
@@ -372,6 +405,7 @@ export const make = Effect.gen(function* () {
     readonly turn: TurnContext;
     readonly detail: string;
     readonly destructive: boolean;
+    readonly options?: ReadonlyArray<ProviderApprovalOption>;
   }) =>
     Effect.gen(function* () {
       if (!publisher) return "decline" as const;
@@ -401,7 +435,8 @@ export const make = Effect.gen(function* () {
                 requestType: "permission_approval",
                 appName: APPROVAL_APP_NAME,
                 detail: input.detail,
-                options: input.destructive ? DESTRUCTIVE_OPTIONS : ROUTINE_OPTIONS,
+                options:
+                  input.options ?? (input.destructive ? DESTRUCTIVE_OPTIONS : ROUTINE_OPTIONS),
               },
             });
             return true;
@@ -1044,6 +1079,12 @@ export const make = Effect.gen(function* () {
               ),
             );
           }
+          if (native?.foreground && (yield* screenAllowed(caller, turn.turnId)) !== true) {
+            return noTurn(
+              "This control can only be operated with its window in front, which this task may not do. Act on other controls by reference, or ask the user.",
+              "CU-CON-004",
+            );
+          }
           if (native) {
             if (native.window.handle !== fresh.window.handle) {
               return noTurn("The native target changed before dispatch.", "CU-CON-004");
@@ -1116,6 +1157,32 @@ export const make = Effect.gen(function* () {
       );
     });
 
+  /**
+   * Under `ask`, the first input in a turn that needs the screen asks whether
+   * to show the task on screen; the answer holds for the rest of the turn.
+   * Returns the refusal when the input may not take the screen.
+   */
+  const askForScreen = (caller: ComputerUseCaller, turn: TurnContext, window: WindowRecord) =>
+    Effect.gen(function* () {
+      const allowed = yield* screenAllowed(caller, turn.turnId);
+      if (allowed === true) return undefined;
+      if (allowed === false) return noTurn(KEPT_IN_BACKGROUND, "CU-CON-004");
+      const decision = yield* askUser({
+        caller,
+        turn,
+        destructive: false,
+        options: SCREEN_OPTIONS,
+        detail: `Show this on your screen? To work in ${window.app}, the agent needs to bring its windows to the front and use the mouse and keyboard until this response ends. In the background it can only act on controls directly.`,
+      });
+      if (decision === "paused") return inputPaused;
+      if (decision === "cancel") {
+        return noTurn("No answer arrived about showing this task on screen.", "CU-CON-004");
+      }
+      const onScreen = decision !== "decline";
+      screenChoices.set(caller.threadId, { turnId: turn.turnId, onScreen });
+      return onScreen ? undefined : noTurn(KEPT_IN_BACKGROUND, "CU-CON-004");
+    });
+
   const input = (caller: ComputerUseCaller, request: ComputerUseInputRequest) =>
     Effect.gen(function* () {
       const turn = yield* runningTurn(caller);
@@ -1133,6 +1200,13 @@ export const make = Effect.gen(function* () {
       }
       const resolved = resolveInputTarget(caller, request);
       if ("ok" in resolved) return resolved;
+      // Everything but press, set-value and type by ref brings the window to
+      // the front; those only do when their fallback needs it (checked by the
+      // driver's prepare call).
+      if (resolved._tag !== "Element" || request.command === "scroll") {
+        const onScreen = yield* askForScreen(caller, turn, resolved.window);
+        if (onScreen) return onScreen;
+      }
       const hit = yield* hitFor(request, resolved);
       const destructive =
         resolved._tag === "Element"

@@ -644,6 +644,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.computerUseApprovals !== DEFAULT_UNIFIED_SETTINGS.computerUseApprovals
         ? ["Ask before computer input"]
         : []),
+      ...(settings.computerUseScreen !== DEFAULT_UNIFIED_SETTINGS.computerUseScreen
+        ? ["Show computer use on screen"]
+        : []),
     ],
     [
       isTextGenerationModelDirty,
@@ -661,6 +664,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.enableAgentBrowserAccess,
       settings.computerUse,
       settings.computerUseApprovals,
+      settings.computerUseScreen,
       settings.confirmQuit,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
@@ -839,6 +843,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       enableAgentBrowserAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess,
       computerUse: DEFAULT_UNIFIED_SETTINGS.computerUse,
       computerUseApprovals: DEFAULT_UNIFIED_SETTINGS.computerUseApprovals,
+      computerUseScreen: DEFAULT_UNIFIED_SETTINGS.computerUseScreen,
     });
     onRestored?.();
   }, [

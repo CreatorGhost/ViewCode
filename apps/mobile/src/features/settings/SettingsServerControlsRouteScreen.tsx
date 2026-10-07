@@ -5,6 +5,7 @@ import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import {
   type ComputerUseApprovals,
+  type ComputerUseScreen,
   type ComputerUseMode,
   type ResponseStreamingMode,
   type ServerSettings,
@@ -160,6 +161,23 @@ const COMPUTER_USE_APPROVAL_CHOICES: ReadonlyArray<{
     mode: "never",
     label: "Never",
     description: "Agents act without asking. Blocked apps stay blocked.",
+  },
+];
+
+const COMPUTER_USE_SCREEN_CHOICES: ReadonlyArray<{
+  readonly mode: ComputerUseScreen;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  {
+    mode: "allow",
+    label: "Whenever needed",
+    description: "Agents bring windows to the front for clicks and typing.",
+  },
+  {
+    mode: "ask",
+    label: "Ask once per task",
+    description: "Choose to show the task on screen or keep it in the background.",
   },
 ];
 
@@ -481,6 +499,28 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                             separated={index > 0}
                             disabled={disabledFor("computerUseApprovals")}
                             onPress={() => write({ computerUseApprovals: choice.mode })}
+                          />
+                        ))}
+                      </SettingsSection>
+                    ) : null}
+                    {uniform("computerUse") === "control" ? (
+                      <SettingsSection
+                        title="Show on screen"
+                        trailing={
+                          pendingWrites === 0 && uniform("computerUseScreen") === null ? (
+                            <MixedValuesLabel projectSelected={projectSelected} />
+                          ) : null
+                        }
+                      >
+                        {COMPUTER_USE_SCREEN_CHOICES.map((choice, index) => (
+                          <ChoiceRow
+                            key={choice.mode}
+                            label={choice.label}
+                            description={choice.description}
+                            selected={uniform("computerUseScreen") === choice.mode}
+                            separated={index > 0}
+                            disabled={disabledFor("computerUseScreen")}
+                            onPress={() => write({ computerUseScreen: choice.mode })}
                           />
                         ))}
                       </SettingsSection>

@@ -1,4 +1,4 @@
-import { ComputerUseApprovals, ComputerUseMode } from "./computerUse.ts";
+import { ComputerUseApprovals, ComputerUseMode, ComputerUseScreen } from "./computerUse.ts";
 import { SshDeviceHostConfigs } from "./device.ts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
@@ -1244,6 +1244,10 @@ export const ServerSettings = Schema.Struct({
   computerUseApprovals: ComputerUseApprovals.pipe(
     Schema.withDecodingDefault(Effect.succeed("thread" as const)),
   ),
+  /** Whether computer-use input may bring windows to the front; see `ComputerUseScreen`. */
+  computerUseScreen: ComputerUseScreen.pipe(
+    Schema.withDecodingDefault(Effect.succeed("allow" as const)),
+  ),
   /**
    * Whether this server may install and run T3's device helper processes.
    * Kept separate from agent access so enabling the user's Device panel does
@@ -1627,6 +1631,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   computerUse: Schema.optionalKey(ComputerUseMode),
   computerUseApprovals: Schema.optionalKey(ComputerUseApprovals),
+  computerUseScreen: Schema.optionalKey(ComputerUseScreen),
   enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),

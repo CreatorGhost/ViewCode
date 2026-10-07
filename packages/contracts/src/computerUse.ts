@@ -30,6 +30,14 @@ export const ComputerUseApprovals = Schema.Literals(["thread", "risky", "never"]
 export type ComputerUseApprovals = typeof ComputerUseApprovals.Type;
 
 /**
+ * Whether input may bring windows to the front. `allow`: whenever it needs
+ * to. `ask`: the first such action in a turn asks once whether to show the
+ * task on screen or keep it in the background (actions by reference only).
+ */
+export const ComputerUseScreen = Schema.Literals(["allow", "ask"]);
+export type ComputerUseScreen = typeof ComputerUseScreen.Type;
+
+/**
  * `CU-VAL-*` invalid request, `CU-NOT-*` unknown target, `CU-CON-*` refused by
  * policy or state, `CU-EXT-*` driver or OS, `CU-INT-*` a ViewCode bug.
  */

@@ -112,6 +112,7 @@ interface Harness {
   readonly openedApprovals: Queue.Queue<ProviderRuntimeEvent>;
   readonly setMode: (mode: ComputerUseMode) => Effect.Effect<void>;
   readonly setApprovals: (approvals: ComputerUseApprovals) => Effect.Effect<void>;
+  readonly setScreen: (screen: "allow" | "ask") => Effect.Effect<void>;
   readonly thread: {
     running: boolean;
     turnId: TurnId;
@@ -333,6 +334,8 @@ const makeHarness = (
         settings
           .updateSettings({ computerUseApprovals: approvals })
           .pipe(Effect.orDie, Effect.asVoid),
+      setScreen: (screen) =>
+        settings.updateSettings({ computerUseScreen: screen }).pipe(Effect.orDie, Effect.asVoid),
       get autoDecision() {
         return state.autoDecision;
       },
@@ -1713,4 +1716,104 @@ describe("ComputerUseService results and logs", () => {
       }
     }).pipe(Effect.scoped, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
   });
+});
+
+describe("ComputerUseService show on screen", () => {
+  const screenPrompts = (h: Harness) =>
+    h.events.filter(
+      (event) =>
+        event.type === "request.opened" &&
+        event.payload.requestType === "permission_approval" &&
+        event.payload.options?.some((option) => option.label === "Keep it in the background"),
+    );
+
+  it.effect("asks once per turn before taking the screen, and the answer holds", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      yield* h.setScreen("ask");
+      const refs = yield* observeNotes(h);
+      h.autoDecision = "acceptForSession";
+      expectDispatched(yield* send(h, { command: "key", window: refs.window, keys: "enter" }));
+      h.autoDecision = "decline";
+      expectDispatched(yield* send(h, { command: "key", window: refs.window, keys: "tab" }));
+      expect(screenPrompts(h)).toHaveLength(1);
+
+      yield* h.service.endTurn(threadId, h.thread.turnId);
+      h.thread.turnId = TurnId.make("turn-2");
+      expectError(
+        yield* send(h, { command: "key", window: refs.window, keys: "enter" }),
+        "CU-CON-004",
+      );
+      expect(screenPrompts(h)).toHaveLength(2);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("keeping a task in the background refuses screen input but not refs", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      yield* h.setScreen("ask");
+      const refs = yield* observeNotes(h);
+      h.autoDecision = "decline";
+      const refused = yield* send(h, { command: "key", window: refs.window, keys: "enter" });
+      expectError(refused, "CU-CON-004", "not-dispatched");
+      expect(!refused.ok && refused.error.message).toContain("background");
+      expectError(
+        yield* send(h, { command: "key", window: refs.window, keys: "tab" }),
+        "CU-CON-004",
+      );
+      expect(screenPrompts(h)).toHaveLength(1);
+      expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+      expect(inputCalls(h)).toEqual(["press:e-save"]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "a background action whose fallback needs the screen is refused in the background",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness("control", (driver) => ({
+          ...driver,
+          press: (handle, expect) =>
+            Effect.gen(function* () {
+              const check = yield* ComputerDriverDispatchCheck;
+              const decision = yield* check(
+                { window: notes, element: expect, foreground: true },
+                "prepare",
+              );
+              if (!decision.allowed) {
+                return yield* new ComputerDriverError({
+                  kind: "policy",
+                  code: decision.error.code,
+                  message: decision.error.message,
+                  dispatched: "no",
+                });
+              }
+              return yield* driver.press(handle, expect);
+            }),
+        }));
+        h.thread.runtimeMode = "full-access";
+        yield* h.setScreen("ask");
+        const refs = yield* observeNotes(h);
+        h.autoDecision = "decline";
+        expectError(
+          yield* send(h, { command: "key", window: refs.window, keys: "enter" }),
+          "CU-CON-004",
+        );
+        expectError(yield* send(h, { command: "press", ref: refs.save }), "CU-CON-004");
+        expect(inputCalls(h)).toEqual([]);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("allow never asks about the screen", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      h.autoDecision = "decline";
+      expectDispatched(yield* send(h, { command: "key", window: refs.window, keys: "enter" }));
+      expect(h.events).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
 });

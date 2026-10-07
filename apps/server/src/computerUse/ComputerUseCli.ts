@@ -657,7 +657,9 @@ FOCUS
   everything at --shot coordinates bring the window to the front and take
   focus from the user: use them only when refs cannot do the job, and batch
   them. Never use keyboard shortcuts (e.g. cmd+t) to navigate an app when a
-  ref can do it. Input results say "tookFocus":true when the action brought
+  ref can do it. The user may be asked once per turn whether to show your
+  task on screen; if they keep it in the background, only refs, observe and
+  screenshot work until the turn ends. Input results say "tookFocus":true when the action brought
   the window to the front.
 
 THE LOOP
