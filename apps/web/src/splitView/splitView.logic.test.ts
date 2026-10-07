@@ -5,6 +5,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildSplitPair,
   clampSplitRatio,
+  isSplitPaneThreadGone,
   parsePersistedSplit,
   pickSplitCompanion,
   remainingAfterClose,
@@ -53,6 +54,31 @@ describe("split view logic", () => {
     ];
     expect(pickSplitCompanion(threads, ref("a"))?.id).toBe("c");
     expect(pickSplitCompanion(threads.slice(0, 1), ref("a"))).toBeNull();
+  });
+
+  it("never pairs a side chat", () => {
+    const threads = [
+      { environmentId: "env", id: "side", archivedAt: null, kind: "sidechat" },
+      { environmentId: "env", id: "c", archivedAt: null, kind: null },
+    ];
+    expect(pickSplitCompanion(threads, ref("a"))?.id).toBe("c");
+  });
+
+  it("treats a pane as gone only when absence is proven", () => {
+    const loaded = {
+      shellExists: true,
+      detailExists: true,
+      archived: false,
+      deleted: false,
+      environmentLive: true,
+    };
+    expect(isSplitPaneThreadGone(loaded)).toBe(false);
+    expect(isSplitPaneThreadGone({ ...loaded, archived: true })).toBe(true);
+    expect(isSplitPaneThreadGone({ ...loaded, deleted: true })).toBe(true);
+    const missing = { ...loaded, shellExists: false, detailExists: false };
+    expect(isSplitPaneThreadGone(missing)).toBe(true);
+    // Still connecting, or the environment was removed: wait instead of closing.
+    expect(isSplitPaneThreadGone({ ...missing, environmentLive: false })).toBe(false);
   });
 
   it("parses persisted state defensively", () => {

@@ -104,6 +104,63 @@ it.layer(NodeServices.layer)("side chat commands", (it) => {
       expect(event.payload).toMatchObject({ kind: null });
     }),
   );
+
+  it.effect("refuses a side chat without a parent", () =>
+    Effect.gen(function* () {
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.create",
+          commandId: CommandId.make("cmd-orphan"),
+          threadId: ThreadId.make("orphan-side"),
+          projectId: ProjectId.make("project-1"),
+          title: "Side chat",
+          modelSelection: parent.modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: NOW,
+          kind: "sidechat",
+        },
+        readModel,
+      }).pipe(Effect.flip);
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
+
+  it.effect("never turns an existing thread, such as a child agent, into a side chat", () =>
+    Effect.gen(function* () {
+      const child = { ...parent, id: ThreadId.make("child"), parentThreadId: parent.id };
+      const side = { ...child, id: ThreadId.make("side"), kind: "sidechat" as const };
+      const withThreads = {
+        ...readModel,
+        threads: [parent, child, side],
+      } as OrchestrationReadModel;
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.meta.update",
+          commandId: CommandId.make("cmd-demote"),
+          threadId: child.id,
+          kind: "sidechat",
+        },
+        readModel: withThreads,
+      }).pipe(Effect.flip);
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+
+      // Promoting a real side chat still works.
+      const promoted = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.meta.update",
+          commandId: CommandId.make("cmd-promote-side"),
+          threadId: side.id,
+          kind: null,
+        },
+        readModel: withThreads,
+      });
+      const event = Array.isArray(promoted) ? promoted[0]! : promoted;
+      expect(event.payload).toMatchObject({ threadId: "side", kind: null });
+    }),
+  );
 });
 
 describe("side chat handoff prelude", () => {

@@ -1790,12 +1790,17 @@ export default function ChatView(props: ChatViewProps) {
   );
   const legendListRef = useRef<LegendListRef | null>(null);
   const [threadFindOpen, setThreadFindOpen] = useState(false);
+  // Bumped on every find request so an already open bar refocuses its input.
+  const [threadFindFocusRequest, setThreadFindFocusRequest] = useState(0);
+  const openThreadFind = useCallback(() => {
+    setThreadFindOpen(true);
+    setThreadFindFocusRequest((request) => request + 1);
+  }, []);
   useEffect(() => {
     if (!splitPaneFocused) return;
-    const open = () => setThreadFindOpen(true);
-    window.addEventListener(THREAD_FIND_OPEN_EVENT, open);
-    return () => window.removeEventListener(THREAD_FIND_OPEN_EVENT, open);
-  }, [splitPaneFocused]);
+    window.addEventListener(THREAD_FIND_OPEN_EVENT, openThreadFind);
+    return () => window.removeEventListener(THREAD_FIND_OPEN_EVENT, openThreadFind);
+  }, [openThreadFind, splitPaneFocused]);
   const getTimelineScrollableNode = useCallback(
     () => legendListRef.current?.getScrollableNode() ?? null,
     [],
@@ -6619,16 +6624,17 @@ export default function ChatView(props: ChatViewProps) {
     messages: activeThread?.messages ?? EMPTY_THREAD_MESSAGES,
     providerName: activeThread?.session?.providerName,
   });
-  // onOpenTurnDiff is declared further down; a ref keeps this callback stable.
-  const openTurnDiffRef = useRef<(turnId: TurnId, filePath?: string) => void>(() => {});
+  // onOpenWorkingTreeDiff is declared further down; a ref keeps this callback stable.
+  const openWorkingTreeDiffRef = useRef<(filePath?: string) => void>(() => {});
   const openLiveEditedFileDiff = useCallback(
-    (turnId: string, filePath?: string) => openTurnDiffRef.current(turnId as TurnId, filePath),
+    (filePath?: string) => openWorkingTreeDiffRef.current(filePath),
     [],
   );
   const liveEditedFilesBannerItem = useLiveEditedFilesBanner({
     entries: workLogEntries,
     runningTurnId: activeRunningTurnId,
-    onOpenDiff: openLiveEditedFileDiff,
+    workspaceRoot: activeWorkspaceRoot,
+    onOpenWorkingTreeDiff: openLiveEditedFileDiff,
   });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const threadNoticeItems = [
@@ -6900,7 +6906,7 @@ export default function ChatView(props: ChatViewProps) {
         if (!chatOwnsFindShortcut(event.target, shortcutContext.terminalFocus)) return;
         event.preventDefault();
         event.stopPropagation();
-        setThreadFindOpen(true);
+        openThreadFind();
         return;
       }
 
@@ -7118,6 +7124,7 @@ export default function ChatView(props: ChatViewProps) {
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
     composerRef,
+    openThreadFind,
     splitPaneFocused,
   ]);
 
@@ -9661,7 +9668,17 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
   );
-  openTurnDiffRef.current = onOpenTurnDiff;
+  const onOpenWorkingTreeDiff = useCallback(
+    (filePath?: string) => {
+      if (!isServerThread || !activeThreadRef) return;
+      explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;
+      useDiffPanelStore.getState().selectWorkingTreeFile(activeThreadRef, filePath);
+      useRightPanelStore.getState().open(activeThreadRef, "diff");
+      onDiffPanelOpen?.();
+    },
+    [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
+  );
+  openWorkingTreeDiffRef.current = onOpenWorkingTreeDiff;
   // The revert handler is read from a ref at call-time so the callback
   // reference is fully stable and never busts TimelineRowCtx identity.
   const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
@@ -10066,6 +10083,7 @@ export default function ChatView(props: ChatViewProps) {
                   entries={displayedTimeline.entries}
                   listRef={legendListRef}
                   getViewport={getTimelineScrollableNode}
+                  focusRequest={threadFindFocusRequest}
                   onClose={() => setThreadFindOpen(false)}
                 />
               ) : null}

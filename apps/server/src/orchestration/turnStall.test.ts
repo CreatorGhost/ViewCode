@@ -5,6 +5,7 @@ import {
   findStalledTurns,
   nextStallCheckAt,
   recordTurnStallEvent,
+  sessionStillOnTurn,
   TURN_STALL_ACTIVE_TOOL_TIMEOUT_MS,
   TURN_STALL_TIMEOUT_MS,
   type TurnStallState,
@@ -23,8 +24,11 @@ const event = (type: string, extra: Record<string, unknown> = {}) =>
     ...extra,
   }) as unknown as ProviderRuntimeEvent;
 
-const fold = (events: ReadonlyArray<readonly [ProviderRuntimeEvent, number]>) =>
-  events.reduce<TurnStallState>((state, [e, at]) => recordTurnStallEvent(state, e, at), new Map());
+const fold = (events: ReadonlyArray<readonly [ProviderRuntimeEvent, number]>) => {
+  const state: TurnStallState = new Map();
+  for (const [e, at] of events) recordTurnStallEvent(state, e, at);
+  return state;
+};
 
 describe("turn stall tracking", () => {
   it("flags a turn that went silent past the deadline", () => {
@@ -46,8 +50,8 @@ describe("turn stall tracking", () => {
     ]);
     expect(findStalledTurns(running, TURN_STALL_TIMEOUT_MS)).toEqual([]);
     expect(nextStallCheckAt(running)).toBe(TURN_STALL_ACTIVE_TOOL_TIMEOUT_MS);
-    const done = recordTurnStallEvent(running, event("item.completed", tool), 10);
-    expect(nextStallCheckAt(done)).toBe(10 + TURN_STALL_TIMEOUT_MS);
+    expect(recordTurnStallEvent(running, event("item.completed", tool), 10)).toBe(true);
+    expect(nextStallCheckAt(running)).toBe(10 + TURN_STALL_TIMEOUT_MS);
   });
 
   it("never fires while the turn waits on the user", () => {
@@ -57,12 +61,10 @@ describe("turn stall tracking", () => {
     ]);
     expect(findStalledTurns(waiting, TURN_STALL_ACTIVE_TOOL_TIMEOUT_MS * 10)).toEqual([]);
     expect(nextStallCheckAt(waiting)).toBeNull();
-    const answered = recordTurnStallEvent(
-      waiting,
-      event("request.resolved", { requestId: "req-1" }),
-      50,
-    );
-    expect(nextStallCheckAt(answered)).toBe(50 + TURN_STALL_TIMEOUT_MS);
+    expect(
+      recordTurnStallEvent(waiting, event("request.resolved", { requestId: "req-1" }), 50),
+    ).toBe(true);
+    expect(nextStallCheckAt(waiting)).toBe(50 + TURN_STALL_TIMEOUT_MS);
   });
 
   it("stops tracking once the turn ends, and ignores events for untracked threads", () => {
@@ -71,6 +73,39 @@ describe("turn stall tracking", () => {
       [event("turn.completed"), 5],
     ]);
     expect(ended.size).toBe(0);
-    expect(recordTurnStallEvent(new Map(), event("content.delta"), 0).size).toBe(0);
+    const untracked: TurnStallState = new Map();
+    expect(recordTurnStallEvent(untracked, event("content.delta"), 0)).toBe(false);
+    expect(untracked.size).toBe(0);
+  });
+
+  it("asks for a re-plan only when the earliest deadline can move earlier", () => {
+    const state: TurnStallState = new Map();
+    const tool = { itemId: "item-1", payload: { itemType: "command_execution" } };
+    expect(recordTurnStallEvent(state, event("turn.started"), 0)).toBe(true);
+    const entry = state.get(THREAD);
+    // A delta moves the deadline later in place, without waking the loop.
+    expect(recordTurnStallEvent(state, event("content.delta"), 500)).toBe(false);
+    expect(state.get(THREAD)).toBe(entry);
+    expect(nextStallCheckAt(state)).toBe(500 + TURN_STALL_TIMEOUT_MS);
+    expect(recordTurnStallEvent(state, event("item.started", tool), 600)).toBe(true);
+    expect(recordTurnStallEvent(state, event("item.started", tool), 700)).toBe(false);
+    // Completing an item that is not an open tool changes no deadline.
+    expect(recordTurnStallEvent(state, event("item.completed", { itemId: "msg-1" }), 800)).toBe(
+      false,
+    );
+    expect(recordTurnStallEvent(state, event("item.completed", tool), 900)).toBe(true);
+    expect(recordTurnStallEvent(state, event("turn.completed"), 1_000)).toBe(true);
+    expect(recordTurnStallEvent(state, event("turn.completed"), 1_100)).toBe(false);
+  });
+});
+
+describe("sessionStillOnTurn", () => {
+  it("only confirms the stall for the turn the projection still shows active", () => {
+    expect(sessionStillOnTurn({ activeTurnId: "turn-1" }, "turn-1")).toBe(true);
+    expect(sessionStillOnTurn({ activeTurnId: "turn-2" }, "turn-1")).toBe(false);
+    expect(sessionStillOnTurn({ activeTurnId: null }, "turn-1")).toBe(false);
+    expect(sessionStillOnTurn(null, "turn-1")).toBe(false);
+    expect(sessionStillOnTurn(undefined, undefined)).toBe(false);
+    expect(sessionStillOnTurn({ activeTurnId: "turn-9" }, undefined)).toBe(true);
   });
 });

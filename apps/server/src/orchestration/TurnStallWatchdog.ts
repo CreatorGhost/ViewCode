@@ -21,6 +21,7 @@ import {
   findStalledTurns,
   nextStallCheckAt,
   recordTurnStallEvent,
+  sessionStillOnTurn,
   type TurnStallState,
 } from "./turnStall.ts";
 
@@ -48,7 +49,7 @@ export const make = Effect.gen(function* () {
   const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const crypto = yield* Crypto.Crypto;
 
-  let state: TurnStallState = new Map();
+  const state: TurnStallState = new Map();
   const changed = yield* Queue.sliding<void>(1);
   const uuid = crypto.randomUUIDv4;
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -80,11 +81,13 @@ export const make = Effect.gen(function* () {
 
   const endStalledTurn = (threadId: string, turnId: string | undefined, silentForMs: number) =>
     Effect.gen(function* () {
-      // Drop it first so the next round does not act on the same turn twice.
-      const next = new Map(state);
-      next.delete(threadId);
-      state = next;
       const id = ThreadId.make(threadId);
+      // The tracker can miss a turn's end (a session replaced without an exit
+      // event): only a turn the projection still shows running gets the error.
+      const current = yield* projections
+        .getThreadShellById(id)
+        .pipe(Effect.map(Option.getOrUndefined));
+      if (!sessionStillOnTurn(current?.session, turnId)) return;
       yield* Effect.logWarning("provider turn stalled; interrupting", {
         threadId,
         turnId,
@@ -122,6 +125,8 @@ export const make = Effect.gen(function* () {
     while (true) {
       const now = yield* Clock.currentTimeMillis;
       for (const stalled of findStalledTurns(state, now)) {
+        // Drop it first so the next round does not act on the same turn twice.
+        state.delete(stalled.threadId);
         yield* forkParked(endStalledTurn(stalled.threadId, stalled.turnId, stalled.silentForMs));
       }
       const next = nextStallCheckAt(state);
@@ -184,8 +189,11 @@ export const make = Effect.gen(function* () {
     yield* forkParked(
       Stream.runForEach(providers.streamEvents, (event) =>
         Effect.gen(function* () {
-          state = recordTurnStallEvent(state, event, yield* Clock.currentTimeMillis);
-          yield* Queue.offer(changed, undefined);
+          // Most events are deltas: O(1), and the loop is only woken when the
+          // earliest deadline can move earlier.
+          if (recordTurnStallEvent(state, event, yield* Clock.currentTimeMillis)) {
+            yield* Queue.offer(changed, undefined);
+          }
         }),
       ),
     );

@@ -31,6 +31,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 
+import { isChildAgent } from "../agents/AgentMessaging.ts";
 import { USAGE_RESUME_AUTO_SUMMARY } from "../agents/UsageResume.ts";
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
@@ -319,10 +320,14 @@ const make = Effect.gen(function* () {
       .getThreadShellById(threadId)
       .pipe(Effect.orElseSucceed(() => Option.none<OrchestrationThreadShell>()));
 
-  /** The top of an agent tree, for a child agent; null for a thread that has no lead. */
+  /**
+   * The top of an agent tree, for a child agent; null for a thread that has no
+   * lead. A side chat is the top of its own tree, so its push is titled as itself.
+   */
   const leadOf = Effect.fnUntraced(function* (thread: OrchestrationThreadShell) {
     let current = thread;
-    for (let hop = 0; hop < MAX_LEAD_HOPS && current.parentThreadId; hop += 1) {
+    for (let hop = 0; hop < MAX_LEAD_HOPS && isChildAgent(current); hop += 1) {
+      if (!current.parentThreadId) break;
       const parent = yield* threadShell(current.parentThreadId);
       if (Option.isNone(parent)) break;
       current = parent.value;

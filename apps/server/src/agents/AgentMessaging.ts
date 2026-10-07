@@ -371,6 +371,15 @@ function isLive(status: OrchestrationSessionStatus): boolean {
   return status === "running" || status === "starting";
 }
 
+/**
+ * A child agent: a thread under a lead. A side chat also carries
+ * `parentThreadId` but is a quick question beside its parent, never an agent
+ * the parent leads.
+ */
+export function isChildAgent(thread: Pick<OrchestrationThreadShell, "parentThreadId" | "kind">) {
+  return thread.parentThreadId != null && thread.kind !== "sidechat";
+}
+
 /** Root first, then every descendant of that root. */
 export function agentTree(
   threads: ReadonlyArray<OrchestrationThreadShell>,
@@ -380,8 +389,8 @@ export function agentTree(
   let root = byId.get(caller);
   const seen = new Set<string>();
   while (
-    root?.parentThreadId &&
-    root.kind !== "sidechat" &&
+    root &&
+    isChildAgent(root) &&
     byId.has(String(root.parentThreadId)) &&
     !seen.has(String(root.id))
   ) {
@@ -393,9 +402,7 @@ export function agentTree(
   for (let index = 0; index < tree.length; index += 1) {
     const current = String(tree[index]!.id);
     for (const thread of threads) {
-      // A side chat is a quick question beside its parent, not an agent in the tree.
-      if (thread.kind === "sidechat") continue;
-      if (thread.parentThreadId && String(thread.parentThreadId) === current) tree.push(thread);
+      if (isChildAgent(thread) && String(thread.parentThreadId) === current) tree.push(thread);
     }
   }
   return tree;
@@ -857,7 +864,7 @@ const make = Effect.gen(function* () {
         return {
           id: thread.id,
           name: thread.title,
-          parentId: thread.parentThreadId ?? null,
+          parentId: isChildAgent(thread) ? (thread.parentThreadId ?? null) : null,
           relation: relationOf(thread, self),
           provider: String(thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
           model: thread.modelSelection.model,
@@ -1141,7 +1148,8 @@ const make = Effect.gen(function* () {
    * An agent's limit no longer holds. Messages already queued for it were sent
    * on purpose, so they go out now. With none queued, a child is not continued
    * on its own (its lead may have moved the work): the lead is told instead,
-   * which starts a turn for it like any other agent message.
+   * which starts a turn for it like any other agent message. A side chat has
+   * no lead; UsageResume continues it like any top-level thread.
    */
   const releaseMark = Effect.fnUntraced(function* (id: string, mark: LimitMark) {
     const threadId = ThreadId.make(id);
@@ -1150,8 +1158,8 @@ const make = Effect.gen(function* () {
     if (hadQueue) return;
     const threads = yield* shells;
     const child = threads.find((entry) => entry.id === threadId);
-    if (!child?.parentThreadId || child.archivedAt !== null || isBusy(child) || ownTurns.has(id))
-      return;
+    if (!child || !isChildAgent(child) || child.archivedAt !== null || isBusy(child)) return;
+    if (ownTurns.has(id)) return;
     const lead = threads.find((entry) => entry.id === child.parentThreadId);
     if (!lead || lead.archivedAt !== null) return;
     const nowMs = yield* now;

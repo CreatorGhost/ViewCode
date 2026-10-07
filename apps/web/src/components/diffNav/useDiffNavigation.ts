@@ -4,13 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveShortcutCommand } from "../../keybindings";
 import { isEditableFocused } from "../../lib/editableFocus";
 import { isTerminalFocused } from "../../lib/terminalFocus";
+import { useSplitPaneFocused } from "../../splitView/SplitPaneContext";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { stepChangeIndex } from "./diffNav.logic";
 
 /**
  * Next/previous changed file and the jump-to-file picker for the diff panel.
  * The panel is only mounted while the diff is open, so `diffOpen` is true for
- * the keybinding `when` clauses.
+ * the keybinding `when` clauses. In split view only the focused pane's panel listens.
  */
 export function useDiffNavigation(paths: ReadonlyArray<string>, reveal: (path: string) => void) {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -42,7 +43,9 @@ export function useDiffNavigation(paths: ReadonlyArray<string>, reveal: (path: s
     [reveal],
   );
 
+  const paneFocused = useSplitPaneFocused();
   useEffect(() => {
+    if (!paneFocused) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const command = resolveShortcutCommand(event, keybindings, {
@@ -60,7 +63,7 @@ export function useDiffNavigation(paths: ReadonlyArray<string>, reveal: (path: s
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [keybindings, step]);
+  }, [keybindings, paneFocused, step]);
 
   return { step, jump, jumpOpen, setJumpOpen };
 }

@@ -29,45 +29,93 @@ const clearHighlights = () => setHighlights([], null);
 
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
+/** How often streamed output may re-run the search and repaint the highlights. */
+export const THREAD_FIND_REFRESH_MS = 250;
+
+/**
+ * `value`, updated at most once per `intervalMs` (leading and trailing), so a
+ * transcript that changes per streamed token is searched a few times a second.
+ */
+function useThrottledValue<T>(value: T, intervalMs: number): T {
+  const [throttled, setThrottled] = useState(value);
+  const committedAtRef = useRef(0);
+  useEffect(() => {
+    if (Object.is(value, throttled)) return;
+    const commit = () => {
+      committedAtRef.current = Date.now();
+      setThrottled(value);
+    };
+    const wait = committedAtRef.current + intervalMs - Date.now();
+    if (wait <= 0) {
+      commit();
+      return;
+    }
+    const timer = setTimeout(commit, wait);
+    return () => clearTimeout(timer);
+  }, [intervalMs, throttled, value]);
+  return throttled;
+}
+
 /**
  * Find in thread. Matches are computed from client state; for the active one
  * the virtualised row is scrolled into view, then the rendered text of the
- * mounted rows is highlighted through the CSS Custom Highlight API.
+ * mounted rows is highlighted through the CSS Custom Highlight API. While a
+ * reply streams, the search and highlights refresh on a throttle and the
+ * scroll position is only moved when the active match itself changes.
  */
 export function ThreadFindBar({
   entries,
   listRef,
   getViewport,
+  focusRequest = 0,
   onClose,
 }: {
   entries: ReadonlyArray<TimelineEntry>;
   listRef: RefObject<LegendListRef | null>;
   getViewport: () => HTMLElement | null;
+  /** Bump to refocus and select the input (the find shortcut while the bar is already open). */
+  focusRequest?: number;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
-  const matches = useMemo(() => findThreadMatches(entries, query), [entries, query]);
+  const searchedEntries = useThrottledValue(entries, THREAD_FIND_REFRESH_MS);
+  const matches = useMemo(
+    () => findThreadMatches(searchedEntries, query),
+    [searchedEntries, query],
+  );
   const current = matches.length === 0 ? -1 : Math.min(Math.max(index, 0), matches.length - 1);
+  const active: ThreadFindMatch | undefined = matches[current];
+  const activeEntryId = active?.entryId ?? null;
+  const activeMessageId = active?.messageId ?? null;
+  const activeOccurrence = active?.occurrence ?? -1;
+  // The match last scrolled to; new matches from streamed text leave it alone.
+  const scrolledKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
-    return clearHighlights;
-  }, []);
+  }, [focusRequest]);
+  useEffect(() => clearHighlights, []);
 
   useEffect(() => {
     let cancelled = false;
-    const active: ThreadFindMatch | undefined = matches[current];
+    let settled = false;
+    const activeKey =
+      activeEntryId === null ? null : `${query}\u0000${activeEntryId}\u0000${activeOccurrence}`;
+    const shouldScroll = activeKey !== null && activeKey !== scrolledKeyRef.current;
+    scrolledKeyRef.current = activeKey;
     void (async () => {
       const list = listRef.current;
       const viewport = getViewport();
       if (!viewport || matches.length === 0) return clearHighlights();
-      if (active) {
-        const rowIndex = list?.getState().indexByKey(active.entryId);
-        const row = () =>
-          viewport.querySelector(`[data-message-id="${CSS.escape(active.messageId)}"]`);
+      const row = () =>
+        activeMessageId === null
+          ? null
+          : viewport.querySelector(`[data-message-id="${CSS.escape(activeMessageId)}"]`);
+      if (shouldScroll && activeEntryId !== null) {
+        const rowIndex = list?.getState().indexByKey(activeEntryId);
         if (rowIndex !== undefined && row() === null) {
           await list?.scrollToIndex({ index: rowIndex, animated: false, viewOffset: 80 });
           // The row mounts and measures over a couple of frames.
@@ -77,24 +125,24 @@ export function ThreadFindBar({
       }
       if (cancelled) return;
       const all = collectTextRanges(viewport, query);
-      const inMessage = active
-        ? collectTextRanges(
-            viewport.querySelector(`[data-message-id="${CSS.escape(active.messageId)}"]`) ??
-              viewport,
-            query,
-          )
-        : [];
+      const activeRow = row();
+      const inMessage = activeRow ? collectTextRanges(activeRow, query) : [];
       // Source text and rendered text can differ (markdown syntax), so clamp.
-      const activeRange = active
-        ? (inMessage[Math.min(active.occurrence, inMessage.length - 1)] ?? null)
-        : null;
+      const activeRange =
+        activeOccurrence >= 0
+          ? (inMessage[Math.min(activeOccurrence, inMessage.length - 1)] ?? null)
+          : null;
       setHighlights(all, activeRange);
-      activeRange?.startContainer.parentElement?.scrollIntoView({ block: "nearest" });
+      settled = true;
+      if (shouldScroll)
+        activeRange?.startContainer.parentElement?.scrollIntoView({ block: "nearest" });
     })();
     return () => {
       cancelled = true;
+      // Superseded before landing: let the next run scroll to the match again.
+      if (shouldScroll && !settled) scrolledKeyRef.current = null;
     };
-  }, [matches, current, query, listRef, getViewport]);
+  }, [matches, activeEntryId, activeMessageId, activeOccurrence, query, listRef, getViewport]);
 
   const step = (direction: 1 | -1) => setIndex(stepFindIndex(matches.length, current, direction));
 

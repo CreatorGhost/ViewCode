@@ -1,7 +1,6 @@
 import {
   assessClaudePromptCache,
   formatClaudeCacheNotice,
-  msUntilClaudeCacheExpiry,
   CLAUDE_DEFAULT_CACHE_TTL_SECONDS,
 } from "@t3tools/shared/claudePromptCache";
 import type { OrchestrationThreadActivity } from "@t3tools/contracts";
@@ -9,6 +8,7 @@ import { SnowflakeIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../ui/button";
+import { claudeCacheClockDelayMs } from "./claudeCacheClock.logic";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 
 interface LatestUsage {
@@ -58,14 +58,14 @@ export function useClaudeCacheBanner(input: {
 
   useEffect(() => {
     if (!usage || running) return;
-    const wait = msUntilClaudeCacheExpiry({
+    const delay = claudeCacheClockDelayMs({
       lastUsedAt: usage.lastUsedAt,
       ttlSeconds: usage.ttlSeconds ?? CLAUDE_DEFAULT_CACHE_TTL_SECONDS,
       nowMs: Date.now(),
     });
-    // Already expired: `nowMs` is refreshed by the next render that has new usage.
-    if (wait <= 0) return;
-    const timer = window.setTimeout(() => setNowMs(Date.now()), wait + 250);
+    // A zero delay brings `nowMs` forward for an already-expired cache; it can predate
+    // this usage after a thread switch, and the assessment then never warns.
+    const timer = window.setTimeout(() => setNowMs(Date.now()), delay);
     return () => window.clearTimeout(timer);
   }, [running, usage]);
 

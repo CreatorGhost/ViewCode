@@ -216,6 +216,16 @@ const planThreadForkEvents = Effect.fnUntraced(function* (input: {
     });
   }
   const sourceTitle = forkFrom.sourceTitle?.trim() || "another thread";
+  // Clients order a timeline by createdAt and put messages first on a tie, so
+  // the divider takes 1 ms before the first copied message to lead the fork.
+  const firstCopiedAt = forkFrom.messages[0]?.createdAt;
+  const dividerAt =
+    firstCopiedAt === undefined
+      ? input.createdAt
+      : Option.match(DateTime.make(firstCopiedAt), {
+          onNone: () => firstCopiedAt,
+          onSome: (at) => DateTime.formatIso(DateTime.subtract(at, { milliseconds: 1 })),
+        });
   events.push({
     ...(yield* withEventBase({
       aggregateKind: "thread",
@@ -238,8 +248,7 @@ const planThreadForkEvents = Effect.fnUntraced(function* (input: {
           messageCount: forkFrom.messages.length,
         },
         turnId: null,
-        // Sorts before the copied history so the divider leads the fork.
-        createdAt: forkFrom.messages[0]?.createdAt ?? input.createdAt,
+        createdAt: dividerAt,
       },
     },
   });
@@ -259,6 +268,7 @@ type DecideOrchestrationCommandResult =
 function listDescendantThreads(
   readModel: OrchestrationReadModel,
   threadId: OrchestrationThread["id"],
+  options?: { readonly skipSidechats?: boolean },
 ): OrchestrationThread[] {
   const descendants: OrchestrationThread[] = [];
   const seen = new Set<string>([threadId]);
@@ -267,6 +277,7 @@ function listDescendantThreads(
     const parentId = queue.shift();
     for (const thread of readModel.threads) {
       if (thread.deletedAt !== null || thread.parentThreadId !== parentId) continue;
+      if (options?.skipSidechats && thread.kind === "sidechat") continue;
       if (seen.has(thread.id)) continue;
       seen.add(thread.id);
       descendants.push(thread);
@@ -495,6 +506,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.parentThreadId,
         });
       }
+      // A side chat is a question beside its parent; without one it has no context and no cascade.
+      if (command.kind === "sidechat" && !command.parentThreadId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Side chat ${command.threadId} needs a parent thread.`,
+        });
+      }
       const threadCreatedEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -598,9 +616,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const unarchiveChildren = listDescendantThreads(readModel, command.threadId).filter(
-        (thread) => thread.archivedAt !== null,
-      );
+      // Side chats (and anything below them) stay archived: they expire on
+      // purpose, and reviving every old question with the parent is noise.
+      const unarchiveChildren = listDescendantThreads(readModel, command.threadId, {
+        skipSidechats: true,
+      }).filter((thread) => thread.archivedAt !== null);
       if (command.cascade !== false && unarchiveChildren.length > 0) {
         return yield* decideCommandSequence({
           readModel,
@@ -1119,6 +1139,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // `kind` only goes one way: promoting a side chat (null) makes it an
+      // ordinary thread. Turning a thread into a side chat would silently pull a
+      // child agent out of its lead's tree, so a side chat is only ever created as one.
+      if (command.kind === "sidechat" && thread.kind !== "sidechat") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread ${command.threadId} cannot become a side chat after it is created.`,
+        });
+      }
       // Old clients only see the derived single link. Unlink that request through
       // the same command path as modern clients, including stack dismissal, while
       // retaining other links they cannot see. Historical metadata events still replay unchanged.

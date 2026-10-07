@@ -27,7 +27,12 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProviderModelPicker } from "./ProviderModelPicker";
-import { resolveActiveSidechat, sidechatsOf } from "./sidechat.logic";
+import {
+  FRESH_SIDECHAT,
+  isPinnedToBottom,
+  resolveActiveSidechat,
+  sidechatsOf,
+} from "./sidechat.logic";
 import { useSidechatActions } from "./useSidechatActions";
 
 const EMPTY_PROMPT_HINT = "Ask a quick question about this thread";
@@ -112,9 +117,13 @@ export const SidechatDock = memo(function SidechatDock(props: {
   const running = isRunning(thread?.session?.status);
   const messages = thread?.messages ?? [];
   const lastMessage = messages.at(-1);
-  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  // Follow new output only while the reader is at the bottom; scrolling up to
+  // reread is never yanked back by the next streamed token.
+  const stickToBottomRef = useRef(true);
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ block: "end" });
+    const transcript = transcriptRef.current;
+    if (transcript && stickToBottomRef.current) transcript.scrollTop = transcript.scrollHeight;
   }, [messages.length, lastMessage?.text.length]);
 
   const submit = useCallback(async () => {
@@ -122,6 +131,7 @@ export const SidechatDock = memo(function SidechatDock(props: {
     if (text.length === 0 || sending || running) return;
     setSending(true);
     setDraft("");
+    stickToBottomRef.current = true;
     try {
       if (activeRef === null) {
         await ask({ parent, question: text, modelSelection: selection });
@@ -183,7 +193,8 @@ export const SidechatDock = memo(function SidechatDock(props: {
                 size="icon-xs"
                 aria-label="New side chat"
                 onClick={() => {
-                  useSidechatDockStore.getState().setActive(parentRef, null);
+                  useSidechatDockStore.getState().setActive(parentRef, FRESH_SIDECHAT);
+                  stickToBottomRef.current = true;
                   setPicked(null);
                   setDraft("");
                 }}
@@ -228,7 +239,13 @@ export const SidechatDock = memo(function SidechatDock(props: {
         </Tooltip>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div
+        ref={transcriptRef}
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        onScroll={(event) => {
+          stickToBottomRef.current = isPinnedToBottom(event.currentTarget);
+        }}
+      >
         {messages.length === 0 ? (
           <p className="px-1 pt-6 text-center text-sm text-muted-foreground">
             Ask anything about this thread without interrupting it. The side chat starts with what
@@ -260,7 +277,6 @@ export const SidechatDock = memo(function SidechatDock(props: {
         {running && lastMessage?.role !== "assistant" ? (
           <p className="pt-3 text-xs text-muted-foreground">Working…</p>
         ) : null}
-        <div ref={transcriptEndRef} />
       </div>
 
       <footer className="shrink-0 border-t border-border p-3">

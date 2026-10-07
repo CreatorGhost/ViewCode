@@ -12,6 +12,7 @@ import {
   TurnId,
   ProviderInstanceId,
   OrchestrationMessageContext,
+  OrchestrationShellSnapshot,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -43,6 +44,7 @@ const encodeChatAttachments = Schema.encodeEffect(
 const encodeThreadLinkedPullRequest = Schema.encodeSync(
   Schema.fromJsonString(ThreadLinkedPullRequest),
 );
+const encodeShellSnapshot = Schema.encodeEffect(OrchestrationShellSnapshot);
 const encodeMessageContext = Schema.encodeEffect(
   Schema.fromJsonString(OrchestrationMessageContext),
 );
@@ -110,6 +112,40 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("reads a thread kind it does not know as no kind, keeping the snapshot encodable", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const query = yield* ProjectionSnapshotQuery;
+      const timestamp = "2026-09-01T00:00:00.000Z";
+      yield* sql`INSERT INTO projection_projects
+        (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+        VALUES ('kind-project', 'Project', '/tmp/kind-project', '[]', ${timestamp}, ${timestamp})`;
+      yield* sql`INSERT INTO projection_threads
+        (thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode, created_at, updated_at, parent_thread_id, kind)
+        VALUES
+        ('kind-main', 'kind-project', 'Main', '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access', 'default', ${timestamp}, ${timestamp}, NULL, NULL),
+        ('kind-side', 'kind-project', 'Side', '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access', 'default', ${timestamp}, ${timestamp}, 'kind-main', 'sidechat'),
+        ('kind-future', 'kind-project', 'Future', '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access', 'default', ${timestamp}, ${timestamp}, 'kind-main', 'from-a-newer-server')`;
+
+      const snapshot = yield* query.getShellSnapshot();
+      const kindOf = (id: string) => snapshot.threads.find((thread) => thread.id === id)?.kind;
+      assert.equal(kindOf("kind-side"), "sidechat");
+      assert.equal(kindOf("kind-future"), undefined);
+      assert.equal(
+        Option.getOrThrow(yield* query.getThreadShellById(ThreadId.make("kind-future"))).kind,
+        undefined,
+      );
+      // One unknown value must not fail the encode every client bootstraps from.
+      yield* encodeShellSnapshot(snapshot);
+
+      yield* sql`DELETE FROM projection_threads WHERE project_id = 'kind-project'`;
+      yield* sql`DELETE FROM projection_projects WHERE project_id = 'kind-project'`;
+    }),
+  );
+
   it.effect("projects a bounded preview of the latest completed message", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

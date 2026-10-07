@@ -61,6 +61,18 @@ describe("migrateToTealLook", () => {
     expect(storage.getItem("t3code:theme")).toBe("viewcode");
   });
 
+  it("keeps the original look as the undo target when the first migration already ran", () => {
+    const storage = memoryStorage({
+      [LOOK_MIGRATION_KEY]: "1",
+      "t3code:theme": "viewcode",
+      "viewcode:look-previous:v1": JSON.stringify({ theme: "ocean", halves: null }),
+    });
+    expect(migrateToTealLook(storage)).toBe(true);
+    expect(storage.getItem("t3code:theme")).toBe("viewcode-teal");
+    undoViewCodeLookMigration(storage);
+    expect(storage.getItem("t3code:theme")).toBe("ocean");
+  });
+
   it("leaves any other chosen theme alone", () => {
     const storage = memoryStorage({ "t3code:theme": "viewcode-dracula" });
     expect(migrateToTealLook(storage)).toBe(false);

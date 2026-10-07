@@ -1,8 +1,8 @@
-import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
-import { buildRailUsageRings, railRingTone } from "./appRail.logic";
+import { buildRailUsageRings, railRingTone, resolveRailEnvironmentId } from "./appRail.logic";
 
 function entry(
   id: string,
@@ -75,5 +75,42 @@ describe("buildRailUsageRings", () => {
       entry("b", "opencode", []),
     ]);
     expect(rings).toHaveLength(0);
+  });
+});
+
+describe("resolveRailEnvironmentId", () => {
+  const primary = EnvironmentId.make("env-primary");
+  const remote = EnvironmentId.make("env-remote");
+  const draft = EnvironmentId.make("env-draft");
+
+  it("follows the open thread's environment, then its draft, then the primary", () => {
+    expect(
+      resolveRailEnvironmentId({
+        routeEnvironmentId: remote,
+        draftEnvironmentId: draft,
+        primaryEnvironmentId: primary,
+      }),
+    ).toBe(remote);
+    expect(
+      resolveRailEnvironmentId({
+        routeEnvironmentId: null,
+        draftEnvironmentId: draft,
+        primaryEnvironmentId: primary,
+      }),
+    ).toBe(draft);
+    expect(
+      resolveRailEnvironmentId({
+        routeEnvironmentId: null,
+        draftEnvironmentId: null,
+        primaryEnvironmentId: primary,
+      }),
+    ).toBe(primary);
+    expect(
+      resolveRailEnvironmentId({
+        routeEnvironmentId: null,
+        draftEnvironmentId: null,
+        primaryEnvironmentId: null,
+      }),
+    ).toBeNull();
   });
 });

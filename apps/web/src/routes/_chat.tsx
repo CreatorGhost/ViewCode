@@ -4,6 +4,8 @@ import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { ThreadRouteView } from "../components/ThreadRouteView";
+import { ThreadTabsHost } from "../components/tabs/OpenThreadTabs";
+import { RecentThreadSwitcher } from "../components/tabs/RecentThreadSwitcher";
 import { SplitChatSurface } from "../splitView/SplitChatSurface";
 import { useActiveSplit, useSplitActions } from "../splitView/useSplitView";
 import { resolveThreadRouteTarget } from "../threadRoutes";
@@ -212,6 +214,13 @@ function ChatRouteLayout() {
   return (
     <>
       <ChatRouteGlobalShortcuts />
+      {/* Tabs and Ctrl-Tab follow the route thread, which is the focused pane in split view. */}
+      {threadTarget ? (
+        <>
+          <ThreadTabsHost />
+          <RecentThreadSwitcher />
+        </>
+      ) : null}
       {threadTarget && split && threadTarget.kind === "server" ? (
         <SplitChatSurface pair={split.pair} focusedIndex={split.focusedIndex} />
       ) : threadTarget ? (

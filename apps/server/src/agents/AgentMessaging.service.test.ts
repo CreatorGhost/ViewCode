@@ -73,6 +73,8 @@ const makeHarness = Effect.gen(function* () {
   const instances = yield* Ref.make(new Map<string, string>());
   /** Threads the user archived. */
   const archivedIds = new Set<string>();
+  /** Threads that are side chats of their parent rather than child agents. */
+  const sidechatIds = new Set<string>();
   /** The claudeAgent instance's usage windows, once a test publishes a reading. */
   const usage = yield* Ref.make<
     | {
@@ -211,6 +213,7 @@ const makeHarness = Effect.gen(function* () {
       worktreePath: null,
       archivedAt: archivedIds.has(id) ? "2026-01-01T00:00:00.000Z" : null,
       parentThreadId,
+      ...(sidechatIds.has(id) ? { kind: "sidechat" } : {}),
       latestTurn: turnId || lastError ? null : { turnId: "earlier-turn", state: "completed" },
       session: turnId
         ? {
@@ -417,6 +420,7 @@ const makeHarness = Effect.gen(function* () {
     models,
     instances,
     archivedIds,
+    sidechatIds,
     /** A fresh usage reading for claudeAgent reaches the service. */
     publishUsage: (
       windows: ReadonlyArray<{ usedPercent: number; resetsAt?: string }>,
@@ -760,6 +764,26 @@ describe("AgentMessaging", () => {
             assert.isFalse(starts.slice(before).some((start) => start.threadId === CHILD));
           }),
         ),
+    );
+
+    it.effect("does not wake the parent when a side chat's reset passes", () =>
+      withMessaging((harness, messaging, settle) =>
+        Effect.gen(function* () {
+          harness.sidechatIds.add(CHILD);
+          yield* harness.userPrompt(CHILD, "Quick question");
+          yield* setError(harness, CHILD, KNOWN_LIMIT);
+          yield* harness.endTurn(CHILD, undefined, "error");
+          yield* settle;
+          const before = (yield* harness.starts).length;
+
+          yield* setError(harness, CHILD, undefined);
+          yield* TestClock.adjust(Duration.millis(TWO_HOURS + MARGIN));
+          yield* settle;
+
+          // UsageResume continues a side chat itself; its parent is not its lead.
+          assert.equal((yield* harness.starts).length, before);
+        }),
+      ),
     );
 
     it.effect("clears every mark on the instance after a successful turn there", () =>

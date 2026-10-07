@@ -1,6 +1,6 @@
 import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpRightIcon, GaugeIcon } from "lucide-react";
+import { ArrowUpRightIcon } from "lucide-react";
 import { Fragment, memo, useState } from "react";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -13,7 +13,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useComposerMenuProps } from "./composerEventScope";
 import {
   buildUsageSections,
-  buildAccountUsageSections,
   formatBankedResets,
   formatContextWindowSummary,
   formatUsageReset,
@@ -133,86 +132,7 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
             key={`${props.environmentId}:${leadEntry.instanceId}`}
             environmentId={props.environmentId}
             instanceEntries={[leadEntry]}
-            scope="selected"
             contextWindow={props.contextWindow}
-            onClose={() => setOpen(false)}
-          />
-        ) : null}
-      </PopoverPopup>
-    </Popover>
-  );
-});
-
-/** All enabled accounts in this chat's environment, separate from its context window. */
-export const AccountUsagePopover = memo(function AccountUsagePopover(props: {
-  environmentId: EnvironmentId;
-  instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
-}) {
-  const [open, setOpen] = useState(false);
-  const entries = props.instanceEntries.filter((entry) => entry.enabled && entry.isAvailable);
-  const headlines = entries
-    .flatMap((entry) => {
-      const window = planUsageWindow(entry.snapshot.usageLimits, entry.driverKind);
-      return window
-        ? [{ ...window, providerName: entry.displayName, instanceId: entry.instanceId }]
-        : [];
-    })
-    .toSorted((a, b) => b.usedPercent - a.usedPercent)
-    .slice(0, 2);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <PopoverTrigger
-              render={<Button variant="outline" size="sm" aria-label="Account usage" />}
-            />
-          }
-        >
-          <GaugeIcon aria-hidden="true" className="size-4" />
-          <span className="flex w-4 flex-col gap-1" aria-hidden="true">
-            {[0, 1].map((index) => {
-              const percent = headlines[index]?.usedPercent ?? 0;
-              return (
-                <span key={index} className="h-1 overflow-hidden rounded-full bg-foreground/15">
-                  <span
-                    className={cn(
-                      "block h-full rounded-full",
-                      toneFillClassName(usageTone(percent)),
-                    )}
-                    style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
-                  />
-                </span>
-              );
-            })}
-          </span>
-        </TooltipTrigger>
-        <TooltipPopup side="bottom">
-          <div className="flex flex-col gap-1">
-            <span>Account usage and resets</span>
-            {headlines.map((window) => (
-              <span key={window.instanceId}>
-                {window.providerName}: {formatUsedPercent(window.usedPercent)} used
-              </span>
-            ))}
-          </div>
-        </TooltipPopup>
-      </Tooltip>
-      <PopoverPopup
-        side="bottom"
-        align="end"
-        sideOffset={10}
-        padding="none"
-        variant="floating"
-        collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
-      >
-        {open ? (
-          <UsageLimitsPanel
-            key={props.environmentId}
-            environmentId={props.environmentId}
-            instanceEntries={entries}
-            scope="accounts"
-            contextWindow={null}
             onClose={() => setOpen(false)}
           />
         ) : null}
@@ -225,23 +145,19 @@ export const AccountUsagePopover = memo(function AccountUsagePopover(props: {
 function UsageLimitsPanel(props: {
   environmentId: EnvironmentId;
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
-  scope: "selected" | "accounts";
   contextWindow: ContextWindowSnapshot | null;
   onClose: () => void;
 }) {
   const { environmentId, instanceEntries, contextWindow } = props;
   const navigate = useNavigate();
   const { refreshing, openedAt, error } = useUsageRefreshOnOpen(environmentId, instanceEntries);
-  const sections =
-    props.scope === "accounts"
-      ? buildAccountUsageSections(instanceEntries.map(usageProviderInput), refreshing)
-      : instanceEntries[0]
-        ? buildUsageSections({
-            lead: usageProviderInput(instanceEntries[0]),
-            agentProviders: [],
-            refreshingInstanceIds: refreshing,
-          }).map((section) => ({ ...section, title: instanceEntries[0]!.displayName }))
-        : [];
+  const sections = instanceEntries[0]
+    ? buildUsageSections({
+        lead: usageProviderInput(instanceEntries[0]),
+        agentProviders: [],
+        refreshingInstanceIds: refreshing,
+      }).map((section) => ({ ...section, title: instanceEntries[0]!.displayName }))
+    : [];
   // Reset times read from the moment the panel opened; a ticking clock would repaint it.
   const now = openedAt;
   const entryById = new Map(instanceEntries.map((entry) => [entry.instanceId, entry]));
@@ -249,9 +165,7 @@ function UsageLimitsPanel(props: {
   return (
     <div className="flex max-h-[min(70vh,var(--available-height))] w-82.5 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto pt-3 pb-1">
       <div className="flex items-center justify-between gap-2 px-4">
-        <span className="font-semibold text-muted-foreground text-sm">
-          {props.scope === "accounts" ? "Account usage" : "Context and usage"}
-        </span>
+        <span className="font-semibold text-muted-foreground text-sm">Context and usage</span>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -303,9 +217,7 @@ function UsageLimitsPanel(props: {
           </section>
           <div className="mx-4 border-border/70 border-t" />
         </>
-      ) : props.scope === "selected" &&
-        instanceEntries[0] &&
-        instanceEntries[0].snapshot.reportsContextWindow !== true ? (
+      ) : instanceEntries[0] && instanceEntries[0].snapshot.reportsContextWindow !== true ? (
         // Say so rather than leave a gap under "Context and usage": a missing
         // row reads as broken, and account usage below is a different measure.
         <>

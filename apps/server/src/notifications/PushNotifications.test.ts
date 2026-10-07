@@ -54,6 +54,7 @@ const registration = (
 type ShellState = {
   readonly title?: string;
   readonly parentThreadId?: string | null;
+  readonly kind?: "sidechat";
   readonly status?: "running" | "ready" | "error" | "starting" | null;
   readonly turnId?: string | null;
   readonly turnState?: "running" | "completed" | "error" | "interrupted";
@@ -70,6 +71,7 @@ const shellOf = (id: string, state: ShellState): OrchestrationThreadShell =>
     title: state.title ?? `Thread ${id}`,
     modelSelection: { instanceId: "claudeAgent", model: "sonnet" },
     parentThreadId: state.parentThreadId ?? null,
+    ...(state.kind ? { kind: state.kind } : {}),
     archivedAt: state.archived ? "2026-01-01T00:00:00.000Z" : null,
     updatedAt: "2026-01-01T00:00:00.000Z",
     hasPendingApprovals: state.approval ?? false,
@@ -367,6 +369,28 @@ describe("PushNotifications", () => {
         assert.equal(message?.title, "Ship v2");
         assert.equal(message?.body, "Write tests: Finished");
         assert.equal(message?.data.threadId, "child");
+      }),
+    ),
+  );
+
+  it.effect("titles a side chat's notification as itself, not its parent", () =>
+    withPush((harness, push, settle) =>
+      Effect.gen(function* () {
+        yield* push.register(PHONE, registration());
+        yield* harness.set("main", { title: "Ship v2" });
+        const side = { title: "Why this?", parentThreadId: "main", kind: "sidechat" } as const;
+        yield* harness.set("side", { ...side, status: "running", turnId: "turn-s" });
+        yield* harness.set("side", {
+          ...side,
+          status: "ready",
+          turnId: "turn-s",
+          turnState: "completed",
+        });
+        yield* settle;
+        const [message] = yield* Ref.get(harness.sent);
+        assert.equal(message?.title, "Why this?");
+        assert.equal(message?.body, "Finished");
+        assert.equal(message?.data.threadId, "side");
       }),
     ),
   );

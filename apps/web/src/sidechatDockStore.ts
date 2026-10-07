@@ -5,10 +5,11 @@
  * dock drops into its composer (the "Ask in side chat" selection action).
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import type { SidechatPreference } from "./components/chat/sidechat.logic";
 import { resolveStorage } from "./lib/storage";
 
 export const SIDECHAT_DOCK_MIN_WIDTH_PX = 300;
@@ -17,8 +18,8 @@ export const SIDECHAT_DOCK_DEFAULT_WIDTH_PX = 380;
 
 export interface SidechatDockState {
   readonly open: boolean;
-  /** The side chat last shown for this parent; null until one exists. */
-  readonly activeThreadId: ThreadId | null;
+  /** The side chat last shown for this parent, or "fresh" after "New side chat". */
+  readonly activeThreadId: SidechatPreference;
   readonly prefill: string | null;
 }
 
@@ -30,7 +31,7 @@ interface SidechatDockStoreState {
   open: (parent: ScopedThreadRef, input?: { prefill?: string | undefined }) => void;
   close: (parent: ScopedThreadRef) => void;
   toggle: (parent: ScopedThreadRef) => void;
-  setActive: (parent: ScopedThreadRef, threadId: ThreadId | null) => void;
+  setActive: (parent: ScopedThreadRef, threadId: SidechatPreference) => void;
   consumePrefill: (parent: ScopedThreadRef) => string | null;
   setWidth: (widthPx: number) => void;
 }

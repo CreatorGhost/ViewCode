@@ -129,6 +129,33 @@ it.layer(NodeServices.layer)("child agent cascade", (it) => {
     }),
   );
 
+  it.effect("unarchiving a parent leaves its expired side chats archived", () =>
+    Effect.gen(function* () {
+      const readModel = makeReadModel({
+        lead: { archivedAt: NOW },
+        child: { archivedAt: NOW, kind: "sidechat" },
+        grandchild: { archivedAt: NOW },
+      });
+      const sibling = makeThread("agent", {
+        parentThreadId: ThreadId.make("lead"),
+        archivedAt: NOW,
+      });
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.unarchive",
+          commandId: CommandId.make("cmd-unarchive"),
+          threadId: ThreadId.make("lead"),
+        },
+        readModel: { ...readModel, threads: [...readModel.threads, sibling] },
+      });
+      // The child agent comes back; the side chat and anything under it stay put.
+      expect(threadIdsOf(result)).toEqual([
+        { type: "thread.unarchived", threadId: "lead" },
+        { type: "thread.unarchived", threadId: "agent" },
+      ]);
+    }),
+  );
+
   it.effect("snoozing a lead snoozes children, leaving ones blocked on the user", () =>
     Effect.gen(function* () {
       const result = yield* decideOrchestrationCommand({
