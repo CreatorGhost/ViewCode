@@ -248,7 +248,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
 
   if (!showList || !tabs) {
     return (
-      <div role="tablist" aria-label="Open threads" className="flex min-w-0 items-center">
+      <div role="tablist" aria-label="Open threads" className="flex min-w-0 items-center [-webkit-app-region:no-drag]">
         <TabItem
           threadKey={activeKey ?? ""}
           title={props.fallbackTitle}
@@ -277,7 +277,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
         }
       }}
       className={cn(
-        "flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        "flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden",
       )}
     >
       {tabs.map((key) => {
