@@ -41,7 +41,6 @@ import {
   makeWindow,
 } from "@t3tools/shared/usageFormat";
 import { Button, InlineButton } from "../ui/button";
-import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import {
   Menu,
   MenuCheckboxItem,
@@ -64,6 +63,7 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
+import { ProviderUsageCard } from "./UsageLimitsPooled";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { sortModelsByTokens } from "./usageBreakdown";
@@ -806,19 +806,9 @@ function CursorEnableLimits({
   readonly onEnabled: () => void;
 }) {
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <ProviderInstanceIcon
-          driverKind={ProviderDriverKind.make("cursor")}
-          displayName="Cursor"
-          indicatorBackground="var(--background)"
-          className="size-5"
-          iconClassName="size-4 text-foreground/80"
-        />
-        Cursor
-      </h2>
-      <div className="flex flex-col items-start gap-3 rounded-lg border border-border/60 p-4">
-        <p className="text-xs text-muted-foreground">{CURSOR_KEYCHAIN_COPY}</p>
+    <ProviderUsageCard driver={ProviderDriverKind.make("cursor")} label="Cursor" account="Not connected">
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-sm text-muted-foreground">{CURSOR_KEYCHAIN_COPY}</p>
         <div className="flex flex-wrap gap-2">
           {environments.map((environment) => (
             <CursorEnableButton
@@ -832,7 +822,7 @@ function CursorEnableLimits({
           ))}
         </div>
       </div>
-    </section>
+    </ProviderUsageCard>
   );
 }
 

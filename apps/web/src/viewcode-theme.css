@@ -674,18 +674,6 @@ html[data-window-glass="true"]:not(.dark) [data-slot="composer-shell"] {
   backdrop-filter: blur(40px) saturate(1.5);
   pointer-events: none;
 }
-[data-rail-usage-card] {
-  color: var(--popover-foreground);
-}
-[data-rail-usage-card] .text-sidebar-muted-foreground {
-  color: var(--muted-foreground);
-}
-[data-rail-usage-card] .hover\:text-sidebar-foreground:hover {
-  color: var(--popover-foreground);
-}
-[data-rail-usage-card] .bg-sidebar-foreground\/10 {
-  background-color: color-mix(in srgb, var(--popover-foreground) 10%, transparent);
-}
 /* The ring's hover/open state: a plain foreground wash, not the sidebar's tinted row. */
 [data-rail-usage-ring]:is(:hover, [data-popup-open]) {
   background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
