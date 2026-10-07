@@ -36,3 +36,19 @@ export function buildRailUsageCardRows(
     };
   });
 }
+
+/**
+ * The plan as the card header shows it: "Max", not "Claude Max subscription".
+ * Null for labels that name only the account ("Command Code account"), which
+ * carry no plan information next to the provider name already in the header.
+ */
+export function railPlanLabel(authLabel: string | undefined, providerName: string): string | null {
+  if (!authLabel) return null;
+  let plan = authLabel.replace(/\s+(subscription|plan)$/i, "").trim();
+  const prefix = providerName.trim();
+  if (prefix && plan.toLowerCase().startsWith(`${prefix.toLowerCase()} `)) {
+    plan = plan.slice(prefix.length).trim();
+  }
+  if (!plan || /\baccount$/i.test(plan) || plan.toLowerCase() === prefix.toLowerCase()) return null;
+  return plan;
+}

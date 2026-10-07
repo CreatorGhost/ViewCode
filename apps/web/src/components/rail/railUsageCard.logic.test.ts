@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildRailUsageCardRows } from "./railUsageCard.logic";
+import { buildRailUsageCardRows, railPlanLabel } from "./railUsageCard.logic";
 
 const NOW = Date.parse("2026-01-01T00:00:00Z");
 
@@ -35,5 +35,14 @@ describe("buildRailUsageCardRows", () => {
     );
     expect(row?.remainingPercent).toBe(0);
     expect(row?.remainingText).toBe("0% left");
+  });
+});
+
+describe("railPlanLabel", () => {
+  it("drops the provider name and plan suffix, and hides account-only labels", () => {
+    expect(railPlanLabel("Claude Max", "Claude")).toBe("Max");
+    expect(railPlanLabel("ChatGPT Pro 20x Subscription", "Codex")).toBe("ChatGPT Pro 20x");
+    expect(railPlanLabel("Command Code account", "Command Code")).toBeNull();
+    expect(railPlanLabel(undefined, "Grok")).toBeNull();
   });
 });

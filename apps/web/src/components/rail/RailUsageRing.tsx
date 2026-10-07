@@ -4,7 +4,7 @@ import { ChevronRightIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { usePrimaryEnvironmentId } from "../../state/environments";
-import { formatUsedPercent, shortPlanName } from "../chat/composerUsageLimits.logic";
+import { formatUsedPercent } from "../chat/composerUsageLimits.logic";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { useUsageRefreshOnOpen } from "../chat/useUsageRefreshOnOpen";
 import { Button } from "../ui/button";
@@ -12,7 +12,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collaps
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { ResetCreditDialog, resetCreditsSummary, useResetCredit } from "../usage/UsageLimits";
 import { type RailRingTone, type RailUsageRing } from "./appRail.logic";
-import { buildRailUsageCardRows } from "./railUsageCard.logic";
+import { buildRailUsageCardRows, railPlanLabel } from "./railUsageCard.logic";
 
 const RING_RADIUS = 12;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -81,7 +81,7 @@ function UsageCardBody({
   const { openedAt } = useUsageRefreshOnOpen(environmentId, [ring.entry]);
   const limits = ring.entry.snapshot.usageLimits;
   const rows = limits ? buildRailUsageCardRows(limits.windows, openedAt) : [];
-  const plan = ring.entry.snapshot.auth.label;
+  const plan = railPlanLabel(ring.entry.snapshot.auth.label, ring.entry.displayName);
   const credits = limits?.resetCredits;
   const canRedeem = !!credits && credits.availableCount > 0 && credits.canRedeem !== false;
   return (
@@ -89,9 +89,7 @@ function UsageCardBody({
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate font-semibold text-sm">{ring.entry.displayName}</span>
         {plan ? (
-          <span className="shrink-0 whitespace-nowrap text-sidebar-muted-foreground">
-            {shortPlanName(plan)}
-          </span>
+          <span className="shrink-0 whitespace-nowrap text-sidebar-muted-foreground">{plan}</span>
         ) : null}
       </div>
       {rows.length === 0 ? (
@@ -99,7 +97,7 @@ function UsageCardBody({
       ) : (
         <ul className="flex flex-col gap-3">
           {rows.map((row) => (
-            <li key={row.id} className="flex flex-col gap-1.5">
+            <li key={row.id} className="flex flex-col gap-1.5" title={row.label}>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="flex min-w-0 items-baseline gap-1.5">
                   <span className="min-w-0 truncate">{row.label}</span>
