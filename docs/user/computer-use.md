@@ -26,7 +26,7 @@ a running thread, choose **Restart agent session** from the command palette.
 On macOS, grant ViewCode **Accessibility** in **System Settings → Privacy & Security** for
 reading and controlling windows, and **Screen Recording** for screenshots. The settings section
 checks the permission fresh each time it opens; use **Check again** after changing it. Development
-builds are not signed, so macOS can forget the grant after every rebuild even though the switch in
+builds are ad-hoc signed, so macOS can forget the grant after every rebuild even though the switch in
 System Settings still looks on. Remove ViewCode from the list and add it again.
 
 ## Approvals

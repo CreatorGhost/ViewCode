@@ -51,7 +51,7 @@ export interface Xa11yApi {
    * an app, so on macOS this has to activate the app itself.
    */
   readonly activateApp: (pid: number) => Promise<void>;
-  /** Logical rect of the primary display, or null when unknown. Costly; the core caches it. */
+  /** Logical rect of the primary display, or null when unknown. Re-read before each capture. */
   readonly primaryDisplay: () => Promise<Rect | null>;
   readonly sleep: (ms: number) => Promise<void>;
   readonly authorizeInput?: (target: DriverDispatchTarget) => Promise<ComputerUseError | undefined>;
