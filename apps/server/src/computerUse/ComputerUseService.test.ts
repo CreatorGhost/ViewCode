@@ -1181,37 +1181,48 @@ process.on('message', async message => {
   );
 }
 
-it.effect("provider approvals pause input before their projection catches up", () =>
-  Effect.gen(function* () {
-    const h = yield* makeHarness();
-    h.thread.runtimeMode = "full-access";
-    const refs = yield* observeNotes(h);
-    const opened: ProviderRuntimeEvent = {
-      eventId: EventId.make("provider-open"),
-      type: "request.opened",
-      provider: ProviderDriverKind.make("codex"),
-      providerInstanceId,
-      threadId,
-      turnId: h.thread.turnId,
-      requestId: RuntimeRequestId.make("provider-approval"),
-      createdAt: NOW,
-      payload: { requestType: "permission_approval" },
-    };
-    yield* h.service.trackProviderApproval(opened);
-    expectError(
-      yield* send(h, { command: "press", ref: refs.save }),
-      "CU-CON-008",
-      "not-dispatched",
-    );
-    yield* h.service.trackProviderApproval({
-      ...opened,
-      eventId: EventId.make("provider-resolved"),
-      type: "request.resolved",
-      payload: { requestType: "permission_approval", decision: "decline" },
-    });
-    expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
-  }).pipe(Effect.scoped),
-);
+for (const requestType of [
+  "command_execution_approval",
+  "file_read_approval",
+  "file_change_approval",
+  "apply_patch_approval",
+  "exec_command_approval",
+  "mcp_elicitation_approval",
+  "permission_approval",
+] as const) {
+  it.effect(`${requestType} pauses input before its projection catches up`, () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      const opened: ProviderRuntimeEvent = {
+        eventId: EventId.make("provider-open"),
+        type: "request.opened",
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId,
+        threadId,
+        turnId: h.thread.turnId,
+        requestId: RuntimeRequestId.make("provider-approval"),
+        createdAt: NOW,
+        payload: { requestType },
+      };
+      yield* h.service.trackProviderApproval(opened);
+      expectError(
+        yield* send(h, { command: "press", ref: refs.save }),
+        "CU-CON-008",
+        "not-dispatched",
+      );
+      yield* h.service.trackProviderApproval({
+        ...opened,
+        eventId: EventId.make("provider-resolved"),
+        type: "request.resolved",
+        payload: { requestType, decision: "decline" },
+      });
+      expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+    }).pipe(Effect.scoped),
+  );
+}
+
 it.effect("a failed approval publication does not leave input permanently paused", () =>
   Effect.gen(function* () {
     const h = yield* makeHarness();
