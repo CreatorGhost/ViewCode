@@ -56,6 +56,12 @@ export const ComputerUseErrorCode = Schema.Literals([
    * or the window moved, resized or closed since it was taken.
    */
   "CU-CON-007",
+  /**
+   * Input is paused while any approval in this environment waits for the user,
+   * so an agent can never click an approval (in ViewCode, a browser tab or a
+   * mirrored screen) for itself or another agent.
+   */
+  "CU-CON-008",
   /** Platform unsupported or the driver could not start. */
   "CU-EXT-001",
   /** Accessibility permission is missing for the app that runs ViewCode. */
