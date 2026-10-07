@@ -132,7 +132,17 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
    tab instead of a barely-there sliver. */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-banner-attachment"] {
   width: 100%;
-  margin-bottom: calc(-1rem - 1px);
+  /* Sit on the composer instead of tucking under it: the tuck hid the notice
+     text behind the composer's input surface. */
+  margin-bottom: 0;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-composer-banner-surface="attached"] {
+  --chat-composer-attachment-overlap: 0px;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-composer-banner-surface="attached"]::before {
+  mask-image: none;
+  border-bottom-width: 0;
 }
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-composer-banner-surface="attached"] {
   --chat-composer-attached-surface: color-mix(
