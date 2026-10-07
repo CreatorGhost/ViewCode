@@ -9961,7 +9961,7 @@ export default function ChatView(props: ChatViewProps) {
           electron={isElectron}
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
           // Pill chrome: every control in the top bar, and each button group, is a capsule.
-          className="relative bg-background [--control-radius:9999px]"
+          className="relative h-11 min-h-11 bg-background [--control-radius:9999px]"
         >
           {isElectron && rightPanelControlsAtRoot ? (
             <span
