@@ -585,3 +585,13 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   background-image: none;
   background-color: var(--chat-composer-attached-surface);
 }
+
+/* Connect phone is a headline feature: the rail glyph wears the accent, with a
+   soft accent tile on hover. Static, no animation. */
+[data-app-rail] button:has([data-rail-phone]) {
+  color: var(--app-theme-accent);
+}
+[data-app-rail] button:has([data-rail-phone]):hover {
+  background-color: color-mix(in srgb, var(--app-theme-accent) 16%, transparent);
+  color: var(--app-theme-accent);
+}

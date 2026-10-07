@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { SettingsIcon } from "lucide-react";
+import { SettingsIcon, SmartphoneIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import { cn } from "~/lib/utils";
@@ -21,6 +21,7 @@ import {
   shortPlanName,
 } from "../chat/composerUsageLimits.logic";
 import { useUsageRefreshOnOpen } from "../chat/useUsageRefreshOnOpen";
+import { openConnectPhoneDialog } from "../connectPhone/ConnectPhoneDialog";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { Button } from "../ui/button";
@@ -267,6 +268,11 @@ export const AppRail = memo(function AppRail() {
           <SettingsIcon />
         </RailButton>
         <RailPullRequestsButton active={onPullRequests} />
+        <RailButton label="Connect phone" onClick={() => openConnectPhoneDialog()}>
+          <span data-rail-phone="" className="contents">
+            <SmartphoneIcon />
+          </span>
+        </RailButton>
       </div>
     </nav>
   );
