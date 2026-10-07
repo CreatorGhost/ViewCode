@@ -348,11 +348,12 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
         dispatched: "no",
       });
     }
-    // Interrupting the caller marks the queued request so it is never sent.
+    // Cancel queued requests, but drain any worker call already in flight before
+    // releasing the caller's dispatch lock: interruption cannot stop native input.
     const check = yield* ComputerDriverDispatchCheck;
     const context = yield* Effect.context();
     const outcome = yield* Effect.callback<CallOutcome>((resume, signal) => {
-      void client
+      const completion = client
         .call(
           request,
           () => signal.aborted,
@@ -368,6 +369,7 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
           },
         )
         .then((value) => resume(Effect.succeed(value)));
+      return Effect.promise(() => completion);
     });
     if (outcome.type !== "reply") {
       yield* Effect.logDebug("computer-use driver call did not complete", {

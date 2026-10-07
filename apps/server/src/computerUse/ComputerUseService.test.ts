@@ -1131,37 +1131,48 @@ process.on('message', async message => {
   );
 }
 
-it.effect("provider approvals pause input before their projection catches up", () =>
-  Effect.gen(function* () {
-    const h = yield* makeHarness();
-    h.thread.runtimeMode = "full-access";
-    const refs = yield* observeNotes(h);
-    const opened: ProviderRuntimeEvent = {
-      eventId: EventId.make("provider-open"),
-      type: "request.opened",
-      provider: ProviderDriverKind.make("codex"),
-      providerInstanceId,
-      threadId,
-      turnId: h.thread.turnId,
-      requestId: RuntimeRequestId.make("provider-approval"),
-      createdAt: NOW,
-      payload: { requestType: "permission_approval" },
-    };
-    yield* h.service.trackProviderApproval(opened);
-    expectError(
-      yield* send(h, { command: "press", ref: refs.save }),
-      "CU-CON-008",
-      "not-dispatched",
-    );
-    yield* h.service.trackProviderApproval({
-      ...opened,
-      eventId: EventId.make("provider-resolved"),
-      type: "request.resolved",
-      payload: { requestType: "permission_approval", decision: "decline" },
-    });
-    expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
-  }).pipe(Effect.scoped),
-);
+for (const requestType of [
+  "command_execution_approval",
+  "file_read_approval",
+  "file_change_approval",
+  "apply_patch_approval",
+  "exec_command_approval",
+  "mcp_elicitation_approval",
+  "permission_approval",
+] as const) {
+  it.effect(`${requestType} pauses input before its projection catches up`, () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      const opened: ProviderRuntimeEvent = {
+        eventId: EventId.make("provider-open"),
+        type: "request.opened",
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId,
+        threadId,
+        turnId: h.thread.turnId,
+        requestId: RuntimeRequestId.make("provider-approval"),
+        createdAt: NOW,
+        payload: { requestType },
+      };
+      yield* h.service.trackProviderApproval(opened);
+      expectError(
+        yield* send(h, { command: "press", ref: refs.save }),
+        "CU-CON-008",
+        "not-dispatched",
+      );
+      yield* h.service.trackProviderApproval({
+        ...opened,
+        eventId: EventId.make("provider-resolved"),
+        type: "request.resolved",
+        payload: { requestType, decision: "decline" },
+      });
+      expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+    }).pipe(Effect.scoped),
+  );
+}
+
 it.effect("a failed approval publication does not leave input permanently paused", () =>
   Effect.gen(function* () {
     const h = yield* makeHarness();
@@ -1174,5 +1185,94 @@ it.effect("a failed approval publication does not leave input permanently paused
     expectError(yield* send(h, { command: "press", ref: refs.save }), "CU-INT-001");
     h.thread.runtimeMode = "full-access";
     expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+  }).pipe(Effect.scoped),
+);
+
+it.effect("cancelled callers retain the dispatch lock until in-flight native input finishes", () =>
+  Effect.gen(function* () {
+    const entered = Promise.withResolvers<void>();
+    const order: string[] = [];
+    let releaseInput: (() => void) | undefined;
+    const server = NodeHttp.createServer((req, res) => {
+      if (req.url === "/typing") {
+        order.push("input-start");
+        releaseInput = () => res.end("done");
+        entered.resolve();
+      } else {
+        order.push("input-end");
+        res.end("done");
+      }
+    });
+    yield* Effect.promise(() => new Promise<void>((r) => server.listen(0, "127.0.0.1", r)));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("server");
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-cancel-worker-"));
+    const script = NodePath.join(dir, "worker.cjs");
+    NodeFS.writeFileSync(
+      script,
+      `const http=require('node:http');
+const get=path=>new Promise(resolve=>http.get('http://127.0.0.1:${address.port}'+path,res=>{res.resume();res.on('end',resolve)}));
+process.on('message',async m=>{
+ if('decision' in m){
+  if(m.decision)process.send({id:m.id,ok:false,error:{kind:'policy',code:m.decision.code,message:m.decision.message,dispatched:'no'}});
+  else {await get('/typing');await get('/finished');process.send({id:m.id,ok:true,result:null});}
+ }else process.send({id:m.id,authorize:{window:{handle:'w-notes',app:'Notes',pid:10,title:'Shopping list',focused:true}}});
+});process.once('disconnect',()=>process.exit(0));`,
+    );
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(
+        () =>
+          new Promise<void>((r) => {
+            releaseInput?.();
+            server.close(() => {
+              NodeFS.rmSync(dir, { recursive: true, force: true });
+              r();
+            });
+          }),
+      ),
+    );
+    const real = yield* makeXa11yComputerDriver({
+      platform: "darwin",
+      launch: () => ({ command: process.execPath, args: [script], env: { ...process.env } }),
+    });
+    const h = yield* makeHarness("control", (driver) => ({ ...driver, key: real.key }));
+    h.thread.runtimeMode = "full-access";
+    const refs = yield* observeNotes(h);
+    const action = yield* Effect.forkChild(
+      send(h, { command: "key", window: refs.window, keys: "enter" }),
+    );
+    yield* Effect.promise(() => entered.promise);
+    const cancellingStarted = yield* Deferred.make<void>();
+    const cancelling = yield* Effect.forkChild(
+      Effect.gen(function* () {
+        yield* Deferred.succeed(cancellingStarted, undefined);
+        yield* Fiber.interrupt(action);
+      }),
+    );
+    yield* Deferred.await(cancellingStarted);
+    const attempting = yield* Deferred.make<void>();
+    const approval = yield* Effect.forkChild(
+      Effect.gen(function* () {
+        yield* Deferred.succeed(attempting, undefined);
+        yield* h.service.trackProviderApproval({
+          eventId: EventId.make("cancel-open"),
+          type: "request.opened",
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId,
+          threadId,
+          turnId: h.thread.turnId,
+          requestId: RuntimeRequestId.make("cancel-approval"),
+          createdAt: NOW,
+          payload: { requestType: "permission_approval" },
+        });
+        order.push("approval-open");
+      }),
+    );
+    yield* Deferred.await(attempting);
+    releaseInput!();
+    yield* Fiber.await(action);
+    yield* Fiber.join(cancelling);
+    yield* Fiber.join(approval);
+    expect(order).toEqual(["input-start", "input-end", "approval-open"]);
   }).pipe(Effect.scoped),
 );

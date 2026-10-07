@@ -1109,7 +1109,7 @@ export const make = Effect.gen(function* () {
     trackProviderApproval: (event) => {
       if (!event.requestId || event.requestId.startsWith(REQUEST_ID_PREFIX)) return Effect.void;
       const key = `${event.threadId}:${event.requestId}`;
-      if (event.type === "request.opened" && event.payload.requestType === "permission_approval") {
+      if (event.type === "request.opened" && event.payload.requestType.endsWith("_approval")) {
         return dispatchLock.withPermits(1)(
           Effect.sync(() => {
             liveProviderApprovals.set(key, event.threadId);
