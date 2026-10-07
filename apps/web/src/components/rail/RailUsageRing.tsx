@@ -85,7 +85,10 @@ function UsageCardBody({
   const credits = limits?.resetCredits;
   const canRedeem = !!credits && credits.availableCount > 0 && credits.canRedeem !== false;
   return (
-    <div className="flex w-76 flex-col gap-3 rounded-[inherit] bg-sidebar p-4 text-sidebar-foreground text-xs">
+    <div
+      data-rail-usage-card=""
+      className="flex w-76 flex-col gap-3 rounded-[inherit] p-4 text-xs"
+    >
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate font-semibold text-sm">{ring.entry.displayName}</span>
         {plan ? (
@@ -188,7 +191,8 @@ function UsageRingWithCard({
               type="button"
               aria-label={`${ring.entry.displayName}, ${formatUsedPercent(ring.remainingPercent)} left`}
               onClick={() => void navigate({ to: "/usage" })}
-              className="inline-flex size-9 items-center justify-center rounded-full outline-hidden transition-colors hover:bg-sidebar-row-hover data-popup-open:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
+              data-rail-usage-ring=""
+              className="inline-flex size-9 items-center justify-center rounded-full outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-ring"
             />
           }
         >
