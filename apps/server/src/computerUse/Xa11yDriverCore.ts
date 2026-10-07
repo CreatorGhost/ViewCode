@@ -1127,7 +1127,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         throw new Refusal(
           failure(
             "failed",
-            "Could not isolate the window on this desktop. Bring it onto the current desktop and list windows again.",
+            "Could not capture this window by itself. It may be on another desktop or minimized, have a menu open, or share its place with another window of the app. Make sure it is on the current desktop with no menu open, then list windows again.",
           ),
         );
       }
