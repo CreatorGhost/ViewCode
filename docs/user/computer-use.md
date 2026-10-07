@@ -32,6 +32,11 @@ checks the permission fresh each time it opens; use **Check again** after changi
 builds are ad-hoc signed, so macOS can forget the grant after every rebuild even though the switch in
 System Settings still looks on. Remove ViewCode from the list and add it again.
 
+To see what agents have done, open **Recent actions** in the same settings section. It lists the
+last 100 computer actions on that machine, newest first, with the command, how it ended and
+whether it took your focus. It never includes typed text, labels or window contents, and a server
+restart clears it. **Getting started** in the same section repeats these steps.
+
 ## Approvals
 
 Observing never asks. With **Observe and control**, **Ask before computer input** in the same

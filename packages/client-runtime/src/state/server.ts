@@ -1148,6 +1148,12 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverGetComputerUseStatus,
       concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
+    // Same reasoning: a log of what just happened, fetched when the list opens.
+    getComputerUseActivity: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:get-computer-use-activity",
+      tag: WS_METHODS.serverGetComputerUseActivity,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+    }),
     chooseProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:choose-providers",
       tag: WS_METHODS.serverChooseProviders,

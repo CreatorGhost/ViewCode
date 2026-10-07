@@ -2666,6 +2666,12 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverGetComputerUseStatus, computerUse.status, {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.serverGetComputerUseActivity]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetComputerUseActivity,
+            computerUse.recentActivity.pipe(Effect.map((entries) => ({ entries }))),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverGetSettings]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetSettings,

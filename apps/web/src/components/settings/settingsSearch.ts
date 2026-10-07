@@ -656,6 +656,21 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "computer-use-activity",
+    title: "Recent actions",
+    to: "/settings/integrations",
+    environmentOnly: true,
+    searchTerms: ["computer use recent actions history log activity agent clicks"],
+  },
+  {
+    id: "computer-use-getting-started",
+    title: "Getting started",
+    to: "/settings/integrations",
+    searchTerms: [
+      "computer use getting started setup guide how accessibility screen recording permission macos",
+    ],
+  },
+  {
     id: "device-hub",
     title: "Device hub",
     to: "/settings/integrations",
