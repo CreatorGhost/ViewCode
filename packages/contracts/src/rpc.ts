@@ -110,6 +110,13 @@ import {
 } from "./provider.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
+  ProviderAccountAddInput,
+  ProviderAccountAddResult,
+  ProviderAccountError,
+  ProviderAccountSignInInput,
+  ProviderAccountSignInPlan,
+} from "./providerAccounts.ts";
+import {
   PullRequestActionInput,
   PullRequestActivity,
   PullRequestCommentInput,
@@ -335,6 +342,8 @@ export const WS_METHODS = {
   providerInstallCancel: "provider.install.cancel",
   providerInstallSubscribe: "provider.install.subscribe",
   providerInstallRemove: "provider.install.remove",
+  providerAccountAdd: "provider.account.add",
+  providerAccountPrepareSignIn: "provider.account.prepareSignIn",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -593,6 +602,18 @@ const WsProviderAuthCancelRpc = Rpc.make(WS_METHODS.providerAuthCancel, {
   payload: ProviderAuthCancelInput,
   success: ProviderAuthState,
   error: ProviderSetupRpcError,
+});
+
+const WsProviderAccountAddRpc = Rpc.make(WS_METHODS.providerAccountAdd, {
+  payload: ProviderAccountAddInput,
+  success: ProviderAccountAddResult,
+  error: Schema.Union([ProviderAccountError, EnvironmentAuthorizationError]),
+});
+
+const WsProviderAccountPrepareSignInRpc = Rpc.make(WS_METHODS.providerAccountPrepareSignIn, {
+  payload: ProviderAccountSignInInput,
+  success: ProviderAccountSignInPlan,
+  error: Schema.Union([ProviderAccountError, EnvironmentAuthorizationError]),
 });
 
 const WsProviderAuthLogoutRpc = Rpc.make(WS_METHODS.providerAuthLogout, {
@@ -1568,6 +1589,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderAuthRespondRpc,
   WsProviderAuthCancelRpc,
   WsProviderAuthLogoutRpc,
+  WsProviderAccountAddRpc,
+  WsProviderAccountPrepareSignInRpc,
   WsProviderAuthSubscribeRpc,
   WsProviderInstallStartRpc,
   WsProviderInstallCancelRpc,

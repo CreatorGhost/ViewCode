@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  migrateToTealLook,
   LOOK_MIGRATION_KEY,
   migrateToViewCodeLook,
   undoViewCodeLookMigration,
@@ -23,7 +24,7 @@ describe("migrateToViewCodeLook", () => {
       "t3code:theme-halves:v1": '{"light":"grove"}',
     });
     expect(migrateToViewCodeLook(storage)).toBe(true);
-    expect(storage.getItem("t3code:theme")).toBe("viewcode");
+    expect(storage.getItem("t3code:theme")).toBe("viewcode-teal");
     expect(storage.getItem("t3code:theme-halves:v1")).toBeNull();
     expect(migrateToViewCodeLook(storage)).toBe(false);
 
@@ -47,5 +48,22 @@ describe("migrateToViewCodeLook", () => {
     const storage = memoryStorage({ [LOOK_MIGRATION_KEY]: "1", "t3code:theme": "ember" });
     expect(migrateToViewCodeLook(storage)).toBe(false);
     expect(storage.getItem("t3code:theme")).toBe("ember");
+  });
+});
+
+describe("migrateToTealLook", () => {
+  it("moves the plain ViewCode theme to teal once, and undo restores it", () => {
+    const storage = memoryStorage({ "t3code:theme": "viewcode" });
+    expect(migrateToTealLook(storage)).toBe(true);
+    expect(storage.getItem("t3code:theme")).toBe("viewcode-teal");
+    expect(migrateToTealLook(storage)).toBe(false);
+    undoViewCodeLookMigration(storage);
+    expect(storage.getItem("t3code:theme")).toBe("viewcode");
+  });
+
+  it("leaves any other chosen theme alone", () => {
+    const storage = memoryStorage({ "t3code:theme": "viewcode-dracula" });
+    expect(migrateToTealLook(storage)).toBe(false);
+    expect(storage.getItem("t3code:theme")).toBe("viewcode-dracula");
   });
 });

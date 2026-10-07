@@ -1003,6 +1003,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:provider:auth-logout",
       tag: WS_METHODS.providerAuthLogout,
     }),
+    addProviderAccount: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:account-add",
+      tag: WS_METHODS.providerAccountAdd,
+    }),
+    prepareProviderAccountSignIn: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:account-prepare-sign-in",
+      tag: WS_METHODS.providerAccountPrepareSignIn,
+    }),
     providerInstallState: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:provider:install-state",
       tag: WS_METHODS.providerInstallSubscribe,

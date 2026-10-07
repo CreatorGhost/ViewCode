@@ -1377,3 +1377,30 @@ describe("composer and pull request shortcuts", () => {
     });
   }
 });
+
+describe("sidechat.toggle default binding", () => {
+  // Shift+/ types "?" on US layouts and "/" elsewhere; both must reach the command.
+  for (const key of ["?", "/"]) {
+    it(`resolves mod+shift+/ typed as "${key}"`, () => {
+      assert.strictEqual(
+        resolveShortcutCommand(
+          event({ key, code: "Slash", shiftKey: true, metaKey: true }),
+          DEFAULT_RESOLVED_KEYBINDINGS,
+          { platform: "MacIntel", context: { terminalFocus: false } },
+        ),
+        "sidechat.toggle",
+      );
+    });
+  }
+
+  it("leaves mod+/ on the shortcuts sheet", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "/", code: "Slash", metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel", context: { terminalFocus: false } },
+      ),
+      "shortcuts.open",
+    );
+  });
+});

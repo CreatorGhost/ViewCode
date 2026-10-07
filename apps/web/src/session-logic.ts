@@ -107,8 +107,22 @@ export interface WorkLogEntry {
   agentMessageSent?: AgentMessageSentPayload;
   /** A page the agent published with `html_render`, shown inline. */
   htmlRender?: HtmlRenderReference;
+  /** ViewCode: the thread a fork was taken from. */
+  forkedFrom?: { threadId: string; title: string };
   /** ViewCode: models (and provider instances) on either side of a handoff. */
-  handoff?: { fromModel: string; toModel: string; fromInstanceId?: string; toInstanceId?: string };
+  handoff?: {
+    fromModel: string;
+    toModel: string;
+    fromInstanceId?: string;
+    toInstanceId?: string;
+    /** The recap shown to the new model. */
+    summary?: string;
+    /** "full" carries the conversation verbatim, "compact" a condensed recap. */
+    mode?: "full" | "compact";
+    transcriptPath?: string;
+    /** A stale native session was replaced by a recap rather than a model switch. */
+    recovery?: boolean;
+  };
 }
 
 const workLogCollapseKey = Symbol();
@@ -182,6 +196,7 @@ export interface TimelineEntriesProjection {
 export function workEntrySignalsSevereFailure(entry: WorkLogEntry): boolean {
   return (
     entry.sourceActivityKind === "runtime.error" ||
+    entry.sourceActivityKind === "provider.turn.stalled" ||
     entry.sourceActivityKind?.endsWith(".failed") === true
   );
 }
@@ -621,17 +636,32 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     const htmlRender = readHtmlRenderReference(payload);
     if (htmlRender) entry.htmlRender = htmlRender;
   }
-  if (activity.kind === "viewcode.handoff") {
+  if (activity.kind === "viewcode.thread.forked") {
+    const threadId = asTrimmedString(payload?.sourceThreadId);
+    const title = asTrimmedString(payload?.sourceTitle);
+    if (threadId && title) entry.forkedFrom = { threadId, title };
+  }
+  if (
+    activity.kind === "viewcode.handoff" ||
+    activity.kind === "viewcode.session.resume-fallback"
+  ) {
     const fromModel = asTrimmedString(asRecord(payload?.from)?.model);
     const toModel = asTrimmedString(asRecord(payload?.to)?.model);
     const fromInstanceId = asTrimmedString(asRecord(payload?.from)?.instanceId);
     const toInstanceId = asTrimmedString(asRecord(payload?.to)?.instanceId);
+    const recap = typeof payload?.summary === "string" ? payload.summary : undefined;
+    const mode = payload?.mode === "full" || payload?.mode === "compact" ? payload.mode : undefined;
+    const transcriptPath = asTrimmedString(payload?.transcriptPath);
     if (fromModel && toModel) {
       entry.handoff = {
         fromModel,
         toModel,
         ...(fromInstanceId ? { fromInstanceId } : {}),
         ...(toInstanceId ? { toInstanceId } : {}),
+        ...(recap ? { summary: recap } : {}),
+        ...(mode ? { mode } : {}),
+        ...(transcriptPath ? { transcriptPath } : {}),
+        ...(activity.kind === "viewcode.session.resume-fallback" ? { recovery: true } : {}),
       };
     }
   }

@@ -276,6 +276,24 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["long lines code blocks tables diffs file previews"],
   },
   {
+    id: "chat-density",
+    title: "Chat density",
+    to: "/settings/appearance",
+    searchTerms: ["compact comfortable spacing transcript messages rows gap"],
+  },
+  {
+    id: "chat-width",
+    title: "Chat width",
+    to: "/settings/appearance",
+    searchTerms: ["column narrow normal wide transcript composer max width reading"],
+  },
+  {
+    id: "collapse-finished-turns",
+    title: "Collapse finished turns",
+    to: "/settings/appearance",
+    searchTerms: ["fold tool calls commands work summary worked for transcript"],
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",

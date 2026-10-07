@@ -626,7 +626,10 @@ export function HomeScreen(props: HomeScreenProps) {
       buildHomeFolderList({
         // Settled threads are live shells; archived threads keep their
         // original "hidden from lists" meaning.
-        threads: props.threads.filter((thread) => thread.archivedAt === null),
+        // Side chats live in a desktop/web dock; mobile has none, so it hides them.
+        threads: props.threads.filter(
+          (thread) => thread.archivedAt === null && thread.kind !== "sidechat",
+        ),
         scopes: folderScopes,
         projectScoped: v2ScopedProjectGroup !== null,
         pendingTasks: v2PendingTasks,

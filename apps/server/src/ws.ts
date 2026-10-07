@@ -57,6 +57,7 @@ import {
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   ProviderUploadFeedbackError,
+  ProviderAccountError,
   ProviderSetupError,
   type ServerProvider,
   RelayClientInstallFailedError,
@@ -130,6 +131,7 @@ import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
+import { addProviderAccount, prepareProviderAccountSignIn } from "./provider/providerAccounts.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import { withTerminalOutputWindow } from "./terminal/OutputProtocol.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -2605,6 +2607,53 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.providerAuthLogout, providerAuth.logout(input), {
             "rpc.aggregate": "provider",
           }),
+        [WS_METHODS.providerAccountAdd]: (account) =>
+          observeRpcEffect(
+            WS_METHODS.providerAccountAdd,
+            serverSettings.getSettings.pipe(
+              Effect.flatMap((settings) =>
+                addProviderAccount({
+                  settings,
+                  account,
+                  stateDir: config.stateDir,
+                  updateSettings: serverSettings.updateSettings,
+                }),
+              ),
+              Effect.mapError((cause) =>
+                Schema.is(ProviderAccountError)(cause)
+                  ? cause
+                  : new ProviderAccountError({
+                      operation: "add",
+                      detail: "Could not read settings.",
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerAccountPrepareSignIn]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerAccountPrepareSignIn,
+            serverSettings.getSettings.pipe(
+              Effect.flatMap((settings) =>
+                prepareProviderAccountSignIn({
+                  settings,
+                  instanceId: input.instanceId,
+                  stateDir: config.stateDir,
+                }),
+              ),
+              Effect.mapError((cause) =>
+                Schema.is(ProviderAccountError)(cause)
+                  ? cause
+                  : new ProviderAccountError({
+                      operation: "prepareSignIn",
+                      detail: "Could not read settings.",
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "provider" },
+          ),
         [WS_METHODS.providerAuthSubscribe]: (input) =>
           observeRpcStream(
             WS_METHODS.providerAuthSubscribe,

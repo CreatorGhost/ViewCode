@@ -36,6 +36,7 @@ import {
   ThreadPullRequestStack,
   ThreadPullRequestWatch,
   type ThreadPullRequestLink,
+  type ThreadKind,
 } from "@t3tools/contracts";
 import { legacyLinkedPullRequestOf } from "@t3tools/shared/threadPullRequests";
 import * as Arr from "effect/Array";
@@ -617,6 +618,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           active_order_key AS "activeOrderKey",
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
+          kind AS "kind",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -668,6 +670,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           active_order_key AS "activeOrderKey",
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
+          kind AS "kind",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -751,6 +754,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           active_order_key AS "activeOrderKey",
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
+          kind AS "kind",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -1329,6 +1333,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           active_order_key AS "activeOrderKey",
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
+          kind AS "kind",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -2433,6 +2438,7 @@ pending_approval_requests AS (
                 activeOrderKey: row.activeOrderKey ?? null,
                 autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                 parentThreadId: row.parentThreadId ?? null,
+                ...((row.kind ?? null) !== null ? { kind: row.kind as ThreadKind } : {}),
                 titleRegeneration: mapTitleRegeneration(row),
                 titleState: row.titleState,
                 deletedAt: row.deletedAt,
@@ -2680,6 +2686,7 @@ pending_approval_requests AS (
                   activeOrderKey: row.activeOrderKey ?? null,
                   autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   parentThreadId: row.parentThreadId ?? null,
+                  ...((row.kind ?? null) !== null ? { kind: row.kind as ThreadKind } : {}),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   deletedAt: row.deletedAt,
@@ -2839,6 +2846,7 @@ pending_approval_requests AS (
                         activeOrderKey: row.activeOrderKey ?? null,
                         autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                         parentThreadId: row.parentThreadId ?? null,
+                        ...((row.kind ?? null) !== null ? { kind: row.kind as ThreadKind } : {}),
                         titleRegeneration: mapTitleRegeneration(row),
                         titleState: row.titleState,
                         session: sessionByThread.get(row.threadId) ?? null,
@@ -3005,6 +3013,7 @@ pending_approval_requests AS (
                   activeOrderKey: row.activeOrderKey ?? null,
                   autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   parentThreadId: row.parentThreadId ?? null,
+                  ...((row.kind ?? null) !== null ? { kind: row.kind as ThreadKind } : {}),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   session: sessionByThread.get(row.threadId) ?? null,
@@ -3365,6 +3374,9 @@ pending_approval_requests AS (
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
         autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         parentThreadId: threadRow.value.parentThreadId ?? null,
+        ...((threadRow.value.kind ?? null) !== null
+          ? { kind: threadRow.value.kind as ThreadKind }
+          : {}),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
@@ -3670,6 +3682,9 @@ pending_approval_requests AS (
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
         autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         parentThreadId: threadRow.value.parentThreadId ?? null,
+        ...((threadRow.value.kind ?? null) !== null
+          ? { kind: threadRow.value.kind as ThreadKind }
+          : {}),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         deletedAt: null,

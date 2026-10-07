@@ -529,7 +529,7 @@ function ThreadToastVisibleAutoDismiss({
   return null;
 }
 
-function ToastProvider({ children, position = "top-right", ...props }: ToastProviderProps) {
+function ToastProvider({ children, position = "bottom-right", ...props }: ToastProviderProps) {
   return (
     <Toast.Provider toastManager={toastManager} {...props}>
       {children}

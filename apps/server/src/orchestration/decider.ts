@@ -6,8 +6,11 @@ import {
   ThreadLinkedPullRequest,
   UserInputRequestedPayload,
   isImportedAgentSessionMessageId,
+  type CommandId,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type ThreadForkSource,
+  type ThreadId,
   type OrchestrationReadModel,
   type OrchestrationThread,
   type ThreadPullRequestKey,
@@ -47,6 +50,7 @@ import {
 import { projectEvent } from "./projector.ts";
 import { decidePullRequestWatch, withoutPullRequestWatch } from "./pullRequestWatch.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
+import { THREAD_FORKED_ACTIVITY_KIND } from "./ThreadFork.ts";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
@@ -170,6 +174,77 @@ function withEventBase(
 }
 
 type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
+
+/**
+ * ViewCode: the copied history and "forked from" marker of a fork
+ * (`ThreadFork.ts`). The Normalizer has already sliced `forkFrom.messages`.
+ */
+const planThreadForkEvents = Effect.fnUntraced(function* (input: {
+  readonly threadId: ThreadId;
+  readonly commandId: CommandId;
+  readonly createdAt: string;
+  readonly forkFrom: ThreadForkSource;
+}) {
+  const { forkFrom } = input;
+  if (forkFrom.messages === undefined) {
+    return yield* new OrchestrationCommandInvariantError({
+      commandType: "thread.create",
+      detail: "A fork must carry the source history; it is filled in by the server.",
+    });
+  }
+  const events: Array<PlannedOrchestrationEvent> = [];
+  for (const message of forkFrom.messages) {
+    events.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.threadId,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+        metadata: { historyImport: true },
+      })),
+      type: "thread.message-sent",
+      payload: {
+        threadId: input.threadId,
+        messageId: message.messageId,
+        role: message.role,
+        text: message.text,
+        turnId: null,
+        streaming: false,
+        createdAt: message.createdAt,
+        updatedAt: message.createdAt,
+      },
+    });
+  }
+  const sourceTitle = forkFrom.sourceTitle?.trim() || "another thread";
+  events.push({
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: input.threadId,
+      occurredAt: input.createdAt,
+      commandId: input.commandId,
+    })),
+    type: "thread.activity-appended",
+    payload: {
+      threadId: input.threadId,
+      activity: {
+        id: EventId.make(`fork:${input.threadId}`),
+        tone: "info",
+        kind: THREAD_FORKED_ACTIVITY_KIND,
+        summary: `Forked from ${sourceTitle}`,
+        payload: {
+          sourceThreadId: forkFrom.threadId,
+          sourceMessageId: forkFrom.messageId,
+          sourceTitle,
+          messageCount: forkFrom.messages.length,
+        },
+        turnId: null,
+        // Sorts before the copied history so the divider leads the fork.
+        createdAt: forkFrom.messages[0]?.createdAt ?? input.createdAt,
+      },
+    },
+  });
+  return events;
+});
 
 type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
@@ -420,7 +495,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.parentThreadId,
         });
       }
-      return {
+      const threadCreatedEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -441,8 +516,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
           ...(command.parentThreadId ? { parentThreadId: command.parentThreadId } : {}),
+          ...(command.kind ? { kind: command.kind } : {}),
         },
       };
+      if (command.forkFrom === undefined) return threadCreatedEvent;
+      return [
+        threadCreatedEvent,
+        ...(yield* planThreadForkEvents({
+          threadId: command.threadId,
+          commandId: command.commandId,
+          createdAt: command.createdAt,
+          forkFrom: command.forkFrom,
+        })),
+      ];
     }
 
     case "thread.delete": {
@@ -1153,6 +1239,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
+          ...(command.kind !== undefined ? { kind: command.kind } : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
           ...(command.linkedPullRequest !== undefined

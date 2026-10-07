@@ -137,6 +137,7 @@ export function applyThreadDetailEvent(
           activeOrderKey: null,
           autoSettleDisabledAt: null,
           parentThreadId: event.payload.parentThreadId ?? null,
+          ...(event.payload.kind ? { kind: event.payload.kind } : {}),
           snoozedUntil: null,
           snoozedAt: null,
           deletedAt: null,
@@ -281,6 +282,7 @@ export function applyThreadDetailEvent(
           ...(event.payload.modelSelection !== undefined
             ? { modelSelection: event.payload.modelSelection }
             : {}),
+          ...(event.payload.kind !== undefined ? { kind: event.payload.kind } : {}),
           ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
           ...(event.payload.worktreePath !== undefined
             ? { worktreePath: event.payload.worktreePath }

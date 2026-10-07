@@ -475,6 +475,20 @@ describe("draft hero submission transition", () => {
     ).toBe(false);
   });
 
+  it("gives a never-prompted server thread the hero until its first entry", () => {
+    const base = {
+      isLocalDraftThread: false,
+      isEmptyServerThread: true,
+      hasTimelineEntries: false,
+      isWorking: false,
+      draftHeroDockRequested: false,
+      backgroundSubmissionPending: false,
+    };
+    expect(resolveDraftHeroState(base)).toBe(true);
+    expect(resolveDraftHeroState({ ...base, hasTimelineEntries: true })).toBe(false);
+    expect(resolveDraftHeroState({ ...base, isEmptyServerThread: false })).toBe(false);
+  });
+
   it("leaves the hero layout while a worktree setup card is on the timeline", () => {
     expect(
       resolveDraftHeroState({

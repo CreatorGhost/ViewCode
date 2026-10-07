@@ -292,6 +292,14 @@ export const LoadBalancingWeights = Schema.Record(
 
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
+// ViewCode chat transcript appearance (Settings -> Appearance -> Chat).
+export const ChatDensity = Schema.Literals(["compact", "comfortable"]);
+export type ChatDensity = typeof ChatDensity.Type;
+export const DEFAULT_CHAT_DENSITY: ChatDensity = "comfortable";
+export const ChatWidth = Schema.Literals(["narrow", "normal", "wide"]);
+export type ChatWidth = typeof ChatWidth.Type;
+export const DEFAULT_CHAT_WIDTH: ChatWidth = "normal";
+
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -489,6 +497,11 @@ export const ClientSettingsSchema = Schema.Struct({
   snapShotFlash: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // ViewCode: spacing between transcript rows and the chat column's width.
+  chatDensity: ChatDensity.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_DENSITY))),
+  chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_WIDTH))),
+  // ViewCode: settled turns fold their work behind one summary row.
+  collapseFinishedTurns: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1776,5 +1789,8 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotFlash: Schema.optionalKey(Schema.Boolean),
   snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
+  chatDensity: Schema.optionalKey(ChatDensity),
+  chatWidth: Schema.optionalKey(ChatWidth),
+  collapseFinishedTurns: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

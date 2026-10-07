@@ -57,7 +57,7 @@ export function SpawnedAgentRows(props: {
   if (spawns.length === 1) {
     const [sent] = spawns;
     return sent ? (
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="mx-auto w-full max-w-chat">
         <SpawnedAgentRow
           sent={sent}
           context={context}
@@ -70,7 +70,7 @@ export function SpawnedAgentRows(props: {
   const collapsedKey = spawnedAgentsCollapsedKey(rowId);
   const collapsed = expandedKeys.has(collapsedKey);
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-chat">
       <SpawnedAgentsGroupHeader
         spawns={spawns}
         context={context}

@@ -381,6 +381,7 @@ export function agentTree(
   const seen = new Set<string>();
   while (
     root?.parentThreadId &&
+    root.kind !== "sidechat" &&
     byId.has(String(root.parentThreadId)) &&
     !seen.has(String(root.id))
   ) {
@@ -392,6 +393,8 @@ export function agentTree(
   for (let index = 0; index < tree.length; index += 1) {
     const current = String(tree[index]!.id);
     for (const thread of threads) {
+      // A side chat is a quick question beside its parent, not an agent in the tree.
+      if (thread.kind === "sidechat") continue;
       if (thread.parentThreadId && String(thread.parentThreadId) === current) tree.push(thread);
     }
   }

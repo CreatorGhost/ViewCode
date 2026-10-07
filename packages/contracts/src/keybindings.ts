@@ -43,6 +43,11 @@ const THREAD_KEYBINDING_COMMANDS = [
   "thread.settle",
   "thread.pin",
   "thread.undo",
+  "thread.find",
+  "tab.next",
+  "tab.previous",
+  "tab.close",
+  "thread.split",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
@@ -92,6 +97,13 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "chat.new",
   "chat.newLocal",
   "editor.openFavorite",
+  // ViewCode: keyboard shortcuts sheet and diff panel change navigation.
+  "shortcuts.open",
+  // ViewCode: docked side chat for quick questions beside the main thread.
+  "sidechat.toggle",
+  "diff.change.previous",
+  "diff.change.next",
+  "diff.file.jump",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;

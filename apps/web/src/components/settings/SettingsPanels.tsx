@@ -172,6 +172,7 @@ import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { WindowTransparencySetting } from "./WindowTransparencySetting";
+import { ChatAppearanceSettings } from "./ChatAppearanceSettings";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -564,6 +565,11 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Auto-settle merged threads"]
         : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
+      ...(settings.chatDensity !== DEFAULT_UNIFIED_SETTINGS.chatDensity ? ["Chat density"] : []),
+      ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
+      ...(settings.collapseFinishedTurns !== DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns
+        ? ["Collapse finished turns"]
+        : []),
       ...getChangedTypographySettingLabels(settings),
       ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
         ? ["Default diff file state"]
@@ -692,6 +698,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.notificationMode,
       settings.inAppNotificationsEnabled,
       settings.wordWrap,
+      settings.chatDensity,
+      settings.chatWidth,
+      settings.collapseFinishedTurns,
       followSystem,
       theme,
       themeHalves,
@@ -767,6 +776,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
+      chatDensity: DEFAULT_UNIFIED_SETTINGS.chatDensity,
+      chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
+      collapseFinishedTurns: DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
@@ -1400,6 +1412,8 @@ export function AppearanceSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ChatAppearanceSettings />
 
       <SettingsSection id="motion" title="Motion">
         <SettingsRow

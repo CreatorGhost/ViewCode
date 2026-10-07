@@ -109,7 +109,8 @@ function SidebarUtilityItem({
   onClick: () => void;
 }) {
   return (
-    <SidebarMenuItem className="shrink-0">
+    // The app rail carries these on desktop; the mobile sheet has no rail.
+    <SidebarMenuItem className="shrink-0 md:hidden">
       <Tooltip>
         <TooltipTrigger
           render={
@@ -169,7 +170,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   return (
     <SidebarMenu className="flex-row items-center">
       {isOnUtilityPage ? (
-        <SidebarMenuItem className="min-w-0 flex-1">
+        // Desktop has the header Back button; the mobile sheet keeps this one.
+        <SidebarMenuItem className="min-w-0 flex-1 md:hidden">
           <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />
             <span>Back</span>

@@ -25,6 +25,25 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## App rail and open-thread tabs
+
+On web and desktop, a slim rail at the far left stays visible even when the thread sidebar
+is collapsed. Its bottom holds one ring per enabled provider account. A ring shows how much
+of that account's most constrained usage limit is left (green, blue, amber, red as it runs
+out); hover it for every limit and its reset time, or click it to open **Usage**. Below the
+rings are **Settings** and a **More** menu with Pull Requests, Usage, and Connect phone. On
+a phone these stay in the sidebar sheet.
+
+Once you have opened a second thread, tabs appear above the chat. Click a tab to switch,
+click its **x** or middle-click to close it. Tabs are remembered per environment. Hold
+`Ctrl` and press `Tab` (`Shift+Tab` to go back) for a list of recent threads; release
+`Ctrl` to switch. `ctrl+pagedown` / `ctrl+pageup` move between tabs and `mod+alt+w`
+closes the current one; all three are in the command palette and can be rebound in
+[Keybindings](./keybindings.md).
+
+Hovering a thread row shows its status and last activity, branch, model, and linked pull
+requests; hovering a project header shows its path and thread count.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.
@@ -164,3 +183,14 @@ Choose **Snooze → Custom…** from a thread's menu to pick a date and time in 
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. On web and desktop, you can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
+
+## Split view
+
+Watch one agent while steering another. Right-click a thread and choose **Open in
+split**, Alt+click it, run **Split with...** from the command palette, or press
+`Cmd/Ctrl+\` to pair the current thread with the most recent other one (press it
+again to close). Each pane is a full chat; the focused pane has a subtle ring, and
+find and shortcuts act on it. Click a pane to focus it, drag the divider to resize
+(double-click to reset), and use the pane buttons to swap or close. Split needs a
+window at least 1024px wide and falls back to a single chat below that; opening any
+thread outside the pair returns to one chat.

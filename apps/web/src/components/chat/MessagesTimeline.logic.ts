@@ -48,10 +48,17 @@ import { agentToolkitLabel, handoffDividerLabel } from "./agentTimeline.logic";
 import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 
 export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
+export const SESSION_RESUME_FALLBACK_ACTIVITY_KIND = "viewcode.session.resume-fallback";
+export const THREAD_FORKED_ACTIVITY_KIND = "viewcode.thread.forked";
 
 /** Activities that render as a full-width divider instead of a work row. */
 export function isTimelineDividerActivityKind(kind: string | undefined): boolean {
-  return kind === "context-compaction" || kind === HANDOFF_ACTIVITY_KIND;
+  return (
+    kind === "context-compaction" ||
+    kind === HANDOFF_ACTIVITY_KIND ||
+    kind === SESSION_RESUME_FALLBACK_ACTIVITY_KIND ||
+    kind === THREAD_FORKED_ACTIVITY_KIND
+  );
 }
 
 const incomingAgentMessageByMessage = new WeakMap<ChatMessage, AgentMessageEnvelope | null>();
@@ -277,12 +284,15 @@ export function resolveTimelineMinimapCurrentIndex(input: {
   return precedingIndex;
 }
 
-export function resolveTimelineMinimapHasPersistentGutter(viewportWidth: number): boolean {
+export function resolveTimelineMinimapHasPersistentGutter(
+  viewportWidth: number,
+  contentMaxWidth: number = TIMELINE_CONTENT_MAX_WIDTH,
+): boolean {
   if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) {
     return false;
   }
 
-  const contentWidth = Math.min(viewportWidth, TIMELINE_CONTENT_MAX_WIDTH);
+  const contentWidth = Math.min(viewportWidth, contentMaxWidth);
   const sideGutter = Math.max(0, (viewportWidth - contentWidth) / 2);
   return sideGutter >= TIMELINE_MINIMAP_PERSISTENT_GUTTER;
 }
@@ -298,12 +308,15 @@ const TIMELINE_MINIMAP_EXPANDED_HIT_STRIP_WIDTH = "22rem";
  * text and swallow its pointer events. Cap the strip's width so it never
  * extends past the gutter into the content column; 0 disables the strip.
  */
-export function resolveTimelineMinimapHitStripWidth(viewportWidth: number): number {
+export function resolveTimelineMinimapHitStripWidth(
+  viewportWidth: number,
+  contentMaxWidth: number = TIMELINE_CONTENT_MAX_WIDTH,
+): number {
   if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) {
     return 0;
   }
 
-  const contentWidth = Math.min(viewportWidth, TIMELINE_CONTENT_MAX_WIDTH);
+  const contentWidth = Math.min(viewportWidth, contentMaxWidth);
   const sideGutter = Math.max(0, (viewportWidth - contentWidth) / 2);
   return Math.max(
     0,
@@ -428,7 +441,11 @@ export type MessagesTimelineRow =
       createdAt: string;
       label: string;
       /** Compaction divider, or a ViewCode cross-provider handoff card. */
-      variant: "compaction" | "handoff";
+      variant: "compaction" | "handoff" | "fork";
+      /** Set on a fork divider: the thread it was forked from. */
+      forkedFrom?: { threadId: string; title: string };
+      /** Set on a handoff card: what moved, for the expandable detail. */
+      handoff?: WorkLogEntry["handoff"];
     }
   | {
       /** A message another agent delivered to this thread (a user turn). */
@@ -615,6 +632,8 @@ interface TurnFold {
   createdAt: string;
   hiddenEntryIds: ReadonlySet<string>;
   label: string;
+  /** What the folded work did ("Ran 7 commands and changed 3 files"), or null. */
+  summary: string | null;
 }
 
 /**
@@ -881,9 +900,39 @@ function deriveTurnFolds(input: {
       createdAt: firstHiddenEntry.createdAt,
       hiddenEntryIds,
       label,
+      summary: summarizeFoldedWork(group.entries, hiddenEntryIds),
     });
   }
   return foldsByAnchorEntryId;
+}
+
+/**
+ * The "Ran 7 commands and changed 3 files" half of a folded turn's row: the
+ * tool calls it hides, summarized the way expanded tool groups are.
+ */
+export function summarizeFoldedWork(
+  entries: ReadonlyArray<TimelineEntry>,
+  hiddenEntryIds: ReadonlySet<string>,
+): string | null {
+  const toolEntries: WorkLogEntry[] = [];
+  for (const entry of entries) {
+    if (
+      entry.kind === "work" &&
+      hiddenEntryIds.has(entry.id) &&
+      workLogEntryIsToolLike(entry.entry) &&
+      !isTimelineDividerActivityKind(entry.entry.sourceActivityKind)
+    ) {
+      toolEntries.push(entry.entry);
+    }
+  }
+  if (toolEntries.length === 0) return null;
+  const summary = summarizeToolGroup(toolEntries);
+  return summary.length > 0 ? summary : null;
+}
+
+/** "Worked for 2m · Ran 7 commands and changed 3 files". */
+export function turnFoldDisplayLabel(fold: { label: string; summary: string | null }): string {
+  return fold.summary ? `${fold.label} · ${fold.summary}` : fold.label;
 }
 
 /**
@@ -1039,6 +1088,8 @@ export function deriveMessagesTimelineRows(input: {
   queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
   /** User messages the agent may never have received, by id (see `undeliveredUserMessages`). */
   undeliveredMessages?: ReadonlyMap<string, string>;
+  /** Settings -> Appearance -> Collapse finished turns. Defaults to on. */
+  collapseFinishedTurns?: boolean;
 }): MessagesTimelineRow[] {
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
   for (const summary of input.turnDiffSummaries) {
@@ -1068,12 +1119,15 @@ export function deriveMessagesTimelineRows(input: {
     unsettledTurnId,
     isWorking: input.isWorking,
   });
-  const foldsByAnchorEntryId = deriveTurnFolds({
-    timelineEntries: input.timelineEntries,
-    terminalAssistantMessageIds,
-    latestTurn: input.latestTurn ?? null,
-    unfoldedTurnIds: activeVisualResponseTurnIds,
-  });
+  const foldsByAnchorEntryId =
+    input.collapseFinishedTurns === false
+      ? new Map<string, TurnFold>()
+      : deriveTurnFolds({
+          timelineEntries: input.timelineEntries,
+          terminalAssistantMessageIds,
+          latestTurn: input.latestTurn ?? null,
+          unfoldedTurnIds: activeVisualResponseTurnIds,
+        });
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
     if (!input.expandedTurnIds?.has(fold.turnId)) {
@@ -1211,7 +1265,7 @@ export function deriveMessagesTimelineRows(input: {
         id: `turn-fold:${anchoredTurnFold.turnId}`,
         createdAt: anchoredTurnFold.createdAt,
         turnId: anchoredTurnFold.turnId,
-        label: anchoredTurnFold.label,
+        label: turnFoldDisplayLabel(anchoredTurnFold),
         expanded: input.expandedTurnIds?.has(anchoredTurnFold.turnId) ?? false,
       });
     }
@@ -1308,13 +1362,19 @@ export function deriveMessagesTimelineRows(input: {
       timelineEntry.kind === "work" &&
       isTimelineDividerActivityKind(timelineEntry.entry.sourceActivityKind)
     ) {
-      const isHandoff = timelineEntry.entry.sourceActivityKind === HANDOFF_ACTIVITY_KIND;
+      const isHandoff =
+        timelineEntry.entry.sourceActivityKind === HANDOFF_ACTIVITY_KIND ||
+        timelineEntry.entry.sourceActivityKind === SESSION_RESUME_FALLBACK_ACTIVITY_KIND;
       nextRows.push({
         kind: "context-compaction",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         label: isHandoff ? handoffDividerLabel(timelineEntry.entry) : timelineEntry.entry.label,
-        variant: isHandoff ? "handoff" : "compaction",
+        variant: isHandoff ? "handoff" : timelineEntry.entry.forkedFrom ? "fork" : "compaction",
+        ...(timelineEntry.entry.forkedFrom ? { forkedFrom: timelineEntry.entry.forkedFrom } : {}),
+        ...(isHandoff && timelineEntry.entry.handoff
+          ? { handoff: timelineEntry.entry.handoff }
+          : {}),
       });
       continue;
     }
@@ -1751,7 +1811,12 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "context-compaction": {
       const bc = b as typeof a;
-      return a.createdAt === bc.createdAt && a.label === bc.label && a.variant === bc.variant;
+      return (
+        a.createdAt === bc.createdAt &&
+        a.label === bc.label &&
+        a.variant === bc.variant &&
+        a.handoff?.summary === bc.handoff?.summary
+      );
     }
 
     case "agent-message-in":

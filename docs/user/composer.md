@@ -74,7 +74,8 @@ Leaving reasoning level or service tier unset uses the provider's own configurat
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose
-**Cite in composer**. You can add a comment about the quote and write instructions
+**Quote in this chat**. **Ask in new chat** starts a new thread in the same project with the
+selection quoted in its composer. You can add a comment about the quote and write instructions
 around it.
 
 Select the quote in a draft or sent message to return to its source. If the source
@@ -89,6 +90,24 @@ The quoted text and comment count toward the message limit.
 
 Mobile displays saved quotes and comments, but does not create citations or
 navigate to their sources.
+
+## Find in a thread
+
+Press `Cmd/Ctrl+F` with a thread focused, or run **Find in thread** from the command palette. Matches
+are counted across the whole conversation, highlighted as you step with `Enter` and `Shift+Enter`,
+and `Esc` closes the bar. The shortcut is left alone in the terminal, editors and the diff viewer.
+
+## Fork from a message
+
+Choose **Fork from here** on any message to open a new thread, "Fork of <title>", in the same
+project with the conversation up to that message. The fork starts a fresh agent session that is
+briefed with the earlier transcript, and a divider at the top links back to the original thread.
+Nothing you do in the fork affects the original.
+
+## Files edited while the agent works
+
+While a turn runs, a strip above the composer lists the files the agent has edited so far. Each opens
+its diff; with many files it collapses to a count and **View changes**.
 
 ## Recall a sent prompt
 

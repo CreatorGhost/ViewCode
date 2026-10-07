@@ -187,6 +187,7 @@ import {
 } from "~/lib/openPullRequestLink";
 import { useOpenLink } from "../browser/useOpenLink";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { CopyableBlockquote } from "./chat/CopyableBlockquote";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { isAbsolutePath, resolvePathLinkTarget } from "../terminal-links";
 import {
@@ -2822,7 +2823,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
     const alert =
       GITHUB_ALERT_PRESENTATIONS[String((props as Record<string, unknown>)["data-alert"] ?? "")];
     if (!alert) {
-      return <blockquote {...props}>{children}</blockquote>;
+      return <CopyableBlockquote {...props}>{children}</CopyableBlockquote>;
     }
     // Not a <blockquote>: the stylesheet mutes those, and an alert's body is ordinary
     // text under a colored title — which is how the host renders it.

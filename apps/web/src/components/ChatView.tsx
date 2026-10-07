@@ -230,6 +230,9 @@ import {
   foldSubagentActivities,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
+import { ThreadFindBar, THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
+import { useSplitPaneFocused } from "../splitView/SplitPaneContext";
+import { chatOwnsFindShortcut } from "./chat/threadFind.logic";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -376,6 +379,7 @@ import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { SidechatHost } from "./chat/SidechatHost";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { expandedImageKey, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -458,6 +462,7 @@ import {
   resolveComposerProviderSelection,
   getAntigravitySendBlockReason,
   resolveDraftHeroState,
+  threadShellHasStarted,
   findRecordedWorktreeSetup,
   resolveVisibleWorktreeSetup,
   restorePlanFollowUpComposer,
@@ -512,7 +517,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ServerUpdateAction } from "./ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import { useUsageResumeBanner } from "./chat/useUsageResumeBanner";
+import { useClaudeCacheBanner } from "./chat/useClaudeCacheBanner";
 import { useViewcodeToolsBanner } from "./chat/useViewcodeToolsBanner";
+import { useLiveEditedFilesBanner } from "./chat/useLiveEditedFilesBanner";
 import { useImagePayloadBanner } from "./chat/useImagePayloadBanner";
 import {
   ComposerServerUpdateIcon,
@@ -1485,6 +1492,8 @@ export default function ChatView(props: ChatViewProps) {
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   // A stalled first load has no detail either; it renders like a load.
   const threadDetailLoading = threadSyncPhase === "loading" || threadSyncPhase === "stalled";
+  // In a split view only the focused pane answers shortcuts, find and refocus.
+  const splitPaneFocused = useSplitPaneFocused();
   const handleNewThread = useNewThreadHandler();
   const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
   const routeThreadRef = useMemo(
@@ -1780,6 +1789,13 @@ export default function ChatView(props: ChatViewProps) {
     LastInvokedScriptByProjectSchema,
   );
   const legendListRef = useRef<LegendListRef | null>(null);
+  const [threadFindOpen, setThreadFindOpen] = useState(false);
+  useEffect(() => {
+    if (!splitPaneFocused) return;
+    const open = () => setThreadFindOpen(true);
+    window.addEventListener(THREAD_FIND_OPEN_EVENT, open);
+    return () => window.removeEventListener(THREAD_FIND_OPEN_EVENT, open);
+  }, [splitPaneFocused]);
   const getTimelineScrollableNode = useCallback(
     () => legendListRef.current?.getScrollableNode() ?? null,
     [],
@@ -3664,6 +3680,11 @@ export default function ChatView(props: ChatViewProps) {
     // A cancelled or failed setup card stays on the draft's timeline; the
     // hero headline would paint over it.
     hasWorktreeSetupCard: worktreeSetup !== null,
+    isEmptyServerThread:
+      routeKind === "server" &&
+      !threadDetailLoading &&
+      routeServerThreadShell !== null &&
+      !threadShellHasStarted(routeServerThreadShell),
   });
   const [
     attachDraftHeroTransitionGroupRef,
@@ -5796,14 +5817,14 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeThread?.id, routeThreadKey]);
 
   useEffect(() => {
-    if (!activeThread?.id || terminalUiState.terminalOpen) return;
+    if (!activeThread?.id || terminalUiState.terminalOpen || !splitPaneFocused) return;
     const frame = window.requestAnimationFrame(() => {
       focusComposer();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, terminalUiState.terminalOpen]);
+  }, [activeThread?.id, focusComposer, splitPaneFocused, terminalUiState.terminalOpen]);
 
   // Tabbing back into the app lands focus wherever it last was, often the right panel or the
   // body. Put it in the composer unless something that takes typing already holds it. The
@@ -5811,7 +5832,8 @@ export default function ChatView(props: ChatViewProps) {
   // terminal is a surface and is recognized by the predicate instead. Mobile is left alone so
   // returning to the app does not raise the keyboard.
   useEffect(() => {
-    if (!activeThread?.id || terminalUiState.terminalOpen || isMobileViewport) return;
+    if (!activeThread?.id || terminalUiState.terminalOpen || isMobileViewport || !splitPaneFocused)
+      return;
     let frame: number | null = null;
     const onWindowFocus = () => {
       if (frame !== null) window.cancelAnimationFrame(frame);
@@ -5830,7 +5852,13 @@ export default function ChatView(props: ChatViewProps) {
       window.removeEventListener("focus", onWindowFocus);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, isMobileViewport, terminalUiState.terminalOpen]);
+  }, [
+    activeThread?.id,
+    focusComposer,
+    isMobileViewport,
+    splitPaneFocused,
+    terminalUiState.terminalOpen,
+  ]);
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -6576,15 +6604,38 @@ export default function ChatView(props: ChatViewProps) {
     activities: threadActivities,
     sessionProviderName: activeThread?.session?.providerName,
   });
+  const { item: claudeCacheBannerItem, holdSend: holdSendForClaudeCache } = useClaudeCacheBanner({
+    threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
+    isClaude: activeThread?.session?.providerName === "claudeAgent",
+    running: phase === "running",
+    model: activeThread?.modelSelection.model,
+    activities: threadActivities,
+    onCompact:
+      compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
+    sendAnyway: () => void onSendRef.current(),
+  });
   const imagePayloadBannerItem = useImagePayloadBanner({
     threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
     messages: activeThread?.messages ?? EMPTY_THREAD_MESSAGES,
     providerName: activeThread?.session?.providerName,
   });
+  // onOpenTurnDiff is declared further down; a ref keeps this callback stable.
+  const openTurnDiffRef = useRef<(turnId: TurnId, filePath?: string) => void>(() => {});
+  const openLiveEditedFileDiff = useCallback(
+    (turnId: string, filePath?: string) => openTurnDiffRef.current(turnId as TurnId, filePath),
+    [],
+  );
+  const liveEditedFilesBannerItem = useLiveEditedFilesBanner({
+    entries: workLogEntries,
+    runningTurnId: activeRunningTurnId,
+    onOpenDiff: openLiveEditedFileDiff,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const threadNoticeItems = [
+      ...(liveEditedFilesBannerItem === null ? [] : [liveEditedFilesBannerItem]),
       ...(imagePayloadBannerItem === null ? [] : [imagePayloadBannerItem]),
       ...(viewcodeToolsBannerItem === null ? [] : [viewcodeToolsBannerItem]),
+      ...(claudeCacheBannerItem === null ? [] : [claudeCacheBannerItem]),
     ];
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
@@ -6663,6 +6714,7 @@ export default function ChatView(props: ChatViewProps) {
     feedbackBannerItems,
     handleRestoreThreadBranch,
     imagePayloadBannerItem,
+    liveEditedFilesBannerItem,
     isRestoringThreadBranch,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
@@ -6672,6 +6724,7 @@ export default function ChatView(props: ChatViewProps) {
     systemComposerBannerItems,
     usageLimitsBanner,
     viewcodeToolsBannerItem,
+    claudeCacheBannerItem,
     wokeThreadBannerItem,
   ]);
   // Pinned outside the stack: the stack keeps activity in front and folds
@@ -6773,6 +6826,7 @@ export default function ChatView(props: ChatViewProps) {
   );
 
   useEffect(() => {
+    if (!splitPaneFocused) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
         event.stopPropagation();
@@ -6838,6 +6892,15 @@ export default function ChatView(props: ChatViewProps) {
             }),
           );
         });
+        return;
+      }
+
+      if (command === "thread.find") {
+        // Terminal, editor and diff keep their own find.
+        if (!chatOwnsFindShortcut(event.target, shortcutContext.terminalFocus)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setThreadFindOpen(true);
         return;
       }
 
@@ -7055,12 +7118,14 @@ export default function ChatView(props: ChatViewProps) {
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
     composerRef,
+    splitPaneFocused,
   ]);
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
   // so a paste that follows has no editable target and would be dropped.
   // Route it to the composer like a typed key, which also expands it.
   useEffect(() => {
+    if (!splitPaneFocused) return;
     const keyHandler = (event: KeyboardEvent) => {
       if (
         shouldRedirectInputToComposer(event) &&
@@ -7093,7 +7158,7 @@ export default function ChatView(props: ChatViewProps) {
       window.removeEventListener("keydown", keyHandler, true);
       window.removeEventListener("paste", handler, true);
     };
-  }, [activeThreadId, composerRef]);
+  }, [activeThreadId, composerRef, splitPaneFocused]);
 
   const [pendingRevert, setPendingRevert] = useState<{
     turnCount: number;
@@ -7394,6 +7459,8 @@ export default function ChatView(props: ChatViewProps) {
     queuedMessage?: QueuedComposerMessage,
   ) => {
     e?.preventDefault();
+    // Large idle Claude thread: keep the draft and let the cache notice ask first.
+    if (!queuedMessage && !directAnnotation && holdSendForClaudeCache()) return;
     // Typed out in full rather than picked from the menu. Attachments or contexts
     // mean the user is sending a prompt, so those go through as usual.
     if (
@@ -9594,6 +9661,7 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
   );
+  openTurnDiffRef.current = onOpenTurnDiff;
   // The revert handler is read from a ref at call-time so the callback
   // reference is fully stable and never busts TimelineRowCtx identity.
   const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
@@ -9918,6 +9986,7 @@ export default function ChatView(props: ChatViewProps) {
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           <ChatHeader
             providerInstanceEntries={providerInstanceEntries}
+            forkedFrom={workLogEntries.find((entry) => entry.forkedFrom)?.forkedFrom ?? null}
             {...(!supportsPullRequests || activeProjectRepository === null
               ? {}
               : { onOpenPullRequest: openProjectPullRequest })}
@@ -9972,8 +10041,8 @@ export default function ChatView(props: ChatViewProps) {
                 </div>
               </div>
             ) : null}
-            {/* Banners overlay the timeline without changing its content height. */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col">
+            {/* Banners sit in flow above the timeline so they never cover transcript text. */}
+            <div className="pointer-events-none relative z-20 flex shrink-0 flex-col">
               <ProviderStatusBanner
                 status={visibleProviderStatus}
                 onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
@@ -9991,6 +10060,15 @@ export default function ChatView(props: ChatViewProps) {
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
               {/* Messages — LegendList handles virtualization and scrolling internally */}
+              {threadFindOpen ? (
+                <ThreadFindBar
+                  key={String(activeThread.id)}
+                  entries={displayedTimeline.entries}
+                  listRef={legendListRef}
+                  getViewport={getTimelineScrollableNode}
+                  onClose={() => setThreadFindOpen(false)}
+                />
+              ) : null}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
@@ -10120,7 +10198,7 @@ export default function ChatView(props: ChatViewProps) {
               >
                 <div
                   data-chat-composer-stack="true"
-                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-3xl"
+                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-chat"
                 >
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full z-0">
@@ -10406,6 +10484,13 @@ export default function ChatView(props: ChatViewProps) {
             ) : null}
           </div>
           {/* end chat column */}
+          {routeKind === "server" ? (
+            <SidechatHost
+              thread={activeThreadShell}
+              keybindings={keybindings}
+              markdownCwd={gitCwd ?? undefined}
+            />
+          ) : null}
         </div>
         {/* end horizontal flex container */}
 

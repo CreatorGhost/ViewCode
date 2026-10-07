@@ -1,5 +1,5 @@
 import type { DesktopBridge } from "@t3tools/contracts";
-import { VIEWCODE_THEME_ID } from "@t3tools/shared/themePalettes";
+import { VIEWCODE_TEAL_THEME_ID, VIEWCODE_THEME_ID } from "@t3tools/shared/themePalettes";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
@@ -41,7 +41,7 @@ const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 // ViewCode opens in its own theme, following the system appearance, until the
 // user picks another.
 const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
-  theme: VIEWCODE_THEME_ID,
+  theme: VIEWCODE_TEAL_THEME_ID,
   resolvedTheme: "dark",
   systemDark: false,
   followSystem: true,
@@ -186,7 +186,7 @@ export function readAppearanceModePreference(theme: Theme): ThemePreferenceMode 
   if (readStoredFollowSystem(theme)) return "system";
   // ViewCode's own theme defines both halves and follows the system until the
   // user picks a mode.
-  if (theme === VIEWCODE_THEME_ID) return "system";
+  if (theme === VIEWCODE_THEME_ID || theme === VIEWCODE_TEAL_THEME_ID) return "system";
   return getThemePreferenceMode(theme) ?? "light";
 }
 

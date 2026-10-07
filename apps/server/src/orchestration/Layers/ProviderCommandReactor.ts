@@ -48,6 +48,7 @@ import {
 } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { isStaleProviderSessionCause } from "../../provider/staleSession.ts";
+import { THREAD_FORKED_ACTIVITY_KIND, forkHandoffIntro } from "../ThreadFork.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -246,6 +247,10 @@ const PendingHandoffJson = Schema.fromJsonString(
     // Set when the handoff replaces a native session the provider could no
     // longer resume (the provider's display name, for the recovery notice).
     staleSessionProvider: Schema.optional(Schema.String),
+    // ViewCode: set when the recap is a fork's copied history (source title).
+    forkSourceTitle: Schema.optional(Schema.String),
+    // Side chat: the main thread whose context the first turn recaps.
+    sidechatOf: Schema.optional(Schema.String),
     // The `from` instance's native resume cursor when the switch happened.
     // Switching back before the handoff is delivered resumes that session.
     fromResumeCursor: Schema.optional(Schema.Unknown),
@@ -698,6 +703,20 @@ const make = Effect.gen(function* () {
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
+  /** The source title when the thread is a fork (`ThreadFork.ts`), else null. */
+  const forkSourceTitleOf = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const detail = yield* projectionSnapshotQuery
+      .getThreadDetailById(threadId, { activityKinds: [THREAD_FORKED_ACTIVITY_KIND] })
+      .pipe(Effect.orElseSucceed(() => Option.none()));
+    if (Option.isNone(detail)) return null;
+    const marker = detail.value.activities.find(
+      (activity) => activity.kind === THREAD_FORKED_ACTIVITY_KIND,
+    );
+    if (marker === undefined || detail.value.messages.length === 0) return null;
+    const payload = marker.payload as { readonly sourceTitle?: unknown } | null;
+    return typeof payload?.sourceTitle === "string" ? payload.sourceTitle : "another thread";
+  });
+
   const startedThreadModelChangeRequiresNewSession = Effect.fnUntraced(function* (input: {
     readonly currentModelSelection: ModelSelection;
     readonly requestedModelSelection: ModelSelection | undefined;
@@ -1130,16 +1149,40 @@ const make = Effect.gen(function* () {
           .pipe(Effect.orElseSucceed(() => Option.none())),
         { onNone: () => true, onSome: (binding) => binding.resumeCursor == null },
       );
+    // ViewCode: a fork's copied history reaches the agent the same way.
+    const forkSourceTitle =
+      thread.session === null && thread.latestTurn === null && !recapImportedHistory
+        ? yield* forkSourceTitleOf(threadId)
+        : null;
+    // ViewCode side chat: its first turn carries the main thread's context.
+    const sidechatParentId =
+      thread.kind === "sidechat" &&
+      thread.parentThreadId != null &&
+      thread.session === null &&
+      thread.latestTurn === null
+        ? thread.parentThreadId
+        : null;
     const startedSession = yield* startProviderSession(undefined);
     yield* bindSessionToThread(startedSession);
-    if (recapImportedHistory) {
+    if (sidechatParentId !== null) {
+      const parentThread = yield* resolveThreadShell(sidechatParentId);
+      yield* rememberPendingHandoff(threadId, {
+        from: {
+          instanceId: String((parentThread ?? thread).modelSelection.instanceId),
+          model: (parentThread ?? thread).modelSelection.model,
+        },
+        to: { instanceId: String(desiredInstanceId), model: desiredModelSelection.model },
+        sidechatOf: String(sidechatParentId),
+      });
+    }
+    if (recapImportedHistory || forkSourceTitle !== null) {
       yield* rememberPendingHandoff(threadId, {
         from: {
           instanceId: String(thread.modelSelection.instanceId),
           model: thread.modelSelection.model,
         },
         to: { instanceId: String(desiredInstanceId), model: desiredModelSelection.model },
-        staleSessionProvider: "T3 Code",
+        ...(forkSourceTitle !== null ? { forkSourceTitle } : { staleSessionProvider: "T3 Code" }),
       });
     }
     return startedSession.threadId;
@@ -1161,8 +1204,9 @@ const make = Effect.gen(function* () {
     yield* loadPendingHandoffs;
     const pending = pendingHandoffs.get(input.threadId);
     if (!pending) return null;
+    const sidechatOf = pending.sidechatOf;
     const detail = yield* projectionSnapshotQuery
-      .getThreadDetailById(input.threadId, {
+      .getThreadDetailById(sidechatOf === undefined ? input.threadId : ThreadId.make(sidechatOf), {
         activityKinds: ["tool.completed", "turn.plan.updated"],
         allActivities: true,
       })
@@ -1177,7 +1221,9 @@ const make = Effect.gen(function* () {
     // after the prelude, so leave it out of the recap.
     const lastMessage = detail.messages.at(-1);
     const thread =
-      lastMessage?.role === "user" && lastMessage.text === input.messageText
+      sidechatOf === undefined &&
+      lastMessage?.role === "user" &&
+      lastMessage.text === input.messageText
         ? { ...detail, messages: detail.messages.slice(0, -1) }
         : detail;
     const handoff = buildHandoff({
@@ -1185,6 +1231,10 @@ const make = Effect.gen(function* () {
       from: pending.from,
       to: pending.to,
       recentExchanges: HANDOFF_RECENT_EXCHANGES,
+      ...(pending.forkSourceTitle !== undefined
+        ? { intro: forkHandoffIntro(pending.forkSourceTitle) }
+        : {}),
+      ...(sidechatOf !== undefined ? { sidechat: true } : {}),
       // The user's message is never trimmed, so the recap gets what is left.
       maxChars: Math.max(
         0,
@@ -1216,6 +1266,8 @@ const make = Effect.gen(function* () {
         yield* forgetPendingHandoffFile(input.threadId);
       }
       const staleProvider = pending.staleSessionProvider;
+      // A fork's divider already marks where the history came from.
+      if (pending.forkSourceTitle !== undefined) return;
       yield* orchestrationEngine.dispatch({
         type: "thread.activity.append",
         commandId: yield* serverCommandId("handoff"),
@@ -1229,7 +1281,9 @@ const make = Effect.gen(function* () {
               : STALE_SESSION_RECOVERY_ACTIVITY_KIND,
           summary:
             staleProvider === undefined
-              ? describeHandoff(pending.from, pending.to)
+              ? sidechatOf === undefined
+                ? describeHandoff(pending.from, pending.to)
+                : "Started from the main thread's context"
               : `Couldn't reopen the previous ${staleProvider} session; continued with a recap of this conversation`,
           payload: {
             from: pending.from,

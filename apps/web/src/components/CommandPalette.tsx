@@ -45,6 +45,7 @@ import {
   ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
+  KeyboardIcon,
   FolderIcon,
   FolderPlusIcon,
   LinkIcon,
@@ -52,12 +53,14 @@ import {
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
+  MessageSquareMoreIcon,
   RotateCcwIcon,
   SettingsIcon,
   SmartphoneIcon,
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  Columns2Icon,
 } from "lucide-react";
 import {
   useCallback,
@@ -78,6 +81,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { useShortcutsSheetStore } from "./shortcuts/shortcutsSheetStore";
 import { useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
@@ -132,6 +136,7 @@ import {
 } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
+import { openSideChat } from "../sidechatDockStore";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -164,6 +169,7 @@ import {
 } from "./CommandPalette.logic";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
+import { buildThreadTabActions } from "./tabs/threadTabActions";
 import { CommandPaletteContent } from "./CommandPaletteContent";
 import { CommandPaletteResults } from "./CommandPaletteResults";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon, ForgejoIcon } from "./Icons";
@@ -191,6 +197,8 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
+import { THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
+import { useSplitActions } from "../splitView/useSplitView";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import {
@@ -1202,12 +1210,16 @@ function OpenCommandPaletteDialog(props: {
             threads.filter(
               (thread) =>
                 thread.archivedAt === null &&
+                thread.kind !== "sidechat" &&
                 groupedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
             ),
             clientSettings.sidebarThreadSortOrder,
           )[0] ?? null)
         : getLatestThreadForProject(
-            threads.filter((thread) => thread.environmentId === project.environmentId),
+            threads.filter(
+              (thread) =>
+                thread.environmentId === project.environmentId && thread.kind !== "sidechat",
+            ),
             project.id,
             clientSettings.sidebarThreadSortOrder,
           );
@@ -1412,6 +1424,25 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  const { openSplitWith, toggleSplit } = useSplitActions();
+  const splitThreadItems = useMemo(
+    () =>
+      buildThreadActionItems({
+        threads: threads.filter((thread) => thread.id !== activeThreadId),
+        projectTitleById,
+        sortOrder: clientSettings.sidebarThreadSortOrder,
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+        limit: 50,
+        runThread: async (thread) => openSplitWith(scopeThreadRef(thread.environmentId, thread.id)),
+      }),
+    [
+      activeThreadId,
+      clientSettings.sidebarThreadSortOrder,
+      openSplitWith,
+      projectTitleById,
+      threads,
+    ],
+  );
 
   const pushPaletteView = useCallback(
     (view: CommandPaletteView): void => {
@@ -1796,6 +1827,40 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (activeThread !== null) {
+    actionItems.push(
+      {
+        kind: "submenu",
+        value: "action:split-with",
+        searchTerms: ["split", "side by side", "two threads", "compare"],
+        title: "Split with...",
+        icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+        addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+        groups: [{ value: "threads", label: "Threads", items: splitThreadItems }],
+      },
+      {
+        kind: "action",
+        value: "action:toggle-split",
+        searchTerms: ["split", "toggle split", "close split", "side by side"],
+        title: "Toggle split view",
+        icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.split",
+        run: async () => toggleSplit(),
+      },
+    );
+    actionItems.push({
+      kind: "action",
+      value: "action:find-in-thread",
+      searchTerms: ["find", "search", "in thread", "conversation"],
+      title: "Find in thread",
+      icon: <TextSearchIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.find",
+      run: async () => {
+        window.dispatchEvent(new Event(THREAD_FIND_OPEN_EVENT));
+      },
+    });
+  }
+
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({
       kind: "action",
@@ -1840,6 +1905,32 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
+  actionItems.push(
+    ...buildThreadTabActions(
+      activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null,
+      (ref) =>
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId: ref.environmentId, threadId: ref.threadId },
+        }),
+      () => void navigate({ to: "/" }),
+    ),
+  );
+  if (activeThread !== null && activeThread.kind !== "sidechat") {
+    const thread = activeThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:side-chat",
+      searchTerms: ["side chat", "sidechat", "quick question", "ask", "btw"],
+      title: "Ask in side chat",
+      icon: <MessageSquareMoreIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "sidechat.toggle",
+      run: async () => {
+        openSideChat(scopeThreadRef(thread.environmentId, thread.id));
+      },
+    });
+  }
+
   if (activeThread !== null) {
     const thread = activeThread;
     actionItems.push({
@@ -1882,6 +1973,18 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:keyboard-shortcuts",
+    searchTerms: ["keyboard shortcuts", "keybindings", "hotkeys", "cheat sheet"],
+    title: "Keyboard shortcuts",
+    icon: <KeyboardIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "shortcuts.open",
+    run: async () => {
+      useShortcutsSheetStore.getState().setOpen(true);
+    },
+  });
 
   actionItems.push({
     kind: "action",

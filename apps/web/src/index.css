@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* ViewCode: chat column width and density tokens (max-w-chat). */
+@import "./viewcode-chat.css";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
@@ -1696,7 +1698,12 @@ code {
 .drag-region input,
 .drag-region textarea,
 .drag-region select,
-.drag-region a {
+.drag-region a,
+.drag-region [role="tab"],
+.drag-region [role="tablist"],
+.drag-region [role="button"],
+.drag-region [role="menuitem"],
+.drag-region [contenteditable="true"] {
   -webkit-app-region: no-drag;
 }
 

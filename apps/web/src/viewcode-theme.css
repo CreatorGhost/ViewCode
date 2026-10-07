@@ -278,14 +278,18 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="standalone-g
  * amber, messageSurface is an amber tint).
  * ------------------------------------------------------------------------- */
 
-/* Composer: an amber hairline on the input itself while it holds focus. Set on
+/* Composer: a faint amber hint on the input itself while it holds focus. Set on
    the host only: the shell's variable is shared by the attached strips (active
    agents above, checkout below), which must stay neutral or the stack reads as
    boxes inside boxes. */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   [data-slot="composer-shell"]:focus-within
   [data-slot="composer-host"] {
-  --chat-composer-outline: color-mix(in srgb, var(--app-theme-accent) 60%, transparent);
+  --chat-composer-outline: color-mix(
+    in srgb,
+    var(--foreground) 14%,
+    color-mix(in srgb, var(--app-theme-accent) 22%, transparent)
+  );
 }
 
 /* Banners attached to the composer (e.g. Active agents) sit inside the host;
@@ -420,6 +424,14 @@ html[data-window-glass="true"] body {
     box-shadow: inset 0 0 0 1px var(--vc-glass-edge);
   }
 
+  /* The app rail is part of the sidebar chrome: on glass it drops its own fill
+     and divider so rail and sidebar read as one neutral panel instead of a
+     separately tinted strip. */
+  html[data-window-glass="true"] [data-app-rail] {
+    background-color: transparent !important;
+    border-right-color: transparent !important;
+  }
+
   /* Pane fills inside the sheet (chat, new-thread, settings and pull-request
      pages, the chat header) let the sheet show through. Cards, code, the
      terminal and floating glass keep their own fills. */
@@ -474,5 +486,170 @@ html[data-window-glass="true"] body {
   }
   [data-viewcode-roll="out"] {
     opacity: 0;
+  }
+}
+
+/* Find in thread: CSS Custom Highlight API ranges set by ThreadFindBar. */
+::highlight(viewcode-find) {
+  background-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  color: inherit;
+}
+::highlight(viewcode-find-active) {
+  background-color: var(--warning);
+  color: var(--background);
+}
+
+/*
+ * App rail (components/rail/AppRail.tsx): a 3rem strip left of the thread sidebar. The
+ * sidebar's fixed container is shifted right of it instead of editing ui/sidebar.tsx, and
+ * collapsing slides the sidebar under the rail. Web only: macOS keeps the traffic-light
+ * inset in --workspace-titlebar-content-left.
+ */
+@media (min-width: 768px) {
+  [data-app-rail-layout] {
+    --app-rail-width: 3rem;
+  }
+  [data-app-rail-layout] [data-slot="sidebar-container"] {
+    left: var(--app-rail-width) !important;
+  }
+  [data-app-rail-layout] [data-collapsible="offcanvas"] [data-slot="sidebar-container"] {
+    left: calc(var(--app-rail-width) - var(--sidebar-width)) !important;
+  }
+  /* The toggle floats over the rail now, so content starts right after it. macOS keeps the
+     traffic-light inset. */
+  [data-app-rail-layout="web"] {
+    --workspace-titlebar-content-left: 0.75rem !important;
+  }
+}
+
+/*
+ * Sidebar polish: calmer thread list. Keyed on the rows' existing data-testid hooks so the
+ * upstream-owned Sidebar.tsx stays untouched. Rows get air, the selected row gets a quiet fill
+ * with a short accent bar, and everything that is not the thread title steps back.
+ */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+  [data-testid="sidebar-row"] {
+    height: 1.875rem; /* 30px, up from 28 */
+    border-radius: var(--vc-row-radius);
+    transition: background-color 120ms ease-out;
+  }
+  [data-testid="sidebar-row-child"] {
+    height: 1.625rem;
+    border-radius: var(--vc-row-radius);
+  }
+  /* The selected row: a soft fill and a 2px accent bar, instead of a heavy block. */
+  [data-testid="sidebar-row"][aria-current="page"],
+  [data-testid="sidebar-row-child"][aria-current="page"] {
+    background-color: color-mix(in srgb, var(--app-theme-accent) 7%, transparent);
+  }
+  [data-testid="sidebar-row"][aria-current="page"]::before,
+  [data-testid="sidebar-row-child"][aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    /* Inside the rounded fill, centred, about 60% of the row. */
+    left: 3px;
+    top: 20%;
+    bottom: 20%;
+    width: 2px;
+    border-radius: 9999px;
+    pointer-events: none;
+    background: var(--app-theme-accent);
+  }
+  /* One left gutter for thread rows, project headers and Settled rows. */
+  [data-testid="sidebar-row"],
+  [data-testid="sidebar-project-row"],
+  [data-testid="sidebar-settled-group"] {
+    padding-left: 0.5rem;
+  }
+  /* Timestamps and badges are metadata: quieter until the row is hovered. */
+  [data-testid="sidebar-row"] .tabular-nums {
+    opacity: 0.65;
+  }
+  [data-testid="sidebar-row"]:hover .tabular-nums,
+  [data-testid="sidebar-row"][aria-current="page"] .tabular-nums {
+    opacity: 1;
+  }
+  /* Project headers: a small, spaced label rather than another row of equal weight. */
+  [data-testid="sidebar-project-row"] {
+    height: 1.75rem;
+    margin-top: 0.375rem;
+    border-radius: var(--vc-row-radius);
+    font-size: 0.75rem;
+    letter-spacing: 0.01em;
+    font-weight: 600;
+  }
+  /* Settled groups: a whisper under their project. */
+  [data-testid="sidebar-settled-group"] {
+    height: 1.5rem;
+    opacity: 0.75;
+  }
+  [data-testid="sidebar-settled-group"]:hover {
+    opacity: 1;
+  }
+}
+
+/* Composer notices are part of the composer frame: solid surface, no feathered
+   top edge, so transcript text never shows through or around them. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-composer-banner-surface="attached"] {
+  --glass-opacity: 100%;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-composer-banner-surface="attached"]::before {
+  mask-image: none;
+  -webkit-mask-image: none;
+  backdrop-filter: none;
+  background-image: none;
+  background-color: var(--chat-composer-attached-surface);
+}
+
+/* Connect phone is a headline feature: the rail glyph wears the accent, with a
+   soft accent tile on hover. Static, no animation. */
+[data-app-rail] button:has([data-rail-phone]) {
+  color: var(--app-theme-accent);
+}
+[data-app-rail] button:has([data-rail-phone]):hover {
+  background-color: color-mix(in srgb, var(--app-theme-accent) 16%, transparent);
+  color: var(--app-theme-accent);
+}
+
+/* The rail shares the sidebar's surface without a seam between them. */
+[data-app-rail] {
+  border-right-color: transparent;
+}
+
+/* Composer on window glass: a solid neutral surface, so the wallpaper's colour
+   never tints the input. Mixed from the theme surface, not the glass sheet. */
+html[data-window-glass="true"] [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: color-mix(in srgb, var(--foreground) 6%, rgb(24 24 24));
+  --glass-opacity: 100%;
+}
+html[data-window-glass="true"]:not(.dark) [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: color-mix(in srgb, var(--foreground) 4%, white);
+}
+
+/* Thread tab needing attention: the agent finished or waits on the user and the
+   tab hasn't been opened since. The glow stays inside the tab (accent edge and
+   an inner haze, no outer shadow), brightens once on arrival, then holds steady
+   until the thread is opened, which clears data-attention. It replaces the
+   unread dot rather than adding to it. */
+@keyframes viewcode-tab-attention-in {
+  45% {
+    background-color: color-mix(in srgb, var(--app-theme-accent) 22%, transparent);
+  }
+}
+[data-thread-tab][data-attention="true"] {
+  color: var(--foreground);
+  background-color: color-mix(in srgb, var(--app-theme-accent) 12%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--app-theme-accent) 50%, transparent),
+    inset 0 0 8px 0 color-mix(in srgb, var(--app-theme-accent) 22%, transparent);
+  animation: viewcode-tab-attention-in 1.2s ease-out 1;
+}
+[data-thread-tab][data-attention="true"] [aria-label="Unread"] {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-thread-tab][data-attention="true"] {
+    animation: none;
   }
 }

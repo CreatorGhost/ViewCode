@@ -13,6 +13,8 @@ import * as ThreadSettlementReactor from "../ThreadSettlementReactor.ts";
 import * as PullRequestSyncReactor from "../PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "../PullRequestWatchReactor.ts";
 import * as ThreadPullRequestReactor from "../ThreadPullRequestReactor.ts";
+import * as TurnStallWatchdog from "../TurnStallWatchdog.ts";
+import * as SidechatExpiryReactor from "../SidechatExpiryReactor.ts";
 import * as AgentAwarenessRelay from "../../relay/AgentAwarenessRelay.ts";
 import * as StorageCleanup from "../../storageCleanup.ts";
 import * as AgentMessaging from "../../agents/AgentMessaging.ts";
@@ -35,6 +37,8 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
   const pullRequestWatchReactor = yield* Effect.serviceOption(
     PullRequestWatchReactor.PullRequestWatchReactor,
   );
+  const turnStallWatchdog = yield* Effect.serviceOption(TurnStallWatchdog.TurnStallWatchdog);
+  const sidechatExpiry = yield* Effect.serviceOption(SidechatExpiryReactor.SidechatExpiryReactor);
 
   const start: OrchestrationReactorShape["start"] = Effect.fn("start")(function* () {
     yield* providerRuntimeIngestion.start();
@@ -50,6 +54,8 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
     if (usageResume._tag === "Some") yield* usageResume.value.start();
     if (pushNotifications._tag === "Some") yield* pushNotifications.value.start();
     if (pullRequestWatchReactor._tag === "Some") yield* pullRequestWatchReactor.value.start();
+    if (turnStallWatchdog._tag === "Some") yield* turnStallWatchdog.value.start();
+    if (sidechatExpiry._tag === "Some") yield* sidechatExpiry.value.start();
   });
 
   return {

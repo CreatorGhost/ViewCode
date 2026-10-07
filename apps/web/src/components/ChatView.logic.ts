@@ -252,6 +252,8 @@ export function resolveDraftHeroState(input: {
   backgroundSubmissionPending: boolean;
   /** A worktree setup card is on the timeline, so the timeline must stay visible. */
   hasWorktreeSetupCard?: boolean;
+  /** A loaded server thread that has never been prompted gets the same hero as a draft. */
+  isEmptyServerThread?: boolean;
 }): boolean {
   if (input.hasWorktreeSetupCard) {
     return false;
@@ -260,7 +262,7 @@ export function resolveDraftHeroState(input: {
     return true;
   }
   return (
-    input.isLocalDraftThread &&
+    (input.isLocalDraftThread || input.isEmptyServerThread === true) &&
     !input.hasTimelineEntries &&
     !input.isWorking &&
     !input.draftHeroDockRequested

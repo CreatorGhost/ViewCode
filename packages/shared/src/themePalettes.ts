@@ -4,6 +4,8 @@ export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"]
 
 /** ViewCode's own default theme. Web and desktop only; mobile keeps its Uniwind set. */
 export const VIEWCODE_THEME_ID = "viewcode";
+/** ViewCode's default look: navy-slate surfaces with a teal accent. */
+export const VIEWCODE_TEAL_THEME_ID = "viewcode-teal";
 
 /** Carbon and silver from the brand lab's "Instrument" direction. ViewCode mobile's default. */
 export const INSTRUMENT_THEME_ID = "instrument";
@@ -1146,6 +1148,48 @@ export const INSTRUMENT_THEME: ThemeDefinition = {
   },
 };
 
+export const VIEWCODE_TEAL_THEME: ThemeDefinition = {
+  id: VIEWCODE_TEAL_THEME_ID,
+  label: "ViewCode Teal",
+  appearance: "dark",
+  colors: {
+    ...instrumentColors(VIEWCODE_THEME.colors, [
+      "#1a2230",
+      "#151c28",
+      "#1f2836",
+      "#283344",
+      "#e3e9f1",
+      "#94a3b8",
+      "#334155",
+      "#5ec4d4",
+      "#0b2a30",
+    ]),
+    sidebar: "#151c28",
+    messageSurface: "#22303f",
+    messageAction: "#5ec4d4",
+    messageActionForeground: "#0b2a30",
+    messageActionHover: "#74cfdc",
+    update: "#5ec4d4",
+    updateForeground: "#8fd8e3",
+    updateSurface: "rgb(94 196 212 / 0.14)",
+    terminalBackground: "#121822",
+    terminalCursor: "#5ec4d4",
+  },
+  variants: {
+    light: instrumentColors(VIEWCODE_LIGHT_COLORS, [
+      "#f4f7fa",
+      "#e7edf3",
+      "#ffffff",
+      "#eaf0f5",
+      "#16212e",
+      "#556476",
+      "#c6d1dc",
+      "#0e7c8c",
+      "#ffffff",
+    ]),
+  },
+};
+
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   T3_CHAT_THEME,
   GROVE_THEME,
@@ -1163,6 +1207,7 @@ export const MOBILE_PALETTE_THEMES: ReadonlyArray<ThemeDefinition> = [
 /** Built-ins offered on web and desktop: ViewCode's own theme first, then
  * upstream's, then Droppy's named themes ported onto the ViewCode look. */
 export const WEB_BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
+  VIEWCODE_TEAL_THEME,
   VIEWCODE_THEME,
   ...BUILT_IN_THEMES,
   ...createViewCodeNamedThemes({

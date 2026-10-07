@@ -82,6 +82,12 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
+import {
+  AddProviderAccountDialog,
+  ProviderAccountActions,
+  ProviderSignInDialog,
+  type AccountDriver,
+} from "./ProviderAccountDialogs";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
@@ -612,6 +618,12 @@ export function EnvironmentProviderSettings({
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
+  const [signInTarget, setSignInTarget] = useState<{
+    instanceId: ProviderInstanceId;
+    driver: AccountDriver;
+    label: string;
+  } | null>(null);
+  const [addAccountDriver, setAddAccountDriver] = useState<AccountDriver | null>(null);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(
     targetInstanceId ?? null,
   );
@@ -950,7 +962,19 @@ export function EnvironmentProviderSettings({
         onSelect={mode === "list" ? () => setSelectedInstanceId(row.instanceId) : undefined}
         readOnly={readOnly}
         setup={
-          mode === "editor" && row.driver === "antigravity" ? (
+          mode === "editor" && (row.driver === "codex" || row.driver === "claudeAgent") ? (
+            <ProviderAccountActions
+              readOnly={readOnly}
+              onSignIn={() =>
+                setSignInTarget({
+                  instanceId: row.instanceId,
+                  driver: row.driver as AccountDriver,
+                  label: row.instance.displayName ?? row.instanceId,
+                })
+              }
+              onAddAccount={() => setAddAccountDriver(row.driver as AccountDriver)}
+            />
+          ) : mode === "editor" && row.driver === "antigravity" ? (
             <ProviderSetupSection
               environmentId={environmentId}
               environmentLabel={environmentLabel}
@@ -1214,6 +1238,24 @@ export function EnvironmentProviderSettings({
         />
       </SettingsSection>
 
+      {signInTarget ? (
+        <ProviderSignInDialog
+          environmentId={environmentId}
+          {...signInTarget}
+          onClose={() => setSignInTarget(null)}
+        />
+      ) : null}
+      {addAccountDriver ? (
+        <AddProviderAccountDialog
+          environmentId={environmentId}
+          driver={addAccountDriver}
+          existingIds={new Set(rows.map((row) => row.instanceId))}
+          onClose={() => setAddAccountDriver(null)}
+          onSignIn={(added, label) =>
+            setSignInTarget({ instanceId: added.instanceId, driver: addAccountDriver, label })
+          }
+        />
+      ) : null}
       {isAddInstanceDialogOpen ? (
         <AddProviderInstanceDialog
           open

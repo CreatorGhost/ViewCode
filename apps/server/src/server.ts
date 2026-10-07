@@ -79,6 +79,8 @@ import * as Xa11yComputerDriver from "./computerUse/Xa11yComputerDriver.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as AgentMessaging from "./agents/AgentMessaging.ts";
 import * as UsageResume from "./agents/UsageResume.ts";
+import * as TurnStallWatchdog from "./orchestration/TurnStallWatchdog.ts";
+import * as SidechatExpiryReactor from "./orchestration/SidechatExpiryReactor.ts";
 import * as PushNotifications from "./notifications/PushNotifications.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -292,6 +294,8 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(UsageResume.layer.pipe(Layer.provide(DesktopTelemetryReceiverLayerLive))),
   Layer.provideMerge(PushNotifications.layerLive),
   Layer.provideMerge(PullRequestWatchReactor.layer),
+  Layer.provideMerge(TurnStallWatchdog.layer),
+  Layer.provideMerge(SidechatExpiryReactor.layer),
   Layer.provideMerge(AgentMessaging.layer),
   Layer.provideMerge(PullRequestSyncReactor.layer),
   Layer.provideMerge(ThreadPullRequestReactor.layer),
