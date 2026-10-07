@@ -91,6 +91,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { autoApprovesComputerUseCommand } from "../../computerUse/computerUseCommand.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
@@ -4896,6 +4897,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             behavior: "allow",
             updatedInput: toolInput,
           } satisfies PermissionResult;
+        }
+        // ViewCode's computer-use gate decides each CLI call; asking here too
+        // doubled every prompt.
+        if (
+          toolName === "Bash" &&
+          autoApprovesComputerUseCommand(context.session.threadId, toolInput.command)
+        ) {
+          return { behavior: "allow", updatedInput: toolInput } satisfies PermissionResult;
         }
 
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4);

@@ -11,6 +11,7 @@
 import {
   COMPUTER_USE_INPUT_COMMANDS,
   ComputerUseRequest,
+  type ComputerUseApprovals,
   type ComputerUseCommand,
   type ComputerUseEffect,
   type ComputerUseError,
@@ -320,6 +321,24 @@ export function isDestructiveChord(keys: string): boolean {
   if (command && (key === "q" || key === "w" || key === "delete" || key === "backspace"))
     return true;
   return alt && key === "f4";
+}
+
+/**
+ * Whether an input must be approved by the user under the `computerUseApprovals`
+ * setting. `granted` is Full access on thread and session, or a turn grant.
+ */
+export function inputNeedsApproval(
+  approvals: ComputerUseApprovals,
+  input: { readonly destructive: boolean; readonly granted: boolean },
+): boolean {
+  switch (approvals) {
+    case "never":
+      return false;
+    case "risky":
+      return input.destructive;
+    case "thread":
+      return input.destructive || !input.granted;
+  }
 }
 
 // ── Approval wording ────────────────────────────────────────────────────────

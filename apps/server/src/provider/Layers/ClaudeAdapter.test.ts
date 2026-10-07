@@ -16,6 +16,7 @@ import type {
 import {
   ApprovalRequestId,
   ClaudeSettings,
+  EnvironmentId,
   ProviderDriverKind,
   ProviderItemId,
   ProviderRuntimeEvent,
@@ -39,6 +40,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   SYNTHETIC_CLAUDE_CAPABLE_MODEL,
@@ -6475,6 +6477,68 @@ describe("ClaudeAdapterLive", () => {
 
       const permissionResult = yield* Effect.promise(() => permissionPromise);
       assert.equal((permissionResult as PermissionResult).behavior, "allow");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("allows a plain viewcode-computer Bash command without a request", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "approval-required",
+      });
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "use it", attachments: [] });
+      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      if (!canUseTool) return assert.fail("canUseTool missing");
+      const options = (toolUseID: string) => ({
+        signal: new AbortController().signal,
+        requestId: toolUseID,
+        toolUseID,
+      });
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() =>
+          McpProviderSession.setMcpProviderSession({
+            environmentId: EnvironmentId.make("test-environment"),
+            threadId: THREAD_ID,
+            providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+            providerSessionId: "test-session",
+            endpoint: "http://127.0.0.1:1234/mcp",
+            authorizationHeader: "Bearer test-token",
+            capabilities: new Set(["computer"]),
+            computerUseMode: "control",
+          }),
+        ),
+        () =>
+          Effect.gen(function* () {
+            const allowed = yield* Effect.promise(() =>
+              canUseTool(
+                "Bash",
+                { command: "viewcode-computer list-windows" },
+                options("tool-use-cu"),
+              ),
+            );
+            assert.equal((allowed as PermissionResult).behavior, "allow");
+            // Anything more than the plain CLI still asks, and is the next event.
+            void canUseTool(
+              "Bash",
+              { command: "viewcode-computer list-windows; id" },
+              options("tool-use-chained"),
+            );
+            const next = yield* Stream.runHead(adapter.streamEvents);
+            assert.equal(next._tag === "Some" ? next.value.type : undefined, "request.opened");
+            if (next._tag === "Some" && next.value.type === "request.opened") {
+              assert.include(next.value.payload.detail, "; id");
+            }
+          }),
+        () => Effect.sync(() => McpProviderSession.clearMcpProviderSession(THREAD_ID)),
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

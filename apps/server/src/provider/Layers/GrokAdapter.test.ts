@@ -17,6 +17,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import {
   ApprovalRequestId,
+  EnvironmentId,
   GrokSettings,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -27,6 +28,7 @@ import {
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
 import {
   grokPromptSettlementBelongsToContext,
@@ -2190,6 +2192,76 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
         "# Mock plan\n\n- Write the feature\n- Add a test\n- Ship it",
       );
       assert.equal(proposedEvent.raw?.method, "session/update");
+
+      yield* Fiber.interrupt(eventsFiber);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("answers a plain viewcode-computer permission itself in a computer-use session", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("grok-computer-use-command");
+      const tempDir = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "grok-acp-")),
+      );
+      const requestLogPath = NodePath.join(tempDir, "requests.ndjson");
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockGrokWrapper({
+          T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+          T3_ACP_EMIT_TOOL_CALLS: "1",
+          T3_ACP_PERMISSION_REQUEST_COUNT: "2",
+          T3_ACP_PERMISSION_COMMAND: "viewcode-computer list-windows",
+          T3_ACP_SECOND_PERMISSION_COMMAND: "viewcode-computer list-windows; id",
+        }),
+      );
+      const adapter = yield* makeTestAdapter(wrapperPath);
+      const opened: Array<string> = [];
+      const eventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        event.type === "request.opened"
+          ? Effect.gen(function* () {
+              opened.push(event.payload.detail ?? "");
+              yield* adapter.respondToRequest(
+                threadId,
+                ApprovalRequestId.make(String(event.requestId)),
+                "decline",
+              );
+            })
+          : Effect.void,
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("grok"),
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() =>
+          McpProviderSession.setMcpProviderSession({
+            environmentId: EnvironmentId.make("test-environment"),
+            threadId,
+            providerInstanceId: ProviderInstanceId.make("grok"),
+            providerSessionId: "test-session",
+            endpoint: "http://127.0.0.1:1234/mcp",
+            authorizationHeader: "Bearer test-token",
+            capabilities: new Set(["computer"]),
+            computerUseMode: "control",
+          }),
+        ),
+        () => adapter.sendTurn({ threadId, input: "use the computer", attachments: [] }),
+        () => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
+      );
+
+      // Only the chained command reached the user.
+      assert.deepStrictEqual(opened, ["viewcode-computer list-windows; id"]);
+      const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
+      const optionIds = requests.flatMap((entry) => {
+        const outcome = (entry.result as { outcome?: { optionId?: unknown } } | undefined)?.outcome;
+        return !("method" in entry) && typeof outcome?.optionId === "string"
+          ? [outcome.optionId]
+          : [];
+      });
+      assert.deepStrictEqual(optionIds, ["allow-once", "reject-once"]);
 
       yield* Fiber.interrupt(eventsFiber);
       yield* adapter.stopSession(threadId);

@@ -51,7 +51,7 @@ import {
   ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE,
   isAntigravitySignInRequiredError,
 } from "../antigravityAuthSupport.ts";
-import { mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import { acpComputerUseAllowOnceOption, mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
 import {
   makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
@@ -500,6 +500,14 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         });
         return answer.result;
       }).pipe(Effect.ensuring(Effect.sync(() => context.questions.delete(requestId))));
+    }
+
+    const computerUseOptionId = acpComputerUseAllowOnceOption(context.threadId, request, {
+      commandFields: ["CommandLine", "command_line", "commandLine", "command"],
+      allowMissingKind: true,
+    });
+    if (computerUseOptionId !== undefined) {
+      return { outcome: { outcome: "selected", optionId: computerUseOptionId } };
     }
 
     const response = yield* Deferred.make<{

@@ -258,6 +258,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   ViewCode never sees the command. Everything (mode, running turn, denylist, approval, stale
   targets) is enforced in `ComputerUseService` against the contract schema, assuming the agent
   ignores every instruction and crafts raw requests with its credential.
+- Because that prompt is not the gate, adapters answer it themselves (allow once, no card) for a
+  session spawned with computer use when the shell command is exactly one plain
+  `viewcode-computer` invocation (`computerUse/computerUseCommand.ts`); otherwise every action
+  asked twice. "Plain" is a conservative lexer over the raw command the provider will run (never
+  a display title): bare command name, words and quotes only, nothing a shell would chain,
+  redirect, substitute or glob. Claude (Bash), Codex (command approvals, not stdin or network),
+  Cursor, Grok and Antigravity do this. OpenCode does not: its request carries only per-command
+  patterns with redirections dropped, so it cannot be proven plain. Residual trust: the bare name
+  resolves through the session's PATH (shim first) and the user's own shell profile.
 - The credential is the MCP session credential with a `computer` capability, issued even when the
   provider never loads MCP; the thread always comes from the credential. The CLI's env
   (`VIEWCODE_COMPUTER_ENDPOINT`, `VIEWCODE_COMPUTER_AUTH`, PATH shim) rides the agent-device env
@@ -270,10 +279,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   model following it.
 - Approvals are ViewCode's own `permission_approval` requests published on the provider runtime
   stream (`computer-use:<uuid>` ids), so web, desktop and mobile render them unchanged;
-  `ProviderService.respondToRequest` answers ids it owns before routing to an adapter. Only full
-  access (on both the thread and the live session) skips routine approval; "for the rest of this
-  turn" ends with the turn. Targets that look destructive and quit/close chords always ask; that
-  check is a heuristic over labels, not a detector. **No input is dispatched while any approval in
+  `ProviderService.respondToRequest` answers ids it owns before routing to an adapter. When input
+  asks is the `computerUseApprovals` setting (`inputNeedsApproval`): `thread` asks for routine
+  input unless full access is on both the thread and the live session, `risky` asks only for
+  destructive-looking input, `never` asks for nothing. "For the rest of this turn" ends with the
+  turn. Destructive-looking means a target label matching the heuristic, or a quit/close chord;
+  it is not a detector. The setting is read with the turn before the hit test and again at every
+  final check, so moving to a stricter value (or leaving full access) mid-action refuses an input
+  that was not asked about instead of letting it through. **No input is dispatched while any approval in
   the environment waits** (`CU-CON-008`, computer-use and provider approvals alike): that, not
   window identity, is what stops an agent answering an approval for itself in a ViewCode window, a
   browser tab or a mirrored screen. The denylist (protected apps, ViewCode by name and `.app` path,

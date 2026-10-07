@@ -49,7 +49,7 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import { acpComputerUseAllowOnceOption, mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
 import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
@@ -1181,6 +1181,12 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                         },
                       };
                     }
+                  }
+                  const computerUseOptionId = acpComputerUseAllowOnceOption(input.threadId, params);
+                  if (computerUseOptionId !== undefined) {
+                    return {
+                      outcome: { outcome: "selected" as const, optionId: computerUseOptionId },
+                    };
                   }
                   const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
                   const runtimeRequestId = RuntimeRequestId.make(requestId);

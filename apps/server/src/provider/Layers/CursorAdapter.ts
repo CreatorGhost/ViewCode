@@ -51,7 +51,11 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { acpPermissionOutcome, mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import {
+  acpComputerUseAllowOnceOption,
+  acpPermissionOutcome,
+  mapAcpToAdapterError,
+} from "../acp/AcpAdapterSupport.ts";
 import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
@@ -717,6 +721,12 @@ export function makeCursorAdapter(
                         },
                       };
                     }
+                  }
+                  const computerUseOptionId = acpComputerUseAllowOnceOption(input.threadId, params);
+                  if (computerUseOptionId !== undefined) {
+                    return {
+                      outcome: { outcome: "selected" as const, optionId: computerUseOptionId },
+                    };
                   }
                   const permissionRequest = parsePermissionRequest(params);
                   const requestId = ApprovalRequestId.make(yield* randomUUIDv4);

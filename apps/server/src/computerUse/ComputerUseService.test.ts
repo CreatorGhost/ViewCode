@@ -9,6 +9,7 @@ import {
   ProviderDriverKind,
   ThreadId,
   TurnId,
+  type ComputerUseApprovals,
   type ComputerUseMode,
   type ComputerUseRect,
   type ComputerUseResponse,
@@ -108,6 +109,7 @@ interface Harness {
   /** `request.opened` events nobody auto-answered. */
   readonly openedApprovals: Queue.Queue<ProviderRuntimeEvent>;
   readonly setMode: (mode: ComputerUseMode) => Effect.Effect<void>;
+  readonly setApprovals: (approvals: ComputerUseApprovals) => Effect.Effect<void>;
   readonly thread: {
     running: boolean;
     turnId: TurnId;
@@ -323,6 +325,10 @@ const makeHarness = (
       thread,
       setMode: (mode) =>
         settings.updateSettings({ computerUse: mode }).pipe(Effect.orDie, Effect.asVoid),
+      setApprovals: (approvals) =>
+        settings
+          .updateSettings({ computerUseApprovals: approvals })
+          .pipe(Effect.orDie, Effect.asVoid),
       get autoDecision() {
         return state.autoDecision;
       },
@@ -1494,6 +1500,87 @@ process.on('message', async message => {
       expect(trackedWhileQueued).toBe(true);
       expectError(yield* Fiber.join(action), "CU-CON-008", "not-dispatched");
       expect(delivered).toBe(false);
+    }).pipe(Effect.scoped),
+  );
+});
+
+describe("ComputerUseService approvals setting", () => {
+  it.effect(
+    "risky: routine input runs unasked in a supervised thread, destructive still asks",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness();
+        yield* h.setApprovals("risky");
+        const refs = yield* observeNotes(h);
+        h.autoDecision = "decline";
+        expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+        expectDispatched(yield* send(h, { command: "type", ref: refs.field, text: "milk" }));
+        expect(h.events).toEqual([]);
+
+        expectError(yield* send(h, { command: "press", ref: refs.delete }), "CU-CON-004");
+        expectError(
+          yield* send(h, { command: "key", window: refs.window, keys: "cmd+q" }),
+          "CU-CON-004",
+        );
+        expect(h.events.filter((event) => event.type === "request.opened")).toHaveLength(2);
+        expect(inputCalls(h)).toEqual(["press:e-save", "typeText:e-field"]);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("never: destructive input runs without asking", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.setApprovals("never");
+      const refs = yield* observeNotes(h);
+      h.autoDecision = "decline";
+      expectDispatched(yield* send(h, { command: "press", ref: refs.delete }));
+      expectDispatched(yield* send(h, { command: "key", window: refs.window, keys: "cmd+w" }));
+      const { shot } = yield* shootNotes(h);
+      h.hit = { role: "button", label: "Delete" };
+      expectDispatched(yield* send(h, { command: "click", shot, x: 10, y: 10 }));
+      expect(h.events).toEqual([]);
+      expect(inputCalls(h)).toEqual([
+        "press:e-delete",
+        "key:w-notes",
+        "click(leftx1):105.25,55.25:w-notes",
+      ]);
+    }).pipe(Effect.scoped),
+  );
+
+  /** Holds a click inside the hit test, switches the setting, then lets it finish. */
+  const switchDuringHitTest = (h: Harness, from: ComputerUseApprovals, to: ComputerUseApprovals) =>
+    Effect.gen(function* () {
+      yield* h.setApprovals(from);
+      // An approval that opens anyway is answered at once instead of hanging.
+      h.autoDecision = "accept";
+      const { shot } = yield* shootNotes(h);
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      h.elementAtGate = { entered, release };
+      const action = yield* Effect.forkChild(send(h, { command: "click", shot, x: 10, y: 10 }));
+      yield* Deferred.await(entered);
+      h.elementAtGate = undefined;
+      yield* h.setApprovals(to);
+      yield* Deferred.succeed(release, undefined);
+      return yield* Fiber.join(action);
+    });
+
+  it.effect("never → thread during the hit test refuses unasked input in a supervised thread", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      expectError(yield* switchDuringHitTest(h, "never", "thread"), "CU-CON-004", "not-dispatched");
+      expect(h.events.filter((event) => event.type === "request.opened")).toEqual([]);
+      expect(inputCalls(h)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("never → risky during the hit test refuses an unasked destructive click", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.hit = { role: "button", label: "Delete" };
+      expectError(yield* switchDuringHitTest(h, "never", "risky"), "CU-CON-004", "not-dispatched");
+      expect(h.events.filter((event) => event.type === "request.opened")).toEqual([]);
+      expect(inputCalls(h)).toEqual([]);
     }).pipe(Effect.scoped),
   );
 });

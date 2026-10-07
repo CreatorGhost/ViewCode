@@ -3,6 +3,7 @@ import { expect, it } from "@effect/vitest";
 import {
   AntigravitySettings,
   ApprovalRequestId,
+  EnvironmentId,
   ProviderInstanceId,
   ThreadId,
   type ProviderRuntimeEvent,
@@ -23,6 +24,7 @@ import * as AcpErrors from "effect-acp/errors";
 import type * as AcpSchema from "effect-acp/schema";
 
 import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE } from "../antigravityAuthSupport.ts";
 import type { AcpSessionRuntimeEvent } from "../acp/AcpSessionRuntime.ts";
 import { makeAntigravityAcpRuntime } from "../acp/AntigravityAcpSupport.ts";
@@ -521,6 +523,72 @@ it.layer(layer)("AntigravityAdapter", (it) => {
       expect(yield* Fiber.join(permission)).toEqual({
         outcome: { outcome: "selected", optionId: "native:deny" },
       });
+    }),
+  );
+
+  it.effect("answers a plain viewcode-computer command itself in a computer-use session", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const options: ReadonlyArray<AcpSchema.PermissionOption> = [
+        { optionId: "native:allow", name: "Allow", kind: "allow_once" },
+        { optionId: "native:deny", name: "Deny", kind: "reject_once" },
+      ];
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() =>
+          McpProviderSession.setMcpProviderSession({
+            environmentId: EnvironmentId.make("test-environment"),
+            threadId,
+            providerInstanceId: ProviderInstanceId.make("antigravity"),
+            providerSessionId: "test-session",
+            endpoint: "http://127.0.0.1:1234/mcp",
+            authorizationHeader: "Bearer test-token",
+            capabilities: new Set(["computer"]),
+            computerUseMode: "control",
+          }),
+        ),
+        () =>
+          Effect.gen(function* () {
+            // Antigravity's shell calls omit `kind` and name the command `CommandLine`.
+            expect(
+              yield* h.invokePermission({
+                sessionId: nativeSessionId,
+                toolCall: {
+                  toolCallId: "run-1",
+                  title: "Run command",
+                  rawInput: { CommandLine: "viewcode-computer list-windows" },
+                },
+                options,
+              }),
+            ).toEqual({ outcome: { outcome: "selected", optionId: "native:allow" } });
+            // Two command fields that disagree still ask.
+            const permission = yield* h
+              .invokePermission({
+                sessionId: nativeSessionId,
+                toolCall: {
+                  toolCallId: "run-2",
+                  title: "Run command",
+                  rawInput: { CommandLine: "viewcode-computer list-windows", command: "id" },
+                },
+                options,
+              })
+              .pipe(Effect.forkChild);
+            const opened = yield* h.waitForEvent((event) => event.type === "request.opened");
+            yield* h.adapter.respondToRequest(
+              threadId,
+              ApprovalRequestId.make(opened.requestId!),
+              "decline",
+            );
+            expect(yield* Fiber.join(permission)).toEqual({
+              outcome: { outcome: "selected", optionId: "native:deny" },
+            });
+          }),
+        () => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
+      );
     }),
   );
 

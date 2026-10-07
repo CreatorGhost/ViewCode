@@ -17,6 +17,7 @@ import {
   EventId,
   isProviderDriverKind,
   RuntimeRequestId,
+  type ComputerUseApprovals,
   type ComputerUseElement,
   type ComputerUseError,
   type ComputerUseMode,
@@ -64,6 +65,7 @@ import {
   computerUseError,
   describeInputForApproval,
   driverErrorToComputerUseError,
+  inputNeedsApproval,
   isDenylistedApp,
   isProtectedApp,
   rectsIntersect,
@@ -295,6 +297,13 @@ export const make = Effect.gen(function* () {
     Effect.map((value) => value.computerUse),
     // An unreadable settings file must never turn computer use on.
     Effect.orElseSucceed(() => "off" as const),
+  );
+
+  /** Re-read per request and at the final check, like the mode. */
+  const currentApprovals: Effect.Effect<ComputerUseApprovals> = settings.getSettings.pipe(
+    Effect.map((value) => value.computerUseApprovals),
+    // Unreadable settings fall back to the strictest behaviour.
+    Effect.orElseSucceed(() => "thread" as const),
   );
 
   /** The thread's running turn as orchestration sees it, or undefined. */
@@ -954,10 +963,15 @@ export const make = Effect.gen(function* () {
             );
           }
           if (yield* approvalPending) return inputPaused;
+          // Fresh, so switching to a stricter setting (or leaving Full access)
+          // mid-action never lets an input through that would now ask.
+          const approvals = yield* currentApprovals;
           if (
             !asked &&
-            !stillRunning.fullAccess &&
-            turnGrants.get(caller.threadId) !== turn.turnId
+            inputNeedsApproval(approvals, {
+              destructive,
+              granted: stillRunning.fullAccess || turnGrants.get(caller.threadId) === turn.turnId,
+            })
           ) {
             return noTurn(
               "The thread now requires approval; request the action again.",
@@ -982,6 +996,7 @@ export const make = Effect.gen(function* () {
             if (isDenied(native.window)) return deniedApp("not-dispatched");
             // The label as the agent and the up-front check saw it.
             if (
+              approvals !== "never" &&
               !destructive &&
               destructiveApplies &&
               native.element &&
@@ -1052,6 +1067,8 @@ export const make = Effect.gen(function* () {
           "CU-CON-006",
         );
       }
+      // Read with the turn, before the hit test; the final check reads it again.
+      const approvals = yield* currentApprovals;
       if (yield* approvalPending) return inputPaused;
       const resolved = resolveInputTarget(caller, request);
       if ("ok" in resolved) return resolved;
@@ -1063,7 +1080,7 @@ export const make = Effect.gen(function* () {
             ? isDestructiveChord(request.keys)
             : request.command === "click" && hit != null && isDestructiveTarget(hit);
       const granted = turn.fullAccess || turnGrants.get(caller.threadId) === turn.turnId;
-      const asked = destructive || !granted;
+      const asked = inputNeedsApproval(approvals, { destructive, granted });
       if (asked) {
         const decision = yield* askUser({
           caller,

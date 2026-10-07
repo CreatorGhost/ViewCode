@@ -39,6 +39,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
+import { autoApprovesComputerUseCommand } from "../../computerUse/computerUseCommand.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import {
   buildCodexAdditionalContext,
@@ -2110,6 +2111,17 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/commandExecution/requestApproval", (payload) =>
       Effect.gen(function* () {
+        // ViewCode's computer-use gate decides each CLI call; asking here too
+        // doubled every prompt. Stdin writes and network approvals still ask.
+        if (
+          (payload.kind ?? "command") === "command" &&
+          !payload.networkApprovalContext &&
+          autoApprovesComputerUseCommand(options.threadId, payload.command)
+        ) {
+          return {
+            decision: "accept",
+          } satisfies EffectCodexSchema.CommandExecutionRequestApprovalResponse;
+        }
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4("command-approval-request"));
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
