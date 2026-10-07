@@ -24,6 +24,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 
@@ -37,6 +38,7 @@ import {
   type ComputerDriverShape,
   type DriverElement,
   type DriverElementIdentity,
+  type DriverInputResult,
   type DriverWindow,
 } from "./ComputerDriver.ts";
 import { ServerProcessAncestry } from "./computerUseAncestry.ts";
@@ -192,8 +194,8 @@ const makeHarness = (
 
     /** Like the worker: asks the server's dispatch check for the native target first. */
     const action =
-      (name: string) =>
-      (handle: string): Effect.Effect<void, ComputerDriverError> =>
+      (name: string, tookFocus = true) =>
+      (handle: string): Effect.Effect<DriverInputResult, ComputerDriverError> =>
         Effect.gen(function* () {
           const window = state.windows.find((entry) => entry.handle === handle) ?? notes;
           const observed = state.elements.find((entry) => entry.handle === handle);
@@ -215,6 +217,7 @@ const makeHarness = (
           state.failNext = undefined;
           yield* decision.release;
           if (failure) return yield* failure;
+          return { tookFocus };
         });
     const driver: ComputerDriverShape = {
       status: () => Effect.succeed({ available: true, accessibility: "granted" }),
@@ -256,9 +259,10 @@ const makeHarness = (
       move: (handle, bounds, point) => pointer("move")(handle, bounds, point),
       scrollAt: (handle, bounds, point) => pointer("scrollAt")(handle, bounds, point),
       typeFocused: (handle) => action("typeFocused")(handle),
-      press: (handle) => action("press")(handle),
-      setValue: (handle) => action("setValue")(handle),
-      typeText: (handle) => action("typeText")(handle),
+      // Accessibility actions run in the background, like the real driver's.
+      press: (handle) => action("press", false)(handle),
+      setValue: (handle) => action("setValue", false)(handle),
+      typeText: (handle) => action("typeText", false)(handle),
       key: (handle) => action("key")(handle),
       scroll: (handle) => action("scroll")(handle),
     };
@@ -856,7 +860,7 @@ describe("ComputerUseService coordinates", () => {
       });
       expect(yield* send(harness, { command: "click", shot, x: 1, y: 1 })).toEqual({
         ok: true,
-        result: { kind: "input", effect: "dispatched" },
+        result: { kind: "input", effect: "dispatched", tookFocus: true },
       });
     }).pipe(Effect.scoped),
   );
@@ -1018,7 +1022,7 @@ describe("ComputerUseService identity and overlays", () => {
       expectError(yield* send(harness, { command: "screenshot", window }), "CU-CON-005");
       expect(yield* send(harness, { command: "click", shot, x: 1, y: 1 })).toEqual({
         ok: true,
-        result: { kind: "input", effect: "dispatched" },
+        result: { kind: "input", effect: "dispatched", tookFocus: true },
       });
       // ViewCode overlapping is fine: its content is no secret to the agent.
       harness.windows = [notes, onePassword, viewCode];
@@ -1583,4 +1587,107 @@ describe("ComputerUseService approvals setting", () => {
       expect(inputCalls(h)).toEqual([]);
     }).pipe(Effect.scoped),
   );
+});
+
+describe("ComputerUseService results and logs", () => {
+  it.effect("reports whether an input took focus from the user", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      harness.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(harness);
+      const pressed = yield* send(harness, { command: "press", ref: refs.save });
+      expect(pressed).toMatchObject({ ok: true, result: { kind: "input", tookFocus: false } });
+      const keyed = yield* send(harness, { command: "key", window: refs.window, keys: "enter" });
+      expect(keyed).toMatchObject({ ok: true, result: { kind: "input", tookFocus: true } });
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("says the driver restarted instead of calling the window closed", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      harness.thread.runtimeMode = "full-access";
+      const restarted = () =>
+        new ComputerDriverError({
+          kind: "stale",
+          message: "The computer-use driver restarted; observe again.",
+          dispatched: "no",
+          reason: "restarted",
+        });
+      const refs = yield* observeNotes(harness);
+      harness.failNext = restarted();
+      const press = yield* send(harness, { command: "press", ref: refs.save });
+      expectError(press, "CU-CON-003", "not-dispatched");
+      expect(!press.ok && press.error.message).toMatch(/driver restarted.*list-windows/);
+
+      const again = yield* observeNotes(harness);
+      harness.failNext = restarted();
+      const key = yield* send(harness, { command: "key", window: again.window, keys: "enter" });
+      expectError(key, "CU-NOT-001", "not-dispatched");
+      expect(!key.ok && key.error.message).toMatch(/driver restarted.*list-windows/);
+      expect(!key.ok && key.error.message).not.toMatch(/closed/);
+      // The old id is forgotten, like a closed window's.
+      expectError(
+        yield* send(harness, { command: "key", window: again.window, keys: "enter" }),
+        "CU-NOT-001",
+      );
+
+      // A plain stale window still reads as closed.
+      const third = yield* observeNotes(harness);
+      harness.failNext = new ComputerDriverError({
+        kind: "stale",
+        message: "gone",
+        dispatched: "no",
+      });
+      const closed = yield* send(harness, { command: "key", window: third.window, keys: "enter" });
+      expect(!closed.ok && closed.error.message).toMatch(/is closed/);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("logs one summary per request and refusals, never typed text or labels", () => {
+    const entries: Array<{ readonly text: unknown; readonly fields: Record<string, unknown> }> = [];
+    const logger = Logger.make<unknown, void>(({ message, logLevel }) => {
+      const [text, fields] = Array.isArray(message) ? message : [message];
+      if (logLevel === "Info") entries.push({ text, fields: fields ?? {} });
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      harness.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(harness);
+      entries.length = 0;
+      expectDispatched(
+        yield* send(harness, { command: "type", ref: refs.field, text: "hunter2-secret" }),
+      );
+      const summaries = entries.filter((entry) => entry.text === "computer use request completed");
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0]!.fields).toEqual({
+        threadId,
+        command: "type",
+        outcome: "ok",
+        effect: "dispatched",
+        tookFocus: false,
+        durationMs: expect.any(Number),
+      });
+
+      harness.providerApprovalPending = true;
+      expectError(yield* send(harness, { command: "press", ref: refs.save }), "CU-CON-008");
+      expect(entries.find((entry) => entry.text === "computer use input refused")?.fields).toEqual({
+        threadId,
+        command: "press",
+        code: "CU-CON-008",
+        stage: "request",
+      });
+      expect(entries.at(-1)?.fields).toMatchObject({
+        command: "press",
+        outcome: "CU-CON-008",
+        effect: "not-dispatched",
+      });
+
+      const logged = entries
+        .flatMap((entry) => [String(entry.text), ...Object.values(entry.fields).map(String)])
+        .join("\n");
+      for (const secret of ["hunter2-secret", "Title", "Save", "Shopping list", "Notes"]) {
+        expect(logged).not.toContain(secret);
+      }
+    }).pipe(Effect.scoped, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
 });

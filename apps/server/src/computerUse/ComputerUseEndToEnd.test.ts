@@ -47,6 +47,7 @@ import {
   type ComputerDriverShape,
   type DriverElement,
   type DriverElementIdentity,
+  type DriverInputResult,
   type DriverWindow,
 } from "./ComputerDriver.ts";
 import { computerUseRouteLayer } from "./ComputerUseRoute.ts";
@@ -102,8 +103,8 @@ const makeStack = (listen: "unix" | "tcp") =>
 
     const record =
       (name: string) =>
-      (handle: string): Effect.Effect<void> =>
-        Effect.sync(() => void calls.push(`${name}:${handle}`));
+      (handle: string): Effect.Effect<DriverInputResult> =>
+        Effect.sync(() => (calls.push(`${name}:${handle}`), { tookFocus: true }));
     const driver: ComputerDriverShape = {
       status: () => Effect.succeed({ available: true, accessibility: "granted" }),
       listWindows: () => Effect.sync(() => (calls.push("listWindows"), [notes])),
@@ -122,15 +123,18 @@ const makeStack = (listen: "unix" | "tcp") =>
         Effect.sync(() => {
           calls.push(`press:${handle}`);
           pressed.push({ handle, expect: expectIdentity });
+          return { tookFocus: false };
         }),
       typeFocused: (handle, text) =>
         Effect.sync(() => {
           calls.push(`typeFocused:${handle}`);
           typed.push({ handle, text });
+          return { tookFocus: true };
         }),
       click: (handle, _bounds, point, options) =>
         Effect.sync(() => {
           calls.push(`click(${options.button}x${options.count}):${point.x},${point.y}:${handle}`);
+          return { tookFocus: true };
         }),
       drag: (handle) => record("drag")(handle),
       move: (handle) => record("move")(handle),

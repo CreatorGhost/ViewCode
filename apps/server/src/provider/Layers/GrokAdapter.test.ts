@@ -44,6 +44,7 @@ const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const mockAgentPath = NodePath.join(__dirname, "../../../scripts/acp-mock-agent.ts");
 // Stopping a session kills the agent with SIGTERM; Windows terminates the
 // process instead, so the mock never sees a signal to log.
+const COMPUTER_CLI = "/home/u/.t3/userdata/computer-use/bin/viewcode-computer";
 const windowsHost = HostProcessPlatform.defaultValue() === "win32";
 
 async function makeMockGrokWrapper(extraEnv?: Record<string, string>) {
@@ -2210,8 +2211,8 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
           T3_ACP_REQUEST_LOG_PATH: requestLogPath,
           T3_ACP_EMIT_TOOL_CALLS: "1",
           T3_ACP_PERMISSION_REQUEST_COUNT: "2",
-          T3_ACP_PERMISSION_COMMAND: "viewcode-computer list-windows",
-          T3_ACP_SECOND_PERMISSION_COMMAND: "viewcode-computer list-windows; id",
+          T3_ACP_PERMISSION_COMMAND: `${COMPUTER_CLI} list-windows`,
+          T3_ACP_SECOND_PERMISSION_COMMAND: `${COMPUTER_CLI} list-windows; id`,
         }),
       );
       const adapter = yield* makeTestAdapter(wrapperPath);
@@ -2245,7 +2246,7 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
             endpoint: "http://127.0.0.1:1234/mcp",
             authorizationHeader: "Bearer test-token",
             capabilities: new Set(["computer"]),
-            computerUseMode: "control",
+            computerUse: { mode: "control", cli: COMPUTER_CLI },
           }),
         ),
         () => adapter.sendTurn({ threadId, input: "use the computer", attachments: [] }),
@@ -2253,7 +2254,7 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
       );
 
       // Only the chained command reached the user.
-      assert.deepStrictEqual(opened, ["viewcode-computer list-windows; id"]);
+      assert.deepStrictEqual(opened, [`${COMPUTER_CLI} list-windows; id`]);
       const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
       const optionIds = requests.flatMap((entry) => {
         const outcome = (entry.result as { outcome?: { optionId?: unknown } } | undefined)?.outcome;

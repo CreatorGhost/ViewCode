@@ -486,8 +486,8 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       </SettingsSection>
                     ) : null}
                     <Text className="px-2 text-sm text-foreground-muted">
-                      Password managers, System Settings and ViewCode itself are never controlled.
-                      Applies to new agent sessions.
+                      Password managers, System Settings and ViewCode itself are never controlled. A
+                      change applies to each thread from its next message.
                     </Text>
                   </View>
                 </>

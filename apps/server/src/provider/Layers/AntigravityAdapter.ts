@@ -1108,7 +1108,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                       harness: "Antigravity",
                       model,
                       computerUse: McpProviderSession.readMcpProviderSession(input.threadId)
-                        ?.computerUseMode,
+                        ?.computerUse,
                     }),
                   },
                 ],

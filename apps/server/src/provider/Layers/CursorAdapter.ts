@@ -1177,7 +1177,7 @@ export function makeCursorAdapter(
                         harness: "Cursor",
                         model: resolvedModel,
                         computerUse: McpProviderSession.readMcpProviderSession(input.threadId)
-                          ?.computerUseMode,
+                          ?.computerUse,
                       }),
                     },
                   ],

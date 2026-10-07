@@ -128,7 +128,22 @@ export class ComputerDriverError extends Data.TaggedError("ComputerDriverError")
    */
   readonly dispatched: "no" | "yes" | "unknown";
   readonly code?: ComputerUseErrorCode;
+  /**
+   * With `stale`: the handle came from a driver worker that has since
+   * restarted, so the target may well still exist; list or observe again.
+   */
+  readonly reason?: "restarted";
 }> {}
+
+/** What an input call did besides the input itself. */
+export interface DriverInputResult {
+  /**
+   * Whether the driver brought the target app to the front for this action,
+   * taking focus from the user. False for accessibility actions that ran in
+   * the background.
+   */
+  readonly tookFocus: boolean;
+}
 
 export interface ComputerDriverShape {
   readonly status: () => Effect.Effect<DriverStatus>;
@@ -156,25 +171,28 @@ export interface ComputerDriverShape {
   readonly press: (
     elementHandle: string,
     expect: DriverElementIdentity,
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   readonly setValue: (
     elementHandle: string,
     expect: DriverElementIdentity,
     value: string,
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   readonly typeText: (
     elementHandle: string,
     expect: DriverElementIdentity,
     text: string,
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   /** Focuses the window, then sends the chord (already validated by the contract pattern). */
-  readonly key: (windowHandle: string, keys: string) => Effect.Effect<void, ComputerDriverError>;
+  readonly key: (
+    windowHandle: string,
+    keys: string,
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   readonly scroll: (
     elementHandle: string,
     expect: DriverElementIdentity,
     dx: number,
     dy: number,
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   /**
    * Best effort, read only: the smallest labelled element under `point`, so
    * approvals and the destructive check can name what a coordinate click hits.
@@ -189,30 +207,30 @@ export interface ComputerDriverShape {
     expectBounds: ComputerUseRect,
     point: DriverPoint,
     options: { readonly button: "left" | "right" | "middle"; readonly count: number },
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   readonly drag: (
     windowHandle: string,
     expectBounds: ComputerUseRect,
     from: DriverPoint,
     to: DriverPoint,
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   readonly move: (
     windowHandle: string,
     expectBounds: ComputerUseRect,
     point: DriverPoint,
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   readonly scrollAt: (
     windowHandle: string,
     expectBounds: ComputerUseRect,
     point: DriverPoint,
     dx: number,
     dy: number,
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
   /** Brings the window to the front, then types into its focused element. */
   readonly typeFocused: (
     windowHandle: string,
     text: string,
-  ) => Effect.Effect<void, ComputerDriverError>;
+  ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
 }
 
 export class ComputerDriver extends Context.Service<ComputerDriver, ComputerDriverShape>()(

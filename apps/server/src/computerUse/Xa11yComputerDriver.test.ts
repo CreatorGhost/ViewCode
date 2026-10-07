@@ -65,7 +65,9 @@ process.on("message", (message) => {
     case "observe":
       return process.send({ id: id + 1, ok: true, result: { elements: [], truncated: false } });
     case "setValue":
-      return process.send({ id, ok: true, result: null });
+      return process.send({ id, ok: true, result: { tookFocus: false } });
+    case "typeText": // a handle from an earlier worker
+      return process.send({ id, ok: false, error: { kind: "stale", message: "restarted", dispatched: "no", reason: "restarted" } });
     case "scroll":
       return process.send({ id, ok: false, error: { kind: "stale", message: "changed", dispatched: "no" } });
   }
@@ -129,11 +131,21 @@ describe("Xa11yComputerDriver", () => {
           available: true,
           accessibility: "granted",
         });
-        yield* driver.setValue("e1", identity, "secret");
+        assert.deepStrictEqual(yield* driver.setValue("e1", identity, "secret"), {
+          tookFocus: false,
+        });
         assert.deepStrictEqual(yield* failureOf(driver.scroll("e1", identity, 0, 3)), {
           kind: "stale",
           dispatched: "no",
         });
+        assert.strictEqual(
+          (yield* Effect.flip(driver.scroll("e1", identity, 0, 3))).reason,
+          undefined,
+        );
+        assert.strictEqual(
+          (yield* Effect.flip(driver.typeText("e1", identity, "x"))).reason,
+          "restarted",
+        );
       }),
     ),
   );

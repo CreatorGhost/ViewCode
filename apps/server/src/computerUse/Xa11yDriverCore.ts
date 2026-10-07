@@ -20,7 +20,8 @@
  * synthetic fallbacks (an InputSim click or typing after
  * `ActionNotSupported`) and every other input (`key`, `typeFocused`,
  * coordinate input, `scroll`) bring the exact target window to the front
- * and verify it is still there right before the native call.
+ * and verify it is still there right before the native call. Input replies
+ * report which happened as `tookFocus`.
  *
  * Messages it returns never carry element values, labels or titles: they are
  * fixed strings per failure class, because the server forwards them to the
@@ -161,6 +162,8 @@ export interface DriverFailure {
   readonly message: string;
   readonly dispatched: "no" | "yes" | "unknown";
   readonly code?: ComputerUseErrorCode;
+  /** With `stale`: the handle was minted by an earlier worker (see `ComputerDriverError`). */
+  readonly reason?: "restarted";
 }
 
 export type DriverResult =
@@ -558,7 +561,17 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   /** Refuses a handle minted by another worker with the restart message. */
   const requireOwnEpoch = (handle: string, kind: keyof typeof RESTARTED_MESSAGES) => {
     const owner = handleEpoch(handle);
-    if (owner !== undefined && owner !== epoch) throw stale(RESTARTED_MESSAGES[kind]);
+    if (owner !== undefined && owner !== epoch) {
+      throw new Refusal({
+        ok: false,
+        error: {
+          kind: "stale",
+          message: RESTARTED_MESSAGES[kind],
+          dispatched: "no",
+          reason: "restarted",
+        },
+      });
+    }
   };
 
   const requireWindow = (handle: string): WindowEntry => {
@@ -766,15 +779,21 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     }
   };
 
+  /**
+   * Authorizes and runs the input. The result says whether the app was
+   * brought to the front: always for foreground input, and for a
+   * `background` action only when `run` says its fallback activated it.
+   */
   const dispatch = async (
-    run: () => Promise<void>,
+    run: () => Promise<boolean | void>,
     entry: WindowEntry,
     target: InputTarget = {},
   ): Promise<DriverResult> => {
     await authorize(entry, "dispatch", target);
     try {
-      await run();
-      return { ok: true, result: null };
+      const fellBack = await run();
+      const tookFocus = target.background === true ? fellBack === true : true;
+      return { ok: true, result: { tookFocus } };
     } catch (error) {
       if (error instanceof Refusal) return error.result;
       return { ok: false, error: classifyXa11yError(error, { afterDispatch: true }) };
@@ -1188,7 +1207,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
             async () => {
               try {
                 await target.element.press();
-                return;
+                return false;
               } catch (error) {
                 if (errorName(error) !== "ActionNotSupportedError") throw error;
               }
@@ -1205,6 +1224,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               }
               await authorize(fresh.window, "dispatch", { element: fresh.element });
               await input.click(fresh.element);
+              return true;
             },
             target.window,
             { element: target.element, background: true },
@@ -1227,7 +1247,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
             async () => {
               try {
                 await target.element.typeText(request.text);
-                return;
+                return false;
               } catch (error) {
                 if (errorName(error) !== "ActionNotSupportedError") throw error;
               }
@@ -1241,6 +1261,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               await beforeDispatch(() => fresh.element.focus());
               await authorize(fresh.window, "dispatch", { element: fresh.element });
               await input.typeText(request.text);
+              return true;
             },
             target.window,
             { element: target.element, background: true },

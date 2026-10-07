@@ -9,7 +9,7 @@ export const COMPUTER_USE_MODE_LABELS: Readonly<Record<ComputerUseMode, string>>
 };
 
 export const COMPUTER_USE_DESCRIPTION =
-  "Let agents see, and with control operate, apps on this machine through ViewCode. With control, you choose when input asks first. Password managers, System Settings and ViewCode itself are never controlled. Applies to new agent sessions; restart the current one from the command palette.";
+  "Let agents see, and with control operate, apps on this machine through ViewCode. With control, you choose when input asks first. Password managers, System Settings and ViewCode itself are never controlled. A change applies to each thread from its next message.";
 
 export const COMPUTER_USE_APPROVALS: ReadonlyArray<ComputerUseApprovals> = [
   "thread",

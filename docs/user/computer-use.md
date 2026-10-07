@@ -6,8 +6,10 @@ keyboard shortcuts. Agents reach it through the `viewcode-computer` command, whi
 their path, so it works with providers whose organization blocks MCP servers.
 
 Agents work in two ways and pick per step. Where an app describes its controls to the system, they
-act on a control by reference, which is exact. Where it does not, such as a 3D slicer's canvas, a
-game or a web page, they take a screenshot, look at it and click, drag or scroll at a point in it.
+act on a control by reference, which is exact and happens in the background: pressing a button,
+setting a field or typing into it this way does not take your focus or bring the app to the front.
+Where it does not, such as a 3D slicer's canvas, a game or a web page, they take a screenshot,
+look at it and click, drag or scroll at a point in it.
 Each action returns a fresh screenshot when Screen Recording allows it, so the agent sees the
 result before its next step. A point from an older screenshot, or from a window that has since
 moved, is refused rather than clicked.
@@ -20,8 +22,9 @@ Open **Settings → Integrations → Computer use** and choose:
 - **Observe and control**: agents can also act on what they observed.
 
 The setting belongs to the environment, so it applies to the machine that runs that server, even
-when you are connected from another device. It takes effect for new agent sessions; to apply it to
-a running thread, choose **Restart agent session** from the command palette.
+when you are connected from another device. Turning it off stops computer actions at once. Any
+change reaches a thread at its next message: ViewCode restarts that thread's agent session first,
+keeping the conversation, and notes the restart in the thread.
 
 On macOS, grant ViewCode **Accessibility** in **System Settings → Privacy & Security** for
 reading and controlling windows, and **Screen Recording** for screenshots. The settings section
@@ -55,8 +58,9 @@ screen.
 
 When computer use is on, a provider's own prompt to run a plain `viewcode-computer` command, such as
 listing windows or taking a screenshot, is approved for you, so it does not stack a second prompt
-on top of the ones above. Other commands, and anything the provider would ask about that is not a
-plain `viewcode-computer` command, still ask as usual.
+on top of the ones above. Agents are told to run it by the full path ViewCode installed it at, and
+only that path is approved this way, so a same-named program in your project cannot borrow the
+approval. Other commands still ask as usual.
 
 These rules apply to `viewcode-computer`. macOS grants Accessibility and Screen Recording to
 ViewCode as a whole, and programs an agent starts from its shell run as part of ViewCode, so an
@@ -65,8 +69,9 @@ permissions off in System Settings when you are not using computer use.
 
 ## Limits
 
-- Clicking at a point brings that window to the front, because the system delivers pointer input
-  to whatever is on top.
+- Clicking at a point, keyboard shortcuts, typing into whatever has focus and scrolling bring that
+  window to the front, because the system delivers that input to whatever is on top. So does an
+  action by reference on a control that cannot be pressed or typed into directly.
 - Screenshot-based actions need Screen Recording; without it agents can only act on controls by
   reference.
 - Codex in a sandboxed permission mode may be unable to reach ViewCode from its shell. Use

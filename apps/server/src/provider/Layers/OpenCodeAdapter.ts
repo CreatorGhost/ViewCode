@@ -3280,8 +3280,7 @@ export function makeOpenCodeAdapter(
                       // An external server was not spawned with the CLI's environment.
                       computerUse: context.server.external
                         ? undefined
-                        : McpProviderSession.readMcpProviderSession(input.threadId)
-                            ?.computerUseMode,
+                        : McpProviderSession.readMcpProviderSession(input.threadId)?.computerUse,
                     }),
                     parts: [...(text ? [{ type: "text" as const, text }] : []), ...fileParts],
                   },

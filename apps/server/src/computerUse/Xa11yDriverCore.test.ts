@@ -167,7 +167,7 @@ describe("driver core over the xa11y test app", () => {
         expect: { role: "text_field", label: "Search" },
         value: "x",
       }),
-    ).toEqual({ ok: true, result: null });
+    ).toEqual({ ok: true, result: { tookFocus: false } });
     expect(
       await harness.call({
         op: "press",
@@ -202,7 +202,7 @@ describe("driver core over the xa11y test app", () => {
     const window = await front.firstWindow();
     expect(await front.call({ op: "key", window: window.handle, keys: "cmd+shift+z" })).toEqual({
       ok: true,
-      result: null,
+      result: { tookFocus: true },
     });
     expect(front.sent).toEqual([["chord", "z", ["Meta", "Shift"]]]);
 
@@ -269,7 +269,7 @@ describe("driver core over the xa11y test app", () => {
         count: 2,
       });
 
-    expect(await click(WINDOW_BOUNDS)).toEqual({ ok: true, result: null });
+    expect(await click(WINDOW_BOUNDS)).toEqual({ ok: true, result: { tookFocus: true } });
     expect(harness.sent).toEqual([["click", [300, 200], { button: "right", count: 2 }]]);
 
     expect(await click({ ...WINDOW_BOUNDS, x: 102 })).toMatchObject({

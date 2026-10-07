@@ -40,6 +40,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import { autoApprovesComputerUseCommand } from "../../computerUse/computerUseCommand.ts";
+import type { ComputerUseGrant } from "../../mcp/McpProviderSession.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import {
   buildCodexAdditionalContext,
@@ -189,7 +190,7 @@ export interface CodexSessionRuntimeOptions {
   /** Capabilities the session's `viewcode` MCP credential grants; drives the prompt blocks. */
   readonly mcpCapabilities?: ReadonlySet<string>;
   /** Set when the environment carries the computer-use CLI; adds its prompt block. */
-  readonly computerUseMode?: "observe" | "control";
+  readonly computerUse?: ComputerUseGrant;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -595,7 +596,7 @@ function buildCodexTurnInstructions(input: {
   readonly modelName?: string;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly browserToolsAvailable?: boolean | T3CodeToolAvailability;
-  readonly computerUse?: "observe" | "control";
+  readonly computerUse?: ComputerUseGrant;
 }): Pick<CodexTurnStartParamsWithCollaborationMode, "collaborationMode" | "additionalContext"> {
   if (input.interactionMode === undefined) {
     return {};
@@ -639,7 +640,7 @@ export function buildTurnStartParams(input: {
   /** Defaults to true so callers that predate the agent-access gate are unchanged. */
   readonly browserToolsAvailable?: boolean | T3CodeToolAvailability;
   /** Set when the session was spawned with the computer-use CLI. */
-  readonly computerUse?: "observe" | "control" | undefined;
+  readonly computerUse?: ComputerUseGrant | undefined;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError
@@ -2599,7 +2600,7 @@ export const makeCodexSessionRuntime = (
               options.appServerArgs,
               options.mcpCapabilities,
             ),
-            computerUse: options.computerUseMode,
+            computerUse: options.computerUse,
           });
           yield* Ref.set(lastAdditionalContextRef, params.additionalContext);
           const rawResponse = yield* client.raw.request("turn/start", params);

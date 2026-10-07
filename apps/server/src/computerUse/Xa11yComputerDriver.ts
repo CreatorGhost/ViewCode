@@ -141,6 +141,7 @@ const DriverFailure = Schema.Struct({
   message: Schema.String,
   dispatched: Schema.Literals(["no", "yes", "unknown"]),
   code: Schema.optionalKey(ComputerUseErrorCode),
+  reason: Schema.optionalKey(Schema.Literal("restarted")),
 });
 
 type DriverReply<T> =
@@ -198,7 +199,7 @@ const ScreenshotReply = replyOf(
 const ElementAtReply = replyOf(
   Schema.NullOr(Schema.Struct({ role: Schema.String, label: Schema.String })),
 );
-const InputReply = replyOf(Schema.Null);
+const InputReply = replyOf(Schema.Struct({ tookFocus: Schema.Boolean }));
 
 type WorkerOutcome =
   | { readonly type: "reply"; readonly message: unknown }
@@ -548,26 +549,22 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
       call({ op: "screenshot", window, outputPath, maxSize }, ScreenshotReply),
     elementAt: (window, point) => call({ op: "elementAt", window, point }, ElementAtReply),
     click: (window, expectBounds, point, { button, count }) =>
-      call({ op: "click", window, expectBounds, point, button, count }, InputReply).pipe(
-        Effect.asVoid,
-      ),
+      call({ op: "click", window, expectBounds, point, button, count }, InputReply),
     drag: (window, expectBounds, from, to) =>
-      call({ op: "drag", window, expectBounds, from, to }, InputReply).pipe(Effect.asVoid),
+      call({ op: "drag", window, expectBounds, from, to }, InputReply),
     move: (window, expectBounds, point) =>
-      call({ op: "move", window, expectBounds, point }, InputReply).pipe(Effect.asVoid),
+      call({ op: "move", window, expectBounds, point }, InputReply),
     scrollAt: (window, expectBounds, point, dx, dy) =>
-      call({ op: "scrollAt", window, expectBounds, point, dx, dy }, InputReply).pipe(Effect.asVoid),
-    typeFocused: (window, text) =>
-      call({ op: "typeFocused", window, text }, InputReply).pipe(Effect.asVoid),
-    press: (element, expect) =>
-      call({ op: "press", element, expect }, InputReply).pipe(Effect.asVoid),
+      call({ op: "scrollAt", window, expectBounds, point, dx, dy }, InputReply),
+    typeFocused: (window, text) => call({ op: "typeFocused", window, text }, InputReply),
+    press: (element, expect) => call({ op: "press", element, expect }, InputReply),
     setValue: (element, expect, value) =>
-      call({ op: "setValue", element, expect, value }, InputReply).pipe(Effect.asVoid),
+      call({ op: "setValue", element, expect, value }, InputReply),
     typeText: (element, expect, text) =>
-      call({ op: "typeText", element, expect, text }, InputReply).pipe(Effect.asVoid),
-    key: (window, keys) => call({ op: "key", window, keys }, InputReply).pipe(Effect.asVoid),
+      call({ op: "typeText", element, expect, text }, InputReply),
+    key: (window, keys) => call({ op: "key", window, keys }, InputReply),
     scroll: (element, expect, dx, dy) =>
-      call({ op: "scroll", element, expect, dx, dy }, InputReply).pipe(Effect.asVoid),
+      call({ op: "scroll", element, expect, dx, dy }, InputReply),
   } satisfies ComputerDriverShape;
 });
 

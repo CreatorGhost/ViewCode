@@ -58,7 +58,7 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
-import { ensureComputerUseShim } from "../../computerUse/ComputerUseShim.ts";
+import { COMPUTER_CLI_NAME, ensureComputerUseShim } from "../../computerUse/ComputerUseShim.ts";
 import { ComputerUseService } from "../../computerUse/ComputerUseService.ts";
 import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import {
@@ -974,12 +974,18 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ),
       );
       if (!shimDir) return undefined;
+      const cli = pathService.join(shimDir, COMPUTER_CLI_NAME);
       return {
-        PATH: shimDir,
-        PATH_SEPARATOR: hostPlatform === "win32" ? ";" : ":",
-        VIEWCODE_COMPUTER_ENDPOINT: config.computerUseEndpoint,
-        VIEWCODE_COMPUTER_AUTH: config.authorizationHeader,
-      } satisfies Record<string, string>;
+        cli,
+        environment: {
+          PATH: shimDir,
+          PATH_SEPARATOR: hostPlatform === "win32" ? ";" : ":",
+          VIEWCODE_COMPUTER_ENDPOINT: config.computerUseEndpoint,
+          VIEWCODE_COMPUTER_AUTH: config.authorizationHeader,
+          // Printed by `viewcode-computer help`: the path auto-approval accepts.
+          VIEWCODE_COMPUTER_CLI: cli,
+        } satisfies Record<string, string>,
+      };
     });
 
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
@@ -1000,19 +1006,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         const deviceEnvironment = capabilities.has("device")
           ? yield* agentDeviceEnvironment
           : undefined;
-        const computerEnvironment =
+        const computerCli =
           capabilities.has("computer") && computerUseMode !== "off"
             ? yield* computerUseEnvironment(credential.config)
             : undefined;
         const cliEnvironment = McpProviderSession.mergeAgentCliEnvironments([
           deviceEnvironment,
-          computerEnvironment,
+          computerCli?.environment,
         ]);
         yield* Effect.sync(() =>
           McpProviderSession.setMcpProviderSession({
             ...credential.config,
             ...(cliEnvironment ? { agentDeviceEnvironment: cliEnvironment } : {}),
-            ...(computerEnvironment && computerUseMode !== "off" ? { computerUseMode } : {}),
+            ...(computerCli && computerUseMode !== "off"
+              ? { computerUse: { mode: computerUseMode, cli: computerCli.cli } }
+              : {}),
+            computerUseSetting: computerUseMode,
           }),
         );
       }

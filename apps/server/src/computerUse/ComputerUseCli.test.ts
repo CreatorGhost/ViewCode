@@ -298,6 +298,9 @@ describe("response validation agrees with ComputerUseResponse", () => {
       ok: true,
       result: { kind: "input", effect: "dispatched", screenshot: { shot: 0, window: 1 } },
     },
+    { ok: true, result: { kind: "input", effect: "dispatched", tookFocus: false } },
+    { ok: true, result: { kind: "input", effect: "dispatched", tookFocus: true } },
+    { ok: true, result: { kind: "input", effect: "dispatched", tookFocus: "yes" } },
     { ok: false, error: { code: "CU-CON-007", message: "take a new screenshot" } },
     { ok: false, error: { code: "CU-NOT-003", message: "unknown shot" } },
     { ok: false, error: { code: "CU-CON-003", message: "observe again" } },
@@ -324,6 +327,23 @@ describe("transport", () => {
   it("prints the manual without a session", async () => {
     const result = await run(["help"]);
     expect(result).toEqual({ code: 0, stdout: COMPUTER_CLI_MANUAL });
+  });
+
+  it("tells the agent to run it by the session's launcher path", async () => {
+    const cliPath = "/Users/Jane Doe/ViewCode/computer-use/bin/viewcode-computer";
+    let stdout = "";
+    const code = await runComputerCli({
+      argv: ["help"],
+      env: { VIEWCODE_COMPUTER_CLI: cliPath },
+      readStdin: async () => "",
+      writeStdout: (text) => (stdout += text),
+    });
+    expect(code).toBe(0);
+    expect(stdout).toContain(`Run it by its absolute path, exactly as written here`);
+    expect(stdout).toContain(`\n  '${cliPath}'\n`);
+    expect(
+      stdout.endsWith(COMPUTER_CLI_MANUAL.slice(COMPUTER_CLI_MANUAL.indexOf("Every command"))),
+    ).toBe(true);
   });
 
   it("reports an unreachable server as CU-EXT-006", async () => {

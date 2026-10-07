@@ -4,6 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import {
+  type ComputerUseMode,
   ModelSelection,
   ProviderRuntimeEvent,
   ProviderSession,
@@ -81,6 +82,7 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { ServerActivation } from "../../serverActivation.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
@@ -130,6 +132,7 @@ describe("ProviderCommandReactor", () => {
     | OrchestrationEngineService
     | ProviderCommandReactor
     | ProjectionSnapshotQuery
+    | ServerSettingsService
     | SqlClient.SqlClient,
     unknown
   > | null = null;
@@ -3308,6 +3311,110 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     expect(harness.startSession.mock.calls.length).toBe(1);
     expect(harness.stopSession.mock.calls.length).toBe(0);
+  });
+
+  describe("computer use setting changes", () => {
+    const threadId = ThreadId.make("thread-1");
+    afterEach(() => McpProviderSession.clearMcpProviderSession(threadId));
+
+    /** Records the setting each session was prepared under, as ProviderService does. */
+    const createComputerUseHarness = async () => {
+      let setting: ComputerUseMode = "off";
+      const harness = await createHarness({
+        startSessionEffect: (session) =>
+          Effect.sync(() => {
+            McpProviderSession.setMcpProviderSession({
+              environmentId: EnvironmentId.make("environment"),
+              threadId,
+              providerSessionId: `session-${setting}`,
+              providerInstanceId: ProviderInstanceId.make("codex"),
+              endpoint: "http://127.0.0.1:1/mcp",
+              authorizationHeader: "Bearer test",
+              capabilities: new Set(),
+              computerUseSetting: setting,
+            });
+            return session;
+          }),
+      });
+      const setComputerUse = (next: ComputerUseMode) => {
+        setting = next;
+        return runtime!.runPromise(
+          Effect.flatMap(Effect.service(ServerSettingsService), (settings) =>
+            settings.updateSettings({ computerUse: next }),
+          ),
+        );
+      };
+      let turn = 0;
+      const startTurn = () => {
+        turn += 1;
+        return Effect.runPromise(
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(`cmd-turn-start-computer-use-${turn}`),
+            threadId,
+            message: {
+              messageId: asMessageId(`user-message-computer-use-${turn}`),
+              role: "user",
+              text: `turn ${turn}`,
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          }),
+        );
+      };
+      const restartRows = async () => {
+        const readModel = await harness.readModel();
+        return (
+          readModel.threads
+            .find((entry) => entry.id === threadId)
+            ?.activities.filter(
+              (activity) => activity.kind === "viewcode.session.computer-use-restart",
+            ) ?? []
+        );
+      };
+      return { harness, setComputerUse, startTurn, restartRows };
+    };
+
+    it("restarts the session with its resume cursor before the next turn, once", async () => {
+      const { harness, setComputerUse, startTurn, restartRows } = await createComputerUseHarness();
+      await startTurn();
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      expect(harness.startSession.mock.calls.length).toBe(1);
+
+      await setComputerUse("control");
+      await startTurn();
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+      expect(harness.startSession.mock.calls.length).toBe(2);
+      expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+        threadId,
+        resumeCursor: { opaque: "resume-1" },
+      });
+      expect(harness.startSession.mock.calls[1]?.[1]).not.toHaveProperty("freshSession");
+      expect((await restartRows()).map((row) => [row.tone, row.summary])).toEqual([
+        ["info", "Restarted the agent session to apply the computer use setting."],
+      ]);
+
+      // The restarted session was prepared under the current setting.
+      await startTurn();
+      await waitFor(() => harness.sendTurn.mock.calls.length === 3);
+      expect(harness.startSession.mock.calls.length).toBe(2);
+      expect(await restartRows()).toHaveLength(1);
+      expect(harness.stopSession.mock.calls.length).toBe(0);
+    });
+
+    it("leaves a session without a recorded setting alone", async () => {
+      const { harness, setComputerUse, startTurn, restartRows } = await createComputerUseHarness();
+      await startTurn();
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      McpProviderSession.clearMcpProviderSession(threadId);
+      await setComputerUse("observe");
+      await startTurn();
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+      expect(harness.startSession.mock.calls.length).toBe(1);
+      expect(await restartRows()).toEqual([]);
+    });
   });
 
   it("restarts an existing Codex thread on a compatible requested instance", async () => {

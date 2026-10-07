@@ -16,6 +16,13 @@ export interface McpStdioLaunch {
   readonly env: Readonly<Record<string, string>>;
 }
 
+/** A session's computer-use grant: what it may do and the CLI it runs. */
+export interface ComputerUseGrant {
+  readonly mode: Exclude<ComputerUseMode, "off">;
+  /** Absolute path of the session's `viewcode-computer` launcher (`<shimDir>/viewcode-computer`). */
+  readonly cli: string;
+}
+
 export interface McpProviderSessionConfig {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -38,9 +45,16 @@ export interface McpProviderSessionConfig {
   readonly computerUseEndpoint?: string;
   /**
    * Set when the session was granted computer use and its CLI environment is
-   * in `agentDeviceEnvironment`. Adapters pass it to the runtime instructions.
+   * in `agentDeviceEnvironment`. Adapters pass it to the runtime instructions
+   * and auto-approve provider prompts for exactly `cli`.
    */
-  readonly computerUseMode?: Exclude<ComputerUseMode, "off">;
+  readonly computerUse?: ComputerUseGrant;
+  /**
+   * The computer-use setting this session was prepared under, granted or not.
+   * The env and instructions are fixed at spawn, so a turn that starts after
+   * the setting moved restarts the session first (`ProviderCommandReactor`).
+   */
+  readonly computerUseSetting?: ComputerUseMode;
   /**
    * Environment for the agent-facing CLIs ViewCode puts on PATH (`agent-device`
    * when the session may drive devices, `viewcode-computer` when it may use

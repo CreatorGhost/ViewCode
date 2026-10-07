@@ -265,6 +265,11 @@ export const ComputerUseResult = Schema.Union([
     kind: Schema.Literal("input"),
     effect: Schema.Literal("dispatched"),
     /**
+     * Whether the action brought the app to the front, taking focus from the
+     * user. False for accessibility actions on a ref that ran in the background.
+     */
+    tookFocus: Schema.optional(Schema.Boolean),
+    /**
      * The window shortly after the action, when Screen Recording allows it.
      * Its `shot` is the one to use for the next coordinate command.
      */

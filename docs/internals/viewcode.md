@@ -259,24 +259,37 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   targets) is enforced in `ComputerUseService` against the contract schema, assuming the agent
   ignores every instruction and crafts raw requests with its credential.
 - Because that prompt is not the gate, adapters answer it themselves (allow once, no card) for a
-  session spawned with computer use when the shell command is exactly one plain
-  `viewcode-computer` invocation (`computerUse/computerUseCommand.ts`); otherwise every action
-  asked twice. "Plain" is a conservative lexer over the raw command the provider will run (never
-  a display title): bare command name, words and quotes only, nothing a shell would chain,
-  redirect, substitute or glob. Claude (Bash), Codex (command approvals, not stdin or network),
-  Cursor, Grok and Antigravity do this. OpenCode does not: its request carries only per-command
-  patterns with redirections dropped, so it cannot be proven plain. Residual trust: the bare name
-  resolves through the session's PATH (shim first) and the user's own shell profile.
+  session spawned with computer use when the shell command is exactly one plain invocation of
+  that session's launcher (`computerUse/computerUseCommand.ts`); otherwise every action asked
+  twice. "Plain" is a conservative lexer over the raw command the provider will run (never a
+  display title): words and quotes only, nothing a shell would chain, redirect, substitute or
+  glob. The command word must be exactly `<shimDir>/viewcode-computer` (`computerUse.cli` on
+  `McpProviderSession`), bare or wholly quoted, never the bare name: login shells (Codex runs
+  `bash -lc`) rebuild PATH from the user's profile, so a workspace entry (direnv `PATH_add bin`,
+  `./node_modules/.bin`) would let an agent that can write files plant its own
+  `viewcode-computer` and have it approved. The instructions and `viewcode-computer help`
+  (`VIEWCODE_COMPUTER_CLI`) give the agent that path, quoted the way the lexer accepts
+  (`shellCommandWord`); the bare name still runs but the provider asks. Claude (Bash), Codex
+  (command approvals, not stdin or network), Cursor, Grok and Antigravity do this. OpenCode does
+  not: its request carries only per-command patterns with redirections dropped, so it cannot be
+  proven plain.
 - The credential is the MCP session credential with a `computer` capability, issued even when the
   provider never loads MCP; the thread always comes from the credential. The CLI's env
   (`VIEWCODE_COMPUTER_ENDPOINT`, `VIEWCODE_COMPUTER_AUTH`, PATH shim) rides the agent-device env
   seam every adapter already applies at spawn. Names avoid KEY/SECRET/TOKEN because Codex's shell
-  env policy strips those. The mode is re-read on every request, so turning it off is immediate;
-  turning it on needs a new provider session (env and instructions are fixed at spawn).
-- Instructions are a few lines pointing at `viewcode-computer help`, whose output is the manual.
-  Like agent-device, and unlike a SKILL.md: no files to manage in six providers' skill folders,
-  nothing loaded when unused, and it cannot drift from the CLI. Security never depends on the
-  model following it.
+  env policy strips those. The mode is re-read on every request, so turning it off is immediate.
+  Env and instructions are fixed at spawn, so the session records the setting it was prepared
+  under (`computerUseSetting`) and a turn that starts on an idle session prepared under another
+  setting first restarts it with its resume cursor, the same in-place restart as a runtime-mode
+  change, and adds one info row (`ProviderCommandReactor`). The new session records the current
+  setting, so it never loops, and a session with no record (no MCP credential) never restarts;
+  a failed shim still records the setting, so it is not retried every turn. A handoff already
+  starts a fresh session. `computerUseApprovals` is read live and never restarts anything.
+- Instructions are a few lines: the launcher path, `help` (whose output is the manual), the focus
+  rule, and that no other installed desktop or browser automation (osascript, screencapture,
+  Playwright skills) replaces it. Like agent-device, and unlike a SKILL.md: no files to manage in
+  six providers' skill folders, nothing loaded when unused, and it cannot drift from the CLI.
+  Security never depends on the model following it.
 - Approvals are ViewCode's own `permission_approval` requests published on the provider runtime
   stream (`computer-use:<uuid>` ids), so web, desktop and mobile render them unchanged;
   `ProviderService.respondToRequest` answers ids it owns before routing to an adapter. When input
@@ -307,6 +320,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   shots are per-thread integers starting at a random per-run base; a newer observe retires a
   window's refs, only a window's newest shot accepts coordinates, and the driver re-reads the
   element or window bounds at dispatch and refuses on change. Every input returns a fresh shot.
+- Ref actions run in the background: press (AXPress), set-value (AXValue) and type --ref
+  (accessible text insertion) act on the element itself, which never needs focus, so they never
+  activate, raise or focus anything; activating first took the user's focus for no reason. Only
+  their synthetic fallbacks (after `ActionNotSupported`), key, type --window, scroll and
+  coordinate input bring the exact window to the front. Input results carry `tookFocus` from the
+  driver, so the agent and the logs can tell the two apart.
 - xa11y elements and window lists are snapshots (`tree(0)` reads no live state), so the driver
   records each element's child-index path at observe and re-walks it from a fresh window read at
   dispatch, refusing on any role, label, native identifier or bounds change. The retained window
@@ -316,16 +335,23 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   identical in every compared field, at the same path while the observed control is still alive
   elsewhere, cannot be told apart and receives the action.
   Handles carry a per-worker random epoch,
-  so a restarted worker can never resolve an old handle to another app. On macOS, AXRaise does not
-  activate an app; the driver runs `open -a <bundle>` and then requires the exact target window to
-  be active. Windows is refused until there is a real win32 window model (xa11y treats each
-  top-level window as an app there).
+  so a restarted worker (crash, timeout, recycle) can never resolve an old handle to another app.
+  It refuses one as `stale` with `reason: "restarted"`, which the service maps to the usual codes
+  (window → CU-NOT-001, ref → CU-CON-003) with "the driver restarted; list windows again" rather
+  than "window closed". On macOS, AXRaise does not activate an app; the driver runs
+  `open -a <bundle>` and then requires the exact target window to be active within 3 s (500 ms was
+  too short on a slow managed Mac), failing closed. Windows is refused until there is a real win32
+  window model (xa11y treats each top-level window as an app there).
 - The driver is xa11y in a child process spawned from the app's own executable with
   `ELECTRON_RUN_AS_NODE=1`: macOS keys the Accessibility grant to the responsible app, and
   Electron's Helper executable does not share it (same reason as SnapShot's reader). xa11y 0.13
   cannot set `AXManualAccessibility`, so Chromium and Electron apps expose no tree on macOS and
   work through coordinates.
 - Logs and approval text never carry typed text or values (approvals show a character count).
+  The service logs one INFO line per request (thread, command, outcome or CU code, effect,
+  tookFocus, duration) and one when the pause or a policy check refuses input (code, stage); the
+  driver logs worker start, stop, per-op timeouts and shim rewrites. None carry labels, titles,
+  paths, values or coordinates; window and ref ids stay at debug.
   Ad-hoc signed builds lose the TCC grant on every rebuild while System Settings still shows it on;
   the settings status line is a fresh check for that reason. Unverified on real hardware: the TCC
   grant under Electron-as-node, xa11y input on macOS and Windows, and whether managed-Mac security

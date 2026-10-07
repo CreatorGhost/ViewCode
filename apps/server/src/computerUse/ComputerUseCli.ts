@@ -14,6 +14,26 @@ import * as NodeHttp from "node:http";
 
 export const COMPUTER_ENDPOINT_ENV = "VIEWCODE_COMPUTER_ENDPOINT";
 export const COMPUTER_AUTH_ENV = "VIEWCODE_COMPUTER_AUTH";
+/** Absolute path of this session's `viewcode-computer` launcher, set by the server. */
+export const COMPUTER_CLI_PATH_ENV = "VIEWCODE_COMPUTER_CLI";
+
+const PLAIN_SHELL_WORD = /^[A-Za-z0-9_./+:@%=,-]+$/;
+
+/**
+ * How to write `path` as the command word of a shell command: bare when it
+ * has nothing a shell would interpret, otherwise wrapped whole in single or
+ * double quotes. These are the forms providers' prompts are auto-approved in
+ * (`computerUseCommand.ts`), so instructions and the manual use exactly this.
+ */
+export const shellCommandWord = (path: string): string =>
+  PLAIN_SHELL_WORD.test(path)
+    ? path
+    : !path.includes("'")
+      ? `'${path}'`
+      : !/["$`\\!]/.test(path)
+        ? `"${path}"`
+        : `'${path.replaceAll("'", "'\\''")}'`;
+
 const ENDPOINT_PATH = "/api/computer-use";
 
 /** Mirrors `COMPUTER_USE_KEY_PATTERN` in packages/contracts (asserted by test). */
@@ -397,7 +417,11 @@ const isResult = (value: unknown): boolean => {
     case "screenshot":
       return isShot(value);
     case "input":
-      return value.effect === "dispatched" && optional(value.screenshot, isShot);
+      return (
+        value.effect === "dispatched" &&
+        optional(value.tookFocus, isBoolean) &&
+        optional(value.screenshot, isShot)
+      );
     default:
       return false;
   }
@@ -492,7 +516,7 @@ const failureLine = (error: CliError) =>
 export const runComputerCli = async (io: ComputerCliIo): Promise<number> => {
   const parsed = await parseComputerArgs(io.argv, io.readStdin);
   if (parsed.type === "help") {
-    io.writeStdout(COMPUTER_CLI_MANUAL);
+    io.writeStdout(computerCliManual(io.env[COMPUTER_CLI_PATH_ENV]));
     return 0;
   }
   const fail = (error: CliError) => {
@@ -561,6 +585,25 @@ export const runComputerCliMain = (argv: ReadonlyArray<string>): Promise<number>
     writeStdout: (text) => process.stdout.write(text),
   });
 
+/**
+ * The manual `viewcode-computer help` prints. Given this session's launcher
+ * path, it tells the agent to run the CLI by it: only that exact path is
+ * approved without a provider prompt, since a bare name resolves through a
+ * PATH the workspace may influence.
+ */
+export const computerCliManual = (cliPath?: string): string =>
+  cliPath
+    ? COMPUTER_CLI_MANUAL.replace(MANUAL_PATH_ANCHOR, manualPathSection(cliPath))
+    : COMPUTER_CLI_MANUAL;
+
+const MANUAL_PATH_ANCHOR = "\n\nEvery command";
+
+const manualPathSection = (cliPath: string) => `
+
+Run it by its absolute path, exactly as written here (below, viewcode-computer
+stands for it); ViewCode approves that path without asking you twice:
+  ${shellCommandWord(cliPath)}${MANUAL_PATH_ANCHOR}`;
+
 export const COMPUTER_CLI_MANUAL = `viewcode-computer: see and operate desktop apps on the user's machine.
 
 Every command prints one JSON line: {"ok":true,"result":…} (exit 0) or
@@ -606,7 +649,8 @@ FOCUS
   everything at --shot coordinates bring the window to the front and take
   focus from the user: use them only when refs cannot do the job, and batch
   them. Never use keyboard shortcuts (e.g. cmd+t) to navigate an app when a
-  ref can do it.
+  ref can do it. Input results say "tookFocus":true when the action brought
+  the window to the front.
 
 THE LOOP
   1. list-windows to find the window id.
@@ -626,13 +670,14 @@ timeout, give it a long one.
 
 ERRORS
   CU-VAL-001..004  bad command or arguments; fix the call.
-  CU-NOT-001       unknown window id: list-windows again.
+  CU-NOT-001       unknown window id, or the driver restarted: list-windows again.
   CU-NOT-002       unknown ref: observe again.
   CU-NOT-003       unknown shot: take a new screenshot.
   CU-CON-001       computer use is off or not granted to this session; tell the user.
   CU-CON-002       ViewCode allows observing only; tell the user if you need control.
   CU-CON-003       the ref is from an older observation or the control changed:
-                   observe again and re-pick the control. Never substitute a
+                   observe again and re-pick the control (if the driver
+                   restarted, list-windows first). Never substitute a
                    similar-looking control.
   CU-CON-004       the user declined. Stop and tell them; do not retry or work around it.
   CU-CON-005       this app can never be controlled (password managers, system

@@ -48,6 +48,7 @@ import {
 } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { isStaleProviderSessionCause } from "../../provider/staleSession.ts";
+import { readMcpProviderSession } from "../../mcp/McpProviderSession.ts";
 import { THREAD_FORKED_ACTIVITY_KIND, forkHandoffIntro } from "../ThreadFork.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
@@ -230,6 +231,9 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 // Info row recorded when a turn went out on a fresh session because the
 // provider could no longer resume the saved one.
 const STALE_SESSION_RECOVERY_ACTIVITY_KIND = "viewcode.session.resume-fallback";
+// Info row recorded when a turn restarted the session to apply a changed
+// computer-use setting.
+const COMPUTER_USE_RESTART_ACTIVITY_KIND = "viewcode.session.computer-use-restart";
 
 // Exchanges carried verbatim across a cross-provider handoff.
 const HANDOFF_RECENT_EXCHANGES = 3;
@@ -752,6 +756,25 @@ const make = Effect.gen(function* () {
       : undefined;
   });
 
+  /**
+   * Whether the thread's live session was prepared under a different
+   * computer-use setting than the current one. Its CLI env and instructions
+   * are fixed at spawn, so it must restart to pick up the change. Sessions
+   * with no record (no MCP credential, or prepared before this existed) and
+   * unreadable settings never restart; the restarted session records the
+   * current setting, so the same setting never restarts twice.
+   */
+  const computerUseSettingChanged = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const spawnedWith = readMcpProviderSession(threadId)?.computerUseSetting;
+      if (spawnedWith === undefined) return false;
+      const current = yield* serverSettingsService.getSettings.pipe(
+        Effect.map((settings) => settings.computerUse),
+        Effect.option,
+      );
+      return Option.isSome(current) && current.value !== spawnedWith;
+    });
+
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
     threadId: ThreadId,
     createdAt: string,
@@ -1086,13 +1109,19 @@ const make = Effect.gen(function* () {
         preferredProvider === "claudeAgent" &&
         requestedModelSelection !== undefined &&
         !Equal.equals(previousModelSelection, requestedModelSelection);
+      // Only when a turn is about to start on an idle session, never mid-turn.
+      const computerUseChanged =
+        options?.pendingTurnStart === true &&
+        thread.session?.status !== "running" &&
+        (yield* computerUseSettingChanged(threadId));
 
       if (
         !runtimeModeChanged &&
         !cwdChanged &&
         !instanceChanged &&
         !shouldRestartForModelChange &&
-        !shouldRestartForModelSelectionChange
+        !shouldRestartForModelSelectionChange &&
+        !computerUseChanged
       ) {
         yield* refreshWorkspaceSnapshot;
         return existingSessionThreadId;
@@ -1118,6 +1147,7 @@ const make = Effect.gen(function* () {
         instanceChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
+        computerUseChanged,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(
@@ -1132,6 +1162,25 @@ const make = Effect.gen(function* () {
         cwd: restartedSession.cwd,
       });
       yield* bindSessionToThread(restartedSession);
+      if (computerUseChanged) {
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.activity.append",
+            commandId: yield* serverCommandId("computer-use-restart"),
+            threadId,
+            activity: {
+              id: yield* serverEventId(),
+              tone: "info",
+              kind: COMPUTER_USE_RESTART_ACTIVITY_KIND,
+              summary: "Restarted the agent session to apply the computer use setting.",
+              payload: {},
+              turnId: null,
+              createdAt,
+            },
+            createdAt,
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+      }
       return restartedSession.threadId;
     }
 

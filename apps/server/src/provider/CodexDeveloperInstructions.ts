@@ -1,5 +1,6 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
 import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
+import type { ComputerUseGrant } from "../mcp/McpProviderSession.ts";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
 const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `## ViewCode collaborative browser
@@ -188,7 +189,7 @@ export interface CodexRuntimeInfo {
   readonly model: string;
   readonly modelName?: string | undefined;
   readonly reasoningEffort: string;
-  readonly computerUse?: "observe" | "control" | undefined;
+  readonly computerUse?: ComputerUseGrant | undefined;
 }
 
 /** Mode prompt for `turn/start.collaborationMode.settings.developer_instructions`. */

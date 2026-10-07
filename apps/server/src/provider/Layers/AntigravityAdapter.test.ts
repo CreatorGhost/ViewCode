@@ -35,6 +35,7 @@ import {
 } from "../acp/AcpRuntimeModel.ts";
 import { makeAntigravityAdapter, type AntigravityAdapterOptions } from "./AntigravityAdapter.ts";
 
+const COMPUTER_CLI = "/home/u/.t3/userdata/computer-use/bin/viewcode-computer";
 const instanceId = ProviderInstanceId.make("antigravity-test");
 const threadId = ThreadId.make("antigravity-thread");
 const nativeSessionId = "b75db7e9-cd99-40e5-aa63-ac2b4674a6a9";
@@ -548,7 +549,7 @@ it.layer(layer)("AntigravityAdapter", (it) => {
             endpoint: "http://127.0.0.1:1234/mcp",
             authorizationHeader: "Bearer test-token",
             capabilities: new Set(["computer"]),
-            computerUseMode: "control",
+            computerUse: { mode: "control", cli: COMPUTER_CLI },
           }),
         ),
         () =>
@@ -560,7 +561,7 @@ it.layer(layer)("AntigravityAdapter", (it) => {
                 toolCall: {
                   toolCallId: "run-1",
                   title: "Run command",
-                  rawInput: { CommandLine: "viewcode-computer list-windows" },
+                  rawInput: { CommandLine: `${COMPUTER_CLI} list-windows` },
                 },
                 options,
               }),
@@ -572,7 +573,7 @@ it.layer(layer)("AntigravityAdapter", (it) => {
                 toolCall: {
                   toolCallId: "run-2",
                   title: "Run command",
-                  rawInput: { CommandLine: "viewcode-computer list-windows", command: "id" },
+                  rawInput: { CommandLine: `${COMPUTER_CLI} list-windows`, command: "id" },
                 },
                 options,
               })

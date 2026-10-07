@@ -1,3 +1,6 @@
+import type { ComputerUseGrant } from "../mcp/McpProviderSession.ts";
+import { shellCommandWord } from "../computerUse/ComputerUseCli.ts";
+
 const PULL_REQUEST_LINKING_INSTRUCTIONS = `<pull_request_linking>
 When the viewcode MCP server exposes link_pull_request, you must use it to register every pull request you create or work on for this thread. Call link_pull_request with the full PR URL immediately after creating a PR or starting work on an existing PR. For a stack, call it for every layer, not just the current branch or the top PR. This applies when creating or updating PRs through gh, gh stack, another CLI, or the host API: those operations do not register the PRs with this thread. Linking an already-linked PR is safe. Before finishing PR work, call list_thread_pull_requests and link any PR from your work that is missing. Do not link unrelated PRs mentioned only as background. If a linking call fails, report that failure instead of claiming the PR is linked.
 </pull_request_linking>`;
@@ -28,16 +31,18 @@ When a chart, table, diagram, image collage, or mockup would say more than prose
 /**
  * Computer use goes through a CLI, not MCP, so it is offered even when the
  * session runs without ViewCode's MCP server. `viewcode-computer help` is the
- * manual; this block only points at it and rules out the workarounds.
+ * manual; this block names the exact launcher path (the only form providers'
+ * prompts are auto-approved in), the focus rule and rules out the workarounds.
  */
-export function computerUseInstructions(mode: "observe" | "control"): string {
+export function computerUseInstructions(grant: ComputerUseGrant): string {
+  const cli = shellCommandWord(grant.cli);
   const scope =
-    mode === "observe"
+    grant.mode === "observe"
       ? "This session may only observe (list windows, read their elements, take screenshots); input actions are unavailable."
-      : "Input actions (press, type, keys, scroll) only work while your turn is running and may wait for the user to approve them.";
+      : "Input actions only work while your turn is running and may wait for the user to approve them. Refs (press, set-value, type --ref) act in the background without taking the user's focus: prefer them. key, coordinate input and type --window bring the window to the front and take focus.";
   return `<viewcode_computer_use>
-You can see and operate apps on the user's computer with the viewcode-computer command, run through your shell tool. Run \`viewcode-computer help\` before first use; its output is the manual. ${scope}
-Never use osascript, AppleScript, JXA, screencapture, xdotool, cliclick, PowerShell UI automation or similar tools to observe or control the desktop instead. If viewcode-computer refuses an action, tell the user what was refused and why instead of working around it.
+You can see and operate apps on the user's computer with the viewcode-computer CLI, run through your shell tool. Always invoke it by this absolute path, exactly as written: ${cli}. Run \`${cli} help\` before first use; its output is the manual. ${scope}
+Use viewcode-computer for all desktop observation and control; do not use other installed desktop or browser automation tools, skills or scripts (osascript, screencapture, cliclick, python screen tools, Playwright/Chromium skills) instead, even if available. If viewcode-computer refuses an action, tell the user what was refused and why instead of working around it.
 </viewcode_computer_use>`;
 }
 
@@ -56,7 +61,7 @@ export function buildRuntimeInstructions(runtime: {
    */
   readonly viewcodeToolsUnavailable?: "managed-mcp" | "setting" | undefined;
   /** Set when the session was granted computer use (its CLI is on PATH). */
-  readonly computerUse?: "observe" | "control" | undefined;
+  readonly computerUse?: ComputerUseGrant | undefined;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");

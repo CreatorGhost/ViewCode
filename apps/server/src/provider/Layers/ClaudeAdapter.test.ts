@@ -317,6 +317,7 @@ async function readPromptMessages(
   return messages;
 }
 
+const COMPUTER_CLI = "/home/u/.t3/userdata/computer-use/bin/viewcode-computer";
 const THREAD_ID = ThreadId.make("thread-claude-1");
 const RESUME_THREAD_ID = ThreadId.make("thread-claude-resume");
 const SYNTHETIC_SUBAGENT_MODEL = "claude-synthetic-subagent[expanded]";
@@ -6512,7 +6513,7 @@ describe("ClaudeAdapterLive", () => {
             endpoint: "http://127.0.0.1:1234/mcp",
             authorizationHeader: "Bearer test-token",
             capabilities: new Set(["computer"]),
-            computerUseMode: "control",
+            computerUse: { mode: "control", cli: COMPUTER_CLI },
           }),
         ),
         () =>
@@ -6520,7 +6521,7 @@ describe("ClaudeAdapterLive", () => {
             const allowed = yield* Effect.promise(() =>
               canUseTool(
                 "Bash",
-                { command: "viewcode-computer list-windows" },
+                { command: `${COMPUTER_CLI} list-windows` },
                 options("tool-use-cu"),
               ),
             );
@@ -6528,7 +6529,7 @@ describe("ClaudeAdapterLive", () => {
             // Anything more than the plain CLI still asks, and is the next event.
             void canUseTool(
               "Bash",
-              { command: "viewcode-computer list-windows; id" },
+              { command: `${COMPUTER_CLI} list-windows; id` },
               options("tool-use-chained"),
             );
             const next = yield* Stream.runHead(adapter.streamEvents);

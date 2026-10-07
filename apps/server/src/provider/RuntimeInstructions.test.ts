@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
+import { isPlainComputerUseCommand } from "../computerUse/computerUseCommand.ts";
 
 describe("buildRuntimeInstructions", () => {
   it("requires explicit registration of every PR and stack layer", () => {
@@ -54,21 +55,40 @@ describe("buildRuntimeInstructions", () => {
   );
 
   it("offers computer use only when granted, with or without ViewCode's MCP tools", () => {
+    const cli = "/home/u/.t3/userdata/computer-use/bin/viewcode-computer";
     expect(buildRuntimeInstructions({ harness: "Codex" })).not.toContain("viewcode_computer_use");
     for (const viewcodeToolsUnavailable of [undefined, "managed-mcp"] as const) {
       const control = buildRuntimeInstructions({
         harness: "Claude Code",
         viewcodeToolsUnavailable,
-        computerUse: "control",
+        computerUse: { mode: "control", cli },
       });
       expect(control).toContain("<viewcode_computer_use>");
-      expect(control).toContain("viewcode-computer help");
-      expect(control).toContain("Never use osascript");
+      expect(control).toContain(`invoke it by this absolute path, exactly as written: ${cli}.`);
+      expect(control).toContain(`\`${cli} help\``);
+      expect(control).toContain("act in the background without taking the user's focus");
+      expect(control).toContain("type --window bring the window to the front and take focus");
+      expect(control).toContain("Use viewcode-computer for all desktop observation and control");
+      expect(control).toContain("Playwright/Chromium skills");
       expect(control).not.toContain("input actions are unavailable");
     }
-    expect(buildRuntimeInstructions({ harness: "Cursor", computerUse: "observe" })).toContain(
-      "input actions are unavailable",
-    );
+    const observe = buildRuntimeInstructions({
+      harness: "Cursor",
+      computerUse: { mode: "observe", cli },
+    });
+    expect(observe).toContain("input actions are unavailable");
+    expect(observe).not.toContain("take focus");
+  });
+
+  it("quotes a launcher path with spaces the way auto-approval accepts it", () => {
+    const cli =
+      "/Users/Jane Doe/Library/Application Support/ViewCode/computer-use/bin/viewcode-computer";
+    const instructions = buildRuntimeInstructions({
+      harness: "Codex",
+      computerUse: { mode: "control", cli },
+    });
+    expect(instructions).toContain(`exactly as written: '${cli}'.`);
+    expect(isPlainComputerUseCommand(`'${cli}' help`, cli)).toBe(true);
   });
 
   it("keeps known model and effort metadata on one line", () => {

@@ -36,6 +36,7 @@ import {
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -58,6 +59,7 @@ import {
   ComputerDriverError,
   ComputerDriverDispatchCheck,
   type DriverDispatchDecision,
+  type DriverInputResult,
   type DriverDispatchPhase,
   type DriverDispatchTarget,
 } from "./ComputerDriver.ts";
@@ -163,6 +165,10 @@ export class ComputerUseService extends Context.Service<
 >()("t3/computerUse/ComputerUseService") {}
 
 const REQUEST_ID_PREFIX = "computer-use:";
+const DRIVER_RESTARTED_WINDOW =
+  "The computer-use driver restarted; run `viewcode-computer list-windows` again.";
+const DRIVER_RESTARTED_ELEMENT =
+  "The computer-use driver restarted; run `viewcode-computer list-windows`, then observe again.";
 const APPROVAL_APP_NAME = "Computer use";
 /** No answer within this long counts as a decline. */
 const APPROVAL_TIMEOUT = Duration.minutes(10);
@@ -413,25 +419,58 @@ export const make = Effect.gen(function* () {
       }).pipe(Effect.ensuring(settle(requestId, "cancel")));
     });
 
+  /**
+   * One INFO line per request, plus the existing debug line with ids. Both
+   * carry the command, outcome and numbers only: never text, values, labels,
+   * titles, paths or coordinates.
+   */
   const logOutcome = (
     caller: ComputerUseCaller,
     request: ComputerUseRequest | undefined,
     response: ComputerUseResponse,
+    durationMs: number,
   ) =>
-    // Ids, command and outcome only: never text, values, labels, titles or paths.
-    Effect.logDebug("computer use request", {
-      threadId: caller.threadId,
-      command: request?.command,
-      ...(request && "window" in request ? { window: request.window } : {}),
-      ...(request && "ref" in request ? { ref: request.ref } : {}),
-      ...(response.ok
-        ? { outcome: "ok", ...(response.result.kind === "input" ? { effect: "dispatched" } : {}) }
-        : {
-            outcome: "refused",
-            code: response.error.code,
-            ...(response.error.effect ? { effect: response.error.effect } : {}),
-          }),
+    Effect.gen(function* () {
+      const input = response.ok && response.result.kind === "input" ? response.result : undefined;
+      const effect = input ? input.effect : response.ok ? undefined : response.error.effect;
+      yield* Effect.logInfo("computer use request completed", {
+        threadId: caller.threadId,
+        command: request?.command ?? "invalid",
+        outcome: response.ok ? "ok" : response.error.code,
+        ...(effect ? { effect } : {}),
+        ...(input?.tookFocus !== undefined ? { tookFocus: input.tookFocus } : {}),
+        durationMs,
+      });
+      yield* Effect.logDebug("computer use request", {
+        threadId: caller.threadId,
+        command: request?.command,
+        ...(request && "window" in request ? { window: request.window } : {}),
+        ...(request && "ref" in request ? { ref: request.ref } : {}),
+        ...(response.ok
+          ? { outcome: "ok", ...(input ? { effect: "dispatched" } : {}) }
+          : {
+              outcome: "refused",
+              code: response.error.code,
+              ...(response.error.effect ? { effect: response.error.effect } : {}),
+            }),
+      });
     });
+
+  /** Input stopped by the pause or a policy check, and where; no target details. */
+  const logInputRefused = (
+    caller: ComputerUseCaller,
+    request: ComputerUseInputRequest,
+    response: ComputerUseResponse | undefined,
+    stage: "request" | "check" | DriverDispatchPhase,
+  ) =>
+    response && !response.ok
+      ? Effect.logInfo("computer use input refused", {
+          threadId: caller.threadId,
+          command: request.command,
+          code: response.error.code,
+          stage,
+        })
+      : Effect.void;
 
   const windowFor = (caller: ComputerUseCaller, windowId: number) => {
     const window = targetsFor(caller.threadId).window(windowId);
@@ -456,17 +495,25 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  /** A stale window handle means the window closed under us. */
+  /**
+   * A handle the driver no longer knows. Usually the window closed under us;
+   * when the driver says its worker restarted, every handle it minted before
+   * is gone but the window probably is not, so the agent is told to list
+   * windows again instead of being told the window closed.
+   */
   const windowGone = (
     caller: ComputerUseCaller,
     window: WindowRecord,
+    error: ComputerDriverError,
     effect?: ComputerUseError["effect"],
   ) => {
     targetsFor(caller.threadId).closeWindow(window.id);
     return refused(
       computerUseError(
         "CU-NOT-001",
-        `Window ${window.id} is closed. Run \`viewcode-computer list-windows\`.`,
+        error.reason === "restarted"
+          ? DRIVER_RESTARTED_WINDOW
+          : `Window ${window.id} is closed. Run \`viewcode-computer list-windows\`.`,
         effect,
       ),
     );
@@ -529,7 +576,7 @@ export const make = Effect.gen(function* () {
         );
       if (observed._tag === "Failed") {
         return observed.error.kind === "stale"
-          ? windowGone(caller, window)
+          ? windowGone(caller, window, observed.error)
           : refused(driverErrorToComputerUseError(observed.error, { input: false }));
       }
       const needle = query?.trim().toLowerCase();
@@ -694,7 +741,7 @@ export const make = Effect.gen(function* () {
       }
       if (captured._tag === "Failed") {
         return captured.error.kind === "stale"
-          ? windowGone(caller, window)
+          ? windowGone(caller, window, captured.error)
           : refused(driverErrorToComputerUseError(captured.error, { input: false }));
       }
       return ok({ kind: "screenshot", ...captured.fields });
@@ -794,7 +841,10 @@ export const make = Effect.gen(function* () {
     }
   };
 
-  const dispatchInput = (request: ComputerUseInputRequest, target: ResolvedInputTarget) => {
+  const dispatchInput = (
+    request: ComputerUseInputRequest,
+    target: ResolvedInputTarget,
+  ): Effect.Effect<DriverInputResult, ComputerDriverError> => {
     if (target._tag === "Window") {
       return request.command === "key"
         ? driver.key(target.window.handle, request.keys)
@@ -862,22 +912,27 @@ export const make = Effect.gen(function* () {
     target: ResolvedInputTarget,
     error: ComputerDriverError,
   ): ComputerUseResponse => {
+    const effect = driverErrorToComputerUseError(error, { input: true }).effect;
+    if (error.kind === "stale" && error.reason === "restarted") {
+      // Every handle of the old worker is gone, the window's included.
+      if (target._tag === "Element") {
+        targetsFor(caller.threadId).closeWindow(target.window.id);
+        return refused(computerUseError("CU-CON-003", DRIVER_RESTARTED_ELEMENT, effect));
+      }
+      return windowGone(caller, target.window, error, effect);
+    }
     if (error.kind === "stale" && target._tag === "Shot") {
       targetsFor(caller.threadId).retireShot(target.shot.shot);
       return refused(
         computerUseError(
           "CU-CON-007",
           `The window moved, resized or closed since shot ${target.shot.shot}; take a new screenshot.`,
-          driverErrorToComputerUseError(error, { input: true }).effect,
+          effect,
         ),
       );
     }
     if (error.kind === "stale" && target._tag === "Window") {
-      return windowGone(
-        caller,
-        target.window,
-        driverErrorToComputerUseError(error, { input: true }).effect,
-      );
+      return windowGone(caller, target.window, error, effect);
     }
     return refused(driverErrorToComputerUseError(error, { input: true }));
   };
@@ -1014,6 +1069,7 @@ export const make = Effect.gen(function* () {
           return undefined;
         });
       const refusal = yield* check();
+      yield* logInputRefused(caller, request, refusal, "check");
       if (refusal) return refusal;
       const decide = (
         native: DriverDispatchTarget,
@@ -1023,6 +1079,7 @@ export const make = Effect.gen(function* () {
           response && !response.ok ? response.error : undefined;
         if (phase === "prepare") {
           return check(native).pipe(
+            Effect.tap((response) => logInputRefused(caller, request, response, phase)),
             Effect.map((response): DriverDispatchDecision => {
               const error = verdict(response);
               return error ? { allowed: false, error } : { allowed: true, release: Effect.void };
@@ -1032,11 +1089,13 @@ export const make = Effect.gen(function* () {
         return Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             yield* restore(dispatchLock.take(1));
-            const error = verdict(
-              yield* check(native).pipe(Effect.onError(() => dispatchLock.release(1))),
+            const response = yield* check(native).pipe(
+              Effect.onError(() => dispatchLock.release(1)),
             );
+            const error = verdict(response);
             if (error) {
               yield* dispatchLock.release(1);
+              yield* logInputRefused(caller, request, response, phase);
               return { allowed: false, error } satisfies DriverDispatchDecision;
             }
             let released = false;
@@ -1051,7 +1110,6 @@ export const make = Effect.gen(function* () {
       };
       return yield* dispatchInput(request, resolved).pipe(
         Effect.provideService(ComputerDriverDispatchCheck, decide),
-        Effect.as(undefined),
         Effect.catchTag("ComputerDriverError", (error) =>
           Effect.succeed(inputFailure(caller, resolved, error)),
         ),
@@ -1069,7 +1127,10 @@ export const make = Effect.gen(function* () {
       }
       // Read with the turn, before the hit test; the final check reads it again.
       const approvals = yield* currentApprovals;
-      if (yield* approvalPending) return inputPaused;
+      if (yield* approvalPending) {
+        yield* logInputRefused(caller, request, inputPaused, "request");
+        return inputPaused;
+      }
       const resolved = resolveInputTarget(caller, request);
       if ("ok" in resolved) return resolved;
       const hit = yield* hitFor(request, resolved);
@@ -1093,7 +1154,10 @@ export const make = Effect.gen(function* () {
             ...(hit !== undefined ? { hit } : {}),
           }),
         });
-        if (decision === "paused") return inputPaused;
+        if (decision === "paused") {
+          yield* logInputRefused(caller, request, inputPaused, "request");
+          return inputPaused;
+        }
         if (decision === "decline" || decision === "cancel") {
           return refused(
             computerUseError(
@@ -1107,10 +1171,22 @@ export const make = Effect.gen(function* () {
           turnGrants.set(caller.threadId, turn.turnId);
         }
       }
-      const refusal = yield* checkAndDispatch(caller, request, turn, resolved, asked, destructive);
-      if (refusal) return refusal;
+      const dispatched = yield* checkAndDispatch(
+        caller,
+        request,
+        turn,
+        resolved,
+        asked,
+        destructive,
+      );
+      if ("ok" in dispatched) return dispatched;
       const after = yield* afterAction(caller, resolved.window);
-      return ok({ kind: "input", effect: "dispatched", ...(after ? { screenshot: after } : {}) });
+      return ok({
+        kind: "input",
+        effect: "dispatched",
+        tookFocus: dispatched.tookFocus,
+        ...(after ? { screenshot: after } : {}),
+      });
     });
 
   const run = (caller: ComputerUseCaller, request: ComputerUseRequest, mode: ComputerUseMode) => {
@@ -1154,27 +1230,27 @@ export const make = Effect.gen(function* () {
 
   const handle: ComputerUseServiceShape["handle"] = (caller, body) =>
     Effect.gen(function* () {
-      const mode = yield* currentMode;
-      if (mode === "off") {
-        const response = refused(
-          computerUseError("CU-CON-001", "Computer use is turned off in ViewCode settings."),
-        );
-        yield* logOutcome(caller, undefined, response);
-        return response;
-      }
-      const validated = validateComputerUseRequest(body);
-      if (!validated.ok) {
-        const response = refused(validated.error);
-        yield* logOutcome(caller, undefined, response);
-        return response;
-      }
-      const response = yield* run(caller, validated.request, mode);
-      yield* logOutcome(caller, validated.request, response);
+      const startedAt = yield* Clock.currentTimeMillis;
+      let request: ComputerUseRequest | undefined;
+      const response = yield* Effect.gen(function* () {
+        const mode = yield* currentMode;
+        if (mode === "off") {
+          return refused(
+            computerUseError("CU-CON-001", "Computer use is turned off in ViewCode settings."),
+          );
+        }
+        const validated = validateComputerUseRequest(body);
+        if (!validated.ok) return refused(validated.error);
+        request = validated.request;
+        return yield* run(caller, validated.request, mode);
+      }).pipe(
+        Effect.catch((error) => internalError(caller, Cause.fail(error))),
+        Effect.catchDefect((defect) => internalError(caller, Cause.die(defect))),
+      );
+      const finishedAt = yield* Clock.currentTimeMillis;
+      yield* logOutcome(caller, request, response, finishedAt - startedAt);
       return response;
-    }).pipe(
-      Effect.catch((error) => internalError(caller, Cause.fail(error))),
-      Effect.catchDefect((defect) => internalError(caller, Cause.die(defect))),
-    );
+    });
 
   const status: ComputerUseServiceShape["status"] = Effect.gen(function* () {
     const mode = yield* currentMode;
