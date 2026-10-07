@@ -2,6 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type ComputerUseActivityEntry,
   type ComputerUseApprovals,
+  type ComputerUseScreen,
   type ComputerUseMode,
   type ComputerUseStatus,
   type EnvironmentId,
@@ -24,6 +25,9 @@ import {
   COMPUTER_USE_ACTIVITY_EMPTY,
   COMPUTER_USE_APPROVALS,
   COMPUTER_USE_APPROVALS_LABELS,
+  COMPUTER_USE_SCREEN_DESCRIPTION,
+  COMPUTER_USE_SCREEN_LABELS,
+  COMPUTER_USE_SCREENS,
   COMPUTER_USE_DESCRIPTION,
   COMPUTER_USE_GETTING_STARTED_STEPS,
   COMPUTER_USE_MODES,
@@ -48,6 +52,7 @@ type StatusState =
 
 const SETTING_KEYS = ["computerUse"] as const;
 const APPROVALS_SETTING_KEYS = ["computerUseApprovals"] as const;
+const SCREEN_SETTING_KEYS = ["computerUseScreen"] as const;
 
 /**
  * What the selected environment's machine can do right now, fetched when this
@@ -256,6 +261,57 @@ function ComputerUseDisclosure({
   );
 }
 
+function ComputerUseScreenSetting() {
+  const screen = useScopedSettings((settings) => settings.computerUseScreen);
+  const mixed = useScopedSettingsMixed(SCREEN_SETTING_KEYS);
+  const updateSettings = useUpdateScopedSettings();
+  const defaultScreen = DEFAULT_SERVER_SETTINGS.computerUseScreen;
+
+  return (
+    <SettingsRow
+      {...searchableSetting("computer-use-screen")}
+      serverScoped
+      settingKeys={SCREEN_SETTING_KEYS}
+      mixed={mixed}
+      description={COMPUTER_USE_SCREEN_DESCRIPTION}
+      resetAction={
+        screen !== defaultScreen || mixed ? (
+          <SettingResetButton
+            label="show on screen"
+            onClick={() => updateSettings({ computerUseScreen: defaultScreen })}
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={mixed ? null : screen}
+          onValueChange={(value) => {
+            const next = COMPUTER_USE_SCREENS.find((candidate) => candidate === value);
+            if (next) updateSettings({ computerUseScreen: next });
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-48" aria-label="Show on screen">
+            <SelectValue>
+              {(value: string | null) =>
+                COMPUTER_USE_SCREENS.find((candidate) => candidate === value)
+                  ? COMPUTER_USE_SCREEN_LABELS[value as ComputerUseScreen]
+                  : "Mixed"
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {COMPUTER_USE_SCREENS.map((candidate) => (
+              <SelectItem hideIndicator key={candidate} value={candidate}>
+                {COMPUTER_USE_SCREEN_LABELS[candidate]}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
+
 function ComputerUseApprovalsSetting() {
   const approvals = useScopedSettings((settings) => settings.computerUseApprovals);
   const mixed = useScopedSettingsMixed(APPROVALS_SETTING_KEYS);
@@ -370,6 +426,7 @@ export function ComputerUseSetting() {
         }
       />
       {showsComputerUseApprovals(mode) ? <ComputerUseApprovalsSetting /> : null}
+      {showsComputerUseApprovals(mode) ? <ComputerUseScreenSetting /> : null}
       {environment ? (
         <ComputerUseDisclosure searchId="computer-use-activity">
           <ComputerUseActivityList

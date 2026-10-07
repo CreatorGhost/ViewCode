@@ -656,6 +656,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "computer-use-screen",
+    title: "Show on screen",
+    to: "/settings/integrations",
+    searchTerms: [
+      "computer use show on screen background front focus raise window ask once per task",
+    ],
+  },
+  {
     id: "computer-use-activity",
     title: "Recent actions",
     to: "/settings/integrations",

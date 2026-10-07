@@ -1,4 +1,9 @@
-import type { ComputerUseApprovals, ComputerUseMode, ComputerUseStatus } from "@t3tools/contracts";
+import type {
+  ComputerUseApprovals,
+  ComputerUseMode,
+  ComputerUseScreen,
+  ComputerUseStatus,
+} from "@t3tools/contracts";
 
 export const COMPUTER_USE_MODES: ReadonlyArray<ComputerUseMode> = ["off", "observe", "control"];
 
@@ -25,6 +30,16 @@ export const COMPUTER_USE_APPROVALS_LABELS: Readonly<Record<ComputerUseApprovals
 
 const COMPUTER_USE_APPROVALS_DESCRIPTION =
   "When agents ask before clicking or typing. Blocked apps stay blocked, and input pauses while any approval waits.";
+
+export const COMPUTER_USE_SCREENS: ReadonlyArray<ComputerUseScreen> = ["allow", "ask"];
+
+export const COMPUTER_USE_SCREEN_LABELS: Readonly<Record<ComputerUseScreen, string>> = {
+  allow: "Whenever needed",
+  ask: "Ask once per task",
+};
+
+export const COMPUTER_USE_SCREEN_DESCRIPTION =
+  "Whether agents may bring windows to the front for clicks and typing. Ask once per task lets you keep a task in the background, where agents act on controls directly.";
 
 /** Only control mode sends input, so only it has approvals to configure. */
 export function showsComputerUseApprovals(mode: ComputerUseMode): boolean {
