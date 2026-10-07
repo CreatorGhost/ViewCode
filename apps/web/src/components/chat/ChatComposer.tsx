@@ -121,6 +121,7 @@ import {
   type PromptStashEntry,
 } from "../../promptStashStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
+import { ComposerExtrasMenu } from "./ComposerExtrasMenu";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import { useComposerMenuState } from "./useComposerMenuState";
 import { useComposerTriggerState } from "./useComposerTriggerState";
@@ -941,7 +942,6 @@ import {
   FileIcon,
   BotIcon,
   CircleAlertIcon,
-  PaperclipIcon,
   PencilRulerIcon,
   PlayIcon,
   ShieldIcon,
@@ -1150,6 +1150,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           <TooltipTrigger
             render={
               <ComposerSelectControl
+                data-runtime-mode={props.runtimeMode}
                 data-composer-shortcut="composer.mode"
                 size={size}
                 aria-label="Runtime mode"
@@ -6451,6 +6452,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <div className="relative">
         <ComposerSurface.Main
           ref={composerMainSurfaceRef}
+          data-agent-live={phase === "running" ? "true" : undefined}
           className={composerProviderState.composerFrameClassName}
         >
           <div
@@ -6984,7 +6986,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 ? "Enable a provider in Settings to send a message"
                                 : phase === "disconnected"
                                   ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                                  : "Ask anything, @tag files, / for commands"
                     }
                     disabled={
                       isConnecting ||
@@ -7054,6 +7056,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isComposerResting && "hidden",
                   )}
                 >
+                  {composerControlsInStrip ? null : (
+                    <ComposerExtrasMenu
+                      showAttach={showComposerAttachAction}
+                      showInteractionModeToggle={planModeUiEnabled}
+                      interactionMode={interactionMode}
+                      onAttach={() => attachmentInputRef.current?.click()}
+                      onToggleInteractionMode={toggleInteractionMode}
+                    />
+                  )}
                   {composerControlsInStrip ? null : composerControls}
                 </div>
 
@@ -7087,23 +7098,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           });
                         }}
                       />
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              onPointerDown={(event) => event.preventDefault()}
-                              onClick={() => attachmentInputRef.current?.click()}
-                              aria-label="Attach files"
-                            />
-                          }
-                        >
-                          <PaperclipIcon />
-                        </TooltipTrigger>
-                        <TooltipPopup>Attach files</TooltipPopup>
-                      </Tooltip>
                     </>
                   ) : null}
                   {isComposerResting || showProviderUnavailable ? null : (

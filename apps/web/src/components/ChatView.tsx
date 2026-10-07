@@ -461,6 +461,7 @@ import {
   resolveComposerProviderSelection,
   getAntigravitySendBlockReason,
   resolveDraftHeroState,
+  threadShellHasStarted,
   findRecordedWorktreeSetup,
   resolveVisibleWorktreeSetup,
   restorePlanFollowUpComposer,
@@ -3675,6 +3676,11 @@ export default function ChatView(props: ChatViewProps) {
     // A cancelled or failed setup card stays on the draft's timeline; the
     // hero headline would paint over it.
     hasWorktreeSetupCard: worktreeSetup !== null,
+    isEmptyServerThread:
+      routeKind === "server" &&
+      !threadDetailLoading &&
+      routeServerThreadShell !== null &&
+      !threadShellHasStarted(routeServerThreadShell),
   });
   const [
     attachDraftHeroTransitionGroupRef,

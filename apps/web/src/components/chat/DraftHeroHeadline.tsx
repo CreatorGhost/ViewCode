@@ -130,7 +130,8 @@ export function DraftHeroHeadline({
   const activeProjectDisplayName = activeProjectGroup?.displayName ?? activeProjectTitle;
   const hasResolvedProject = activeProjectTitle !== null;
   const canChooseProject = projectPickerEntries.length > 0;
-  const shouldShowProjectMenu = canChooseProject;
+  // An empty server thread already belongs to its project, so only a draft can re-target.
+  const shouldShowProjectMenu = canChooseProject && draftId !== null;
 
   const projectSelector = shouldShowProjectMenu ? (
     <Menu>
@@ -221,6 +222,8 @@ export function DraftHeroHeadline({
         </MenuItem>
       </MenuPopup>
     </Menu>
+  ) : draftId === null && hasResolvedProject ? (
+    <span>{activeProjectDisplayName}</span>
   ) : (
     <button
       type="button"

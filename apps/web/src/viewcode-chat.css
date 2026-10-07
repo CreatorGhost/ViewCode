@@ -191,6 +191,104 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   background: color-mix(in srgb, var(--warning) 8%, transparent) !important;
 }
 
+/* Composer context row (workspace, PR, branch): a quiet borderless row on the
+   composer's inner edges instead of a detached drawer strip. The shell glass
+   keeps its geometry; only the drawer outline, seam and inset go. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-shell"][data-with-context]::before {
+  clip-path: none;
+  bottom: var(--chat-composer-context-extension);
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-shell"][data-with-context]
+  :is([data-slot="composer-host"], [data-chat-composer-main-surface])::after {
+  clip-path: none;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-context-strip"] {
+  width: 100%;
+  padding-inline: 0.5rem;
+  font-size: 12px;
+}
+@media (min-width: 40rem) {
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-context-strip"] {
+    padding-inline: 0.625rem;
+  }
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-context-strip"]::before {
+  display: none;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-context-strip"]
+  :is(button, [role="button"]) {
+  border-color: transparent;
+  box-shadow: none;
+  border-radius: 9999px;
+  background-color: transparent;
+  color: var(--muted-foreground);
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-context-strip"]
+  :is(button, [role="button"]):is(:hover, [data-popup-open], [data-pressed]) {
+  background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}
+
+/* Composer identity. --vc-composer-surface is an inset surface: about 3%
+   darker than the page in dark mode, a touch lighter in light mode. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
+  --vc-composer-surface: color-mix(in srgb, var(--background) 97%, white);
+  --chat-composer-glass-surface: var(--vc-composer-surface);
+}
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
+  --vc-composer-surface: color-mix(in srgb, var(--background) 97%, black);
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"]::before,
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"],
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-chat-composer-main-surface] {
+  border-radius: 24px;
+}
+
+/* No dividers between footer controls. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-chat-composer-footer]
+  [data-slot="separator"] {
+  display: none;
+}
+
+/* Runtime mode chip: mode-coloured, borderless. Full access is amber. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-chat-composer-footer]
+  [data-runtime-mode="full-access"] {
+  color: var(--warning);
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-chat-composer-footer]
+  [data-runtime-mode="full-access"]:hover {
+  color: var(--warning);
+  background-color: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+/* Agent live: a static 1px amber hairline on the composer's top inner edge
+   while a turn runs. No animation by design. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-chat-composer-main-surface][data-agent-live="true"]::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 22px;
+  right: 22px;
+  height: 1px;
+  z-index: 21;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--warning) 70%, transparent),
+    transparent
+  );
+}
+
 /* Transcript: quiet meta rows and summary rows. */
 [data-timeline-root] [data-timeline-row-kind="turn-fold"] {
   font-size: 12px;
