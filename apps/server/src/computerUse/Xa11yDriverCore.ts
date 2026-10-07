@@ -4,6 +4,13 @@
  * objects behind opaque handle strings it mints, so handles die with the
  * process and a restart can never retarget one.
  *
+ * Handles carry a random per-process epoch (`w<epoch>.<n>`), so a handle
+ * minted by a worker that has since crashed can never name something in its
+ * replacement. Element handles hold no native object: every action resolves
+ * a fresh element from the window by the child-index path recorded at
+ * observe and checks it is still the same control, because xa11y elements
+ * are snapshots whose properties (and bounds) never update.
+ *
  * Messages it returns never carry element values, labels or titles: they are
  * fixed strings per failure class, because the server forwards them to the
  * agent and may log them.
@@ -34,11 +41,30 @@ export interface Xa11yApi {
   /** Executable path per pid, best effort; feeds `DriverWindow.appIdentifier`. */
   readonly executablePaths: (pids: ReadonlyArray<number>) => Promise<ReadonlyMap<number, string>>;
   readonly writeFile: (path: string, bytes: Uint8Array) => Promise<void>;
+  /**
+   * Makes the app frontmost. AXRaise and AXFocused only order windows inside
+   * an app, so on macOS this has to activate the app itself.
+   */
+  readonly activateApp: (pid: number) => Promise<void>;
+  /** Logical rect of the primary display, or null when unknown. Costly; the core caches it. */
+  readonly primaryDisplay: () => Promise<Rect | null>;
+  readonly sleep: (ms: number) => Promise<void>;
+}
+
+/** Env var carrying the per-spawn nonce the worker requires on every request. */
+export const DRIVER_NONCE_ENV = "VIEWCODE_COMPUTER_DRIVER_NONCE";
+
+export interface DriverCoreOptions {
+  readonly platform: NodeJS.Platform;
+  /** Random per worker process; part of every handle. */
+  readonly epoch: string;
 }
 
 export type DriverRequest =
   | { readonly op: "status" }
   | { readonly op: "listWindows" }
+  /** Sent first to a replacement worker when the previous one died mid-drag. */
+  | { readonly op: "releaseMouse" }
   | { readonly op: "observe"; readonly window: string; readonly maxElements: number }
   | {
       readonly op: "screenshot";
@@ -125,6 +151,9 @@ const MAX_ELEMENT_HANDLES = 20_000;
 const ELEMENT_AT_TIME_BUDGET_MS = 3_000;
 /** Points a window may drift between screenshot and action and still be the same layout. */
 export const BOUNDS_TOLERANCE = 2;
+/** How long activation may take before input is refused. */
+const ACTIVATION_TIMEOUT_MS = 500;
+const ACTIVATION_POLL_MS = 50;
 
 const WINDOW_ROLES = new Set(["window", "dialog", "alert"]);
 
@@ -159,7 +188,8 @@ export const isSecureElement = (element: {
   return element.editable && SECURE_LABEL.test(element.label);
 };
 
-export const boundsMatch = (expected: Rect, actual: Rect | null): boolean =>
+export const boundsMatch = (expected: Rect | null, actual: Rect | null): boolean =>
+  expected !== null &&
   actual !== null &&
   Math.abs(expected.x - actual.x) <= BOUNDS_TOLERANCE &&
   Math.abs(expected.y - actual.y) <= BOUNDS_TOLERANCE &&
@@ -171,6 +201,23 @@ const containsPoint = (rect: Rect, point: DriverPoint): boolean =>
   point.y >= rect.y &&
   point.x <= rect.x + rect.width &&
   point.y <= rect.y + rect.height;
+
+const rectInside = (outer: Rect, inner: Rect): boolean =>
+  inner.x >= outer.x - 1 &&
+  inner.y >= outer.y - 1 &&
+  inner.x + inner.width <= outer.x + outer.width + 1 &&
+  inner.y + inner.height <= outer.y + outer.height + 1;
+
+/**
+ * The `.app` bundle that owns a macOS executable path, for `open -a`:
+ * `/Applications/Foo.app/Contents/MacOS/Foo` → `/Applications/Foo.app`.
+ * The last bundle wins, so a nested helper app activates itself.
+ */
+export const appBundlePath = (executablePath: string): string | undefined => {
+  const marker = ".app/Contents/MacOS/";
+  const index = executablePath.lastIndexOf(marker);
+  return index === -1 ? undefined : executablePath.slice(0, index + ".app".length);
+};
 
 /** The labelled candidate with the smallest area whose bounds contain `point`. */
 export const smallestContaining = <
@@ -327,115 +374,227 @@ export const classifyXa11yError = (
 interface WindowEntry {
   element: Element;
   readonly pid: number;
-  /** How listings recognise this window again; see `windowKey`. */
+  /** How listings recognise this window again; see `keyedWindows`. */
   key: string;
+  /** Recognised by a native id; such a window is never matched any other way. */
+  stable: boolean;
+  /** False while another window shared its title (when it was last seen). */
+  unique: boolean;
+  role: string;
+  title: string;
+  bounds: Rect | null;
   elementHandles: Set<string>;
 }
 
-/**
- * Identity of a window across snapshots: the platform id when there is
- * one, else role, title and position among same-titled siblings.
- */
-const windowKey = (pid: number, window: Element, ordinal: number): string =>
-  window.stableId !== null
-    ? `s:${pid}:${window.stableId}`
-    : `t:${pid}:${window.role}:${ordinal}:${window.name ?? ""}`;
+interface KeyedWindow {
+  readonly key: string;
+  readonly window: Element;
+  readonly stable: boolean;
+  /** False when another window shares the title and there is no native id. */
+  readonly unique: boolean;
+}
 
-/** Keys for an app's top-level windows, in order. */
-const keyedWindows = (pid: number, children: ReadonlyArray<Element>) => {
-  const ordinals = new Map<string, number>();
-  const keyed: Array<{ readonly key: string; readonly window: Element }> = [];
-  for (const window of children) {
-    if (!WINDOW_ROLES.has(window.role)) continue;
-    const title = window.name ?? "";
-    const ordinal = ordinals.get(title) ?? 0;
-    ordinals.set(title, ordinal + 1);
-    keyed.push({ key: windowKey(pid, window, ordinal), window });
+/**
+ * Identity of an app's windows across snapshots. A native id counts only
+ * when it is non-empty and unique among the app's windows (macOS reports
+ * `AXIdentifier`, which apps reuse, e.g. "MainWindow"); otherwise role,
+ * title and position among same-titled siblings.
+ */
+export const keyedWindows = (
+  pid: number,
+  children: ReadonlyArray<Element>,
+): ReadonlyArray<KeyedWindow> => {
+  const windows = children.filter((window) => WINDOW_ROLES.has(window.role));
+  const idCounts = new Map<string, number>();
+  const titleCounts = new Map<string, number>();
+  for (const window of windows) {
+    const id = window.stableId?.trim();
+    if (id) idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+    const titleKey = `${window.role}:${window.name ?? ""}`;
+    titleCounts.set(titleKey, (titleCounts.get(titleKey) ?? 0) + 1);
   }
-  return keyed;
+  const ordinals = new Map<string, number>();
+  return windows.map((window) => {
+    const id = window.stableId?.trim();
+    const stable = id !== undefined && id.length > 0 && idCounts.get(id) === 1;
+    const titleKey = `${window.role}:${window.name ?? ""}`;
+    const ordinal = ordinals.get(titleKey) ?? 0;
+    ordinals.set(titleKey, ordinal + 1);
+    return {
+      key: stable ? `s:${pid}:${id}` : `t:${pid}:${ordinal}:${titleKey}`,
+      window,
+      stable,
+      unique: stable || titleCounts.get(titleKey) === 1,
+    };
+  });
 };
 
 /**
- * Finds `entry`'s window among fresh snapshots: by key, else the one window
- * of the same role still where it was (a browser retitles on navigation).
+ * Finds `entry`'s window among fresh snapshots, failing closed: by key
+ * (a window that has or had a same-titled sibling must also still be where
+ * it was), else, only for a
+ * window without a native id, the single window with the same role and
+ * title at the same place. Anything else means the window is gone.
  */
-const findWindow = (
-  entry: WindowEntry,
-  keyed: ReadonlyArray<{ readonly key: string; readonly window: Element }>,
-) => {
-  const byKey = keyed.find((candidate) => candidate.key === entry.key);
-  if (byKey) return byKey;
+export const findWindow = (
+  entry: Pick<WindowEntry, "key" | "stable" | "unique" | "role" | "title" | "bounds">,
+  keyed: ReadonlyArray<KeyedWindow>,
+): KeyedWindow | undefined => {
+  const byKey = keyed.filter((candidate) => candidate.key === entry.key);
+  if (byKey.length === 1) {
+    const candidate = byKey[0]!;
+    // A window that had a same-titled sibling is only trusted where it was:
+    // if the sibling closed, the survivor inherits the key.
+    return (candidate.unique && entry.unique) || boundsMatch(entry.bounds, candidate.window.bounds)
+      ? candidate
+      : undefined;
+  }
+  if (entry.stable) return undefined;
   const sameSpot = keyed.filter(
     (candidate) =>
-      candidate.window.role === entry.element.role &&
-      entry.element.bounds !== null &&
-      boundsMatch(entry.element.bounds, candidate.window.bounds),
+      !candidate.stable &&
+      candidate.window.role === entry.role &&
+      (candidate.window.name ?? "") === entry.title &&
+      boundsMatch(entry.bounds, candidate.window.bounds),
   );
   return sameSpot.length === 1 ? sameSpot[0] : undefined;
 };
 
+const sameBounds = (left: Rect | null, right: Rect | null): boolean =>
+  left === null || right === null ? left === right : boundsMatch(left, right);
+
 interface ElementEntry {
-  readonly element: Element;
   readonly windowHandle: string;
-  readonly pid: number;
+  /** Child indexes from the window, to find the live element again. */
+  readonly path: ReadonlyArray<number>;
+  readonly role: string;
+  /** Full label; the agent saw it clipped. */
+  readonly label: string;
+  /** Window bounds at observe: a moved window invalidates its refs. */
+  readonly windowBounds: Rect | null;
 }
 
-export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
+export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
+  const { platform, epoch } = options;
   let nextHandle = 1;
-  const windowsByKey = new Map<string, string>();
   const windows = new Map<string, WindowEntry>();
   const elements = new Map<string, ElementEntry>();
+  let primaryDisplay: Rect | null | undefined;
 
-  const mint = (prefix: string) => `${prefix}${nextHandle++}`;
+  const mint = (prefix: string) => `${prefix}${epoch}.${nextHandle++}`;
 
   const dropElementHandles = (handles: Iterable<string>) => {
     for (const handle of handles) elements.delete(handle);
   };
 
+  const stale = (message: string) => new Refusal(failure("stale", message));
+
   const requireWindow = (handle: string): WindowEntry => {
     const entry = windows.get(handle);
-    if (!entry) throw new Refusal(failure("stale", "Unknown window; list windows again."));
+    if (!entry) throw stale("Unknown window; list windows again.");
     return entry;
   };
 
-  /** Re-reads the live element and refuses unless it is still what the agent saw. */
-  const requireIdentity = async (
-    handle: string,
-    expect: DriverElementIdentity,
-  ): Promise<ElementEntry> => {
-    const entry = elements.get(handle);
-    if (!entry) throw new Refusal(failure("stale", "Unknown element; observe again."));
-    let live: { readonly role: string; readonly name?: string };
+  const adopt = (entry: WindowEntry, found: KeyedWindow) => {
+    entry.element = found.window;
+    entry.key = found.key;
+    entry.stable = found.stable;
+    entry.unique = found.unique;
+    entry.role = found.window.role;
+    entry.title = found.window.name ?? "";
+    entry.bounds = found.window.bounds;
+  };
+
+  /** A fresh snapshot of the window (live bounds and state), or a `stale` refusal. */
+  const refreshWindow = async (entry: WindowEntry): Promise<Element> => {
+    let children: ReadonlyArray<Element>;
     try {
-      live = await entry.element.tree(0);
+      children = await api.appWindows(entry.pid);
     } catch (error) {
-      throw new Refusal({ ok: false, error: classifyXa11yError(error, { afterDispatch: false }) });
+      if (errorName(error) !== "SelectorNotMatchedError") {
+        throw new Refusal({
+          ok: false,
+          error: classifyXa11yError(error, { afterDispatch: false }),
+        });
+      }
+      children = [];
     }
-    // `tree` carries no description, so a label that came from the
-    // description is compared against the snapshot's.
-    const label = elementLabel(live.name ?? null, entry.element.description);
-    if (live.role !== expect.role || label !== expect.label) {
-      throw new Refusal(failure("stale", "The element changed since it was observed."));
+    const found = findWindow(entry, keyedWindows(entry.pid, children));
+    if (!found) throw stale("The window has closed or can no longer be told apart.");
+    adopt(entry, found);
+    return found.window;
+  };
+
+  const isFront = async (entry: WindowEntry, live: Element) =>
+    (live.active || live.focused) && (await api.foregroundPid().catch(() => null)) === entry.pid;
+
+  /**
+   * Activates the app, raises the window, and waits briefly until that exact
+   * window is the active one; refuses otherwise, so synthesized input cannot
+   * land in whatever else has focus (a sibling window, or ViewCode itself).
+   */
+  const activate = async (entry: WindowEntry): Promise<Element> => {
+    let live = await refreshWindow(entry);
+    if (await isFront(entry, live)) return live;
+    await api.activateApp(entry.pid).catch(() => undefined);
+    if (live.actions.includes("raise")) await live.performAction("raise").catch(() => undefined);
+    await live.focus().catch(() => undefined);
+    for (let waited = 0; ; waited += ACTIVATION_POLL_MS) {
+      live = await refreshWindow(entry);
+      if (await isFront(entry, live)) return live;
+      if (waited >= ACTIVATION_TIMEOUT_MS) {
+        throw new Refusal(failure("failed", "Could not bring the target window to the front."));
+      }
+      await api.sleep(ACTIVATION_POLL_MS);
     }
-    return entry;
+  };
+
+  /** The last check before input: the target window is still the active one. */
+  const verifyFront = async (entry: WindowEntry) => {
+    const live = await refreshWindow(entry);
+    if (!(await isFront(entry, live))) {
+      throw new Refusal(failure("failed", "The target window lost focus before the input."));
+    }
   };
 
   /**
-   * Raises the window and refuses unless its app is then in front, so
-   * synthesized keys or clicks cannot land in whatever else has focus.
+   * The live element behind a handle: walks the recorded path from a fresh
+   * window and refuses unless role and full label still match what was
+   * observed (and what the service expects), and the window has not moved.
    */
-  const bringToFront = async (window: Element, pid: number) => {
-    if (window.actions.includes("raise")) {
-      await window.performAction("raise").catch(() => undefined);
+  const resolveElement = async (handle: string, expect: DriverElementIdentity) => {
+    const entry = elements.get(handle);
+    if (!entry) throw stale("Unknown element; observe again.");
+    if (expect.role !== entry.role || expect.label !== clipValue(entry.label)) {
+      throw stale("The element changed since it was observed.");
     }
-    await window.focus().catch(() => undefined);
-    const foreground = await api.foregroundPid().catch(() => null);
-    if (foreground !== pid) {
-      throw new Refusal(failure("failed", "Could not bring the target window to the front."));
+    const windowEntry = requireWindow(entry.windowHandle);
+    let current = await refreshWindow(windowEntry);
+    if (!sameBounds(entry.windowBounds, current.bounds)) {
+      throw stale("The window moved or resized since it was observed.");
     }
+    for (const index of entry.path) {
+      let children: ReadonlyArray<Element>;
+      try {
+        children = await current.children();
+      } catch (error) {
+        throw new Refusal({
+          ok: false,
+          error: classifyXa11yError(error, { afterDispatch: false }),
+        });
+      }
+      const next = children[index];
+      if (!next) throw stale("The element changed since it was observed.");
+      current = next;
+    }
+    if (
+      current.role !== entry.role ||
+      elementLabel(current.name, current.description) !== entry.label
+    ) {
+      throw stale("The element changed since it was observed.");
+    }
+    return { element: current, window: windowEntry };
   };
-
-  const windowOf = (entry: ElementEntry): WindowEntry => requireWindow(entry.windowHandle);
 
   /** Constructing input fails before anything is sent (e.g. Wayland, no uinput). */
   const requireInput = (): InputSim => {
@@ -493,34 +652,41 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
     );
     const pids = [...new Set(perApp.flatMap(({ app }) => (app.pid === null ? [] : [app.pid])))];
     const paths = await api.executablePaths(pids).catch(() => new Map<number, string>());
-    const seen = new Set<string>();
+    const kept = new Set<string>();
     const listed: DriverWindow[] = [];
     for (const { app, children } of perApp) {
       const pid = app.pid ?? 0;
       const keyed = keyedWindows(pid, children);
-      for (const { key, window } of keyed) {
-        // The same window keeps its handle across listings, so the server
-        // keeps its id, even when its title changed in place.
-        let handle = windowsByKey.get(key);
-        if (handle === undefined || !windows.has(handle)) {
-          const moved = [...windows].find(
-            ([candidate, entry]) =>
-              entry.pid === pid &&
-              !seen.has(candidate) &&
-              findWindow(entry, keyed)?.window === window,
-          );
-          handle = moved?.[0] ?? mint("w");
+      // Known windows first: each keeps its handle (so the server keeps its
+      // id) only if it is found unambiguously; a window is claimed once.
+      const claimed = new Map<Element, string>();
+      for (const [handle, entry] of windows) {
+        if (entry.pid !== pid || kept.has(handle)) continue;
+        const found = findWindow(entry, keyed);
+        if (!found || claimed.has(found.window)) continue;
+        adopt(entry, found);
+        claimed.set(found.window, handle);
+        kept.add(handle);
+      }
+      for (const found of keyed) {
+        let handle = claimed.get(found.window);
+        if (handle === undefined) {
+          handle = mint("w");
+          const window = found.window;
+          windows.set(handle, {
+            element: window,
+            pid,
+            key: found.key,
+            stable: found.stable,
+            unique: found.unique,
+            role: window.role,
+            title: window.name ?? "",
+            bounds: window.bounds,
+            elementHandles: new Set(),
+          });
+          kept.add(handle);
         }
-        seen.add(handle);
-        const existing = windows.get(handle);
-        if (existing) {
-          windowsByKey.delete(existing.key);
-          existing.element = window;
-          existing.key = key;
-        } else {
-          windows.set(handle, { element: window, pid, key, elementHandles: new Set() });
-        }
-        windowsByKey.set(key, handle);
+        const window = found.window;
         const bounds = window.bounds;
         const appIdentifier = paths.get(pid);
         listed.push({
@@ -534,10 +700,9 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
         });
       }
     }
-    // Windows missing from a full listing are gone; forget them.
+    // Windows not found again are gone; forget them and their refs.
     for (const [handle, entry] of windows) {
-      if (seen.has(handle)) continue;
-      windowsByKey.delete(entry.key);
+      if (kept.has(handle)) continue;
       dropElementHandles(entry.elementHandles);
       windows.delete(handle);
     }
@@ -585,57 +750,41 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
     return false;
   };
 
-  /** A fresh snapshot of the window (live bounds), or a `stale` refusal. */
-  const refreshWindow = async (entry: WindowEntry): Promise<Element> => {
-    let children: ReadonlyArray<Element>;
-    try {
-      children = await api.appWindows(entry.pid);
-    } catch (error) {
-      if (errorName(error) === "SelectorNotMatchedError") children = [];
-      else
-        throw new Refusal({
-          ok: false,
-          error: classifyXa11yError(error, { afterDispatch: false }),
-        });
-    }
-    const found = findWindow(entry, keyedWindows(entry.pid, children));
-    if (!found) throw new Refusal(failure("stale", "The window has closed."));
-    entry.element = found.window;
-    return found.window;
-  };
-
   const observe = async (
     windowHandle: string,
     maxElements: number,
   ): Promise<{ readonly elements: ReadonlyArray<DriverElement>; readonly truncated: boolean }> => {
     const window = requireWindow(windowHandle);
+    const root = await refreshWindow(window);
     const cap = Math.max(0, Math.min(maxElements, OBSERVE_MAX_VISITED));
     const kept: Array<{ readonly element: Element; readonly path: ReadonlyArray<number> }> = [];
     // Breadth-first so a cap keeps the shallow, structural controls; the
     // result is re-sorted into reading order below.
-    const truncated = await walkBreadthFirst(
-      window.element,
-      OBSERVE_TIME_BUDGET_MS,
-      (child, path) => {
-        const label = elementLabel(child.name, child.description);
-        const actionable = child.actions.length > 0 || child.editable;
-        if (label.length === 0 && !actionable) return "continue";
-        if (kept.length >= cap) return "stop";
-        kept.push({ element: child, path });
-        return "continue";
-      },
-    );
+    const truncated = await walkBreadthFirst(root, OBSERVE_TIME_BUDGET_MS, (child, path) => {
+      const label = elementLabel(child.name, child.description);
+      const actionable = child.actions.length > 0 || child.editable;
+      if (label.length === 0 && !actionable) return "continue";
+      if (kept.length >= cap) return "stop";
+      kept.push({ element: child, path });
+      return "continue";
+    });
     kept.sort((left, right) => comparePaths(left.path, right.path));
 
     // A new observation of a window replaces its previous handles.
     dropElementHandles(window.elementHandles);
     window.elementHandles = new Set();
     const observed: DriverElement[] = [];
-    for (const { element } of kept) {
+    for (const { element, path } of kept) {
       const handle = mint("e");
-      elements.set(handle, { element, windowHandle, pid: window.pid });
-      window.elementHandles.add(handle);
       const label = elementLabel(element.name, element.description);
+      elements.set(handle, {
+        windowHandle,
+        path,
+        role: element.role,
+        label,
+        windowBounds: root.bounds,
+      });
+      window.elementHandles.add(handle);
       const value = nonEmpty(element.value);
       const secure = isSecureElement({ raw: element.raw, editable: element.editable, label });
       observed.push({
@@ -656,6 +805,20 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
   };
 
   /**
+   * xa11y's macOS capture reads the primary display only, so a window
+   * elsewhere would come back as the wrong pixels. The display rect is cached
+   * and re-read once on a miss (displays get rearranged).
+   */
+  const onPrimaryDisplay = async (bounds: Rect): Promise<boolean> => {
+    if (platform !== "darwin") return true;
+    primaryDisplay ??= await api.primaryDisplay().catch(() => null);
+    if (primaryDisplay && rectInside(primaryDisplay, bounds)) return true;
+    primaryDisplay = await api.primaryDisplay().catch(() => null);
+    // Unknown display (e.g. capture refused): let the capture itself report.
+    return primaryDisplay === null || rectInside(primaryDisplay, bounds);
+  };
+
+  /**
    * Captures the window at its live bounds and downscales to `maxSize`
    * (box filter, longest edge). `bounds` is the logical screen rect the
    * image covers, the space InputSim uses, so the service can map image
@@ -666,6 +829,11 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
     const bounds = window.bounds;
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
       throw new Refusal(failure("failed", "The window is not on screen."));
+    }
+    if (!(await onPrimaryDisplay(bounds))) {
+      throw new Refusal(
+        failure("failed", "The window is not fully on the main display; move it there."),
+      );
     }
     let shot: Screenshot;
     try {
@@ -694,13 +862,13 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
     windowHandle: string,
     point: DriverPoint,
   ): Promise<DriverElementIdentity | null> => {
-    const window = requireWindow(windowHandle);
+    const root = await refreshWindow(requireWindow(windowHandle));
     const candidates: Array<{
       readonly bounds: Rect | null;
       readonly label: string;
       readonly role: string;
     }> = [];
-    await walkBreadthFirst(window.element, ELEMENT_AT_TIME_BUDGET_MS, (child) => {
+    await walkBreadthFirst(root, ELEMENT_AT_TIME_BUDGET_MS, (child) => {
       const bounds = child.bounds;
       // Children are laid out inside their parents, so a miss prunes nothing
       // reliably (overlays); keep walking and pick the smallest hit.
@@ -718,8 +886,8 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
   };
 
   /**
-   * Coordinate input: input ready, window in front, and still exactly where
-   * the screenshot saw it; otherwise `stale` before anything is sent.
+   * Coordinate input: input ready, the window active and still exactly where
+   * the screenshot saw it; otherwise refused before anything is sent.
    */
   const prepareCoordinate = async (
     windowHandle: string,
@@ -728,14 +896,12 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
   ): Promise<InputSim> => {
     const entry = requireWindow(windowHandle);
     const input = requireInput();
-    await bringToFront(entry.element, entry.pid);
-    const live = await refreshWindow(entry);
-    if (!boundsMatch(expectBounds, live.bounds)) {
-      throw new Refusal(failure("stale", "The window moved or resized since the screenshot."));
+    const live = await activate(entry);
+    const area = live.bounds;
+    if (!area || !boundsMatch(expectBounds, area)) {
+      throw stale("The window moved or resized since the screenshot.");
     }
-    const area = live.bounds!;
     const slack = {
-      ...area,
       x: area.x - 1,
       y: area.y - 1,
       width: area.width + 2,
@@ -754,6 +920,12 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
           return { ok: true, result: await status() };
         case "listWindows":
           return { ok: true, result: await listWindows() };
+        case "releaseMouse": {
+          await Promise.resolve()
+            .then(() => api.inputSim().mouseUp("left"))
+            .catch(() => undefined);
+          return { ok: true, result: null };
+        }
         case "observe":
           return { ok: true, result: await observe(request.window, request.maxElements) };
         case "screenshot":
@@ -786,63 +958,71 @@ export const makeDriverCore = (api: Xa11yApi, platform: NodeJS.Platform) => {
         case "typeFocused": {
           const window = requireWindow(request.window);
           const input = requireInput();
-          await bringToFront(window.element, window.pid);
+          await activate(window);
           return await dispatch(() => input.typeText(request.text));
-        }
-        case "press": {
-          const entry = await requireIdentity(request.element, request.expect);
-          return await dispatch(async () => {
-            try {
-              await entry.element.press();
-              return;
-            } catch (error) {
-              if (errorName(error) !== "ActionNotSupportedError") throw error;
-            }
-            // No accessible press: click its centre, but only once its
-            // window is verifiably in front.
-            if (!entry.element.bounds) {
-              throw new Refusal(failure("failed", "The element cannot be pressed."));
-            }
-            await bringToFront(windowOf(entry).element, entry.pid);
-            await requireInput().click(entry.element);
-          });
-        }
-        case "setValue": {
-          const entry = await requireIdentity(request.element, request.expect);
-          return await dispatch(() => entry.element.setValue(request.value));
-        }
-        case "typeText": {
-          const entry = await requireIdentity(request.element, request.expect);
-          return await dispatch(async () => {
-            try {
-              await entry.element.typeText(request.text);
-              return;
-            } catch (error) {
-              if (errorName(error) !== "ActionNotSupportedError") throw error;
-            }
-            // No accessible text insertion: focus the element and type.
-            await bringToFront(windowOf(entry).element, entry.pid);
-            await beforeDispatch(() => entry.element.focus());
-            await requireInput().typeText(request.text);
-          });
         }
         case "key": {
           const window = requireWindow(request.window);
           const chord = translateKeyChord(request.keys, platform);
           if (!chord) return failure("failed", "Unsupported key chord.");
           const input = requireInput();
-          await bringToFront(window.element, window.pid);
+          await activate(window);
           return await dispatch(() =>
             chord.held.length === 0
               ? input.press(chord.key)
               : input.chord(chord.key, [...chord.held]),
           );
         }
+        case "press": {
+          const target = await resolveElement(request.element, request.expect);
+          return await dispatch(async () => {
+            try {
+              await target.element.press();
+              return;
+            } catch (error) {
+              if (errorName(error) !== "ActionNotSupportedError") throw error;
+            }
+            // No accessible press: click the live element's centre, once its
+            // window is verifiably the active one.
+            const input = requireInput();
+            await activate(target.window);
+            const fresh = await resolveElement(request.element, request.expect);
+            if (!fresh.element.bounds) {
+              throw new Refusal(failure("failed", "The element cannot be pressed."));
+            }
+            await verifyFront(fresh.window);
+            await input.click(fresh.element);
+          });
+        }
+        case "setValue": {
+          const target = await resolveElement(request.element, request.expect);
+          return await dispatch(() => target.element.setValue(request.value));
+        }
+        case "typeText": {
+          const target = await resolveElement(request.element, request.expect);
+          return await dispatch(async () => {
+            try {
+              await target.element.typeText(request.text);
+              return;
+            } catch (error) {
+              if (errorName(error) !== "ActionNotSupportedError") throw error;
+            }
+            // No accessible text insertion: focus the element and type.
+            const input = requireInput();
+            await activate(target.window);
+            const fresh = await resolveElement(request.element, request.expect);
+            await beforeDispatch(() => fresh.element.focus());
+            await verifyFront(fresh.window);
+            await input.typeText(request.text);
+          });
+        }
         case "scroll": {
-          const entry = await requireIdentity(request.element, request.expect);
           const input = requireInput();
-          await bringToFront(windowOf(entry).element, entry.pid);
-          return await dispatch(() => input.scroll(entry.element, request.dx, request.dy));
+          const first = await resolveElement(request.element, request.expect);
+          await activate(first.window);
+          const target = await resolveElement(request.element, request.expect);
+          await verifyFront(target.window);
+          return await dispatch(() => input.scroll(target.element, request.dx, request.dy));
         }
       }
     } catch (error) {

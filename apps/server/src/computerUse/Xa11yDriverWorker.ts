@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - the driver worker is a plain Node child process outside the Effect runtime.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - the driver worker is a plain Node child process outside the Effect runtime.
 /**
  * The IPC loop of the computer-use driver process. The server forks it with
  * the app's own executable and `ELECTRON_RUN_AS_NODE=1`, so on macOS it runs
@@ -7,13 +7,22 @@
  *
  * xa11y loads on the first request, so a missing native module answers
  * `status` with "unavailable" instead of killing the process.
+ *
+ * The parent passes a random nonce in `DRIVER_NONCE_ENV` and repeats it in
+ * every request; without it the worker exits. This only stops casual direct
+ * use of this hidden entry. It does not contain an agent with an
+ * unrestricted shell, which can drive the desktop by other means anyway; the
+ * computer-use gate is the server, for agents that go through it.
  */
 import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 
 import {
+  appBundlePath,
+  DRIVER_NONCE_ENV,
   makeDriverCore,
   type DriverRequest,
   type DriverResult,
@@ -22,7 +31,9 @@ import {
 
 type Xa11yModule = typeof import("@crowecawcaw/xa11y");
 
-const SUPPORTED_PLATFORMS: ReadonlySet<NodeJS.Platform> = new Set(["darwin", "win32", "linux"]);
+// Windows is not supported yet: xa11y lists each top-level window as its own
+// app there, which the window model here does not handle.
+const SUPPORTED_PLATFORMS: ReadonlySet<NodeJS.Platform> = new Set(["darwin", "linux"]);
 // oxlint-disable-next-line t3code/no-global-process-runtime -- The driver worker has no Effect runtime.
 const PLATFORM = process.platform;
 
@@ -56,6 +67,21 @@ const executablePaths = async (
   return paths;
 };
 
+const execFileQuietly = (command: string, args: ReadonlyArray<string>) =>
+  new Promise<void>((resolve) => {
+    NodeChildProcess.execFile(command, [...args], { timeout: 2_000 }, () => resolve());
+  });
+
+/**
+ * macOS: `open -a <bundle>` activates the app (no shell; the path comes
+ * from the process table). Elsewhere raising the window is all there is.
+ */
+const activateApp = async (pid: number) => {
+  if (PLATFORM !== "darwin") return;
+  const bundle = appBundlePath((await executablePaths([pid])).get(pid) ?? "");
+  if (bundle) await execFileQuietly("/usr/bin/open", ["-a", bundle]);
+};
+
 export const makeXa11yApi = (xa11y: Xa11yModule): Xa11yApi => ({
   listApps: () => xa11y.App.list(),
   appWindows: async (pid) => (await xa11y.App.byPid(pid, { timeout: 0 })).children(),
@@ -67,9 +93,22 @@ export const makeXa11yApi = (xa11y: Xa11yModule): Xa11yApi => ({
     await NodeFSP.mkdir(NodePath.dirname(path), { recursive: true });
     await NodeFSP.writeFile(path, bytes);
   },
+  activateApp,
+  // A full capture of the primary display: its logical size, origin (0, 0).
+  primaryDisplay: async () => {
+    const shot = await xa11y.screenshot();
+    return { x: 0, y: 0, width: shot.width / shot.scale, height: shot.height / shot.scale };
+  },
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 });
 
-type Envelope = { readonly id: number; readonly request: DriverRequest };
+type Envelope = { readonly id: number; readonly nonce: string; readonly request: DriverRequest };
+
+const sameNonce = (expected: Buffer, received: unknown) => {
+  if (typeof received !== "string") return false;
+  const bytes = Buffer.from(received);
+  return bytes.length === expected.length && NodeCrypto.timingSafeEqual(bytes, expected);
+};
 
 const unavailable =
   (reason: string): ((request: DriverRequest) => DriverResult) =>
@@ -80,7 +119,11 @@ const unavailable =
 
 const loadHandler = (): ((request: DriverRequest) => Promise<DriverResult> | DriverResult) => {
   if (!SUPPORTED_PLATFORMS.has(PLATFORM)) {
-    return unavailable("Computer use is not supported on this platform.");
+    return unavailable(
+      PLATFORM === "win32"
+        ? "Computer use is not supported on Windows yet."
+        : "Computer use is not supported on this platform.",
+    );
   }
   let xa11y: Xa11yModule;
   try {
@@ -90,22 +133,30 @@ const loadHandler = (): ((request: DriverRequest) => Promise<DriverResult> | Dri
   }
   // App lookups would otherwise poll for 5 s on a miss.
   xa11y.setDefaultTimeout(0);
-  return makeDriverCore(makeXa11yApi(xa11y), PLATFORM).handle;
+  return makeDriverCore(makeXa11yApi(xa11y), {
+    platform: PLATFORM,
+    epoch: NodeCrypto.randomBytes(4).toString("hex"),
+  }).handle;
 };
 
 /** Answers one request at a time over the fork IPC channel until the parent disconnects. */
 export const runComputerUseDriverWorker = (): Promise<void> =>
   new Promise((resolve) => {
     const send = process.send?.bind(process);
-    if (!send) {
-      process.stderr.write("computer-use-driver must be started with an IPC channel.\n");
+    const nonce = process.env[DRIVER_NONCE_ENV] ?? "";
+    delete process.env[DRIVER_NONCE_ENV];
+    if (!send || nonce.length < 32) {
+      process.stderr.write("computer-use-driver is started by the ViewCode server only.\n");
       process.exitCode = 2;
+      process.disconnect?.();
       resolve();
       return;
     }
+    const expected = Buffer.from(nonce);
     let handler: ReturnType<typeof loadHandler> | undefined;
     let queue = Promise.resolve();
     process.on("message", (message: Envelope) => {
+      if (!sameNonce(expected, message?.nonce)) process.exit(2);
       queue = queue.then(async () => {
         handler ??= loadHandler();
         let reply: DriverResult;

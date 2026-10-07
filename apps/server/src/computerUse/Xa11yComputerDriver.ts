@@ -14,8 +14,18 @@
  * sees as `stale`. Every reply is decoded; anything else is `malformed`,
  * never a partial success. After an input request reached the worker, a
  * crash, timeout or malformed reply reports `dispatched: "unknown"`.
+ *
+ * A call interrupted while still queued is never sent. Once sent it runs to
+ * completion in the worker; an interrupted caller does not learn the
+ * outcome, so it must treat the input as possibly delivered.
+ *
+ * The worker is recycled after `recycleAfter` requests (xa11y's macOS
+ * element cache never shrinks); old handles then read as stale. If a worker
+ * died during a click or drag, its replacement first releases the left
+ * mouse button, which may still be held.
  */
 import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "node:crypto";
 import * as NodeURL from "node:url";
 
 import { ComputerUseRect } from "@t3tools/contracts";
@@ -30,7 +40,7 @@ import {
   type ComputerDriverShape,
   type DriverStatus,
 } from "./ComputerDriver.ts";
-import type { DriverOp, DriverRequest } from "./Xa11yDriverCore.ts";
+import { DRIVER_NONCE_ENV, type DriverOp, type DriverRequest } from "./Xa11yDriverCore.ts";
 
 export interface DriverWorkerLaunch {
   readonly command: string;
@@ -43,10 +53,17 @@ export interface Xa11yComputerDriverOptions {
   /** Resolved on first use, so an unused driver costs nothing. */
   readonly launch: () => DriverWorkerLaunch;
   readonly timeouts?: Partial<Record<DriverOp, number>>;
+  /** Requests one worker serves before it is replaced. */
+  readonly recycleAfter?: number;
 }
+
+const DEFAULT_RECYCLE_AFTER = 500;
+/** Ops that press a mouse button and could leave it held if the worker dies mid-call. */
+const MOUSE_BUTTON_OPS: ReadonlySet<DriverOp> = new Set(["click", "drag"]);
 
 const DEFAULT_TIMEOUTS: Record<DriverOp, number> = {
   status: 10_000,
+  releaseMouse: 5_000,
   listWindows: 10_000,
   observe: 15_000,
   screenshot: 30_000,
@@ -75,7 +92,12 @@ const INPUT_OPS: ReadonlySet<DriverOp> = new Set([
   "scrollAt",
   "typeFocused",
 ]);
-const SUPPORTED_PLATFORMS: ReadonlySet<NodeJS.Platform> = new Set(["darwin", "win32", "linux"]);
+const SUPPORTED_PLATFORMS: ReadonlySet<NodeJS.Platform> = new Set(["darwin", "linux"]);
+
+const unsupportedReason = (platform: NodeJS.Platform) =>
+  platform === "win32"
+    ? "Computer use is not supported on Windows yet."
+    : "Computer use is not supported on this platform.";
 
 const DriverFailure = Schema.Struct({
   kind: Schema.Literals([
@@ -152,6 +174,8 @@ type CallOutcome =
   | { readonly type: "reply"; readonly message: unknown }
   /** The request never reached a worker. */
   | { readonly type: "not-sent" }
+  /** The caller gave up while the request was still queued; it was never sent. */
+  | { readonly type: "cancelled" }
   | { readonly type: "exited" }
   | { readonly type: "timeout" };
 
@@ -161,6 +185,9 @@ const isReplyTo = (message: unknown, id: number): boolean =>
 /** Plain child-process client; the Effect surface wraps it below. */
 const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
   let child: NodeChildProcess.ChildProcess | undefined;
+  let nonce = "";
+  let served = 0;
+  let releaseMouse = false;
   let nextId = 1;
   let settlePending: ((outcome: CallOutcome) => void) | undefined;
   let queue: Promise<unknown> = Promise.resolve();
@@ -175,10 +202,12 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
 
   const start = (): NodeChildProcess.ChildProcess | undefined => {
     const launch = options.launch();
+    nonce = NodeCrypto.randomBytes(32).toString("hex");
+    served = 0;
     let worker: NodeChildProcess.ChildProcess;
     try {
       worker = NodeChildProcess.spawn(launch.command, [...launch.args], {
-        env: launch.env,
+        env: { ...launch.env, [DRIVER_NONCE_ENV]: nonce },
         stdio: ["ignore", "ignore", "inherit", "ipc"],
         windowsHide: true,
       });
@@ -223,11 +252,14 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
           resolve({ type: "reply", message: undefined });
           return;
         }
+        if (outcome.type !== "reply" && MOUSE_BUTTON_OPS.has(request.op)) releaseMouse = true;
+        served += 1;
+        if (served >= (options.recycleAfter ?? DEFAULT_RECYCLE_AFTER)) discard(worker);
         resolve(outcome);
       };
       settlePending = settle;
       try {
-        worker.send({ id, request }, (error) => {
+        worker.send({ id, nonce, request }, (error) => {
           if (error) {
             discard(worker);
             settle({ type: "not-sent" });
@@ -240,8 +272,15 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions) => {
     });
 
   return {
-    call: (request: DriverRequest): Promise<CallOutcome> => {
-      const result = queue.then(() => run(request));
+    call: (request: DriverRequest, cancelled: () => boolean): Promise<CallOutcome> => {
+      const result = queue.then(async (): Promise<CallOutcome> => {
+        if (cancelled()) return { type: "cancelled" };
+        if (releaseMouse) {
+          releaseMouse = false;
+          await run({ op: "releaseMouse" });
+        }
+        return run(request);
+      });
       queue = result;
       return result;
     },
@@ -265,14 +304,26 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
   ) {
     const input = INPUT_OPS.has(request.op);
     const afterSend = input ? "unknown" : "no";
-    const outcome = yield* Effect.promise(() => client.call(request));
+    if (!SUPPORTED_PLATFORMS.has(options.platform)) {
+      return yield* new ComputerDriverError({
+        kind: "unavailable",
+        message: unsupportedReason(options.platform),
+        dispatched: "no",
+      });
+    }
+    // Interrupting the caller marks the queued request so it is never sent.
+    const outcome = yield* Effect.callback<CallOutcome>((resume, signal) => {
+      void client
+        .call(request, () => signal.aborted)
+        .then((value) => resume(Effect.succeed(value)));
+    });
     if (outcome.type !== "reply") {
       yield* Effect.logDebug("computer-use driver call did not complete", {
         op: request.op,
         outcome: outcome.type,
       });
       return yield* new ComputerDriverError(
-        outcome.type === "not-sent"
+        outcome.type === "not-sent" || outcome.type === "cancelled"
           ? {
               kind: "unavailable",
               message: "The computer-use driver could not start.",
@@ -320,7 +371,7 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
         ? call({ op: "status" }, StatusReply).pipe(
             Effect.catch((error) => Effect.succeed(unavailableStatus(error.message))),
           )
-        : Effect.succeed(unavailableStatus("Computer use is not supported on this platform.")),
+        : Effect.succeed(unavailableStatus(unsupportedReason(options.platform))),
     listWindows: () => call({ op: "listWindows" }, WindowsReply),
     observe: (window, { maxElements }) =>
       call({ op: "observe", window, maxElements }, ObserveReply),

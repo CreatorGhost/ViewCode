@@ -74,8 +74,11 @@ const makeHarness = (
     },
     executablePaths: async (pids) => new Map(pids.map((pid) => [pid, `/apps/${pid}`])),
     writeFile: async (_path, bytes) => void written.push(bytes),
+    activateApp: async () => undefined,
+    primaryDisplay: async () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
+    sleep: async () => undefined,
   };
-  const core = makeDriverCore(api, "darwin");
+  const core = makeDriverCore(api, { platform: "darwin", epoch: "t" });
   const call = async (request: DriverRequest) => core.handle(request);
   const firstWindow = async () => {
     const reply = await call({ op: "listWindows" });

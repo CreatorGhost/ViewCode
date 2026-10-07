@@ -17,6 +17,7 @@ import {
   HostProcessIsExecutable,
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -25,6 +26,22 @@ const SHIM_DIR = "computer-use/bin";
 export const COMPUTER_CLI_NAME = "viewcode-computer";
 
 const shQuote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+
+/**
+ * Sessions spawn concurrently and each ensures the shim: rewrite only when
+ * the content differs, and swap it in by rename so no session ever runs a
+ * half-written launcher.
+ */
+const writeIfChanged = Effect.fnUntraced(function* (target: string, content: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const current = yield* fs.readFileString(target).pipe(Effect.orElseSucceed(() => undefined));
+  if (current === content) return;
+  const now = yield* Clock.currentTimeMillis;
+  const temporary = `${target}.${process.pid}.${now.toString(36)}.tmp`;
+  yield* fs.writeFileString(temporary, content);
+  yield* fs.chmod(temporary, 0o755);
+  yield* fs.rename(temporary, target);
+});
 
 export const ensureComputerUseShim = Effect.fn("ComputerUseShim.ensure")(function* (input: {
   readonly stateDir: string;
@@ -49,19 +66,18 @@ export const ensureComputerUseShim = Effect.fn("ComputerUseShim.ensure")(functio
         .pipe(Effect.orDie);
   const args = script === undefined ? ["__viewcode-computer", "--"] : [script];
 
+  // Git Bash and other POSIX shells on Windows cannot run a `.cmd` by bare
+  // name, so Windows gets both launchers, as npm's cmd-shim does.
   if (platform === "win32") {
     const quoted = [executable, ...args].map((value) => (value === "--" ? value : `"${value}"`));
-    yield* fs.writeFileString(
+    yield* writeIfChanged(
       path.join(shimDir, `${COMPUTER_CLI_NAME}.cmd`),
       `@echo off\r\nsetlocal\r\nset ELECTRON_RUN_AS_NODE=1\r\n${quoted.join(" ")} %*\r\n`,
     );
-  } else {
-    const shimPath = path.join(shimDir, COMPUTER_CLI_NAME);
-    yield* fs.writeFileString(
-      shimPath,
-      `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${[executable, ...args].map(shQuote).join(" ")} "$@"\n`,
-    );
-    yield* fs.chmod(shimPath, 0o755);
   }
+  yield* writeIfChanged(
+    path.join(shimDir, COMPUTER_CLI_NAME),
+    `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${[executable, ...args].map(shQuote).join(" ")} "$@"\n`,
+  );
   return shimDir;
 });
