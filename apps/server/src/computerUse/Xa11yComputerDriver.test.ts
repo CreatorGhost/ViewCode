@@ -4,7 +4,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { assert, describe, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Logger from "effect/Logger";
@@ -15,7 +15,7 @@ import {
   ComputerDriverDispatchCheck,
   ComputerDriverError,
 } from "./ComputerDriver.ts";
-import { layer, makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
+import { layer, macHelperExecutable, makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
 
 // Answers by op instead of driving xa11y: each op exercises one way a real
 // worker can misbehave.
@@ -391,5 +391,20 @@ describe("Xa11yComputerDriver", () => {
     child.send({ id: 1, nonce: sentNonce, request: { op: "status" } }, () => undefined);
     assert.strictEqual(await exited, 2);
     assert.deepStrictEqual(replies, []);
+  });
+});
+
+describe("macHelperExecutable", () => {
+  const app = "/Applications/ViewCode (Alpha).app/Contents/MacOS/ViewCode (Alpha)";
+  const helper =
+    "/Applications/ViewCode (Alpha).app/Contents/Frameworks/ViewCode (Alpha) Helper.app/Contents/MacOS/ViewCode (Alpha) Helper";
+
+  it("finds the Helper beside an app bundle's main executable", () => {
+    expect(macHelperExecutable(app, (path) => path === helper)).toBe(helper);
+  });
+
+  it("falls back when the Helper is missing or the executable is not in a bundle", () => {
+    expect(macHelperExecutable(app, () => false)).toBeUndefined();
+    expect(macHelperExecutable("/usr/local/bin/node", () => true)).toBeUndefined();
   });
 });
