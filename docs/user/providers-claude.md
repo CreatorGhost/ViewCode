@@ -70,10 +70,10 @@ for using composer commands.
 Claude keeps a conversation's prompt cached for about 5 minutes (1 hour when the
 extended cache is in use). Sending to a conversation over 100k tokens after the cache
 has expired re-reads it all at full price, so ViewCode shows a notice above the
-composer with the approximate size and cost. Your message is not sent until you choose
-**Send anyway**, or **Compact first** when compaction is available. Dismiss the notice
-to stop it for that thread. When ViewCode can't tell which lifetime applies, the notice
-says the cache is *likely* expired.
+composer with the approximate size and cost. It only warns: sending works as usual.
+Choose **Compact first** before sending, when compaction is available, to resend less.
+Dismiss the notice to stop it for that thread. When ViewCode can't tell which lifetime applies, the notice
+says the cache is _likely_ expired.
 
 ## Usage limits
 
