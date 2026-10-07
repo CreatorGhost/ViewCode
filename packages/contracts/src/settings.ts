@@ -1,4 +1,4 @@
-import { ComputerUseMode } from "./computerUse.ts";
+import { ComputerUseApprovals, ComputerUseMode } from "./computerUse.ts";
 import { SshDeviceHostConfigs } from "./device.ts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
@@ -1240,6 +1240,10 @@ export const ServerSettings = Schema.Struct({
    * provider session is prepared, like `enableAgentDeviceAccess`.
    */
   computerUse: ComputerUseMode.pipe(Schema.withDecodingDefault(Effect.succeed("off" as const))),
+  /** When computer-use input asks first; see `ComputerUseApprovals`. */
+  computerUseApprovals: ComputerUseApprovals.pipe(
+    Schema.withDecodingDefault(Effect.succeed("thread" as const)),
+  ),
   /**
    * Whether this server may install and run T3's device helper processes.
    * Kept separate from agent access so enabling the user's Device panel does
@@ -1622,6 +1626,7 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   computerUse: Schema.optionalKey(ComputerUseMode),
+  computerUseApprovals: Schema.optionalKey(ComputerUseApprovals),
   enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),

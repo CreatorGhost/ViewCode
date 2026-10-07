@@ -21,6 +21,15 @@ export const ComputerUseMode = Schema.Literals(["off", "observe", "control"]);
 export type ComputerUseMode = typeof ComputerUseMode.Type;
 
 /**
+ * When input asks the user first. `thread`: follow the thread's permission
+ * mode (Full access skips routine approvals). `risky`: only destructive-looking
+ * actions ask, in any mode. `never`: nothing asks. The denylist and the pause
+ * while any approval waits (`CU-CON-008`) apply in every case.
+ */
+export const ComputerUseApprovals = Schema.Literals(["thread", "risky", "never"]);
+export type ComputerUseApprovals = typeof ComputerUseApprovals.Type;
+
+/**
  * `CU-VAL-*` invalid request, `CU-NOT-*` unknown target, `CU-CON-*` refused by
  * policy or state, `CU-EXT-*` driver or OS, `CU-INT-*` a ViewCode bug.
  */
