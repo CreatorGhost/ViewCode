@@ -61,6 +61,7 @@ import {
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
+import { ProviderService } from "../provider/Services/ProviderService.ts";
 
 /**
  * Agent-to-agent messaging between ViewCode agents.
@@ -120,7 +121,14 @@ export interface AgentSummary {
   readonly parentId: string | null;
   readonly relation: "you" | "parent" | "child" | "sibling" | "other";
   readonly provider: string;
+  /** The model the agent is configured to run; every turn ViewCode starts names it. */
   readonly model: string;
+  /**
+   * The model its live provider session reports, when that differs from
+   * `model` (a provider can come back on its default after an error). Its
+   * next turn moves it back to `model`.
+   */
+  readonly runningModel?: string;
   /** Reasoning effort set on the agent; absent means the model's default. */
   readonly effort?: string;
   readonly status: "running" | "idle" | "error" | "stopped" | "new" | "paused";
@@ -423,6 +431,7 @@ const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const providerRegistry = yield* ProviderRegistry;
+  const providerService = yield* ProviderService;
   const crypto = yield* Crypto.Crypto;
 
   const queues = new Map<string, Delivery[]>();
@@ -858,9 +867,15 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const { self, tree } = yield* resolveCaller(caller);
       const nowMs = yield* now;
+      const liveSessions = yield* providerService.listSessions();
       return tree.map((thread): AgentSummary => {
         const mark = activeMark(thread.id, nowMs);
         const effort = selectedEffort(thread.modelSelection.options);
+        const live = liveSessions.find((session) => session.threadId === thread.id);
+        const runningModel =
+          live?.model !== undefined && live.model !== thread.modelSelection.model
+            ? live.model
+            : undefined;
         return {
           id: thread.id,
           name: thread.title,
@@ -868,6 +883,7 @@ const make = Effect.gen(function* () {
           relation: relationOf(thread, self),
           provider: String(thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
           model: thread.modelSelection.model,
+          ...(runningModel !== undefined ? { runningModel } : {}),
           ...(effort !== undefined ? { effort } : {}),
           status: paused.has(thread.id) ? "paused" : statusOf(thread),
           queuedMessages: queues.get(thread.id)?.length ?? 0,
@@ -976,8 +992,12 @@ const make = Effect.gen(function* () {
       const { tree } = yield* resolveCaller(caller);
       const target = resolveTarget(tree, input.agent);
       if (!target) return yield* fail(`No agent "${input.agent}" in this agent tree.`);
+      // Naming the agent's own provider without a model (to change effort, or
+      // "restart" it there) keeps its model instead of the provider default.
+      const sameProvider =
+        input.model === undefined && input.providerId === String(target.modelSelection.instanceId);
       const selection = yield* resolveModelSelection(
-        input.providerId,
+        sameProvider ? undefined : input.providerId,
         input.model,
         target.modelSelection,
         { effort: input.effort, fastMode: input.fastMode },

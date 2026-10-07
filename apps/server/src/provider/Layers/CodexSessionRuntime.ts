@@ -2502,6 +2502,16 @@ export const makeCodexSessionRuntime = (
       });
 
       const providerThreadId = opened.thread.id;
+      if (requestedModel !== undefined && opened.model !== requestedModel) {
+        // The session reports what Codex loaded; the next turn names the
+        // requested model again (ProviderCommandReactor).
+        yield* Effect.logWarning("codex app-server opened the thread on another model", {
+          threadId: options.threadId,
+          requestedModel,
+          openedModel: opened.model,
+          resumed: options.resumeCursor !== undefined,
+        });
+      }
       const session = {
         ...(yield* Ref.get(sessionRef)),
         status: "ready",

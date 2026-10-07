@@ -3158,6 +3158,42 @@ describe("ProviderCommandReactor", () => {
   });
 
   effectIt.effect(
+    "runs a turn that names no model on the thread's model when the session came back on another",
+    () =>
+      Effect.gen(function* () {
+        const configured = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6-sol" };
+        // The provider resumes the thread on its own default instead of the requested model.
+        const harness = yield* Effect.promise(() =>
+          createHarness({
+            threadModelSelection: configured,
+            startSessionEffect: (session) => Effect.succeed({ ...session, model: "gpt-6-astra" }),
+          }),
+        );
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-agent-message"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("agent-message-1"),
+            role: "user",
+            text: "continue",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+        expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+          modelSelection: configured,
+        });
+        expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({ modelSelection: configured });
+      }),
+  );
+
+  effectIt.effect(
     "hands off to a fresh session when the provider requires a new thread for model changes",
     () =>
       Effect.gen(function* () {
