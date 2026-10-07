@@ -65,6 +65,12 @@ export interface Xa11yApi {
   readonly pointerDrag: (from: DriverPoint, to: DriverPoint) => Promise<void>;
   /** Releases the left button wherever the pointer is. */
   readonly releaseMouse: () => Promise<void>;
+  /**
+   * Asks the app to expose its full accessibility tree (Chromium and
+   * Electron build it only on request). True when the app accepted, so the
+   * tree is still being built.
+   */
+  readonly enableAccessibility: (pid: number) => Promise<boolean>;
   readonly screenshot: (element: Element) => Promise<Screenshot>;
   /**
    * Captures only the window's own pixels (covering windows left out) as a
@@ -213,6 +219,8 @@ export const BOUNDS_TOLERANCE = 0;
  */
 export const ACTIVATION_TIMEOUT_MS = 3_000;
 const ACTIVATION_POLL_MS = 50;
+/** How long a Chromium or Electron app gets to build its tree after it is first asked. */
+const ACCESSIBILITY_BUILD_MS = 500;
 /** How long a text change made through accessibility may take to show in the element's value. */
 const VALUE_SETTLE_MS = 300;
 /** How often typing re-checks that its window is still the active one. */
@@ -976,11 +984,20 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     return false;
   };
 
+  /** Apps asked for their full accessibility tree by this worker. */
+  const accessibilityRequested = new Set<number>();
+
   const observe = async (
     windowHandle: string,
     maxElements: number,
   ): Promise<{ readonly elements: ReadonlyArray<DriverElement>; readonly truncated: boolean }> => {
     const window = requireWindow(windowHandle);
+    if (!accessibilityRequested.has(window.pid)) {
+      accessibilityRequested.add(window.pid);
+      if (await api.enableAccessibility(window.pid).catch(() => false)) {
+        await api.sleep(ACCESSIBILITY_BUILD_MS);
+      }
+    }
     const root = await refreshWindow(window);
     const cap = Math.max(0, Math.min(maxElements, OBSERVE_MAX_VISITED));
     const kept: Array<{ readonly element: Element; readonly path: ReadonlyArray<number> }> = [];

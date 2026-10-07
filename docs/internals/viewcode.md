@@ -344,13 +344,16 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   window model (xa11y treats each top-level window as an app there).
 - The driver is xa11y in a child process spawned from the app's own executable with
   `ELECTRON_RUN_AS_NODE=1`: macOS keys the Accessibility grant to the responsible app, and
-  Electron's Helper executable does not share it (same reason as SnapShot's reader). xa11y 0.13
-  cannot set `AXManualAccessibility`, so Chromium and Electron apps expose no tree on macOS and
-  work through coordinates.
+  Electron's Helper executable does not share it (same reason as SnapShot's reader). Chromium and
+  Electron build their tree only on request: before a pid's first observe the driver sets
+  `AXManualAccessibility` (xa11y cannot) and waits 500 ms. `AXEnhancedUserInterface` is never
+  used; it changes window animation and resizing in other apps.
 - xa11y's macOS mouse down and up are posted at (0,0), not at the pointer (still true in 0.15), so
   its drag presses the top-left screen corner. On macOS the driver posts drags and the
   dead-worker button release itself as positioned Quartz events from a constant JXA script run
-  by `/usr/bin/osascript` (`MacQuartz.ts`), which needs no compiler on the user's Mac; its
+  by `/usr/bin/osascript` (`MacQuartz.ts`), which needs no compiler on the user's Mac. They come
+  from a HID-state source after warping the real cursor, since WebKit and Chromium filter drags
+  that do not look like hardware input (Synara's driver notes); xa11y's
   `click` is positioned and stays on xa11y. The same file captures a window that is not in front
   with `screencapture -l` so covering windows stay out of the image. xa11y's macOS `typeText`
   sends 20 characters per key event and some apps keep only the first, so text goes one code
