@@ -37,8 +37,11 @@ export interface Xa11yApi {
   readonly listApps: () => Promise<ReadonlyArray<App>>;
   /** Fresh snapshots of one app's top-level children, to re-read a window's bounds. */
   readonly appWindows: (pid: number) => Promise<ReadonlyArray<Element>>;
-  /** Checks the retained native object, before matching a fresh snapshot by title or AXIdentifier. */
-  readonly windowIsAlive: (window: Element) => Promise<boolean>;
+  /**
+   * Whether the native object behind a retained snapshot still has a native
+   * parent; checked before a fresh snapshot is matched to it by attributes.
+   */
+  readonly isAlive: (element: Element) => Promise<boolean>;
   /** Pid of the foreground application, or null when the platform cannot say. */
   readonly foregroundPid: () => Promise<number | null>;
   readonly inputSim: () => InputSim;
@@ -475,6 +478,8 @@ const sameBounds = (left: Rect | null, right: Rect | null): boolean =>
 
 interface ElementEntry {
   readonly windowHandle: string;
+  /** The observed snapshot, kept for its retained native object. */
+  readonly element: Element;
   /** Child indexes from the window, to find the live element again. */
   readonly path: ReadonlyArray<number>;
   readonly role: string;
@@ -518,7 +523,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
 
   /** A fresh snapshot of the window (live bounds and state), or a `stale` refusal. */
   const refreshWindow = async (entry: WindowEntry): Promise<Element> => {
-    if (!(await api.windowIsAlive(entry.element).catch(() => false))) {
+    if (!(await api.isAlive(entry.element).catch(() => false))) {
       throw stale("The original window has closed.");
     }
     let children: ReadonlyArray<Element>;
@@ -573,14 +578,25 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
 
   /**
    * The live element behind a handle: walks the recorded path from a fresh
-   * window and refuses unless role and full label still match what was
-   * observed (and what the service expects), and the window has not moved.
+   * window and refuses unless role, full label, bounds and native id still
+   * match what was observed (and what the service expects), the window has
+   * not moved, and the observed native object still exists.
+   *
+   * Limit: xa11y exposes no native identity (no AXUIElement handle or
+   * CFEqual), so the fresh path element cannot be proved to be the observed
+   * object. A re-rendered replacement is refused because the observed object
+   * lost its parent; a twin identical in every compared field, at the same
+   * path while the observed object is still alive elsewhere (or in an app
+   * that keeps answering AXParent for a destroyed object), is acted on.
    */
   const resolveElement = async (handle: string, expect: DriverElementIdentity) => {
     const entry = elements.get(handle);
     if (!entry) throw stale("Unknown element; observe again.");
     if (expect.role !== entry.role || expect.label !== clipValue(entry.label)) {
       throw stale("The element changed since it was observed.");
+    }
+    if (!(await api.isAlive(entry.element).catch(() => false))) {
+      throw stale("The observed element is gone; observe again.");
     }
     const windowEntry = requireWindow(entry.windowHandle);
     let current = await refreshWindow(windowEntry);
@@ -630,6 +646,44 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     }
   };
 
+  /**
+   * Asks the server to re-read policy for this exact native target, then
+   * requires the window unmoved and in front. Run immediately before every
+   * native input, including a fallback that prepared its target again.
+   */
+  const authorize = async (entry: WindowEntry, element?: Element, point?: DriverPoint) => {
+    const expectedBounds = entry.bounds;
+    const live = await refreshWindow(entry);
+    if (!sameBounds(expectedBounds, live.bounds)) throw stale("The window moved before dispatch.");
+    const path = (await api.executablePaths([entry.pid])).get(entry.pid) ?? entry.appIdentifier;
+    const identity = element
+      ? { role: element.role, label: elementLabel(element.name, element.description) }
+      : point
+        ? await elementAtHandle(entry, point, false)
+        : undefined;
+    const refusal = await api.authorizeInput?.({
+      window: {
+        handle: entry.handle,
+        app: entry.app,
+        pid: entry.pid,
+        title: live.name ?? "",
+        focused: live.active,
+        ...(path ? { appIdentifier: path } : {}),
+      },
+      ...(identity ? { element: identity } : {}),
+    });
+    if (refusal)
+      throw new Refusal({
+        ok: false,
+        error: { kind: "policy", code: refusal.code, message: refusal.message, dispatched: "no" },
+      });
+    const current = await refreshWindow(entry);
+    if (!sameBounds(live.bounds, current.bounds)) throw stale("The window moved before dispatch.");
+    if (!(await isFront(entry, current))) {
+      throw new Refusal(failure("failed", "The target window lost focus before the input."));
+    }
+  };
+
   const dispatch = async (
     run: () => Promise<void>,
     entry: WindowEntry,
@@ -637,38 +691,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     point?: DriverPoint,
   ): Promise<DriverResult> => {
     try {
-      const expectedBounds = entry.bounds;
-      const live = await refreshWindow(entry);
-      if (!sameBounds(expectedBounds, live.bounds))
-        throw stale("The window moved before dispatch.");
-      const path = (await api.executablePaths([entry.pid])).get(entry.pid) ?? entry.appIdentifier;
-      const identity = element
-        ? { role: element.role, label: elementLabel(element.name, element.description) }
-        : point
-          ? await elementAtHandle(entry, point, false)
-          : undefined;
-      const refusal = await api.authorizeInput?.({
-        window: {
-          handle: entry.handle,
-          app: entry.app,
-          pid: entry.pid,
-          title: live.name ?? "",
-          focused: live.active,
-          ...(path ? { appIdentifier: path } : {}),
-        },
-        ...(identity ? { element: identity } : {}),
-      });
-      if (refusal)
-        return {
-          ok: false,
-          error: { kind: "policy", code: refusal.code, message: refusal.message, dispatched: "no" },
-        };
-      const current = await refreshWindow(entry);
-      if (!sameBounds(live.bounds, current.bounds))
-        throw stale("The window moved before dispatch.");
-      if (!(await isFront(entry, current))) {
-        throw new Refusal(failure("failed", "The target window lost focus before the input."));
-      }
+      await authorize(entry, element, point);
       await run();
       return { ok: true, result: null };
     } catch (error) {
@@ -715,7 +738,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       const claimed = new Map<Element, string>();
       for (const [handle, entry] of windows) {
         if (entry.pid !== pid || kept.has(handle)) continue;
-        if (!(await api.windowIsAlive(entry.element).catch(() => false))) continue;
+        if (!(await api.isAlive(entry.element).catch(() => false))) continue;
         const found = findWindow(entry, keyed);
         if (!found || claimed.has(found.window)) continue;
         adopt(entry, found);
@@ -836,6 +859,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       const label = elementLabel(element.name, element.description);
       elements.set(handle, {
         windowHandle,
+        element,
         path,
         role: element.role,
         label,
@@ -1073,15 +1097,16 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               } catch (error) {
                 if (errorName(error) !== "ActionNotSupportedError") throw error;
               }
-              // No accessible press: click the live element's centre, once its
-              // window is verifiably the active one.
+              // No accessible press: click the live element's centre. The
+              // preparation can outlast the policy, so the click is authorized
+              // again, with its window verifiably the active one.
               const input = requireInput();
               await activate(target.window);
               const fresh = await resolveElement(request.element, request.expect);
               if (!fresh.element.bounds) {
                 throw new Refusal(failure("failed", "The element cannot be pressed."));
               }
-              await verifyFront(fresh.window);
+              await authorize(fresh.window, fresh.element);
               await input.click(fresh.element);
             },
             target.window,
@@ -1110,12 +1135,13 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               } catch (error) {
                 if (errorName(error) !== "ActionNotSupportedError") throw error;
               }
-              // No accessible text insertion: focus the element and type.
+              // No accessible text insertion: focus the element and type,
+              // authorized again after that preparation.
               const input = requireInput();
               await activate(target.window);
               const fresh = await resolveElement(request.element, request.expect);
               await beforeDispatch(() => fresh.element.focus());
-              await verifyFront(fresh.window);
+              await authorize(fresh.window, fresh.element);
               await input.typeText(request.text);
             },
             target.window,

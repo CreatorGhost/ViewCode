@@ -1,4 +1,5 @@
 import type { App, Element, InputSim, Rect } from "@crowecawcaw/xa11y";
+import type { ComputerUseError } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -8,6 +9,7 @@ import {
   type DriverResult,
   type Xa11yApi,
 } from "./Xa11yDriverCore.ts";
+import type { DriverDispatchTarget } from "./ComputerDriver.ts";
 
 // A mutable fake desktop. Like xa11y, `fake` copies properties when an
 // element is fetched: an old element never sees later changes, only a fresh
@@ -22,6 +24,10 @@ interface Spec {
   active?: boolean;
   focused?: boolean;
   pressUnsupported?: boolean;
+  typeUnsupported?: boolean;
+  /** Runs when the accessible press is attempted, before it fails or lands. */
+  onPress?: () => void;
+  onFocus?: () => Promise<void>;
   children?: Spec[];
 }
 
@@ -51,13 +57,19 @@ const fake = (spec: Spec, sent: Sent): Element => {
     children: async () => (spec.children ?? []).map((child) => fake(child, sent)),
     tree: async () => ({ role: snapshot.role, name: snapshot.name ?? undefined, children: [] }),
     press: async () => {
+      spec.onPress?.();
       if (spec.pressUnsupported) throw notSupported();
       sent.push(["press", snapshot.name]);
     },
     setValue: async () => void sent.push(["setValue", snapshot.name]),
-    typeText: async (text: string) => void sent.push(["AXtype", snapshot.name, text]),
+    typeText: async (text: string) => {
+      if (spec.typeUnsupported) throw notSupported();
+      sent.push(["AXtype", snapshot.name, text]);
+    },
     performAction: async () => undefined,
-    focus: async () => undefined,
+    focus: async () => {
+      await spec.onFocus?.();
+    },
   } as unknown as Element;
   snapshots.set(element, spec);
   return element;
@@ -87,9 +99,10 @@ const makeCore = (
   options: {
     readonly epoch?: string;
     foreground?: number | null;
-    readonly activate?: (pid: number) => void;
+    readonly activate?: (pid: number) => void | Promise<void>;
     readonly primaryDisplay?: () => Rect | null;
     readonly capture?: Xa11yApi["screenshot"];
+    readonly authorize?: (target: DriverDispatchTarget) => ComputerUseError | undefined;
   } = {},
 ) => {
   const sent: Sent = [];
@@ -116,8 +129,13 @@ const makeCore = (
       const app = apps.find((candidate) => candidate.pid === pid);
       return app ? app.windows.map((spec) => fake(spec, sent)) : [];
     },
-    windowIsAlive: async (element) =>
-      apps.some((app) => app.windows.includes(snapshots.get(element)!)),
+    // Like a retained AXUIElement: alive while that exact object is in the tree.
+    isAlive: async (element) => {
+      const target = snapshots.get(element);
+      const inTree = (specs: Spec[]): boolean =>
+        specs.some((spec) => spec === target || inTree(spec.children ?? []));
+      return apps.some((app) => inTree(app.windows));
+    },
     foregroundPid: async () =>
       options.foreground === undefined ? (apps[0]?.pid ?? null) : options.foreground,
     inputSim: () => input,
@@ -130,13 +148,14 @@ const makeCore = (
     writeFile: async () => undefined,
     activateApp: async (pid) => {
       calls.activate += 1;
-      options.activate?.(pid);
+      await options.activate?.(pid);
     },
     primaryDisplay: async () => {
       calls.primaryDisplay += 1;
       return options.primaryDisplay?.() ?? null;
     },
     sleep: async () => undefined,
+    ...(options.authorize ? { authorizeInput: async (target) => options.authorize!(target) } : {}),
   };
   const core = makeDriverCore(api, { platform: "darwin", epoch: options.epoch ?? "a" });
   const call = (request: DriverRequest) => core.handle(request);
@@ -505,4 +524,188 @@ it("refuses screenshots when the main display cannot be resolved", async () => {
       maxSize: 256,
     }),
   ).toMatchObject(refusedNo);
+});
+
+describe("fallback input is authorized after its own preparation", () => {
+  const policyChanges = [
+    { change: "mode turned off", code: "CU-CON-002" },
+    { change: "turn ended", code: "CU-CON-006" },
+  ] as const;
+
+  // The server's dispatch check, reduced to the two facts these tests change.
+  const makePolicy = () => {
+    const policy = { mode: "control", turn: "t1" };
+    const authorize = (): ComputerUseError | undefined =>
+      policy.mode !== "control"
+        ? { code: "CU-CON-002", message: "off", effect: "not-dispatched" }
+        : policy.turn !== "t1"
+          ? { code: "CU-CON-006", message: "ended", effect: "not-dispatched" }
+          : undefined;
+    const apply = (change: (typeof policyChanges)[number]["change"]) => {
+      if (change === "mode turned off") policy.mode = "off";
+      else policy.turn = "t2";
+    };
+    return { authorize, apply };
+  };
+
+  /** A press whose accessible action is unsupported, so it falls back to a click. */
+  const pressFallback = async () => {
+    const policy = makePolicy();
+    const preparing = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const row: Spec = {
+      role: "cell",
+      name: "Row 3",
+      pressUnsupported: true,
+      bounds: { x: 10, y: 10, width: 50, height: 20 },
+    };
+    const app: FakeApp = { name: "Mail", pid: 7, windows: [window("Inbox", { children: [row] })] };
+    const options: Parameters<typeof makeCore>[1] & { foreground: number | null } = {
+      foreground: 7,
+      // The fallback's own activation is where the policy can change.
+      activate: async (pid) => {
+        preparing.resolve();
+        await resume.promise;
+        options.foreground = pid;
+      },
+      authorize: policy.authorize,
+    };
+    // Something else takes the front as the accessible press fails.
+    row.onPress = () => void (options.foreground = 99);
+    const core = makeCore([app], options);
+    const [inbox] = await core.list();
+    const [cell] = await core.observe(inbox!.handle);
+    const result = core.call({
+      op: "press",
+      element: cell!.handle,
+      expect: { role: "cell", label: "Row 3" },
+    });
+    return { core, policy, preparing, resume, result };
+  };
+
+  /** Accessible text insertion unsupported, so it focuses the field and types. */
+  const typeFallback = async () => {
+    const policy = makePolicy();
+    const preparing = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const field: Spec = {
+      role: "text field",
+      name: "Body",
+      typeUnsupported: true,
+      onFocus: async () => {
+        preparing.resolve();
+        await resume.promise;
+      },
+    };
+    const app: FakeApp = {
+      name: "TextEdit",
+      pid: 10,
+      windows: [window("Notes", { children: [field] })],
+    };
+    const core = makeCore([app], { authorize: policy.authorize });
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    const result = core.call({
+      op: "typeText",
+      element: ref!.handle,
+      expect: { role: "text field", label: "Body" },
+      text: "secret",
+    });
+    return { core, policy, preparing, resume, result };
+  };
+
+  for (const { change, code } of policyChanges) {
+    it(`press sends no click when the ${change} during fallback activation`, async () => {
+      const { core, policy, preparing, resume, result } = await pressFallback();
+      await preparing.promise;
+      policy.apply(change);
+      resume.resolve();
+      expect(await result).toMatchObject({
+        ok: false,
+        error: { kind: "policy", code, dispatched: "no" },
+      });
+      expect(core.sent).toEqual([]);
+    });
+
+    it(`typeText types nothing when the ${change} during fallback focus`, async () => {
+      const { core, policy, preparing, resume, result } = await typeFallback();
+      await preparing.promise;
+      policy.apply(change);
+      resume.resolve();
+      expect(await result).toMatchObject({
+        ok: false,
+        error: { kind: "policy", code, dispatched: "no" },
+      });
+      expect(core.sent).toEqual([]);
+    });
+  }
+
+  it("still delivers both fallbacks while the policy holds", async () => {
+    const press = await pressFallback();
+    press.resume.resolve();
+    expect(await press.result).toEqual(ok);
+    expect(press.core.sent).toEqual([["click", { x: 10, y: 10, width: 50, height: 20 }]]);
+
+    const type = await typeFallback();
+    type.resume.resolve();
+    expect(await type.result).toEqual(ok);
+    expect(type.core.sent).toEqual([["typeText", "secret"]]);
+  });
+});
+
+describe("a replacement element that matches every observed field", () => {
+  const OPEN: Spec = {
+    role: "button",
+    name: "Open",
+    stableId: "open",
+    bounds: { x: 10, y: 20, width: 50, height: 20 },
+  };
+
+  it("is refused once the observed control is gone", async () => {
+    const app: FakeApp = {
+      name: "Mail",
+      pid: 10,
+      windows: [window("Inbox", { children: [{ ...OPEN }] })],
+    };
+    const core = makeCore([app]);
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    // Re-rendered: a new native object, identical in role, label, bounds, id and path.
+    app.windows[0]!.children = [{ ...OPEN }];
+    expect(
+      await core.call({
+        op: "press",
+        element: ref!.handle,
+        expect: { role: "button", label: "Open" },
+      }),
+    ).toMatchObject(staleNo);
+    expect(core.sent).toEqual([]);
+  });
+
+  // Residual, documented in `resolveElement`: xa11y exposes no native
+  // identity, so while the observed control is still alive elsewhere an
+  // indistinguishable twin at its old path receives the action.
+  it("cannot be told apart while the observed control is still alive", async () => {
+    const original: Spec = { ...OPEN };
+    const app: FakeApp = {
+      name: "Mail",
+      pid: 10,
+      windows: [window("Inbox", { children: [original] })],
+    };
+    const core = makeCore([app]);
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    const hits: string[] = [];
+    const twin: Spec = { ...OPEN, onPress: () => void hits.push("twin") };
+    original.onPress = () => void hits.push("original");
+    app.windows[0]!.children = [twin, { role: "group", children: [original] }];
+    expect(
+      await core.call({
+        op: "press",
+        element: ref!.handle,
+        expect: { role: "button", label: "Open" },
+      }),
+    ).toEqual(ok);
+    expect(hits).toEqual(["twin"]);
+  });
 });

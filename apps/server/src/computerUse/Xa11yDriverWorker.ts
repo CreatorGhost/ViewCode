@@ -88,7 +88,7 @@ const activateApp = async (pid: number) => {
 export const makeXa11yApi = (xa11y: Xa11yModule): Xa11yApi => ({
   listApps: () => xa11y.App.list(),
   appWindows: async (pid) => (await xa11y.App.byPid(pid, { timeout: 0 })).children(),
-  windowIsAlive: async (window) => (await window.parent()) !== null,
+  isAlive: async (element) => (await element.parent()) !== null,
   foregroundPid: async () => (await xa11y.App.foreground({ timeout: 0 })).pid,
   inputSim: () => xa11y.inputSim(),
   screenshot: (element) => xa11y.screenshot({ element }),

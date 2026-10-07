@@ -65,7 +65,7 @@ const makeHarness = (
   const api: Xa11yApi = {
     listApps: async () => [app],
     appWindows: async () => app.children(),
-    windowIsAlive: async () => true,
+    isAlive: async () => true,
     foregroundPid: async () =>
       options.foregroundPid === undefined ? TEST_PID : options.foregroundPid,
     inputSim: () => input,
