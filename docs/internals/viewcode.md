@@ -290,9 +290,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   element or window bounds at dispatch and refuses on change. Every input returns a fresh shot.
 - xa11y elements and window lists are snapshots (`tree(0)` reads no live state), so the driver
   records each element's child-index path at observe and re-walks it from a fresh window read at
-  dispatch, refusing on any role, label, native identifier or bounds change. A retained window
+  dispatch, refusing on any role, label, native identifier or bounds change. Retained windows and controls
   must still have a native parent before a fresh snapshot can be matched: titles and
-  `AXIdentifier` values can be reused after close, even without an intervening empty listing.
+  `AXIdentifier` values can be reused after replacement, even without an intervening empty listing.
+  An unsupported AX action may fall back to simulated input, but that fallback needs its own
+  server authorization after activation and focus preparation.
   Handles carry a per-worker random epoch,
   so a restarted worker can never resolve an old handle to another app. On macOS, AXRaise does not
   activate an app; the driver runs `open -a <bundle>` and then requires the exact target window to

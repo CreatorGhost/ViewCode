@@ -6,10 +6,10 @@
  *
  * Handles carry a random per-process epoch (`w<epoch>.<n>`), so a handle
  * minted by a worker that has since crashed can never name something in its
- * replacement. Element handles hold no native object: every action resolves
- * a fresh element from the window by the child-index path recorded at
- * observe and checks it is still the same control, because xa11y elements
- * are snapshots whose properties (and bounds) never update.
+ * replacement. Element handles retain the original object only to check its
+ * native liveness. Every action still resolves a fresh element by the recorded
+ * child-index path and checks its identity, because xa11y properties and bounds
+ * are snapshots. A dead original must never name an identical replacement.
  *
  * Messages it returns never carry element values, labels or titles: they are
  * fixed strings per failure class, because the server forwards them to the
@@ -38,7 +38,7 @@ export interface Xa11yApi {
   /** Fresh snapshots of one app's top-level children, to re-read a window's bounds. */
   readonly appWindows: (pid: number) => Promise<ReadonlyArray<Element>>;
   /** Checks the retained native object, before matching a fresh snapshot by title or AXIdentifier. */
-  readonly windowIsAlive: (window: Element) => Promise<boolean>;
+  readonly elementIsAlive: (element: Element) => Promise<boolean>;
   /** Pid of the foreground application, or null when the platform cannot say. */
   readonly foregroundPid: () => Promise<number | null>;
   readonly inputSim: () => InputSim;
@@ -474,6 +474,7 @@ const sameBounds = (left: Rect | null, right: Rect | null): boolean =>
   left === null || right === null ? left === right : boundsMatch(left, right);
 
 interface ElementEntry {
+  readonly element: Element;
   readonly windowHandle: string;
   /** Child indexes from the window, to find the live element again. */
   readonly path: ReadonlyArray<number>;
@@ -518,7 +519,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
 
   /** A fresh snapshot of the window (live bounds and state), or a `stale` refusal. */
   const refreshWindow = async (entry: WindowEntry): Promise<Element> => {
-    if (!(await api.windowIsAlive(entry.element).catch(() => false))) {
+    if (!(await api.elementIsAlive(entry.element).catch(() => false))) {
       throw stale("The original window has closed.");
     }
     let children: ReadonlyArray<Element>;
@@ -581,6 +582,9 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     if (!entry) throw stale("Unknown element; observe again.");
     if (expect.role !== entry.role || expect.label !== clipValue(entry.label)) {
       throw stale("The element changed since it was observed.");
+    }
+    if (!(await api.elementIsAlive(entry.element).catch(() => false))) {
+      throw stale("The element no longer exists; observe again.");
     }
     const windowEntry = requireWindow(entry.windowHandle);
     let current = await refreshWindow(windowEntry);
@@ -715,7 +719,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       const claimed = new Map<Element, string>();
       for (const [handle, entry] of windows) {
         if (entry.pid !== pid || kept.has(handle)) continue;
-        if (!(await api.windowIsAlive(entry.element).catch(() => false))) continue;
+        if (!(await api.elementIsAlive(entry.element).catch(() => false))) continue;
         const found = findWindow(entry, keyed);
         if (!found || claimed.has(found.window)) continue;
         adopt(entry, found);
@@ -835,6 +839,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       const handle = mint("e");
       const label = elementLabel(element.name, element.description);
       elements.set(handle, {
+        element,
         windowHandle,
         path,
         role: element.role,
@@ -1082,7 +1087,12 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
                 throw new Refusal(failure("failed", "The element cannot be pressed."));
               }
               await verifyFront(fresh.window);
-              await input.click(fresh.element);
+              const result = await dispatch(
+                () => input.click(fresh.element),
+                fresh.window,
+                fresh.element,
+              );
+              if (!result.ok) throw new Refusal(result);
             },
             target.window,
             target.element,
@@ -1116,7 +1126,12 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               const fresh = await resolveElement(request.element, request.expect);
               await beforeDispatch(() => fresh.element.focus());
               await verifyFront(fresh.window);
-              await input.typeText(request.text);
+              const result = await dispatch(
+                () => input.typeText(request.text),
+                fresh.window,
+                fresh.element,
+              );
+              if (!result.ok) throw new Refusal(result);
             },
             target.window,
             target.element,

@@ -22,6 +22,8 @@ interface Spec {
   active?: boolean;
   focused?: boolean;
   pressUnsupported?: boolean;
+  typeUnsupported?: boolean;
+  onUnsupported?: () => void;
   children?: Spec[];
 }
 
@@ -30,6 +32,9 @@ type Sent = Array<readonly [string, ...unknown[]]>;
 const notSupported = () => Object.assign(new Error("x"), { name: "ActionNotSupportedError" });
 
 const snapshots = new WeakMap<Element, Spec>();
+
+const containsSpec = (root: Spec, target: Spec): boolean =>
+  root === target || (root.children ?? []).some((child) => containsSpec(child, target));
 
 const fake = (spec: Spec, sent: Sent): Element => {
   const snapshot = {
@@ -51,11 +56,20 @@ const fake = (spec: Spec, sent: Sent): Element => {
     children: async () => (spec.children ?? []).map((child) => fake(child, sent)),
     tree: async () => ({ role: snapshot.role, name: snapshot.name ?? undefined, children: [] }),
     press: async () => {
-      if (spec.pressUnsupported) throw notSupported();
+      if (spec.pressUnsupported) {
+        spec.onUnsupported?.();
+        throw notSupported();
+      }
       sent.push(["press", snapshot.name]);
     },
     setValue: async () => void sent.push(["setValue", snapshot.name]),
-    typeText: async (text: string) => void sent.push(["AXtype", snapshot.name, text]),
+    typeText: async (text: string) => {
+      if (spec.typeUnsupported) {
+        spec.onUnsupported?.();
+        throw notSupported();
+      }
+      sent.push(["AXtype", snapshot.name, text]);
+    },
     performAction: async () => undefined,
     focus: async () => undefined,
   } as unknown as Element;
@@ -90,6 +104,7 @@ const makeCore = (
     readonly activate?: (pid: number) => void;
     readonly primaryDisplay?: () => Rect | null;
     readonly capture?: Xa11yApi["screenshot"];
+    readonly authorizeInput?: Xa11yApi["authorizeInput"];
   } = {},
 ) => {
   const sent: Sent = [];
@@ -116,8 +131,8 @@ const makeCore = (
       const app = apps.find((candidate) => candidate.pid === pid);
       return app ? app.windows.map((spec) => fake(spec, sent)) : [];
     },
-    windowIsAlive: async (element) =>
-      apps.some((app) => app.windows.includes(snapshots.get(element)!)),
+    elementIsAlive: async (element) =>
+      apps.some((app) => app.windows.some((root) => containsSpec(root, snapshots.get(element)!))),
     foregroundPid: async () =>
       options.foreground === undefined ? (apps[0]?.pid ?? null) : options.foreground,
     inputSim: () => input,
@@ -137,6 +152,7 @@ const makeCore = (
       return options.primaryDisplay?.() ?? null;
     },
     sleep: async () => undefined,
+    ...(options.authorizeInput ? { authorizeInput: options.authorizeInput } : {}),
   };
   const core = makeDriverCore(api, { platform: "darwin", epoch: options.epoch ?? "a" });
   const call = (request: DriverRequest) => core.handle(request);
@@ -187,6 +203,28 @@ describe("refs act on the live element", () => {
     // The row re-rendered: same place in the tree, different control.
     app.windows[0]!.children![0]!.children![0] = { role: "button", name: "Delete" };
 
+    expect(
+      await core.call({
+        op: "press",
+        element: archive.handle,
+        expect: { role: "button", label: "Archive" },
+      }),
+    ).toMatchObject(staleNo);
+    expect(core.sent).toEqual([]);
+  });
+
+  it("refuses an identical replacement at the observed child path", async () => {
+    const original: Spec = {
+      role: "button",
+      name: "Archive",
+      stableId: "archive",
+      bounds: { x: 10, y: 10, width: 50, height: 20 },
+    };
+    const app = appWith(original);
+    const core = makeCore([app]);
+    const [inbox] = await core.list();
+    const archive = (await core.observe(inbox!.handle)).find((e) => e.label === "Archive")!;
+    app.windows[0]!.children![0]!.children![0] = { ...original };
     expect(
       await core.call({
         op: "press",
@@ -505,4 +543,83 @@ it("refuses screenshots when the main display cannot be resolved", async () => {
       maxSize: 256,
     }),
   ).toMatchObject(refusedNo);
+});
+
+describe("fallback input rechecks policy after preparation", () => {
+  it.each(["press", "typeText"] as const)(
+    "refuses %s fallback when permission changes",
+    async (op) => {
+      let refused = false;
+      let authorizations = 0;
+      const row: Spec = {
+        role: "text_field",
+        name: "Draft",
+        bounds: { x: 10, y: 10, width: 200, height: 40 },
+        pressUnsupported: true,
+        typeUnsupported: true,
+        onUnsupported: () => {
+          refused = true;
+        },
+      };
+      const app: FakeApp = {
+        name: "TextEdit",
+        pid: 10,
+        windows: [window("Note", { children: [row] })],
+      };
+      const core = makeCore([app], {
+        authorizeInput: async () => {
+          authorizations += 1;
+          return refused
+            ? {
+                code: "CU-CON-002",
+                message: "Computer use is off.",
+                effect: "not-dispatched" as const,
+              }
+            : undefined;
+        },
+      });
+      const [note] = await core.list();
+      const field = (await core.observe(note!.handle)).find((e) => e.label === "Draft")!;
+      const request = { element: field.handle, expect: { role: "text_field", label: "Draft" } };
+      const result = await core.call(
+        op === "press" ? { op, ...request } : { op, ...request, text: "secret" },
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { kind: "policy", code: "CU-CON-002", dispatched: "no" },
+      });
+      expect(authorizations).toBe(2);
+      expect(core.sent).toEqual([]);
+    },
+  );
+  it.each(["press", "typeText"] as const)(
+    "sends %s fallback once after both authorizations",
+    async (op) => {
+      let authorizations = 0;
+      const row: Spec = {
+        role: "text_field",
+        name: "Draft",
+        bounds: { x: 10, y: 10, width: 200, height: 40 },
+        pressUnsupported: true,
+        typeUnsupported: true,
+      };
+      const core = makeCore(
+        [{ name: "TextEdit", pid: 10, windows: [window("Note", { children: [row] })] }],
+        {
+          authorizeInput: async () => {
+            authorizations += 1;
+            return undefined;
+          },
+        },
+      );
+      const [note] = await core.list();
+      const field = (await core.observe(note!.handle)).find((e) => e.label === "Draft")!;
+      const request = { element: field.handle, expect: { role: "text_field", label: "Draft" } };
+      expect(
+        await core.call(op === "press" ? { op, ...request } : { op, ...request, text: "hello" }),
+      ).toEqual(ok);
+      expect(authorizations).toBe(2);
+      expect(core.sent).toEqual(op === "press" ? [["click", row.bounds]] : [["typeText", "hello"]]);
+    },
+  );
 });
