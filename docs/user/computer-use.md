@@ -40,7 +40,14 @@ windows always ask, in every mode. This check reads the control's label, so trea
 net rather than a guarantee.
 
 Password managers, Keychain Access, System Settings and ViewCode itself can never be read or
-controlled by an agent.
+controlled by an agent. While any approval in the environment is waiting for you, agents cannot
+send input at all, so an agent can never answer an approval for itself, whether in ViewCode, in a
+browser tab showing ViewCode or on a mirrored screen.
+
+These rules apply to `viewcode-computer`. macOS grants Accessibility and Screen Recording to
+ViewCode as a whole, and programs an agent starts from its shell run as part of ViewCode, so an
+agent with **Full access** to the shell could reach those permissions another way. Turn the
+permissions off in System Settings when you are not using computer use.
 
 ## Limits
 
