@@ -424,6 +424,14 @@ html[data-window-glass="true"] body {
     box-shadow: inset 0 0 0 1px var(--vc-glass-edge);
   }
 
+  /* The app rail is part of the sidebar chrome: on glass it drops its own fill
+     and divider so rail and sidebar read as one neutral panel instead of a
+     separately tinted strip. */
+  html[data-window-glass="true"] [data-app-rail] {
+    background-color: transparent !important;
+    border-right-color: transparent !important;
+  }
+
   /* Pane fills inside the sheet (chat, new-thread, settings and pull-request
      pages, the chat header) let the sheet show through. Cards, code, the
      terminal and floating glass keep their own fills. */
@@ -602,4 +610,19 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 [data-app-rail] button:has([data-rail-phone]):hover {
   background-color: color-mix(in srgb, var(--app-theme-accent) 16%, transparent);
   color: var(--app-theme-accent);
+}
+
+/* The rail shares the sidebar's surface without a seam between them. */
+[data-app-rail] {
+  border-right-color: transparent;
+}
+
+/* Composer on window glass: a solid neutral surface, so the wallpaper's colour
+   never tints the input. Mixed from the theme surface, not the glass sheet. */
+html[data-window-glass="true"] [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: color-mix(in srgb, var(--foreground) 6%, rgb(24 24 24));
+  --glass-opacity: 100%;
+}
+html[data-window-glass="true"]:not(.dark) [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: color-mix(in srgb, var(--foreground) 4%, white);
 }

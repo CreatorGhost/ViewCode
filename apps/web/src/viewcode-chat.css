@@ -308,3 +308,41 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   font-size: 12px;
   color: var(--muted-foreground);
 }
+
+/* Notice tray: every attachment above the composer (child agents, usage resume,
+   the notice stack) joins into one panel. Only the topmost carries the rounded
+   corners; the rest butt against it with a hairline divider. Edges stay neutral
+   regardless of severity; the icon and text carry the colour. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-composer-banner-surface="attached"]::before {
+  border-color: var(--chat-composer-outline, color-mix(in srgb, var(--foreground) 8%, transparent));
+  border-radius: 0;
+  border-top-width: 1px;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  :is([data-slot="composer-banner-attachment"], [data-slot="composer-banner-attachment"] > *):first-child
+  > [data-composer-banner-surface="attached"]::before,
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-banner-attachment"]:first-child
+  [data-composer-banner-surface="attached"]::before {
+  border-radius: 18px 18px 0 0;
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-banner-attachment"]
+  + [data-slot="composer-banner-attachment"]
+  [data-composer-banner-surface="attached"]::before,
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-banner-attachment"]
+  + *
+  [data-slot="composer-banner-attachment"]:first-child
+  [data-composer-banner-surface="attached"]::before {
+  border-radius: 0;
+}
+/* The hidden-notices peek is a small tab on the tray, not a full-width strip. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-banner-peek"] {
+  width: 40%;
+  height: 0.5rem;
+  margin-inline: auto;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+}
