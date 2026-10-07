@@ -13,7 +13,10 @@ const status = (overrides: Partial<ComputerUseStatus> = {}): ComputerUseStatus =
 
 describe("describeComputerUseStatus", () => {
   it("is ready only when the driver runs and Accessibility is granted", () => {
-    expect(describeComputerUseStatus(status())).toEqual({ ready: true, message: "Ready" });
+    expect(describeComputerUseStatus(status())).toEqual({
+      ready: true,
+      message: "Accessibility granted. Screenshots also need Screen Recording.",
+    });
     expect(describeComputerUseStatus(status({ accessibility: "unknown" })).ready).toBe(false);
   });
 

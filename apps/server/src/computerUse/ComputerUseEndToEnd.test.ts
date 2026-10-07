@@ -50,6 +50,7 @@ import {
   type DriverWindow,
 } from "./ComputerDriver.ts";
 import { computerUseRouteLayer } from "./ComputerUseRoute.ts";
+import { ServerProcessAncestry } from "./computerUseAncestry.ts";
 import * as ComputerUseService from "./ComputerUseService.ts";
 
 const CLI_ENTRY = NodePath.join(import.meta.dirname, "..", "viewcode-computer.ts");
@@ -183,6 +184,12 @@ const makeStack = (listen: "unix" | "tcp") =>
       ),
       Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-computer-e2e-" })),
       Layer.provide(Layer.succeed(ComputerUseService.ComputerUseSettleDelay, Duration.zero)),
+      Layer.provide(
+        Layer.succeed(ComputerUseService.ComputerUsePendingApprovals, {
+          anyPending: Effect.succeed(false),
+        }),
+      ),
+      Layer.provide(Layer.succeed(ServerProcessAncestry, new Set<number>())),
       Layer.provide(NodeServices.layer),
     );
     const service = Context.get(

@@ -14,6 +14,7 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -32,6 +33,7 @@ import {
   type DriverElementIdentity,
   type DriverWindow,
 } from "./ComputerDriver.ts";
+import { ServerProcessAncestry } from "./computerUseAncestry.ts";
 import * as ComputerUseService from "./ComputerUseService.ts";
 
 const NOW = "2026-10-06T00:00:00.000Z";
@@ -46,6 +48,7 @@ const notes: DriverWindow = {
   title: "Shopping list",
   focused: true,
   appIdentifier: "/System/Applications/Notes.app/Contents/MacOS/Notes",
+  bounds: { x: 0, y: 0, width: 800, height: 600 },
 };
 const onePassword: DriverWindow = {
   handle: "w-1p",
@@ -54,6 +57,7 @@ const onePassword: DriverWindow = {
   title: "Vault",
   focused: false,
   appIdentifier: "/Applications/1Password.app/Contents/MacOS/1Password",
+  bounds: { x: 2000, y: 0, width: 400, height: 400 },
 };
 const viewCode: DriverWindow = {
   handle: "w-vc",
@@ -62,6 +66,7 @@ const viewCode: DriverWindow = {
   title: "Thread",
   focused: false,
   appIdentifier: "/Applications/ViewCode.app/Contents/MacOS/ViewCode",
+  bounds: { x: 0, y: 0, width: 1400, height: 900 },
 };
 const save: DriverElement = {
   handle: "e-save",
@@ -107,6 +112,16 @@ interface Harness {
   screenshotFailure: ComputerDriverError | undefined;
   /** `expectBounds` of the last coordinate call. */
   readonly lastBounds: () => ComputerUseRect | undefined;
+  /** What `listWindows` returns; handles missing from it read as stale. */
+  windows: Array<DriverWindow>;
+  /** A provider approval waiting somewhere in the environment. */
+  providerApprovalPending: boolean;
+  /** Pids treated as the server's own process ancestry. */
+  readonly ancestry: Set<number>;
+  /** When set, `elementAt` signals `entered` and waits for `release`. */
+  elementAtGate:
+    | { readonly entered: Deferred.Deferred<void>; readonly release: Deferred.Deferred<void> }
+    | undefined;
 }
 
 /** A 1568×980 image of a 784×490-point window at (100, 50): half a point per pixel. */
@@ -128,7 +143,15 @@ const makeHarness = (initialMode: ComputerUseMode = "control") =>
       hit: null as DriverElementIdentity | null,
       screenshotFailure: undefined as ComputerDriverError | undefined,
       lastBounds: undefined as ComputerUseRect | undefined,
+      windows: [notes, onePassword, viewCode] as Array<DriverWindow>,
+      providerApprovalPending: false,
+      elementAtGate: undefined as Harness["elementAtGate"],
     };
+    const ancestry = new Set<number>();
+    const staleUnlessListed = (handle: string) =>
+      state.windows.some((window) => window.handle === handle)
+        ? undefined
+        : new ComputerDriverError({ kind: "stale", message: "Unknown window.", dispatched: "no" });
     const pointer =
       (name: string) =>
       (
@@ -154,12 +177,12 @@ const makeHarness = (initialMode: ComputerUseMode = "control") =>
       listWindows: () =>
         Effect.sync(() => {
           calls.push("listWindows");
-          return [notes, onePassword, viewCode];
+          return state.windows;
         }),
       observe: (handle) =>
         Effect.suspend(() => {
           calls.push(`observe:${handle}`);
-          const failure = state.failNext;
+          const failure = state.failNext ?? staleUnlessListed(handle);
           state.failNext = undefined;
           return failure
             ? Effect.fail(failure)
@@ -173,8 +196,13 @@ const makeHarness = (initialMode: ComputerUseMode = "control") =>
             : Effect.succeed({ width: 1568, height: 980, bounds: SHOT_BOUNDS });
         }),
       elementAt: (handle) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           calls.push(`elementAt:${handle}`);
+          const gate = state.elementAtGate;
+          if (gate) {
+            yield* Deferred.succeed(gate.entered, undefined);
+            yield* Deferred.await(gate.release);
+          }
           return state.hit;
         }),
       click: (handle, bounds, point, options) =>
@@ -232,6 +260,12 @@ const makeHarness = (initialMode: ComputerUseMode = "control") =>
       ),
       Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-computer-use-test-" })),
       Layer.provide(Layer.succeed(ComputerUseService.ComputerUseSettleDelay, Duration.zero)),
+      Layer.provide(
+        Layer.succeed(ComputerUseService.ComputerUsePendingApprovals, {
+          anyPending: Effect.sync(() => state.providerApprovalPending),
+        }),
+      ),
+      Layer.provide(Layer.succeed(ServerProcessAncestry, ancestry)),
       Layer.provide(NodeServices.layer),
     );
     const context = yield* Layer.build(layer);
@@ -271,6 +305,25 @@ const makeHarness = (initialMode: ComputerUseMode = "control") =>
         state.screenshotFailure = value;
       },
       lastBounds: () => state.lastBounds,
+      ancestry,
+      get windows() {
+        return state.windows;
+      },
+      set windows(value) {
+        state.windows = value;
+      },
+      get providerApprovalPending() {
+        return state.providerApprovalPending;
+      },
+      set providerApprovalPending(value) {
+        state.providerApprovalPending = value;
+      },
+      get elementAtGate() {
+        return state.elementAtGate;
+      },
+      set elementAtGate(value) {
+        state.elementAtGate = value;
+      },
     };
 
     yield* service.attachRuntimeEventPublisher((event) =>
@@ -755,6 +808,177 @@ describe("ComputerUseService coordinates", () => {
         "CU-CON-007",
         "not-dispatched",
       );
+    }).pipe(Effect.scoped),
+  );
+});
+
+describe("ComputerUseService input pause", () => {
+  it.effect("refuses all input while a provider approval waits, but keeps observing", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      harness.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(harness);
+      harness.providerApprovalPending = true;
+      expectError(
+        yield* send(harness, { command: "press", ref: refs.save }),
+        "CU-CON-008",
+        "not-dispatched",
+      );
+      expect((yield* send(harness, { command: "observe", window: refs.window })).ok).toBe(true);
+      // Refused up front: no approval card opens on top of the waiting one.
+      harness.thread.runtimeMode = "approval-required";
+      harness.autoDecision = "accept";
+      expectError(yield* send(harness, { command: "press", ref: refs.save }), "CU-CON-008");
+      expect(harness.events).toEqual([]);
+      expect(inputCalls(harness)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "pauses other input while a computer-use approval waits, then runs the approved one",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness();
+        const refs = yield* observeNotes(harness);
+        const pending = yield* send(harness, { command: "press", ref: refs.save }).pipe(
+          Effect.forkChild,
+        );
+        const opened = yield* Queue.take(harness.openedApprovals);
+        // Even full access waits: nothing may run while a card is on screen.
+        harness.thread.runtimeMode = "full-access";
+        expectError(
+          yield* send(harness, { command: "scroll", ref: refs.save, dx: 0, dy: 1 }),
+          "CU-CON-008",
+        );
+        yield* harness.service.respondToApproval({
+          threadId,
+          requestId: opened.requestId!,
+          decision: "accept",
+        });
+        expectDispatched(yield* Fiber.join(pending));
+        expect(inputCalls(harness)).toEqual(["press:e-save"]);
+      }).pipe(Effect.scoped),
+  );
+});
+
+describe("ComputerUseService final checks", () => {
+  /** Starts a full-access coordinate click and holds it inside the hit test. */
+  const heldClick = (harness: Harness) =>
+    Effect.gen(function* () {
+      harness.thread.runtimeMode = "full-access";
+      const { window, shot } = yield* shootNotes(harness);
+      const gate = {
+        entered: yield* Deferred.make<void>(),
+        release: yield* Deferred.make<void>(),
+      };
+      harness.elementAtGate = gate;
+      const click = yield* send(harness, { command: "click", shot, x: 5, y: 5 }).pipe(
+        Effect.forkChild,
+      );
+      yield* Deferred.await(gate.entered);
+      harness.elementAtGate = undefined;
+      return {
+        window,
+        finish: Deferred.succeed(gate.release, undefined).pipe(Effect.andThen(Fiber.join(click))),
+      };
+    });
+
+  it.effect("does not dispatch when computer use is turned down mid-request", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const held = yield* heldClick(harness);
+      yield* harness.setMode("observe");
+      expectError(yield* held.finish, "CU-CON-002", "not-dispatched");
+      expect(inputCalls(harness)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("does not dispatch when the turn ends mid-request", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const held = yield* heldClick(harness);
+      harness.thread.running = false;
+      expectError(yield* held.finish, "CU-CON-006", "not-dispatched");
+      expect(inputCalls(harness)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("does not dispatch on a shot superseded mid-request", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const held = yield* heldClick(harness);
+      expect((yield* send(harness, { command: "screenshot", window: held.window })).ok).toBe(true);
+      expectError(yield* held.finish, "CU-CON-007", "not-dispatched");
+      expect(inputCalls(harness)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("does not dispatch when an approval opens mid-request", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const held = yield* heldClick(harness);
+      harness.providerApprovalPending = true;
+      expectError(yield* held.finish, "CU-CON-008", "not-dispatched");
+      expect(inputCalls(harness)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+});
+
+describe("ComputerUseService identity and overlays", () => {
+  it.effect("refuses windows owned by the server's own process ancestry", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      harness.ancestry.add(notes.pid);
+      const listed = yield* send(harness, { command: "list-windows" });
+      if (!listed.ok || listed.result.kind !== "windows") throw new Error("list failed");
+      const window = listed.result.windows.find((entry) => entry.app === "Notes")!.id;
+      expectError(yield* send(harness, { command: "observe", window }), "CU-CON-005");
+      expect(harness.calls).toEqual(["listWindows"]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("refuses screenshots under a protected window and omits the post-action one", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      harness.thread.runtimeMode = "full-access";
+      const { window, shot } = yield* shootNotes(harness);
+      harness.windows = [
+        notes,
+        { ...onePassword, bounds: { x: 700, y: 500, width: 400, height: 400 } },
+        viewCode,
+      ];
+      expectError(yield* send(harness, { command: "screenshot", window }), "CU-CON-005");
+      expect(yield* send(harness, { command: "click", shot, x: 1, y: 1 })).toEqual({
+        ok: true,
+        result: { kind: "input", effect: "dispatched" },
+      });
+      // ViewCode overlapping is fine: its content is no secret to the agent.
+      harness.windows = [notes, onePassword, viewCode];
+      expect((yield* send(harness, { command: "screenshot", window })).ok).toBe(true);
+      expect(harness.calls.filter((call) => call.startsWith("screenshot:"))).toHaveLength(2);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("a window id from before a driver restart never resolves to a new window", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const before = yield* observeNotes(harness);
+      // The driver restarts and mints a handle this service has never seen.
+      harness.windows = [{ ...notes, handle: "g2:w1", app: "Terminal", pid: 20, title: "zsh" }];
+      const other = { threadId: ThreadId.make("thread-other"), providerInstanceId };
+      expect((yield* harness.service.handle(other, { command: "list-windows" })).ok).toBe(true);
+      expectError(
+        yield* send(harness, { command: "observe", window: before.window }),
+        "CU-NOT-001",
+      );
+      const calls = harness.calls.length;
+      expectError(
+        yield* send(harness, { command: "observe", window: before.window }),
+        "CU-NOT-001",
+      );
+      expect(harness.calls.length).toBe(calls);
+      expect(harness.calls).toContain(`observe:${notes.handle}`);
+      expect(harness.calls).not.toContain("observe:g2:w1");
     }).pipe(Effect.scoped),
   );
 });

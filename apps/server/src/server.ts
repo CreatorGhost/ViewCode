@@ -72,6 +72,7 @@ import * as ForgejoCli from "./sourceControl/ForgejoCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as ComputerUseAncestry from "./computerUse/computerUseAncestry.ts";
 import * as ComputerUseService from "./computerUse/ComputerUseService.ts";
 import { computerUseRouteLayer } from "./computerUse/ComputerUseRoute.ts";
 import * as Xa11yComputerDriver from "./computerUse/Xa11yComputerDriver.ts";
@@ -505,6 +506,8 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
 // between the two.
 const ComputerUseLayerLive = ComputerUseService.layer.pipe(
   Layer.provide(Xa11yComputerDriver.layer),
+  Layer.provide(ComputerUseService.pendingApprovalsLayer),
+  Layer.provide(ComputerUseAncestry.layer.pipe(Layer.provide(ProcessRunner.layer))),
   Layer.provide(ServerSettingsLayerLive),
 );
 

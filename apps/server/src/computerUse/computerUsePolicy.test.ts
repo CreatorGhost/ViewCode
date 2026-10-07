@@ -8,6 +8,15 @@ import {
 } from "./computerUsePolicy.ts";
 
 describe("isDenylistedApp", () => {
+  it("refuses a browser window showing ViewCode, but not pages that only mention it", () => {
+    const browser = (app: string, title: string) => isDenylistedApp({ app, title });
+    expect(browser("Google Chrome", "ViewCode (Alpha) - Google Chrome")).toBe(true);
+    expect(browser("Safari", "ViewCode")).toBe(true);
+    expect(browser("Arc", "T3 Code (Dev) \u2014 Work")).toBe(true);
+    expect(browser("Google Chrome", "GitHub - CreatorGhost/ViewCode")).toBe(false);
+    expect(browser("Visual Studio Code", "ViewCode \u2014 server.ts")).toBe(false);
+  });
+
   it.each([
     // Matched by the `.app` bundle on the executable path, whatever the window's app name says.
     {
@@ -29,6 +38,14 @@ describe("isDenylistedApp", () => {
       appIdentifier:
         "/System/Applications/Utilities/Keychain Access.app/Contents/MacOS/Keychain Access",
     },
+    // The shipped launcher: "ViewCode (Alpha)" with an Electron executable.
+    {
+      app: "ViewCode (Alpha)",
+      appIdentifier: "/Applications/ViewCode (Alpha).app/Contents/MacOS/Electron",
+    },
+    { app: "ViewCode (Dev)", appIdentifier: "/tmp/build/Electron.app/Contents/MacOS/Electron" },
+    { app: "ViewCode (Nightly)" },
+    { app: "T3 Code (Dev)" },
     // Linux executables, and names alone when no path is known.
     { app: "bitwarden", appIdentifier: "/opt/Bitwarden/bitwarden" },
     { app: "ViewCode" },
@@ -70,6 +87,20 @@ describe("describeInputForApproval", () => {
     expect(detail).toBe(
       'Type 13 characters into the focused field in Terminal — "zsh"; brings the window to the front',
     );
+  });
+
+  it("clips long window titles and labels", () => {
+    const detail = describeInputForApproval(
+      { command: "press", ref: 1 },
+      {
+        app: "Notes",
+        windowTitle: "t".repeat(300),
+        element: { role: "button", label: "l".repeat(300) },
+      },
+    );
+    expect(detail).toContain(`"${"l".repeat(79)}…"`);
+    expect(detail).toContain(`"${"t".repeat(79)}…"`);
+    expect(detail.length).toBeLessThan(220);
   });
 
   it("states both points of a drag", () => {

@@ -46,16 +46,20 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { ServerProcessAncestry } from "./computerUseAncestry.ts";
 import { ComputerDriver, ComputerDriverError } from "./ComputerDriver.ts";
 import {
   computerUseError,
   describeInputForApproval,
   driverErrorToComputerUseError,
   isDenylistedApp,
+  isProtectedApp,
+  rectsIntersect,
   isDestructiveChord,
   isDestructiveTarget,
   isInputRequest,
@@ -106,6 +110,40 @@ export interface ComputerUseServiceShape {
   readonly releaseThread: (threadId: ThreadId) => Effect.Effect<void>;
   readonly releaseAll: Effect.Effect<void>;
 }
+
+/**
+ * Whether any provider approval is waiting in a live thread. Computer use
+ * pauses all input while one is open (its own approvals are tracked in memory
+ * and excluded here by their `computer-use:` request id).
+ */
+export class ComputerUsePendingApprovals extends Context.Service<
+  ComputerUsePendingApprovals,
+  /** Fails closed: an unreadable projection counts as pending. */
+  { readonly anyPending: Effect.Effect<boolean> }
+>()("t3/computerUse/ComputerUseService/ComputerUsePendingApprovals") {}
+
+/** Reads the projection: one indexed lookup, no thread snapshot. */
+export const pendingApprovalsLayer = Layer.effect(
+  ComputerUsePendingApprovals,
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return ComputerUsePendingApprovals.of({
+      anyPending: sql<{ readonly pending: number }>`
+        SELECT 1 AS pending
+        FROM projection_pending_approvals AS approvals
+        JOIN projection_threads AS threads ON threads.thread_id = approvals.thread_id
+        WHERE approvals.status = 'pending'
+          AND approvals.request_id NOT LIKE ${`${REQUEST_ID_PREFIX}%`}
+          AND threads.archived_at IS NULL
+          AND threads.deleted_at IS NULL
+        LIMIT 1
+      `.pipe(
+        Effect.map((rows) => rows.length > 0),
+        Effect.orElseSucceed(() => true),
+      ),
+    });
+  }),
+);
 
 export class ComputerUseService extends Context.Service<
   ComputerUseService,
@@ -206,6 +244,10 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const platform = yield* HostProcessPlatform;
   const settleDelay = yield* ComputerUseSettleDelay;
+  const pendingProviderApprovals = yield* ComputerUsePendingApprovals;
+  const ownProcesses = yield* ServerProcessAncestry;
+  /** Final checks and dispatch run one input at a time across the environment. */
+  const dispatchLock = yield* Semaphore.make(1);
 
   const targetsByThread = new Map<ThreadId, ThreadTargets>();
   const turnGrants = new Map<ThreadId, TurnId>();
@@ -213,6 +255,10 @@ export const make = Effect.gen(function* () {
   const screenshotCounters = new Map<ThreadId, number>();
   const screenshotNumbering = yield* Semaphore.make(1);
   let publisher: ((event: ProviderRuntimeEvent) => Effect.Effect<void>) | undefined;
+
+  /** ViewCode by name, or a window of this server's own process ancestry. */
+  const isDenied = (window: Pick<WindowRecord, "app" | "appIdentifier" | "pid">) =>
+    isDenylistedApp(window) || ownProcesses.has(window.pid);
 
   const targetsFor = (threadId: ThreadId) => {
     let targets = targetsByThread.get(threadId);
@@ -355,7 +401,7 @@ export const make = Effect.gen(function* () {
         ),
       );
     }
-    if (isDenylistedApp(window)) return deniedApp();
+    if (isDenied(window)) return deniedApp();
     return window;
   };
 
@@ -497,9 +543,35 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  /**
+   * Whether a password manager or security window overlaps the target. A
+   * region capture shows whatever is on top, so it would leak that window.
+   * Unknown bounds count as overlapping.
+   */
+  const protectedOverlay = (window: WindowRecord) =>
+    driver.listWindows().pipe(
+      Effect.map((listed) => {
+        const target = listed.find((entry) => entry.handle === window.handle)?.bounds;
+        return listed.some(
+          (entry) =>
+            entry.handle !== window.handle &&
+            isProtectedApp(entry) &&
+            (!target || !entry.bounds || rectsIntersect(target, entry.bounds)),
+        );
+      }),
+    );
+
   /** Captures a window and makes the image its newest shot. */
   const capture = (caller: ComputerUseCaller, window: WindowRecord, maxSize: number) =>
     Effect.gen(function* () {
+      const overlaid = yield* protectedOverlay(window).pipe(
+        Effect.map((value) => ({ _tag: "Checked" as const, value })),
+        Effect.catchTag("ComputerDriverError", (error) =>
+          Effect.succeed({ _tag: "Failed" as const, error }),
+        ),
+      );
+      if (overlaid._tag === "Failed") return overlaid;
+      if (overlaid.value) return { _tag: "Overlaid" as const };
       const target = yield* nextScreenshotPath(caller.threadId);
       const captured = yield* driver.screenshot(window.handle, target.file, { maxSize }).pipe(
         Effect.map((value) => ({ _tag: "Captured" as const, value })),
@@ -537,6 +609,14 @@ export const make = Effect.gen(function* () {
         window,
         maxSize ?? COMPUTER_USE_DEFAULT_SCREENSHOT_SIZE,
       );
+      if (captured._tag === "Overlaid") {
+        return refused(
+          computerUseError(
+            "CU-CON-005",
+            "A protected window overlaps this window; move it away and try again.",
+          ),
+        );
+      }
       if (captured._tag === "Failed") {
         return captured.error.kind === "stale"
           ? windowGone(caller, window)
@@ -564,7 +644,7 @@ export const make = Effect.gen(function* () {
       case "type-focused": {
         const window = targets.window(request.window);
         if (!window) return unknownWindow(request.window);
-        return isDenylistedApp(window) ? deniedApp("not-dispatched") : { _tag: "Window", window };
+        return isDenied(window) ? deniedApp("not-dispatched") : { _tag: "Window", window };
       }
       case "click":
       case "drag":
@@ -591,7 +671,7 @@ export const make = Effect.gen(function* () {
             ),
           );
         }
-        if (isDenylistedApp(lookup.window)) return deniedApp("not-dispatched");
+        if (isDenied(lookup.window)) return deniedApp("not-dispatched");
         const outside = requestPixels(request).some(
           ({ x, y }) => x >= lookup.shot.width || y >= lookup.shot.height,
         );
@@ -631,7 +711,7 @@ export const make = Effect.gen(function* () {
               ),
             );
           case "Found":
-            return isDenylistedApp(lookup.window)
+            return isDenied(lookup.window)
               ? deniedApp("not-dispatched")
               : { _tag: "Element", window: lookup.window, ref: lookup.ref };
         }
@@ -708,6 +788,7 @@ export const make = Effect.gen(function* () {
     error: ComputerDriverError,
   ): ComputerUseResponse => {
     if (error.kind === "stale" && target._tag === "Shot") {
+      targetsFor(caller.threadId).retireShot(target.shot.shot);
       return refused(
         computerUseError(
           "CU-CON-007",
@@ -739,18 +820,95 @@ export const make = Effect.gen(function* () {
       return captured._tag === "Captured" ? captured.fields : undefined;
     }).pipe(Effect.orElseSucceed(() => undefined));
 
+  const noTurn = (message: string, code: "CU-CON-006" | "CU-CON-004") =>
+    refused(computerUseError(code, message, "not-dispatched"));
+
+  const inputPaused = refused(
+    computerUseError(
+      "CU-CON-008",
+      "Input is paused while an approval waits for the user; wait for it to be answered, then observe again.",
+      "not-dispatched",
+    ),
+  );
+
+  /**
+   * Any approval waiting anywhere in this environment: ours (any thread) or a
+   * provider's. While one is open no input runs, so nothing can click an
+   * approval card, wherever it is shown. Unreadable counts as pending.
+   */
+  const approvalPending = Effect.suspend(() =>
+    pending.size > 0 ? Effect.succeed(true) : pendingProviderApprovals.anyPending,
+  );
+
+  const sameTarget = (left: ResolvedInputTarget, right: ResolvedInputTarget) =>
+    left._tag === right._tag &&
+    left.window.id === right.window.id &&
+    left.window.handle === right.window.handle &&
+    (left._tag !== "Element" || (right._tag === "Element" && left.ref.ref === right.ref.ref)) &&
+    (left._tag !== "Shot" || (right._tag === "Shot" && left.shot.shot === right.shot.shot));
+
+  /**
+   * The last gate before the desktop, on every input path (asked or
+   * auto-allowed). Runs under `dispatchLock` so no other input can slip in
+   * between these checks and the driver call: the setting, the same running
+   * turn, no approval open, and the target still current.
+   */
+  const checkAndDispatch = (
+    caller: ComputerUseCaller,
+    request: ComputerUseInputRequest,
+    turn: TurnContext,
+    resolved: ResolvedInputTarget,
+    asked: boolean,
+  ) =>
+    dispatchLock.withPermits(1)(
+      Effect.gen(function* () {
+        if ((yield* currentMode) !== "control") {
+          return refused(
+            computerUseError(
+              "CU-CON-002",
+              "Computer use no longer allows input.",
+              "not-dispatched",
+            ),
+          );
+        }
+        const stillRunning = yield* runningTurn(caller);
+        if (stillRunning?.turnId !== turn.turnId) {
+          return noTurn(
+            "The turn ended before the action ran.",
+            asked ? "CU-CON-004" : "CU-CON-006",
+          );
+        }
+        if (yield* approvalPending) return inputPaused;
+        const fresh = resolveInputTarget(caller, request);
+        if ("ok" in fresh) return fresh;
+        if (!sameTarget(resolved, fresh)) {
+          return refused(
+            computerUseError(
+              fresh._tag === "Shot" ? "CU-CON-007" : "CU-CON-003",
+              "The target changed since this action was checked; look again.",
+              "not-dispatched",
+            ),
+          );
+        }
+        return yield* dispatchInput(request, fresh).pipe(
+          Effect.as(undefined),
+          Effect.catchTag("ComputerDriverError", (error) =>
+            Effect.succeed(inputFailure(caller, fresh, error)),
+          ),
+        );
+      }),
+    );
+
   const input = (caller: ComputerUseCaller, request: ComputerUseInputRequest) =>
     Effect.gen(function* () {
       const turn = yield* runningTurn(caller);
       if (!turn) {
-        return refused(
-          computerUseError(
-            "CU-CON-006",
-            "No turn is running in this thread; computer actions only happen while you are working on the user's request.",
-            "not-dispatched",
-          ),
+        return noTurn(
+          "No turn is running in this thread; computer actions only happen while you are working on the user's request.",
+          "CU-CON-006",
         );
       }
+      if (yield* approvalPending) return inputPaused;
       const resolved = resolveInputTarget(caller, request);
       if ("ok" in resolved) return resolved;
       const hit = yield* hitFor(request, resolved);
@@ -761,7 +919,8 @@ export const make = Effect.gen(function* () {
             ? isDestructiveChord(request.keys)
             : request.command === "click" && hit != null && isDestructiveTarget(hit);
       const granted = turn.fullAccess || turnGrants.get(caller.threadId) === turn.turnId;
-      if (destructive || !granted) {
+      const asked = destructive || !granted;
+      if (asked) {
         const decision = yield* askUser({
           caller,
           turn,
@@ -782,40 +941,12 @@ export const make = Effect.gen(function* () {
             ),
           );
         }
-        // Waiting can take minutes: the turn, the setting and the target must
-        // all still hold before anything reaches the desktop.
-        const stillRunning = yield* runningTurn(caller);
-        if (stillRunning?.turnId !== turn.turnId) {
-          return refused(
-            computerUseError(
-              "CU-CON-004",
-              "The turn ended before the action ran.",
-              "not-dispatched",
-            ),
-          );
-        }
-        if ((yield* currentMode) !== "control") {
-          return refused(
-            computerUseError(
-              "CU-CON-002",
-              "Computer use no longer allows input.",
-              "not-dispatched",
-            ),
-          );
-        }
-        const recheck = resolveInputTarget(caller, request);
-        if ("ok" in recheck) return recheck;
         if (!destructive && (decision === "acceptForSession" || decision === "acceptAlways")) {
           turnGrants.set(caller.threadId, turn.turnId);
         }
       }
-      const dispatched = yield* dispatchInput(request, resolved).pipe(
-        Effect.as(undefined),
-        Effect.catchTag("ComputerDriverError", (error) =>
-          Effect.succeed(inputFailure(caller, resolved, error)),
-        ),
-      );
-      if (dispatched) return dispatched;
+      const refusal = yield* checkAndDispatch(caller, request, turn, resolved, asked);
+      if (refusal) return refusal;
       const after = yield* afterAction(caller, resolved.window);
       return ok({ kind: "input", effect: "dispatched", ...(after ? { screenshot: after } : {}) });
     });

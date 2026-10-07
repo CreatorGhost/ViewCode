@@ -145,6 +145,13 @@ export class ThreadTargets {
     return this.latestShotByWindow.get(windowId);
   }
 
+  /** The window moved since this shot: coordinates need a fresh one. */
+  retireShot(shot: number): void {
+    for (const [windowId, record] of this.latestShotByWindow) {
+      if (record.shot === shot) this.latestShotByWindow.delete(windowId);
+    }
+  }
+
   lookupShot(shot: number): ShotLookup {
     if (shot < this.firstId || shot >= this.nextShot) return { _tag: "Unknown" };
     for (const record of this.latestShotByWindow.values()) {

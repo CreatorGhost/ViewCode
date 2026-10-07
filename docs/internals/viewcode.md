@@ -271,14 +271,26 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   stream (`computer-use:<uuid>` ids), so web, desktop and mobile render them unchanged;
   `ProviderService.respondToRequest` answers ids it owns before routing to an adapter. Only full
   access (on both the thread and the live session) skips routine approval; "for the rest of this
-  turn" ends with the turn. Targets that look destructive, quit/close chords and anything on a
-  denylisted app always ask or refuse; both checks are heuristics over labels and app paths, not
-  detectors. The denylist includes ViewCode itself so an agent cannot click its own approval.
+  turn" ends with the turn. Targets that look destructive and quit/close chords always ask; that
+  check is a heuristic over labels, not a detector. **No input is dispatched while any approval in
+  the environment waits** (`CU-CON-008`, computer-use and provider approvals alike): that, not
+  window identity, is what stops an agent answering an approval for itself in a ViewCode window, a
+  browser tab or a mirrored screen. The denylist (protected apps, ViewCode by name and `.app` path,
+  the server's own process ancestry, browser tabs titled like ViewCode) is defense in depth. Every
+  input path goes through one pre-dispatch check under an environment-wide lock that re-reads the
+  mode, the turn, pending approvals and the target.
 - Two ways to act, chosen per step by the agent: accessibility refs (exact) and screenshot pixel
   coordinates (Codex style, for canvases, browsers and apps with no tree). Window ids, refs and
   shots are per-thread integers starting at a random per-run base; a newer observe retires a
   window's refs, only a window's newest shot accepts coordinates, and the driver re-reads the
   element or window bounds at dispatch and refuses on change. Every input returns a fresh shot.
+- xa11y elements and window lists are snapshots (`tree(0)` reads no live state), so the driver
+  records each element's child-index path at observe and re-walks it from a fresh window read at
+  dispatch, refusing on any role, label or bounds change. Handles carry a per-worker random epoch,
+  so a restarted worker can never resolve an old handle to another app. On macOS, AXRaise does not
+  activate an app; the driver runs `open -a <bundle>` and then requires the exact target window to
+  be active. Windows is refused until there is a real win32 window model (xa11y treats each
+  top-level window as an app there).
 - The driver is xa11y in a child process spawned from the app's own executable with
   `ELECTRON_RUN_AS_NODE=1`: macOS keys the Accessibility grant to the responsible app, and
   Electron's Helper executable does not share it (same reason as SnapShot's reader). xa11y 0.13

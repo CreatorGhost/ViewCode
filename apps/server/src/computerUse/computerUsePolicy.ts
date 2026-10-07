@@ -15,6 +15,7 @@ import {
   type ComputerUseEffect,
   type ComputerUseError,
   type ComputerUseErrorCode,
+  type ComputerUseRect,
 } from "@t3tools/contracts";
 import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
@@ -146,14 +147,26 @@ const clipName = (name: string) => (name.length > 40 ? `${name.slice(0, 40)}…`
 
 // ── Denylist ────────────────────────────────────────────────────────────────
 
+/**
+ * Lowercase words of an app name, without parenthesized channel suffixes and a
+ * trailing "helper", so "ViewCode (Alpha)", "ViewCode Helper (Renderer)" and
+ * "viewcode" all read "viewcode".
+ */
 const normalize = (value: string) =>
   value
     .toLowerCase()
+    .replaceAll(/\([^)]*\)/g, " ")
     .replaceAll(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/(?:^|\s)helper$/, "")
     .trim();
 
-/** Normalized app names (as `normalize` leaves them). */
-const DENYLISTED_APP_NAMES: ReadonlySet<string> = new Set([
+/**
+ * Apps whose windows hold secrets or system security controls. Never
+ * observed or controlled, and a screenshot is refused while one overlaps the
+ * target, because a region capture shows whatever is on top.
+ */
+const PROTECTED_APP_NAMES: ReadonlySet<string> = new Set([
   "1password",
   "1password 7",
   "1password 8",
@@ -162,56 +175,123 @@ const DENYLISTED_APP_NAMES: ReadonlySet<string> = new Set([
   "dashlane",
   "keeper",
   "keeper password manager",
+  "keepassxc",
   "passwords",
   "keychain access",
   "system settings",
   "system preferences",
   "securityagent",
   "loginwindow",
-  "viewcode",
-  "t3 code",
-  "t3code",
-  "t3 code alpha",
-  "t3 code dev",
-  "viewcode dev",
 ]);
 
-/** Executable file names (normalized, without extension) that mark a denylisted app. */
-const DENYLISTED_EXECUTABLES: ReadonlySet<string> = new Set([
+/**
+ * Every name ViewCode ships under (package productName "ViewCode", launcher
+ * "ViewCode (Alpha)" / "ViewCode (Dev)", nightly "ViewCode (Nightly)", and
+ * upstream T3 Code's), after `normalize` drops the suffix. An agent must never
+ * reach ViewCode's own approval buttons.
+ */
+const VIEWCODE_APP_NAMES: ReadonlySet<string> = new Set(["viewcode", "t3 code", "t3code"]);
+
+/** Executable file names (normalized, without extension) that mark an app. */
+const PROTECTED_EXECUTABLES: ReadonlySet<string> = new Set([
   "1password",
   "bitwarden",
   "lastpass",
   "dashlane",
   "keeper",
   "keeperpasswordmanager",
-  "viewcode",
-  "t3code",
-  "t3 code",
+  "keepassxc",
   "securityagent",
   "loginwindow",
 ]);
+const VIEWCODE_EXECUTABLES: ReadonlySet<string> = new Set(["viewcode", "t3code", "t3 code"]);
 
 /**
- * Whether ViewCode refuses every command but `list-windows` on this window's
- * app. ViewCode itself is on the list so an agent can never click its own
- * approval buttons.
- *
- * `appIdentifier` is the executable path the driver reports (no bundle ids):
- * any `<Name>.app` bundle on that path counts as the app's name, so a helper
- * inside `ViewCode.app` or `1Password.app` is caught too, as is a renamed
- * window title.
+ * Whether the window's app is one of `names`, by its own name or by any
+ * `<Name>.app` bundle on its executable path (`appIdentifier` is the path the
+ * driver reports, never a bundle id). The bundle match catches helpers inside
+ * `ViewCode (Alpha).app` whose executable is just `Electron`.
  */
-export function isDenylistedApp(window: Pick<DriverWindow, "app" | "appIdentifier">): boolean {
-  if (DENYLISTED_APP_NAMES.has(normalize(window.app))) return true;
+function appMatches(
+  window: Pick<DriverWindow, "app" | "appIdentifier">,
+  names: ReadonlySet<string>,
+  executables: ReadonlySet<string>,
+): boolean {
+  if (names.has(normalize(window.app))) return true;
   const identifier = window.appIdentifier?.trim();
   if (!identifier) return false;
   const segments = identifier.split(/[\\/]/).filter((segment) => segment.length > 0);
   const bundles = segments.filter((segment) => /\.app$/i.test(segment));
-  if (bundles.some((bundle) => DENYLISTED_APP_NAMES.has(normalize(bundle.slice(0, -4))))) {
-    return true;
-  }
+  if (bundles.some((bundle) => names.has(normalize(bundle.slice(0, -4))))) return true;
   const executable = segments.at(-1)?.replace(/\.(exe|appimage)$/i, "");
-  return executable !== undefined && DENYLISTED_EXECUTABLES.has(normalize(executable));
+  return executable !== undefined && executables.has(normalize(executable));
+}
+
+/** Password managers and system security UI. */
+export function isProtectedApp(window: Pick<DriverWindow, "app" | "appIdentifier">): boolean {
+  return appMatches(window, PROTECTED_APP_NAMES, PROTECTED_EXECUTABLES);
+}
+
+/**
+ * Whether ViewCode refuses every command but `list-windows` on this window's
+ * app by name: protected apps and ViewCode itself. The service also refuses
+ * any window owned by a process in its own ancestry, which covers ViewCode
+ * whatever it is called.
+ */
+const BROWSER_APP_NAMES = new Set([
+  "safari",
+  "safari technology preview",
+  "google chrome",
+  "google chrome canary",
+  "chromium",
+  "arc",
+  "brave browser",
+  "microsoft edge",
+  "firefox",
+  "firefox developer edition",
+  "opera",
+  "vivaldi",
+  "orion",
+  "zen",
+  "zen browser",
+]);
+
+/** ViewCode's web app as a browser window title: "ViewCode", "ViewCode (Alpha) - Google Chrome", … */
+const VIEWCODE_PAGE_TITLE =
+  /^\s*(?:viewcode|t3 code)(?:\s*\([^)]*\))?(?:\s*[-\u2013\u2014|\u00b7].*)?\s*$/i;
+
+/**
+ * Defense in depth only: a browser tab showing ViewCode is recognised by its
+ * title, which a tab switch or a missing title defeats. The real guarantee
+ * against an agent answering its own approval is the input pause while any
+ * approval waits (`CU-CON-008`).
+ */
+function isViewCodeBrowserWindow(window: { readonly app: string; readonly title?: string }) {
+  return (
+    window.title !== undefined &&
+    BROWSER_APP_NAMES.has(window.app.trim().toLowerCase()) &&
+    VIEWCODE_PAGE_TITLE.test(window.title)
+  );
+}
+
+export function isDenylistedApp(
+  window: Pick<DriverWindow, "app" | "appIdentifier"> & { readonly title?: string },
+): boolean {
+  return (
+    isProtectedApp(window) ||
+    appMatches(window, VIEWCODE_APP_NAMES, VIEWCODE_EXECUTABLES) ||
+    isViewCodeBrowserWindow(window)
+  );
+}
+
+/** Whether two screen rects share any area. */
+export function rectsIntersect(left: ComputerUseRect, right: ComputerUseRect): boolean {
+  return (
+    left.x < right.x + right.width &&
+    right.x < left.x + left.width &&
+    left.y < right.y + right.height &&
+    right.y < left.y + left.height
+  );
 }
 
 // ── Destructive heuristic ───────────────────────────────────────────────────
@@ -247,7 +327,7 @@ const singleLine = (value: string, max: number) => {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 };
 
-const quoted = (value: string, max = 60) => {
+const quoted = (value: string, max = 80) => {
   const line = singleLine(value, max);
   return line.length > 0 ? `"${line}"` : "(no label)";
 };

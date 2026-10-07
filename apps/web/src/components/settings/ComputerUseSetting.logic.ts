@@ -33,7 +33,10 @@ export function describeComputerUseStatus(status: ComputerUseStatus): {
   }
   switch (status.accessibility) {
     case "granted":
-      return { ready: true, message: "Ready" };
+      return {
+        ready: true,
+        message: "Accessibility granted. Screenshots also need Screen Recording.",
+      };
     case "denied":
       return {
         ready: false,

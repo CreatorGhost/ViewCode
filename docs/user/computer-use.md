@@ -39,8 +39,9 @@ destructive, such as delete, send, submit, purchase or sign out, and shortcuts t
 windows always ask, in every mode. This check reads the control's label, so treat it as a safety
 net rather than a guarantee.
 
-Password managers, Keychain Access, System Settings and ViewCode itself can never be read or
-controlled by an agent. While any approval in the environment is waiting for you, agents cannot
+Password managers, Keychain Access, System Settings, ViewCode itself and the app or terminal that
+started ViewCode can never be read or controlled by an agent. Screenshots are refused while a
+password manager or System Settings window overlaps the window being captured. While any approval in the environment is waiting for you, agents cannot
 send input at all, so an agent can never answer an approval for itself, whether in ViewCode, in a
 browser tab showing ViewCode or on a mirrored screen.
 
@@ -57,4 +58,6 @@ permissions off in System Settings when you are not using computer use.
   reference.
 - Codex in a sandboxed permission mode may be unable to reach ViewCode from its shell. Use
   **Full access** for those threads.
+- Screenshots work for windows that sit entirely on the main display.
+- Computer use runs on macOS and Linux. Windows is not supported yet.
 - Command Code does not support computer use.
