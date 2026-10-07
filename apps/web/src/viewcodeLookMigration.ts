@@ -30,7 +30,27 @@ export function migrateToViewCodeLook(storage: Storage): boolean {
   if (theme === null || theme.startsWith("viewcode")) return false;
   const previous: PreviousLook = { theme, halves };
   storage.setItem(LOOK_MIGRATION_PREVIOUS_KEY, JSON.stringify(previous));
-  storage.setItem(THEME_KEY, "viewcode");
+  storage.setItem(THEME_KEY, "viewcode-teal");
+  storage.removeItem(THEME_HALVES_KEY);
+  return true;
+}
+
+export const TEAL_MIGRATION_KEY = "viewcode:look-migrated:teal-v1";
+
+/**
+ * One-time move from the plain "viewcode" theme (neutral grey, amber accent)
+ * to "viewcode-teal", ViewCode's default look since it became the default.
+ * Only profiles still on plain "viewcode" move; any other choice is kept, and
+ * the previous theme is stored so the user can undo it.
+ */
+export function migrateToTealLook(storage: Storage): boolean {
+  if (storage.getItem(TEAL_MIGRATION_KEY) !== null) return false;
+  storage.setItem(TEAL_MIGRATION_KEY, "1");
+  const theme = storage.getItem(THEME_KEY);
+  if (theme !== "viewcode") return false;
+  const previous: PreviousLook = { theme, halves: storage.getItem(THEME_HALVES_KEY) };
+  storage.setItem(LOOK_MIGRATION_PREVIOUS_KEY, JSON.stringify(previous));
+  storage.setItem(THEME_KEY, "viewcode-teal");
   storage.removeItem(THEME_HALVES_KEY);
   return true;
 }

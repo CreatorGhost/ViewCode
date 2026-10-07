@@ -16,7 +16,11 @@ import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
 import { installDesktopBackendWebSocket } from "./lib/desktopBackendWebSocket";
 import { stackedThreadToast, toastManager } from "./components/ui/toast";
-import { migrateToViewCodeLook, undoViewCodeLookMigration } from "./viewcodeLookMigration";
+import {
+  migrateToTealLook,
+  migrateToViewCodeLook,
+  undoViewCodeLookMigration,
+} from "./viewcodeLookMigration";
 
 // Before any connection opens: the desktop's local backend may be reachable
 // only through the main process.
@@ -27,6 +31,7 @@ installDesktopBackendWebSocket();
 let switchedToViewCodeLook = false;
 try {
   switchedToViewCodeLook = migrateToViewCodeLook(window.localStorage);
+  if (migrateToTealLook(window.localStorage)) switchedToViewCodeLook = true;
 } catch {
   // Storage unavailable: keep whatever theme resolves.
 }
