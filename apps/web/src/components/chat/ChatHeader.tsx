@@ -49,6 +49,8 @@ import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { OpenThreadTabs, type ActiveTabExtras } from "../tabs/OpenThreadTabs";
+import { useSplitPaneActions } from "../../splitView/SplitPaneContext";
+import { SplitPaneControls } from "../../splitView/SplitPaneControls";
 import { SidechatHeaderButton } from "./SidechatHeaderButton";
 
 interface ChatHeaderProps {
@@ -150,6 +152,7 @@ export const ChatHeader = memo(function ChatHeader({
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const headerActionsRef = useRef<HTMLDivElement | null>(null);
+  const splitPane = useSplitPaneActions();
   useEffect(() => {
     const actions = headerActionsRef.current;
     const container = actions?.parentElement;
@@ -451,8 +454,10 @@ export const ChatHeader = memo(function ChatHeader({
           activeRef={activeThreadRef}
           fallbackTitle={activeThreadTitle}
           activeExtras={activeTabExtras}
+          paneOnly={splitPane !== null}
         />
       </div>
+      {splitPane ? <SplitPaneControls {...splitPane} /> : null}
       {forkedFrom ? (
         <Link
           to="/$environmentId/$threadId"

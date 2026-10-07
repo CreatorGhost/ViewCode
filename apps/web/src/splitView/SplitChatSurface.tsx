@@ -1,11 +1,9 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeftRightIcon, XIcon } from "lucide-react";
 import { memo, useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import ChatView from "../components/ChatView";
-import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { cn } from "../lib/utils";
 import {
@@ -51,7 +49,10 @@ const SplitPane = memo(function SplitPane(props: SplitPaneProps) {
     status,
     stalled,
   });
-  const context = useMemo(() => ({ focused }), [focused]);
+  const context = useMemo(
+    () => ({ focused, onSwap, onClose: () => onClose(index) }),
+    [focused, onSwap, onClose, index],
+  );
   return (
     <SplitPaneContext value={context}>
       <section
@@ -61,32 +62,6 @@ const SplitPane = memo(function SplitPane(props: SplitPaneProps) {
         onPointerDownCapture={focused ? undefined : () => onFocus(threadRef)}
         onFocusCapture={focused ? undefined : () => onFocus(threadRef)}
       >
-        <div
-          className={cn(
-            "flex h-7 shrink-0 items-center gap-1 border-b border-border/60 ps-3 pe-1.5 text-xs",
-            focused ? "text-foreground" : "text-muted-foreground",
-          )}
-        >
-          <span className="min-w-0 flex-1 truncate font-medium">{shell?.title ?? "Thread"}</span>
-          <Button
-            aria-label="Swap panes"
-            size="icon-xs"
-            variant="ghost"
-            onClick={onSwap}
-            title="Swap panes"
-          >
-            <ArrowLeftRightIcon />
-          </Button>
-          <Button
-            aria-label="Close pane"
-            size="icon-xs"
-            variant="ghost"
-            onClick={() => onClose(index)}
-            title="Close pane"
-          >
-            <XIcon />
-          </Button>
-        </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {shell !== null || detail !== null ? (
             <ChatView

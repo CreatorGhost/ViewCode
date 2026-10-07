@@ -187,6 +187,8 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
   activeRef: ScopedThreadRef;
   fallbackTitle: string;
   activeExtras?: ActiveTabExtras | undefined;
+  /** Split-view pane: show only this pane's thread; the tab list belongs to a single chat. */
+  paneOnly?: boolean | undefined;
 }) {
   const navigate = useNavigate();
   const active = props.activeRef;
@@ -225,7 +227,8 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey, tabs]);
 
-  const showList = !!tabs && tabs.length >= 2 && activeKey !== null && tabs.includes(activeKey);
+  const showList =
+    !props.paneOnly && !!tabs && tabs.length >= 2 && activeKey !== null && tabs.includes(activeKey);
 
   const select = (key: string) => {
     const ref = parseScopedThreadKey(key);
