@@ -13,13 +13,43 @@ export function railRingTone(remainingPercent: number): RailRingTone {
   return "critical";
 }
 
-export type RailUsageRing = {
-  entry: ProviderInstanceEntry;
-  /** The most constrained window, which is what the ring draws. */
+export type RailRingTrack = {
   window: ServerProviderUsageWindow;
   remainingPercent: number;
   tone: RailRingTone;
 };
+
+export type RailUsageRing = {
+  entry: ProviderInstanceEntry;
+  /** The most constrained window: the button's label and the single-ring fallback. */
+  window: ServerProviderUsageWindow;
+  remainingPercent: number;
+  tone: RailRingTone;
+  /** What the ring draws, outermost first: weekly outside, the session window inside (as Synara does). */
+  tracks: ReadonlyArray<RailRingTrack>;
+};
+
+function track(window: ServerProviderUsageWindow): RailRingTrack {
+  const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent));
+  return { window, remainingPercent, tone: railRingTone(remainingPercent) };
+}
+
+/**
+ * Weekly outside and the session window inside when the account reports both;
+ * otherwise the one window it has. Named sublimits (`Fable`, `Opus`) stay in the card.
+ */
+export function railRingTracks(
+  windows: ReadonlyArray<ServerProviderUsageWindow>,
+  fallback: ServerProviderUsageWindow,
+): ReadonlyArray<RailRingTrack> {
+  // Model-scoped weeklies (`seven_day_fable`) are sublimits, not the account's week.
+  const weekly =
+    windows.find((window) => window.kind === "weekly" && !window.id.startsWith("seven_day_")) ??
+    windows.find((window) => window.kind === "weekly");
+  const session = windows.find((window) => window.kind === "session");
+  const picked = [weekly, session].filter((window) => window !== undefined);
+  return (picked.length > 0 ? picked : [fallback]).map(track);
+}
 
 /** The window closest to exhaustion; the ring warns about whichever limit hits first. */
 export function mostConstrainedWindow(
@@ -52,7 +82,8 @@ export function buildRailUsageRings(
       const window = mostConstrainedWindow(entry);
       if (!window) return [];
       const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent));
-      return [{ entry, window, remainingPercent, tone: railRingTone(remainingPercent) }];
+      const tracks = railRingTracks(entry.snapshot.usageLimits?.windows ?? [], window);
+      return [{ entry, window, remainingPercent, tone: railRingTone(remainingPercent), tracks }];
     });
 }
 

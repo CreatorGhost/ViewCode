@@ -654,44 +654,27 @@ html[data-window-glass="true"]:not(.dark) [data-slot="composer-shell"] {
   }
 }
 
-/* Rail usage card: a neutral surface that never takes the theme's hue (a navy
-   or green theme tints the sidebar, and the card used to inherit it). Text and
-   tracks are neutral too; only the usage tones carry colour. */
-:root {
-  --vc-usage-card-bg: #1c1c1e;
-  --vc-usage-card-edge: rgb(255 255 255 / 0.08);
-  --vc-usage-card-fg: #e8e8ea;
-  --vc-usage-card-muted: #9a9a9f;
-  --vc-usage-card-track: rgb(255 255 255 / 0.1);
-}
-html:not(.dark) {
-  --vc-usage-card-bg: #ffffff;
-  --vc-usage-card-edge: rgb(0 0 0 / 0.08);
-  --vc-usage-card-fg: #1d1d1f;
-  --vc-usage-card-muted: #6e6e73;
-  --vc-usage-card-track: rgb(0 0 0 / 0.08);
-}
+/* Rail usage card: the theme's own popover surface, the one the chat's menus use,
+   so it matches the chat area in every theme instead of the sidebar's tint.
+   Translucent with a blur, as Synara draws its hover cards; only the usage
+   tones carry colour. */
 [data-slot="preview-card-popup"]:has([data-rail-usage-card]) {
-  background-color: var(--vc-usage-card-bg);
-  border-color: var(--vc-usage-card-edge);
+  position: relative;
+  overflow: hidden;
+  background-color: color-mix(in srgb, var(--popover) 82%, transparent);
+  color: var(--popover-foreground);
+  border-color: var(--border);
 }
-[data-rail-usage-card] {
-  background-color: var(--vc-usage-card-bg);
-  color: var(--vc-usage-card-fg);
+[data-slot="preview-card-popup"]:has([data-rail-usage-card])::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  backdrop-filter: blur(40px) saturate(1.5);
+  pointer-events: none;
 }
-[data-rail-usage-card] :is(.text-sidebar-muted-foreground) {
-  color: var(--vc-usage-card-muted);
-}
-[data-rail-usage-card] .hover\:text-sidebar-foreground:hover {
-  color: var(--vc-usage-card-fg);
-}
-[data-rail-usage-card] .bg-sidebar-foreground\/10 {
-  background-color: var(--vc-usage-card-track);
-}
-/* The ring's hover/open state: a neutral wash, not the sidebar's tinted row. */
+/* The ring's hover/open state: a plain foreground wash, not the sidebar's tinted row. */
 [data-rail-usage-ring]:is(:hover, [data-popup-open]) {
-  background-color: rgb(255 255 255 / 0.06);
-}
-html:not(.dark) [data-rail-usage-ring]:is(:hover, [data-popup-open]) {
-  background-color: rgb(0 0 0 / 0.05);
+  background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
 }

@@ -2,7 +2,7 @@ import { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
-import { buildRailUsageRings, railRingTone, resolveRailEnvironmentId } from "./appRail.logic";
+import { buildRailUsageRings, railRingTone, railRingTracks, resolveRailEnvironmentId } from "./appRail.logic";
 
 function entry(
   id: string,
@@ -112,5 +112,25 @@ describe("resolveRailEnvironmentId", () => {
         primaryEnvironmentId: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe("railRingTracks", () => {
+  const w = (id: string, kind: "session" | "weekly" | "monthly" | "other", usedPercent: number) => ({ id, kind, label: id, usedPercent });
+
+  it("draws weekly outside and the session inside, skipping model-scoped weeklies", () => {
+    const tracks = railRingTracks(
+      [w("five_hour", "session", 73), w("seven_day_fable", "weekly", 0), w("seven_day", "weekly", 46)],
+      w("five_hour", "session", 73),
+    );
+    expect(tracks.map((t) => [t.window.id, t.remainingPercent])).toEqual([
+      ["seven_day", 54],
+      ["five_hour", 27],
+    ]);
+  });
+
+  it("keeps the one window an account reports", () => {
+    const only = w("primary", "weekly", 2);
+    expect(railRingTracks([only], only).map((t) => t.window.id)).toEqual(["primary"]);
   });
 });
