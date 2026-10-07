@@ -47,7 +47,6 @@ const pngSize = (png: Uint8Array) => {
 const makeHarness = (
   options: {
     readonly foregroundPid?: number | null | (() => number | null);
-    readonly screenshotDenied?: boolean;
     readonly platform?: NodeJS.Platform;
     readonly receiveText?: (text: string) => Promise<void>;
     readonly captureWindow?: Xa11yApi["captureWindow"];
@@ -85,10 +84,7 @@ const makeHarness = (
     pointerDrag: async (from, to) => void sent.push(["drag", [from.x, from.y], [to.x, to.y]]),
     releaseMouse: async () => void sent.push(["releaseMouse"]),
     captureWindow: options.captureWindow ?? (async () => null),
-    screenshot: async () => {
-      if (!options.screenshotDenied) return retinaShot;
-      throw Object.assign(new Error("denied"), { name: "PermissionDeniedError" });
-    },
+    screenshot: async () => retinaShot,
     executablePaths: async (pids) => new Map(pids.map((pid) => [pid, `/apps/${pid}`])),
     writeFile: async (_path, bytes) => void written.push(bytes),
     activateApp: async () => undefined,
@@ -259,7 +255,11 @@ describe("driver core over the xa11y test app", () => {
   });
 
   it("maps a denied screenshot to the Screen Recording permission", async () => {
-    const harness = makeHarness({ screenshotDenied: true });
+    const harness = makeHarness({
+      captureWindow: async () => {
+        throw Object.assign(new Error("denied"), { name: "PermissionDeniedError" });
+      },
+    });
     const window = await harness.firstWindow();
     expect(
       await harness.call({
@@ -271,8 +271,58 @@ describe("driver core over the xa11y test app", () => {
     ).toMatchObject({ ok: false, error: { kind: "permission-screen", dispatched: "no" } });
   });
 
+  it("isolates macOS windows even when accessibility reports them as frontmost", async () => {
+    const harness = makeHarness({ captureWindow: async () => ({ width: 1000, height: 750 }) });
+    const window = await harness.firstWindow();
+    expect(
+      await harness.call({
+        op: "screenshot",
+        window: window.handle,
+        outputPath: "/tmp/x.png",
+        maxSize: 1000,
+      }),
+    ).toEqual({ ok: true, result: { width: 1000, height: 750, bounds: WINDOW_BOUNDS } });
+    // Region capture writes these bytes, so none means no screen-region fallback.
+    expect(harness.written).toEqual([]);
+  });
+
+  it.each([true, false])(
+    "refuses a macOS capture without an isolated window (front=%s)",
+    async (front) => {
+      const harness = makeHarness({ foregroundPid: front ? TEST_PID : null });
+      const window = await harness.firstWindow();
+      expect(
+        await harness.call({
+          op: "screenshot",
+          window: window.handle,
+          outputPath: "/tmp/x.png",
+          maxSize: 1000,
+        }),
+      ).toMatchObject({ ok: false, error: { kind: "failed", dispatched: "no" } });
+      expect(harness.written).toEqual([]);
+    },
+  );
+
+  it("does not return unrelated screen pixels when macOS window capture throws", async () => {
+    const harness = makeHarness({
+      captureWindow: async () => {
+        throw new Error("capture unavailable");
+      },
+    });
+    const window = await harness.firstWindow();
+    expect(
+      await harness.call({
+        op: "screenshot",
+        window: window.handle,
+        outputPath: "/tmp/x.png",
+        maxSize: 1000,
+      }),
+    ).toMatchObject({ ok: false, error: { kind: "failed", dispatched: "no" } });
+    expect(harness.written).toEqual([]);
+  });
+
   it("downscales a Retina capture and reports the logical bounds it covers", async () => {
-    const harness = makeHarness();
+    const harness = makeHarness({ platform: "linux" });
     const window = await harness.firstWindow();
     const shrunk = await harness.call({
       op: "screenshot",

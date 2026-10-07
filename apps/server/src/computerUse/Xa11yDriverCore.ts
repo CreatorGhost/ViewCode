@@ -69,7 +69,8 @@ export interface Xa11yApi {
   /**
    * Captures only the window's own pixels (covering windows left out) as a
    * PNG at `outputPath`, longest edge at most `maxSize`. Null when the
-   * platform cannot isolate this window; the driver then captures its region.
+   * platform cannot isolate this window. macOS must refuse in that case:
+   * a screen-region capture can belong to another app or Space.
    */
   readonly captureWindow: (
     pid: number,
@@ -1089,15 +1090,14 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         failure("failed", "The window is not fully on the main display; move it there."),
       );
     }
-    // A window in front is captured as its screen region, which is quicker.
-    // Behind others, only its own pixels: the region would show what covers
-    // it, while coordinate input brings it to the front before acting.
-    if (!(await isFront(entry, window))) {
+    // AX focus can outlive a Space switch. On macOS even a window reported
+    // frontmost must be captured by Quartz identity, never its screen region.
+    if (platform === "darwin" || !(await isFront(entry, window))) {
       let isolated: { readonly width: number; readonly height: number } | null;
       try {
         isolated = await api.captureWindow(entry.pid, bounds, outputPath, maxSize);
       } catch (error) {
-        if (errorName(error) === "PermissionDeniedError") {
+        if (platform === "darwin" || errorName(error) === "PermissionDeniedError") {
           throw new Refusal({
             ok: false,
             error: classifyXa11yError(error, { afterDispatch: false, screen: true }),
@@ -1106,6 +1106,14 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         isolated = null;
       }
       if (isolated) return { ...isolated, bounds: { ...bounds } };
+      if (platform === "darwin") {
+        throw new Refusal(
+          failure(
+            "failed",
+            "Could not isolate the window on this desktop. Bring it onto the current desktop and list windows again.",
+          ),
+        );
+      }
     }
     let shot: Screenshot;
     try {

@@ -1160,7 +1160,7 @@ it("reuses a display read briefly and re-reads it when it misses or ages", async
   const core = makeCore([app], {
     clock,
     primaryDisplay: () => display,
-    capture: async () => ({ width: 2, height: 2, toPng: () => new Uint8Array([1]) }) as never,
+    captureWindow: async () => ({ width: 2, height: 2 }),
   });
   const [note] = await core.list();
   const shoot = () =>

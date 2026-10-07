@@ -136,7 +136,8 @@ const permissionDenied = () =>
  * Captures only the window's own pixels, even where other windows cover it,
  * scaled so its longest edge is at most `maxSize`. Null when the window has
  * no single on-screen Quartz window at these bounds (minimized, another
- * Space, or two at the same spot); the caller then captures the screen region.
+ * Space, or two at the same spot); the caller must refuse rather than return
+ * another window's pixels from a screen-region capture.
  */
 export const macCaptureWindow = async (
   pid: number,

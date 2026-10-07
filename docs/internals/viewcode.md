@@ -351,8 +351,10 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   its drag presses the top-left screen corner. On macOS the driver posts drags and the
   dead-worker button release itself as positioned Quartz events from a constant JXA script run
   by `/usr/bin/osascript` (`MacQuartz.ts`), which needs no compiler on the user's Mac; its
-  `click` is positioned and stays on xa11y. The same file captures a window that is not in front
-  with `screencapture -l` so covering windows stay out of the image. xa11y's macOS `typeText`
+  `click` is positioned and stays on xa11y. Every macOS window capture uses `screencapture -l`
+  and refuses if the window cannot be isolated: AX focus can survive a Space switch, so a
+  screen-region fallback can return another app's pixels even for a supposedly focused window.
+  xa11y's macOS `typeText`
   sends 20 characters per key event and some apps keep only the first, so text goes one code
   point per event. AXValue and AXSelectedText writes can succeed without changing a web field
   (Safari), so the driver re-reads the value and types by keyboard when it did not change.
