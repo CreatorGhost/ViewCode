@@ -118,7 +118,6 @@ import {
   GlobeIcon,
   HammerIcon,
   MessageCircleIcon,
-  ArrowRightLeftIcon,
   Minimize2Icon,
   MousePointerClickIcon,
   PaintbrushIcon,
@@ -170,6 +169,7 @@ import {
 } from "./timelineScrollAnchoring";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { ForkFromMessageButton } from "../agents/ForkFromMessageButton";
+import { HandoffDivider } from "./HandoffDivider";
 import { ForkSourceDivider } from "../agents/ForkSourceDivider";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { inferEntryKindFromPath } from "../../pierre-icons";
@@ -1954,28 +1954,16 @@ function ContextCompactionTimelineRow({
 }) {
   const ctx = use(TimelineRowCtx);
   if (row.variant === "fork" && row.forkedFrom) {
-    return <ForkSourceDivider
+    return (
+      <ForkSourceDivider
         label={row.label}
         source={row.forkedFrom}
         environmentId={ctx.threadRef?.environmentId}
-      />;
+      />
+    );
   }
   if (row.variant === "handoff") {
-    return (
-      <div
-        role="separator"
-        aria-label={row.label}
-        data-timeline-handoff=""
-        className="mx-auto flex w-full max-w-chat items-center gap-3 py-2 text-xs"
-      >
-        <span className="h-px flex-1 bg-update/30" />
-        <span className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-update/30 bg-update-surface px-3 py-1 text-center text-update-foreground">
-          <ArrowRightLeftIcon aria-hidden="true" className="size-3" />
-          {row.label}
-        </span>
-        <span className="h-px flex-1 bg-update/30" />
-      </div>
-    );
+    return <HandoffDivider entry={{ label: row.label, handoff: row.handoff }} label={row.label} />;
   }
   return (
     <div

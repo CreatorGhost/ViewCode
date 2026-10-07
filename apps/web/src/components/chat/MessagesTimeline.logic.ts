@@ -48,6 +48,7 @@ import { agentToolkitLabel, handoffDividerLabel } from "./agentTimeline.logic";
 import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 
 export const HANDOFF_ACTIVITY_KIND = "viewcode.handoff";
+export const SESSION_RESUME_FALLBACK_ACTIVITY_KIND = "viewcode.session.resume-fallback";
 export const THREAD_FORKED_ACTIVITY_KIND = "viewcode.thread.forked";
 
 /** Activities that render as a full-width divider instead of a work row. */
@@ -55,6 +56,7 @@ export function isTimelineDividerActivityKind(kind: string | undefined): boolean
   return (
     kind === "context-compaction" ||
     kind === HANDOFF_ACTIVITY_KIND ||
+    kind === SESSION_RESUME_FALLBACK_ACTIVITY_KIND ||
     kind === THREAD_FORKED_ACTIVITY_KIND
   );
 }
@@ -442,6 +444,8 @@ export type MessagesTimelineRow =
       variant: "compaction" | "handoff" | "fork";
       /** Set on a fork divider: the thread it was forked from. */
       forkedFrom?: { threadId: string; title: string };
+      /** Set on a handoff card: what moved, for the expandable detail. */
+      handoff?: WorkLogEntry["handoff"];
     }
   | {
       /** A message another agent delivered to this thread (a user turn). */
@@ -1358,18 +1362,19 @@ export function deriveMessagesTimelineRows(input: {
       timelineEntry.kind === "work" &&
       isTimelineDividerActivityKind(timelineEntry.entry.sourceActivityKind)
     ) {
-      const isHandoff = timelineEntry.entry.sourceActivityKind === HANDOFF_ACTIVITY_KIND;
+      const isHandoff =
+        timelineEntry.entry.sourceActivityKind === HANDOFF_ACTIVITY_KIND ||
+        timelineEntry.entry.sourceActivityKind === SESSION_RESUME_FALLBACK_ACTIVITY_KIND;
       nextRows.push({
         kind: "context-compaction",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         label: isHandoff ? handoffDividerLabel(timelineEntry.entry) : timelineEntry.entry.label,
-        variant: isHandoff
-          ? "handoff"
-          : timelineEntry.entry.forkedFrom
-            ? "fork"
-            : "compaction",
+        variant: isHandoff ? "handoff" : timelineEntry.entry.forkedFrom ? "fork" : "compaction",
         ...(timelineEntry.entry.forkedFrom ? { forkedFrom: timelineEntry.entry.forkedFrom } : {}),
+        ...(isHandoff && timelineEntry.entry.handoff
+          ? { handoff: timelineEntry.entry.handoff }
+          : {}),
       });
       continue;
     }
@@ -1806,7 +1811,12 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "context-compaction": {
       const bc = b as typeof a;
-      return a.createdAt === bc.createdAt && a.label === bc.label && a.variant === bc.variant;
+      return (
+        a.createdAt === bc.createdAt &&
+        a.label === bc.label &&
+        a.variant === bc.variant &&
+        a.handoff?.summary === bc.handoff?.summary
+      );
     }
 
     case "agent-message-in":
