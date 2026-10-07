@@ -1657,15 +1657,52 @@ describe("ComputerUseService results and logs", () => {
         "CU-NOT-001",
       );
 
-      // A plain stale window still reads as closed.
+      // A stale handle need not mean that the app window closed.
       const third = yield* observeNotes(harness);
       harness.failNext = new ComputerDriverError({
         kind: "stale",
         message: "gone",
         dispatched: "no",
       });
-      const closed = yield* send(harness, { command: "key", window: third.window, keys: "enter" });
-      expect(!closed.ok && closed.error.message).toMatch(/is closed/);
+      const stale = yield* send(harness, { command: "key", window: third.window, keys: "enter" });
+      expect(!stale.ok && stale.error.message).toMatch(
+        /can no longer identify window.*list-windows/,
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("reports lost window identity after partial typing without claiming closure", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      harness.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(harness);
+      harness.failNext = new ComputerDriverError({
+        kind: "stale",
+        message: "The window has closed or can no longer be told apart.",
+        dispatched: "unknown",
+      });
+
+      const typed = yield* send(harness, {
+        command: "type-focused",
+        window: refs.window,
+        text: "partial input",
+      });
+      expectError(typed, "CU-NOT-001", "dispatched-unknown");
+      expect(!typed.ok && typed.error.message).toMatch(
+        /can no longer identify window.*list-windows/,
+      );
+      expect(!typed.ok && typed.error.message).not.toMatch(/closed/);
+      expectError(
+        yield* send(harness, { command: "key", window: refs.window, keys: "enter" }),
+        "CU-NOT-001",
+      );
+
+      // The driver still lists the document; rediscovery gives it a fresh id.
+      const rediscovered = yield* observeNotes(harness);
+      expect(rediscovered.window).not.toBe(refs.window);
+      expect(
+        yield* send(harness, { command: "key", window: rediscovered.window, keys: "enter" }),
+      ).toMatchObject({ ok: true, result: { effect: "dispatched" } });
     }).pipe(Effect.scoped),
   );
 

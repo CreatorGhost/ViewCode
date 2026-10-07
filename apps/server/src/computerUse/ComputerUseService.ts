@@ -546,10 +546,8 @@ export const make = Effect.gen(function* () {
     );
 
   /**
-   * A handle the driver no longer knows. Usually the window closed under us;
-   * when the driver says its worker restarted, every handle it minted before
-   * is gone but the window probably is not, so the agent is told to list
-   * windows again instead of being told the window closed.
+   * A stale native handle does not prove that the app window closed. Retire
+   * it and ask for rediscovery; a worker restart gets its own explanation.
    */
   const windowGone = (
     caller: ComputerUseCaller,
@@ -563,7 +561,7 @@ export const make = Effect.gen(function* () {
         "CU-NOT-001",
         error.reason === "restarted"
           ? DRIVER_RESTARTED_WINDOW
-          : `Window ${window.id} is closed. Run \`viewcode-computer list-windows\`.`,
+          : `The driver can no longer identify window ${window.id}. Run \`viewcode-computer list-windows\`.`,
         effect,
       ),
     );
