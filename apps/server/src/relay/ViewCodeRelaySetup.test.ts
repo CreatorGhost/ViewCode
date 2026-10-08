@@ -238,7 +238,7 @@ describe("ViewCodeRelaySetup", () => {
       const { store, data } = makeMemoryStore({});
       const { probe, probed } = makeProbe([ok]);
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe,
       });
@@ -292,7 +292,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { store, data } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
         http: cloudflare.http,
@@ -350,7 +350,7 @@ describe("ViewCodeRelaySetup", () => {
       );
       const { store } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
         http: cloudflare.http,
@@ -386,7 +386,7 @@ describe("ViewCodeRelaySetup", () => {
         );
         const { store, data } = makeMemoryStore({});
         const setup = yield* makeSetup({
-          prepare: Effect.succeed(wrangler.session),
+          prepare: () => Effect.succeed(wrangler.session),
           store,
           probe: makeProbe([ok]).probe,
           http: cloudflare.http,
@@ -420,7 +420,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { store, data } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
@@ -455,7 +455,7 @@ describe("ViewCodeRelaySetup", () => {
       const cloudflare = makeFakeCloudflare(freshAccount());
       const { store, data } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
         http: cloudflare.http,
@@ -520,7 +520,7 @@ describe("ViewCodeRelaySetup", () => {
         enabled: true,
       });
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
@@ -550,7 +550,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const later = makeMemoryStore({ secret: "stored-secret-value", relay, url: WORKER_URL });
       const again = yield* makeSetup({
-        prepare: Effect.succeed(gone.session),
+        prepare: () => Effect.succeed(gone.session),
         store: later.store,
         probe: makeProbe([ok]).probe,
       });
@@ -577,7 +577,7 @@ describe("ViewCodeRelaySetup", () => {
         const cloudflare = makeFakeCloudflare(freshAccount());
         const { store } = makeMemoryStore({});
         const setup = yield* makeSetup({
-          prepare: Effect.succeed(wrangler.session),
+          prepare: () => Effect.succeed(wrangler.session),
           store,
           probe: makeProbe([ok]).probe,
           http: cloudflare.http,
@@ -603,7 +603,7 @@ describe("ViewCodeRelaySetup", () => {
       const { store } = makeMemoryStore({});
       const { probe, probed } = makeProbe([reset, reset, reset, ok]);
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe,
       });
@@ -637,7 +637,7 @@ describe("ViewCodeRelaySetup", () => {
       const { store, data } = makeMemoryStore({});
       const { probe } = makeProbe([reset]);
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe,
       });
@@ -657,7 +657,7 @@ describe("ViewCodeRelaySetup", () => {
       const { store } = makeMemoryStore({ secret: "stored-secret-value", url: WORKER_URL });
       const { probe } = makeProbe([rejected]);
       const setup = yield* makeSetup({
-        prepare: Effect.die("reuse needs no wrangler"),
+        prepare: () => Effect.die("reuse needs no wrangler"),
         store,
         probe,
       });
@@ -681,7 +681,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { probe, probed } = makeProbe([ok]);
       const setup = yield* makeSetup({
-        prepare: Effect.die("reuse needs no wrangler"),
+        prepare: () => Effect.die("reuse needs no wrangler"),
         store,
         probe,
       });
@@ -705,7 +705,7 @@ describe("ViewCodeRelaySetup", () => {
           });
           const { store, data } = makeMemoryStore({ secret: "stored-secret-value", relay });
           const setup = yield* makeSetup({
-            prepare: Effect.succeed(wrangler.session),
+            prepare: () => Effect.succeed(wrangler.session),
             store,
             probe: makeProbe([ok]).probe,
           });
@@ -739,7 +739,7 @@ describe("ViewCodeRelaySetup", () => {
         enabled: true,
       });
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
@@ -772,7 +772,7 @@ describe("ViewCodeRelaySetup", () => {
         enabled: true,
       });
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
@@ -798,7 +798,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { store, data } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
@@ -817,7 +817,7 @@ describe("ViewCodeRelaySetup", () => {
     Effect.gen(function* () {
       const { store } = makeMemoryStore({ secret: "stored-secret-value", url: WORKER_URL });
       const setup = yield* makeSetup({
-        prepare: Effect.die("reuse needs no wrangler"),
+        prepare: () => Effect.die("reuse needs no wrangler"),
         store,
         probe: makeProbe([reset]).probe,
       });

@@ -29,7 +29,10 @@ scope its RPCs require, because it carries the sign-in code):
 
 1. Finds `npx` on the server's PATH and checks `node --version` (22 or newer;
    `--use-system-ca` is added to `NODE_OPTIONS` from 22.15, older Node runs with the
-   bundled roots). No Node: "Quick connect setup needs Node.js".
+   bundled roots). Without a usable one, the desktop app downloads npm
+   (`relay/bundledNpm.ts`, version and integrity pinned) once into
+   `<T3 home>/caches/npm-<version>/` and runs its `npx` under its own Electron
+   binary. Elsewhere, or if that download fails: "Quick connect setup needs Node.js".
 2. Stages the Worker in a temporary folder: the sources from `infra/` in a checkout, or
    the copy the server build puts in `apps/server/dist/viewcode-relay-worker/`, which
    ships in the desktop app and the npm package. A generated `wrangler.json` points the

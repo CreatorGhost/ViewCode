@@ -101,7 +101,10 @@ export interface RelaySetupStore {
 export type ProbeRelay = (origin: string, secret: string) => Effect.Effect<RelayProbeOutcome>;
 
 export interface RelaySetupDeps {
-  readonly prepare: Effect.Effect<WranglerSession, RelaySetupFailure, Scope.Scope>;
+  /** `showProgress` replaces the "checking tools" message, e.g. during a one-time download. */
+  readonly prepare: (
+    showProgress: (message: string) => Effect.Effect<void>,
+  ) => Effect.Effect<WranglerSession, RelaySetupFailure, Scope.Scope>;
   readonly store: RelaySetupStore;
   readonly probe: ProbeRelay;
   /** For the Cloudflare API calls that create a missing workers.dev subdomain. */
@@ -210,6 +213,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
       details === "" ? next : { ...next, details };
     const setStep = (step: ViewCodeRelaySetupStep, extra: Partial<ViewCodeRelaySetupState> = {}) =>
       publish(withDetails({ status: "running", step, message: STEP_MESSAGE[step], ...extra }));
+    const showToolProgress = (message: string) => setStep("checking-tools", { message });
     const redact = (text: string) => redactSecrets(stripAnsi(text), secrets);
     const appendDetails = (text: string) => {
       const kept = redact(text).trim();
@@ -363,7 +367,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
     const deploy = (options: DeployOptions) =>
       Effect.gen(function* () {
         yield* setStep("checking-tools");
-        const wrangler = yield* deps.prepare;
+        const wrangler = yield* deps.prepare(showToolProgress);
         const remembered = yield* deps.store.readRelayState;
         const name =
           remembered !== null && isValidWorkerName(remembered.name)
@@ -481,7 +485,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         if (remembered !== null && !localOnly) {
           const deleted = yield* Effect.gen(function* () {
             yield* setStep("checking-tools");
-            const wrangler = yield* deps.prepare;
+            const wrangler = yield* deps.prepare(showToolProgress);
             secrets = [yield* deps.store.readSecret];
             yield* signIn(wrangler);
             // A relay set up before the account was remembered relies on wrangler's own choice.
@@ -743,10 +747,14 @@ export const layer = Layer.effect(
     };
 
     return yield* makeRelaySetup({
-      prepare: prepareNodeWrangler(import.meta.dirname).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-        Effect.provideService(Path.Path, path),
-      ),
+      prepare: (showProgress) =>
+        prepareNodeWrangler({
+          here: import.meta.dirname,
+          cacheDir: path.join(config.baseDir, "caches"),
+        })(showProgress).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+        ),
       store,
       probe: probeRelay,
       http,

@@ -579,8 +579,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
   frames cannot help because the stock phone expects one WebSocket message.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
-  runs `npx --yes wrangler@4` from PATH: the server may run as Electron-as-node, so it never
-  uses its own executable, and a missing Node is a message, not a crash. `infra/` does not
+  runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works: the server
+  is Electron-as-node there, so it downloads only npm (pinned version and integrity,
+  `relay/bundledNpm.ts`) and runs its `npx-cli.js` under its own executable with
+  `ELECTRON_RUN_AS_NODE=1`, a `node` shim first on PATH because wrangler's shebang, npm
+  install scripts and esbuild's postinstall start `node` by name. wrangler itself is not
+  bundled: its `workerd` dependency is about 100 MB per platform, and npx caches it anyway.
+  Under `npx t3` a missing Node is a message, not a crash. `infra/` does not
   ship, so the server build copies the Worker's TypeScript sources to
   `dist/viewcode-relay-worker/` and setup stages them with a generated `wrangler.json`
   whose `alias` maps `@t3tools/shared/viewcodeRelayProtocol` to the flat copy; wrangler
