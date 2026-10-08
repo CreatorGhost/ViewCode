@@ -2,8 +2,10 @@
 /**
  * The IPC loop of the computer-use driver process. The server forks it with
  * the app's own executable and `ELECTRON_RUN_AS_NODE=1`, so on macOS it runs
- * as the app and shares its Accessibility and Screen Recording grants
- * (Electron's Helper executable has neither). See `Xa11yComputerDriver.ts`.
+ * as the app and uses its Accessibility and Screen Recording grants.
+ * `VIEWCODE_COMPUTER_DRIVER_HOST=helper` opts into the sibling Helper host;
+ * its grant attribution must be checked in the actual desktop build before
+ * changing the default. See `Xa11yComputerDriver.ts`.
  *
  * xa11y loads on the first request, so a missing native module answers
  * `status` with "unavailable" instead of killing the process.
