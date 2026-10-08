@@ -117,3 +117,15 @@ export function resolveThreadTabCommand(
     ? command
     : null;
 }
+
+/**
+ * A child agent's tab names its lead first ("Lead › child"), so sibling children of different
+ * leads stay apart. `lead` is null when there is no lead or it isn't loaded.
+ */
+export function threadTabTitle(
+  title: string,
+  leadTitle: string | null | undefined,
+): { readonly lead: string | null; readonly title: string; readonly full: string } {
+  const lead = leadTitle?.trim() || null;
+  return { lead, title, full: lead ? `${lead} › ${title}` : title };
+}

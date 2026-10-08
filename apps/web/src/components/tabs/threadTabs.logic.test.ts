@@ -11,6 +11,7 @@ import {
   recentViewCandidates,
   resolveThreadTabCommand,
   stepRecentSelection,
+  threadTabTitle,
   touchRecentView,
 } from "./threadTabs.logic";
 
@@ -111,5 +112,25 @@ describe("resolveThreadTabCommand", () => {
     expect(
       resolveThreadTabCommand(closeTab, DEFAULT_RESOLVED_KEYBINDINGS, options(true)),
     ).toBeNull();
+  });
+});
+
+describe("threadTabTitle", () => {
+  it("names a child agent's lead first", () => {
+    expect(threadTabTitle("sol-tuning-api", "Printer Setup")).toEqual({
+      lead: "Printer Setup",
+      title: "sol-tuning-api",
+      full: "Printer Setup › sol-tuning-api",
+    });
+  });
+
+  it("is just the title without a loaded or named lead", () => {
+    for (const lead of [null, undefined, "", "  "]) {
+      expect(threadTabTitle("sol-tuning-api", lead)).toEqual({
+        lead: null,
+        title: "sol-tuning-api",
+        full: "sol-tuning-api",
+      });
+    }
   });
 });

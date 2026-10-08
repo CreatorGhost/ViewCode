@@ -16,12 +16,19 @@ import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../../
 import { useThreadShells } from "../../state/entities";
 import { environmentShell } from "../../state/shell";
 import { resolveThreadRouteRef } from "../../threadRoutes";
+import type { ThreadShell } from "../../types";
 import { useThreadTabsStore } from "../../threadTabsStore";
 import { useUiStateStore } from "../../uiStateStore";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { isSidechat } from "../chat/sidechat.logic";
-import { hasUnseenCompletion, resolveSidebarThreadStatus } from "../Sidebar.logic";
-import { adjacentThreadTab, resolveThreadTabCommand } from "./threadTabs.logic";
+import {
+  hasUnseenCompletion,
+  resolveSidebarThreadStatus,
+  type SidebarThreadStatus,
+} from "../Sidebar.logic";
+import { threadStatusGlyph } from "../sidebar/ThreadStatusGlyph";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { adjacentThreadTab, resolveThreadTabCommand, threadTabTitle } from "./threadTabs.logic";
 
 function useActiveThreadRef(): ScopedThreadRef | null {
   return useParams({ strict: false, select: (params) => resolveThreadRouteRef(params) });
@@ -129,8 +136,10 @@ export interface ActiveTabExtras {
 const TabItem = memo(function TabItem(props: {
   threadKey: string;
   title: string;
+  /** A child agent's lead, named before the child's own title. */
+  leadTitle: string | null;
   driverKind: string | null;
-  running: boolean;
+  status: SidebarThreadStatus;
   unread: boolean;
   /** The agent finished or is waiting on the user, and the tab hasn't been opened since. */
   attention?: boolean | undefined;
@@ -142,6 +151,8 @@ const TabItem = memo(function TabItem(props: {
   closable?: boolean;
 }) {
   const extras = props.active ? props.activeExtras : undefined;
+  const title = threadTabTitle(props.title, props.leadTitle);
+  const statusGlyph = threadStatusGlyph(props.status, "xs");
   const Icon = props.driverKind
     ? (PROVIDER_ICON_BY_PROVIDER as Record<string, React.ComponentType<{ className?: string }>>)[
         props.driverKind
@@ -184,7 +195,20 @@ const TabItem = memo(function TabItem(props: {
       )}
     >
       {extras?.glyph ?? (Icon ? <Icon className="size-3 shrink-0 opacity-70" /> : null)}
-      {extras?.renameField ?? <span className="min-w-0 flex-1 truncate">{props.title}</span>}
+      {extras?.renameField ??
+        (title.lead ? (
+          // The lead gives way first, so the child's own name stays readable; hover shows both.
+          <Tooltip>
+            <TooltipTrigger render={<span className="flex min-w-0 flex-1" />}>
+              <span className="min-w-0 shrink-[999] truncate">{title.lead}</span>
+              <span className="shrink-0 px-1 opacity-60">›</span>
+              <span className="min-w-0 truncate">{title.title}</span>
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">{title.full}</TooltipPopup>
+          </Tooltip>
+        ) : (
+          <span className="min-w-0 flex-1 truncate">{title.title}</span>
+        ))}
       {extras?.onClick && !extras.renameField ? (
         <ChevronDownIcon
           aria-hidden
@@ -192,15 +216,15 @@ const TabItem = memo(function TabItem(props: {
           className="size-3.5 shrink-0 text-muted-foreground"
         />
       ) : null}
-      {props.running ? (
-        <span aria-label="Running" className="size-1.5 shrink-0 rounded-full bg-primary" />
+      {statusGlyph ? (
+        <span className="flex shrink-0">{statusGlyph}</span>
       ) : props.unread ? (
         <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-success" />
       ) : null}
       {props.closable === false ? null : (
         <button
           type="button"
-          aria-label={`Close ${props.title}`}
+          aria-label={`Close ${title.full}`}
           onClick={(event) => {
             event.stopPropagation();
             props.onClose(props.threadKey);
@@ -255,6 +279,13 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
       ),
     [shells],
   );
+  // A child agent's lead lives in the same environment, so it is found the way the tab's own shell is.
+  const leadTitleOf = (shell: ThreadShell) =>
+    shell.parentThreadId
+      ? (byKey.get(
+          scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.parentThreadId }),
+        )?.title ?? null)
+      : null;
 
   // Keep the active tab in view when the strip overflows; the deps are the triggers, not reads.
   useEffect(() => {
@@ -291,6 +322,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
   );
 
   if (!showList || !tabs) {
+    const shell = activeKey ? byKey.get(activeKey) : undefined;
     return (
       <div
         role="tablist"
@@ -300,8 +332,9 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
         <TabItem
           threadKey={activeKey ?? ""}
           title={props.fallbackTitle}
+          leadTitle={shell ? leadTitleOf(shell) : null}
           driverKind={null}
-          running={false}
+          status={shell ? resolveSidebarThreadStatus(shell) : "ready"}
           unread={false}
           active
           onSelect={select}
@@ -338,8 +371,9 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
             key={key}
             threadKey={key}
             title={shell.title}
+            leadTitle={leadTitleOf(shell)}
             driverKind={driverByInstance.get(shell.modelSelection.instanceId) ?? null}
-            running={status === "working"}
+            status={status}
             unread={unread}
             attention={unread || status === "approval" || status === "input"}
             active={key === activeKey}

@@ -233,6 +233,7 @@ import { threadStatusLabel } from "./sidebar/sidebarHoverCard.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Spinner } from "./ui/spinner";
+import { threadStatusGlyph } from "./sidebar/ThreadStatusGlyph";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import {
@@ -1117,21 +1118,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // going, so folding them away never reads as the work being done.
   const childrenWorkingHidden = !props.childrenExpanded && props.workingDescendantCount > 0;
   const leadingBadge =
-    status === "approval" || status === "input" ? (
-      <HandIcon
-        role="img"
-        aria-label={status === "approval" ? "Needs approval" : "Needs input"}
-        className={cn(iconClassName, "text-warning")}
-      />
-    ) : status === "working" ? (
-      <Spinner size={isChild ? "xs" : "sm"} tone="muted" aria-label="Working" />
-    ) : status === "failed" ? (
-      <CircleAlertIcon
-        role="img"
-        aria-label="Failed"
-        className={cn(iconClassName, "text-destructive-foreground")}
-      />
-    ) : childrenWorkingHidden ? (
+    threadStatusGlyph(status, isChild ? "xs" : "sm") ??
+    (childrenWorkingHidden ? (
       <Spinner size={isChild ? "xs" : "sm"} tone="info" aria-label="Child agents working" />
     ) : props.isPinned && !isChild ? (
       <PinIcon
@@ -1159,7 +1147,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         aria-hidden
         className={cn(iconClassName, "text-sidebar-muted-foreground")}
       />
-    );
+    ));
 
   const title = isRenaming ? (
     <input

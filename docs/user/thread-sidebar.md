@@ -40,7 +40,9 @@ click its **x** or middle-click to close it. Tabs are remembered per environment
 `Ctrl` and press `Tab` (`Shift+Tab` to go back) for a list of recent threads; release
 `Ctrl` to switch. `ctrl+pagedown` / `ctrl+pageup` move between tabs and `mod+alt+w`
 closes the current one; all three are in the command palette and can be rebound in
-[Keybindings](./keybindings.md).
+[Keybindings](./keybindings.md). A tab carries the same status marks as its sidebar row (a
+hand when the thread needs your approval or input, a spinner while it works, an alert when it
+failed), and a child agent's tab names its lead first, such as `Printer Setup › sol-tuning-api`.
 
 Hovering a thread row shows its status and last activity, branch, model, and linked pull
 requests; hovering a project header shows its path and thread count.
