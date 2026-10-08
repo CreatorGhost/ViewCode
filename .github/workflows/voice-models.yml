@@ -3,16 +3,22 @@ name: Voice Models
 # Mirrors the Kokoro-82M read-aloud voice model into this repository's
 # `voice-models-v1` release. ViewCode servers download it from here because
 # managed networks often block Hugging Face. Hugging Face stays the fallback
-# mirror, so every file is pinned to one Hugging Face revision and the
-# manifest records its size and SHA-256; servers verify both before use.
+# mirror, so every file comes from one Hugging Face commit, which the manifest
+# records with each file's size and SHA-256; servers verify both before use.
 #
-# Run it by hand after changing the pinned revision or the file list. The
+# Run it by hand. The `revision` input (a branch, tag or commit) is resolved to
+# its commit hash first, so the release is always pinned to an exact commit. The
 # servers read `manifest.json` from the tag below (`VOICE_MODEL_RELEASE_URL` in
 # apps/server/src/voiceModels/VoiceModelStore.ts), so a new tag needs a
 # matching server change.
 
 on:
   workflow_dispatch:
+    inputs:
+      revision:
+        description: Hugging Face branch, tag or commit to mirror
+        default: main
+        required: true
 
 permissions:
   contents: write
@@ -20,7 +26,6 @@ permissions:
 env:
   TAG: voice-models-v1
   HF_REPO: onnx-community/Kokoro-82M-v1.0-ONNX
-  HF_REVISION: 1939ad2a8e416c0acfeecc08a694d14ef25f2231
 
 jobs:
   mirror:
@@ -28,6 +33,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Resolve the revision to a commit
+        env:
+          REQUESTED: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          sha=$(curl --fail --location --silent --show-error --retry 3 \
+            "https://huggingface.co/api/models/$HF_REPO/revision/$REQUESTED" | jq -r .sha)
+          if ! [[ "$sha" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "Could not resolve $REQUESTED to a commit (got: $sha)" >&2
+            exit 1
+          fi
+          echo "HF_REVISION=$sha" >> "$GITHUB_ENV"
+          echo "Mirroring $HF_REPO at $sha"
+
       - name: Download the pinned files
         run: |
           set -euo pipefail
