@@ -16,6 +16,8 @@ import { useComposerMenuState } from "./useComposerMenuState";
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
+  /** Why Full access runs narrower for this provider (managed policy), if it does. */
+  fullAccessUnavailableReason?: string | undefined;
   showInteractionModeToggle: boolean;
   traitsMenuContent?: ReactNode;
   size?: "sm" | "xs";
@@ -84,6 +86,11 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           <MenuRadioItem value="auto">Auto</MenuRadioItem>
           <MenuRadioItem value="full-access">Full access</MenuRadioItem>
         </MenuRadioGroup>
+        {props.fullAccessUnavailableReason ? (
+          <div className="max-w-64 px-2 py-1.5 text-muted-foreground text-xs">
+            {props.fullAccessUnavailableReason}
+          </div>
+        ) : null}
       </MenuPopup>
     </Menu>
   );

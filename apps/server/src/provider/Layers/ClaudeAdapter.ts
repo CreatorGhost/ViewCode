@@ -96,6 +96,7 @@ import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   hasClaudeManagedMcpConfig,
+  isClaudeBypassPermissionsDisabled,
   isClaudeEnterpriseMcpRefusal,
 } from "../Drivers/ClaudeEnterprisePolicy.ts";
 import { requireClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
@@ -445,7 +446,8 @@ interface ClaudeSessionContext {
   exitDetail: string | undefined;
   streamFiber: Fiber.Fiber<void, Error> | undefined;
   readonly startedAt: string;
-  readonly basePermissionMode: PermissionMode | undefined;
+  /** Lowered to "default" when the CLI refuses it (managed policy), so later turns do not retry. */
+  basePermissionMode: PermissionMode | undefined;
   currentApiModelId: string | undefined;
   /** Effective effort for the session's turns; subagents without an explicit
    * effort override inherit this. */
@@ -4586,6 +4588,20 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
       }
 
+      // Managed policy can forbid the bypass mode Full access needs. Asking for
+      // it anyway fails the session, so Full access runs as auto-accept edits
+      // there, and tool calls go to the user like any supervised mode.
+      const bypassDisabled = yield* isClaudeBypassPermissionsDisabled;
+      const runtimeMode =
+        bypassDisabled && (input.runtimeMode ?? "full-access") === "full-access"
+          ? ("auto-accept-edits" as const)
+          : input.runtimeMode;
+      if (runtimeMode !== input.runtimeMode) {
+        yield* Effect.logInfo("claude.session.full_access_disabled_by_policy", {
+          threadId: input.threadId,
+        });
+      }
+
       const existingContext = sessions.get(input.threadId);
       if (existingContext) {
         yield* Effect.logWarning("claude.session.replacing", {
@@ -4891,8 +4907,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           } satisfies PermissionResult;
         }
 
-        const runtimeMode = input.runtimeMode ?? "full-access";
-        if (runtimeMode === "full-access") {
+        if ((runtimeMode ?? "full-access") === "full-access") {
           return {
             behavior: "allow",
             updatedInput: toolInput,
@@ -5094,11 +5109,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       // A permission launch arg is folded into the mode T3 sends rather than
       // passed through: the CLI resolves both inputs together, so argv order
       // never let the user's flag win.
-      const permissionMode =
+      const requestedPermissionMode =
         (launchArgPermissionMode as PermissionMode | null | undefined) ??
         (launchArgSkipPermissions === null || launchArgSkipPermissions === "true"
           ? "bypassPermissions"
-          : runtimeModeToPermission[input.runtimeMode]);
+          : runtimeModeToPermission[runtimeMode]);
+      // A launch arg asking for bypass meets the same policy.
+      const permissionMode =
+        bypassDisabled && requestedPermissionMode === "bypassPermissions"
+          ? "acceptEdits"
+          : requestedPermissionMode;
       const settings = {
         ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
         ...(requestThinkingSummaries ? { showThinkingSummaries: true } : {}),
@@ -5459,6 +5479,33 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     return yield* Effect.failCause(attempt.cause);
   });
 
+  /**
+   * Leaves plan mode for the session's own permission mode. A CLI that
+   * refuses that mode (an organization policy forbidding bypass permissions)
+   * must not cost the user their message: the turn falls back to "default",
+   * where tool calls ask, and later turns stay there.
+   */
+  const restoreBasePermissionMode = Effect.fn("restoreBasePermissionMode")(function* (
+    context: ClaudeSessionContext,
+  ) {
+    const base = context.basePermissionMode ?? "default";
+    const restored = yield* controlRequest(context, "turn/setPermissionMode", (query) =>
+      query.setPermissionMode(base),
+    ).pipe(Effect.exit);
+    if (Exit.isSuccess(restored) || base === "default" || context.stopped) {
+      return yield* restored;
+    }
+    yield* Effect.logWarning("claude.permission_mode.refused", {
+      threadId: context.session.threadId,
+      refusedMode: base,
+      fallbackMode: "default",
+    });
+    yield* controlRequest(context, "turn/setPermissionMode", (query) =>
+      query.setPermissionMode("default"),
+    );
+    context.basePermissionMode = "default";
+  });
+
   const sendTurn: ClaudeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
     const context = yield* requireSession(input.threadId);
     const modelCatalog = yield* modelCatalogEffect;
@@ -5513,9 +5560,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         query.setPermissionMode("plan"),
       );
     } else if (input.interactionMode === "default") {
-      yield* controlRequest(context, "turn/setPermissionMode", (query) =>
-        query.setPermissionMode(context.basePermissionMode ?? "default"),
-      );
+      yield* restoreBasePermissionMode(context);
     }
 
     const turnId = steeringTurnState?.turnId ?? TurnId.make(yield* randomUUIDv4);

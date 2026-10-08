@@ -19,8 +19,11 @@ import {
   checkClaudeProviderStatus,
 } from "../Layers/ClaudeProvider.ts";
 import {
+  CLAUDE_FULL_ACCESS_DISABLED_REASON,
   ClaudeManagedMcpConfigPaths,
+  ClaudeManagedSettingsPaths,
   hasClaudeManagedMcpConfig,
+  isClaudeBypassPermissionsDisabled,
 } from "./ClaudeEnterprisePolicy.ts";
 
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
@@ -30,6 +33,12 @@ const policyFile = () => {
   const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-claude-policy-"));
   const file = NodePath.join(dir, "managed-mcp.json");
   NodeFS.writeFileSync(file, "{}");
+  return file;
+};
+const managedSettings = (contents: string) => {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-claude-settings-"));
+  const file = NodePath.join(dir, "managed-settings.json");
+  NodeFS.writeFileSync(file, contents);
   return file;
 };
 const missingPolicy = NodePath.join(NodeOS.tmpdir(), "t3-no-such-dir", "managed-mcp.json");
@@ -123,6 +132,57 @@ describe("Claude enterprise MCP policy", () => {
         ),
       ),
     ),
+  );
+});
+
+describe("Claude bypass permissions policy", () => {
+  it.effect("reads disableBypassPermissionsMode from either location", () =>
+    Effect.gen(function* () {
+      const disabled = (paths: ReadonlyArray<string>) =>
+        isClaudeBypassPermissionsDisabled.pipe(
+          Effect.provideService(ClaudeManagedSettingsPaths, paths),
+        );
+      assert.isTrue(
+        yield* disabled([
+          managedSettings('{"permissions":{"disableBypassPermissionsMode":"disable"}}'),
+        ]),
+      );
+      assert.isTrue(
+        yield* disabled([managedSettings('{"disableBypassPermissionsMode":"disable"}')]),
+      );
+      assert.isFalse(yield* disabled([managedSettings('{"permissions":{"allow":["Bash"]}}')]));
+      assert.isFalse(yield* disabled([managedSettings("{not json")]));
+      assert.isFalse(yield* disabled([missingPolicy]));
+    }),
+  );
+
+  it.effect("says why Full access is unavailable in the provider status", () =>
+    Effect.gen(function* () {
+      const { spawner } = recordingSpawner((args) =>
+        args.join(" ") === "auth status"
+          ? { stdout: '{"loggedIn":true,"authMethod":"claude.ai"}', code: 0 }
+          : { stdout: "2.1.0\n", code: 0 },
+      );
+      const check = (paths: ReadonlyArray<string>) =>
+        checkClaudeProviderStatus(decodeClaudeSettings({}), () =>
+          Effect.succeed({
+            email: undefined,
+            subscriptionType: undefined,
+            tokenSource: undefined,
+            apiProvider: undefined,
+            slashCommands: [],
+          }),
+        ).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.provideService(ClaudeManagedSettingsPaths, paths),
+        );
+      const managed = yield* check([
+        managedSettings('{"permissions":{"disableBypassPermissionsMode":"disable"}}'),
+      ]);
+      assert.strictEqual(managed.fullAccessUnavailableReason, CLAUDE_FULL_ACCESS_DISABLED_REASON);
+      const unmanaged = yield* check([missingPolicy]);
+      assert.isUndefined(unmanaged.fullAccessUnavailableReason);
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
 

@@ -101,6 +101,10 @@ To get the tools back, ask your IT team to add ViewCode's MCP server to the
 managed configuration. To run Claude without ViewCode tools on purpose, turn on
 **Run Claude without ViewCode tools** in Settings → Providers → Claude.
 
+If your organization's managed settings turn off bypass permissions
+(`disableBypassPermissionsMode`), Full access runs as Auto-accept edits for
+Claude, and the access menu says so. Claude then asks before running commands.
+
 ## Skills
 
 Claude skills come from the config directory's `skills` folder and the project's

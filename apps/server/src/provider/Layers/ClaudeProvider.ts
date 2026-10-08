@@ -34,7 +34,11 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { requireClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
-import { hasClaudeManagedMcpConfig } from "../Drivers/ClaudeEnterprisePolicy.ts";
+import {
+  CLAUDE_FULL_ACCESS_DISABLED_REASON,
+  hasClaudeManagedMcpConfig,
+  isClaudeBypassPermissionsDisabled,
+} from "../Drivers/ClaudeEnterprisePolicy.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
 import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
@@ -487,7 +491,7 @@ const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (
   return yield* spawnAndCollect(claudeSettings.binaryPath, command);
 });
 
-export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(function* (
+const checkClaudeProviderStatusUnpoliced = Effect.fn("checkClaudeProviderStatus")(function* (
   claudeSettings: ClaudeSettings,
   resolveCapabilities?: (
     claudeSettings: ClaudeSettings,
@@ -718,6 +722,25 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     },
   });
 });
+
+/**
+ * The provider snapshot, plus why Full access runs as auto-accept edits when
+ * the administrator's managed settings forbid bypass permissions.
+ */
+export const checkClaudeProviderStatus = (
+  ...args: Parameters<typeof checkClaudeProviderStatusUnpoliced>
+) =>
+  checkClaudeProviderStatusUnpoliced(...args).pipe(
+    Effect.flatMap((draft) =>
+      isClaudeBypassPermissionsDisabled.pipe(
+        Effect.map((disabled) =>
+          disabled
+            ? { ...draft, fullAccessUnavailableReason: CLAUDE_FULL_ACCESS_DISABLED_REASON }
+            : draft,
+        ),
+      ),
+    ),
+  );
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 

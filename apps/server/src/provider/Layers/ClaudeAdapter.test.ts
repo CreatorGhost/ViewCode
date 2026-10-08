@@ -1,4 +1,5 @@
 // @effect-diagnostics abortControllerInEffect:off - Tests hand-built AbortSignals to the SDK query stub to exercise cancellation.
+import { ClaudeManagedSettingsPaths } from "../Drivers/ClaudeEnterprisePolicy.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
@@ -72,6 +73,8 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
 
   public readonly setModelCalls: Array<string | undefined> = [];
   public readonly setPermissionModeCalls: Array<string> = [];
+  /** Modes the fake CLI refuses, as a managed policy does. */
+  public readonly refusedPermissionModes = new Set<string>();
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
   public closeCalls = 0;
   public closeError: unknown | undefined;
@@ -118,6 +121,9 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
 
   readonly setPermissionMode = async (mode: PermissionMode): Promise<void> => {
     this.setPermissionModeCalls.push(mode);
+    if (this.refusedPermissionModes.has(mode)) {
+      throw new Error(`Cannot set permission mode to ${mode}: disabled by policy`);
+    }
   };
 
   readonly setMaxThinkingTokens = async (maxThinkingTokens: number | null): Promise<void> => {
@@ -8034,6 +8040,95 @@ describe("ClaudeAdapterLive", () => {
       );
     },
   );
+
+  it.effect("keeps the message when the CLI refuses the base permission mode after plan", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      harness.query.refusedPermissionModes.add("bypassPermissions");
+      const completeTurn = (id: string) =>
+        Effect.gen(function* () {
+          const completed = yield* Stream.filter(
+            adapter.streamEvents,
+            (event) => event.type === "turn.completed",
+          ).pipe(Stream.runHead, Effect.forkChild);
+          harness.query.emit({
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            errors: [],
+            session_id: "sdk-session-refused",
+            uuid: id,
+          } as unknown as SDKMessage);
+          yield* Fiber.join(completed);
+        });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "plan this",
+        interactionMode: "plan",
+        attachments: [],
+      });
+      yield* completeTurn("result-plan");
+      const sent = yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "now do it",
+        interactionMode: "default",
+        attachments: [],
+      });
+      assert.isDefined(sent.turnId);
+      yield* completeTurn("result-default");
+      // Later turns go straight to the mode that was accepted.
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "and again",
+        interactionMode: "default",
+        attachments: [],
+      });
+      assert.deepEqual(harness.query.setPermissionModeCalls, [
+        "plan",
+        "bypassPermissions",
+        "default",
+        "default",
+      ]);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("runs Full access as auto-accept edits when policy disables bypass", () => {
+    const harness = makeHarness();
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-claude-policy-"));
+    const policy = NodePath.join(directory, "managed-settings.json");
+    NodeFS.writeFileSync(
+      policy,
+      JSON.stringify({ permissions: { disableBypassPermissionsMode: "disable" } }),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      const createInput = harness.getLastCreateQueryInput();
+      assert.equal(createInput?.options.permissionMode, "acceptEdits");
+      assert.equal(createInput?.options.allowDangerouslySkipPermissions, undefined);
+    }).pipe(
+      Effect.provideService(ClaudeManagedSettingsPaths, [policy]),
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+      Effect.ensuring(
+        Effect.sync(() => NodeFS.rmSync(directory, { recursive: true, force: true })),
+      ),
+    );
+  });
 
   it.effect("does not call setPermissionMode when interactionMode is absent", () => {
     const harness = makeHarness();
