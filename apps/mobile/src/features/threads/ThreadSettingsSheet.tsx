@@ -81,7 +81,11 @@ import {
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
 import { ModelRow, ChoiceRow } from "./ThreadSettingsRows";
-import { RUNTIME_MODE_CHOICES, selectableChoices } from "./thread-settings-options";
+import {
+  describeRuntimeMode,
+  RUNTIME_MODE_CHOICES,
+  selectableChoices,
+} from "./thread-settings-options";
 import {
   canCommitPendingModel,
   favoritesFirst,
@@ -314,6 +318,8 @@ type ThreadSettingsSessionValue = {
   readonly toggleFavorite: (option: ModelOption) => void;
   readonly runtimeMode: RuntimeMode;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
+  /** The staged model, else the applied one: whose provider the runtime rows describe. */
+  readonly displayedModel: ModelOption | null;
   readonly displayedDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly providerExpansionOverrides: ReadonlySet<string>;
   readonly hasLegacyModels: boolean;
@@ -402,6 +408,12 @@ function ThreadSettingsSessionProvider(
     [pendingModel, props.optionDescriptors],
   );
 
+  const displayedModel = useMemo(
+    () =>
+      pendingModel ?? props.providerGroups.flatMap((group) => group.models).find(isApplied) ?? null,
+    [isApplied, pendingModel, props.providerGroups],
+  );
+
   const handoffFromKey = props.handoffFromKey ?? null;
   const needsHandoff = useCallback(
     (option: ModelOption) => modelNeedsHandoff(option, handoffFromKey),
@@ -477,6 +489,7 @@ function ThreadSettingsSessionProvider(
       needsHandoff,
       runtimeMode: props.runtimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
+      displayedModel,
       displayedDescriptors,
       favoriteKeys,
       favoritesLoaded,
@@ -501,6 +514,7 @@ function ThreadSettingsSessionProvider(
       applyOptionChange,
       commitPendingModel,
       displayedDescriptors,
+      displayedModel,
       favoriteKeys,
       favoritesLoaded,
       providerExpansionOverrides,
@@ -986,7 +1000,7 @@ function ThreadSettingsChoiceContent(props: {
           rows: RUNTIME_MODE_CHOICES.map((choice) => ({
             id: choice.mode,
             label: choice.label,
-            description: choice.description,
+            description: describeRuntimeMode(choice.mode, session.displayedModel),
             selected: choice.mode === session.runtimeMode,
             onPress: () => {
               void Haptics.selectionAsync();

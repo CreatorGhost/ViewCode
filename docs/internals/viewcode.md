@@ -294,7 +294,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   (`shellCommandWord`); the bare name still runs but the provider asks. Claude (Bash), Codex
   (command approvals, not stdin or network), Cursor, Grok and Antigravity do this. OpenCode does
   not: its request carries only per-command patterns with redirections dropped, so it cannot be
-  proven plain.
+  proven plain. Claude under a managed policy that narrows Full access is the exception: the
+  thread (and so the gate) is still full access, which would wave the action through unasked,
+  so the adapter asks instead (`effectiveRuntimeMode` in `ClaudeAdapter`).
 - The credential is the MCP session credential with a `computer` capability, issued even when the
   provider never loads MCP; the thread always comes from the credential. The CLI's env
   (`VIEWCODE_COMPUTER_ENDPOINT`, `VIEWCODE_COMPUTER_AUTH`, PATH shim) rides the agent-device env

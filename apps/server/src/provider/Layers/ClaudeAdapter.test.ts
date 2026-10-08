@@ -8130,6 +8130,145 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("asks for tools once the CLI refused Full access", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      harness.query.refusedPermissionModes.add("bypassPermissions");
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      if (!canUseTool) return assert.fail("canUseTool missing");
+      const options = (toolUseID: string) => ({
+        signal: new AbortController().signal,
+        requestId: toolUseID,
+        toolUseID,
+      });
+      const allowed = yield* Effect.promise(() =>
+        canUseTool("Bash", { command: "pwd" }, options("tool-use-before")),
+      );
+      assert.equal((allowed as PermissionResult).behavior, "allow");
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "plan this",
+        interactionMode: "plan",
+        attachments: [],
+      });
+      const completed = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "turn.completed",
+      ).pipe(Stream.runHead, Effect.forkChild);
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-refused",
+        uuid: "result-plan",
+      } as unknown as SDKMessage);
+      yield* Fiber.join(completed);
+
+      const warning = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "runtime.warning",
+      ).pipe(Stream.runHead, Effect.forkChild);
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "now do it",
+        interactionMode: "default",
+        attachments: [],
+      });
+
+      const opened = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "request.opened",
+      ).pipe(Stream.runHead, Effect.forkChild);
+      const decision = canUseTool("Bash", { command: "pwd" }, options("tool-use-after"));
+      // An allowed call settles at once; one that asks waits for the user.
+      const outcome = yield* Effect.raceFirst(
+        Fiber.join(opened).pipe(Effect.as("asked")),
+        Effect.promise(() => decision).pipe(Effect.as("allowed")),
+      );
+      assert.equal(outcome, "asked");
+      // The thread says why Claude started asking.
+      const warned = yield* Fiber.join(warning);
+      assert.equal(warned._tag, "Some");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("asks before computer use on a Full access thread the policy narrowed", () => {
+    const harness = makeHarness();
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-claude-policy-"));
+    const policy = NodePath.join(directory, "managed-settings.json");
+    NodeFS.writeFileSync(
+      policy,
+      JSON.stringify({ permissions: { disableBypassPermissionsMode: "disable" } }),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      // The orchestration session keeps the thread's mode, so computer use's
+      // own gate would wave the call through.
+      assert.equal(session.runtimeMode, "full-access");
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      if (!canUseTool) return assert.fail("canUseTool missing");
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() =>
+          McpProviderSession.setMcpProviderSession({
+            environmentId: EnvironmentId.make("test-environment"),
+            threadId: THREAD_ID,
+            providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+            providerSessionId: "test-session",
+            endpoint: "http://127.0.0.1:1234/mcp",
+            authorizationHeader: "Bearer test-token",
+            capabilities: new Set(["computer"]),
+            computerUse: { mode: "control", cli: COMPUTER_CLI },
+          }),
+        ),
+        () =>
+          Effect.gen(function* () {
+            const opened = yield* Stream.filter(
+              adapter.streamEvents,
+              (event) => event.type === "request.opened",
+            ).pipe(Stream.runHead, Effect.forkChild);
+            const decision = canUseTool(
+              "Bash",
+              { command: `${COMPUTER_CLI} list-windows` },
+              {
+                signal: new AbortController().signal,
+                requestId: "tool-use-cu",
+                toolUseID: "tool-use-cu",
+              },
+            );
+            const outcome = yield* Effect.raceFirst(
+              Fiber.join(opened).pipe(Effect.as("asked")),
+              Effect.promise(() => decision).pipe(Effect.as("allowed")),
+            );
+            assert.equal(outcome, "asked");
+          }),
+        () => Effect.sync(() => McpProviderSession.clearMcpProviderSession(THREAD_ID)),
+      );
+    }).pipe(
+      Effect.provideService(ClaudeManagedSettingsPaths, [policy]),
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+      Effect.ensuring(
+        Effect.sync(() => NodeFS.rmSync(directory, { recursive: true, force: true })),
+      ),
+    );
+  });
+
   it.effect("does not call setPermissionMode when interactionMode is absent", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

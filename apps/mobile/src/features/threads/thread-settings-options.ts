@@ -36,6 +36,20 @@ export const RUNTIME_MODE_CHOICES: ReadonlyArray<{
   },
 ];
 
+/**
+ * A runtime mode's description for the selected model's provider: the
+ * provider's own reason replaces it when that mode runs narrower there.
+ */
+export function describeRuntimeMode(
+  mode: RuntimeMode,
+  provider: { readonly fullAccessUnavailableReason?: string | undefined } | null | undefined,
+): string | undefined {
+  if (mode === "full-access" && provider?.fullAccessUnavailableReason) {
+    return provider.fullAccessUnavailableReason;
+  }
+  return RUNTIME_MODE_CHOICES.find((choice) => choice.mode === mode)?.description;
+}
+
 export function selectableChoices(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
 ) {

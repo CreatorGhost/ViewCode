@@ -103,7 +103,10 @@ managed configuration. To run Claude without ViewCode tools on purpose, turn on
 
 If your organization's managed settings turn off bypass permissions
 (`disableBypassPermissionsMode`), Full access runs as Auto-accept edits for
-Claude, and the access menu says so. Claude then asks before running commands.
+Claude, and the access menu says so. Claude then asks before running commands
+and before computer use. If Claude Code refuses a mode for a reason ViewCode
+could not see ahead of time, the thread says so and Claude asks before editing
+files or running commands for the rest of the session.
 
 ## Skills
 

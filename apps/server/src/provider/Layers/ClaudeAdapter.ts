@@ -52,6 +52,7 @@ import {
   type ProviderUserInputAnswers,
   type RuntimeContentStreamKind,
   RuntimeItemId,
+  type RuntimeMode,
   RuntimeRequestId,
   RuntimeTaskId,
   type RuntimeTaskStatus,
@@ -448,6 +449,12 @@ interface ClaudeSessionContext {
   readonly startedAt: string;
   /** Lowered to "default" when the CLI refuses it (managed policy), so later turns do not retry. */
   basePermissionMode: PermissionMode | undefined;
+  /**
+   * The mode ViewCode's own tool approvals follow. `session.runtimeMode` stays
+   * the thread's mode; this one is narrower when a managed policy keeps the
+   * CLI from running it.
+   */
+  effectiveRuntimeMode: RuntimeMode;
   currentApiModelId: string | undefined;
   /** Effective effort for the session's turns; subagents without an explicit
    * effort override inherit this. */
@@ -4592,9 +4599,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       // it anyway fails the session, so Full access runs as auto-accept edits
       // there, and tool calls go to the user like any supervised mode.
       const bypassDisabled = yield* isClaudeBypassPermissionsDisabled;
-      const runtimeMode =
-        bypassDisabled && (input.runtimeMode ?? "full-access") === "full-access"
-          ? ("auto-accept-edits" as const)
+      const runtimeMode: RuntimeMode =
+        bypassDisabled && input.runtimeMode === "full-access"
+          ? "auto-accept-edits"
           : input.runtimeMode;
       if (runtimeMode !== input.runtimeMode) {
         yield* Effect.logInfo("claude.session.full_access_disabled_by_policy", {
@@ -4907,16 +4914,18 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           } satisfies PermissionResult;
         }
 
-        if ((runtimeMode ?? "full-access") === "full-access") {
+        if (context.effectiveRuntimeMode === "full-access") {
           return {
             behavior: "allow",
             updatedInput: toolInput,
           } satisfies PermissionResult;
         }
         // ViewCode's computer-use gate decides each CLI call; asking here too
-        // doubled every prompt.
+        // doubled every prompt. The gate waves calls through on a Full access
+        // thread, so a session a policy narrowed asks here instead.
         if (
           toolName === "Bash" &&
+          context.session.runtimeMode !== "full-access" &&
           autoApprovesComputerUseCommand(context.session.threadId, toolInput.command)
         ) {
           return { behavior: "allow", updatedInput: toolInput } satisfies PermissionResult;
@@ -5257,6 +5266,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         provider: PROVIDER,
         providerInstanceId: boundInstanceId,
         status: "ready",
+        // The thread's mode, which the reactor compares to decide restarts.
+        // Approvals follow the context's `effectiveRuntimeMode`.
         runtimeMode: input.runtimeMode,
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(modelSelection?.model ? { model: modelSelection.model } : {}),
@@ -5285,6 +5296,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         streamFiber: undefined,
         startedAt,
         basePermissionMode: permissionMode,
+        effectiveRuntimeMode: runtimeMode,
         currentApiModelId: apiModelId,
         currentEffort: effectiveEffort ?? undefined,
         resumeSessionId: sessionId,
@@ -5483,7 +5495,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
    * Leaves plan mode for the session's own permission mode. A CLI that
    * refuses that mode (an organization policy forbidding bypass permissions)
    * must not cost the user their message: the turn falls back to "default",
-   * where tool calls ask, and later turns stay there.
+   * where tool calls ask, and later turns stay there. ViewCode's own approvals
+   * follow it down, and the thread says why.
    */
   const restoreBasePermissionMode = Effect.fn("restoreBasePermissionMode")(function* (
     context: ClaudeSessionContext,
@@ -5504,6 +5517,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       query.setPermissionMode("default"),
     );
     context.basePermissionMode = "default";
+    context.effectiveRuntimeMode = "approval-required";
+    yield* emitRuntimeWarning(
+      context,
+      "Claude Code refused this thread's access mode, so Claude now asks before editing files or running commands. An organization policy is the usual cause.",
+    );
   });
 
   const sendTurn: ClaudeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {

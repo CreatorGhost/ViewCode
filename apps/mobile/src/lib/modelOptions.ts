@@ -25,6 +25,8 @@ export type ModelOption = {
    * (the provider's `continuation.groupKey`, else its instance id).
    */
   readonly continuationKey?: string;
+  /** The provider's `fullAccessUnavailableReason`: why Full access runs narrower. */
+  readonly fullAccessUnavailableReason?: string;
 };
 
 export type ProviderGroup = {
@@ -182,6 +184,9 @@ export function buildModelOptions(
         isLegacy: model.isLegacy === true,
         capabilities: model.capabilities,
         continuationKey: provider.continuation?.groupKey ?? provider.instanceId,
+        ...(provider.fullAccessUnavailableReason
+          ? { fullAccessUnavailableReason: provider.fullAccessUnavailableReason }
+          : {}),
         selection: normalizeSelectionOptions(
           {
             instanceId: provider.instanceId,
@@ -233,6 +238,9 @@ export function buildModelOptions(
           : {}),
         capabilities: model?.capabilities ?? null,
         continuationKey: provider?.continuation?.groupKey ?? fallbackModelSelection.instanceId,
+        ...(provider?.fullAccessUnavailableReason
+          ? { fullAccessUnavailableReason: provider.fullAccessUnavailableReason }
+          : {}),
         selection: fallbackModelSelection,
       });
     }
