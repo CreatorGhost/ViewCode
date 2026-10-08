@@ -91,6 +91,24 @@ describe("buildRuntimeInstructions", () => {
     expect(isPlainComputerUseCommand(`'${cli}' help`, cli)).toBe(true);
   });
 
+  it("offers the browser CLI only when granted, and stops calling the browser unavailable", () => {
+    expect(buildRuntimeInstructions({ harness: "Codex" })).not.toContain("viewcode_browser");
+    const withoutMcp = buildRuntimeInstructions({
+      harness: "Claude Code",
+      viewcodeToolsUnavailable: "managed-mcp",
+      browserCli: true,
+    });
+    expect(withoutMcp).toContain("<viewcode_browser>");
+    expect(withoutMcp).toContain("viewcode-browser help");
+    expect(withoutMcp).not.toContain("browser preview,");
+    expect(
+      buildRuntimeInstructions({ harness: "Claude Code", viewcodeToolsUnavailable: "managed-mcp" }),
+    ).toContain("browser preview,");
+    expect(buildRuntimeInstructions({ harness: "Cursor", browserCli: true })).toContain(
+      "prefer them: they drive the same browser and tab",
+    );
+  });
+
   it("keeps known model and effort metadata on one line", () => {
     expect(
       buildRuntimeInstructions({

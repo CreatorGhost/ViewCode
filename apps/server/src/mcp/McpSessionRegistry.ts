@@ -8,6 +8,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import { HttpServer } from "effect/unstable/http";
 import * as NetAddress from "effect/unstable/net/NetAddress";
 
+import { BROWSER_CLI_ROUTE_PATH } from "../browserCli/browserCliProtocol.ts";
 import { COMPUTER_USE_ROUTE_PATH } from "../computerUse/computerUsePolicy.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -109,6 +110,11 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     httpServer.address._tag === "UnixPathAddress"
       ? `unix:${httpServer.address.path}`
       : `${httpOrigin}${COMPUTER_USE_ROUTE_PATH}`;
+  // Same for the browser CLI.
+  const browserEndpoint =
+    httpServer.address._tag === "UnixPathAddress"
+      ? `unix:${httpServer.address.path}`
+      : `${httpOrigin}${BROWSER_CLI_ROUTE_PATH}`;
   // A socket listener has no URL a provider can dial, so providers launch the
   // stdio bridge, which forwards to `/mcp` over the same socket.
   const stdioBridge =
@@ -166,6 +172,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           providerInstanceId: scope.providerInstanceId,
           endpoint,
           computerUseEndpoint,
+          browserEndpoint,
           authorizationHeader: `Bearer ${rawToken}`,
           ...(stdioBridge
             ? {

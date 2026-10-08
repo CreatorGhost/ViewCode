@@ -14,6 +14,7 @@
 - [SnapShots](./user/snap-shot.md)
 - [Visual replies](./user/html-renders.md)
 - [Import browser sessions](./user/browser-import.md)
+- [Agent browser](./user/agent-browser.md)
 - [Devices](./user/devices.md)
 - [Computer use](./user/computer-use.md)
 - [Usage and limits](./user/usage.md)

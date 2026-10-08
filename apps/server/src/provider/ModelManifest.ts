@@ -226,7 +226,40 @@ function isLegacyModel(
   if (catalogModel) return catalogModel.status === "legacy";
   const currentModels = manifest.currentModels[driverKind];
   if (!currentModels) return false;
-  return !currentModels.includes(slug) && !currentModels.includes(family);
+  if (currentModels.includes(slug) || currentModels.includes(family)) return false;
+  // Codex's live `model/list` is authoritative and ships models before the
+  // manifest names them. A GPT version newer than every current one is a new
+  // model, not a legacy one; hiding it left it reachable only through
+  // resellers' static catalogs.
+  return driverKind !== "codex" || !isNewerThanCurrentCodexModels(family, currentModels);
+}
+
+/** "gpt-6.1-sol" → [6, 1]; undefined when the slug names no GPT version. */
+function codexGptVersion(family: string): ReadonlyArray<number> | undefined {
+  const version = /^gpt-(\d+(?:\.\d+)*)(?:-|$)/.exec(family)?.[1];
+  return version?.split(".").map(Number);
+}
+
+function compareVersions(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function isNewerThanCurrentCodexModels(
+  family: string,
+  currentModels: ReadonlyArray<string>,
+): boolean {
+  const version = codexGptVersion(family);
+  if (version === undefined) return false;
+  const currentVersions = currentModels.flatMap((slug) => {
+    const current = codexGptVersion(codexModelFamily(slug));
+    return current === undefined ? [] : [current];
+  });
+  if (currentVersions.length === 0) return false;
+  return currentVersions.every((current) => compareVersions(version, current) > 0);
 }
 
 /**

@@ -115,6 +115,8 @@ it.effect("hands providers the stdio bridge when the server listens on a socket"
     expect(stdio?.args.slice(-2)).toEqual(["--socket", "/tmp/t3code-1000/backend.sock"]);
     expect(stdio?.args[0]).toMatch(/mcp-stdio-bridge\.(ts|mjs)$/);
     expect(stdio?.env).toEqual({ ELECTRON_RUN_AS_NODE: "1", T3_MCP_BEARER_TOKEN: token });
+    // The agent CLIs speak HTTP themselves, so they dial the socket directly.
+    expect(issued.config.browserEndpoint).toBe("unix:/tmp/t3code-1000/backend.sock");
     expect((yield* registry.resolve(token))?.threadId).toBe("thread-socket");
   }),
 );
@@ -178,6 +180,9 @@ it.effect("builds MCP endpoints from the bound server host", () =>
         capabilities: new Set(["preview"]),
       });
       expect(issued.config.endpoint).toBe(expectedEndpoint);
+      expect(issued.config.browserEndpoint).toBe(
+        expectedEndpoint.replace(/\/mcp$/, "/api/browser"),
+      );
     }
   }),
 );

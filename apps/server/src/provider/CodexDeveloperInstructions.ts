@@ -190,6 +190,7 @@ export interface CodexRuntimeInfo {
   readonly modelName?: string | undefined;
   readonly reasoningEffort: string;
   readonly computerUse?: ComputerUseGrant | undefined;
+  readonly browserCli?: boolean | undefined;
 }
 
 /** Mode prompt for `turn/start.collaborationMode.settings.developer_instructions`. */

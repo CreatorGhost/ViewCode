@@ -25,6 +25,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
+import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ServerActivation } from "../serverActivation.ts";
 import {
   AGENT_CONTINUE_PROMPT,
@@ -69,6 +70,8 @@ const makeHarness = Effect.gen(function* () {
   const messages = yield* Ref.make(new Map<string, ReadonlyArray<Message>>());
   const errors = yield* Ref.make(new Map<string, string>());
   const models = yield* Ref.make(new Map<string, string>());
+  /** The model each thread's live provider session reports, when one is live. */
+  const liveModels = yield* Ref.make(new Map<string, string>());
   /** Provider instance per thread; claudeAgent unless a test moves one. */
   const instances = yield* Ref.make(new Map<string, string>());
   /** Threads the user archived. */
@@ -348,11 +351,18 @@ const makeHarness = Effect.gen(function* () {
                       ],
                     },
                   },
+                  { slug: "gpt-5.5", name: "GPT-5.5" },
                 ],
               },
             ] as never,
         ),
       ),
+    }),
+    Layer.mock(ProviderService)({
+      listSessions: () =>
+        Ref.get(liveModels).pipe(
+          Effect.map((live) => [...live].map(([threadId, model]) => ({ threadId, model }))),
+        ) as never,
     }),
     Layer.succeed(ServerActivation, undefined),
     Layer.succeed(Crypto.Crypto, crypto),
@@ -418,6 +428,7 @@ const makeHarness = Effect.gen(function* () {
     runTurn,
     errors,
     models,
+    liveModels,
     instances,
     archivedIds,
     sidechatIds,
@@ -954,6 +965,43 @@ describe("AgentMessaging", () => {
         yield* harness.endTurn(CHILD, "Done.");
         yield* settle;
         assert.equal(bodyOf((yield* harness.starts).at(-1)), "Task two.");
+      }),
+    ),
+  );
+
+  it.effect(
+    "list_agents shows the model a live session runs when it is not the configured one",
+    () =>
+      withMessaging((harness, messaging) =>
+        Effect.gen(function* () {
+          const child = () =>
+            messaging
+              .listAgents(LEAD)
+              .pipe(Effect.map((agents) => agents.find((entry) => entry.id === CHILD)!));
+          yield* Ref.update(harness.liveModels, (map) =>
+            new Map(map).set(CHILD, "claude-sonnet-4-6"),
+          );
+          assert.isUndefined((yield* child()).runningModel);
+
+          // The provider came back on another model after a restart.
+          yield* Ref.update(harness.liveModels, (map) =>
+            new Map(map).set(CHILD, "claude-opus-4-6"),
+          );
+          const agent = yield* child();
+          assert.equal(agent.model, "claude-sonnet-4-6");
+          assert.equal(agent.runningModel, "claude-opus-4-6");
+        }),
+      ),
+  );
+
+  it.effect("configure_agent naming the agent's own provider keeps its model", () =>
+    withMessaging((harness, messaging) =>
+      Effect.gen(function* () {
+        yield* Ref.update(harness.instances, (map) => new Map(map).set(CHILD, "codex"));
+        yield* Ref.update(harness.models, (map) => new Map(map).set(CHILD, "gpt-5.5"));
+        yield* messaging.configureAgent(LEAD, { agent: CHILD, providerId: "codex" });
+        // Not reset to the provider's default (gpt-5.4).
+        assert.equal((yield* Ref.get(harness.models)).get(CHILD), "gpt-5.5");
       }),
     ),
   );

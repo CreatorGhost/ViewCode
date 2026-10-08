@@ -187,7 +187,8 @@ export const claimPreviewRecording = Effect.fn("PreviewToolkit.claimRecording")(
   return { ...recording, id: finalId, path: finalPath };
 });
 
-const handlers = {
+/** Also run by `POST /api/browser` for the `viewcode-browser` CLI. */
+export const previewHandlers = {
   preview_status: (input) => invokeTargeted<PreviewAutomationStatus>("status", input ?? {}),
   preview_open: (input) =>
     invokeTargeted<PreviewAutomationStatus>("open", normalizePreviewOpenInput(input)),
@@ -231,7 +232,7 @@ const handlers = {
     }),
 } satisfies Parameters<typeof PreviewToolkit.toLayer>[0];
 
-const { preview_snapshot, ...standardHandlers } = handlers;
+const { preview_snapshot, ...standardHandlers } = previewHandlers;
 
 export const PreviewStandardToolkitHandlersLive = PreviewStandardToolkit.toLayer(standardHandlers);
 

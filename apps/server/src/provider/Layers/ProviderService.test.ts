@@ -68,6 +68,7 @@ import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
 import { makeProviderServiceLive } from "./ProviderService.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { ComputerUseService } from "../../computerUse/ComputerUseService.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
@@ -5082,6 +5083,12 @@ describe("agent browser access", () => {
     options?: {
       readonly withoutOrchestration?: boolean;
       readonly computerUse?: ServerSettingsValue["computerUse"];
+      /** Hand back a credential, so the session's agent CLI environment is built. */
+      readonly credential?: boolean;
+      /** Sees the session's MCP config while the session is still open. */
+      readonly onSession?: (
+        config: McpProviderSession.McpProviderSessionConfig | undefined,
+      ) => void;
     },
   ) =>
     Effect.gen(function* () {
@@ -5153,7 +5160,21 @@ describe("agent browser access", () => {
               threadId: request.threadId,
               capabilities: [...request.capabilities].toSorted(),
             });
-            return undefined;
+            return options?.credential
+              ? {
+                  config: {
+                    environmentId: EnvironmentId.make("environment"),
+                    threadId: request.threadId,
+                    providerSessionId: "provider-session",
+                    providerInstanceId: request.providerInstanceId,
+                    endpoint: "http://127.0.0.1:4000/mcp",
+                    authorizationHeader: "Bearer fixture",
+                    capabilities: request.capabilities,
+                    computerUseEndpoint: "http://127.0.0.1:4000/api/computer-use",
+                    browserEndpoint: "http://127.0.0.1:4000/api/browser",
+                  },
+                }
+              : undefined;
           }),
       }).pipe(
         Layer.provide(providerAdapterLayer),
@@ -5181,7 +5202,14 @@ describe("agent browser access", () => {
                     },
           }),
         ),
-        Layer.provide(serverConfigTestLayer),
+        // A credential makes the session write its CLI launchers under the state dir.
+        Layer.provide(
+          options?.credential
+            ? ServerConfig.layerTest(process.cwd(), { prefix: "t3-provider-agent-cli-" }).pipe(
+                Layer.provide(NodeServices.layer),
+              )
+            : serverConfigTestLayer,
+        ),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -5203,12 +5231,14 @@ describe("agent browser access", () => {
 
       yield* Effect.gen(function* () {
         const provider = yield* ProviderService.ProviderService;
-        return yield* provider.startSession(threadId, {
+        const session = yield* provider.startSession(threadId, {
           provider: CODEX_DRIVER,
           providerInstanceId: codexInstanceId,
           threadId,
           runtimeMode: "full-access",
         });
+        options?.onSession?.(McpProviderSession.readMcpProviderSession(threadId));
+        return session;
       }).pipe(Effect.provide(providerLayer));
 
       return issued;
@@ -5224,6 +5254,50 @@ describe("agent browser access", () => {
       const issued = yield* startSessionWith(false, threadId);
 
       assert.deepEqual(issued, [{ threadId, capabilities: ["agents", "html", "pull-requests"] }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("puts the browser CLI on the agent's PATH only with agent browser access", () =>
+    Effect.gen(function* () {
+      let on: McpProviderSession.McpProviderSessionConfig | undefined;
+      yield* startSessionWith(true, asThreadId("thread-browser-cli-on"), undefined, {
+        credential: true,
+        onSession: (config) => (on = config),
+      });
+      assert.equal(on?.browserCli, true);
+      assert.equal(
+        on?.agentDeviceEnvironment?.VIEWCODE_BROWSER_ENDPOINT,
+        "http://127.0.0.1:4000/api/browser",
+      );
+      assert.equal(on?.agentDeviceEnvironment?.VIEWCODE_BROWSER_AUTH, "Bearer fixture");
+      assert.include(on?.agentDeviceEnvironment?.PATH ?? "", "browser");
+
+      let off: McpProviderSession.McpProviderSessionConfig | undefined;
+      yield* startSessionWith(false, asThreadId("thread-browser-cli-off"), undefined, {
+        credential: true,
+        onSession: (config) => (off = config),
+      });
+      assert.isDefined(off);
+      assert.equal(off?.browserCli, undefined);
+      assert.equal(off?.agentDeviceEnvironment?.VIEWCODE_BROWSER_ENDPOINT, undefined);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("gives a computer-use session its own screenshot folder to grant", () =>
+    Effect.gen(function* () {
+      let screenshotsDir: string | undefined;
+      let created = false;
+      yield* startSessionWith(false, asThreadId("thread-computer-shots"), undefined, {
+        credential: true,
+        computerUse: "control",
+        onSession: (config) => {
+          screenshotsDir = config?.computerUse?.screenshotsDir;
+          // The test state dir goes away with the session, so check while it is open.
+          created = screenshotsDir !== undefined && NodeFS.existsSync(screenshotsDir);
+        },
+      });
+      assert.match(screenshotsDir ?? "", /computer-use[\\/]screenshots[\\/]thread-computer-shots$/);
+      assert.isTrue(created);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

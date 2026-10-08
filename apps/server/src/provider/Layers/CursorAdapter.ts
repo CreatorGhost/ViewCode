@@ -1178,6 +1178,8 @@ export function makeCursorAdapter(
                         model: resolvedModel,
                         computerUse: McpProviderSession.readMcpProviderSession(input.threadId)
                           ?.computerUse,
+                        browserCli: McpProviderSession.readMcpProviderSession(input.threadId)
+                          ?.browserCli,
                       }),
                     },
                   ],

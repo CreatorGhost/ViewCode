@@ -6609,7 +6609,7 @@ export default function ChatView(props: ChatViewProps) {
     activities: threadActivities,
     sessionProviderName: activeThread?.session?.providerName,
   });
-  const { item: claudeCacheBannerItem, holdSend: holdSendForClaudeCache } = useClaudeCacheBanner({
+  const { item: claudeCacheBannerItem } = useClaudeCacheBanner({
     threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
     isClaude: activeThread?.session?.providerName === "claudeAgent",
     running: phase === "running",
@@ -6617,7 +6617,6 @@ export default function ChatView(props: ChatViewProps) {
     activities: threadActivities,
     onCompact:
       compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
-    sendAnyway: () => void onSendRef.current(),
   });
   const imagePayloadBannerItem = useImagePayloadBanner({
     threadId: isServerThread ? (activeThreadRef?.threadId ?? null) : null,
@@ -7466,8 +7465,6 @@ export default function ChatView(props: ChatViewProps) {
     queuedMessage?: QueuedComposerMessage,
   ) => {
     e?.preventDefault();
-    // Large idle Claude thread: keep the draft and let the cache notice ask first.
-    if (!queuedMessage && !directAnnotation && holdSendForClaudeCache()) return;
     // Typed out in full rather than picked from the menu. Attachments or contexts
     // mean the user is sending a prompt, so those go through as usual.
     if (

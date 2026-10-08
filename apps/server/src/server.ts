@@ -74,6 +74,7 @@ import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/Provide
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as ComputerUseAncestry from "./computerUse/computerUseAncestry.ts";
 import * as ComputerUseService from "./computerUse/ComputerUseService.ts";
+import { browserCliRouteLayer } from "./browserCli/BrowserCliRoute.ts";
 import { computerUseRouteLayer } from "./computerUse/ComputerUseRoute.ts";
 import * as Xa11yComputerDriver from "./computerUse/Xa11yComputerDriver.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
@@ -655,8 +656,8 @@ export const makeRoutesLayer = Layer.mergeAll(
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),
-  // `/api/computer-use` authenticates with the same session credentials as `/mcp`.
-  Layer.mergeAll(McpHttpServer.layer, computerUseRouteLayer).pipe(
+  // `/api/computer-use` and `/api/browser` authenticate with the same session credentials as `/mcp`.
+  Layer.mergeAll(McpHttpServer.layer, computerUseRouteLayer, browserCliRouteLayer).pipe(
     Layer.provide(McpSessionRegistry.layer),
   ),
 ).pipe(

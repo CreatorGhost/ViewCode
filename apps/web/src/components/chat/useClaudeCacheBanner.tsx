@@ -5,7 +5,7 @@ import {
 } from "@t3tools/shared/claudePromptCache";
 import type { OrchestrationThreadActivity } from "@t3tools/contracts";
 import { SnowflakeIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "../ui/button";
 import { claudeCacheClockDelayMs } from "./claudeCacheClock.logic";
@@ -36,9 +36,9 @@ function latestUsage(activities: ReadonlyArray<OrchestrationThreadActivity>): La
 
 /**
  * "Cache likely expired — resending ~240k tokens uncached" above the composer
- * for an idle large Claude thread. It never blocks silently: the first send
- * while the notice is up is held (the draft stays) and the notice offers
- * Send anyway, Compact first and dismiss (for this thread).
+ * for an idle large Claude thread. It only informs: sending is never held,
+ * so Enter and the send button always send. It offers Compact first and
+ * dismiss (for this thread).
  */
 export function useClaudeCacheBanner(input: {
   readonly threadId: string | null;
@@ -47,13 +47,11 @@ export function useClaudeCacheBanner(input: {
   readonly model: string | null | undefined;
   readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
   readonly onCompact: (() => void) | null;
-  readonly sendAnyway: () => void;
-}): { readonly item: ComposerBannerStackItem | null; readonly holdSend: () => boolean } {
-  const { threadId, isClaude, running, model, activities, onCompact, sendAnyway } = input;
+}): { readonly item: ComposerBannerStackItem | null } {
+  const { threadId, isClaude, running, model, activities, onCompact } = input;
   const usage = useMemo(() => (isClaude ? latestUsage(activities) : null), [activities, isClaude]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [dismissedThreads, setDismissedThreads] = useState<ReadonlySet<string>>(new Set());
-  const bypassRef = useRef(false);
   const usageKey = threadId && usage ? `${threadId}:${usage.lastUsedAt}` : null;
 
   useEffect(() => {
@@ -83,14 +81,6 @@ export function useClaudeCacheBanner(input: {
     [model, nowMs, running, usage],
   );
   const visible = assessment?.warn === true && threadId !== null && !dismissedThreads.has(threadId);
-  const [heldKey, setHeldKey] = useState<string | null>(null);
-  const held = heldKey === usageKey;
-
-  const holdSend = useCallback(() => {
-    if (!visible || bypassRef.current) return false;
-    setHeldKey(usageKey);
-    return true;
-  }, [usageKey, visible]);
 
   const item = useMemo<ComposerBannerStackItem | null>(() => {
     if (!visible || assessment === null || usageKey === null || threadId === null) return null;
@@ -100,42 +90,22 @@ export function useClaudeCacheBanner(input: {
       variant: "warning",
       icon: <SnowflakeIcon />,
       title: formatClaudeCacheNotice(assessment),
-      description: held ? "Your message was not sent yet." : undefined,
       dismissLabel: "Dismiss for this thread",
       onDismiss: dismiss,
-      actions: (
-        <>
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() => {
-              dismiss();
-              bypassRef.current = true;
-              try {
-                sendAnyway();
-              } finally {
-                bypassRef.current = false;
-              }
-            }}
-          >
-            Send anyway
-          </Button>
-          {onCompact ? (
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => {
-                dismiss();
-                onCompact();
-              }}
-            >
-              Compact first
-            </Button>
-          ) : null}
-        </>
-      ),
+      actions: onCompact ? (
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={() => {
+            dismiss();
+            onCompact();
+          }}
+        >
+          Compact first
+        </Button>
+      ) : undefined,
     };
-  }, [assessment, held, onCompact, sendAnyway, threadId, usageKey, visible]);
+  }, [assessment, onCompact, threadId, usageKey, visible]);
 
-  return { item, holdSend };
+  return { item };
 }

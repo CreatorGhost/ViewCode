@@ -47,6 +47,15 @@ Use viewcode-computer for all desktop observation and control; do not use other 
 }
 
 /**
+ * The collaborative browser also goes through a CLI, so sessions without
+ * ViewCode's MCP server (managed MCP, or the tools turned off) can still use
+ * it. With MCP, the preview_* tools drive the same browser and tab.
+ */
+export const BROWSER_CLI_INSTRUCTIONS = `<viewcode_browser>
+ViewCode's collaborative browser, which the user sees in their ViewCode window, is also available from your shell as the viewcode-browser command. Run \`viewcode-browser help\` before first use; its output is the manual. When the viewcode MCP preview_* tools are in your tool list, prefer them: they drive the same browser and tab. Otherwise use viewcode-browser to open, inspect and test web pages and local dev servers instead of standalone Playwright, agent-browser or a headless Chrome, unless it reports that no browser is available or the user asks for a different browser.
+</viewcode_browser>`;
+
+/**
  * Shared runtime context; omit model and effort when the harness manages them dynamically.
  * `modelName` is the display name users see in the model picker; `model` is the slug.
  */
@@ -62,6 +71,8 @@ export function buildRuntimeInstructions(runtime: {
   readonly viewcodeToolsUnavailable?: "managed-mcp" | "setting" | undefined;
   /** Set when the session was granted computer use (its CLI is on PATH). */
   readonly computerUse?: ComputerUseGrant | undefined;
+  /** Set when the session may use the collaborative browser and its CLI is on PATH. */
+  readonly browserCli?: boolean | undefined;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
@@ -75,15 +86,19 @@ export function buildRuntimeInstructions(runtime: {
   const computerUse = runtime.computerUse
     ? `\n\n${computerUseInstructions(runtime.computerUse)}`
     : "";
+  const browser = runtime.browserCli ? `\n\n${BROWSER_CLI_INSTRUCTIONS}` : "";
   if (runtime.viewcodeToolsUnavailable) {
-    return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable)}${computerUse}`;
+    return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable, runtime.browserCli === true)}${browser}${computerUse}`;
   }
-  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${PULL_REQUEST_WATCH_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}${computerUse}`;
+  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${PULL_REQUEST_WATCH_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}${browser}${computerUse}`;
 }
 
-const viewcodeToolsUnavailableInstructions = (reason: "managed-mcp" | "setting") =>
+const viewcodeToolsUnavailableInstructions = (
+  reason: "managed-mcp" | "setting",
+  browserCli: boolean,
+) =>
   `<viewcode_tools>
-ViewCode's own tools (the viewcode MCP server: browser preview, devices, pull request linking, inline HTML pages and ViewCode agents such as viewcode_spawn_agent) are not available in this session, because ${
+ViewCode's own tools (the viewcode MCP server: ${browserCli ? "" : "browser preview, "}devices, pull request linking, inline HTML pages and ViewCode agents such as viewcode_spawn_agent) are not available in this session, because ${
     reason === "managed-mcp"
       ? "the user's organization manages this harness's MCP servers"
       : "the user turned them off in ViewCode's settings"

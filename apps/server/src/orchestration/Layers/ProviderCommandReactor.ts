@@ -1411,6 +1411,16 @@ const make = Effect.gen(function* () {
               .sessionModelSwitch;
     const requestedModelSelection =
       input.modelSelection ?? threadModelSelections.get(input.threadId) ?? thread.modelSelection;
+    // A turn that names no model (agent messages, resumes, continues) runs on
+    // the thread's own selection. A restarted session can come back on
+    // another model (Codex resumes onto its default after some errors), and
+    // without a model on the turn it would stay there while the thread, and
+    // `viewcode_list_agents`, still name the configured one.
+    const threadModelForSession =
+      activeSession !== undefined &&
+      activeSession.providerInstanceId === thread.modelSelection.instanceId
+        ? thread.modelSelection
+        : undefined;
     const modelForTurn =
       sessionModelSwitch === "unsupported" && input.modelSelection === undefined
         ? activeSession?.model !== undefined
@@ -1419,7 +1429,7 @@ const make = Effect.gen(function* () {
               model: activeSession.model,
             }
           : requestedModelSelection
-        : input.modelSelection;
+        : (input.modelSelection ?? threadModelForSession);
     // Last, so nothing between taking the handoff and returning can fail.
     const handoff = yield* takeHandoffPrelude({
       threadId: input.threadId,

@@ -2304,6 +2304,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                 appServerArgs: [...McpProviderSession.codexMcpConfigArgs(mcpSession)],
                 mcpCapabilities: mcpSession.capabilities,
                 ...(mcpSession.computerUse ? { computerUse: mcpSession.computerUse } : {}),
+                ...(mcpSession.browserCli ? { browserCli: true as const } : {}),
               }
             : {}),
         };

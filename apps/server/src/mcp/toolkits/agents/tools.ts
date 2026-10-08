@@ -48,7 +48,13 @@ const AgentEntry = Schema.Struct({
   parentId: Schema.NullOr(Schema.String),
   relation: Schema.Literals(["you", "parent", "child", "sibling", "other"]),
   provider: Schema.String,
-  model: Schema.String,
+  model: Schema.String.annotate({
+    description: "The model this agent is configured to run. Each turn ViewCode starts uses it.",
+  }),
+  runningModel: Schema.optional(Schema.String).annotate({
+    description:
+      "Present when the agent's live session reports a different model than `model`. Its next turn moves it back to `model`; calling viewcode_configure_agent again is not needed.",
+  }),
   effort: Schema.optional(Schema.String).annotate({
     description: "Reasoning effort set on this agent. Absent means the model's default.",
   }),

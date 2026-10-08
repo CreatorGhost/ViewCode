@@ -1662,6 +1662,8 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                       reasoningEffort: normalizeGrokReasoningEffort(requestedTurnReasoningEffort),
                       computerUse: McpProviderSession.readMcpProviderSession(input.threadId)
                         ?.computerUse,
+                      browserCli: McpProviderSession.readMcpProviderSession(input.threadId)
+                        ?.browserCli,
                     });
               for (let yieldAttempt = 0; yieldAttempt < 8; yieldAttempt += 1) {
                 yield* Effect.yieldNow;

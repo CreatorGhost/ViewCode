@@ -58,6 +58,8 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
+import { BROWSER_AUTH_ENV, BROWSER_ENDPOINT_ENV } from "../../browserCli/browserCliProtocol.ts";
+import { ensureBrowserCliShim } from "../../browserCli/BrowserCliShim.ts";
 import { COMPUTER_CLI_NAME, ensureComputerUseShim } from "../../computerUse/ComputerUseShim.ts";
 import { ComputerUseService } from "../../computerUse/ComputerUseService.ts";
 import { computerUseScreenshotsDir } from "../../computerUse/computerUsePolicy.ts";
@@ -1006,6 +1008,33 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       };
     });
 
+  /**
+   * The `viewcode-browser` CLI on PATH, for sessions that may use the
+   * collaborative browser. With MCP the preview tools drive the same browser;
+   * without it (blocked by policy, or turned off) this is the only way in.
+   */
+  const browserEnvironment = (config: McpProviderSession.McpProviderSessionConfig) =>
+    Effect.gen(function* () {
+      if (!config.browserEndpoint) return undefined;
+      const shimDir = yield* ensureBrowserCliShim({ stateDir: serverConfig.stateDir }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, pathService),
+        Effect.provideService(HostProcessPlatform, hostPlatform),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Browser CLI unavailable; withholding it from this session", {
+            cause,
+          }).pipe(Effect.as(undefined)),
+        ),
+      );
+      if (!shimDir) return undefined;
+      return {
+        PATH: shimDir,
+        PATH_SEPARATOR: hostPlatform === "win32" ? ";" : ":",
+        [BROWSER_ENDPOINT_ENV]: config.browserEndpoint,
+        [BROWSER_AUTH_ENV]: config.authorizationHeader,
+      } satisfies Record<string, string>;
+    });
+
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
       // A new session replaces the old one: its refs, grant and pending
@@ -1028,8 +1057,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           capabilities.has("computer") && computerUseMode !== "off"
             ? yield* computerUseEnvironment(credential.config)
             : undefined;
+        const browserCliEnvironment = capabilities.has("preview")
+          ? yield* browserEnvironment(credential.config)
+          : undefined;
         const cliEnvironment = McpProviderSession.mergeAgentCliEnvironments([
           deviceEnvironment,
+          browserCliEnvironment,
           computerCli?.environment,
         ]);
         yield* Effect.sync(() =>
@@ -1048,6 +1081,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
                 }
               : {}),
             computerUseSetting: computerUseMode,
+            ...(browserCliEnvironment ? { browserCli: true as const } : {}),
           }),
         );
       }
