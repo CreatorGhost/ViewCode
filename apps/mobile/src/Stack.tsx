@@ -48,6 +48,7 @@ import { GitBranchesSheet } from "./features/threads/git/GitBranchesSheet";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
 import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
+import { PullRequestRouteScreen } from "./features/pullRequests/PullRequestRouteScreen";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
@@ -475,6 +476,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "GitConfirm",
   "GitOverview",
   "NewTaskSheet",
+  "PullRequest",
   "SettingsLegal",
   "SettingsSheet",
   "ThreadReviewComment",
@@ -720,6 +722,12 @@ const RootStackConfig = createNativeStackNavigator({
         sheetAllowedDetents: [0.55, 0.92],
         sheetGrabberVisible: true,
       },
+    }),
+    // Android only: iOS still opens linked pull requests on the host.
+    PullRequest: createNativeStackScreen({
+      screen: PullRequestRouteScreen,
+      linking: `${THREAD_LINKING_PREFIX}/pull-requests/:number`,
+      options: { headerShown: false, gestureEnabled: true, presentation: "card" },
     }),
     GitConfirm: createNativeStackScreen({
       screen: GitConfirmSheet,

@@ -341,6 +341,18 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
                     title={`#${link.number} ${link.snapshot?.title ?? "Pull request"}`}
                     subtitle={`${link.repository} · ${link.snapshot === null ? "Status pending" : link.snapshot.isDraft && link.snapshot.state === "open" ? "Draft" : link.snapshot.state}`}
                     onPress={() => {
+                      // Android shows the pull request in the app; iOS opens it on the host.
+                      if (Platform.OS === "android" && selectedThread) {
+                        navigation.navigate("PullRequest", {
+                          environmentId: String(environmentId),
+                          threadId: String(threadId),
+                          projectId: String(selectedThread.projectId),
+                          repository: link.repository,
+                          number: String(link.number),
+                          ...(link.host ? { host: link.host } : {}),
+                        });
+                        return;
+                      }
                       void tryOpenExternalUrl(link.url, "pull-request").then((opened) => {
                         if (!opened)
                           Alert.alert("Unable to open PR", "The pull request could not be opened.");

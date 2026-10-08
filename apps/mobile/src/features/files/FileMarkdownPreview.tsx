@@ -245,10 +245,6 @@ export function FileMarkdownPreview(props: {
     },
     [markdownDirectory, props.environmentId, props.threadId, props.captured],
   );
-  const styles = useMarkdownPreviewStyles(renderImage);
-  const onLinkPress = useCallback((href: string) => {
-    void tryOpenExternalUrl(href, "markdown-link");
-  }, []);
 
   return (
     <ScrollView
@@ -264,24 +260,36 @@ export function FileMarkdownPreview(props: {
       }
     >
       <View className="mx-auto w-full max-w-[760px]">
-        {hasNativeSelectableMarkdownText() ? (
-          <SelectableMarkdownText
-            markdown={props.markdown}
-            onLinkPress={onLinkPress}
-            renderImage={renderImage}
-            textStyle={styles.nativeTextStyle}
-          />
-        ) : (
-          <Markdown
-            options={{ gfm: true }}
-            renderers={styles.renderers}
-            styles={styles.styles}
-            theme={styles.theme}
-          >
-            {props.markdown}
-          </Markdown>
-        )}
+        <MarkdownText markdown={props.markdown} renderImage={renderImage} />
       </View>
     </ScrollView>
+  );
+}
+
+/** Markdown in the app's reading style, without a scroll container; links open externally. */
+export function MarkdownText(props: {
+  readonly markdown: string;
+  readonly renderImage?: MarkdownImageRenderer;
+}) {
+  const styles = useMarkdownPreviewStyles(props.renderImage);
+  const onLinkPress = useCallback((href: string) => {
+    void tryOpenExternalUrl(href, "markdown-link");
+  }, []);
+  return hasNativeSelectableMarkdownText() ? (
+    <SelectableMarkdownText
+      markdown={props.markdown}
+      onLinkPress={onLinkPress}
+      renderImage={props.renderImage}
+      textStyle={styles.nativeTextStyle}
+    />
+  ) : (
+    <Markdown
+      options={{ gfm: true }}
+      renderers={styles.renderers}
+      styles={styles.styles}
+      theme={styles.theme}
+    >
+      {props.markdown}
+    </Markdown>
   );
 }

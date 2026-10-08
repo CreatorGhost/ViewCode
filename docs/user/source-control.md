@@ -164,7 +164,9 @@ also lists the threads that link to it, including archived threads, so you can r
 
 Thread badges show a stack's layer count or the current review number with a count of additional
 links. On mobile, the Git overview lists linked reviews and their stacks; tap a review to open it.
-Linking and unlinking are available in the web and desktop clients.
+On Android it opens in the app, with its checks, conflicts, reviewers and description, and an open
+review you may merge has a merge button (choose squash, merge or rebase from its arrow). On iPhone it
+opens on the host. Linking and unlinking are available in the web and desktop clients.
 
 The **Linked pull requests** panel lists every review and groups stacks. Unlink a review from its
 row menu. An unlinked stack layer stays out of later syncs. Open linked reviews refresh on the server;
