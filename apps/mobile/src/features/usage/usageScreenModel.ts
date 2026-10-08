@@ -6,7 +6,6 @@ import {
 } from "@t3tools/contracts";
 import { formatResumeAt } from "@t3tools/shared/usageLimit";
 import {
-  type LimitPace,
   type LimitPresentations,
   NO_USAGE_RECORDED_NOTICE,
   limitsNotice,
@@ -127,25 +126,4 @@ export function usageLoadingCaption(
         : `Waiting for ${disconnected.length} environments to connect…`,
     waitingForConnection: true,
   };
-}
-
-/**
- * A pool's status, said as its consequence. "Ahead of pace" next to "2% left"
- * read as good news, so a fast or nearly empty window is phrased as a warning.
- */
-export function limitPoolStatus(
-  pace: LimitPace | null,
-  remainingPercent: number,
-): { readonly label: string; readonly warn: boolean } | null {
-  if (remainingPercent < 10) return { label: "Running low", warn: true };
-  switch (pace) {
-    case "ahead":
-      return { label: "Using fast", warn: true };
-    case "on":
-      return { label: "On track", warn: false };
-    case "under":
-      return { label: "Plenty left", warn: false };
-    case null:
-      return null;
-  }
 }

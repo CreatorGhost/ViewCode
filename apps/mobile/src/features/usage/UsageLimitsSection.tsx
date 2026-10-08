@@ -5,18 +5,9 @@ import type {
   ProviderConsumeResetCreditInput,
   ServerProvider,
   ServerProviderResetCredits,
-  ServerProviderUsageWindow,
-  UsageProviderKind,
 } from "@t3tools/contracts";
-import {
-  elapsedShare,
-  formatDuration,
-  formatResetsIn,
-  limitsNotice,
-  usageRefreshNotice,
-  paceOf,
-  remainingPercent,
-} from "@t3tools/shared/usageLimits";
+import { formatDuration, limitsNotice, usageRefreshNotice } from "@t3tools/shared/usageLimits";
+import { buildRailUsageCardRows } from "@t3tools/shared/usagePace";
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
 import { Alert, Linking, Pressable, View } from "react-native";
@@ -26,85 +17,9 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useProviderColors } from "./usageProviders";
-import { limitPoolStatus } from "./usageScreenModel";
+import { UsageWindowRow } from "./UsageWindowRow";
 
 type Driver = ServerProvider["driver"];
-
-/** The series colour the usage chart uses for this driver, so the two views read as one. */
-function useBarColor(driver: Driver): string | null {
-  const colors = useProviderColors();
-  const kind: UsageProviderKind | null =
-    driver === "codex" ? "codex" : driver === "claudeAgent" ? "claude" : null;
-  return kind ? colors[kind] : null;
-}
-
-/**
- * One window as a bar spanning its whole duration: the fill is quota left,
- * the hairline is how much of the window is left, so even spending keeps the
- * fill on the line. Pace sits under the left edge, the countdown under the
- * right, so a row reads in one glance.
- */
-function WindowRow(props: {
-  readonly window: ServerProviderUsageWindow;
-  readonly color: string | null;
-  readonly now: number;
-}) {
-  const { window, now } = props;
-  const remaining = remainingPercent(window);
-  const elapsed = elapsedShare(window, now);
-  const timeLeft = elapsed === null ? null : Math.round((1 - elapsed) * 100);
-  const status = limitPoolStatus(paceOf(window, now), remaining);
-  const resetsIn = formatResetsIn(window, now);
-  return (
-    <View className="gap-1">
-      <View className="flex-row items-baseline justify-between gap-3">
-        <Text className="text-sm text-foreground">{window.label}</Text>
-        <Text className="text-sm font-t3-medium tabular-nums text-foreground">
-          {remaining}% left
-        </Text>
-      </View>
-      <View className="h-3 justify-center">
-        <View className="h-1.5 flex-row overflow-hidden rounded-sm bg-subtle">
-          <View
-            className={
-              remaining <= 10
-                ? "h-full bg-red-500"
-                : remaining <= 30
-                  ? "h-full bg-amber-500"
-                  : "h-full bg-foreground"
-            }
-            style={[
-              { flex: remaining },
-              remaining > 30 && props.color ? { backgroundColor: props.color } : null,
-            ]}
-          />
-          <View style={{ flex: 100 - remaining }} />
-        </View>
-        {timeLeft !== null ? (
-          <View
-            className="absolute top-0 bottom-0 w-px bg-foreground"
-            style={{ left: `${timeLeft}%`, opacity: 0.6 }}
-          />
-        ) : null}
-      </View>
-      {status || resetsIn ? (
-        <View className="flex-row justify-between gap-3">
-          <Text
-            className={
-              status?.warn
-                ? "text-xs font-t3-medium text-warning-foreground"
-                : "text-xs text-foreground-tertiary"
-            }
-          >
-            {status?.label ?? ""}
-          </Text>
-          <Text className="text-xs tabular-nums text-foreground-tertiary">{resetsIn ?? ""}</Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}
 
 function AccountInstanceLabel({ value }: { readonly value: string }) {
   const [revealed, setRevealed] = useState(false);
@@ -145,7 +60,6 @@ export function AccountLimits(props: {
   readonly footer?: ReactNode;
 }) {
   const { limits, now, dense = false } = props;
-  const color = useBarColor(props.driver);
   if (!limits) return null;
   const notice = limitsNotice(limits);
   const externalUsage = limits.externalUsage;
@@ -175,8 +89,8 @@ export function AccountLimits(props: {
         <Text className="text-sm text-foreground-muted">{notice}</Text>
       ) : (
         <View className="gap-3">
-          {limits.windows.map((window) => (
-            <WindowRow key={window.id} window={window} color={color} now={now} />
+          {buildRailUsageCardRows(limits.windows, now).map((row) => (
+            <UsageWindowRow key={row.id} row={row} />
           ))}
         </View>
       )}
@@ -261,6 +175,50 @@ export function ResetCredits(props: {
       ],
     );
   };
+
+  if (!dense) {
+    return (
+      <View className="gap-3">
+        <View className="gap-1">
+          <View className="flex-row items-baseline justify-between gap-3">
+            <Text className="text-sm font-t3-medium text-foreground">Banked resets</Text>
+            <Text className="text-xs tabular-nums text-foreground-muted">
+              {credits.availableCount > 0 ? `${credits.availableCount} available` : "None"}
+            </Text>
+          </View>
+          <Text className="text-xs text-foreground-muted">
+            Use when your 5-hour or weekly limit has 10% or less remaining.
+          </Text>
+        </View>
+        {credits.availableCount > 0 ? (
+          <View className="flex-row items-center justify-between gap-3">
+            <View className="min-w-0 flex-1 gap-0.5">
+              <Text className="text-sm text-foreground">Reset 1</Text>
+              {expiresIn ? (
+                <Text className="text-xs tabular-nums text-foreground-muted">
+                  Expires in {expiresIn}
+                </Text>
+              ) : null}
+            </View>
+            {credits.canRedeem !== false ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: busy }}
+                disabled={busy}
+                onPress={confirm}
+                className="min-h-[44px] justify-center rounded-md bg-subtle-strong px-3 py-1.5"
+              >
+                <Text className="text-sm font-t3-medium text-foreground">
+                  {busy ? "Using…" : "Use reset"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+        {status ? <Text className="text-sm text-foreground">{status}</Text> : null}
+      </View>
+    );
+  }
 
   return (
     <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">

@@ -5,7 +5,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   limitDriverLabel,
-  limitPoolStatus,
   limitWarnings,
   providersAwaitingData,
   usageLoadingCaption,
@@ -145,19 +144,5 @@ describe("usageLoadingCaption", () => {
         { label: "Box", isConnected: false },
       ]).caption,
     ).toBe("Waiting for 2 environments to connect…");
-  });
-});
-
-describe("limitPoolStatus", () => {
-  it("warns when the window is nearly empty, whatever the pace", () => {
-    expect(limitPoolStatus("under", 2)).toEqual({ label: "Running low", warn: true });
-    expect(limitPoolStatus(null, 9)).toEqual({ label: "Running low", warn: true });
-  });
-
-  it("phrases pace as its consequence", () => {
-    expect(limitPoolStatus("ahead", 40)).toEqual({ label: "Using fast", warn: true });
-    expect(limitPoolStatus("on", 40)).toEqual({ label: "On track", warn: false });
-    expect(limitPoolStatus("under", 40)).toEqual({ label: "Plenty left", warn: false });
-    expect(limitPoolStatus(null, 40)).toBeNull();
   });
 });
