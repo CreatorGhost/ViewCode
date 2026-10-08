@@ -2949,9 +2949,11 @@ export default function ChatView(props: ChatViewProps) {
       ? null
       : JSON.stringify([activityId, latestCheckpointCompletedAt]);
   }, [latestCheckpointCompletedAt, threadActivities]);
+  const currentProviderInstanceId =
+    activeThread?.session?.providerInstanceId ?? activeThread?.modelSelection.instanceId ?? null;
   const activeContextWindow = useMemo(
-    () => deriveLatestContextWindowSnapshot(threadActivities),
-    [threadActivities],
+    () => deriveLatestContextWindowSnapshot(threadActivities, currentProviderInstanceId),
+    [currentProviderInstanceId, threadActivities],
   );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
   const undeliveredMessages = useMemo(
@@ -6511,8 +6513,7 @@ export default function ChatView(props: ChatViewProps) {
         updatedAt: activeContextWindow.updatedAt,
         now: `${nowMinute}:00.000Z`,
         usageInstanceId: activeContextWindow.providerInstanceId,
-        currentInstanceId:
-          activeThread.session?.providerInstanceId ?? activeThread.modelSelection.instanceId,
+        currentInstanceId: currentProviderInstanceId,
         selectedInstanceId: activeProviderInstanceId,
       })
     ) {
@@ -6558,6 +6559,7 @@ export default function ChatView(props: ChatViewProps) {
     compactDisabled,
     compactDisabledReason,
     composerRef,
+    currentProviderInstanceId,
     dismissedResumeCompactionKeys,
     nativeResumeCompactionDismissed,
     nowMinute,
