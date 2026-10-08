@@ -236,6 +236,12 @@ const OWN_INPUT_SLACK_MS = 100;
 const ACCESSIBILITY_BUILD_MS = 500;
 /** How long a text change made through accessibility may take to show in the element's value. */
 const VALUE_SETTLE_MS = 300;
+/**
+ * How long a window or element may fail to answer before it counts as gone
+ * or out of focus, and how often it is asked again meanwhile.
+ */
+const IDENTITY_SETTLE_MS = 1_500;
+const IDENTITY_RETRY_MS = 100;
 /** How often typing re-checks that its window is still the active one. */
 const FOCUS_RECHECK_MS = 100;
 /**
@@ -656,14 +662,23 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     entry.bounds = found.window.bounds;
   };
 
-  /** A fresh snapshot of the window (live bounds and state), or a `stale` refusal. */
-  const refreshWindow = async (entry: WindowEntry): Promise<Element> => {
-    if (!(await api.elementIsAlive(entry.element).catch(() => false))) {
-      throw stale("The original window has closed.");
+  /**
+   * Whether a retained native object still exists. xa11y reports any failed
+   * AXParent read as "no parent", including an app too busy to answer (as
+   * while it handles a burst of typing), so one failed read is retried for
+   * IDENTITY_SETTLE_MS before the object counts as gone.
+   */
+  const stillAlive = async (element: Element) => {
+    for (let waited = 0; ; waited += IDENTITY_RETRY_MS) {
+      if (await api.elementIsAlive(element).catch(() => false)) return true;
+      if (waited >= IDENTITY_SETTLE_MS) return false;
+      await api.sleep(IDENTITY_RETRY_MS);
     }
-    let children: ReadonlyArray<Element>;
+  };
+
+  const appWindowsOf = async (pid: number): Promise<ReadonlyArray<Element>> => {
     try {
-      children = await api.appWindows(entry.pid);
+      return await api.appWindows(pid);
     } catch (error) {
       if (errorName(error) !== "SelectorNotMatchedError") {
         throw new Refusal({
@@ -671,12 +686,34 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           error: classifyXa11yError(error, { afterDispatch: false }),
         });
       }
-      children = [];
+      return [];
     }
-    const found = findWindow(entry, keyedWindows(entry.pid, children));
-    if (!found) throw stale("The window has closed or can no longer be told apart.");
-    adopt(entry, found);
-    return found.window;
+  };
+
+  /**
+   * A fresh snapshot of the window (live bounds and state), or a `stale`
+   * refusal. A busy app can also answer with an empty or partial window
+   * list, so a miss is retried within IDENTITY_SETTLE_MS like liveness.
+   */
+  const refreshWindow = async (entry: WindowEntry): Promise<Element> => {
+    for (let waited = 0; ; waited += IDENTITY_RETRY_MS) {
+      const alive = await api.elementIsAlive(entry.element).catch(() => false);
+      if (alive) {
+        const found = findWindow(entry, keyedWindows(entry.pid, await appWindowsOf(entry.pid)));
+        if (found) {
+          adopt(entry, found);
+          return found.window;
+        }
+      }
+      if (waited >= IDENTITY_SETTLE_MS) {
+        throw stale(
+          alive
+            ? "The window has closed or can no longer be told apart."
+            : "The original window has closed.",
+        );
+      }
+      await api.sleep(IDENTITY_RETRY_MS);
+    }
   };
 
   const isFront = async (entry: WindowEntry, live: Element) =>
@@ -734,9 +771,14 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
 
   /** The last check before input: the target window is still the active one. */
   const verifyFront = async (entry: WindowEntry) => {
-    const live = await refreshWindow(entry);
-    if (!(await isFront(entry, live))) {
-      throw new Refusal(failure("failed", "The target window lost focus before the input."));
+    // A busy app can fail the focus read too; nothing is sent while waiting.
+    for (let waited = 0; ; waited += IDENTITY_RETRY_MS) {
+      const live = await refreshWindow(entry);
+      if (await isFront(entry, live)) return;
+      if (waited >= IDENTITY_SETTLE_MS) {
+        throw new Refusal(failure("failed", "The target window lost focus before the input."));
+      }
+      await api.sleep(IDENTITY_RETRY_MS);
     }
   };
 
@@ -760,7 +802,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     if (expect.role !== entry.role || expect.label !== clipValue(entry.label)) {
       throw stale("The element changed since it was observed.");
     }
-    if (!(await api.elementIsAlive(entry.element).catch(() => false))) {
+    if (!(await stillAlive(entry.element))) {
       throw stale("The observed element is gone; observe again.");
     }
     const windowEntry = requireWindow(entry.windowHandle);
@@ -940,9 +982,9 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       const claimed = new Map<Element, string>();
       for (const [handle, entry] of windows) {
         if (entry.pid !== pid || kept.has(handle)) continue;
-        if (!(await api.elementIsAlive(entry.element).catch(() => false))) continue;
         const found = findWindow(entry, keyed);
         if (!found || claimed.has(found.window)) continue;
+        if (!(await stillAlive(entry.element))) continue;
         adopt(entry, found);
         claimed.set(found.window, handle);
         kept.add(handle);

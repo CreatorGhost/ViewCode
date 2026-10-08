@@ -113,6 +113,8 @@ const makeCore = (
     readonly captureWindow?: Xa11yApi["captureWindow"];
     readonly enableAccessibility?: Xa11yApi["enableAccessibility"];
     readonly secondsSinceInput?: Xa11yApi["secondsSinceInput"];
+    /** Reads left that fail as from an app too busy to answer (no parent, no windows). */
+    readonly busy?: { reads: number };
     readonly executablePaths?: Xa11yApi["executablePaths"];
     /** The server's check; allows everything unless given. */
     readonly authorize?: (
@@ -147,11 +149,19 @@ const makeCore = (
   const api: Xa11yApi = {
     listApps: async () => apps.map(asApp),
     appWindows: async (pid) => {
+      if (options.busy && options.busy.reads > 0) {
+        options.busy.reads -= 1;
+        return [];
+      }
       const app = apps.find((candidate) => candidate.pid === pid);
       return app ? app.windows.map((spec) => fake(spec, sent)) : [];
     },
     // Like a retained AXUIElement: alive while that exact object is in the tree.
     elementIsAlive: async (element) => {
+      if (options.busy && options.busy.reads > 0) {
+        options.busy.reads -= 1;
+        return false;
+      }
       const target = snapshots.get(element);
       const inTree = (specs: Spec[]): boolean =>
         specs.some((spec) => spec === target || inTree(spec.children ?? []));
@@ -539,6 +549,49 @@ describe("input waits while the user is using the computer", () => {
       ok: false,
       error: { code: "CU-CON-009" },
     });
+  });
+});
+
+describe("a window whose app is busy keeps its identity", () => {
+  it("finishes long typing while the app briefly stops answering", async () => {
+    const clock = { now: 0 };
+    const busy = { reads: 0 };
+    const notes = window("Untitled");
+    const core = makeCore([{ name: "TextEdit", pid: 9, windows: [notes] }], {
+      clock,
+      busy,
+      receiveText: () => {
+        // Each key event outlasts the focus re-check interval and keeps the app busy.
+        clock.now += 100;
+        busy.reads = 3;
+      },
+    });
+    const [before] = await core.list();
+    expect(
+      await core.call({ op: "typeFocused", window: before!.handle, text: "hello" }),
+    ).toMatchObject({ ok: true, result: { tookFocus: true } });
+    expect(core.sent.map(([, text]) => text).join("")).toBe("hello");
+    busy.reads = 2;
+    const [after] = await core.list();
+    expect(after?.handle).toBe(before!.handle);
+  });
+
+  it("still stops typing when the window really closed", async () => {
+    const clock = { now: 0 };
+    const app: FakeApp = { name: "TextEdit", pid: 9, windows: [window("Untitled")] };
+    const core = makeCore([app], {
+      clock,
+      receiveText: () => {
+        clock.now += 100;
+        app.windows = [];
+      },
+    });
+    const [win] = await core.list();
+    expect(await core.call({ op: "typeFocused", window: win!.handle, text: "abc" })).toMatchObject({
+      ok: false,
+      error: { kind: "stale", dispatched: "unknown" },
+    });
+    expect(core.sent).toEqual([["typeText", "a"]]);
   });
 });
 
