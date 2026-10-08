@@ -172,6 +172,19 @@ it.layer(NodeServices.layer)("VoiceModelStore", (it) => {
     }),
   );
 
+  it.effect("says the voice is not published yet when the release has no manifest", () =>
+    Effect.gen(function* () {
+      const { store } = yield* makeHarness({
+        routes: (url) => (url.endsWith("manifest.json") ? { status: 404, body: "" } : undefined),
+      });
+      yield* store.download("small");
+      const failed = yield* settled(store, "small");
+      expect(failed.phase).toBe("failed");
+      expect(failed.message).toContain("hasn't been published");
+      expect(failed.message).not.toContain("github.com");
+    }),
+  );
+
   it.effect("cancels a download and leaves nothing behind", () =>
     Effect.gen(function* () {
       const requested = yield* Deferred.make<void>();

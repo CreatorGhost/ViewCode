@@ -144,22 +144,48 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
       Effect.map((current) => current.tiers.find((each) => each.tier === tier) ?? absent(tier)),
     );
 
-  const fetchManifest = http.execute(HttpClientRequest.get(`${releaseUrl}/manifest.json`)).pipe(
-    Effect.flatMap(HttpClientResponse.filterStatusOk),
-    Effect.flatMap((response) => response.text),
-    Effect.flatMap(decodeManifest),
-    Effect.timeout(MANIFEST_TIMEOUT),
-    Effect.tapError((cause) =>
-      Effect.logWarning("Could not read the voice model manifest.", { cause }),
-    ),
-    Effect.mapError(
-      () =>
-        new VoiceModelError({
-          detail:
-            "Couldn't reach ViewCode's GitHub release for the voice. Check that the computer running ViewCode can reach github.com, then try again.",
-        }),
-    ),
-  );
+  // A 404 means the release exists without the files (or not at all): the
+  // mirror workflow has not run. Saying "can't reach GitHub" then sends the
+  // user chasing a network problem they don't have.
+  const fetchManifest = Effect.gen(function* () {
+    const unreachable = new VoiceModelError({
+      detail:
+        "Couldn't reach ViewCode's GitHub release for the voice. Check that the computer running ViewCode can reach github.com, then try again.",
+    });
+    const response = yield* http.execute(HttpClientRequest.get(`${releaseUrl}/manifest.json`)).pipe(
+      Effect.timeout(MANIFEST_TIMEOUT),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Could not reach the voice model release.", { cause }),
+      ),
+      Effect.mapError(() => unreachable),
+    );
+    if (response.status === 404) {
+      return yield* new VoiceModelError({
+        detail:
+          "The natural voice hasn't been published to ViewCode's GitHub release yet, so there is nothing to download. The system voice reads until it is.",
+      });
+    }
+    if (response.status < 200 || response.status >= 300) {
+      yield* Effect.logWarning("The voice model release refused the request.", {
+        status: response.status,
+      });
+      return yield* unreachable;
+    }
+    return yield* response.text.pipe(
+      Effect.flatMap(decodeManifest),
+      Effect.timeout(MANIFEST_TIMEOUT),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Could not read the voice model manifest.", { cause }),
+      ),
+      Effect.mapError(
+        () =>
+          new VoiceModelError({
+            detail:
+              "ViewCode's GitHub release answered, but its list of voice files couldn't be read. Try again later.",
+          }),
+      ),
+    );
+  });
 
   /** Streams one file to `destination`, rejecting it unless its size and SHA-256 match. */
   const fetchFile = Effect.fn("VoiceModelStore.fetchFile")(function* (

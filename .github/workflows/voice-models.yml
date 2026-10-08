@@ -6,13 +6,18 @@ name: Voice Models
 # mirror, so every file comes from one Hugging Face commit, which the manifest
 # records with each file's size and SHA-256; servers verify both before use.
 #
-# Run it by hand. The `revision` input (a branch, tag or commit) is resolved to
-# its commit hash first, so the release is always pinned to an exact commit. The
+# Run it by hand or by changing this file. The `revision` input (a branch, tag
+# or commit; main when pushed) is resolved to its commit hash first, so the release is always pinned to an exact commit. The
 # servers read `manifest.json` from the tag below (`VOICE_MODEL_RELEASE_URL` in
 # apps/server/src/voiceModels/VoiceModelStore.ts), so a new tag needs a
 # matching server change.
 
 on:
+  # Also runs when this file changes on the default branch, so publishing a
+  # change to the mirror needs no manual dispatch.
+  push:
+    branches: [dev]
+    paths: [.github/workflows/voice-models.yml]
   workflow_dispatch:
     inputs:
       revision:
@@ -35,7 +40,7 @@ jobs:
     steps:
       - name: Resolve the revision to a commit
         env:
-          REQUESTED: ${{ inputs.revision }}
+          REQUESTED: ${{ inputs.revision || 'main' }}
         run: |
           set -euo pipefail
           sha=$(curl --fail --location --silent --show-error --retry 3 \
