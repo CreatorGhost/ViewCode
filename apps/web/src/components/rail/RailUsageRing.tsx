@@ -11,7 +11,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collaps
 import { TokenRows, TONE_FILL, UsagePaceLine, UsageTrack } from "../usage/UsageWindowRow";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { formatDuration } from "@t3tools/shared/usageLimits";
+import { formatDuration, NO_USAGE_RECORDED_NOTICE } from "@t3tools/shared/usageLimits";
 import { ResetCreditDialog, useResetCredit } from "../usage/UsageLimits";
 import { type RailRingTone, type RailUsageRing } from "./appRail.logic";
 import {
@@ -39,10 +39,32 @@ function UsageRing({ ring }: { ring: RailUsageRing }) {
   const c = box.size / 2;
   return (
     <span className="relative inline-flex size-8 items-center justify-center">
-      <svg viewBox={`0 0 ${box.size} ${box.size}`} className="absolute inset-0 size-8 -rotate-90" aria-hidden="true">
+      <svg
+        viewBox={`0 0 ${box.size} ${box.size}`}
+        className="absolute inset-0 size-8 -rotate-90"
+        aria-hidden="true"
+      >
+        {ring.window === null ? (
+          // Idle: limits read fine but no window is active yet. A static neutral ring, no arc.
+          <circle
+            cx={c}
+            cy={c}
+            r={outer}
+            fill="none"
+            strokeWidth={box.stroke}
+            className="stroke-foreground/10"
+          />
+        ) : null}
         {ring.tracks.map((track, index) => (
           <g key={track.window.id}>
-            <circle cx={c} cy={c} r={outer - index * TRACK_GAP} fill="none" strokeWidth={box.stroke} className="stroke-foreground/10" />
+            <circle
+              cx={c}
+              cy={c}
+              r={outer - index * TRACK_GAP}
+              fill="none"
+              strokeWidth={box.stroke}
+              className="stroke-foreground/10"
+            />
             {track.remainingPercent > 0 ? (
               <circle
                 cx={c}
@@ -90,7 +112,9 @@ function UsageCardBody({
     <div data-rail-usage-card="" className="flex w-76 flex-col gap-3 rounded-[inherit] p-4 text-xs">
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate font-semibold text-sm">{ring.entry.displayName}</span>
-        {plan ? <span className="shrink-0 whitespace-nowrap text-muted-foreground">{plan}</span> : null}
+        {plan ? (
+          <span className="shrink-0 whitespace-nowrap text-muted-foreground">{plan}</span>
+        ) : null}
       </div>
       {ring.tracks.length > 1 ? (
         <div className="flex items-center gap-3 text-muted-foreground">
@@ -103,7 +127,9 @@ function UsageCardBody({
         </div>
       ) : null}
       {rows.length === 0 ? (
-        <span className="text-muted-foreground">No plan limits reported.</span>
+        <span className="text-muted-foreground">
+          {ring.window === null ? NO_USAGE_RECORDED_NOTICE : "No plan limits reported."}
+        </span>
       ) : (
         <ul className="flex flex-col gap-3">
           {rows.map((row) => (
@@ -111,15 +137,21 @@ function UsageCardBody({
               <div className="flex items-baseline justify-between gap-3">
                 <span className="flex min-w-0 items-baseline gap-1.5">
                   <Tooltip>
-                    <TooltipTrigger render={<span className="min-w-0 truncate font-medium text-sm" />}>
+                    <TooltipTrigger
+                      render={<span className="min-w-0 truncate font-medium text-sm" />}
+                    >
                       {row.label}
                     </TooltipTrigger>
                     <TooltipPopup side="top">{row.label}</TooltipPopup>
                   </Tooltip>
-                  <span className="shrink-0 whitespace-nowrap tabular-nums">{row.remainingText}</span>
+                  <span className="shrink-0 whitespace-nowrap tabular-nums">
+                    {row.remainingText}
+                  </span>
                 </span>
                 {row.reset ? (
-                  <span className="shrink-0 whitespace-nowrap text-muted-foreground tabular-nums">{row.reset}</span>
+                  <span className="shrink-0 whitespace-nowrap text-muted-foreground tabular-nums">
+                    {row.reset}
+                  </span>
                 ) : null}
               </div>
               <UsageTrack row={row} />
@@ -141,7 +173,9 @@ function UsageCardBody({
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-medium">Banked resets</span>
                     <span className="text-muted-foreground tabular-nums">
-                      {credits.availableCount === 0 ? "None" : `${credits.availableCount} available`}
+                      {credits.availableCount === 0
+                        ? "None"
+                        : `${credits.availableCount} available`}
                     </span>
                   </div>
                   <span className="text-muted-foreground">
@@ -153,12 +187,18 @@ function UsageCardBody({
                         <span className="font-medium">Reset 1</span>
                         {credits.nextExpiresAt ? (
                           <span className="text-muted-foreground tabular-nums">
-                            Expires in {formatDuration(Date.parse(credits.nextExpiresAt) - openedAt)}
+                            Expires in{" "}
+                            {formatDuration(Date.parse(credits.nextExpiresAt) - openedAt)}
                           </span>
                         ) : null}
                       </span>
                       {canRedeem ? (
-                        <Button size="xs" variant="outline" disabled={reset.busy} onClick={() => reset.setConfirming(true)}>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={reset.busy}
+                          onClick={() => reset.setConfirming(true)}
+                        >
                           {reset.busy ? "Using…" : "Use reset"}
                         </Button>
                       ) : null}
@@ -167,9 +207,13 @@ function UsageCardBody({
                   {reset.status ? <span>{reset.status}</span> : null}
                 </div>
               ) : limits?.resetCreditsUnavailableReason ? (
-                <span className="text-muted-foreground">{limits.resetCreditsUnavailableReason}</span>
+                <span className="text-muted-foreground">
+                  {limits.resetCreditsUnavailableReason}
+                </span>
               ) : null}
-              {hasTokens ? <TokenRows driverKind={ring.entry.driverKind} openedAt={openedAt} /> : null}
+              {hasTokens ? (
+                <TokenRows driverKind={ring.entry.driverKind} openedAt={openedAt} />
+              ) : null}
             </div>
           </CollapsiblePanel>
         </Collapsible>
@@ -196,7 +240,11 @@ function UsageRingWithCard({
           render={
             <button
               type="button"
-              aria-label={`${ring.entry.displayName}, ${formatUsedPercent(ring.remainingPercent)} left`}
+              aria-label={
+                ring.window === null
+                  ? `${ring.entry.displayName}, ${NO_USAGE_RECORDED_NOTICE}`
+                  : `${ring.entry.displayName}, ${formatUsedPercent(ring.remainingPercent)} left`
+              }
               onClick={() => void navigate({ to: "/usage" })}
               data-rail-usage-ring=""
               className="inline-flex size-9 items-center justify-center rounded-full outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-ring"

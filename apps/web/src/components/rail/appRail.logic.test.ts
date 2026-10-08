@@ -2,7 +2,12 @@ import { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
-import { buildRailUsageRings, railRingTone, railRingTracks, resolveRailEnvironmentId } from "./appRail.logic";
+import {
+  buildRailUsageRings,
+  railRingTone,
+  railRingTracks,
+  resolveRailEnvironmentId,
+} from "./appRail.logic";
 
 function entry(
   id: string,
@@ -76,6 +81,30 @@ describe("buildRailUsageRings", () => {
     ]);
     expect(rings).toHaveLength(0);
   });
+
+  it("draws an idle ring when limits read fine but no window is active yet", () => {
+    const checkedAt = new Date(0).toISOString();
+    const rings = buildRailUsageRings([
+      entry("claudeAgent", "claudeAgent", [], {
+        snapshot: { usageLimits: { checkedAt, windows: [] } },
+      } as unknown as Partial<ProviderInstanceEntry>),
+    ]);
+    expect(rings).toHaveLength(1);
+    expect(rings[0]?.window).toBeNull();
+    expect(rings[0]?.tracks).toEqual([]);
+  });
+
+  it("draws no ring for an account without subscription limits or with a failed probe", () => {
+    const checkedAt = new Date(0).toISOString();
+    const rings = buildRailUsageRings(
+      (["unsupported", "probeFailed"] as const).map((reason) =>
+        entry(reason, "claudeAgent", [], {
+          snapshot: { usageLimits: { checkedAt, windows: [], unavailable: { reason } } },
+        } as unknown as Partial<ProviderInstanceEntry>),
+      ),
+    );
+    expect(rings).toHaveLength(0);
+  });
 });
 
 describe("resolveRailEnvironmentId", () => {
@@ -116,11 +145,19 @@ describe("resolveRailEnvironmentId", () => {
 });
 
 describe("railRingTracks", () => {
-  const w = (id: string, kind: "session" | "weekly" | "monthly" | "other", usedPercent: number) => ({ id, kind, label: id, usedPercent });
+  const w = (
+    id: string,
+    kind: "session" | "weekly" | "monthly" | "other",
+    usedPercent: number,
+  ) => ({ id, kind, label: id, usedPercent });
 
   it("draws weekly outside and the session inside, skipping model-scoped weeklies", () => {
     const tracks = railRingTracks(
-      [w("five_hour", "session", 73), w("seven_day_fable", "weekly", 0), w("seven_day", "weekly", 46)],
+      [
+        w("five_hour", "session", 73),
+        w("seven_day_fable", "weekly", 0),
+        w("seven_day", "weekly", 46),
+      ],
       w("five_hour", "session", 73),
     );
     expect(tracks.map((t) => [t.window.id, t.remainingPercent])).toEqual([

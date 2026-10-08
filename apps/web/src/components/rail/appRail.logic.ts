@@ -21,11 +21,14 @@ export type RailRingTrack = {
 
 export type RailUsageRing = {
   entry: ProviderInstanceEntry;
-  /** The most constrained window: the button's label and the single-ring fallback. */
-  window: ServerProviderUsageWindow;
+  /**
+   * The most constrained window: the button's label and the single-ring fallback. Null on an
+   * idle ring, whose account reads limits but has no window active yet (before the first turn).
+   */
+  window: ServerProviderUsageWindow | null;
   remainingPercent: number;
   tone: RailRingTone;
-  /** What the ring draws, outermost first: weekly outside, the session window inside (as Synara does). */
+  /** What the ring draws, outermost first: weekly outside, the session window inside (as Synara does). Empty when idle. */
   tracks: ReadonlyArray<RailRingTrack>;
 };
 
@@ -69,18 +72,25 @@ export function mostConstrainedWindow(
 }
 
 /**
- * One ring per enabled, reachable account that reports usage limits. An account
- * with no limit windows (no subscription, or a provider that reports none) has
- * nothing to show, so it gets no ring.
+ * One ring per enabled, reachable account that reports usage limits. An account whose
+ * limits read fine but have no window yet gets an idle ring, so the rail is not blank
+ * until the first message. No subscription limits, a failed probe, or a provider that
+ * reports none gets no ring.
  */
 export function buildRailUsageRings(
   entries: ReadonlyArray<ProviderInstanceEntry>,
 ): ReadonlyArray<RailUsageRing> {
   return entries
     .filter((entry) => entry.enabled && entry.isAvailable && entry.installed)
-    .flatMap((entry) => {
+    .flatMap<RailUsageRing>((entry) => {
       const window = mostConstrainedWindow(entry);
-      if (!window) return [];
+      if (!window) {
+        const limits = entry.snapshot.usageLimits;
+        const idle = !!limits && !limits.unavailable && limits.windows.length === 0;
+        return idle
+          ? [{ entry, window: null, remainingPercent: 100, tone: "healthy", tracks: [] }]
+          : [];
+      }
       const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent));
       const tracks = railRingTracks(entry.snapshot.usageLimits?.windows ?? [], window);
       return [{ entry, window, remainingPercent, tone: railRingTone(remainingPercent), tracks }];
