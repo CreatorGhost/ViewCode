@@ -1571,8 +1571,8 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       throw new Refusal(failure("failed", "The point is outside the window."));
     }
     if (input.kind === "key") {
-      const documents = (await api.appWindows(entry.pid)).filter(
-        (window) => window.role === "window",
+      const documents = (await api.appWindows(entry.pid)).filter((window) =>
+        WINDOW_ROLES.has(window.role),
       );
       if (documents.length !== 1) {
         throw new Refusal(

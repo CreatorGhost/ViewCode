@@ -1582,6 +1582,25 @@ describe("experimental background input", () => {
     expect(posted).toEqual([]);
     expect(core.calls.activate).toBe(0);
   });
+  it("counts a dialog-role AXWindow as a window for background shortcuts", async () => {
+    const target = app();
+    target.windows[0]!.role = "dialog";
+    let posts = 0;
+    const core = makeCore([target], {
+      foreground: 2,
+      background: true,
+      primaryDisplay: () => BOUNDS,
+      backgroundInput: async (_pid, _bounds, _input, authorize) => {
+        await authorize();
+        posts += 1;
+        target.windows[0]!.children = [{ role: "button", name: "Changed" }];
+      },
+    });
+    const [w] = await core.list();
+    expect(await core.call({ op: "key", window: w!.handle, keys: "tab" })).toEqual(inBackground);
+    expect(posts).toBe(1);
+    expect(core.calls.activate).toBe(0);
+  });
   it.each(["unchanged", "unreadable"])(
     "keeps a posted action uncertain when its target is %s",
     async (mode) => {
