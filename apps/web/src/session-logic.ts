@@ -120,6 +120,9 @@ export interface WorkLogEntry {
     /** "full" carries the conversation verbatim, "compact" a condensed recap. */
     mode?: "full" | "compact";
     transcriptPath?: string;
+    /** Estimated tokens the new model received, and in the whole conversation. */
+    carriedTokens?: number;
+    conversationTokens?: number;
     /** A stale native session was replaced by a recap rather than a model switch. */
     recovery?: boolean;
   };
@@ -652,6 +655,8 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     const recap = typeof payload?.summary === "string" ? payload.summary : undefined;
     const mode = payload?.mode === "full" || payload?.mode === "compact" ? payload.mode : undefined;
     const transcriptPath = asTrimmedString(payload?.transcriptPath);
+    const carriedTokens = asNumber(payload?.carriedTokens);
+    const conversationTokens = asNumber(payload?.conversationTokens);
     if (fromModel && toModel) {
       entry.handoff = {
         fromModel,
@@ -661,6 +666,8 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
         ...(recap ? { summary: recap } : {}),
         ...(mode ? { mode } : {}),
         ...(transcriptPath ? { transcriptPath } : {}),
+        ...(carriedTokens !== null ? { carriedTokens } : {}),
+        ...(conversationTokens !== null ? { conversationTokens } : {}),
         ...(activity.kind === "viewcode.session.resume-fallback" ? { recovery: true } : {}),
       };
     }

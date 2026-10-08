@@ -367,7 +367,14 @@ export function buildHandoff(input: {
   readonly intro?: string;
   /** Side chat: the recap is the main thread's context, which keeps working on its own. */
   readonly sidechat?: boolean;
-}): HandoffDocument & { readonly mode: HandoffMode; readonly budgetTokens: number } {
+}): HandoffDocument & {
+  readonly mode: HandoffMode;
+  readonly budgetTokens: number;
+  /** Estimated tokens of the whole conversation (messages only). */
+  readonly conversationTokens: number;
+  /** Estimated tokens of the prelude the new model receives (header included). */
+  readonly carriedTokens: number;
+} {
   const { thread } = input;
   const exchanges = exchangesOf(thread);
   const { edits, commands } = toolWork(thread);
@@ -640,6 +647,8 @@ export function buildHandoff(input: {
   return {
     mode,
     budgetTokens,
+    conversationTokens,
+    carriedTokens: estimateTokens(render(mode, selection, sizingPath)),
     summary: summaryLines.join("\n"),
     transcript,
     prelude: (transcriptPath) => {

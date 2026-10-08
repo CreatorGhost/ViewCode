@@ -38,6 +38,39 @@ describe("contextWindow", () => {
     expect(snapshot?.autoCompactThreshold).toBe(200_000);
   });
 
+  describe("current provider instance", () => {
+    const claudeRow = makeActivity("activity-claude", "context-window.updated", {
+      usedTokens: 171_100,
+      maxTokens: 1_000_000,
+      providerInstanceId: "claudeAgent",
+    });
+
+    it("reports nothing when only the previous provider reported usage", () => {
+      expect(deriveLatestContextWindowSnapshot([claudeRow], "cursor")).toBeNull();
+    });
+
+    it("uses the newest row from the current instance, skipping a newer foreign row", () => {
+      const older = makeActivity("activity-cursor", "context-window.updated", {
+        usedTokens: 5_000,
+        providerInstanceId: "cursor",
+      });
+      const snapshot = deriveLatestContextWindowSnapshot([older, claudeRow], "cursor");
+      expect(snapshot).toMatchObject({ usedTokens: 5_000, providerInstanceId: "cursor" });
+    });
+
+    it("skips unstamped legacy rows once the current instance is known", () => {
+      const legacy = makeActivity("activity-legacy", "context-window.updated", {
+        usedTokens: 9_000,
+      });
+      expect(deriveLatestContextWindowSnapshot([legacy], "claudeAgent")).toBeNull();
+    });
+
+    it("does not filter when the current instance is unknown", () => {
+      expect(deriveLatestContextWindowSnapshot([claudeRow])?.usedTokens).toBe(171_100);
+      expect(deriveLatestContextWindowSnapshot([claudeRow], null)?.usedTokens).toBe(171_100);
+    });
+  });
+
   it("ignores malformed payloads", () => {
     const snapshot = deriveLatestContextWindowSnapshot([
       makeActivity("activity-1", "context-window.updated", {}),

@@ -27,8 +27,18 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly providerInstanceId: string | null;
 };
 
+/**
+ * Latest usage the thread's current provider instance reported. After a
+ * handoff the newest row still describes the previous provider's session, so
+ * with `currentProviderInstanceId` known only rows stamped with that instance
+ * count. Rows without a stamp predate instance stamping (2026-09-30) and could
+ * belong to any provider in a handed-off thread; they are skipped too, which
+ * leaves a legacy single-provider thread reading "Not reported" until its next
+ * turn writes a stamped row. With no current instance, nothing is filtered.
+ */
 export function deriveLatestContextWindowSnapshot(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
+  currentProviderInstanceId?: string | null,
 ): ContextWindowSnapshot | null {
   for (let index = activities.length - 1; index >= 0; index -= 1) {
     const activity = activities[index];
@@ -39,6 +49,12 @@ export function deriveLatestContextWindowSnapshot(
     const payload = asRecord(activity.payload);
     const usedTokens = asFiniteNumber(payload?.usedTokens);
     if (usedTokens === null || usedTokens < 0) {
+      continue;
+    }
+
+    const providerInstanceId =
+      typeof payload?.providerInstanceId === "string" ? payload.providerInstanceId : null;
+    if (currentProviderInstanceId != null && providerInstanceId !== currentProviderInstanceId) {
       continue;
     }
 
@@ -70,8 +86,7 @@ export function deriveLatestContextWindowSnapshot(
       compactsAutomatically: asBoolean(payload?.compactsAutomatically) ?? false,
       autoCompactThreshold: asFiniteNumber(payload?.autoCompactThreshold),
       updatedAt: activity.createdAt,
-      providerInstanceId:
-        typeof payload?.providerInstanceId === "string" ? payload.providerInstanceId : null,
+      providerInstanceId,
     };
   }
 

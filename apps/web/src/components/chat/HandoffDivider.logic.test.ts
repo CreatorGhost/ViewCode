@@ -64,6 +64,21 @@ describe("resolveHandoffView", () => {
     expect(view?.contextLabel).toBe("Carried in full");
   });
 
+  it("says how much was carried when the sizes were recorded", () => {
+    const label = (handoff: Parameters<typeof resolveHandoffView>[0]["handoff"]) =>
+      resolveHandoffView({ label: "x", handoff }, instances)?.contextLabel;
+    const pair = { fromModel: "gpt-6", toModel: "opus" };
+    expect(
+      label({ ...pair, mode: "compact", carriedTokens: 49_800, conversationTokens: 180_400 }),
+    ).toBe("Condensed · ~50k of ~180k tokens");
+    expect(label({ ...pair, mode: "full", carriedTokens: 3_200 })).toBe(
+      "Carried in full · ~3.2k tokens",
+    );
+    expect(label({ ...pair, mode: "compact", carriedTokens: 49_800 })).toBe("Condensed");
+    expect(label({ ...pair, mode: "full" })).toBe("Carried in full");
+    expect(label(pair)).toBeNull();
+  });
+
   it("falls back to raw ids for unknown instances and titles recoveries and side chats", () => {
     const recovery = resolveHandoffView(
       { label: "Couldn't reopen", handoff: { fromModel: "m1", toModel: "m2", recovery: true } },
