@@ -7,7 +7,7 @@ name: Voice Models
 # manifest records its size and SHA-256; servers verify both before use.
 #
 # Run it by hand after changing the pinned revision or the file list. The
-# servers read `manifest.json` from the tag below (`VOICE_MODEL_RELEASE_TAG` in
+# servers read `manifest.json` from the tag below (`VOICE_MODEL_RELEASE_URL` in
 # apps/server/src/voiceModels/VoiceModelStore.ts), so a new tag needs a
 # matching server change.
 

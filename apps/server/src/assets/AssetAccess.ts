@@ -7,6 +7,7 @@ import {
   AssetProjectFaviconNotFoundError,
   AssetProjectFaviconResolutionError,
   AssetSigningKeyLoadError,
+  AssetVoiceModelNotFoundError,
   AssetWorkspaceAssetInspectionError,
   AssetWorkspaceAssetNotFoundError,
   AssetWorkspaceContextNotFoundError,
@@ -14,6 +15,7 @@ import {
   AssetWorkspaceResolutionError,
   AssetWorkspaceRootNormalizationError,
   ToolActivityNativeAppReference,
+  VoiceModelTier,
 } from "@t3tools/contracts";
 import {
   audioMimeTypeFromExtension,
@@ -53,6 +55,11 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import { openMediaFile, readMediaFileHeader, type OpenMediaFile } from "./MediaFile.ts";
+import {
+  VOICE_MODEL_COMPLETE_RECORD,
+  VOICE_MODEL_FILE_PATH_PATTERN,
+  voiceModelTierDirectory,
+} from "../voiceModels/VoiceModelStore.ts";
 
 export const ASSET_ROUTE_PREFIX = "/api/assets";
 
@@ -143,6 +150,12 @@ const AssetClaimsSchema = Schema.Union([
     /** Already narrowed to a GitHub media host at mint time; the signature is what keeps it there. */
     url: Schema.String,
     cwd: Schema.String,
+    expiresAt: Schema.Number,
+  }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    kind: Schema.Literal("voice-model"),
+    tier: VoiceModelTier,
     expiresAt: Schema.Number,
   }),
 ]);
@@ -691,6 +704,18 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       fileName = githubMediaFileName(fetchUrl);
       break;
     }
+    case "voice-model": {
+      const config = yield* ServerConfig.ServerConfig;
+      const directory = voiceModelTierDirectory(path, config.stateDir, input.resource.tier);
+      const ready = yield* fileSystem
+        .exists(path.join(directory, VOICE_MODEL_COMPLETE_RECORD))
+        .pipe(Effect.orElseSucceed(() => false));
+      if (!ready) return yield* new AssetVoiceModelNotFoundError({ resource: input.resource });
+      claims = { version: 1, kind: "voice-model", tier: input.resource.tier, expiresAt };
+      // Clients fetch the tier's other files beside this one.
+      fileName = "config.json";
+      break;
+    }
   }
 
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -809,6 +834,17 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
   const decodedPath = decodeRelativePath(relativePath);
   if (decodedPath === null) return null;
   const path = yield* Path.Path;
+  if (claims.kind === "voice-model") {
+    // Any verified file of the tier, by its path inside the model.
+    if (!VOICE_MODEL_FILE_PATH_PATTERN.test(decodedPath)) return null;
+    const config = yield* ServerConfig.ServerConfig;
+    const directory = voiceModelTierDirectory(path, config.stateDir, claims.tier);
+    const filePath = path.join(directory, ...decodedPath.split("/"));
+    const canonicalFile = yield* resolveCanonicalFile(filePath).pipe(
+      Effect.orElseSucceed(() => null),
+    );
+    return canonicalFile ? ({ kind: "file", path: filePath } satisfies ResolvedAsset) : null;
+  }
   if (claims.kind === "media-file-exact") {
     if (decodedPath !== path.basename(claims.filePath)) return null;
     const canonicalFile = yield* resolveCanonicalFile(claims.filePath).pipe(

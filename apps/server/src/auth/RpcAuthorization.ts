@@ -120,6 +120,10 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.usageResumeCancel]: AuthOrchestrationOperateScope,
   [WS_METHODS.usageResumeNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.subscribeAgentControl]: AuthOrchestrationReadScope,
+  [WS_METHODS.voiceModelsDownload]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceModelsCancel]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceModelsRemove]: AuthOrchestrationOperateScope,
+  [WS_METHODS.subscribeVoiceModels]: AuthOrchestrationReadScope,
   // A phone registering for pushes receives only what it could already read.
   [WS_METHODS.pushRegister]: AuthOrchestrationReadScope,
   [WS_METHODS.pushUnregister]: AuthOrchestrationReadScope,

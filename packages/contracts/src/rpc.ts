@@ -109,6 +109,7 @@ import {
   ProviderUploadFeedbackResult,
 } from "./provider.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { VoiceModelError, VoiceModelTierInput, VoiceModelsState } from "./voiceModels.ts";
 import {
   ProviderAccountAddInput,
   ProviderAccountAddResult,
@@ -477,6 +478,12 @@ export const WS_METHODS = {
   subscribeAgentControl: "subscribeAgentControl",
   usageResumeCancel: "usageResume.cancel",
   usageResumeNow: "usageResume.now",
+
+  // ViewCode read aloud: the natural voice's model, downloaded by the environment
+  voiceModelsDownload: "voiceModels.download",
+  voiceModelsCancel: "voiceModels.cancel",
+  voiceModelsRemove: "voiceModels.remove",
+  subscribeVoiceModels: "subscribeVoiceModels",
 
   // ViewCode phone notifications through the Expo push service
   pushRegister: "push.register",
@@ -1108,6 +1115,34 @@ const WsSubscribeAgentControlRpc = Rpc.make(WS_METHODS.subscribeAgentControl, {
   stream: true,
 });
 
+const VoiceModelRpcError = Schema.Union([VoiceModelError, EnvironmentAuthorizationError]);
+
+const WsVoiceModelsDownloadRpc = Rpc.make(WS_METHODS.voiceModelsDownload, {
+  payload: VoiceModelTierInput,
+  success: VoiceModelsState,
+  error: VoiceModelRpcError,
+});
+
+const WsVoiceModelsCancelRpc = Rpc.make(WS_METHODS.voiceModelsCancel, {
+  payload: VoiceModelTierInput,
+  success: VoiceModelsState,
+  error: VoiceModelRpcError,
+});
+
+/** Removes every downloaded tier. */
+const WsVoiceModelsRemoveRpc = Rpc.make(WS_METHODS.voiceModelsRemove, {
+  payload: Schema.Struct({}),
+  success: VoiceModelsState,
+  error: VoiceModelRpcError,
+});
+
+const WsSubscribeVoiceModelsRpc = Rpc.make(WS_METHODS.subscribeVoiceModels, {
+  payload: Schema.Struct({}),
+  success: VoiceModelsState,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPublishRepository, {
   payload: SourceControlPublishRepositoryInput,
   success: SourceControlPublishRepositoryResult,
@@ -1675,6 +1710,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsAgentsResumeRpc,
   WsAgentsDiscardRpc,
   WsSubscribeAgentControlRpc,
+  WsVoiceModelsDownloadRpc,
+  WsVoiceModelsCancelRpc,
+  WsVoiceModelsRemoveRpc,
+  WsSubscribeVoiceModelsRpc,
   WsUsageResumeCancelRpc,
   WsUsageResumeNowRpc,
   WsPushRegisterRpc,
