@@ -47,9 +47,10 @@ Set it up once from the app: open **Connect phone → Anywhere → Quick connect
 - **Sign in.** A Cloudflare page opens (on the desktop app) with a code shown in
   ViewCode. Check that the codes match and approve. If no page opened, use the
   link and code shown. Setup then continues on its own.
-- **workers.dev address.** A new Cloudflare account may first need a free
-  `workers.dev` address. ViewCode says so: choose **Open Cloudflare**, pick one
-  under **Workers & Pages**, then come back; setup continues when you return.
+- **workers.dev address.** A new Cloudflare account has no `workers.dev`
+  address yet. ViewCode creates a free one for you (`viewcode-` and a few random
+  characters). If that is not possible, ViewCode asks you to choose one under
+  **Workers & Pages** instead and continues when you come back.
 - **Needs Node.js.** Setup runs Cloudflare's tools through Node.js 22 or newer.
   If it is missing, ViewCode says so and links to nodejs.org.
 

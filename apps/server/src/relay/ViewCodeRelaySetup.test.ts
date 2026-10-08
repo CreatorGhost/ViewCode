@@ -5,11 +5,14 @@ import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
-import { makeRelaySetup, type RelaySetupStore } from "./ViewCodeRelaySetup.ts";
+import { makeRelaySetup, type RelaySetupDeps, type RelaySetupStore } from "./ViewCodeRelaySetup.ts";
 import type { WranglerResult, WranglerSession } from "./wranglerRunner.ts";
 
 const WORKER_URL = "https://viewcode-relay.me.workers.dev";
@@ -21,6 +24,23 @@ const NO_SUBDOMAIN: WranglerResult = {
   exitCode: 1,
   output:
     "✘ [ERROR] You need to register a workers.dev subdomain before publishing to workers.dev\n",
+};
+const toJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+/** The body of the claim request. */
+const decodeClaim = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ subdomain: Schema.String })),
+);
+
+const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
+/** What wrangler prints when it declines to register a subdomain non-interactively. */
+const NO_SUBDOMAIN_FOR_ACCOUNT: WranglerResult = {
+  exitCode: 1,
+  output: `${NO_SUBDOMAIN.output}✘ [ERROR] You can either deploy your worker to one or more routes by specifying them in your wrangler.json file, or register a workers.dev subdomain here:\nhttps://dash.cloudflare.com/${ACCOUNT_ID}/workers/onboarding\n`,
+};
+const CLOUDFLARE_TOKEN = "cloudflare-oauth-token-value";
+const AUTH_TOKEN: WranglerResult = {
+  exitCode: 0,
+  output: toJson({ type: "oauth", token: CLOUDFLARE_TOKEN }),
 };
 const LOGIN_PROMPT =
   "To authorize Wrangler, please visit:\n\n  https://dash.cloudflare.com/oauth2/device\n\nand enter the code:\n\n  WDJB-MJHT\n\n";
@@ -44,7 +64,8 @@ const makeFakeWrangler = (results: Record<string, ReadonlyArray<WranglerResult>>
       run: (args, options) =>
         Effect.gen(function* () {
           calls.push({ args, input: options?.input });
-          const command = args[0] ?? "";
+          // `whoami --json` and `auth token --json` are scripted by their full command line.
+          const command = results[args.join(" ")] === undefined ? (args[0] ?? "") : args.join(" ");
           if (command === "login") {
             options?.onOutput?.(LOGIN_PROMPT);
             yield* Deferred.await(approve);
@@ -101,6 +122,83 @@ const makeProbe = (outcomes: ReadonlyArray<RelayProbeOutcome>) => {
   };
 };
 
+interface CloudflareRequest {
+  readonly method: string;
+  /** Below `/client/v4`. */
+  readonly path: string;
+  readonly authorization: string | undefined;
+  readonly body: string | undefined;
+}
+
+type CloudflareAnswer = { readonly status: number; readonly body: unknown };
+const cloudflareOk = (result: unknown): CloudflareAnswer => ({
+  status: 200,
+  body: { success: true, errors: [], messages: [], result },
+});
+const cloudflareError = (status: number, code: number, message: string): CloudflareAnswer => ({
+  status,
+  body: { success: false, errors: [{ code, message }], messages: [], result: null },
+});
+
+/** The Cloudflare API: `respond` answers each request, which is recorded. */
+const makeFakeCloudflare = (
+  respond: (request: CloudflareRequest) => CloudflareAnswer | Effect.Effect<CloudflareAnswer>,
+) => {
+  const requests: CloudflareRequest[] = [];
+  const http = HttpClient.make((request, url) =>
+    Effect.gen(function* () {
+      const recorded: CloudflareRequest = {
+        method: request.method,
+        path: url.pathname.replace(/^\/client\/v4/u, ""),
+        authorization: request.headers.authorization,
+        body: request.body._tag === "Uint8Array" ? request.body.text : undefined,
+      };
+      requests.push(recorded);
+      const answer = respond(recorded);
+      const { status, body } = Effect.isEffect(answer) ? yield* answer : answer;
+      return HttpClientResponse.fromWeb(
+        request,
+        new Response(toJson(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }),
+  );
+  return { http, requests };
+};
+
+/** Answers a new account: no subdomain yet, every name free, the claim accepted. */
+const freshAccount =
+  (overrides: (request: CloudflareRequest) => CloudflareAnswer | undefined = () => undefined) =>
+  (request: CloudflareRequest): CloudflareAnswer => {
+    const overridden = overrides(request);
+    if (overridden !== undefined) return overridden;
+    if (request.method === "GET" && request.path === `/accounts/${ACCOUNT_ID}/workers/subdomain`)
+      return cloudflareError(404, 10007, "This account does not have a workers.dev subdomain.");
+    if (request.method === "GET" && request.path.includes("/workers/subdomains/"))
+      return cloudflareError(404, 10032, "Subdomain is available.");
+    if (request.method === "PUT") {
+      const { subdomain } = decodeClaim(request.body);
+      return cloudflareOk({ subdomain });
+    }
+    return cloudflareError(500, 0, "unexpected request");
+  };
+
+const noCloudflare = HttpClient.make(() => Effect.die("no Cloudflare API call expected"));
+
+const makeSetup = (
+  deps: Omit<RelaySetupDeps, "http"> & { readonly http?: HttpClient.HttpClient },
+) => makeRelaySetup({ http: noCloudflare, ...deps });
+
+const captureLogs = () => {
+  const lines: string[] = [];
+  const logger = Logger.make<unknown, void>((options) => {
+    lines.push(toJson(options.message));
+  });
+  return { lines, layer: Logger.layer([logger], { mergeWithExisting: false }) };
+};
+
 const ok: RelayProbeOutcome = { kind: "ok" };
 const reset: RelayProbeOutcome = {
   kind: "problem",
@@ -132,7 +230,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { store, data } = makeMemoryStore({});
       const { probe, probed } = makeProbe([ok]);
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.succeed(wrangler.session),
         store,
         probe,
@@ -171,33 +269,205 @@ describe("ViewCodeRelaySetup", () => {
     }),
   );
 
-  it.effect("stops at a missing workers.dev subdomain and resumes on continue", () =>
+  it.effect("creates a missing workers.dev subdomain itself, then deploys again", () =>
     Effect.gen(function* () {
       const wrangler = yield* makeFakeWrangler({
         whoami: [{ exitCode: 0, output: "You are logged in with an OAuth Token." }],
-        deploy: [NO_SUBDOMAIN, DEPLOYED],
+        deploy: [NO_SUBDOMAIN_FOR_ACCOUNT, DEPLOYED],
+        "auth token --json": [AUTH_TOKEN],
+      });
+      const claimGate = yield* Deferred.make<void>();
+      const cloudflare = makeFakeCloudflare((request) => {
+        const answer = freshAccount()(request);
+        return request.method === "PUT"
+          ? Deferred.await(claimGate).pipe(Effect.as(answer))
+          : answer;
       });
       const { store, data } = makeMemoryStore({});
-      const { probe } = makeProbe([ok]);
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.succeed(wrangler.session),
         store,
-        probe,
+        probe: makeProbe([ok]).probe,
+        http: cloudflare.http,
+      });
+
+      yield* setup.start({ mode: "new" });
+      const creating = yield* awaitState(
+        setup.changes,
+        (state) => state.message === "Creating your free workers.dev address…",
+      );
+      expect(creating).toMatchObject({ status: "running", step: "deploying" });
+      yield* Deferred.succeed(claimGate, undefined);
+      const done = yield* awaitState(setup.changes, isSettled);
+
+      expect(done).toEqual({ status: "succeeded", message: "Quick connect is set up." });
+      expect(data.url).toBe(WORKER_URL);
+      expect(wrangler.calls.map((call) => call.args[0])).toEqual([
+        "whoami",
+        "deploy",
+        "auth",
+        "deploy",
+        "secret",
+      ]);
+      const workers = `/accounts/${ACCOUNT_ID}/workers`;
+      const [current, check, claim] = cloudflare.requests;
+      expect(cloudflare.requests).toHaveLength(3);
+      expect(current).toMatchObject({ method: "GET", path: `${workers}/subdomain` });
+      expect(check!.path).toMatch(new RegExp(`^${workers}/subdomains/viewcode-[a-z0-9]{6}$`, "u"));
+      const name = check!.path.split("/").at(-1)!;
+      expect(claim).toMatchObject({ method: "PUT", path: `${workers}/subdomain` });
+      expect(decodeClaim(claim!.body)).toEqual({ subdomain: name });
+      expect(
+        cloudflare.requests.every(
+          (request) => request.authorization === `Bearer ${CLOUDFLARE_TOKEN}`,
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("tries another name when the first one is taken", () =>
+    Effect.gen(function* () {
+      const wrangler = yield* makeFakeWrangler({
+        whoami: [{ exitCode: 0, output: "You are logged in." }],
+        deploy: [NO_SUBDOMAIN_FOR_ACCOUNT, DEPLOYED],
+        "auth token --json": [AUTH_TOKEN],
+      });
+      let checks = 0;
+      const cloudflare = makeFakeCloudflare(
+        freshAccount((request) =>
+          request.path.includes("/workers/subdomains/") && (checks += 1) === 1
+            ? cloudflareError(409, 10031, "Subdomain is unavailable.")
+            : undefined,
+        ),
+      );
+      const { store } = makeMemoryStore({});
+      const setup = yield* makeSetup({
+        prepare: Effect.succeed(wrangler.session),
+        store,
+        probe: makeProbe([ok]).probe,
+        http: cloudflare.http,
+      });
+
+      yield* setup.start({ mode: "new" });
+      const done = yield* awaitState(setup.changes, isSettled);
+      expect(done.status).toBe("succeeded");
+      expect(cloudflare.requests.map((request) => request.method)).toEqual([
+        "GET",
+        "GET",
+        "GET",
+        "PUT",
+      ]);
+      const [, taken, free, claim] = cloudflare.requests;
+      expect(taken!.path).not.toBe(free!.path);
+      expect(decodeClaim(claim!.body)).toEqual({ subdomain: free!.path.split("/").at(-1) });
+    }),
+  );
+
+  it.effect(
+    "asks for a workers.dev subdomain when Cloudflare refuses, without leaking the token",
+    () => {
+      const logs = captureLogs();
+      return Effect.gen(function* () {
+        const wrangler = yield* makeFakeWrangler({
+          whoami: [{ exitCode: 0, output: "You are logged in." }],
+          deploy: [NO_SUBDOMAIN_FOR_ACCOUNT, DEPLOYED],
+          "auth token --json": [AUTH_TOKEN],
+        });
+        const cloudflare = makeFakeCloudflare(() =>
+          cloudflareError(403, 10000, `Authentication error for ${CLOUDFLARE_TOKEN}`),
+        );
+        const { store, data } = makeMemoryStore({});
+        const setup = yield* makeSetup({
+          prepare: Effect.succeed(wrangler.session),
+          store,
+          probe: makeProbe([ok]).probe,
+          http: cloudflare.http,
+        });
+
+        yield* setup.start({ mode: "new" });
+        const stopped = yield* awaitState(setup.changes, isSettled);
+        expect(stopped.status).toBe("needs-subdomain");
+        expect(stopped.message).toContain("Open Cloudflare");
+        expect(stopped.details).toContain("Authentication error for [redacted] [code: 10000]");
+        expect(toJson(stopped)).not.toContain(CLOUDFLARE_TOKEN);
+        expect(logs.lines.join("\n")).not.toContain(CLOUDFLARE_TOKEN);
+        // Nothing was saved for an address that does not exist.
+        expect(data).toMatchObject({ url: null, secret: null, enabled: false });
+
+        // The person picked one in the dashboard.
+        yield* setup.continueSetup;
+        const done = yield* awaitState(setup.changes, isSettled);
+        expect(done.status).toBe("succeeded");
+        expect(data.url).toBe(WORKER_URL);
+      }).pipe(Effect.provide(logs.layer));
+    },
+  );
+
+  it.effect("does not guess between several accounts", () =>
+    Effect.gen(function* () {
+      const wrangler = yield* makeFakeWrangler({
+        whoami: [{ exitCode: 0, output: "You are logged in." }],
+        "whoami --json": [
+          {
+            exitCode: 0,
+            output: toJson({
+              loggedIn: true,
+              accounts: [
+                { id: ACCOUNT_ID, name: "Personal" },
+                { id: "fedcba9876543210fedcba9876543210", name: "Work" },
+              ],
+            }),
+          },
+        ],
+        deploy: [NO_SUBDOMAIN],
+      });
+      const { store } = makeMemoryStore({});
+      const setup = yield* makeSetup({
+        prepare: Effect.succeed(wrangler.session),
+        store,
+        probe: makeProbe([ok]).probe,
       });
 
       yield* setup.start({ mode: "new" });
       const stopped = yield* awaitState(setup.changes, isSettled);
       expect(stopped.status).toBe("needs-subdomain");
-      expect(stopped.message).toContain("workers.dev");
       expect(stopped.details).toContain("register a workers.dev subdomain");
-      // Nothing was saved for an address that does not exist.
-      expect(data).toMatchObject({ url: null, secret: null, enabled: false });
-
-      yield* setup.continueSetup;
-      const done = yield* awaitState(setup.changes, isSettled);
-      expect(done.status).toBe("succeeded");
-      expect(data.url).toBe(WORKER_URL);
+      // The sign-in token is never read when it would not be used.
+      expect(wrangler.calls.map((call) => call.args.join(" "))).not.toContain("auth token --json");
     }),
+  );
+
+  it.effect(
+    "a failure after the subdomain was created keeps the token out of the state and logs",
+    () => {
+      const logs = captureLogs();
+      return Effect.gen(function* () {
+        const wrangler = yield* makeFakeWrangler({
+          whoami: [{ exitCode: 0, output: "You are logged in." }],
+          deploy: [
+            NO_SUBDOMAIN_FOR_ACCOUNT,
+            { exitCode: 1, output: `✘ [ERROR] Authentication error with ${CLOUDFLARE_TOKEN}` },
+          ],
+          "auth token --json": [AUTH_TOKEN],
+        });
+        const cloudflare = makeFakeCloudflare(freshAccount());
+        const { store } = makeMemoryStore({});
+        const setup = yield* makeSetup({
+          prepare: Effect.succeed(wrangler.session),
+          store,
+          probe: makeProbe([ok]).probe,
+          http: cloudflare.http,
+        });
+
+        yield* setup.start({ mode: "new" });
+        const failed = yield* awaitState(setup.changes, isSettled);
+        expect(failed.status).toBe("failed");
+        expect(failed.details).toContain("Authentication error with [redacted]");
+        expect(toJson(failed)).not.toContain(CLOUDFLARE_TOKEN);
+        expect(logs.lines.some((line) => line.includes("Quick connect setup stopped"))).toBe(true);
+        expect(logs.lines.join("\n")).not.toContain(CLOUDFLARE_TOKEN);
+      }).pipe(Effect.provide(logs.layer));
+    },
   );
 
   it.effect("keeps verifying through network resets until the address answers", () =>
@@ -208,7 +478,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { store } = makeMemoryStore({});
       const { probe, probed } = makeProbe([reset, reset, reset, ok]);
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.succeed(wrangler.session),
         store,
         probe,
@@ -242,7 +512,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { store, data } = makeMemoryStore({});
       const { probe } = makeProbe([reset]);
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.succeed(wrangler.session),
         store,
         probe,
@@ -262,7 +532,7 @@ describe("ViewCodeRelaySetup", () => {
     Effect.gen(function* () {
       const { store } = makeMemoryStore({ secret: "stored-secret-value", url: WORKER_URL });
       const { probe } = makeProbe([rejected]);
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.die("reuse needs no wrangler"),
         store,
         probe,
@@ -286,7 +556,7 @@ describe("ViewCodeRelaySetup", () => {
         enabled: false,
       });
       const { probe, probed } = makeProbe([ok]);
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.die("reuse needs no wrangler"),
         store,
         probe,
@@ -310,7 +580,7 @@ describe("ViewCodeRelaySetup", () => {
             deploy: [deployed],
           });
           const { store, data } = makeMemoryStore({ secret: "stored-secret-value", relay });
-          const setup = yield* makeRelaySetup({
+          const setup = yield* makeSetup({
             prepare: Effect.succeed(wrangler.session),
             store,
             probe: makeProbe([ok]).probe,
@@ -344,7 +614,7 @@ describe("ViewCodeRelaySetup", () => {
         url: WORKER_URL,
         enabled: true,
       });
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
@@ -377,7 +647,7 @@ describe("ViewCodeRelaySetup", () => {
         url: WORKER_URL,
         enabled: true,
       });
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
@@ -403,7 +673,7 @@ describe("ViewCodeRelaySetup", () => {
         whoami: [{ exitCode: 1, output: "You are not authenticated." }],
       });
       const { store, data } = makeMemoryStore({});
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
@@ -422,7 +692,7 @@ describe("ViewCodeRelaySetup", () => {
   it.effect("a live relay connection ends verification that this network keeps refusing", () =>
     Effect.gen(function* () {
       const { store } = makeMemoryStore({ secret: "stored-secret-value", url: WORKER_URL });
-      const setup = yield* makeRelaySetup({
+      const setup = yield* makeSetup({
         prepare: Effect.die("reuse needs no wrangler"),
         store,
         probe: makeProbe([reset]).probe,

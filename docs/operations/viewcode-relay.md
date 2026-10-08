@@ -39,8 +39,14 @@ scope its RPCs require, because it carries the sign-in code):
    The link and code are parsed from its output and shown in the app (the desktop app
    opens the link); if parsing fails, its lines are shown verbatim.
 4. `wrangler deploy --name <name>` (the name remembered in `viewcode-relay.json`, else
-   `viewcode-relay`). Output mentioning a missing workers.dev subdomain stops at
-   "needs subdomain" with nothing saved; **Continue** (or returning to the window after
+   `viewcode-relay`). Output mentioning a missing workers.dev subdomain makes setup
+   register one itself, as wrangler's own `registerSubdomain` does: the account comes
+   from the dashboard link in that output (else `wrangler whoami --json`, only with
+   exactly one account), the token from `wrangler auth token --json` (kept in memory
+   and redacted, never written or logged), then the Cloudflare API checks a random
+   `viewcode-xxxxxx` name and claims it (`relay/workersDevSubdomain.ts`), and it deploys
+   again. If any of that fails it stops at "needs subdomain" with nothing saved and the
+   reason in the details; **Continue** (or returning to the window after
    **Open Cloudflare**) deploys again.
 5. Generates the host secret unless one is stored (rotation only on request) and sets
    it with `wrangler secret put HOST_SECRET` through stdin. Only then are the secret
@@ -52,10 +58,12 @@ scope its RPCs require, because it carries the sign-in code):
    and then every minute for about ten minutes. After that it reports "unreachable" and
    keeps the settings, so the connector keeps retrying.
 
-Wrangler output is redacted (the host secret) before it is kept or shown, and is never
-logged. Cancel interrupts the operation, which kills the wrangler child it spawned.
+Wrangler output is redacted (the host secret, and the Cloudflare token once read) before
+it is kept or shown, and is never logged. Cancel interrupts the operation, which kills the
+wrangler child it spawned.
 
-From a terminal the script does the same with the terminal attached:
+From a terminal the script does the same with the terminal attached, except that a
+missing workers.dev subdomain is left to the dashboard:
 
 ```bash
 node scripts/viewcode-relay.ts deploy      # or: ./build.sh --relay

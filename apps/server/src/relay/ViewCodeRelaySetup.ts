@@ -12,6 +12,8 @@
  *
  * Secrets: the host secret reaches wrangler only on stdin; every piece of
  * wrangler output is redacted before it is kept or shown, and none is logged.
+ * Wrangler's Cloudflare token, read only to create a missing workers.dev
+ * subdomain, stays in memory and is redacted the same way.
  */
 import {
   type ViewCodeRelayProblem,
@@ -55,6 +57,7 @@ import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { HttpClient } from "effect/unstable/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { ServerConfig } from "../config.ts";
@@ -65,6 +68,12 @@ import {
   type WranglerResult,
   type WranglerSession,
 } from "./wranglerRunner.ts";
+import {
+  parseDeployAccountId,
+  parseWhoamiAccountIds,
+  parseWranglerAuthToken,
+  registerWorkersDevSubdomain,
+} from "./workersDevSubdomain.ts";
 
 /** Where setup keeps what it needs across restarts. Failures are plain sentences. */
 export interface RelaySetupStore {
@@ -91,6 +100,8 @@ export interface RelaySetupDeps {
   readonly prepare: Effect.Effect<WranglerSession, RelaySetupFailure, Scope.Scope>;
   readonly store: RelaySetupStore;
   readonly probe: ProbeRelay;
+  /** For the Cloudflare API calls that create a missing workers.dev subdomain. */
+  readonly http: HttpClient.HttpClient;
 }
 
 /**
@@ -144,7 +155,10 @@ export interface ViewCodeRelaySetupShape {
    * dismisses a finished one (a failure, a missing subdomain) back to idle.
    */
   readonly cancel: Effect.Effect<void>;
-  /** After the person created a workers.dev subdomain: deploy again with the same options. */
+  /**
+   * After the person created a workers.dev subdomain themselves (setup could
+   * not create it): deploy again with the same options.
+   */
   readonly continueSetup: Effect.Effect<void, ViewCodeRelaySetupError>;
   readonly remove: (input: {
     readonly localOnly?: boolean | undefined;
@@ -180,12 +194,12 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
     const setStep = (step: ViewCodeRelaySetupStep, extra: Partial<ViewCodeRelaySetupState> = {}) =>
       publish(withDetails({ status: "running", step, message: STEP_MESSAGE[step], ...extra }));
     const redact = (text: string) => redactSecrets(stripAnsi(text), secrets);
-    const keep = (result: WranglerResult) =>
-      Effect.sync(() => {
-        const text = redact(result.output).trim();
-        if (text !== "")
-          details = `${details}${details === "" ? "" : "\n\n"}${text}`.slice(-DETAILS_MAX_CHARS);
-      });
+    const appendDetails = (text: string) => {
+      const kept = redact(text).trim();
+      if (kept !== "")
+        details = `${details}${details === "" ? "" : "\n\n"}${kept}`.slice(-DETAILS_MAX_CHARS);
+    };
+    const keep = (result: WranglerResult) => Effect.sync(() => appendDetails(result.output));
     const fail = (message: string) => new RelaySetupFailure({ message });
 
     /** Signs in with the device flow unless wrangler already has a login. */
@@ -237,6 +251,50 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         }
       });
 
+    /**
+     * Gives an account without a workers.dev subdomain one, so the person is
+     * never sent to the dashboard to pick it. False, with the reason in the
+     * details, when it cannot; setup then asks the person after all.
+     */
+    const createWorkersDevSubdomain = (session: WranglerSession, deployOutput: string) =>
+      Effect.gen(function* () {
+        yield* setStep("deploying", { message: "Creating your free workers.dev address…" });
+        let accountId = parseDeployAccountId(deployOutput);
+        if (accountId === null) {
+          const whoami = yield* session.run(["whoami", "--json"]);
+          const ids = whoami.exitCode === 0 ? parseWhoamiAccountIds(whoami.output) : null;
+          // With several accounts, guessing could put the address on the wrong one.
+          accountId = ids?.length === 1 ? ids[0]! : null;
+        }
+        if (accountId === null) {
+          appendDetails("Could not tell which Cloudflare account needs the workers.dev address.");
+          return false;
+        }
+        // This output is the Cloudflare sign-in itself, so it is never kept.
+        const auth = yield* session.run(["auth", "token", "--json"]);
+        const token = auth.exitCode === 0 ? parseWranglerAuthToken(auth.output) : null;
+        if (token === null) {
+          appendDetails("Could not read the Cloudflare sign-in to create the workers.dev address.");
+          return false;
+        }
+        secrets = [...secrets, token];
+        return yield* registerWorkersDevSubdomain({ accountId, token }).pipe(
+          Effect.provideService(HttpClient.HttpClient, deps.http),
+          Effect.matchEffect({
+            onFailure: (error) =>
+              Effect.sync(() => {
+                appendDetails(`Could not create a workers.dev address. ${error.message}`);
+                return false;
+              }),
+            onSuccess: (subdomain) =>
+              Effect.sync(() => {
+                appendDetails(`Created ${subdomain}.workers.dev for this account.`);
+                return true;
+              }),
+          }),
+        );
+      });
+
     const verify = (url: string, secret: string) =>
       Effect.gen(function* () {
         yield* setStep("verifying");
@@ -283,16 +341,19 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         yield* signIn(session);
 
         yield* setStep("deploying");
-        const deployed = yield* session.run([
-          "deploy",
-          "--config",
-          session.configPath,
-          "--name",
-          name,
-        ]);
-        yield* keep(deployed);
-        const url = parseWorkerUrl(deployed.output, name);
+        const runDeploy = session
+          .run(["deploy", "--config", session.configPath, "--name", name])
+          .pipe(Effect.tap(keep));
+        let deployed = yield* runDeploy;
+        let url = parseWorkerUrl(deployed.output, name);
         // Checked before the exit code: without a subdomain wrangler may exit non-zero.
+        if (url === null && detectMissingWorkersDevSubdomain(deployed.output)) {
+          if (yield* createWorkersDevSubdomain(session, deployed.output)) {
+            yield* setStep("deploying");
+            deployed = yield* runDeploy;
+            url = parseWorkerUrl(deployed.output, name);
+          }
+        }
         if (url === null && detectMissingWorkersDevSubdomain(deployed.output)) {
           pending = options;
           yield* publish(
@@ -316,7 +377,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         yield* setStep("storing-secret");
         // Rotating is only ever explicit: an unchanged secret keeps a working relay working.
         const secret = (options.rotateSecret ? null : storedSecret) ?? generateHostSecret();
-        secrets = [storedSecret, secret];
+        secrets = [...secrets, secret];
         const put = yield* session.run(
           ["secret", "put", "HOST_SECRET", "--name", name, "--config", session.configPath],
           { input: `${secret}\n` },
@@ -383,7 +444,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
             Effect.scoped,
             Effect.catch((failure) =>
               Effect.sync(() => {
-                details = `${details}${details === "" ? "" : "\n\n"}${failure.message}`;
+                appendDetails(failure.message);
                 return false;
               }),
             ),
@@ -556,6 +617,7 @@ export const layer = Layer.effect(
     const config = yield* ServerConfig;
     const secretStore = yield* ServerSecretStore.ServerSecretStore;
     const settings = yield* ServerSettings.ServerSettingsService;
+    const http = yield* HttpClient.HttpClient;
     const relayStatePath = path.join(config.stateDir, RELAY_STATE_FILE);
     const storeFailure = (message: string) => () => new RelaySetupFailure({ message });
 
@@ -613,6 +675,7 @@ export const layer = Layer.effect(
       ),
       store,
       probe: probeRelay,
+      http,
     });
   }),
 );

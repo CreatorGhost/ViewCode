@@ -207,18 +207,25 @@ function SetupProgress({
         </p>
       ) : (
         <ol className="space-y-2">
-          {resolveSetupChecklist(setup.step).map((row) => (
-            <li key={row.label} className="flex items-center gap-2 text-sm">
-              {row.state === "done" ? (
-                <CheckIcon className="size-4 text-success" />
-              ) : row.state === "current" ? (
-                <Spinner size="sm" />
-              ) : (
-                <CircleIcon className="size-4 text-muted-foreground/50" />
+          {resolveSetupChecklist(setup.step, setup.message).map((row) => (
+            <li key={row.label} className="text-sm">
+              <div className="flex items-center gap-2">
+                {row.state === "done" ? (
+                  <CheckIcon className="size-4 text-success" />
+                ) : row.state === "current" ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <CircleIcon className="size-4 text-muted-foreground/50" />
+                )}
+                <span className={row.state === "pending" ? "text-muted-foreground" : undefined}>
+                  {row.label}
+                </span>
+              </div>
+              {row.note === undefined ? null : (
+                <p role="status" className="mt-1 pl-6 text-muted-foreground">
+                  {row.note}
+                </p>
               )}
-              <span className={row.state === "pending" ? "text-muted-foreground" : undefined}>
-                {row.label}
-              </span>
             </li>
           ))}
         </ol>
@@ -228,11 +235,6 @@ function SetupProgress({
           <SignInPrompt signIn={setup.signIn} />
           <CreateAccountLink />
         </>
-      ) : null}
-      {setup.step === "verifying" && setup.problem ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          {setup.message}
-        </p>
       ) : null}
       <div>
         <Button variant="outline" size="sm" onClick={actions.cancel}>

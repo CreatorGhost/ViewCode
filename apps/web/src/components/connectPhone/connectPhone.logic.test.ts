@@ -343,4 +343,17 @@ describe("resolveSetupChecklist", () => {
     expect(resolveSetupChecklist("checking-tools")[0]!.state).toBe("current");
     expect(resolveSetupChecklist("verifying").at(-1)!.state).toBe("current");
   });
+
+  it("notes what the running step is doing only when the label does not say it", () => {
+    expect(
+      resolveSetupChecklist("deploying", "Setting up your relay…").map((row) => row.note),
+    ).toEqual([undefined, undefined, undefined, undefined]);
+    expect(
+      resolveSetupChecklist("deploying", "Creating your free workers.dev address…")[1],
+    ).toEqual({
+      label: "Setting up your relay",
+      state: "current",
+      note: "Creating your free workers.dev address…",
+    });
+  });
 });

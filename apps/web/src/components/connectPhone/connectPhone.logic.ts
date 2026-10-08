@@ -227,16 +227,27 @@ export const QUICK_CONNECT_SETUP_STEPS: ReadonlyArray<{
   { label: "Checking it works", steps: ["verifying"] },
 ];
 
-/** Each checklist row's state for the step that is running now. */
+/**
+ * Each checklist row's state for the step that is running now. The running
+ * step's message becomes the current row's `note` when it says more than the
+ * label (creating a workers.dev address, waiting for the network).
+ */
 export function resolveSetupChecklist(
   step: ViewCodeRelaySetupStep | undefined,
-): ReadonlyArray<{ readonly label: string; readonly state: "done" | "current" | "pending" }> {
+  message?: string,
+): ReadonlyArray<{
+  readonly label: string;
+  readonly state: "done" | "current" | "pending";
+  readonly note?: string;
+}> {
   const current = step ?? "checking-tools";
   const currentIndex = QUICK_CONNECT_SETUP_STEPS.findIndex((row) => row.steps.includes(current));
-  return QUICK_CONNECT_SETUP_STEPS.map((row, index) => ({
-    label: row.label,
-    state: index < currentIndex ? "done" : index === currentIndex ? "current" : "pending",
-  }));
+  return QUICK_CONNECT_SETUP_STEPS.map((row, index) => {
+    const state = index < currentIndex ? "done" : index === currentIndex ? "current" : "pending";
+    const saysMore =
+      state === "current" && message !== undefined && message.replace(/…$/u, "") !== row.label;
+    return { label: row.label, state, ...(saysMore ? { note: message } : {}) };
+  });
 }
 
 export const CLOUDFLARE_SIGN_UP_URL = "https://dash.cloudflare.com/sign-up";
