@@ -227,37 +227,34 @@ export function sidebarThreadAncestorKeys<P, T>(
 }
 
 /**
- * Working child-agent counts for every thread that has child agents, so the
- * sidebar can notice when a lead's agents have all finished.
+ * Leads whose child agents show without a click: the open thread and its
+ * ancestors, so selecting a lead or one of its agents reveals the tree, and
+ * every ancestor of a thread that needs the user, so an approval or question
+ * is never folded away. Everything else stays behind its lead's summary.
  */
-export function sidebarWorkingDescendantCounts<P, T>(
+export function sidebarAutoExpandedLeadKeys<P, T>(
   tree: SidebarThreadTree<P, T>,
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  const visit = (node: SidebarThreadTreeNode<T>) => {
-    if (node.descendantCount === 0) return;
-    counts.set(node.key, node.workingDescendantCount);
-    for (const child of node.children) visit(child);
-  };
-  for (const node of tree.pinned) visit(node);
-  for (const folder of tree.folders) for (const node of folder.nodes) visit(node);
-  return counts;
-}
-
-/**
- * Leads whose child agents were working and have all finished since the
- * previous counts: the sidebar folds those away once, and the user can open
- * them again.
- */
-export function sidebarLeadsWhoseAgentsFinished(
-  previous: ReadonlyMap<string, number>,
-  next: ReadonlyMap<string, number>,
-): string[] {
-  const finished: string[] = [];
-  for (const [key, working] of next) {
-    if (working === 0 && (previous.get(key) ?? 0) > 0) finished.push(key);
+  input: {
+    readonly openThreadKey: string | null;
+    readonly needsUser: (thread: T) => boolean;
+  },
+): Set<string> {
+  const keys = new Set<string>();
+  if (input.openThreadKey !== null) {
+    keys.add(input.openThreadKey);
+    for (const key of sidebarThreadAncestorKeys(tree, input.openThreadKey)) keys.add(key);
   }
-  return finished;
+  const visit = (node: SidebarThreadTreeNode<T>, ancestors: readonly string[]) => {
+    if (ancestors.length > 0 && input.needsUser(node.thread)) {
+      for (const key of ancestors) keys.add(key);
+    }
+    if (node.children.length === 0) return;
+    const path = [...ancestors, node.key];
+    for (const child of node.children) visit(child, path);
+  };
+  for (const node of tree.pinned) visit(node, []);
+  for (const folder of tree.folders) for (const node of folder.nodes) visit(node, []);
+  return keys;
 }
 
 export interface ThreadTreeSearchSelection {

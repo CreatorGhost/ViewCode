@@ -6,9 +6,8 @@ import {
   flattenSidebarThreadNode,
   partitionThreadTreeNodes,
   selectThreadTreeSearchMatches,
-  sidebarLeadsWhoseAgentsFinished,
+  sidebarAutoExpandedLeadKeys,
   sidebarThreadAncestorKeys,
-  sidebarWorkingDescendantCounts,
   type SidebarThreadTreeNode,
 } from "./threadTree.ts";
 
@@ -265,26 +264,37 @@ describe("partitionThreadTreeNodes", () => {
   });
 });
 
-describe("sidebarLeadsWhoseAgentsFinished", () => {
-  const threads = (working: boolean): TestThread[] => [
+describe("sidebarAutoExpandedLeadKeys", () => {
+  const threads: TestThread[] = [
     { id: "lead", project: "a", order: 1 },
-    { id: "child-1", project: "a", parent: "lead", working, order: 2 },
-    { id: "child-2", project: "a", parent: "lead", order: 3 },
-    { id: "solo", project: "a", order: 4 },
+    { id: "child", project: "a", parent: "lead", order: 2 },
+    { id: "grandchild", project: "a", parent: "child", order: 3 },
+    { id: "other-lead", project: "a", order: 4 },
+    { id: "other-child", project: "a", parent: "other-lead", working: true, order: 5 },
+    { id: "asking-lead", project: "b", order: 6 },
+    { id: "asking-child", project: "b", parent: "asking-lead", order: 7 },
   ];
+  const tree = build(threads);
+  const asking = (thread: TestThread) => thread.id === "asking-child";
 
-  it("names a lead once its last working agent finishes", () => {
-    const before = sidebarWorkingDescendantCounts(build(threads(true)));
-    const after = sidebarWorkingDescendantCounts(build(threads(false)));
-    expect(before).toEqual(new Map([["lead", 1]]));
-    expect(sidebarLeadsWhoseAgentsFinished(before, after)).toEqual(["lead"]);
+  it("opens nothing when no thread is open and nobody needs the user", () => {
+    expect(
+      sidebarAutoExpandedLeadKeys(tree, { openThreadKey: null, needsUser: () => false }),
+    ).toEqual(new Set());
   });
 
-  it("ignores leads whose agents were already idle or still work", () => {
-    const idle = sidebarWorkingDescendantCounts(build(threads(false)));
-    const working = sidebarWorkingDescendantCounts(build(threads(true)));
-    expect(sidebarLeadsWhoseAgentsFinished(idle, idle)).toEqual([]);
-    expect(sidebarLeadsWhoseAgentsFinished(working, working)).toEqual([]);
-    expect(sidebarLeadsWhoseAgentsFinished(new Map(), idle)).toEqual([]);
+  it("opens the open thread and the leads above it, but not working trees elsewhere", () => {
+    expect(
+      sidebarAutoExpandedLeadKeys(tree, { openThreadKey: "grandchild", needsUser: () => false }),
+    ).toEqual(new Set(["grandchild", "child", "lead"]));
+    expect(
+      sidebarAutoExpandedLeadKeys(tree, { openThreadKey: "lead", needsUser: () => false }),
+    ).toEqual(new Set(["lead"]));
+  });
+
+  it("opens every lead above an agent that needs the user", () => {
+    expect(sidebarAutoExpandedLeadKeys(tree, { openThreadKey: null, needsUser: asking })).toEqual(
+      new Set(["asking-lead"]),
+    );
   });
 });

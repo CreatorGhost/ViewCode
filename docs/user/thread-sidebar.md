@@ -129,6 +129,11 @@ agents stay together: the lead thread decides where the group sits, so Settle an
 offered on the lead's menu. Right-click a thread to choose **Settle thread** or **Un-settle
 thread**. Opening a settled thread, for example from search, opens its project's Settled row.
 
+Child agents fold under their lead thread, which shows how many there are and how many are
+working. They open while you are in that thread or one of its agents, and when an agent needs
+your approval or input; moving to another thread folds them again. Click the count to open or
+close them yourself.
+
 To keep one thread out of the settled shelf no matter how long it sits idle, open its menu,
 choose **Auto-settle behavior**, and pick **Disabled**. The current option is checked. Pick
 **Enabled** to return to the usual rules. Manual settle, snooze, and archive still work while it

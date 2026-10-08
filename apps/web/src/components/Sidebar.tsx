@@ -189,9 +189,8 @@ import {
   buildSidebarThreadTree,
   collectVisibleSidebarThreadKeys,
   flattenSidebarThreadNode,
-  sidebarLeadsWhoseAgentsFinished,
+  sidebarAutoExpandedLeadKeys,
   sidebarThreadAncestorKeys,
-  sidebarWorkingDescendantCounts,
   type SidebarThreadRowEntry,
   type SidebarThreadTreeNode,
 } from "./sidebar/sidebarThreadTree";
@@ -283,6 +282,13 @@ function isSidebarThreadLive(thread: SidebarThreadSummary): boolean {
 function isSidebarThreadWorking(thread: SidebarThreadSummary): boolean {
   return resolveSidebarThreadStatus(thread) === "working";
 }
+
+function isSidebarThreadWaitingOnUser(thread: SidebarThreadSummary): boolean {
+  const status = resolveSidebarThreadStatus(thread);
+  return status === "approval" || status === "input";
+}
+
+const EMPTY_THREAD_KEYS: ReadonlySet<string> = new Set();
 
 function threadKeyOf(thread: Pick<EnvironmentThreadShell, "environmentId" | "id">): string {
   return scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
@@ -2224,39 +2230,21 @@ export default function Sidebar() {
       ),
     [projectExpandedById, tree.folders],
   );
-  const [collapsedThreadKeys, setCollapsedThreadKeys] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  // Child agents stay folded behind their lead's summary ("3 agents", "2 of 5
+  // working") until the user opens that tree, one of them needs the user, or a
+  // folder search matches inside it. A chevron click overrides that until the
+  // open thread moves to another tree, which folds the sidebar back.
+  const [threadExpansionOverrides, setThreadExpansionOverrides] = useState<
+    ReadonlyMap<string, boolean>
+  >(() => new Map());
+  const autoExpandedLeadKeys = useMemo(
+    () =>
+      sidebarAutoExpandedLeadKeys(tree, {
+        openThreadKey: routeThreadKey,
+        needsUser: isSidebarThreadWaitingOnUser,
+      }),
+    [routeThreadKey, tree],
   );
-  const isThreadExpanded = useCallback(
-    (threadKey: string) => !collapsedThreadKeys.has(threadKey),
-    [collapsedThreadKeys],
-  );
-  // A lead folds its child agents away once they have all finished, so done
-  // work stops taking rows. Only on that transition: the user can open them
-  // again, and a lead whose agent is open stays expanded.
-  const workingCountsRef = useRef<ReadonlyMap<string, number>>(new Map());
-  useEffect(() => {
-    const counts = sidebarWorkingDescendantCounts(tree);
-    const finished = sidebarLeadsWhoseAgentsFinished(workingCountsRef.current, counts);
-    workingCountsRef.current = counts;
-    if (finished.length === 0) return;
-    const openAncestors =
-      routeThreadKey === null ? [] : sidebarThreadAncestorKeys(tree, routeThreadKey);
-    const toCollapse = finished.filter((key) => !openAncestors.includes(key));
-    if (toCollapse.length === 0) return;
-    setCollapsedThreadKeys((current) => {
-      const next = new Set(current);
-      for (const key of toCollapse) next.add(key);
-      return next;
-    });
-  }, [routeThreadKey, tree]);
-  const toggleThreadChildren = useCallback((threadKey: string) => {
-    setCollapsedThreadKeys((current) => {
-      const next = new Set(current);
-      if (!next.delete(threadKey)) next.add(threadKey);
-      return next;
-    });
-  }, []);
   const toggleProjectFolder = useCallback(
     (group: SidebarProjectSnapshot) => {
       const keys = projectExpansionPreferenceKeys(group);
@@ -2278,27 +2266,32 @@ export default function Sidebar() {
   const threadByKeyRef = useRef(threadByKey);
   threadByKeyRef.current = threadByKey;
 
-  // Opening a thread reveals it once: its folder and any collapsed parent
-  // agents open, after which the user is free to collapse them again.
+  // Opening a thread reveals it once: its folder and its parent agents open,
+  // after which the user is free to collapse them again. Moving to another
+  // tree drops the chevron overrides, so trees the user peeked into fold back.
   const revealedRouteThreadKeyRef = useRef<string | null>(null);
+  const revealedRouteRootKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (routeThreadKey === null || revealedRouteThreadKeyRef.current === routeThreadKey) return;
     if (!threadByKey.has(routeThreadKey)) return;
     revealedRouteThreadKeyRef.current = routeThreadKey;
     const ancestors = sidebarThreadAncestorKeys(tree, routeThreadKey);
-    if (ancestors.some((key) => collapsedThreadKeys.has(key))) {
-      setCollapsedThreadKeys((current) => {
-        const next = new Set(current);
-        for (const key of ancestors) next.delete(key);
-        return next;
-      });
-    }
+    const rootKey = ancestors.at(-1) ?? routeThreadKey;
+    const sameTree = revealedRouteRootKeyRef.current === rootKey;
+    revealedRouteRootKeyRef.current = rootKey;
+    setThreadExpansionOverrides((current) => {
+      if (current.size === 0) return current;
+      if (!sameTree) return new Map();
+      if (![routeThreadKey, ...ancestors].some((key) => current.has(key))) return current;
+      const next = new Map(current);
+      for (const key of [routeThreadKey, ...ancestors]) next.delete(key);
+      return next;
+    });
     const folderKey = tree.folderKeyByThreadKey.get(routeThreadKey);
     const folder = folderKey === undefined ? undefined : projectGroupByScopeKey.get(folderKey);
     if (folder && folderExpandedByKey.get(folder.projectKey) === false) {
       setProjectExpanded(projectExpansionPreferenceKeys(folder), true);
     }
-    const rootKey = ancestors.at(-1) ?? routeThreadKey;
     if (
       folderKey !== undefined &&
       folderSectionsByKey.get(folderKey)?.settled.some((node) => node.key === rootKey)
@@ -2306,7 +2299,6 @@ export default function Sidebar() {
       setProjectExpanded(settledGroupPreferenceKey(folderKey), true);
     }
   }, [
-    collapsedThreadKeys,
     folderExpandedByKey,
     folderSectionsByKey,
     projectGroupByScopeKey,
@@ -2418,6 +2410,32 @@ export default function Sidebar() {
     },
     [setProjectExpanded],
   );
+  // A folder search shows every match, even inside a tree the user folded.
+  const searchExpandedThreadKeys = useMemo(
+    () =>
+      folderSearchResult === null
+        ? EMPTY_THREAD_KEYS
+        : new Set(
+            collectSidebarTreeThreads([
+              ...folderSearchResult.active,
+              ...folderSearchResult.settled,
+            ]).map(threadKeyOf),
+          ),
+    [folderSearchResult],
+  );
+  const isThreadExpanded = useCallback(
+    (threadKey: string) =>
+      searchExpandedThreadKeys.has(threadKey) ||
+      (threadExpansionOverrides.get(threadKey) ?? autoExpandedLeadKeys.has(threadKey)),
+    [autoExpandedLeadKeys, searchExpandedThreadKeys, threadExpansionOverrides],
+  );
+  // Rows get a stable toggle; it reads the current state through a ref.
+  const isThreadExpandedRef = useRef(isThreadExpanded);
+  isThreadExpandedRef.current = isThreadExpanded;
+  const toggleThreadChildren = useCallback((threadKey: string) => {
+    const expanded = isThreadExpandedRef.current(threadKey);
+    setThreadExpansionOverrides((current) => new Map(current).set(threadKey, !expanded));
+  }, []);
   const routeRootKey = useMemo(
     () =>
       routeThreadKey === null
@@ -3543,7 +3561,7 @@ export default function Sidebar() {
         guides={entry.guides.map((continues) => (continues ? "1" : "0")).join("")}
         descendantCount={node.descendantCount}
         workingDescendantCount={node.workingDescendantCount}
-        childrenExpanded={!collapsedThreadKeys.has(threadKey)}
+        childrenExpanded={isThreadExpanded(threadKey)}
         onToggleChildren={toggleThreadChildren}
         isPinned={thread.pinnedAt != null}
         pinningSupported={
