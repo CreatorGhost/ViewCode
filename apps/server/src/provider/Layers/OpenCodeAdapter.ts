@@ -3282,6 +3282,9 @@ export function makeOpenCodeAdapter(
                         ? undefined
                         : McpProviderSession.readMcpProviderSession(input.threadId)
                             ?.computerUseMode,
+                      browserCli: context.server.external
+                        ? undefined
+                        : McpProviderSession.readMcpProviderSession(input.threadId)?.browserCli,
                     }),
                     parts: [...(text ? [{ type: "text" as const, text }] : []), ...fileParts],
                   },

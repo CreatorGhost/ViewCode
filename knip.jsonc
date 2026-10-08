@@ -24,6 +24,7 @@
         "src/claude-history-worker.ts!",
         "src/computer-use-driver.ts!",
         "src/viewcode-computer.ts!",
+        "src/viewcode-browser.ts!",
         "scripts/cli.ts",
         "scripts/evaluate-thread-titles.ts",
         "scripts/measure-pr-preview.ts",

@@ -85,6 +85,7 @@ export default mergeConfig(
             "src/mcp-stdio-bridge.ts",
             "src/computer-use-driver.ts",
             "src/viewcode-computer.ts",
+            "src/viewcode-browser.ts",
           ],
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,

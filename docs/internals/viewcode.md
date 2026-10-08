@@ -19,6 +19,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, `T3CodeHistory.ts`, web `components/agentSessions/`                                                                                                                                                                                                                                                                       |
 | Phone notifications (Expo push)          | `apps/server/src/notifications/`, contracts `pushNotifications.ts`, mobile `features/agent-awareness/directPush*.ts` and `useDirectPushRegistration.ts`                                                                                                                                                                                                                                                                                               |
 | Computer use (agents drive the desktop)  | `apps/server/src/computerUse/` (`ComputerUseService.ts` gate, `ComputerUseCli.ts` CLI + manual, `Xa11yDriverCore.ts` driver), contracts `computerUse.ts`, web `settings/ComputerUseSetting.tsx`                                                                                                                                                                                                                                                       |
+| Browser CLI (no MCP)                     | `apps/server/src/browserCli/` (`BrowserCli.ts` CLI + manual, `BrowserCliRoute.ts` runs the preview handlers), `mcp/toolkits/preview/handlers.ts`                                                                                                                                                                                                                                                                                                      |
 | Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME` and `VIEWCODE_TEAL_THEME`, the web-only default; `isViewCodeThemeId` names the glass themes), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids); `apps/web/src/viewcodeLookMigration.ts` runs two one-time moves to the teal default (upstream themes, then plain `viewcode`) that share one Undo target, the original look |
 
 ## Decisions
@@ -255,6 +256,18 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   its default after an error), and the turn used to inherit it while
   `viewcode_list_agents` named the configured one. `list_agents` also reports
   `runningModel` when the live session's model differs.
+
+### Browser CLI
+
+- `viewcode-browser` reaches the collaborative browser without MCP, for providers whose
+  organization blocks MCP servers (or sessions run without ViewCode's tools). `POST /api/browser`
+  runs the MCP preview tools' own handlers with the session credential's scope, so validation, the
+  `preview` capability gate ("Agent browser access"), broker routing and the agent's current tab
+  are shared with the `preview_*` tools; nothing browser-specific is reimplemented. Only snapshot
+  output differs: a shell cannot receive an image, so the PNG is always saved
+  (`browserArtifactsDir`) and its path returned, with the same 20 KB bounding.
+- The host is the desktop app's webview (`PreviewAutomationHosts.tsx`); web and mobile register
+  no host, so the CLI, like the MCP tools, needs a desktop app connected to the environment.
 
 ### Computer use
 

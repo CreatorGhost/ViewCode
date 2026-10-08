@@ -156,7 +156,7 @@ const hasLongString = (entry: unknown, max: number) =>
   entry !== null &&
   Object.values(entry).some((value) => typeof value === "string" && value.length > max);
 
-type SnapshotMetadata = {
+export type SnapshotMetadata = {
   readonly url: string;
   readonly title: string;
   readonly visibleText: string;
@@ -177,7 +177,7 @@ type SnapshotMetadata = {
  * text, and notes on what is missing so the agent can reach for
  * preview_evaluate.
  */
-const boundSnapshotMetadata = (metadata: SnapshotMetadata) => {
+export const boundSnapshotMetadata = (metadata: SnapshotMetadata) => {
   const omitted: Array<string> = [];
   const { accessibilityTree, ...withoutTree } = metadata;
   if (accessibilityTree !== undefined) {
@@ -316,7 +316,7 @@ const screenshotSiteSlug = (rawUrl: string): string => {
 };
 
 /** Writes the snapshot PNG under the browser artifacts directory and returns its path. */
-const saveScreenshot = Effect.fn("McpHttpServer.saveScreenshot")(function* (
+export const saveScreenshot = Effect.fn("McpHttpServer.saveScreenshot")(function* (
   pageUrl: string,
   data: Uint8Array,
 ) {

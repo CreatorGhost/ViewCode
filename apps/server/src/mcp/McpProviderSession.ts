@@ -36,6 +36,14 @@ export interface McpProviderSessionConfig {
    * listens on a socket only.
    */
   readonly computerUseEndpoint?: string;
+  /** Where the `viewcode-browser` CLI reaches `POST /api/browser`, in the same forms. */
+  readonly browserEndpoint?: string;
+  /**
+   * Set when the session may use the collaborative browser and the
+   * `viewcode-browser` CLI is in `agentDeviceEnvironment`. Adapters pass it to
+   * the runtime instructions.
+   */
+  readonly browserCli?: true;
   /**
    * Set when the session was granted computer use and its CLI environment is
    * in `agentDeviceEnvironment`. Adapters pass it to the runtime instructions.
@@ -44,9 +52,10 @@ export interface McpProviderSessionConfig {
   /**
    * Environment for the agent-facing CLIs ViewCode puts on PATH (`agent-device`
    * when the session may drive devices, `viewcode-computer` when it may use
-   * the computer). Adapters spread this into the provider subprocess
-   * environment through `withAgentDeviceEnvironment`; the agent never has to
-   * configure either CLI itself.
+   * the computer, `viewcode-browser` when it may use the collaborative
+   * browser). Adapters spread this into the provider subprocess environment
+   * through `withAgentDeviceEnvironment`; the agent never has to configure
+   * any of these CLIs itself.
    */
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
 }
