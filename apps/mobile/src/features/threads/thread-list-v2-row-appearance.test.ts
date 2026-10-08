@@ -28,10 +28,8 @@ describe.each([
         expect(idle.mutedForegroundClassName).toBe("text-drawer-foreground-muted");
 
         const phone = appearanceFor(theme, false, false);
-        // Android phone rows are Refined cards; iOS keeps flat rows on the screen.
-        expect(phone.swipeBackgroundColor).toBe(
-          theme[_platform === "android" ? "--color-card" : "--color-screen"],
-        );
+        // Phone rows sit flat on the screen on both platforms.
+        expect(phone.swipeBackgroundColor).toBe(theme["--color-screen"]);
         expect(phone.interactionClassName).toBe("bg-row-hover");
         expect(phone.foregroundClassName).toBe("text-foreground");
       }

@@ -22,7 +22,6 @@ import { ActivityIndicator, Platform, useWindowDimensions, View } from "react-na
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { cn } from "../../lib/cn";
 import { EmptyState } from "../../components/EmptyState";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import type { WorkspaceEnvironment, WorkspaceState } from "../../state/workspaceModel";
@@ -60,7 +59,6 @@ import {
   type HomeStatusFilter,
 } from "./homeFolderList";
 import { HomeStatusFilterChips } from "./home-folder-rows";
-import { AppText as Text } from "../../components/AppText";
 import {
   buildHomeProjectScopes,
   sortHomeProjectScopes,
@@ -71,6 +69,7 @@ import { buildLeadAgentMenuActions, isAgentMenuEvent } from "../agents/agentMenu
 import { useAgentControlActions } from "../agents/useAgentControlActions";
 import { useAgentControlByThreadKey } from "../../state/agentControl";
 import { useMaterialFabScroll } from "./MaterialFabScrollContext";
+import { HOME_COMPOSER_CLEARANCE } from "./HomeComposerLauncher";
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -232,7 +231,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const insets = useSafeAreaInsets();
   const windowHeight = useWindowDimensions().height;
-  const { fabClearance } = useAndroidControlSizing();
+  const { scale } = useAndroidControlSizing();
   const iosBottomToolbarClearance =
     Platform.OS === "ios" && !NATIVE_LIQUID_GLASS_SUPPORTED
       ? PRE_LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT
@@ -978,12 +977,9 @@ export function HomeScreen(props: HomeScreenProps) {
 
   if (!hasAnyThreads) {
     return (
-      <View className="flex-1 bg-screen android:bg-header">
+      <View className="flex-1 bg-screen">
         <View
-          className={cn(
-            "flex-1 items-center justify-center bg-screen px-8",
-            Platform.OS === "android" && "overflow-hidden rounded-t-[28px]",
-          )}
+          className="flex-1 items-center justify-center bg-screen px-8"
           style={{
             paddingBottom: Math.max(insets.bottom, 24) + iosBottomToolbarClearance,
             paddingTop: NATIVE_LIQUID_GLASS_SUPPORTED ? insets.top + 72 : 0,
@@ -1021,22 +1017,13 @@ export function HomeScreen(props: HomeScreenProps) {
 
   // Project and environment scoping stay in the header menu; the chips filter
   // by what the work needs.
+  // Android's top bar already names the scope, so the chips lead the list.
   const v2ListHeader = hasAnyThreads ? (
-    <>
-      {Platform.OS === "ios" ? null : (
-        <Text
-          accessibilityRole="header"
-          className="px-4 pt-4 text-3xl font-t3-bold tracking-[-0.6px] text-foreground"
-        >
-          Threads
-        </Text>
-      )}
-      <HomeStatusFilterChips
-        value={statusFilter}
-        counts={statusFilterCounts}
-        onChange={setStatusFilter}
-      />
-    </>
+    <HomeStatusFilterChips
+      value={statusFilter}
+      counts={statusFilterCounts}
+      onChange={setStatusFilter}
+    />
   ) : Platform.OS === "ios" ? null : (
     <HomeTopContentSpacer />
   );
@@ -1089,9 +1076,9 @@ export function HomeScreen(props: HomeScreenProps) {
   // user can switch back.
   if (Platform.OS === "android" && folderItems.length === 0 && statusFilter === "all") {
     return (
-      <View className="flex-1 bg-header">
+      <View className="flex-1 bg-screen">
         <View
-          className="flex-1 items-center justify-center overflow-hidden rounded-t-[28px] bg-screen px-4"
+          className="flex-1 items-center justify-center bg-screen px-4"
           style={{ paddingBottom: insets.bottom }}
         >
           {v2ListEmpty}
@@ -1101,14 +1088,8 @@ export function HomeScreen(props: HomeScreenProps) {
   }
 
   return (
-    <View className="flex-1 bg-screen android:bg-header">
-      <View
-        className={
-          Platform.OS === "android"
-            ? "flex-1 overflow-hidden rounded-t-[28px] bg-screen"
-            : "flex-1 bg-screen"
-        }
-      >
+    <View className="flex-1 bg-screen">
+      <View className="flex-1 bg-screen">
         {/* Shared with the iPad sidebar: cells are reused across data
             rebuilds and `itemsAreEqual` keeps a minute tick (or an unrelated
             shell update) from re-rendering untouched rows. */}
@@ -1138,7 +1119,7 @@ export function HomeScreen(props: HomeScreenProps) {
                 Platform.OS === "ios"
                   ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
                   : Math.max(insets.bottom, 16) +
-                    (Platform.OS === "android" ? fabClearance + 24 : 88),
+                    (Platform.OS === "android" ? HOME_COMPOSER_CLEARANCE * scale : 88),
             }}
           />
         </SwipeableScrollGateProvider>

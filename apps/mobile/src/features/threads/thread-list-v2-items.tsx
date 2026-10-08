@@ -2,6 +2,7 @@ import {
   THREAD_LIST_V2_MONO_FONT as MONO_FONT,
   THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME,
   THREAD_LIST_V2_ROW_DIVIDERS,
+  THREAD_LIST_V2_PROVIDER_LEADS_TITLE,
   selectedThreadRowColors,
   getThreadListV2NewBranchMenuTitle,
   getThreadListV2RowAppearance,
@@ -20,7 +21,7 @@ import type { EnvironmentMachineKind } from "@t3tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
-import { Alert, Pressable, useWindowDimensions, View } from "react-native";
+import { Alert, Platform, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -948,17 +949,38 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       )}
     </>
   );
-  const titleText = (
+  const leadingProvider = THREAD_LIST_V2_PROVIDER_LEADS_TITLE && props.providerInstance != null;
+  const providerIcon = props.providerInstance ? (
+    <ProviderInstanceIcon
+      provider={props.providerInstance.driverKind}
+      size={14}
+      displayName={props.providerInstance.displayName}
+      accentColor={props.providerInstance.accentColor}
+      showBadge={props.providerInstance.showBadge}
+      surfaceColor={rowAppearance.providerIconSurfaceColor}
+    />
+  ) : null;
+  const titleLayoutClassName = props.project || props.projectTitle ? "mt-1" : "min-w-0 flex-1";
+  const titleLabel = (
     <Text
       className={cn(
         "text-base font-t3-medium",
-        props.project || props.projectTitle ? "mt-1" : "min-w-0 flex-1",
+        leadingProvider ? "min-w-0 flex-1" : titleLayoutClassName,
         selected ? selectedThreadRowColors.foregroundClassName : rowAppearance.foregroundClassName,
       )}
       numberOfLines={2}
     >
       {thread.title}
     </Text>
+  );
+  // The glyph sits on the first title line, so it stays put when the title wraps.
+  const titleText = leadingProvider ? (
+    <View className={cn("flex-row items-start gap-2", titleLayoutClassName)}>
+      <View className="pt-1">{providerIcon}</View>
+      {titleLabel}
+    </View>
+  ) : (
+    titleLabel
   );
   const hasProjectLine = Boolean(props.project || props.projectTitle);
   const cardContent = (
@@ -1138,16 +1160,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             </Text>
           </View>
         ) : null}
-        {props.providerInstance ? (
-          <ProviderInstanceIcon
-            provider={props.providerInstance.driverKind}
-            size={14}
-            displayName={props.providerInstance.displayName}
-            accentColor={props.providerInstance.accentColor}
-            showBadge={props.providerInstance.showBadge}
-            surfaceColor={rowAppearance.providerIconSurfaceColor}
-          />
-        ) : null}
+        {leadingProvider ? null : providerIcon}
       </View>
     </>
   );
@@ -1211,7 +1224,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             "min-h-[44px] flex-row items-center gap-2.5 py-2",
             sidebarPane
               ? "px-3"
-              : props.inFolderCard
+              : props.inFolderCard || Platform.OS === "android"
                 ? THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME
                 : "px-5",
           )}

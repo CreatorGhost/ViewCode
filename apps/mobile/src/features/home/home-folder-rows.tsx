@@ -4,7 +4,7 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import { resolveAgentControlAvailability } from "@t3tools/client-runtime/state/child-agents";
 import { memo, useCallback, useMemo, type ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
@@ -35,6 +35,10 @@ export function HomeFolderCardSlice(props: {
 }) {
   const edge = props.edge;
   if (!edge) return <>{props.children}</>;
+  // Android lists folders as flat sections under a label, without a card.
+  if (Platform.OS === "android") {
+    return <View className={cn(edge.first && "mt-3", edge.last && "mb-1")}>{props.children}</View>;
+  }
   return (
     <View
       className={cn(
@@ -81,18 +85,22 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
     project.projectColor ??
     (project.projectIcon && "color" in project.projectIcon ? project.projectIcon.color : null);
   const accent = accentColor ? projectIconColorClassNames(accentColor) : null;
+  // Android lists folders as flat sections: the colour tints the label, not a band.
+  const sectionLabel = Platform.OS === "android";
   return (
     <View
       className={cn(
-        "flex-row items-center pl-3 pr-1",
-        props.expanded && "border-b border-border-subtle",
-        accent?.background,
+        "flex-row items-center pr-1",
+        sectionLabel ? "pl-6" : "pl-3",
+        !sectionLabel && props.expanded && "border-b border-border-subtle",
+        !sectionLabel && accent?.background,
       )}
     >
       {project.projectColor ? (
         <View
           className={cn(
-            "absolute top-2 bottom-2 left-0 w-[3px] rounded-full",
+            "absolute top-2 bottom-2 w-[3px] rounded-full",
+            sectionLabel ? "left-3" : "left-0",
             projectIconColorClassNames(project.projectColor).swatch,
           )}
         />
@@ -116,12 +124,17 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
           environmentId={project.environmentId}
           faviconPath={project.faviconPath}
           projectIcon={project.projectIcon}
-          size={18}
+          size={sectionLabel ? 16 : 18}
           projectTitle={props.title}
           workspaceRoot={project.workspaceRoot}
         />
         <Text
-          className={cn("shrink text-sm font-t3-bold", accent?.text ?? "text-foreground")}
+          className={cn(
+            "shrink text-sm",
+            sectionLabel
+              ? ["font-t3-medium", accent?.text ?? "text-foreground-muted"]
+              : ["font-t3-bold", accent?.text ?? "text-foreground"],
+          )}
           numberOfLines={1}
         >
           {props.title}
@@ -182,7 +195,8 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
       accessibilityHint={`${props.expanded ? "Hides" : "Shows"} the agents this thread started.`}
       accessibilityState={{ expanded: props.expanded }}
       className={cn(
-        "min-h-[44px] flex-row items-center gap-1.5 pl-5 pr-4",
+        "min-h-[44px] flex-row items-center gap-1.5 pr-4",
+        Platform.OS === "android" ? "pl-6" : "pl-5",
         props.muted && "opacity-60",
       )}
       onPress={() => onToggle(leadKey)}
@@ -245,7 +259,10 @@ export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
       className={cn("pr-4", props.muted && "opacity-60")}
     >
       <View
-        className="ml-6 min-h-[44px] flex-row items-center gap-2.5 border-l border-border-subtle py-1.5"
+        className={cn(
+          "min-h-[44px] flex-row items-center gap-2.5 border-l border-border-subtle py-1.5",
+          Platform.OS === "android" ? "ml-8" : "ml-6",
+        )}
         style={{ paddingLeft: 10 + props.depth * CHILD_INDENT }}
       >
         <View className={cn("size-2 rounded-full", AGENT_STATUS[props.status].dotClass)} />
@@ -291,7 +308,10 @@ export const HomeFolderSettledRow = memo(function HomeFolderSettledRow(props: {
       accessibilityLabel={`${props.count} settled ${props.count === 1 ? "thread" : "threads"}`}
       accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the settled threads.`}
       accessibilityState={{ expanded: props.expanded }}
-      className="min-h-[44px] flex-row items-center gap-1.5 border-t border-border-subtle px-3"
+      className={cn(
+        "min-h-[44px] flex-row items-center gap-1.5",
+        Platform.OS === "android" ? "px-6" : "border-t border-border-subtle px-3",
+      )}
       onPress={() => onToggle(folderKey)}
       style={pressedOpacity}
     >
@@ -319,7 +339,10 @@ export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: 
   readonly onChange: (value: HomeStatusFilter) => void;
 }) {
   return (
-    <View className="flex-row gap-2 px-4 pb-1 pt-2" accessibilityRole="tablist">
+    <View
+      className={cn("flex-row gap-2 pb-1 pt-2", Platform.OS === "android" ? "px-6" : "px-4")}
+      accessibilityRole="tablist"
+    >
       {STATUS_FILTER_OPTIONS.map((option) => {
         const selected = props.value === option.id;
         const count = props.counts[option.id];
@@ -334,8 +357,13 @@ export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: 
             hitSlop={{ top: 7, bottom: 7, left: 4, right: 4 }}
             style={pressedOpacity}
             className={cn(
-              "flex-row items-center gap-1.5 rounded-md px-3 py-1.5",
-              selected ? "bg-foreground" : "bg-row-hover",
+              "flex-row items-center gap-1.5 px-3 py-1.5",
+              Platform.OS === "android" ? "rounded-full border" : "rounded-md",
+              selected
+                ? "border-foreground bg-foreground"
+                : Platform.OS === "android"
+                  ? "border-border-subtle bg-card"
+                  : "bg-row-hover",
             )}
           >
             <Text

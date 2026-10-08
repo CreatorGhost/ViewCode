@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialNewThreadButton } from "../../components/MaterialNewThreadButton";
 import type { AndroidHomeFabLayout as SharedAndroidHomeFabLayout } from "./AndroidHomeFab.shared";
 import { useWorkspaceState } from "../../state/workspace";
+import { HomeComposerLauncher } from "./HomeComposerLauncher";
 import { MaterialFabScrollContext } from "./MaterialFabScrollContext";
 import { updateMaterialFabScroll } from "./material-fab-scroll";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -32,22 +33,26 @@ export function AndroidHomeFabLayout(props: ComponentProps<typeof SharedAndroidH
     scrollState.current = next;
   }, []);
 
-  // Remount only the FAB when its font or pane changes to clear the cached expanded width.
+  // The phone list gets the composer launcher; the tablet sidebar keeps the
+  // FAB, remounted when its font or pane changes to clear its cached width.
   return (
     <View className="flex-1" onLayout={(event) => setLayoutWidth(event.nativeEvent.layout.width)}>
       <MaterialFabScrollContext value={onScroll}>{props.children}</MaterialFabScrollContext>
-      {state.hasConnections && layoutWidth !== null ? (
+      {state.hasConnections && !props.sidebar ? (
+        <HomeComposerLauncher
+          onStartNewTask={props.onStartNewTask}
+          onStartVoiceTask={props.onStartVoiceTask}
+          style={{ bottom: Math.max(insets.bottom, 16) + 8 }}
+        />
+      ) : null}
+      {state.hasConnections && props.sidebar && layoutWidth !== null ? (
         <MaterialNewThreadButton
           key={`${appearance.baseFontSize}:${fontScale}:${layoutWidth}`}
           extended
           expanded={expanded}
           onPress={props.onStartNewTask}
           className="absolute right-5"
-          style={{
-            bottom: props.sidebar
-              ? Math.max(insets.bottom, 12) + 6
-              : Math.max(insets.bottom, 16) + 16,
-          }}
+          style={{ bottom: Math.max(insets.bottom, 12) + 6 }}
         />
       ) : null}
     </View>

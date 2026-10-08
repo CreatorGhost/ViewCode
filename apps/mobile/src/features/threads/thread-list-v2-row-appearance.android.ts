@@ -2,8 +2,10 @@ import type { ViewStyle } from "react-native";
 import type { MobileThemeVariables } from "../../lib/mobileTheme";
 
 export const THREAD_LIST_V2_MONO_FONT = "monospace";
-export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-3 py-2.5";
+export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-6 py-2.5";
 export const THREAD_LIST_V2_ROW_DIVIDERS = false;
+/** Clean list: the provider glyph leads the title instead of trailing the meta line. */
+export const THREAD_LIST_V2_PROVIDER_LEADS_TITLE = true;
 
 export const selectedThreadRowColors = {
   foregroundClassName: "text-thread-selected-foreground",
@@ -21,27 +23,19 @@ export function getThreadListV2RowAppearance(
   sidebarPane: boolean,
   selected: boolean,
   /** Inside a Home folder card: a flat row, the card draws the box. */
-  inFolderCard = false,
+  _inFolderCard = false,
 ) {
   const selectedBackgroundColor = theme["--color-thread-selected"];
-  // Refined: list rows are squared cards on the screen; the sidebar stays flat.
-  const backgroundColor = theme[sidebarPane ? "--color-drawer" : "--color-card"];
-  const radius = sidebarPane ? 20 : inFolderCard ? 0 : 8;
+  // Clean list: Home rows sit flat on the screen; the sidebar keeps its pills.
+  const backgroundColor = theme[sidebarPane ? "--color-drawer" : "--color-screen"];
+  const radius = sidebarPane ? 20 : 0;
   const style: ViewStyle = {
     backgroundColor: selected ? selectedBackgroundColor : backgroundColor,
     borderRadius: radius,
-    ...(sidebarPane || inFolderCard
-      ? {}
-      : { borderWidth: 1, borderColor: theme["--color-border-subtle"] }),
   };
-  const swipeContainerStyle: ViewStyle = inFolderCard
-    ? { overflow: "hidden" }
-    : {
-        borderRadius: radius,
-        overflow: "hidden",
-        marginHorizontal: sidebarPane ? 8 : 12,
-        marginVertical: sidebarPane ? 2 : 3,
-      };
+  const swipeContainerStyle: ViewStyle = sidebarPane
+    ? { borderRadius: radius, overflow: "hidden", marginHorizontal: 8, marginVertical: 2 }
+    : { overflow: "hidden" };
 
   return {
     className: undefined,
