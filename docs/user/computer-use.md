@@ -94,9 +94,10 @@ permissions off in System Settings when you are not using computer use.
 - In a sandboxed permission mode, Codex's sandbox blocks `viewcode-computer` from reaching
   ViewCode, so the agent reruns it outside the sandbox and ViewCode approves that for you. If it
   still cannot connect, use **Full access** for that thread.
-- On macOS, agents see each app's menu bar and any open context menu as their own entries. They
-  choose menu items by reference, which works in the background without opening the menu.
-  Clicks and keys on a menu are refused, because bringing the app forward would close it.
+- On macOS, menu bars and open context menus can appear as their own entries. Choose items by
+  reference when they are listed. Some apps do not expose them, so use another control or show
+  the app on screen when the task allows it. Clicks and keys on a listed menu are refused,
+  because bringing the app forward could close it.
 - Screenshots work for windows that sit entirely on the main display.
 - A window on another desktop (Space) or in full screen can be read by reference where it is,
   but an agent has to switch to it before taking a screenshot or clicking. Switching takes the
@@ -122,13 +123,20 @@ Background synthetic input is not yet confirmed across apps; today's default sta
 On desktop hosts this experiment also shows a separate agent pointer with the thread's name.
 It does not accept clicks or keyboard focus, and hides when idle. Its full integration with
 computer actions still needs confirmation in a ViewCode desktop build.
+The separate pointer's idle cleanup has been confirmed on a Mac.
 
 Known gaps:
 
 - An open menu may be missing from a window's screenshot; the agent reads and captures the menu
   itself instead.
-- Not yet confirmed on a real Mac: switching to a window on another desktop or in full screen,
-  menu bars and open menus as their own entries, opening
-  screenshots without a prompt in Cursor, Grok and OpenCode, typing stopping when you switch apps
-  mid-way, the wait while you use the mouse or keyboard, **Show on screen**, and the second Dock
-  icon some setups show while computer use runs.
+- Switching to a window on another desktop or in full screen: still unconfirmed on a real Mac.
+- Menu bars and open menus: menu bars were absent from the native window listing in the latest
+  Mac check. Reading and capturing separate menu entries remains unconfirmed.
+- Opening screenshots without a prompt in Cursor, Grok and OpenCode: still unconfirmed.
+- Foreground typing stopping when you switch apps mid-way: covered by tests, still unconfirmed
+  on a real Mac. Typing by reference can continue in its target without taking the screen.
+- Waiting while you use the mouse or keyboard: covered by tests, still unconfirmed on a real Mac.
+- **Show on screen**: covered by tests, including refusal of a foreground fallback after choosing
+  to keep a task in the background. The real desktop prompt still needs confirmation.
+- The extra Dock icon: JXA helpers request background-only activation. The driver's opt-in Helper
+  host and its permissions still need a desktop check before the host default can change.
