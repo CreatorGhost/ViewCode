@@ -69,6 +69,7 @@ function useRelaySetupActions() {
   const start = useAtomCommand(viewCodeRelaySetupEnvironment.start);
   const cancel = useAtomCommand(viewCodeRelaySetupEnvironment.cancel);
   const continueSetup = useAtomCommand(viewCodeRelaySetupEnvironment.continueSetup);
+  const chooseAccount = useAtomCommand(viewCodeRelaySetupEnvironment.chooseAccount);
   const remove = useAtomCommand(viewCodeRelaySetupEnvironment.remove);
   return {
     start: (input: ViewCodeRelaySetupStartInput) => {
@@ -79,6 +80,9 @@ function useRelaySetupActions() {
     },
     continueSetup: () => {
       if (environmentId !== null) void continueSetup({ environmentId, input: {} });
+    },
+    chooseAccount: (accountId: string) => {
+      if (environmentId !== null) void chooseAccount({ environmentId, input: { accountId } });
     },
     remove: (localOnly: boolean) => {
       if (environmentId !== null) void remove({ environmentId, input: { localOnly } });
@@ -297,6 +301,35 @@ function SubdomainNeeded({
   );
 }
 
+/**
+ * Answers `needs-account`: the sign-in reaches several Cloudflare accounts and
+ * wrangler cannot ask. Shown in the Quick connect tab and Settings → Connections.
+ */
+export function CloudflareAccountPicker({ setup }: { readonly setup: ViewCodeRelaySetupState }) {
+  const actions = useRelaySetupActions();
+  return (
+    <div className="space-y-2">
+      <p className="text-sm">Which Cloudflare account should hold the relay?</p>
+      <div className="flex flex-wrap gap-2">
+        {(setup.accounts ?? []).map((account) => (
+          <Button
+            key={account.id}
+            variant="outline"
+            size="sm"
+            title={account.id}
+            onClick={() => actions.chooseAccount(account.id)}
+          >
+            {account.name}
+          </Button>
+        ))}
+        <Button variant="ghost" size="sm" onClick={actions.cancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function RelayMenu({
   enabled,
   actions,
@@ -375,6 +408,9 @@ export function QuickConnectPhone({
         {trafficNote}
       </div>
     );
+  }
+  if (setup !== null && setupStatus === "needs-account") {
+    return <CloudflareAccountPicker setup={setup} />;
   }
   if (setup !== null && setupStatus === "needs-subdomain") {
     return <SubdomainNeeded setup={setup} actions={actions} />;

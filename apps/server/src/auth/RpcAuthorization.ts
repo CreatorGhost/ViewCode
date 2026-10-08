@@ -128,6 +128,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.viewcodeRelaySetupStart]: AuthAccessWriteScope,
   [WS_METHODS.viewcodeRelaySetupCancel]: AuthAccessWriteScope,
   [WS_METHODS.viewcodeRelaySetupContinue]: AuthAccessWriteScope,
+  [WS_METHODS.viewcodeRelaySetupChooseAccount]: AuthAccessWriteScope,
   [WS_METHODS.viewcodeRelayRemove]: AuthAccessWriteScope,
   [WS_METHODS.projectsListEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsReadFile]: AuthOrchestrationReadScope,

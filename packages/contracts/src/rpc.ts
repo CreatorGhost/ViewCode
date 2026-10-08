@@ -266,6 +266,7 @@ import {
 import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
+  ViewCodeRelayChooseAccountInput,
   ViewCodeRelayRemoveInput,
   ViewCodeRelaySetupError,
   ViewCodeRelaySetupStartInput,
@@ -485,6 +486,7 @@ export const WS_METHODS = {
   viewcodeRelaySetupStart: "viewcodeRelay.setup.start",
   viewcodeRelaySetupCancel: "viewcodeRelay.setup.cancel",
   viewcodeRelaySetupContinue: "viewcodeRelay.setup.continue",
+  viewcodeRelaySetupChooseAccount: "viewcodeRelay.setup.chooseAccount",
   viewcodeRelayRemove: "viewcodeRelay.remove",
 
   // Streaming subscriptions
@@ -1089,6 +1091,11 @@ const WsViewCodeRelaySetupContinueRpc = Rpc.make(WS_METHODS.viewcodeRelaySetupCo
   error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
 });
 
+const WsViewCodeRelaySetupChooseAccountRpc = Rpc.make(WS_METHODS.viewcodeRelaySetupChooseAccount, {
+  payload: ViewCodeRelayChooseAccountInput,
+  error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
+});
+
 const WsViewCodeRelayRemoveRpc = Rpc.make(WS_METHODS.viewcodeRelayRemove, {
   payload: ViewCodeRelayRemoveInput,
   error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
@@ -1675,6 +1682,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsViewCodeRelaySetupStartRpc,
   WsViewCodeRelaySetupCancelRpc,
   WsViewCodeRelaySetupContinueRpc,
+  WsViewCodeRelaySetupChooseAccountRpc,
   WsViewCodeRelayRemoveRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,

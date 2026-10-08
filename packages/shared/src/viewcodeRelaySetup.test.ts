@@ -7,6 +7,7 @@ import {
   detectWorkerAlreadyDeleted,
   deviceLoginOpenUrl,
   parseDeviceLoginPrompt,
+  parseRelayState,
   redactSecrets,
 } from "./viewcodeRelaySetup.ts";
 
@@ -103,5 +104,17 @@ describe("probe classification", () => {
     expect(classifyProbeError("ETIMEDOUT: no answer within 10s")).toMatchObject({
       problem: "transient",
     });
+  });
+});
+
+describe("parseRelayState", () => {
+  it("keeps the remembered Cloudflare account, and reads older files without one", () => {
+    const relay = { name: "viewcode-relay", url: "https://viewcode-relay.me.workers.dev" };
+    expect(parseRelayState(JSON.stringify({ ...relay, accountId: "abc123" }))).toEqual({
+      ...relay,
+      accountId: "abc123",
+    });
+    expect(parseRelayState(JSON.stringify(relay))).toEqual(relay);
+    expect(parseRelayState(JSON.stringify({ ...relay, accountId: 7 }))).toEqual(relay);
   });
 });

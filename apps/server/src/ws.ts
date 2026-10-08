@@ -3185,6 +3185,12 @@ const makeWsRpcLayer = (
             viewCodeRelaySetup.continueSetup,
             { "rpc.aggregate": "relay" },
           ),
+        [WS_METHODS.viewcodeRelaySetupChooseAccount]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.viewcodeRelaySetupChooseAccount,
+            viewCodeRelaySetup.chooseAccount(input.accountId),
+            { "rpc.aggregate": "relay" },
+          ),
         [WS_METHODS.viewcodeRelayRemove]: (input) =>
           observeRpcEffect(WS_METHODS.viewcodeRelayRemove, viewCodeRelaySetup.remove(input), {
             "rpc.aggregate": "relay",

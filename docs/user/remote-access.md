@@ -47,6 +47,9 @@ Set it up once from the app: open **Connect phone → Anywhere → Quick connect
 - **Sign in.** A Cloudflare page opens (on the desktop app) with a code shown in
   ViewCode. Check that the codes match and approve. If no page opened, use the
   link and code shown. Setup then continues on its own.
+- **Several accounts.** If your sign-in reaches more than one Cloudflare
+  account, ViewCode asks which one should hold the relay and keeps using it for
+  redeploys and removal.
 - **workers.dev address.** A new Cloudflare account has no `workers.dev`
   address yet. ViewCode creates a free one for you (`viewcode-` and a few random
   characters). If that is not possible, ViewCode asks you to choose one under

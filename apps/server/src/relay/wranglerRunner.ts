@@ -45,6 +45,8 @@ export interface WranglerSession {
       readonly input?: string;
       /** Each chunk of output as it arrives. */
       readonly onOutput?: (text: string) => void;
+      /** The Cloudflare account to act on (`CLOUDFLARE_ACCOUNT_ID`), when the sign-in has several. */
+      readonly accountId?: string;
     },
   ) => Effect.Effect<WranglerResult>;
 }
@@ -193,7 +195,10 @@ export const prepareNodeWrangler = (here: string): PrepareWrangler =>
           command: "npx",
           args: ["--yes", WRANGLER_PACKAGE, ...args],
           cwd: tmp,
-          env: wranglerEnv,
+          env:
+            options?.accountId === undefined
+              ? wranglerEnv
+              : { ...wranglerEnv, CLOUDFLARE_ACCOUNT_ID: options.accountId },
           stdin: options?.input,
           onOutput: options?.onOutput,
         }),

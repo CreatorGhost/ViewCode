@@ -37,12 +37,17 @@ scope its RPCs require, because it carries the sign-in code):
    wrangler bundles it at deploy time without `node_modules`.
 3. `wrangler whoami`; if nobody is signed in, `wrangler login --device --browser=false`.
    The link and code are parsed from its output and shown in the app (the desktop app
-   opens the link); if parsing fails, its lines are shown verbatim.
+   opens the link); if parsing fails, its lines are shown verbatim. Then
+   `wrangler whoami --json` lists the accounts: the one remembered in
+   `viewcode-relay.json` if the sign-in still reaches it, else the only one; with
+   several, setup stops at "needs account" and the app asks. Every later wrangler run
+   gets that account as `CLOUDFLARE_ACCOUNT_ID`, because wrangler cannot choose one
+   non-interactively.
 4. `wrangler deploy --name <name>` (the name remembered in `viewcode-relay.json`, else
    `viewcode-relay`). Output mentioning a missing workers.dev subdomain makes setup
-   register one itself, as wrangler's own `registerSubdomain` does: the account comes
-   from the dashboard link in that output (else `wrangler whoami --json`, only with
-   exactly one account), the token from `wrangler auth token --json` (kept in memory
+   register one itself, as wrangler's own `registerSubdomain` does: on the chosen
+   account (else the one in the dashboard link in that output), with the token
+   from `wrangler auth token --json` (kept in memory
    and redacted, never written or logged), then the Cloudflare API checks a random
    `viewcode-xxxxxx` name and claims it (`relay/workersDevSubdomain.ts`), and it deploys
    again. If any of that fails it stops at "needs subdomain" with nothing saved and the

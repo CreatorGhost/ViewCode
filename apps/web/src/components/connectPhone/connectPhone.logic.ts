@@ -193,7 +193,11 @@ export function describeQuickConnectStatus(
   setup: ViewCodeRelaySetupState | null = null,
 ): string {
   if (setup?.status === "running") return setup.message ?? "Setting up…";
-  if (setup?.status === "needs-subdomain" || setup?.status === "failed") {
+  if (
+    setup?.status === "needs-account" ||
+    setup?.status === "needs-subdomain" ||
+    setup?.status === "failed"
+  ) {
     return setup.message ?? "Setup did not finish.";
   }
   switch (view.kind) {

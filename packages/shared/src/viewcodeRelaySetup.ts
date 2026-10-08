@@ -46,6 +46,8 @@ export function parseLenientJson(text: string): unknown {
 export interface RelayState {
   readonly name: string;
   readonly url: string;
+  /** The Cloudflare account the Worker went to, when the setup knew it. */
+  readonly accountId?: string;
 }
 
 /** Reads `viewcode-relay.json`; anything unexpected is "no relay remembered". */
@@ -53,8 +55,15 @@ export function parseRelayState(text: string): RelayState | null {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed === null || typeof parsed !== "object") return null;
-    const { name, url } = parsed as { name?: unknown; url?: unknown };
-    return typeof name === "string" && typeof url === "string" ? { name, url } : null;
+    const { name, url, accountId } = parsed as {
+      name?: unknown;
+      url?: unknown;
+      accountId?: unknown;
+    };
+    if (typeof name !== "string" || typeof url !== "string") return null;
+    return typeof accountId === "string" && accountId !== ""
+      ? { name, url, accountId }
+      : { name, url };
   } catch {
     return null;
   }
