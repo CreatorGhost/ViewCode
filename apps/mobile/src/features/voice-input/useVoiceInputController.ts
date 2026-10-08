@@ -6,7 +6,7 @@ import {
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
@@ -23,6 +23,7 @@ import {
 } from "@t3tools/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { useVoiceRecorder } from "./useVoiceRecorder";
+import { voiceInputStopsForAppState } from "./voiceInputAppState";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 const VOICE_METERING_INTERVAL_MS = 80;
@@ -138,10 +139,11 @@ export function useVoiceInputController(input: {
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
-      // iOS reports `inactive` while its permission dialog is open. Only the
-      // real background state cancels preparation; recorder status handles
-      // calls and route interruptions during capture.
-      if (nextState === "background") controller.appMovedToBackground();
+      // Permission dialogs must not cancel preparation (see voiceInputAppState);
+      // recorder status handles calls and route interruptions during capture.
+      if (voiceInputStopsForAppState(Platform.OS, nextState, controller.currentState.phase)) {
+        controller.appMovedToBackground();
+      }
     });
     return () => subscription.remove();
   }, [controller]);
