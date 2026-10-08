@@ -1585,6 +1585,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     }
     await authorize(entry, "prepare", { background: true, ...(element ? { element } : {}) });
     const before = await backgroundEvidence(entry);
+    const front = await api.foregroundPid();
     return dispatch(
       async () => {
         await api.backgroundInput!(entry.pid, live.bounds!, input, () =>
@@ -1603,6 +1604,11 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
             true,
           );
         }
+        if (front !== (await api.foregroundPid()))
+          throw new BackgroundInputError(
+            "The foreground app changed during background input. Its effect is unknown; stop and observe again.",
+            true,
+          );
         if (before === after)
           throw new BackgroundInputError(
             "Background input produced no verified change in the target. It may have been ignored. Use a ref or explicitly focus the window first; no foreground retry was made.",

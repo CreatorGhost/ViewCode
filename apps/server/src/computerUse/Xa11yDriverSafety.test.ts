@@ -35,6 +35,7 @@ interface Spec {
   raw?: Record<string, unknown>;
   children?: Spec[];
   childrenReadFailure?: boolean;
+  onChildrenRead?: () => void;
 }
 
 type Sent = Array<readonly [string, ...unknown[]]>;
@@ -61,6 +62,7 @@ const fake = (spec: Spec, sent: Sent): Element => {
     active: spec.active ?? false,
     focused: spec.focused ?? false,
     children: async () => {
+      spec.onChildrenRead?.();
       if (spec.childrenReadFailure) throw new Error("AX read failed");
       return (spec.children ?? []).map((child) => fake(child, sent));
     },
@@ -1496,7 +1498,11 @@ describe("experimental background input", () => {
   for (const outcome of ["changed", "unchanged", "unreadable", "foreground"] as const) {
     it(`verifies an AX press too, when its result is ${outcome}`, async () => {
       const target = app();
-      const options: Parameters<typeof makeCore>[1] = { background: true, foreground: 2 };
+      const options: Parameters<typeof makeCore>[1] = {
+        background: true,
+        foreground: 2,
+        primaryDisplay: () => BOUNDS,
+      };
       const button: Spec = {
         role: "button",
         name: "Apply",
@@ -1558,6 +1564,49 @@ describe("experimental background input", () => {
     expect(core.calls.activate).toBe(0);
     expect(core.sent).toEqual([]);
   });
+  it("keeps input uncertain when focus changes during post-dispatch AX verification", async () => {
+    const target = app();
+    const options: Parameters<typeof makeCore>[1] = {
+      background: true,
+      foreground: 2,
+      primaryDisplay: () => BOUNDS,
+    };
+    let posted = false;
+    let posts = 0;
+    const backgroundInput: Xa11yApi["backgroundInput"] = async (
+      _pid,
+      _bounds,
+      _input,
+      authorize,
+    ) => {
+      await authorize();
+      posts++;
+      target.windows[0]!.children = [{ role: "static_text", name: "Changed" }];
+      posted = true;
+    };
+    const runOptions = { ...options, backgroundInput };
+    target.windows[0]!.onChildrenRead = () => {
+      if (posted) runOptions.foreground = 3;
+    };
+    const core = makeCore([target], runOptions);
+    const [w] = await core.list();
+    const result = await core.call({
+      op: "click",
+      window: w!.handle,
+      expectBounds: BOUNDS,
+      point: { x: 100, y: 100 },
+      button: "left",
+      count: 1,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { dispatched: "unknown", message: expect.stringContaining("foreground app changed") },
+    });
+    expect(posts).toBe(1);
+    expect(core.sent).toEqual([]);
+    expect(core.calls.activate).toBe(0);
+  });
+
   it("refuses a moved screenshot and never posts", async () => {
     const posted: string[] = [];
     const core = makeCore([app()], {
