@@ -93,8 +93,8 @@ import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { deriveProjectIdentity } from "../projectIdentity";
-import { projectIconColorClassName } from "../projectIconColors";
-import { projectEnvironment } from "../state/projects";
+import { projectAccentClassName, projectIconColorClassName } from "../projectIconColors";
+import { resolveProjectGroupColor } from "../projectColor.logic";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { isMacPlatform } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
@@ -230,6 +230,8 @@ import { threadStatusLabel } from "./sidebar/sidebarHoverCard.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { useSidebarProjectGroups } from "./sidebar/useSidebarProjectGroups";
+import { useUpdateProjectGroup } from "./sidebar/useUpdateProjectGroup";
+import { openProjectColorDialog } from "./ProjectColorPicker";
 import { Spinner } from "./ui/spinner";
 import { threadStatusGlyph } from "./sidebar/ThreadStatusGlyph";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -1419,6 +1421,7 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
     [group, onOpenMenu],
   );
   const FolderGlyph = props.expanded ? FolderOpenIcon : FolderIcon;
+  const projectColor = resolveProjectGroupColor(group);
   return (
     <SidebarProjectHoverCard group={group} threadCount={props.threadCount}>
       <div
@@ -1435,6 +1438,15 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
         onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
       >
+        {projectColor ? (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-(--project-accent)",
+              projectAccentClassName(projectColor),
+            )}
+          />
+        ) : null}
         <button
           type="button"
           aria-label={`Change icon and color for ${group.displayName}`}
@@ -1763,6 +1775,7 @@ type ProjectMenuAction =
   | "import-sessions"
   | "remove-imported-sessions"
   | "project-icon"
+  | "project-color"
   | "project-settings";
 
 export default function Sidebar() {
@@ -3316,6 +3329,7 @@ export default function Sidebar() {
               { id: "new-thread", label: "New thread", icon: "message-square-plus" },
               { id: "copy-path", label: "Copy path" },
               { id: "project-icon", label: "Change icon and color…" },
+              { id: "project-color", label: "Project color…" },
               {
                 id: "import-sessions",
                 label: "Import past sessions…",
@@ -3362,6 +3376,9 @@ export default function Sidebar() {
           case "project-icon":
             setIconPickerGroup(group);
             return;
+          case "project-color":
+            openProjectColorDialog(group.projectKey);
+            return;
           case "project-settings":
             openProjectSettings(group);
             return;
@@ -3375,43 +3392,15 @@ export default function Sidebar() {
 
   // Folder icon and color: the same picker as Project settings, saved on every
   // checkout of the group like a settings edit.
-  const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
+  const updateProjectGroup = useUpdateProjectGroup();
   const saveProjectIcon = useCallback(
-    (group: SidebarProjectSnapshot, projectIcon: ProjectIconOverride) => {
-      const showError = (description: string) =>
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: `Could not change the icon for ${group.displayName}`,
-            description,
-          }),
-        );
-      // Check every checkout first so an offline one can't leave the group half-updated.
-      const unavailable = group.memberProjects.find((member) => {
-        const environment = environments.find((env) => env.environmentId === member.environmentId);
-        return environment?.connection.phase !== "connected" || !environment.serverConfig;
-      });
-      if (unavailable) {
-        showError(
-          `Connect ${unavailable.environmentLabel ?? "the selected environment"} and try again.`,
-        );
-        return;
-      }
-      void (async () => {
-        for (const member of group.memberProjects) {
-          const result = await updateProject({
-            environmentId: member.environmentId,
-            input: { projectId: member.id, faviconPath: null, projectIcon },
-          });
-          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            showError(error instanceof Error ? error.message : "An error occurred.");
-            return;
-          }
-        }
-      })();
-    },
-    [environments, updateProject],
+    (group: SidebarProjectSnapshot, projectIcon: ProjectIconOverride) =>
+      updateProjectGroup(
+        group,
+        { faviconPath: null, projectIcon },
+        `Could not change the icon for ${group.displayName}`,
+      ),
+    [updateProjectGroup],
   );
 
   // Thread jump (cmd+1..9) and prev/next traversal follow the rendered rows.

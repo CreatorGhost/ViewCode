@@ -7,7 +7,11 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type ProjectIconColor,
+  type ProjectIconOverride,
+} from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import { InfoIcon, Trash2Icon } from "lucide-react";
@@ -24,6 +28,8 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { useThreadShells } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { projectColorsUsedElsewhere, resolveProjectGroupColor } from "../../projectColor.logic";
+import { ProjectColorSwatches } from "../ProjectColorPicker";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
@@ -153,6 +159,7 @@ export function ProjectSettingsPanel({
       key={`${selected.projectKey}:${environmentId ?? "all"}:${checkoutKey ?? "all"}`}
       group={scopedGroup}
       hasOtherMembers={members.length < selected.memberProjects.length}
+      colorsUsedElsewhere={projectColorsUsedElsewhere(groups, selected.projectKey)}
     />
   );
 }
@@ -160,9 +167,11 @@ export function ProjectSettingsPanel({
 function ProjectDetail({
   group,
   hasOtherMembers,
+  colorsUsedElsewhere,
 }: {
   group: SidebarProjectSnapshot;
   hasOtherMembers: boolean;
+  colorsUsedElsewhere: ReadonlySet<ProjectIconColor>;
 }) {
   const navigate = useNavigate({ from: "/settings" });
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -212,6 +221,7 @@ function ProjectDetail({
         title: string;
         faviconPath: string | null;
         projectIcon: ProjectIconOverride | null;
+        projectColor: ProjectIconColor | null;
       }>,
       failureTitle: string,
     ): Promise<AtomCommandResult<void, unknown>> => {
@@ -292,6 +302,18 @@ function ProjectDetail({
     },
     [updateAllMembers],
   );
+
+  // ----- project color -----
+  const projectColor = resolveProjectGroupColor(group);
+  const [isSavingColor, setIsSavingColor] = useState(false);
+  const setProjectColor = async (nextColor: ProjectIconColor | null) => {
+    setIsSavingColor(true);
+    try {
+      await updateAllMembers({ projectColor: nextColor }, "Failed to update project color");
+    } finally {
+      setIsSavingColor(false);
+    }
+  };
 
   const hasMultipleCheckouts = group.memberProjects.length > 1;
 
@@ -486,6 +508,28 @@ function ProjectDetail({
                   Choose file
                 </Button>
               </div>
+            }
+          />
+          <SettingsRow
+            title="Project color"
+            description="Marks this project on its tabs, top bar and rail button. A dot marks colors other projects use."
+            resetAction={
+              projectColor !== null ? (
+                <SettingResetButton
+                  label="project color"
+                  disabled={isSavingColor}
+                  onClick={() => void setProjectColor(null)}
+                />
+              ) : null
+            }
+            control={
+              <ProjectColorSwatches
+                value={projectColor}
+                usedElsewhere={colorsUsedElsewhere}
+                disabled={isSavingColor}
+                className="max-w-56"
+                onSelect={(nextColor) => void setProjectColor(nextColor)}
+              />
             }
           />
         </SettingsSection>

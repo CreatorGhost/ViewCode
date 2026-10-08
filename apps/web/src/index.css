@@ -1352,6 +1352,17 @@ html[data-theme-id] [data-chat-header] {
   color: var(--contrast-toolbar-foreground);
 }
 
+/* Project colour (`--project-accent`, set by projectAccentClassName): a 2px top line and a
+   faint tint so the user sees which project they are in. Image and shadow, not
+   background-color, so theme toolbar fills and window glass still apply underneath. */
+[data-chat-header][data-project-accent] {
+  background-image: linear-gradient(
+    color-mix(in oklab, var(--project-accent) 7%, transparent),
+    color-mix(in oklab, var(--project-accent) 7%, transparent)
+  );
+  box-shadow: inset 0 2px 0 var(--project-accent);
+}
+
 html[data-theme-id] [data-chat-header] [data-slot="button"],
 html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"],
 html[data-theme-id] [data-chat-header] [data-toolbar-control] {

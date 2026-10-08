@@ -107,6 +107,14 @@ When no image is found, web and desktop show a two-character monogram with a col
 from the icon palette, derived from the saved project name. For example, `Nebula` becomes `NA`,
 `Silver Orchard` becomes `SO`, and `M7 Forge` becomes `M7`.
 
+## Project color
+
+Give each project its own color so you can see which project you are working in. Right-click a
+project folder in the sidebar or its button in the app rail and choose **Project color…**, or pick
+one under **Project color** in the project's settings. Colors already used by another project
+carry a dot. The chat's top bar, the project's tabs, its rail button and its sidebar folder then
+show that color. Choose **Default** to restore the normal look.
+
 ## Keep the default branch current
 
 In Source Control, enable **Automatically pull** to keep the default-branch checkout up to date

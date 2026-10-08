@@ -20,6 +20,7 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { AgentSessionDialogsHost } from "../components/agentSessions/AgentSessionDialogsHost";
+import { ProjectColorDialogHost } from "../components/ProjectColorPicker";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { ConnectPhoneDialogHost } from "../components/connectPhone/ConnectPhoneDialog";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
@@ -240,6 +241,7 @@ function RootRouteView() {
           <ShortcutsSheet />
           <ConnectPhoneDialogHost />
           <AgentSessionDialogsHost />
+          <ProjectColorDialogHost />
           <SlowRpcRequestToastCoordinator />
           <ProjectCloneToastCoordinator />
           <HostedStaticEnvironmentBootstrap />

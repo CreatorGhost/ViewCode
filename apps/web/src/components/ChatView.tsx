@@ -247,6 +247,7 @@ import {
   WifiOffIcon,
 } from "lucide-react";
 import { cn, randomHex, randomUUID } from "~/lib/utils";
+import { projectAccentClassName } from "../projectIconColors";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
@@ -9988,10 +9989,14 @@ export default function ChatView(props: ChatViewProps) {
         {/* Top bar */}
         <WorkspacePageHeader
           data-chat-header
+          data-project-accent={activeProject?.projectColor ? "" : undefined}
           electron={isElectron}
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
           // Pill chrome: every control in the top bar, and each button group, is a capsule.
-          className="relative bg-background [--control-radius:9999px]"
+          className={cn(
+            "relative bg-background [--control-radius:9999px]",
+            activeProject?.projectColor && projectAccentClassName(activeProject.projectColor),
+          )}
         >
           {isElectron && rightPanelControlsAtRoot ? (
             <span

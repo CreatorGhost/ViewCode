@@ -4,6 +4,9 @@ import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { FolderIcon, SettingsIcon, SmartphoneIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
+import { settlePromise } from "@t3tools/client-runtime/state/runtime";
+
+import { cn } from "~/lib/utils";
 import { useAppSettingsRoute } from "./useAppRailNavigation";
 import {
   applyProviderInstanceSettings,
@@ -12,6 +15,9 @@ import {
 } from "../../providerInstances";
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { readLocalApi } from "../../localApi";
+import { resolveProjectGroupColor } from "../../projectColor.logic";
+import { projectAccentClassName } from "../../projectIconColors";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useThreadShells } from "../../state/entities";
@@ -19,6 +25,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useUiStateStore } from "../../uiStateStore";
 import { openConnectPhoneDialog } from "../connectPhone/ConnectPhoneDialog";
+import { openProjectColorDialog } from "../ProjectColorPicker";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
@@ -42,6 +49,7 @@ function RailButton(props: {
   pressed?: boolean;
   /** Tooltip text when the accessible label carries more (a project's waiting count). */
   tooltip?: string;
+  onContextMenu?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <Tooltip>
@@ -54,6 +62,7 @@ function RailButton(props: {
             aria-pressed={props.pressed}
             data-pressed={props.pressed ? "" : undefined}
             onClick={props.onClick}
+            onContextMenu={props.onContextMenu}
           />
         }
       >
@@ -79,14 +88,52 @@ const RailProjectButton = memo(function RailProjectButton(props: {
   working: number;
 }) {
   const { project, needsYou, working } = props;
+  const navigate = useNavigate();
+  const projectColor = resolveProjectGroupColor(project);
   return (
     <RailButton
       label={railProjectLabel(project.displayName, { needsYou, working })}
       tooltip={project.displayName}
       pressed={props.selected}
       onClick={() => toggleRailProjectScope(project.projectKey)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        const position = { x: event.clientX, y: event.clientY };
+        void (async () => {
+          const api = readLocalApi();
+          if (!api) return;
+          const clicked = await settlePromise(() =>
+            api.contextMenu.show<"project-color" | "project-settings">(
+              [
+                { id: "project-color", label: "Project color…" },
+                { id: "project-settings", label: "Project settings", icon: "settings" },
+              ],
+              position,
+            ),
+          );
+          if (clicked._tag === "Failure") return;
+          if (clicked.value === "project-color") openProjectColorDialog(project.projectKey);
+          if (clicked.value === "project-settings") {
+            void navigate({
+              to: "/projects/$projectKey",
+              params: { projectKey: project.projectKey },
+            });
+          }
+        })();
+      }}
     >
-      <ProjectFavicon project={project} className="size-5" />
+      {projectColor ? (
+        <span
+          className={cn(
+            "flex rounded-md p-0.5 ring-2 ring-(--project-accent)",
+            projectAccentClassName(projectColor),
+          )}
+        >
+          <ProjectFavicon project={project} className="size-4" />
+        </span>
+      ) : (
+        <ProjectFavicon project={project} className="size-5" />
+      )}
       {needsYou > 0 ? (
         <span
           aria-hidden
