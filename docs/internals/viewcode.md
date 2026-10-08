@@ -720,6 +720,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   OS masks them). `.icns` is built from the PNG at package time. Dev builds
   keep T3's blueprint icons in `assets/dev/`.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
+- Generated worktree branches use `vc/` (`WORKTREE_BRANCH_PREFIX` in
+  `packages/shared/src/git.ts`). Keep `t3code` in
+  `LEGACY_WORKTREE_BRANCH_PREFIXES`: threads created before the rename sit on
+  `t3code/<hex>` branches and only get their generated name if that still reads
+  as temporary. The `t3code://` scheme, socket paths and env vars keep T3's
+  name.
 
 ### Mermaid diagrams
 

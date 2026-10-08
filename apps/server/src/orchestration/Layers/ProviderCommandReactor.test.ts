@@ -715,7 +715,7 @@ describe("ProviderCommandReactor", () => {
           commandId: CommandId.make("cmd-sign-out-worktree"),
           threadId,
           title: "New thread",
-          branch: "t3code/1234abcd",
+          branch: "vc/1234abcd",
           worktreePath: NodePath.join(harness.stateDir, "missing-worktree"),
         });
 
@@ -2830,7 +2830,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.meta.update",
         commandId: CommandId.make("cmd-thread-branch"),
         threadId: ThreadId.make("thread-1"),
-        branch: "t3code/1234abcd",
+        branch: "vc/1234abcd",
         worktreePath: "/tmp/provider-project-worktree",
       }),
     );
@@ -2880,6 +2880,52 @@ describe("ProviderCommandReactor", () => {
         .find((entry) => entry.id === ThreadId.make("thread-1"))
         ?.messages.find((entry) => entry.id === asMessageId("user-message-branch-model"))?.text,
     ).toBe(prompt);
+  });
+
+  it("renames a legacy t3code temporary branch under the current prefix", async () => {
+    const harness = await createHarness();
+    const statusRefreshed = await harness.runEffect(Deferred.make<void>());
+    const refreshStatus = harness.refreshStatus.getMockImplementation()!;
+    harness.refreshStatus.mockImplementation((cwd) =>
+      refreshStatus(cwd).pipe(Effect.tap(() => Deferred.succeed(statusRefreshed, undefined))),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-legacy-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+    harness.generateBranchName.mockImplementation(() =>
+      Effect.succeed({ branch: "t3code/fix-reconnect" }),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-legacy-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-legacy-branch"),
+          role: "user",
+          text: "Fix reconnect",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    await harness.runEffect(Deferred.await(statusRefreshed));
+    await harness.drain();
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      oldBranch: "t3code/1234abcd",
+      newBranch: "vc/fix-reconnect",
+    });
   });
 
   it("recreates a missing worktree from the thread branch before starting a turn", async () => {

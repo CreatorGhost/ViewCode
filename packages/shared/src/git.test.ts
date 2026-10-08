@@ -205,6 +205,14 @@ describe("isTemporaryWorktreeBranch", () => {
     ).toBe(false);
   });
 
+  it("generates under the vc prefix and still matches legacy t3code refs", () => {
+    expect(buildTemporaryWorktreeBranchName(() => "deadbeef")).toBe("vc/deadbeef");
+    expect(isTemporaryWorktreeBranch("t3code/deadbeef")).toBe(true);
+    expect(isTemporaryWorktreeBranch("t3code/f4ae4e0e-f971-4d48-b4f2-9cf0aa54ab12")).toBe(true);
+    expect(isTemporaryWorktreeBranch("t3code/feature/demo")).toBe(false);
+    expect(isTemporaryWorktreeBranch("other/deadbeef")).toBe(false);
+  });
+
   it("rejects non-temporary refName names", () => {
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/feature/demo`)).toBe(false);
     expect(isTemporaryWorktreeBranch("main")).toBe(false);

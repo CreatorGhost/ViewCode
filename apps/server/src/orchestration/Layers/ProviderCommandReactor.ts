@@ -19,7 +19,11 @@ import {
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
-import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
+import {
+  isTemporaryWorktreeBranch,
+  stripWorktreeBranchPrefix,
+  WORKTREE_BRANCH_PREFIX,
+} from "@t3tools/shared/git";
 import { classifyProviderFailure, type ProviderFailure } from "@t3tools/shared/providerFailure";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -212,11 +216,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
     .replace(/^refs\/heads\//, "")
     .replace(/['"`]/g, "");
 
-  const withoutPrefix = normalized.startsWith(`${WORKTREE_BRANCH_PREFIX}/`)
-    ? normalized.slice(`${WORKTREE_BRANCH_PREFIX}/`.length)
-    : normalized;
-
-  const branchFragment = withoutPrefix
+  const branchFragment = stripWorktreeBranchPrefix(normalized)
     .replace(/[^a-z0-9/_-]+/g, "-")
     .replace(/\/+/g, "/")
     .replace(/-+/g, "-")
