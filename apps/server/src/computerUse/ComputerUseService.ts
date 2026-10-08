@@ -67,6 +67,7 @@ import {
 } from "./ComputerDriver.ts";
 import {
   computerUseError,
+  computerUseScreenshotsDir,
   describeInputForApproval,
   driverErrorToComputerUseError,
   inputNeedsApproval,
@@ -268,7 +269,6 @@ const ok = (result: ComputerUseResult): ComputerUseResponse => ({ ok: true, resu
 const refused = (error: ComputerUseError): ComputerUseResponse => ({ ok: false, error });
 
 /** Thread ids are opaque; keep them from becoming path syntax. */
-const threadDirName = (threadId: ThreadId) => threadId.replaceAll(/[^A-Za-z0-9._-]/g, "_");
 
 export const make = Effect.gen(function* () {
   const driver = yield* ComputerDriver;
@@ -655,12 +655,7 @@ export const make = Effect.gen(function* () {
   const nextScreenshotPath = (threadId: ThreadId) =>
     screenshotNumbering.withPermits(1)(
       Effect.gen(function* () {
-        const directory = path.join(
-          config.stateDir,
-          "computer-use",
-          "screenshots",
-          threadDirName(threadId),
-        );
+        const directory = computerUseScreenshotsDir(config.stateDir, threadId, path.join);
         yield* fs.makeDirectory(directory, { recursive: true });
         let last = screenshotCounters.get(threadId);
         if (last === undefined) {

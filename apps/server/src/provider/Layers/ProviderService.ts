@@ -60,6 +60,7 @@ import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
 import { COMPUTER_CLI_NAME, ensureComputerUseShim } from "../../computerUse/ComputerUseShim.ts";
 import { ComputerUseService } from "../../computerUse/ComputerUseService.ts";
+import { computerUseScreenshotsDir } from "../../computerUse/computerUsePolicy.ts";
 import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import {
   increment,
@@ -963,6 +964,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const computerUseEnvironment = (config: McpProviderSession.McpProviderSessionConfig) =>
     Effect.gen(function* () {
       if (!config.computerUseEndpoint) return undefined;
+      const screenshotsDir = computerUseScreenshotsDir(
+        serverConfig.stateDir,
+        config.threadId,
+        pathService.join,
+      );
+      // Created now so providers can be granted it before the first capture.
+      const screenshotsReady = yield* fileSystem
+        .makeDirectory(screenshotsDir, { recursive: true })
+        .pipe(
+          Effect.as(true),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Computer use screenshot folder unavailable", { cause }).pipe(
+              Effect.as(false),
+            ),
+          ),
+        );
       const shimDir = yield* ensureComputerUseShim({ stateDir: serverConfig.stateDir }).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, pathService),
@@ -977,6 +994,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const cli = pathService.join(shimDir, COMPUTER_CLI_NAME);
       return {
         cli,
+        ...(screenshotsReady ? { screenshotsDir } : {}),
         environment: {
           PATH: shimDir,
           PATH_SEPARATOR: hostPlatform === "win32" ? ";" : ":",
@@ -1019,7 +1037,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ...credential.config,
             ...(cliEnvironment ? { agentDeviceEnvironment: cliEnvironment } : {}),
             ...(computerCli && computerUseMode !== "off"
-              ? { computerUse: { mode: computerUseMode, cli: computerCli.cli } }
+              ? {
+                  computerUse: {
+                    mode: computerUseMode,
+                    cli: computerCli.cli,
+                    ...(computerCli.screenshotsDir
+                      ? { screenshotsDir: computerCli.screenshotsDir }
+                      : {}),
+                  },
+                }
               : {}),
             computerUseSetting: computerUseMode,
           }),

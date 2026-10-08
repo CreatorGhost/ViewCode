@@ -818,7 +818,10 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
                 ...(mcp?.agentDeviceEnvironment
                   ? { agentDeviceEnvironment: mcp.agentDeviceEnvironment }
                   : {}),
-                additionalDirectories: [serverConfig.attachmentsDir],
+                additionalDirectories: [
+                  serverConfig.attachmentsDir,
+                  ...(mcp?.computerUse?.screenshotsDir ? [mcp.computerUse.screenshotsDir] : []),
+                ],
                 ...(Option.isSome(cursor) ? { resumeSessionId: cursor.value.sessionId } : {}),
                 mcpServers: mcp ? [McpProviderSession.acpMcpServerConfig(mcp)] : [],
                 onMcpServersDropped: ({ unsupportedTransports }) =>

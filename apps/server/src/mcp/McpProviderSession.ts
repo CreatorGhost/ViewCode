@@ -21,6 +21,11 @@ export interface ComputerUseGrant {
   readonly mode: Exclude<ComputerUseMode, "off">;
   /** Absolute path of the session's `viewcode-computer` launcher (`<shimDir>/viewcode-computer`). */
   readonly cli: string;
+  /**
+   * The thread's screenshot folder, created at spawn. Adapters that take
+   * directory grants add it, so opening a screenshot does not prompt.
+   */
+  readonly screenshotsDir?: string;
 }
 
 export interface McpProviderSessionConfig {

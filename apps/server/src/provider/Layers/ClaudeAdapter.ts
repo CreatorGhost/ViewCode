@@ -5131,6 +5131,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const additionalDirectories = [
         ...(input.cwd ? [input.cwd] : []),
         serverConfig.attachmentsDir,
+        // The thread's computer-use screenshots, which the agent opens after each action.
+        ...(mcpSession?.computerUse?.screenshotsDir ? [mcpSession.computerUse.screenshotsDir] : []),
       ];
       const buildQueryOptions = (
         toolsUnavailable: "managed-mcp" | "setting" | undefined,

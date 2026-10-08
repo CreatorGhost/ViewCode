@@ -26,6 +26,17 @@ import type { ComputerDriverError, DriverWindow } from "./ComputerDriver.ts";
 
 export const COMPUTER_USE_ROUTE_PATH = "/api/computer-use";
 
+/**
+ * Where a thread's screenshots are written. Providers that take directory
+ * grants are given this folder, so the agent can open its own screenshots
+ * without a read prompt; other threads' screenshots stay ungranted.
+ */
+export const computerUseScreenshotsDir = (
+  stateDir: string,
+  threadId: string,
+  join: (...segments: ReadonlyArray<string>) => string,
+) => join(stateDir, "computer-use", "screenshots", threadId.replaceAll(/[^A-Za-z0-9._-]/g, "_"));
+
 export type ComputerUseInputCommand = (typeof COMPUTER_USE_INPUT_COMMANDS)[number];
 export type ComputerUseInputRequest = Extract<
   ComputerUseRequest,
