@@ -389,6 +389,34 @@ describe("Xa11yComputerDriver", () => {
     ).pipe(allowAll, Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
   });
 
+  it.effect("records normal scope shutdown with the worker's identity", () => {
+    const entries: Array<{ readonly text: unknown; readonly fields: Record<string, unknown> }> = [];
+    const logger = Logger.make<unknown, void>(({ message, logLevel }) => {
+      const [text, fields] = Array.isArray(message) ? message : [message];
+      if (logLevel === "Info") entries.push({ text, fields: fields ?? {} });
+    });
+    return Effect.gen(function* () {
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const driver = yield* makeDriver();
+          yield* driver.status();
+        }),
+      );
+      const started = entries.find((entry) => entry.text === "computer-use driver started");
+      const stopped = entries.filter((entry) => entry.text === "computer-use driver stopped");
+      assert.deepStrictEqual(
+        stopped.map((entry) => entry.fields),
+        [
+          {
+            pid: started!.fields.pid,
+            epoch: started!.fields.epoch,
+            reason: "shutdown",
+          },
+        ],
+      );
+    }).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
+
   it.effect("refuses on Windows without starting a worker", () =>
     Effect.scoped(
       Effect.gen(function* () {

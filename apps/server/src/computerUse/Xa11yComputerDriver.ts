@@ -261,7 +261,7 @@ const isReplyTo = (message: unknown, id: number): boolean =>
   typeof message === "object" && message !== null && "id" in message && message.id === id;
 
 /** Why a worker went away; `crash` is any exit or channel loss we did not cause. */
-type StopReason = "timeout" | "crash" | "recycle" | "malformed";
+type StopReason = "timeout" | "crash" | "recycle" | "malformed" | "shutdown";
 
 /** Lifecycle lines; fields carry pids, epochs, ops and numbers only. */
 type WorkerLog = (message: string, fields: Record<string, unknown>) => void;
@@ -281,7 +281,7 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
 
   /**
    * Kills a worker and stops listening to it, so it is reported once. A
-   * `reason` logs the stop; shutdown and failed spawns pass none.
+   * `reason` logs the stop; a failed spawn has no running worker to stop.
    */
   const discard = (
     worker: NodeChildProcess.ChildProcess,
@@ -462,7 +462,7 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
     },
     close: () => {
       closed = true;
-      if (child) discard(child);
+      if (child) discard(child, "shutdown");
       settlePending?.({ type: "exited" });
     },
   };
