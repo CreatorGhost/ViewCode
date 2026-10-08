@@ -9,26 +9,38 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { beforeEach, vi } from "vite-plus/test";
 
-const { createClerkBridgeMock, registerSchemesMock, storageAdapter, storageMock } = vi.hoisted(
-  () => ({
-    createClerkBridgeMock: vi.fn(),
-    registerSchemesMock: vi.fn(),
-    storageAdapter: {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    },
-    storageMock: vi.fn(),
-  }),
-);
+const {
+  createClerkBridgeMock,
+  registerSchemesMock,
+  storageAdapter,
+  storageMock,
+  existsSyncMock,
+  mkdirSyncMock,
+  setPathMock,
+} = vi.hoisted(() => ({
+  createClerkBridgeMock: vi.fn(),
+  registerSchemesMock: vi.fn(),
+  storageAdapter: {
+    getItem: vi.fn(),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  },
+  storageMock: vi.fn(),
+  existsSyncMock: vi.fn(),
+  mkdirSyncMock: vi.fn(),
+  setPathMock: vi.fn(),
+}));
 
 vi.mock("@clerk/electron", () => ({
   createClerkBridge: createClerkBridgeMock,
 }));
 
 vi.mock("electron", () => ({
+  app: { setPath: setPathMock },
   protocol: { registerSchemesAsPrivileged: registerSchemesMock },
 }));
+
+vi.mock("node:fs", () => ({ existsSync: existsSyncMock, mkdirSync: mkdirSyncMock }));
 
 vi.mock("@clerk/electron/storage", () => ({
   storage: storageMock,
@@ -51,13 +63,19 @@ const makeDesktopClerkLayer = (
     openSystemSettings: () => Effect.succeed(false),
     copyText: () => Effect.void,
   },
+  userDataPathOverride?: string,
+  onAsyncDirectory?: () => void,
 ) => {
+  setPathMock.mockImplementation((name: string, value: string) => {
+    events.push(`setPath:${name}:${value}`);
+  });
   const environment = DesktopEnvironment.DesktopEnvironment.of({
     stateDir: "/tmp/t3-state",
     isDevelopment,
     appDataDirectory: "/tmp/app-data",
     userDataDirName: isDevelopment ? "t3code-dev" : "t3code",
     legacyUserDataDirName: isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)",
+    userDataPathOverride,
     path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
 
@@ -74,7 +92,13 @@ const makeDesktopClerkLayer = (
         Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
         Layer.succeed(ElectronApp.ElectronApp, electronApp),
         Layer.succeed(ElectronShell.ElectronShell, shell),
-        FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
+        FileSystem.layerNoop({
+          exists: () => Effect.succeed(false),
+          makeDirectory: () =>
+            Effect.promise(async () => {
+              onAsyncDirectory?.();
+            }),
+        }),
       ),
     ),
   );
@@ -85,6 +109,45 @@ describe("DesktopClerk", () => {
     createClerkBridgeMock.mockReset();
     registerSchemesMock.mockReset();
     storageMock.mockReset();
+    existsSyncMock.mockReset();
+    mkdirSyncMock.mockReset();
+    setPathMock.mockReset();
+  });
+
+  it.effect("registers the bridge before filesystem work can yield to Electron ready", () => {
+    let ready = false;
+    let observedBeforeReady = false;
+    storageMock.mockReturnValue(storageAdapter);
+    mkdirSyncMock.mockImplementation(() => {
+      void Promise.resolve().then(() => {
+        ready = true;
+      });
+    });
+    createClerkBridgeMock.mockImplementation(() => {
+      observedBeforeReady = !ready;
+      return { cleanup: vi.fn(), isPrimaryInstance: true };
+    });
+    return Effect.gen(function* () {
+      yield* Effect.scoped(
+        Layer.build(
+          makeDesktopClerkLayer(true, [], undefined, "/tmp/isolated", () => {
+            ready = true;
+          }),
+        ),
+      );
+      assert.isTrue(observedBeforeReady);
+      assert.deepEqual(mkdirSyncMock.mock.calls, [["/tmp/isolated", { recursive: true }]]);
+    });
+  });
+
+  it.effect("keeps an existing legacy user-data directory", () => {
+    existsSyncMock.mockReturnValue(true);
+    storageMock.mockReturnValue(storageAdapter);
+    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+    return Effect.gen(function* () {
+      yield* Effect.scoped(Layer.build(makeDesktopClerkLayer()));
+      assert.deepEqual(setPathMock.mock.calls, [["userData", "/tmp/app-data/T3 Code (Dev)"]]);
+    });
   });
 
   it.effect("acquires and releases the SDK bridge with the layer", () => {

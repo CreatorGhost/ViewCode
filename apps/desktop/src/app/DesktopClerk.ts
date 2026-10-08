@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - Clerk scheme registration must complete before Electron can emit ready.
+import * as NodeFS from "node:fs";
 import { createClerkBridge } from "@clerk/electron";
 import { storage } from "@clerk/electron/storage";
 import * as Context from "effect/Context";
@@ -6,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import * as Electron from "electron";
 
 import { codexAuthDeliveryUrl, readCodexAuthHandoff } from "@t3tools/shared/codexAuthHandoff";
 import { receiveCodexAuthCallback, CodexAuthCallbackError } from "./CodexAuthCallback.ts";
@@ -16,7 +19,6 @@ import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/rela
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
@@ -91,7 +93,6 @@ function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean) {
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
-  const electronApp = yield* ElectronApp.ElectronApp;
   const shell = yield* ElectronShell.ElectronShell;
 
   // Electron scopes the single-instance lock to the userData directory and
@@ -100,12 +101,23 @@ export const make = Effect.gen(function* () {
   // directory here — under the default productName-derived path, acquiring
   // the lock would create "T3 Code (Alpha)" and make the legacy-install
   // detection in resolveUserDataPath match on fresh installs.
-  const userDataPath = yield* DesktopAppIdentity.resolveUserDataPath;
-  yield* electronApp.setPath("userData", userDataPath);
-
   const bridge = yield* Effect.acquireRelease(
     Effect.try({
       try: () => {
+        // Match DesktopAppIdentity's path selection without its asynchronous
+        // filesystem calls: even mkdir of an existing directory can let ready
+        // fire before the SDK registers its privileged renderer scheme.
+        const legacyPath = environment.path.join(
+          environment.appDataDirectory,
+          environment.legacyUserDataDirName,
+        );
+        const userDataPath =
+          environment.userDataPathOverride ??
+          (NodeFS.existsSync(legacyPath)
+            ? legacyPath
+            : environment.path.join(environment.appDataDirectory, environment.userDataDirName));
+        NodeFS.mkdirSync(userDataPath, { recursive: true });
+        Electron.app.setPath("userData", userDataPath);
         const created = createDesktopClerkBridge(environment.stateDir, environment.isDevelopment);
         // The SDK registers the renderer scheme on its own, which replaces the
         // desktop's privileged-scheme list; restore the full list in the same
