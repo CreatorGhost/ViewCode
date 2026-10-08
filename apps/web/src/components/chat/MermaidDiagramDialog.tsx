@@ -234,7 +234,8 @@ export function MermaidDiagramDialog({
         aria-label="Diagram"
         showCloseButton={false}
         bottomStickOnMobile={false}
-        className="h-[85vh] max-w-6xl overflow-hidden"
+        // Fills the dialog viewport inside its 1rem padding.
+        className="h-[calc(100dvh-2rem)] max-w-none overflow-hidden"
       >
         {/* Keyed so a recoloured diagram measures and fits again. */}
         <DiagramCanvas key={svg} svg={svg} />
