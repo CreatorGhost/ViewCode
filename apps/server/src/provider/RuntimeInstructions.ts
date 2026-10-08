@@ -32,6 +32,15 @@ export const VIEWCODE_DIAGRAMS_GUIDANCE = `A \`\`\`mermaid block in your reply r
 
 const VIEWCODE_DIAGRAMS_INSTRUCTIONS = `<viewcode_diagrams>\n${VIEWCODE_DIAGRAMS_GUIDANCE}\n</viewcode_diagrams>`;
 
+/**
+ * The client gives a quoted draft a copy button that converts it for Slack,
+ * WhatsApp, email and so on, so drafts need to arrive as a bare quote. Like the
+ * diagrams guidance it needs no MCP, and Codex sends it as its own entry.
+ */
+export const VIEWCODE_DRAFTS_GUIDANCE = `When you draft a message for the user to send elsewhere (Slack, email, WhatsApp, a PR comment…), put only the message itself in a \`>\` quote block in plain Markdown, with no commentary inside it; ViewCode gives the quote a copy button that converts it for the destination.`;
+
+const VIEWCODE_DRAFTS_INSTRUCTIONS = `<viewcode_drafts>\n${VIEWCODE_DRAFTS_GUIDANCE}\n</viewcode_drafts>`;
+
 export const VIEWCODE_VISUALS_INSTRUCTIONS = `<viewcode_visuals>
 For a data chart, mockup, image collage or layout Mermaid can't draw, and only when the viewcode MCP server exposes html_render, build a self-contained HTML page and publish it with html_render before your final reply. The reader sees the page above that reply, so don't announce or restate it; add only what it doesn't say.
 </viewcode_visuals>`;
@@ -84,10 +93,12 @@ export function buildRuntimeInstructions(
     readonly computerUse?: ComputerUseGrant | undefined;
     /** Set when the session may use the collaborative browser and its CLI is on PATH. */
     readonly browserCli?: boolean | undefined;
-    /** False when the caller sends `VIEWCODE_DIAGRAMS_GUIDANCE` on its own. */
-    readonly diagrams?: boolean | undefined;
   },
-  options: { readonly separateCliEntries?: boolean } = {},
+  /**
+   * `separateEntries` leaves out the diagrams, drafts, computer-use and browser
+   * blocks, for a caller that sends each as its own entry (Codex).
+   */
+  options: { readonly separateEntries?: boolean } = {},
 ): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
@@ -98,17 +109,17 @@ export function buildRuntimeInstructions(
   const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
   const runtimeInfo = `<runtime_info>In case you're asked: you are running in ViewCode through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>`;
+  const separate = options.separateEntries === true;
   const computerUse =
-    !options.separateCliEntries && runtime.computerUse
-      ? `\n\n${computerUseInstructions(runtime.computerUse)}`
-      : "";
-  const browser =
-    !options.separateCliEntries && runtime.browserCli ? `\n\n${BROWSER_CLI_INSTRUCTIONS}` : "";
-  const diagrams = runtime.diagrams === false ? "" : `\n\n${VIEWCODE_DIAGRAMS_INSTRUCTIONS}`;
+    !separate && runtime.computerUse ? `\n\n${computerUseInstructions(runtime.computerUse)}` : "";
+  const browser = !separate && runtime.browserCli ? `\n\n${BROWSER_CLI_INSTRUCTIONS}` : "";
+  const replyGuidance = separate
+    ? ""
+    : `\n\n${VIEWCODE_DIAGRAMS_INSTRUCTIONS}\n\n${VIEWCODE_DRAFTS_INSTRUCTIONS}`;
   if (runtime.viewcodeToolsUnavailable) {
-    return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable, runtime.browserCli === true)}${diagrams}${browser}${computerUse}`;
+    return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable, runtime.browserCli === true)}${replyGuidance}${browser}${computerUse}`;
   }
-  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${PULL_REQUEST_WATCH_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}${diagrams}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}${browser}${computerUse}`;
+  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${PULL_REQUEST_WATCH_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}${replyGuidance}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}${browser}${computerUse}`;
 }
 
 const viewcodeToolsUnavailableInstructions = (

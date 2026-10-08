@@ -633,6 +633,12 @@ describe("buildCodexAdditionalContext", () => {
     NodeAssert.doesNotMatch(runtimeValue(context), /viewcode_diagrams|```mermaid/);
   });
 
+  it("sends the drafted-message guidance once, as its own entry", () => {
+    const context = buildCodexAdditionalContext(runtime, false);
+    NodeAssert.match(context.viewcode_drafts?.value ?? "", /in a `>` quote block/);
+    NodeAssert.doesNotMatch(runtimeValue(context), /viewcode_drafts|quote block/);
+  });
+
   it("keeps every entry under Codex's 1,000 token cap per entry", () => {
     for (const mode of [undefined, "observe", "control"] as const) {
       for (const browserCli of [false, true]) {
@@ -703,7 +709,11 @@ describe("T3 tool instructions", () => {
     // Steering away from other browser automation must go with the tools;
     // keeping it would leave the model talked out of its only option.
     const context = buildCodexAdditionalContext(runtime, false);
-    NodeAssert.deepStrictEqual(Object.keys(context), ["viewcode_runtime", "viewcode_diagrams"]);
+    NodeAssert.deepStrictEqual(Object.keys(context), [
+      "viewcode_runtime",
+      "viewcode_diagrams",
+      "viewcode_drafts",
+    ]);
   });
 });
 

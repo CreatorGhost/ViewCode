@@ -71,9 +71,21 @@ describe("buildRuntimeInstructions", () => {
     expect(
       buildRuntimeInstructions({ harness: "Claude Code", viewcodeToolsUnavailable: "setting" }),
     ).not.toContain("<viewcode_visuals>");
-    expect(buildRuntimeInstructions({ harness: "Codex", diagrams: false })).not.toContain(
-      "<viewcode_diagrams>",
-    );
+    const separate = buildRuntimeInstructions({ harness: "Codex" }, { separateEntries: true });
+    expect(separate).not.toContain("<viewcode_diagrams>");
+    expect(separate).not.toContain("<viewcode_drafts>");
+  });
+
+  it("asks every session to put a drafted message alone in a quote, which gets a copy button", () => {
+    for (const viewcodeToolsUnavailable of [undefined, "managed-mcp", "setting"] as const) {
+      const instructions = buildRuntimeInstructions({
+        harness: "Claude Code",
+        viewcodeToolsUnavailable,
+      });
+      expect(instructions).toContain("<viewcode_drafts>");
+      expect(instructions).toContain("put only the message itself in a `>` quote block");
+      expect(instructions).toContain("with no commentary inside it");
+    }
   });
 
   it("offers computer use only when granted, with or without ViewCode's MCP tools", () => {

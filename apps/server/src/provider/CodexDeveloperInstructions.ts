@@ -6,6 +6,7 @@ import {
   buildRuntimeInstructions,
   computerUseGuidance,
   VIEWCODE_DIAGRAMS_GUIDANCE,
+  VIEWCODE_DRAFTS_GUIDANCE,
 } from "./RuntimeInstructions.ts";
 
 const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `## ViewCode collaborative browser
@@ -228,12 +229,10 @@ export function buildCodexAdditionalContext(
   return {
     viewcode_runtime: {
       kind: "application",
-      value: buildRuntimeInstructions(
-        { harness: "Codex", ...runtime, diagrams: false },
-        { separateCliEntries: true },
-      ),
+      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }, { separateEntries: true }),
     },
     viewcode_diagrams: { kind: "application", value: VIEWCODE_DIAGRAMS_GUIDANCE },
+    viewcode_drafts: { kind: "application", value: VIEWCODE_DRAFTS_GUIDANCE },
     ...(runtime.computerUse
       ? {
           viewcode_computer_use: {

@@ -931,7 +931,7 @@ describe("CodexSessionRuntime compaction", () => {
         assert.equal(item.role, "developer");
         return item.content[0].text;
       });
-      assert.lengthOf(texts, 2);
+      assert.lengthOf(texts, 3);
       assert.match(
         texts[0] ?? "",
         /^<viewcode_runtime><runtime_info>.*as GPT-5\.6 Sol \(model slug: gpt-5\.6-sol\).*<\/viewcode_runtime>$/s,
@@ -939,6 +939,10 @@ describe("CodexSessionRuntime compaction", () => {
       assert.match(
         texts[1] ?? "",
         /^<viewcode_diagrams>A ```mermaid block.*<\/viewcode_diagrams>$/s,
+      );
+      assert.match(
+        texts[2] ?? "",
+        /^<viewcode_drafts>When you draft a message.*<\/viewcode_drafts>$/s,
       );
 
       yield* runtime.close;
