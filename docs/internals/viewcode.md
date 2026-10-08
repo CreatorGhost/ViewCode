@@ -32,6 +32,19 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   and `components/ui` variants; contracts only gain optional fields; upstream
   features are hidden behind flags rather than deleted. Details and current
   hot spots: [`docs/NEXT_AGENT.md`](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
+- Where upstream shipped its own version of a ViewCode feature, ViewCode's
+  stays and upstream's is folded in or hidden:
+  - Chat width: upstream's `chatWidth` (comfortable/wide/full) reused our key,
+    so the contract keeps ViewCode's `narrow`/`normal`/`wide` plus upstream's
+    `full`, and `--chat-max-width` aliases `--chat-column-max-width`. A
+    stored upstream value would fail to decode, so never accept both sets.
+  - Upstream's sidebar "Working section (beta)" needs shelves the project
+    tree does not have; its setting stays in the contract, its Settings row
+    is hidden. `planSidebarThreadDrop` in `Sidebar.logic.ts` is upstream's
+    and unused by the tree.
+  - Upstream moved queued sends out of `ChatView` into `QueuedMessageSender`;
+    it must keep passing `supportsTurnSteering` so Command Code messages wait
+    for the turn to end.
 
 ### Handoff (switching provider or account mid-chat)
 

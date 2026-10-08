@@ -55,10 +55,18 @@ sandbox start the dev server with `IS_SANDBOX=1` (Claude refuses
 The user wants to keep pulling T3 Code updates. Every ViewCode change must
 keep that cheap.
 
-- Fork point: upstream commit `ed809f7ad` (2026-09-25). Since then ~220
-  upstream files are modified and ~106 added. Add upstream as a remote and
-  merge (never rebase this shared branch):
-  `git remote add upstream https://github.com/pingdotgg/t3code && git fetch upstream && git merge upstream/main`.
+- Last merged upstream commit: `024d49520` (2026-10-02), the parent of
+  upstream's `de3439142` "introduce new orchestrator". That commit deletes
+  `apps/server/src/orchestration/` and the per-provider `Layers/*Adapter.ts`
+  files for `orchestration-v2/`, and ViewCode's handoff, child agents and
+  messaging live on the deleted code. So do not `git merge upstream/main`:
+  take later upstream work with `git cherry-pick -x` (a commit that applies
+  cleanly and does not touch `orchestration-v2/` usually builds), or port it
+  by hand. Moving onto v2 is its own project: upstream v2 has its own
+  provider switch and context handoff (`ProviderSwitchService`,
+  `ContextHandoffService`) that ViewCode's handoff would be rebuilt on.
+  Add the remote with
+  `git remote add upstream https://github.com/pingdotgg/t3code && git fetch upstream`.
 - New behaviour goes in **new files** (`apps/server/src/agents/`,
   `orchestration/Handoff.ts`, `components/agents/`, …) and is wired into
   upstream files with a few lines. Prefer a hook, layer, variant or config flag
