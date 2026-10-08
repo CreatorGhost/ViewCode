@@ -32,6 +32,7 @@ interface Spec {
   /** Runs when the accessible press is attempted, before it fails or lands. */
   onPress?: () => void;
   onFocus?: () => Promise<void>;
+  raw?: Record<string, unknown>;
   children?: Spec[];
 }
 
@@ -53,7 +54,7 @@ const fake = (spec: Spec, sent: Sent): Element => {
   const element = {
     ...snapshot,
     value: spec.value ?? null,
-    raw: {},
+    raw: spec.raw ?? {},
     editable: false,
     enabled: true,
     active: spec.active ?? false,
@@ -1320,4 +1321,113 @@ it("reuses a display read briefly and re-reads it when it misses or ages", async
   clock.now = 5_000;
   expect(await shoot()).toMatchObject({ ok: true });
   expect(core.calls.primaryDisplay).toBe(3);
+});
+
+describe("menus are listed and act only in the background", () => {
+  const menuBar = (): Spec => ({
+    role: "menu_bar",
+    bounds: { x: 0, y: 0, width: 1440, height: 24 },
+    actions: [],
+    children: [
+      {
+        role: "menu_bar_item",
+        name: "File",
+        children: [
+          { role: "menu", actions: [], children: [{ role: "menu_item", name: "Export…" }] },
+        ],
+      },
+    ],
+  });
+  const extras = (): Spec => ({
+    role: "menu_bar",
+    raw: { ax_role: "AXExtrasMenuBar" },
+    bounds: { x: 1300, y: 0, width: 40, height: 24 },
+    actions: [],
+    children: [{ role: "menu_bar_item", name: "Status" }],
+  });
+  const contextMenu = (): Spec => ({
+    role: "menu",
+    bounds: { x: 100, y: 100, width: 200, height: 120 },
+    actions: [],
+    children: [{ role: "menu_item", name: "Copy", pressUnsupported: false }],
+  });
+
+  it("lists open menus and the app's menu bar, not status items or window-less apps", async () => {
+    const preview: FakeApp = {
+      name: "Preview",
+      pid: 7,
+      windows: [window("doc.pdf"), menuBar(), extras(), contextMenu()],
+    };
+    const daemon: FakeApp = { name: "Helper", pid: 8, windows: [menuBar()] };
+    const core = makeCore([preview, daemon]);
+    const listed = (await core.call({ op: "listWindows" })) as {
+      result: Array<{ title: string; kind?: string; focused: boolean; pid: number }>;
+    };
+    expect(listed.result.map(({ title, kind, pid }) => ({ title, kind, pid }))).toEqual([
+      { title: "doc.pdf", kind: undefined, pid: 7 },
+      { title: "Menu bar", kind: "menu-bar", pid: 7 },
+      { title: "Menu", kind: "menu", pid: 7 },
+    ]);
+    expect(listed.result.filter((entry) => entry.kind).every((entry) => !entry.focused)).toBe(true);
+  });
+
+  it("presses a menu bar item by ref without bringing the app forward", async () => {
+    const preview: FakeApp = { name: "Preview", pid: 7, windows: [window("doc.pdf"), menuBar()] };
+    const core = makeCore([preview], { foreground: 1 });
+    const [, bar] = await core.list();
+    const exportItem = (await core.observe(bar!.handle)).find((e) => e.label === "Export…")!;
+    expect(
+      await core.call({
+        op: "press",
+        element: exportItem.handle,
+        expect: { role: "menu_item", label: "Export…" },
+      }),
+    ).toEqual(inBackground);
+    expect(core.sent).toEqual([["press", "Export…"]]);
+    expect(core.calls.activate).toBe(0);
+  });
+
+  it("refuses input that needs the front, so an open menu is never closed", async () => {
+    const menu = contextMenu();
+    menu.children![0]!.pressUnsupported = true;
+    const preview: FakeApp = { name: "Preview", pid: 7, windows: [window("doc.pdf"), menu] };
+    const core = makeCore([preview], { foreground: 1 });
+    const [, open] = await core.list();
+    const copy = (await core.observe(open!.handle)).find((e) => e.label === "Copy")!;
+    expect(await core.call({ op: "key", window: open!.handle, keys: "enter" })).toMatchObject(
+      refusedNo,
+    );
+    expect(
+      await core.call({
+        op: "press",
+        element: copy.handle,
+        expect: { role: "menu_item", label: "Copy" },
+      }),
+    ).toMatchObject(refusedNo);
+    expect(core.sent).toEqual([]);
+    expect(core.calls.activate).toBe(0);
+  });
+
+  it("captures an open menu by its own window and refuses the menu bar", async () => {
+    const captured: Array<{ menu?: boolean } | undefined> = [];
+    const preview: FakeApp = {
+      name: "Preview",
+      pid: 7,
+      windows: [window("doc.pdf"), menuBar(), contextMenu()],
+    };
+    const core = makeCore([preview], {
+      primaryDisplay: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+      captureWindow: async (_pid, _bounds, _path, _max, options) => {
+        captured.push(options);
+        return { width: 200, height: 120 };
+      },
+    });
+    const [, bar, open] = await core.list();
+    const shoot = (window: string) =>
+      core.call({ op: "screenshot", window, outputPath: "/tmp/x.png", maxSize: 800 });
+    expect(await shoot(open!.handle)).toMatchObject({ ok: true, result: { width: 200 } });
+    expect(captured).toEqual([{ menu: true }]);
+    expect(await shoot(bar!.handle)).toMatchObject(refusedNo);
+    expect(captured).toHaveLength(1);
+  });
 });

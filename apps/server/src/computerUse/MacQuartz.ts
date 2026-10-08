@@ -221,12 +221,18 @@ export const planWindowCapture = (
   windows: ReadonlyArray<QuartzWindow>,
   pid: number,
   bounds: Rect,
+  options: { readonly menu?: boolean } = {},
 ): { readonly kind: "region" | "window"; readonly id: number } | null => {
   const matches = windows.filter(
-    (window) => window.pid === pid && window.layer === 0 && sameRect(window.bounds, bounds),
+    (window) =>
+      window.pid === pid &&
+      (options.menu ? window.layer > 0 && window.alpha > 0 : window.layer === 0) &&
+      sameRect(window.bounds, bounds),
   );
   if (matches.length !== 1) return null;
   const target = matches[0]!;
+  // A menu is captured by its own window id: nothing of the app belongs on top of it.
+  if (options.menu) return { kind: "window", id: target.id };
   const covered = windows
     .slice(0, windows.indexOf(target))
     .some((window) => window.pid !== pid && window.alpha > 0 && overlaps(window.bounds, bounds));
@@ -270,8 +276,9 @@ export const macCaptureWindow = async (
   bounds: Rect,
   outputPath: string,
   maxSize: number,
+  options: { readonly menu?: boolean } = {},
 ): Promise<{ readonly width: number; readonly height: number } | null> => {
-  const plan = planWindowCapture(await readOnScreenWindows(), pid, bounds);
+  const plan = planWindowCapture(await readOnScreenWindows(), pid, bounds, options);
   if (!plan) return null;
   const fullPath = `${outputPath}.window.png`;
   await NodeFSP.mkdir(NodePath.dirname(outputPath), { recursive: true });

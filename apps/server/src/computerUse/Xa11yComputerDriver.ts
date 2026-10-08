@@ -38,7 +38,12 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 
-import { ComputerUseErrorCode, ComputerUseRect, type ComputerUseError } from "@t3tools/contracts";
+import {
+  ComputerUseErrorCode,
+  ComputerUseRect,
+  ComputerUseWindowKind,
+  type ComputerUseError,
+} from "@t3tools/contracts";
 import { HostProcessIsExecutable, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -190,6 +195,7 @@ const WindowsReply = replyOf(
       focused: Schema.Boolean,
       bounds: Schema.optionalKey(ComputerUseRect),
       appIdentifier: Schema.optionalKey(Schema.String),
+      kind: Schema.optionalKey(ComputerUseWindowKind),
     }),
   ),
 );

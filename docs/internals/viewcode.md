@@ -388,6 +388,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   sends 20 characters per key event and some apps keep only the first, so text goes one code
   point per event. AXValue and AXSelectedText writes can succeed without changing a web field
   (Safari), so the driver re-reads the value and types by keyboard when it did not change.
+- On macOS an open context menu is an AX child of the app, not of any window, and menu bar menus
+  hang off the app's `AXMenuBar`, so neither shows up in a window's observe. Both are listed as
+  their own targets (`kind` "menu" / "menu-bar"; the menu bar only for apps with a window, never
+  `AXExtrasMenuBar`), with the same identity and re-walk rules as windows. They take refs only:
+  `activate` refuses on them before touching anything, because a menu is never the active window
+  and activating its app closes an open one. An open menu is captured by its own pop-up-level
+  Quartz window (`-l`); the menu bar is never captured.
 - Input that takes the screen refuses with CU-CON-009 while the hardware event system reports
   input in the last 1.5 s (`CGEventSourceSecondsSinceLastEventType`, no Input Monitoring needed).
   The driver's own posted events can count as that input, so only input newer than the driver's

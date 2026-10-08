@@ -627,7 +627,7 @@ TWO WAYS TO ACT
 
 COMMANDS
   status                                    what is enabled and permitted now
-  list-windows [--app NAME]                 windows: {id, app, title, pid, focused, bounds}
+  list-windows [--app NAME]                 windows: {id, app, title, pid, focused, bounds, kind?}
   observe --window N [--query TEXT]         controls: {ref, role, label, value?, enabled, focused}
   screenshot --window N [--max-size PX]     PNG of the window: {shot, path, width, height}
                                             (longest edge PX, default 1568, 256..2560)
@@ -661,6 +661,15 @@ FOCUS
   task on screen; if they keep it in the background, only refs, observe and
   screenshot work until the turn ends. Input results say "tookFocus":true when the action brought
   the window to the front.
+
+MENUS (macOS)
+  list-windows also lists each app's menu bar (kind "menu-bar") and any open
+  context menu (kind "menu"). observe them and press items by ref, e.g.
+  observe --window N --query Export, then press --ref M: menu bar items work
+  without opening the menu or taking focus. A menu's own screenshot works; the
+  menu bar has none. Clicks, keys and typing are refused on menus (bringing
+  the app forward would close them). A window's screenshot may not show an
+  open menu: list windows again and use the menu itself.
 
 THE LOOP
   1. list-windows to find the window id. Windows on other desktops (Spaces),

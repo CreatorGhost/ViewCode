@@ -210,6 +210,10 @@ export const ComputerUseRect = Schema.Struct({
 });
 export type ComputerUseRect = typeof ComputerUseRect.Type;
 
+/** A listed target that is not an ordinary window: an open menu, or an app's menu bar. */
+export const ComputerUseWindowKind = Schema.Literals(["menu", "menu-bar"]);
+export type ComputerUseWindowKind = typeof ComputerUseWindowKind.Type;
+
 export const ComputerUseWindow = Schema.Struct({
   id: WindowId,
   app: Schema.String,
@@ -217,6 +221,7 @@ export const ComputerUseWindow = Schema.Struct({
   title: Schema.String,
   focused: Schema.Boolean,
   bounds: Schema.optional(ComputerUseRect),
+  kind: Schema.optional(ComputerUseWindowKind),
 });
 export type ComputerUseWindow = typeof ComputerUseWindow.Type;
 

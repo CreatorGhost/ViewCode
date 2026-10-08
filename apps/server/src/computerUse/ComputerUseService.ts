@@ -584,6 +584,7 @@ export const make = Effect.gen(function* () {
               title: window.title,
               focused: window.focused,
               ...(window.bounds ? { bounds: window.bounds } : {}),
+              ...(window.kind ? { kind: window.kind } : {}),
             },
           ];
         });

@@ -78,6 +78,21 @@ describe("planWindowCapture", () => {
     });
   });
 
+  it("captures an open menu by its own pop-up window, never a document window", () => {
+    const menuRect = menu.bounds;
+    expect(planWindowCapture([menu, target], 7, menuRect, { menu: true })).toEqual({
+      kind: "window",
+      id: 42,
+    });
+    // Not another app's menu, not a hidden one, and not a document window at that spot.
+    expect(planWindowCapture([{ ...menu, pid: 9 }], 7, menuRect, { menu: true })).toBeNull();
+    expect(planWindowCapture([{ ...menu, alpha: 0 }], 7, menuRect, { menu: true })).toBeNull();
+    expect(
+      planWindowCapture([{ ...target, bounds: menuRect }], 7, menuRect, { menu: true }),
+    ).toBeNull();
+    expect(planWindowCapture([menu], 7, menuRect)).toBeNull();
+  });
+
   it("captures only the window's own pixels when another app covers part of it", () => {
     expect(
       planWindowCapture(

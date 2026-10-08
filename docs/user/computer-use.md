@@ -93,6 +93,9 @@ permissions off in System Settings when you are not using computer use.
   reference.
 - Codex in a sandboxed permission mode may be unable to reach ViewCode from its shell. Use
   **Full access** for those threads.
+- On macOS, agents see each app's menu bar and any open context menu as their own entries. They
+  choose menu items by reference, which works in the background without opening the menu.
+  Clicks and keys on a menu are refused, because bringing the app forward would close it.
 - Screenshots work for windows that sit entirely on the main display.
 - Agents only see windows on the current desktop. To let an agent work in an app on another
   desktop (Space) or in full screen, bring its window onto the desktop you are using.
@@ -107,12 +110,11 @@ approval waits, and the handling of apps on other desktops.
 
 Known gaps:
 
-- An open menu may be missing from a screenshot. Bring the app to the front, open the menu again
-  and take a new screenshot.
+- An open menu may be missing from a window's screenshot; the agent reads and captures the menu
+  itself instead.
 - Windows on other desktops (Spaces) and full-screen apps cannot be reached; there is no "switch
   to" yet.
-- Claude and Antigravity open their own screenshots without asking. Codex, Cursor, Grok and
-  OpenCode may ask for approval first.
-- Not yet confirmed on a real Mac: typing stopping when you switch apps mid-way, the wait while you
-  use the mouse or keyboard, **Show on screen**, and the second Dock icon some setups show while
-  computer use runs.
+- Not yet confirmed on a real Mac: menu bars and open menus as their own entries, opening
+  screenshots without a prompt in Cursor, Grok and OpenCode, typing stopping when you switch apps
+  mid-way, the wait while you use the mouse or keyboard, **Show on screen**, and the second Dock
+  icon some setups show while computer use runs.

@@ -88,6 +88,8 @@ export interface Xa11yApi {
     bounds: Rect,
     outputPath: string,
     maxSize: number,
+    /** An open menu: a pop-up level window of the app, not a document window. */
+    options?: { readonly menu?: boolean },
   ) => Promise<{ readonly width: number; readonly height: number } | null>;
   /** Executable path per pid, best effort; feeds `DriverWindow.appIdentifier`. */
   readonly executablePaths: (pids: ReadonlyArray<number>) => Promise<ReadonlyMap<number, string>>;
@@ -252,6 +254,21 @@ const FOCUS_RECHECK_MS = 100;
 const DISPLAY_CACHE_MS = 5_000;
 
 const WINDOW_ROLES = new Set(["window", "dialog", "alert"]);
+/**
+ * On macOS an open context menu is a child of the app, not of a window, and
+ * the menu bar's menus hang off the app's menu bar: listing both is the only
+ * way an agent can see or press them.
+ */
+const MAC_WINDOW_ROLES = new Set([...WINDOW_ROLES, "menu", "menu_bar"]);
+
+/** What a listed target is when it is not an ordinary window. */
+export const windowKind = (role: string): "menu" | "menu-bar" | undefined =>
+  role === "menu" ? "menu" : role === "menu_bar" ? "menu-bar" : undefined;
+
+/** Status items (`AXExtrasMenuBar`) belong to the system's menu bar extras, not the app's menus. */
+const isWindowCandidate = (element: Element, roles: ReadonlySet<string>) =>
+  roles.has(element.role) &&
+  !(element.role === "menu_bar" && element.raw?.["ax_role"] === "AXExtrasMenuBar");
 
 const nonEmpty = (value: string | null | undefined): string | undefined =>
   value !== null && value !== undefined && value.trim().length > 0 ? value : undefined;
@@ -514,8 +531,9 @@ interface KeyedWindow {
 export const keyedWindows = (
   pid: number,
   children: ReadonlyArray<Element>,
+  roles: ReadonlySet<string> = WINDOW_ROLES,
 ): ReadonlyArray<KeyedWindow> => {
-  const windows = children.filter((window) => WINDOW_ROLES.has(window.role));
+  const windows = children.filter((window) => isWindowCandidate(window, roles));
   const idCounts = new Map<string, number>();
   const titleCounts = new Map<string, number>();
   for (const window of windows) {
@@ -617,6 +635,7 @@ interface ElementEntry {
 
 export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   const { platform, epoch } = options;
+  const windowRoles = platform === "darwin" ? MAC_WINDOW_ROLES : WINDOW_ROLES;
   let nextHandle = 1;
   const windows = new Map<string, WindowEntry>();
   const elements = new Map<string, ElementEntry>();
@@ -699,7 +718,10 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     for (let waited = 0; ; waited += IDENTITY_RETRY_MS) {
       const alive = await api.elementIsAlive(entry.element).catch(() => false);
       if (alive) {
-        const found = findWindow(entry, keyedWindows(entry.pid, await appWindowsOf(entry.pid)));
+        const found = findWindow(
+          entry,
+          keyedWindows(entry.pid, await appWindowsOf(entry.pid), windowRoles),
+        );
         if (found) {
           adopt(entry, found);
           return found.window;
@@ -725,6 +747,15 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
    * land in whatever else has focus (a sibling window, or ViewCode itself).
    */
   const activate = async (entry: WindowEntry): Promise<Element> => {
+    // A menu is never active, and activating its app closes an open one.
+    if (windowKind(entry.role) !== undefined) {
+      throw new Refusal(
+        failure(
+          "failed",
+          "This is a menu: press its items by ref. Clicks, keys and typing need a window in front and do not work on menus.",
+        ),
+      );
+    }
     let live = await refreshWindow(entry);
     if (await isFront(entry, live)) return live;
     await refuseWhileUserActive();
@@ -976,7 +1007,10 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     const listed: DriverWindow[] = [];
     for (const { app, children } of perApp) {
       const pid = app.pid ?? 0;
-      const keyed = keyedWindows(pid, children);
+      const keyed = keyedWindows(pid, children, windowRoles);
+      // A menu bar is listed for apps the user has a window of, not for
+      // every background process.
+      const hasWindow = keyed.some((found) => windowKind(found.window.role) === undefined);
       // Known windows first: each keeps its handle (so the server keeps its
       // id) only if it is found unambiguously; a window is claimed once.
       const claimed = new Map<Element, string>();
@@ -990,6 +1024,8 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         kept.add(handle);
       }
       for (const found of keyed) {
+        const kind = windowKind(found.window.role);
+        if (kind === "menu-bar" && !hasWindow) continue;
         let handle = claimed.get(found.window);
         if (handle === undefined) {
           handle = mint("w");
@@ -1017,10 +1053,11 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           handle,
           app: app.name,
           pid,
-          title: window.name ?? "",
-          focused: app.isForeground && (window.active || window.focused),
+          title: window.name || (kind === "menu-bar" ? "Menu bar" : kind === "menu" ? "Menu" : ""),
+          focused: kind === undefined && app.isForeground && (window.active || window.focused),
           ...(bounds ? { bounds: { ...bounds } } : {}),
           ...(appIdentifier ? { appIdentifier } : {}),
+          ...(kind ? { kind } : {}),
         });
       }
     }
@@ -1196,12 +1233,23 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         failure("failed", "The window is not fully on the main display; move it there."),
       );
     }
+    const kind = windowKind(entry.role);
+    if (kind === "menu-bar") {
+      throw new Refusal(
+        failure(
+          "failed",
+          "The menu bar cannot be captured. Observe it to read its menus and press items by ref.",
+        ),
+      );
+    }
     // AX focus can outlive a Space switch. On macOS even a window reported
     // frontmost must be captured by Quartz identity, never its screen region.
     if (platform === "darwin" || !(await isFront(entry, window))) {
       let isolated: { readonly width: number; readonly height: number } | null;
       try {
-        isolated = await api.captureWindow(entry.pid, bounds, outputPath, maxSize);
+        isolated = await api.captureWindow(entry.pid, bounds, outputPath, maxSize, {
+          menu: kind === "menu",
+        });
       } catch (error) {
         if (platform === "darwin" || errorName(error) === "PermissionDeniedError") {
           throw new Refusal({
@@ -1216,7 +1264,9 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         throw new Refusal(
           failure(
             "failed",
-            "Could not capture this window by itself. It may be on another desktop or minimized, have a menu open, or share its place with another window of the app. Make sure it is on the current desktop with no menu open, then list windows again.",
+            kind === "menu"
+              ? "Could not capture this menu by itself. Observe it instead and press its items by ref."
+              : "Could not capture this window by itself. It may be on another desktop or minimized, or share its place with another window of the app. Make sure it is on the current desktop, then list windows again.",
           ),
         );
       }

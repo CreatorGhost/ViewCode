@@ -22,7 +22,12 @@ import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
-import type { ComputerUseError, ComputerUseErrorCode, ComputerUseRect } from "@t3tools/contracts";
+import type {
+  ComputerUseError,
+  ComputerUseErrorCode,
+  ComputerUseRect,
+  ComputerUseWindowKind,
+} from "@t3tools/contracts";
 
 export interface DriverDispatchTarget {
   readonly window: DriverWindow;
@@ -79,6 +84,8 @@ export interface DriverWindow {
   readonly bounds?: ComputerUseRect;
   /** Bundle id or executable path when the platform reports one; used by the denylist. */
   readonly appIdentifier?: string;
+  /** An open menu or an app's menu bar (macOS): refs and screenshots only, never focus. */
+  readonly kind?: ComputerUseWindowKind;
 }
 
 export interface DriverElement {

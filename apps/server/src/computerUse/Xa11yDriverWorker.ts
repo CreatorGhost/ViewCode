@@ -107,8 +107,8 @@ export const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput
   enableAccessibility: async (pid) =>
     PLATFORM === "darwin" ? macEnableManualAccessibility(pid) : false,
   screenshot: (element) => xa11y.screenshot({ element }),
-  captureWindow: async (pid, bounds, outputPath, maxSize) =>
-    PLATFORM === "darwin" ? macCaptureWindow(pid, bounds, outputPath, maxSize) : null,
+  captureWindow: async (pid, bounds, outputPath, maxSize, options) =>
+    PLATFORM === "darwin" ? macCaptureWindow(pid, bounds, outputPath, maxSize, options) : null,
   executablePaths,
   writeFile: async (path, bytes) => {
     await NodeFSP.mkdir(NodePath.dirname(path), { recursive: true });
