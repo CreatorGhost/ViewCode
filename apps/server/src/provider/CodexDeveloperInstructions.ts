@@ -1,7 +1,12 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
 import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
 import type { ComputerUseGrant } from "../mcp/McpProviderSession.ts";
-import { buildRuntimeInstructions, VIEWCODE_DIAGRAMS_GUIDANCE } from "./RuntimeInstructions.ts";
+import {
+  BROWSER_CLI_GUIDANCE,
+  buildRuntimeInstructions,
+  computerUseGuidance,
+  VIEWCODE_DIAGRAMS_GUIDANCE,
+} from "./RuntimeInstructions.ts";
 
 const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `## ViewCode collaborative browser
 
@@ -223,9 +228,23 @@ export function buildCodexAdditionalContext(
   return {
     viewcode_runtime: {
       kind: "application",
-      value: buildRuntimeInstructions({ harness: "Codex", ...runtime, diagrams: false }),
+      value: buildRuntimeInstructions(
+        { harness: "Codex", ...runtime, diagrams: false },
+        { separateCliEntries: true },
+      ),
     },
     viewcode_diagrams: { kind: "application", value: VIEWCODE_DIAGRAMS_GUIDANCE },
+    ...(runtime.computerUse
+      ? {
+          viewcode_computer_use: {
+            kind: "application",
+            value: computerUseGuidance(runtime.computerUse),
+          },
+        }
+      : {}),
+    ...(runtime.browserCli
+      ? { viewcode_browser: { kind: "application", value: BROWSER_CLI_GUIDANCE } }
+      : {}),
     ...(tools ? { viewcode_tools: { kind: "application", value: tools } } : {}),
   };
 }

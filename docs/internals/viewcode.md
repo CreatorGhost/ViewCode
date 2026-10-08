@@ -313,6 +313,8 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   rule, and that no other installed desktop or browser automation (osascript, screencapture,
   Playwright skills) replaces it. Like agent-device, and unlike a SKILL.md: no files to manage in
   six providers' skill folders, nothing loaded when unused, and it cannot drift from the CLI.
+  Codex sends the computer-use and browser CLI guidance as separate `additionalContext` entries,
+  like diagrams: its 1,000-token per-entry cap truncates the middle of combined runtime guidance.
   Security never depends on the model following it.
 - Approvals are ViewCode's own `permission_approval` requests published on the provider runtime
   stream (`computer-use:<uuid>` ids), so web, desktop and mobile render them unchanged;

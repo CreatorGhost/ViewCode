@@ -42,16 +42,18 @@ For a data chart, mockup, image collage or layout Mermaid can't draw, and only w
  * manual; this block names the exact launcher path (the only form providers'
  * prompts are auto-approved in), the focus rule and rules out the workarounds.
  */
-export function computerUseInstructions(grant: ComputerUseGrant): string {
+export function computerUseGuidance(grant: ComputerUseGrant): string {
   const cli = shellCommandWord(grant.cli);
   const scope =
     grant.mode === "observe"
       ? "This session may only observe (list windows, read their elements, take screenshots); input actions are unavailable."
       : "Input actions only work while your turn is running and may wait for the user to approve them. Refs (press, set-value, type --ref) act in the background without taking the user's focus: prefer them. key, scroll, coordinate input and type --window bring the window to the front and take focus.";
-  return `<viewcode_computer_use>
-You can see and operate apps on the user's computer with the viewcode-computer CLI, run through your shell tool. Always invoke it by this absolute path, exactly as written: ${cli}. Run \`${cli} help\` before first use; its output is the manual. ${scope}
-Use viewcode-computer for all desktop observation and control; do not use other installed desktop or browser automation tools, skills or scripts (osascript, screencapture, cliclick, python screen tools, Playwright/Chromium skills) instead, even if available. If viewcode-computer refuses an action, tell the user what was refused and why instead of working around it.
-</viewcode_computer_use>`;
+  return `You can see and operate apps on the user's computer with the viewcode-computer CLI, run through your shell tool. Always invoke it by this absolute path, exactly as written: ${cli}. Run \`${cli} help\` before first use; its output is the manual. ${scope}
+Use viewcode-computer for all desktop observation and control; do not use other installed desktop or browser automation tools, skills or scripts (osascript, screencapture, cliclick, python screen tools, Playwright/Chromium skills) instead, even if available. If viewcode-computer refuses an action, tell the user what was refused and why instead of working around it.`;
+}
+
+export function computerUseInstructions(grant: ComputerUseGrant): string {
+  return `<viewcode_computer_use>\n${computerUseGuidance(grant)}\n</viewcode_computer_use>`;
 }
 
 /**
@@ -59,31 +61,34 @@ Use viewcode-computer for all desktop observation and control; do not use other 
  * ViewCode's MCP server (managed MCP, or the tools turned off) can still use
  * it. With MCP, the preview_* tools drive the same browser and tab.
  */
-export const BROWSER_CLI_INSTRUCTIONS = `<viewcode_browser>
-ViewCode's collaborative browser, which the user sees in their ViewCode window, is also available from your shell as the viewcode-browser command. Run \`viewcode-browser help\` before first use; its output is the manual. When the viewcode MCP preview_* tools are in your tool list, prefer them: they drive the same browser and tab. Otherwise use viewcode-browser to open, inspect and test web pages and local dev servers instead of standalone Playwright, agent-browser or a headless Chrome, unless it reports that no browser is available or the user asks for a different browser.
-</viewcode_browser>`;
+export const BROWSER_CLI_GUIDANCE = `ViewCode's collaborative browser, which the user sees in their ViewCode window, is also available from your shell as the viewcode-browser command. Run \`viewcode-browser help\` before first use; its output is the manual. When the viewcode MCP preview_* tools are in your tool list, prefer them: they drive the same browser and tab. Otherwise use viewcode-browser to open, inspect and test web pages and local dev servers instead of standalone Playwright, agent-browser or a headless Chrome, unless it reports that no browser is available or the user asks for a different browser.`;
+
+export const BROWSER_CLI_INSTRUCTIONS = `<viewcode_browser>\n${BROWSER_CLI_GUIDANCE}\n</viewcode_browser>`;
 
 /**
  * Shared runtime context; omit model and effort when the harness manages them dynamically.
  * `modelName` is the display name users see in the model picker; `model` is the slug.
  */
-export function buildRuntimeInstructions(runtime: {
-  readonly harness: string;
-  readonly model?: string | undefined;
-  readonly modelName?: string | undefined;
-  readonly reasoningEffort?: string | undefined;
-  /**
-   * Set when the session runs without ViewCode's MCP server, so the prompt
-   * never advertises tools the session does not have.
-   */
-  readonly viewcodeToolsUnavailable?: "managed-mcp" | "setting" | undefined;
-  /** Set when the session was granted computer use (its CLI is on PATH). */
-  readonly computerUse?: ComputerUseGrant | undefined;
-  /** Set when the session may use the collaborative browser and its CLI is on PATH. */
-  readonly browserCli?: boolean | undefined;
-  /** False when the caller sends `VIEWCODE_DIAGRAMS_GUIDANCE` on its own. */
-  readonly diagrams?: boolean | undefined;
-}): string {
+export function buildRuntimeInstructions(
+  runtime: {
+    readonly harness: string;
+    readonly model?: string | undefined;
+    readonly modelName?: string | undefined;
+    readonly reasoningEffort?: string | undefined;
+    /**
+     * Set when the session runs without ViewCode's MCP server, so the prompt
+     * never advertises tools the session does not have.
+     */
+    readonly viewcodeToolsUnavailable?: "managed-mcp" | "setting" | undefined;
+    /** Set when the session was granted computer use (its CLI is on PATH). */
+    readonly computerUse?: ComputerUseGrant | undefined;
+    /** Set when the session may use the collaborative browser and its CLI is on PATH. */
+    readonly browserCli?: boolean | undefined;
+    /** False when the caller sends `VIEWCODE_DIAGRAMS_GUIDANCE` on its own. */
+    readonly diagrams?: boolean | undefined;
+  },
+  options: { readonly separateCliEntries?: boolean } = {},
+): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
   const modelName = toSingleLine(runtime.modelName ?? "");
@@ -93,10 +98,12 @@ export function buildRuntimeInstructions(runtime: {
   const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
   const runtimeInfo = `<runtime_info>In case you're asked: you are running in ViewCode through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>`;
-  const computerUse = runtime.computerUse
-    ? `\n\n${computerUseInstructions(runtime.computerUse)}`
-    : "";
-  const browser = runtime.browserCli ? `\n\n${BROWSER_CLI_INSTRUCTIONS}` : "";
+  const computerUse =
+    !options.separateCliEntries && runtime.computerUse
+      ? `\n\n${computerUseInstructions(runtime.computerUse)}`
+      : "";
+  const browser =
+    !options.separateCliEntries && runtime.browserCli ? `\n\n${BROWSER_CLI_INSTRUCTIONS}` : "";
   const diagrams = runtime.diagrams === false ? "" : `\n\n${VIEWCODE_DIAGRAMS_INSTRUCTIONS}`;
   if (runtime.viewcodeToolsUnavailable) {
     return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable, runtime.browserCli === true)}${diagrams}${browser}${computerUse}`;

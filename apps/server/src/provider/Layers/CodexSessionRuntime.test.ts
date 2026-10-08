@@ -634,10 +634,47 @@ describe("buildCodexAdditionalContext", () => {
   });
 
   it("keeps every entry under Codex's 1,000 token cap per entry", () => {
-    const context = buildCodexAdditionalContext(runtime, { browser: true, device: true });
-    for (const entry of Object.values(context)) {
-      // Codex estimates 4 bytes per token and truncates the middle of longer values.
-      NodeAssert.ok(Buffer.byteLength(entry.value) < 4_000);
+    for (const mode of [undefined, "observe", "control"] as const) {
+      for (const browserCli of [false, true]) {
+        for (const browser of [false, true]) {
+          for (const device of [false, true]) {
+            const context = buildCodexAdditionalContext(
+              {
+                ...runtime,
+                modelName: "GPT-5.3 Codex",
+                browserCli,
+                computerUse: mode
+                  ? {
+                      mode,
+                      cli: "/Users/Jane Doe/Library/Application Support/ViewCode/computer-use/bin/viewcode-computer",
+                    }
+                  : undefined,
+              },
+              { browser, device },
+            );
+            for (const [key, entry] of Object.entries(context)) {
+              // Codex estimates 4 bytes per token and truncates the middle of longer values.
+              NodeAssert.ok(Buffer.byteLength(entry.value) < 4_000, key);
+            }
+            NodeAssert.equal(Boolean(context.viewcode_computer_use), Boolean(mode));
+            NodeAssert.equal(Boolean(context.viewcode_browser), browserCli);
+            NodeAssert.doesNotMatch(
+              runtimeValue(context),
+              /viewcode_computer_use|viewcode_browser/,
+            );
+            if (mode) {
+              NodeAssert.match(
+                context.viewcode_computer_use?.value ?? "",
+                /Run .* help.*before first use/,
+              );
+              NodeAssert.match(
+                context.viewcode_computer_use?.value ?? "",
+                /instead of working around it/,
+              );
+            }
+          }
+        }
+      }
     }
   });
 });
