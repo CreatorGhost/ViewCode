@@ -390,8 +390,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   It refuses one as `stale` with `reason: "restarted"`, which the service maps to the usual codes
   (window → CU-NOT-001, ref → CU-CON-003) with "the driver restarted; list windows again" rather
   than "window closed". On macOS, AXRaise does not activate an app; the driver runs
-  `open -a <bundle>` (which also switches to the window's Space or full-screen app; `focus` is
-  that activation alone, so a listed window on another Space can be captured) and then requires
+  public `NSRunningApplication` activation by PID. A bundle-name launch can activate another
+  running instance (such as a second Chrome profile), so it is never an activation fallback.
+  Listed windows are still raised by AX, and the driver then requires
   the exact target window to be active within 3 s (500 ms was
   too short on a slow managed Mac), failing closed. Windows is refused until there is a real win32
   window model (xa11y treats each top-level window as an app there).

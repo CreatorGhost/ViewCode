@@ -3,9 +3,8 @@
  * The IPC loop of the computer-use driver process. The server forks it with
  * the app's own executable and `ELECTRON_RUN_AS_NODE=1`, so on macOS it runs
  * as the app and uses its Accessibility and Screen Recording grants.
- * `VIEWCODE_COMPUTER_DRIVER_HOST=helper` opts into the sibling Helper host;
- * its grant attribution must be checked in the actual desktop build before
- * changing the default. See `Xa11yComputerDriver.ts`.
+ * macOS app bundles default to the sibling Helper host after native grant
+ * verification. A main-host override remains. See `Xa11yComputerDriver.ts`.
  *
  * xa11y loads on the first request, so a missing native module answers
  * `status` with "unavailable" instead of killing the process.
@@ -26,6 +25,7 @@ import type { ComputerUseError } from "@t3tools/contracts";
 
 import { makeMacBackgroundInput } from "./MacBackgroundInput.ts";
 import { makeMacMenuAccessibility } from "./MacMenuAccessibility.ts";
+import { activateMacApp } from "./MacAppActivation.ts";
 
 const backgroundInput = makeMacBackgroundInput();
 const menus = makeMacMenuAccessibility();
@@ -38,7 +38,6 @@ import {
   macSecondsSinceInput,
 } from "./MacQuartz.ts";
 import {
-  appBundlePath,
   DRIVER_EPOCH_ENV,
   DRIVER_NONCE_ENV,
   makeDriverCore,
@@ -85,19 +84,9 @@ const executablePaths = async (
   return paths;
 };
 
-const execFileQuietly = (command: string, args: ReadonlyArray<string>) =>
-  new Promise<void>((resolve) => {
-    NodeChildProcess.execFile(command, [...args], { timeout: 2_000 }, () => resolve());
-  });
-
-/**
- * macOS: `open -a <bundle>` activates the app (no shell; the path comes
- * from the process table). Elsewhere raising the window is all there is.
- */
+/** Activation is requested only after the server's explicit Show-on-screen policy check. */
 const activateApp = async (pid: number) => {
-  if (PLATFORM !== "darwin") return;
-  const bundle = appBundlePath((await executablePaths([pid])).get(pid) ?? "");
-  if (bundle) await execFileQuietly("/usr/bin/open", ["-a", bundle]);
+  if (PLATFORM === "darwin") await activateMacApp(pid);
 };
 
 const withMenus = async (
