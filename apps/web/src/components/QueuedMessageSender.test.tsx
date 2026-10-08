@@ -18,6 +18,7 @@ const io = vi.hoisted(() => ({
 }));
 const config = {
   environment: { capabilities: { attachmentUploads: true, inlineMessageContext: true } },
+  providers: [],
 };
 vi.mock("@t3tools/client-runtime/state/runtime", async (load) => ({
   ...(await load<typeof import("@t3tools/client-runtime/state/runtime")>()),
@@ -104,9 +105,13 @@ afterEach(() => {
 describe("QueuedMessageSender", () => {
   const thread = (
     status: string,
-    { toolActivityIds = [] as string[], userMessageIds = [] as string[] } = {},
+    {
+      toolActivityIds = [] as string[],
+      userMessageIds = [] as string[],
+      providerName = "codex",
+    } = {},
   ) => ({
-    session: { status, activeTurnId: null, updatedAt: status },
+    session: { status, activeTurnId: null, updatedAt: status, providerName },
     activities: toolActivityIds.map((id, index) => ({
       id,
       kind: "tool.completed",
@@ -159,6 +164,19 @@ describe("QueuedMessageSender", () => {
     io.thread = thread("running", { userMessageIds: ["first"], toolActivityIds: ["tool-1"] });
     await render();
     expect(commandsRun()).toEqual(["start", "start"]);
+  });
+
+  it("holds a Command Code message past tool calls until the turn ends", async () => {
+    enqueue();
+    io.thread = thread("running", { providerName: "commandCode" });
+    await render();
+    io.thread = thread("running", { providerName: "commandCode", toolActivityIds: ["tool-1"] });
+    await render();
+    expect(commandsRun()).toEqual([]);
+
+    io.thread = thread("ready", { providerName: "commandCode", toolActivityIds: ["tool-1"] });
+    await render();
+    expect(commandsRun()).toEqual(["start"]);
   });
 
   it("moves on to the next message after a failed one is cancelled", async () => {

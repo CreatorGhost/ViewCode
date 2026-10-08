@@ -7,8 +7,9 @@ import * as NodeOS from "node:os";
 // realpath, reports the long form, so equality checks between a temp path and
 // its canonical form fail. Node reads TEMP/TMP on every os.tmpdir() call, so
 // pointing them at the long form fixes every temp directory the suite makes.
-// Read process.platform directly: browser-environment test suites load this
-// file too, and hostProcess.ts pulls in Node-only modules they cannot bundle.
+// Browser-environment suites load this file too, and hostProcess.ts pulls in
+// Node-only modules they cannot bundle.
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Test setup runs outside any Effect runtime.
 if (process.platform === "win32") {
   try {
     const longForm = NodeFS.realpathSync.native(NodeOS.tmpdir());
