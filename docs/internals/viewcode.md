@@ -765,6 +765,21 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   be a class: with SVG labels only a class's `tspan` rule reaches subgraph
   titles and beats an author's own low-contrast `color`.
 
+### Read aloud
+
+- The speaker button reads one assistant message, the same one Copy copies:
+  the final message of a settled response. Progress messages written mid-turn
+  are never read, and the palette command picks the same message
+  (`latestReadableReply` in `apps/web/src/lib/readAloud.logic.ts`).
+- Speech goes through a `ReadAloudEngine` (`apps/web/src/lib/readAloudPlayer.ts`).
+  Only the Web Speech engine exists; a saved voice names its engine
+  (`ReadAloudVoice` in contracts `settings.ts`), so a cloud voice adds an engine
+  and a union member rather than a migration. Voice and speed are client
+  settings because voices are per device.
+- Utterances stay under 250 characters: Chromium's `speechSynthesis` cuts off
+  or stalls long ones, and drops events for utterances it garbage-collects, so
+  the queue stays referenced until it ends.
+
 ## Traps (things that cost hours)
 
 - **Running as root in a sandbox:** Claude refuses `bypassPermissions` as root;

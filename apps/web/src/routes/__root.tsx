@@ -54,6 +54,7 @@ import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
 import { ShortcutsSheet } from "../components/shortcuts/ShortcutsSheet";
 import { ChatAppearanceSync } from "../components/chat/appearance/ChatAppearanceSync";
+import { stopReadAloud } from "../lib/readAloudPlayer";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -151,6 +152,16 @@ function RootRouteView() {
       returningFromWelcomeRef.current = true;
     }
   }, [pathname]);
+
+  // Reading aloud belongs to the page it started on: switching thread stops it.
+  const router = useRouter();
+  useEffect(
+    () =>
+      router.subscribe("onBeforeNavigate", (event) => {
+        if (event.pathChanged) stopReadAloud();
+      }),
+    [router],
+  );
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {

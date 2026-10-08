@@ -300,6 +300,20 @@ export const ChatWidth = Schema.Literals(["narrow", "normal", "wide"]);
 export type ChatWidth = typeof ChatWidth.Type;
 export const DEFAULT_CHAT_WIDTH: ChatWidth = "normal";
 
+// ViewCode read aloud (Settings -> Appearance -> Read aloud). A voice names its
+// engine, so adding a second engine extends this union instead of migrating it.
+export const ReadAloudVoice = Schema.Struct({
+  engine: Schema.Literal("system"),
+  voiceURI: TrimmedNonEmptyString,
+});
+export type ReadAloudVoice = typeof ReadAloudVoice.Type;
+export const MIN_READ_ALOUD_RATE = 0.8;
+export const MAX_READ_ALOUD_RATE = 2;
+export const ReadAloudRate = Schema.Number.check(
+  Schema.isBetween({ minimum: MIN_READ_ALOUD_RATE, maximum: MAX_READ_ALOUD_RATE }),
+);
+export const DEFAULT_READ_ALOUD_RATE = 1;
+
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -502,6 +516,13 @@ export const ClientSettingsSchema = Schema.Struct({
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_WIDTH))),
   // ViewCode: settled turns fold their work behind one summary row.
   collapseFinishedTurns: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // ViewCode: read aloud voice (null is the system default voice) and speed.
+  readAloudVoice: Schema.NullOr(ReadAloudVoice).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  readAloudRate: ReadAloudRate.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_READ_ALOUD_RATE)),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1802,5 +1823,7 @@ export const ClientSettingsPatch = Schema.Struct({
   chatDensity: Schema.optionalKey(ChatDensity),
   chatWidth: Schema.optionalKey(ChatWidth),
   collapseFinishedTurns: Schema.optionalKey(Schema.Boolean),
+  readAloudVoice: Schema.optionalKey(Schema.NullOr(ReadAloudVoice)),
+  readAloudRate: Schema.optionalKey(ReadAloudRate),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

@@ -19,6 +19,8 @@ import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
+import { readLatestReplyAloud } from "../lib/readAloudActions";
+import { stopReadAloud } from "../lib/readAloudPlayer";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isEditableFocused } from "../lib/editableFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
@@ -133,6 +135,15 @@ function ChatRouteGlobalShortcuts() {
           defaultProjectRef,
           handleNewThread,
         });
+        return;
+      }
+
+      if (command === "readAloud.latest" || command === "readAloud.stop") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        if (command === "readAloud.stop") stopReadAloud();
+        else if (activeThread) readLatestReplyAloud(activeThread);
         return;
       }
 

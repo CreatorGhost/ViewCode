@@ -294,6 +294,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["fold tool calls commands work summary worked for transcript"],
   },
   {
+    id: "read-aloud-voice",
+    title: "Read aloud voice",
+    to: "/settings/appearance",
+    searchTerms: ["speak speech text to speech tts listen voices system preview"],
+  },
+  {
+    id: "read-aloud-speed",
+    title: "Read aloud speed",
+    to: "/settings/appearance",
+    searchTerms: ["speak speech text to speech tts rate fast slow"],
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",

@@ -168,6 +168,9 @@ import {
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { ReadAloudButton } from "./ReadAloudButton";
+import { readAloudMessageKey } from "~/lib/readAloud.logic";
+import { useReadAloudStore } from "~/lib/readAloudPlayer";
 import { ForkFromMessageButton } from "../agents/ForkFromMessageButton";
 import { HandoffDivider } from "./HandoffDivider";
 import { ForkSourceDivider } from "../agents/ForkSourceDivider";
@@ -2571,18 +2574,22 @@ function AssistantMessageMeta({
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
+  // The row stays visible while its reply is read so the stop button is findable.
+  const readingAloud = useReadAloudStore(
+    (state) => state.playingKey === readAloudMessageKey(ctx.routeThreadKey, message.id),
+  );
 
   return (
     <div
       className={cn(
         "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
-        alwaysVisible
+        alwaysVisible || readingAloud
           ? "opacity-100"
           : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
         className,
       )}
     >
-      <AssistantCopyButton
+      <AssistantReplyActions
         message={message}
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
@@ -2604,7 +2611,7 @@ function AssistantMessageMeta({
   );
 }
 
-function AssistantCopyButton({
+function AssistantReplyActions({
   message,
   showCopyButton,
   streaming,
@@ -2613,6 +2620,7 @@ function AssistantCopyButton({
   showCopyButton: boolean;
   streaming: boolean;
 }) {
+  const ctx = use(TimelineRowCtx);
   const assistantCopyState = resolveAssistantMessageCopyState({
     text: message.text ?? null,
     showCopyButton,
@@ -2623,7 +2631,15 @@ function AssistantCopyButton({
     return null;
   }
 
-  return <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />;
+  return (
+    <>
+      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <ReadAloudButton
+        messageKey={readAloudMessageKey(ctx.routeThreadKey, message.id)}
+        markdown={assistantCopyState.text ?? ""}
+      />
+    </>
+  );
 }
 
 function ProposedPlanTimelineRow({

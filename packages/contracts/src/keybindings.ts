@@ -104,6 +104,9 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "diff.change.previous",
   "diff.change.next",
   "diff.file.jump",
+  // ViewCode: read the latest assistant reply aloud with the system voice.
+  "readAloud.latest",
+  "readAloud.stop",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;

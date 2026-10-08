@@ -57,10 +57,12 @@ import {
   RotateCcwIcon,
   SettingsIcon,
   SmartphoneIcon,
+  SquareIcon,
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
   Columns2Icon,
+  Volume2Icon,
 } from "lucide-react";
 import {
   useCallback,
@@ -82,6 +84,9 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useShortcutsSheetStore } from "./shortcuts/shortcutsSheetStore";
+import { latestReadableReply } from "../lib/readAloud.logic";
+import { readLatestReplyAloud } from "../lib/readAloudActions";
+import { isReadAloudSupported, stopReadAloud, useReadAloudStore } from "../lib/readAloudPlayer";
 import { useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
@@ -718,6 +723,8 @@ function OpenCommandPaletteDialog(props: {
   const isActionsOnly = deferredQuery.startsWith(">");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const clientSettings = useClientSettings();
+  const readAloudSupported = isReadAloudSupported();
+  const readingAloud = useReadAloudStore((state) => state.playingKey !== null);
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -1927,6 +1934,34 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "sidechat.toggle",
       run: async () => {
         openSideChat(scopeThreadRef(thread.environmentId, thread.id));
+      },
+    });
+  }
+
+  if (readAloudSupported && activeThread !== null && latestReadableReply(activeThread) !== null) {
+    const thread = activeThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:read-aloud-latest",
+      searchTerms: ["read aloud", "speak", "voice", "listen", "text to speech", "tts"],
+      title: "Read latest reply aloud",
+      icon: <Volume2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "readAloud.latest",
+      run: async () => {
+        readLatestReplyAloud(thread);
+      },
+    });
+  }
+  if (readingAloud) {
+    actionItems.push({
+      kind: "action",
+      value: "action:read-aloud-stop",
+      searchTerms: ["stop reading", "read aloud", "speak", "voice", "silence"],
+      title: "Stop reading",
+      icon: <SquareIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "readAloud.stop",
+      run: async () => {
+        stopReadAloud();
       },
     });
   }

@@ -120,6 +120,10 @@ terminals so native undo keeps working there.
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.
 
+`readAloud.latest` reads the focused thread's latest finished reply aloud and
+`readAloud.stop` stops it. Neither has a default shortcut. See
+[Read aloud](./appearance.md#read-aloud).
+
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread).

@@ -36,6 +36,18 @@ The main sidebar, right panel, and terminal drawer open and close immediately by
 in your operating system. Moving between threads always snaps to the selected thread's panel state
 without replaying its transitions.
 
+## Read aloud
+
+On web and desktop, select the speaker button under a finished reply to hear it in your system's
+voice; select it again to stop. Only the reply's prose is read: tool calls, progress updates, code
+blocks, and diagrams are skipped, and links are read as their text. Use **Read latest reply aloud**
+and **Stop reading** in the command palette, or assign `readAloud.latest` and `readAloud.stop` in
+**Settings → Keybindings**. Reading stops when you switch threads.
+
+Choose the voice and speed under **Read aloud** in **Settings → Appearance**, and select **Preview**
+to hear them. Speech runs on your device; nothing is sent anywhere. On macOS, download more natural
+voices in **System Settings → Accessibility → Spoken Content → System voice → Manage Voices**.
+
 ## Custom themes
 
 On web and desktop, choose **Create theme** to adjust a palette, or import a T3 Code or VS Code

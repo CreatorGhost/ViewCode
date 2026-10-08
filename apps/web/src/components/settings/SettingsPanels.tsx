@@ -173,6 +173,7 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { WindowTransparencySetting } from "./WindowTransparencySetting";
 import { ChatAppearanceSettings } from "./ChatAppearanceSettings";
+import { ReadAloudSettings } from "./ReadAloudSettings";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -570,6 +571,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.collapseFinishedTurns !== DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns
         ? ["Collapse finished turns"]
         : []),
+      ...(settings.readAloudVoice !== DEFAULT_UNIFIED_SETTINGS.readAloudVoice
+        ? ["Read aloud voice"]
+        : []),
+      ...(settings.readAloudRate !== DEFAULT_UNIFIED_SETTINGS.readAloudRate
+        ? ["Read aloud speed"]
+        : []),
       ...getChangedTypographySettingLabels(settings),
       ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
         ? ["Default diff file state"]
@@ -709,6 +716,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.chatDensity,
       settings.chatWidth,
       settings.collapseFinishedTurns,
+      settings.readAloudVoice,
+      settings.readAloudRate,
       followSystem,
       theme,
       themeHalves,
@@ -787,6 +796,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       chatDensity: DEFAULT_UNIFIED_SETTINGS.chatDensity,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       collapseFinishedTurns: DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns,
+      readAloudVoice: DEFAULT_UNIFIED_SETTINGS.readAloudVoice,
+      readAloudRate: DEFAULT_UNIFIED_SETTINGS.readAloudRate,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
@@ -1424,6 +1435,8 @@ export function AppearanceSettingsPanel() {
       </SettingsSection>
 
       <ChatAppearanceSettings />
+
+      <ReadAloudSettings />
 
       <SettingsSection id="motion" title="Motion">
         <SettingsRow
