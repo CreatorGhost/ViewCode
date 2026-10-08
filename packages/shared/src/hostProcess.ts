@@ -78,6 +78,21 @@ export const HostProcessIsExecutable = Context.Reference<boolean>(
   },
 );
 
+/** Observe host termination before child-exit callbacks race scoped cleanup. */
+export const HostProcessOnShutdown = Context.Reference<(callback: () => void) => () => void>(
+  "@t3tools/shared/hostProcess/HostProcessOnShutdown",
+  {
+    defaultValue: () => (callback) => {
+      process.once("SIGTERM", callback);
+      process.once("SIGINT", callback);
+      return () => {
+        process.off("SIGTERM", callback);
+        process.off("SIGINT", callback);
+      };
+    },
+  },
+);
+
 /**
  * Every IP address this machine answers to: the interface addresses, plus
  * whatever the resolver returns for the machine's own hostname. The latter

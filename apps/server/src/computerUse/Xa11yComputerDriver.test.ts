@@ -17,6 +17,7 @@ import {
   ComputerDriverError,
 } from "./ComputerDriver.ts";
 import { layer, macHelperExecutable, makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
+import { HostProcessOnShutdown } from "@t3tools/shared/hostProcess";
 
 // Answers by op instead of driving xa11y: each op exercises one way a real
 // worker can misbehave.
@@ -415,6 +416,45 @@ describe("Xa11yComputerDriver", () => {
         ],
       );
     }).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
+
+  it.effect("closes before process-group termination and unregisters its shutdown observer", () => {
+    const callbacks = new Set<() => void>();
+    const entries: Array<{ readonly text: unknown; readonly fields: Record<string, unknown> }> = [];
+    const logger = Logger.make<unknown, void>(({ message }) => {
+      const [text, fields] = Array.isArray(message) ? message : [message];
+      entries.push({ text, fields: fields ?? {} });
+    });
+    return Effect.gen(function* () {
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const driver = yield* makeDriver();
+          yield* driver.status();
+          assert.equal(callbacks.size, 1);
+          for (const callback of callbacks) callback();
+          assert.isFalse((yield* driver.status()).available);
+        }),
+      );
+      assert.equal(callbacks.size, 0);
+      assert.equal(
+        entries.filter((entry) => entry.text === "computer-use driver started").length,
+        1,
+      );
+      assert.deepStrictEqual(
+        entries
+          .filter((entry) => entry.text === "computer-use driver stopped")
+          .map((entry) => entry.fields.reason),
+        ["shutdown"],
+      );
+    }).pipe(
+      Effect.provideService(HostProcessOnShutdown, (callback) => {
+        callbacks.add(callback);
+        return () => {
+          callbacks.delete(callback);
+        };
+      }),
+      Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
+    );
   });
 
   it.effect("refuses on Windows without starting a worker", () =>

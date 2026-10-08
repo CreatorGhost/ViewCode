@@ -44,7 +44,11 @@ import {
   ComputerUseWindowKind,
   type ComputerUseError,
 } from "@t3tools/contracts";
-import { HostProcessIsExecutable, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  HostProcessIsExecutable,
+  HostProcessPlatform,
+  HostProcessOnShutdown,
+} from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
 import * as Layer from "effect/Layer";
@@ -481,7 +485,15 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
       ),
     ),
   );
-  yield* Effect.addFinalizer(() => Effect.sync(client.close));
+  const onShutdown = yield* HostProcessOnShutdown;
+  yield* Effect.acquireRelease(
+    Effect.sync(() => onShutdown(client.close)),
+    (unsubscribe) =>
+      Effect.sync(() => {
+        unsubscribe();
+        client.close();
+      }),
+  );
 
   const call = Effect.fnUntraced(function* <T>(
     request: DriverRequest,
