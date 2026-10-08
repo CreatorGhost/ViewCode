@@ -190,6 +190,8 @@ export function NewTaskDraftScreen(props: {
   readonly draftId?: string;
   /** Durable native share inbox item to merge into this project draft. */
   readonly incomingShareId?: string;
+  /** Start dictating as soon as the draft is ready (Home's mic). */
+  readonly startDictation?: boolean;
 }) {
   const projects = useProjects();
   const flow = useNewTaskFlow();
@@ -479,6 +481,16 @@ export function NewTaskDraftScreen(props: {
     onChangeDraftMessage: flow.setPrompt,
     onChangeSelection: composerMenu.onSelectionChange,
   });
+  // Home's mic opens this draft already listening, once per visit.
+  const dictationRequestedRef = useRef(props.startDictation === true);
+  const startVoiceInput = voiceInput.start;
+  useEffect(() => {
+    if (!dictationRequestedRef.current || !voiceInput.isAvailable || flow.draftKey === null) {
+      return;
+    }
+    dictationRequestedRef.current = false;
+    startVoiceInput();
+  }, [flow.draftKey, startVoiceInput, voiceInput.isAvailable]);
   const voicePresentation = resolveVoiceComposerPresentation(
     voiceInput.state,
     voiceInput.elapsedSeconds,

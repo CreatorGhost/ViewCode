@@ -26,6 +26,8 @@ type NewTaskDraftRouteParams = {
   readonly pendingTaskId?: string | string[];
   readonly draftId?: string | string[];
   readonly incomingShareId?: string | string[];
+  /** "1" opens the draft already dictating (Home's mic). */
+  readonly dictate?: string;
 };
 
 export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraftRouteParams>) {
@@ -168,6 +170,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
           }
           pendingTaskId={pendingTaskId}
           draftId={draftId}
+          startDictation={params.dictate === "1"}
         />
       )}
     </>

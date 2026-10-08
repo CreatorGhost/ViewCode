@@ -8,6 +8,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialNewThreadButton } from "../../components/MaterialNewThreadButton";
 import type { AndroidHomeFabLayout as SharedAndroidHomeFabLayout } from "./AndroidHomeFab.shared";
+import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { useWorkspaceState } from "../../state/workspace";
 import { HomeComposerLauncher } from "./HomeComposerLauncher";
 import { MaterialFabScrollContext } from "./MaterialFabScrollContext";
@@ -41,7 +42,9 @@ export function AndroidHomeFabLayout(props: ComponentProps<typeof SharedAndroidH
       {state.hasConnections && !props.sidebar ? (
         <HomeComposerLauncher
           onStartNewTask={props.onStartNewTask}
-          onStartVoiceTask={props.onStartVoiceTask}
+          onStartVoiceTask={
+            getLocalVoiceTranscriber() === null ? undefined : props.onStartVoiceTask
+          }
           style={{ bottom: Math.max(insets.bottom, 16) + 8 }}
         />
       ) : null}

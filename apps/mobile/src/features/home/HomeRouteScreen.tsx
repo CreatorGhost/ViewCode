@@ -160,6 +160,9 @@ export function HomeRouteScreen() {
   return (
     <AndroidHomeFabLayout
       onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+      onStartVoiceTask={() =>
+        navigation.navigate("NewTaskSheet", { screen: "NewTask", params: { dictate: "1" } })
+      }
     >
       <>
         {/* Restore the header after leaving split view; screen options are

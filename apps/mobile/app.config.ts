@@ -375,6 +375,15 @@ const config: ExpoConfig = {
         enableBackgroundRecording: false,
       },
     ],
+    // Android dictation (voiceTranscription.android.ts). Its iOS module is not
+    // linked: iPhone dictation uses Apple's on-device transcriber instead.
+    [
+      "expo-speech-recognition",
+      {
+        microphonePermission: "Allow ViewCode to use your microphone for voice input.",
+        speechRecognitionPermission: "Allow ViewCode to turn your voice into text.",
+      },
+    ],
     [
       "expo-camera",
       {

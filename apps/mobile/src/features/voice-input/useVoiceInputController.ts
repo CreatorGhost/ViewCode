@@ -1,12 +1,8 @@
 import {
-  RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   setIsAudioActiveAsync,
-  useAudioRecorder,
-  type RecordingStatus,
 } from "expo-audio";
-import { File } from "expo-file-system";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -23,15 +19,13 @@ import {
   voiceInputFreezesEditor,
   type VoiceDraftSnapshot,
   type VoiceInputState,
+  type VoiceRecorderStatus,
 } from "@t3tools/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
+import { useVoiceRecorder } from "./useVoiceRecorder";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 const VOICE_METERING_INTERVAL_MS = 80;
-const VOICE_RECORDING_OPTIONS = {
-  ...RecordingPresets.HIGH_QUALITY,
-  isMeteringEnabled: true,
-};
 
 async function releaseVoiceRecordingAudio(): Promise<void> {
   try {
@@ -90,15 +84,10 @@ export function useVoiceInputController(input: {
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
 
-  const handleRecorderStatus = useCallback((status: RecordingStatus) => {
-    controllerRef.current?.handleRecorderStatus({
-      isFinished: status.isFinished,
-      hasError: status.hasError || status.mediaServicesDidReset === true,
-      error: status.error,
-      url: status.url,
-    });
+  const handleRecorderStatus = useCallback((status: VoiceRecorderStatus) => {
+    controllerRef.current?.handleRecorderStatus(status);
   }, []);
-  const recorder = useAudioRecorder(VOICE_RECORDING_OPTIONS, handleRecorderStatus);
+  const { recorder, getStatus, deleteRecording } = useVoiceRecorder(handleRecorderStatus);
 
   if (!controllerRef.current) {
     controllerRef.current = new VoiceInputController({
@@ -110,7 +99,7 @@ export function useVoiceInputController(input: {
       },
       configureRecording: configureVoiceRecordingAudio,
       releaseRecording: releaseVoiceRecordingAudio,
-      deleteRecording: (uri) => new File(uri).delete(),
+      deleteRecording,
       readDraft: (): VoiceDraftSnapshot | null => {
         const current = latestInputRef.current;
         if (!current.ownerKey) return null;
@@ -186,7 +175,7 @@ export function useVoiceInputController(input: {
 
     const sampleRecording = () => {
       if (controller.currentState.phase !== "recording") return;
-      const status = recorder.getStatus();
+      const status = getStatus();
       if (!status.isRecording) return;
 
       const level = normalizeVoiceInputDecibels(status.metering);
@@ -210,7 +199,7 @@ export function useVoiceInputController(input: {
     sampleRecording();
     const intervalId = setInterval(sampleRecording, VOICE_METERING_INTERVAL_MS);
     return () => clearInterval(intervalId);
-  }, [audioLevels, controller, recorder, state.phase]);
+  }, [audioLevels, controller, getStatus, state.phase]);
 
   const start = useCallback(() => {
     if (!latestInputRef.current.disabled) void controller.start();

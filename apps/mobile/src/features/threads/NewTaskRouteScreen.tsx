@@ -27,6 +27,8 @@ import { filterProjectScopes, getProjectScopeSelectionTarget } from "./new-task-
 
 type NewTaskRouteParams = {
   readonly incomingShareId?: string | string[];
+  /** "1" when started from Home's mic: the chosen project's draft starts dictating. */
+  readonly dictate?: string;
 };
 
 function deriveProjectEmptyState(catalogState: WorkspaceState): {
@@ -185,6 +187,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         projectId: project.id,
         title: project.title,
         incomingShareId: incomingShare?.id,
+        dictate: route.params?.dictate,
       }),
     );
   }
