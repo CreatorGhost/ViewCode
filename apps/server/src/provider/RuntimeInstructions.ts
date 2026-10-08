@@ -23,9 +23,17 @@ Your harness's built-in sub-agents (for example a native spawn_agent or Task too
 If the user requires a particular provider or model, or a separate chat, that inline sub-agents cannot provide, say so instead of silently substituting. If the viewcode_* tools are missing from your tool list, name the likely cause (for example, the provider's MCP policy: "Cursor team policy may block MCP servers") and mention that the user can also create child agents from the ViewCode sidebar.
 </viewcode_agents>`;
 
-/** Kept apart from the agents block, which changes often, so edits to each merge cleanly. */
+/**
+ * Mermaid renders in the client and needs no MCP, so every session gets this.
+ * Codex sends it as its own `additionalContext` entry, keyed by the tag, to keep
+ * the runtime entry under Codex's per-entry token cap.
+ */
+export const VIEWCODE_DIAGRAMS_GUIDANCE = `A \`\`\`mermaid block in your reply renders inline as a diagram the reader can expand, zoom and pan. Use one unasked when a flowchart, architecture, sequence, state, class, ER, gantt, pie, git graph, mindmap or timeline diagram explains better than prose. The reader already sees it, so don't point to mermaid.live or another viewer, say where to view it, or restate it in prose, and don't build HTML pages, servers or screenshots to show one. Don't set colours (style, classDef, init themes); ViewCode themes diagrams.`;
+
+const VIEWCODE_DIAGRAMS_INSTRUCTIONS = `<viewcode_diagrams>\n${VIEWCODE_DIAGRAMS_GUIDANCE}\n</viewcode_diagrams>`;
+
 export const VIEWCODE_VISUALS_INSTRUCTIONS = `<viewcode_visuals>
-When a chart, table, diagram, image collage, or mockup would say more than prose, and the viewcode MCP server exposes html_render, build a self-contained HTML page and publish it with html_render before your final reply. The reader sees the page above that reply, so don't announce or restate it; add only what it doesn't say.
+For a data chart, mockup, image collage or layout Mermaid can't draw, and only when the viewcode MCP server exposes html_render, build a self-contained HTML page and publish it with html_render before your final reply. The reader sees the page above that reply, so don't announce or restate it; add only what it doesn't say.
 </viewcode_visuals>`;
 
 /**
@@ -73,6 +81,8 @@ export function buildRuntimeInstructions(runtime: {
   readonly computerUse?: ComputerUseGrant | undefined;
   /** Set when the session may use the collaborative browser and its CLI is on PATH. */
   readonly browserCli?: boolean | undefined;
+  /** False when the caller sends `VIEWCODE_DIAGRAMS_GUIDANCE` on its own. */
+  readonly diagrams?: boolean | undefined;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
@@ -87,10 +97,11 @@ export function buildRuntimeInstructions(runtime: {
     ? `\n\n${computerUseInstructions(runtime.computerUse)}`
     : "";
   const browser = runtime.browserCli ? `\n\n${BROWSER_CLI_INSTRUCTIONS}` : "";
+  const diagrams = runtime.diagrams === false ? "" : `\n\n${VIEWCODE_DIAGRAMS_INSTRUCTIONS}`;
   if (runtime.viewcodeToolsUnavailable) {
-    return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable, runtime.browserCli === true)}${browser}${computerUse}`;
+    return `${runtimeInfo}\n\n${viewcodeToolsUnavailableInstructions(runtime.viewcodeToolsUnavailable, runtime.browserCli === true)}${diagrams}${browser}${computerUse}`;
   }
-  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${PULL_REQUEST_WATCH_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}${browser}${computerUse}`;
+  return `${runtimeInfo}\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${PULL_REQUEST_WATCH_INSTRUCTIONS}\n\n${VIEWCODE_AGENTS_INSTRUCTIONS}${diagrams}\n\n${VIEWCODE_VISUALS_INSTRUCTIONS}${browser}${computerUse}`;
 }
 
 const viewcodeToolsUnavailableInstructions = (

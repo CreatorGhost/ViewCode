@@ -54,6 +54,28 @@ describe("buildRuntimeInstructions", () => {
     },
   );
 
+  it("tells every session about inline Mermaid, with or without ViewCode's MCP tools", () => {
+    for (const viewcodeToolsUnavailable of [undefined, "managed-mcp", "setting"] as const) {
+      const instructions = buildRuntimeInstructions({
+        harness: "Claude Code",
+        viewcodeToolsUnavailable,
+      });
+      expect(instructions).toContain("<viewcode_diagrams>");
+      expect(instructions).toContain("A ```mermaid block in your reply renders inline");
+      expect(instructions).toContain("don't point to mermaid.live");
+      expect(instructions).toContain("Don't set colours");
+    }
+    // html_render is an MCP tool, and only for what Mermaid can't draw.
+    const visuals = buildRuntimeInstructions({ harness: "Cursor" });
+    expect(visuals).toContain("layout Mermaid can't draw, and only when");
+    expect(
+      buildRuntimeInstructions({ harness: "Claude Code", viewcodeToolsUnavailable: "setting" }),
+    ).not.toContain("<viewcode_visuals>");
+    expect(buildRuntimeInstructions({ harness: "Codex", diagrams: false })).not.toContain(
+      "<viewcode_diagrams>",
+    );
+  });
+
   it("offers computer use only when granted, with or without ViewCode's MCP tools", () => {
     const cli = "/home/u/.t3/userdata/computer-use/bin/viewcode-computer";
     expect(buildRuntimeInstructions({ harness: "Codex" })).not.toContain("viewcode_computer_use");

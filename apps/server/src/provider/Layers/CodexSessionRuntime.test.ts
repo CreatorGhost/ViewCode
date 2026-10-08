@@ -627,6 +627,12 @@ describe("buildCodexAdditionalContext", () => {
     NodeAssert.doesNotMatch(value, /<runtime_info>[^<]*\n/);
   });
 
+  it("sends the Mermaid guidance once, as its own entry", () => {
+    const context = buildCodexAdditionalContext(runtime, false);
+    NodeAssert.match(context.viewcode_diagrams?.value ?? "", /^A ```mermaid block/);
+    NodeAssert.doesNotMatch(runtimeValue(context), /viewcode_diagrams|```mermaid/);
+  });
+
   it("keeps every entry under Codex's 1,000 token cap per entry", () => {
     const context = buildCodexAdditionalContext(runtime, { browser: true, device: true });
     for (const entry of Object.values(context)) {
@@ -660,7 +666,7 @@ describe("T3 tool instructions", () => {
     // Steering away from other browser automation must go with the tools;
     // keeping it would leave the model talked out of its only option.
     const context = buildCodexAdditionalContext(runtime, false);
-    NodeAssert.deepStrictEqual(Object.keys(context), ["viewcode_runtime"]);
+    NodeAssert.deepStrictEqual(Object.keys(context), ["viewcode_runtime", "viewcode_diagrams"]);
   });
 });
 
