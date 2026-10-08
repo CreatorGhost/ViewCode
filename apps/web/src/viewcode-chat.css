@@ -126,18 +126,30 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   color: var(--foreground);
 }
 
-/* Notices: one flush tray attached to the composer top. Same width as the
-   composer (no drawer inset), solid surface, hairline edge only on the sides
-   and top, small text. The "show other notices" peek becomes a visible thin
-   tab instead of a barely-there sliver. */
+/* Notices: one tray sitting on the composer top like a tab. It is inset past
+   the composer's 24px corners, so its straight sides meet the straight top edge
+   instead of leaving a notch where each corner curves away. Solid surface,
+   hairline edge only on the sides and top, small text. The "show other notices"
+   peek becomes a visible thin tab instead of a barely-there sliver. */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-banner-attachment"] {
-  width: 100%;
+  width: calc(100% - 56px);
   /* Sit on the composer instead of tucking under it: the tuck hid the notice
      text behind the composer's input surface. */
   margin-bottom: 0;
 }
+/* Attachments stacked inside the tray already sit within its inset. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-banner-attachment"]
+  [data-slot="composer-banner-attachment"] {
+  width: 100%;
+}
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-composer-banner-surface="attached"] {
   --chat-composer-attachment-overlap: 0px;
+}
+/* Active agents is a status strip glanced at all day: keep it compact. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-composer-banner-surface="attached"][data-active-agents-bar] {
+  --composer-banner-padding-block: 0.25rem;
 }
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   [data-composer-banner-surface="attached"]::before {
@@ -320,7 +332,10 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   border-top-width: 1px;
 }
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
-  :is([data-slot="composer-banner-attachment"], [data-slot="composer-banner-attachment"] > *):first-child
+  :is(
+    [data-slot="composer-banner-attachment"],
+    [data-slot="composer-banner-attachment"] > *
+  ):first-child
   > [data-composer-banner-surface="attached"]::before,
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   [data-slot="composer-banner-attachment"]:first-child
