@@ -550,3 +550,106 @@ export function planFlowchartTones(
 
   return [...assignments].map(([hue, ids]) => `class ${ids.join(",")} ${toneClass(hue)}`);
 }
+
+/** A flowchart `classDef`, as Mermaid's flow db keeps it. */
+export interface FlowchartClassDef {
+  readonly styles: ReadonlyArray<string>;
+  readonly textStyles?: ReadonlyArray<string> | undefined;
+}
+
+/** A node or subgraph with the author's own `style` declarations and classes. */
+export interface FlowchartStyledItem {
+  readonly id: string;
+  readonly styles: ReadonlyArray<string>;
+  readonly classes: ReadonlyArray<string>;
+}
+
+const BLACK: Rgb = { r: 0, g: 0, b: 0 };
+const WHITE: Rgb = { r: 255, g: 255, b: 255 };
+
+/** The last value a list of `key:value` declarations gives `key`, as Mermaid resolves it. */
+function declaredValue(declarations: ReadonlyArray<string>, key: string): string | undefined {
+  let value: string | undefined;
+  for (const declaration of declarations) {
+    const separator = declaration.indexOf(":");
+    if (separator < 0 || declaration.slice(0, separator).trim().toLowerCase() !== key) continue;
+    value = declaration
+      .slice(separator + 1)
+      .replace(/!important/i, "")
+      .trim();
+  }
+  return value;
+}
+
+/**
+ * Whether `classDef default` fills every node. Its rule is `!important`, so
+ * palette tones would only recolour the strokes.
+ */
+export function defaultClassSetsFill(classes: ReadonlyMap<string, FlowchartClassDef>): boolean {
+  return declaredValue(classes.get("default")?.styles ?? [], "fill") !== undefined;
+}
+
+/**
+ * Author colours win over the theme, but a `fill` without a `color` keeps the
+ * theme's text colour, which is near-white in dark mode. For every node and
+ * subgraph whose effective fill leaves its text below 4.5:1, this returns
+ * Mermaid statements that give it readable text: a `classDef` per ink plus
+ * `class` lines. A class is used rather than `style`, because Mermaid turns
+ * its colour into a `tspan` rule, which beats a colour the author set inline
+ * or through another class, and is the only colour that reaches subgraph
+ * titles when labels are SVG text.
+ *
+ * `parseColor` reads a CSS colour, or returns null; items whose colours it
+ * can't read keep the author's look.
+ */
+export function planFlowchartInk(
+  input: {
+    readonly classes: ReadonlyMap<string, FlowchartClassDef>;
+    readonly vertices: ReadonlyArray<FlowchartStyledItem>;
+    readonly subgraphs: ReadonlyArray<FlowchartStyledItem>;
+  },
+  palette: Pick<DiagramPalette, "canvas" | "text" | "muted">,
+  parseColor: (value: string) => Rgba | null = parseCssColor,
+): string[] {
+  const canvas = parseCssColor(palette.canvas);
+  const text = parseCssColor(palette.text);
+  if (!canvas || !text) return [];
+  // Mermaid's own order: each class's styles then its text styles, then `style` lines.
+  const declarations = (item: FlowchartStyledItem, classNames: ReadonlyArray<string>) => [
+    ...classNames.flatMap((name) => {
+      const classDef = input.classes.get(name);
+      return classDef ? [...classDef.styles, ...(classDef.textStyles ?? [])] : [];
+    }),
+    ...item.styles,
+  ];
+
+  const inks = new Map<string, string[]>();
+  const check = (id: string, styles: ReadonlyArray<string>, themeText: string) => {
+    const fillValue = declaredValue(styles, "fill");
+    const fill = fillValue === undefined ? null : parseColor(fillValue);
+    if (!fill) return;
+    const surface = flattenColor(fill, canvas);
+    const colorValue = declaredValue(styles, "color");
+    const current = colorValue === undefined ? parseCssColor(themeText) : parseColor(colorValue);
+    if (!current || contrastRatio(surface, flattenColor(current, surface)) >= 4.5) return;
+    const extreme = contrastRatio(surface, BLACK) >= contrastRatio(surface, WHITE) ? BLACK : WHITE;
+    const ink = toHex(readableOn(surface, text, readableOn(surface, canvas, extreme)));
+    inks.set(ink, [...(inks.get(ink) ?? []), id]);
+  };
+
+  const subgraphIds = new Set(input.subgraphs.map((subgraph) => subgraph.id));
+  for (const vertex of input.vertices) {
+    if (subgraphIds.has(vertex.id)) continue;
+    check(vertex.id, declarations(vertex, ["default", ...vertex.classes]), palette.text);
+  }
+  // Subgraph titles are muted unless a palette tone recolours them, and
+  // styled subgraphs get no tone.
+  for (const subgraph of input.subgraphs) {
+    check(subgraph.id, declarations(subgraph, subgraph.classes), palette.muted);
+  }
+
+  return [...inks].flatMap(([ink, ids], index) => [
+    `classDef vcInk${index} color:${ink}`,
+    `class ${ids.join(",")} vcInk${index}`,
+  ]);
+}

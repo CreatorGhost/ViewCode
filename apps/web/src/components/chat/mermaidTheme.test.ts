@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildMermaidTheme,
   contrastRatio,
+  defaultClassSetsFill,
   deriveDiagramPalette,
   diagramPaletteSignature,
   type DiagramTokens,
@@ -10,6 +11,7 @@ import {
   groupHueCycle,
   mermaidRenderKey,
   parseCssColor,
+  planFlowchartInk,
   planFlowchartTones,
 } from "./mermaidTheme";
 
@@ -178,5 +180,96 @@ describe("planFlowchartTones", () => {
         amberAccentCycle,
       ),
     ).toEqual(["class check vcToneViolet"]);
+  });
+});
+
+describe("planFlowchartInk", () => {
+  const dark = deriveDiagramPalette(DARK_TOKENS, "Inter");
+  const light = deriveDiagramPalette(LIGHT_TOKENS, "Inter");
+  const item = (id: string, styles: string[] = [], classes: string[] = []) => ({
+    id,
+    styles,
+    classes,
+  });
+  const inkFor = (statements: string[], id: string) => {
+    const className = statements
+      .find((line) => line.startsWith("class ") && line.split(" ")[1]?.split(",").includes(id))
+      ?.split(" ")[2];
+    if (!className) return undefined;
+    return statements.find((line) => line.startsWith(`classDef ${className} `))?.split("color:")[1];
+  };
+
+  it("gives light author fills dark text in dark mode, keeping the author's fill", () => {
+    const statements = planFlowchartInk(
+      {
+        classes: new Map(),
+        vertices: [
+          item("pale", ["fill:#fdd"]),
+          item("deep", ["fill:#1e3a8a"]),
+          item("plain"),
+          item("inked", ["fill:#fdd", "color:#222"]),
+        ],
+        subgraphs: [],
+      },
+      dark,
+    );
+    expect(statements).toEqual([`classDef vcInk0 color:${dark.canvas}`, "class pale vcInk0"]);
+    expect(contrastRatio(rgb(dark.canvas), rgb("#ffdddd"))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("resolves fills and colours through classes, including default, before style lines", () => {
+    const classes = new Map([
+      ["default", { styles: ["fill:#ffffff"], textStyles: [] }],
+      ["warn", { styles: ["fill:#fde68a", "color:#fef3c7"], textStyles: ["color:#fef3c7"] }],
+      ["night", { styles: ["fill:#111111"], textStyles: [] }],
+    ]);
+    expect(defaultClassSetsFill(classes)).toBe(true);
+    expect(defaultClassSetsFill(new Map([["default", { styles: ["stroke:#f00"] }]]))).toBe(false);
+    const statements = planFlowchartInk(
+      {
+        classes,
+        vertices: [
+          item("A"),
+          item("B", [], ["warn"]),
+          item("C", [], ["night"]),
+          item("D", ["fill:#111"]),
+        ],
+        subgraphs: [],
+      },
+      dark,
+    );
+    // A takes the default fill and B its class's faint colour; C and D end up dark.
+    expect(inkFor(statements, "A")).toBe(dark.canvas);
+    expect(inkFor(statements, "B")).toBe(dark.canvas);
+    expect(inkFor(statements, "C")).toBeUndefined();
+    expect(inkFor(statements, "D")).toBeUndefined();
+  });
+
+  it("checks subgraph titles against their muted colour and skips their vertex twin", () => {
+    expect(
+      planFlowchartInk(
+        {
+          classes: new Map(),
+          vertices: [item("group", ["fill:#333"])],
+          subgraphs: [item("group", ["fill:#333"])],
+        },
+        light,
+      ),
+    ).toEqual([`classDef vcInk0 color:${light.canvas}`, "class group vcInk0"]);
+  });
+
+  it("reads rgb() fills and leaves colours it cannot read to the author", () => {
+    const input = {
+      classes: new Map(),
+      vertices: [item("rgb", ["fill:rgb(255, 221, 221) !important"]), item("named", ["fill:pink"])],
+      subgraphs: [],
+    };
+    const statements = planFlowchartInk(input, dark);
+    expect(inkFor(statements, "rgb")).toBe(dark.canvas);
+    expect(inkFor(statements, "named")).toBeUndefined();
+    const withNames = planFlowchartInk(input, dark, (value) =>
+      value === "pink" ? { r: 255, g: 192, b: 203, a: 1 } : parseCssColor(value),
+    );
+    expect(inkFor(withNames, "named")).toBe(dark.canvas);
   });
 });

@@ -15,13 +15,16 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MermaidDiagramDialog } from "./MermaidDiagramDialog";
 import {
   buildMermaidTheme,
+  defaultClassSetsFill,
   deriveDiagramPalette,
   type DiagramPalette,
   type DiagramTokens,
   diagramPaletteSignature,
   flattenColor,
+  type FlowchartClassDef,
   mermaidRenderKey,
   parseCssColor,
+  planFlowchartInk,
   planFlowchartTones,
   type Rgb,
   type Rgba,
@@ -51,8 +54,11 @@ const BLACK: Rgb = { r: 0, g: 0, b: 0 };
 
 let colorCanvas: CanvasRenderingContext2D | null | undefined;
 
+const INVALID_COLOR_SENTINEL = "#010203";
+
 // Computed colors come back in whatever space the token was written in (the
-// palettes use oklch); a 1px canvas converts any of them to sRGB.
+// palettes use oklch); a 1px canvas converts any of them to sRGB. Author
+// colors can be named or invalid; the canvas ignores what it can't read.
 function resolveViaCanvas(color: string): Rgba | null {
   if (colorCanvas === undefined) {
     const canvas = document.createElement("canvas");
@@ -62,7 +68,9 @@ function resolveViaCanvas(color: string): Rgba | null {
   }
   if (!colorCanvas) return null;
   colorCanvas.clearRect(0, 0, 1, 1);
+  colorCanvas.fillStyle = INVALID_COLOR_SENTINEL;
   colorCanvas.fillStyle = color;
+  if (colorCanvas.fillStyle === INVALID_COLOR_SENTINEL) return null;
   colorCanvas.fillRect(0, 0, 1, 1);
   const [r = 0, g = 0, b = 0, a = 0] = colorCanvas.getImageData(0, 0, 1, 1).data;
   return { r, g, b, a: a / 255 };
@@ -247,6 +255,7 @@ interface FlowDbLike {
     classes: ReadonlyArray<string>;
   }>;
   getVertices(): unknown;
+  getClasses(): unknown;
 }
 
 interface FlowVertexLike {
@@ -258,10 +267,11 @@ interface FlowVertexLike {
 
 /**
  * Flowchart groups get their palette colours as Mermaid `class` statements,
- * so Mermaid itself puts the classes on the right nodes and clusters. Any
- * failure here just means a single-tone diagram.
+ * so Mermaid itself puts the classes on the right nodes and clusters, and
+ * nodes the author filled get readable text the same way. Any failure here
+ * just means a single-tone diagram.
  */
-async function flowchartToneStatements(
+async function flowchartStatements(
   mermaid: Mermaid,
   source: string,
   palette: DiagramPalette,
@@ -270,24 +280,44 @@ async function flowchartToneStatements(
     const diagram = await mermaid.mermaidAPI.getDiagramFromText(source);
     if (!diagram.type.startsWith("flowchart")) return [];
     const db = diagram.db as unknown as Partial<FlowDbLike>;
-    if (typeof db.getSubGraphs !== "function" || typeof db.getVertices !== "function") return [];
-    const vertices = db.getVertices();
-    if (!(vertices instanceof Map)) return [];
-    return planFlowchartTones(
+    if (
+      typeof db.getSubGraphs !== "function" ||
+      typeof db.getVertices !== "function" ||
+      typeof db.getClasses !== "function"
+    ) {
+      return [];
+    }
+    const vertexMap = db.getVertices();
+    const classes = db.getClasses();
+    if (!(vertexMap instanceof Map) || !(classes instanceof Map)) return [];
+    const vertices = [...(vertexMap as Map<string, FlowVertexLike>).values()];
+    const subgraphs = db.getSubGraphs().map((subgraph) => ({
+      ...subgraph,
+      // `style <subgraph>` lands on a vertex with the subgraph's id.
+      styles: (vertexMap as Map<string, FlowVertexLike>).get(subgraph.id)?.styles ?? [],
+    }));
+    const defaultFill = defaultClassSetsFill(classes as Map<string, FlowchartClassDef>);
+    const tones = planFlowchartTones(
       {
-        subgraphs: db.getSubGraphs().map((subgraph) => ({
+        subgraphs: subgraphs.map((subgraph) => ({
           id: subgraph.id,
           nodes: subgraph.nodes,
-          styled: subgraph.classes.length > 0,
+          styled: subgraph.classes.length > 0 || subgraph.styles.length > 0,
         })),
-        vertices: [...(vertices as Map<string, FlowVertexLike>).values()].map((vertex) => ({
+        vertices: vertices.map((vertex) => ({
           id: vertex.id,
           shape: vertex.type,
-          styled: vertex.styles.length > 0 || vertex.classes.length > 0,
+          styled: defaultFill || vertex.styles.length > 0 || vertex.classes.length > 0,
         })),
       },
       palette.cycle,
     );
+    const ink = planFlowchartInk(
+      { classes: classes as Map<string, FlowchartClassDef>, vertices, subgraphs },
+      palette,
+      (value) => parseCssColor(value) ?? resolveViaCanvas(value),
+    );
+    return [...tones, ...ink];
   } catch {
     return [];
   }
@@ -353,12 +383,15 @@ async function renderMermaid(source: string, theme: DiagramTheme): Promise<Merma
   try {
     // initialize() mutates global config, so renders run one at a time.
     configureMermaid(mermaid, theme.palette);
-    const tones = await flowchartToneStatements(mermaid, source, theme.palette);
+    const statements = await flowchartStatements(mermaid, source, theme.palette);
     let svg: string;
     try {
-      svg = await renderOnce(mermaid, tones.length > 0 ? `${source}\n${tones.join("\n")}` : source);
+      svg = await renderOnce(
+        mermaid,
+        statements.length > 0 ? `${source}\n${statements.join("\n")}` : source,
+      );
     } catch (error) {
-      if (tones.length === 0) throw error;
+      if (statements.length === 0) throw error;
       svg = await renderOnce(mermaid, source);
     }
     return { status: "rendered", svg: finishSvg(purifier, svg) };

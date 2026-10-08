@@ -741,7 +741,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   frontmatter cannot restyle it, though `look: handDrawn` still works.
 - Group colours are appended to the source as Mermaid `class` statements,
   planned from a pre-parse of the flowchart. Author `style`/`classDef` colours
-  win: Mermaid inlines them with `!important`, so we skip styled nodes.
+  win: Mermaid inlines them with `!important`, so we skip styled nodes (all of
+  them when `classDef default` sets a fill). An author fill without a readable
+  `color` keeps the theme's text colour, so `planFlowchartInk` appends an ink
+  `classDef` with a readable `color` for those nodes and subgraphs. It has to
+  be a class: with SVG labels only a class's `tspan` rule reaches subgraph
+  titles and beats an author's own low-contrast `color`.
 
 ## Traps (things that cost hours)
 
