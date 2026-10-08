@@ -37,6 +37,17 @@ const unauthorized = HttpServerResponse.jsonUnsafe(
 const respond = (body: unknown, status = 200) =>
   HttpServerResponse.jsonUnsafe(body, { status, headers: noStore });
 
+/**
+ * Refusals answered here never reach the service, so they get their own INFO
+ * line: a stale session's "not enabled" is otherwise invisible in the logs.
+ */
+const logRejected = (fields: {
+  readonly code: string;
+  readonly status: number;
+  readonly reason: string;
+  readonly threadId?: string;
+}) => Effect.logInfo("computer use request rejected", fields);
+
 class BodyTooLarge {
   readonly _tag = "BodyTooLarge";
 }
@@ -70,8 +81,13 @@ export const computerUseRouteLayer = Layer.unwrap(
             ? authorization.slice("Bearer ".length).trim()
             : "";
         const scope = token.length > 0 ? yield* registry.resolve(token) : undefined;
-        if (!scope) return unauthorized;
+        if (!scope) {
+          yield* logRejected({ code: "CU-CON-001", status: 401, reason: "credential" });
+          return unauthorized;
+        }
+        const threadId = scope.threadId;
         if (!scope.capabilities.has("computer")) {
+          yield* logRejected({ code: "CU-CON-001", status: 200, reason: "not-enabled", threadId });
           return respond({
             ok: false,
             error: computerUseError(
@@ -83,6 +99,7 @@ export const computerUseRouteLayer = Layer.unwrap(
 
         const declaredLength = Number(request.headers["content-length"] ?? "0");
         if (declaredLength > MAX_BODY_BYTES) {
+          yield* logRejected({ code: "CU-VAL-003", status: 413, reason: "too-large", threadId });
           return respond(
             { ok: false, error: computerUseError("CU-VAL-003", "The request body is too large.") },
             413,
@@ -97,6 +114,13 @@ export const computerUseRouteLayer = Layer.unwrap(
           ),
         );
         if (text._tag !== "Read") {
+          const status = text._tag === "TooLarge" ? 413 : 400;
+          yield* logRejected({
+            code: "CU-VAL-003",
+            status,
+            reason: text._tag === "TooLarge" ? "too-large" : "unreadable",
+            threadId,
+          });
           return respond(
             {
               ok: false,
@@ -107,11 +131,12 @@ export const computerUseRouteLayer = Layer.unwrap(
                   : "The request body could not be read.",
               ),
             },
-            text._tag === "TooLarge" ? 413 : 400,
+            status,
           );
         }
         const body = decodeJson(text.value);
         if (body._tag === "Failure") {
+          yield* logRejected({ code: "CU-VAL-001", status: 200, reason: "not-json", threadId });
           return respond({
             ok: false,
             error: computerUseError(
@@ -122,7 +147,7 @@ export const computerUseRouteLayer = Layer.unwrap(
         }
         // The thread is the credential's, never anything the body claims.
         const response = yield* computerUse.handle(
-          { threadId: scope.threadId, providerInstanceId: scope.providerInstanceId },
+          { threadId, providerInstanceId: scope.providerInstanceId },
           body.value,
         );
         return respond(response);

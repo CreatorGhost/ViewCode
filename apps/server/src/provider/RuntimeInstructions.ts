@@ -47,7 +47,7 @@ export function computerUseInstructions(grant: ComputerUseGrant): string {
   const scope =
     grant.mode === "observe"
       ? "This session may only observe (list windows, read their elements, take screenshots); input actions are unavailable."
-      : "Input actions only work while your turn is running and may wait for the user to approve them. Refs (press, set-value, type --ref) act in the background without taking the user's focus: prefer them. key, coordinate input and type --window bring the window to the front and take focus.";
+      : "Input actions only work while your turn is running and may wait for the user to approve them. Refs (press, set-value, type --ref) act in the background without taking the user's focus: prefer them. key, scroll, coordinate input and type --window bring the window to the front and take focus.";
   return `<viewcode_computer_use>
 You can see and operate apps on the user's computer with the viewcode-computer CLI, run through your shell tool. Always invoke it by this absolute path, exactly as written: ${cli}. Run \`${cli} help\` before first use; its output is the manual. ${scope}
 Use viewcode-computer for all desktop observation and control; do not use other installed desktop or browser automation tools, skills or scripts (osascript, screencapture, cliclick, python screen tools, Playwright/Chromium skills) instead, even if available. If viewcode-computer refuses an action, tell the user what was refused and why instead of working around it.

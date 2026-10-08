@@ -470,8 +470,14 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
   options: Xa11yComputerDriverOptions,
 ) {
   const logContext = yield* Effect.context();
+  // Lifecycle lines fire from timers and child-exit callbacks, outside any
+  // span; the trace logger only records logs on a span, so give each one.
   const client = makeWorkerClient(options, (message, fields) =>
-    Effect.runSyncWith(logContext)(Effect.logInfo(message, fields)),
+    Effect.runSyncWith(logContext)(
+      Effect.logInfo(message, fields).pipe(
+        Effect.withSpan("computer-use.driver.lifecycle", { root: true }),
+      ),
+    ),
   );
   yield* Effect.addFinalizer(() => Effect.sync(client.close));
 

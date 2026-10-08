@@ -127,8 +127,22 @@ const run = (command: string, args: ReadonlyArray<string>, timeoutMs: number) =>
     );
   });
 
+/**
+ * Quartz and AX calls connect osascript to the window server, which registers
+ * it as a foreground app attributed to ViewCode and can flash a Dock tile.
+ * Going background-only first prevents that (as MacModifierPairShortcutProcess
+ * does); posting events and reading windows do not need an active app.
+ */
+const BACKGROUND_ONLY_PRELUDE = `ObjC.import("AppKit");
+$.NSApplication.sharedApplication.setActivationPolicy($.NSApplicationActivationPolicyProhibited);
+`;
+
 const jxa = (script: string, args: ReadonlyArray<string | number>, timeoutMs: number) =>
-  run(OSASCRIPT, ["-l", "JavaScript", "-e", script, ...args.map(String)], timeoutMs);
+  run(
+    OSASCRIPT,
+    ["-l", "JavaScript", "-e", BACKGROUND_ONLY_PRELUDE + script, ...args.map(String)],
+    timeoutMs,
+  );
 
 const coordinate = (value: number) => String(Math.round(value * 100) / 100);
 
