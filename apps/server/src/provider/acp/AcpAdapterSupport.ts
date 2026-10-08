@@ -8,7 +8,10 @@ import * as Schema from "effect/Schema";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
-import { autoApprovesComputerUseCommand } from "../../computerUse/computerUseCommand.ts";
+import {
+  autoApprovesComputerUseCommand,
+  isComputerUseScreenshotRead,
+} from "../../computerUse/computerUseCommand.ts";
 
 import {
   ProviderAdapterProcessError,
@@ -60,13 +63,36 @@ export function acpPermissionOutcome(decision: ProviderApprovalDecision): string
   }
 }
 
+/** Raw-input fields providers use for the file a read tool opens. */
+const READ_PATH_FIELDS = ["path", "filePath", "file_path", "target_file", "absolute_path"];
+
+/**
+ * True when a read request opens only this session's own computer-use
+ * screenshots: every location and every path field present must be one.
+ */
+function readsOnlyComputerUseScreenshots(
+  threadId: ThreadId,
+  toolCall: EffectAcpSchema.RequestPermissionRequest["toolCall"],
+): boolean {
+  const input = Predicate.isObject(toolCall.rawInput)
+    ? (toolCall.rawInput as Record<string, unknown>)
+    : {};
+  const paths = [
+    ...(toolCall.locations ?? []).map((location) => location.path),
+    ...READ_PATH_FIELDS.flatMap((field) => (input[field] === undefined ? [] : [input[field]])),
+  ];
+  return paths.length > 0 && paths.every((path) => isComputerUseScreenshotRead(threadId, path));
+}
+
 /**
  * The allow-once option to answer a permission request with when it only runs
- * the plain `viewcode-computer` CLI in a computer-use session; undefined
- * otherwise. ViewCode's computer-use gate decides each CLI call, so asking
- * here too only doubled every prompt. Reads the raw input the agent will
- * execute, never the display title. Every listed command field present must
- * pass, so two fields cannot disagree about what runs.
+ * the plain `viewcode-computer` CLI in a computer-use session, or only reads
+ * that session's own screenshots; undefined otherwise. ViewCode's
+ * computer-use gate decides each CLI call, so asking here too only doubled
+ * every prompt, and a screenshot the CLI returned has to be opened to act on
+ * it. Reads the raw input the agent will execute, never the display title.
+ * Every listed command field present must pass, so two fields cannot
+ * disagree about what runs.
  */
 export function acpComputerUseAllowOnceOption(
   threadId: ThreadId,
@@ -78,6 +104,12 @@ export function acpComputerUseAllowOnceOption(
   } = {},
 ): string | undefined {
   const { kind, rawInput } = request.toolCall;
+  if (kind === "read") {
+    return readsOnlyComputerUseScreenshots(threadId, request.toolCall)
+      ? request.options.find((option) => option.kind === "allow_once" && option.optionId.trim())
+          ?.optionId
+      : undefined;
+  }
   if (kind !== "execute" && !(options.allowMissingKind && kind == null)) return undefined;
   if (!Predicate.isObject(rawInput)) return undefined;
   const input = rawInput as Record<string, unknown>;

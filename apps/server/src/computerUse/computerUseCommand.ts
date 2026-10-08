@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - synchronous path checks inside provider permission callbacks.
 /**
  * Recognises a provider shell command that does nothing but run the
  * `viewcode-computer` CLI, so adapters can answer the provider's own
@@ -19,6 +20,9 @@
  * only plain words and quotes and rejects anything a shell would expand,
  * redirect, chain or substitute.
  */
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+
 import type { ThreadId } from "@t3tools/contracts";
 
 import { readMcpProviderSession } from "../mcp/McpProviderSession.ts";
@@ -147,4 +151,33 @@ export function autoApprovesComputerUseCommand(threadId: ThreadId, command: unkn
     command.every((part): part is string => typeof part === "string") &&
     isPlainComputerUseCommand(command, cliPath)
   );
+}
+
+/**
+ * Whether a provider's request to read `filePath` only opens one of this
+ * session's own computer-use screenshots, so the adapter may allow it without
+ * asking: the CLI already returned the path, and the agent has to open the
+ * image to act on coordinates. Both sides are resolved through symlinks, so a
+ * link planted in the folder cannot widen it; a path that does not exist is
+ * refused.
+ */
+export function isComputerUseScreenshotRead(threadId: ThreadId, filePath: unknown): boolean {
+  const directory = readMcpProviderSession(threadId)?.computerUse?.screenshotsDir;
+  if (directory === undefined || typeof filePath !== "string" || filePath.length === 0) {
+    return false;
+  }
+  if (!NodePath.isAbsolute(filePath) || hasControlCharacter(filePath)) return false;
+  try {
+    const root = NodeFS.realpathSync.native(directory);
+    const target = NodeFS.realpathSync.native(filePath);
+    const relative = NodePath.relative(root, target);
+    return (
+      relative.length > 0 &&
+      !relative.startsWith("..") &&
+      !NodePath.isAbsolute(relative) &&
+      NodeFS.statSync(target).isFile()
+    );
+  } catch {
+    return false;
+  }
 }

@@ -68,6 +68,15 @@ describe("buildOpenCodePermissionRules", () => {
     }
   });
 
+  it("lets a supervised session read its computer-use screenshots without asking", () => {
+    const rules = buildOpenCodePermissionRules("approval-required", "/state/computer-use/t1");
+    const external = rules.filter((rule) => rule.permission === "external_directory");
+    NodeAssert.deepEqual(external, [
+      { permission: "external_directory", pattern: "*", action: "ask" },
+      { permission: "external_directory", pattern: "/state/computer-use/t1/*", action: "allow" },
+    ]);
+  });
+
   it("allows everything only under full access", () => {
     NodeAssert.deepEqual(buildOpenCodePermissionRules("full-access"), [
       { permission: "*", pattern: "*", action: "allow" },

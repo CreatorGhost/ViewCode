@@ -505,7 +505,14 @@ export function toOpenCodeFileParts(input: {
   return parts;
 }
 
-export function buildOpenCodePermissionRules(runtimeMode: RuntimeMode): PermissionRuleset {
+/**
+ * `screenshotsDir` is the session's computer-use screenshot folder: the CLI
+ * returns paths there and the agent must open them, so reading it never asks.
+ */
+export function buildOpenCodePermissionRules(
+  runtimeMode: RuntimeMode,
+  screenshotsDir?: string,
+): PermissionRuleset {
   if (runtimeMode === "full-access") {
     return [
       { permission: "*", pattern: "*", action: "allow" },
@@ -538,6 +545,16 @@ export function buildOpenCodePermissionRules(runtimeMode: RuntimeMode): Permissi
     { permission: "websearch", pattern: "*", action: "ask" },
     { permission: "codesearch", pattern: "*", action: "ask" },
     { permission: "external_directory", pattern: "*", action: "ask" },
+    // OpenCode asks with the folder of the file it reads, as `<folder>/*`.
+    ...(screenshotsDir
+      ? [
+          {
+            permission: "external_directory",
+            pattern: `${screenshotsDir}/*`,
+            action: "allow" as const,
+          },
+        ]
+      : []),
     { permission: "doom_loop", pattern: "*", action: "ask" },
     { permission: "question", pattern: "*", action: "allow" },
   ];

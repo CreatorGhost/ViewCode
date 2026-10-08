@@ -466,6 +466,16 @@ export interface OpenCodeAdapterLiveOptions {
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
+/** The session ruleset, with the thread's computer-use screenshot folder readable. */
+const openCodePermissionRules = (
+  threadId: ThreadId,
+  runtimeMode: Parameters<typeof buildOpenCodePermissionRules>[0],
+) =>
+  buildOpenCodePermissionRules(
+    runtimeMode,
+    McpProviderSession.readMcpProviderSession(threadId)?.computerUse?.screenshotsDir,
+  );
+
 /**
  * Map a tagged OpenCodeRuntimeError produced by {@link runOpenCodeSdk} into
  * the adapter-boundary `ProviderAdapterRequestError`. SDK-method-level call
@@ -2907,7 +2917,7 @@ export function makeOpenCodeAdapter(
                   yield* runOpenCodeSdk("session.update", () =>
                     client.session.update({
                       sessionID: reusable.id,
-                      permission: buildOpenCodePermissionRules(input.runtimeMode),
+                      permission: openCodePermissionRules(input.threadId, input.runtimeMode),
                     }),
                   );
                   return { openCodeSession: reusable, created: false };
@@ -2934,7 +2944,7 @@ export function makeOpenCodeAdapter(
                   yield* runOpenCodeSdk("session.update", () =>
                     client.session.update({
                       sessionID: forked.id,
-                      permission: buildOpenCodePermissionRules(input.runtimeMode),
+                      permission: openCodePermissionRules(input.threadId, input.runtimeMode),
                     }),
                   );
                   return { openCodeSession: forked, created: true };
@@ -2948,7 +2958,7 @@ export function makeOpenCodeAdapter(
                 const createdSession = yield* runOpenCodeSdk("session.create", () =>
                   client.session.create({
                     ...(input.title ? { title: input.title } : {}),
-                    permission: buildOpenCodePermissionRules(input.runtimeMode),
+                    permission: openCodePermissionRules(input.threadId, input.runtimeMode),
                   }),
                 );
                 if (!createdSession.data) {
@@ -3968,7 +3978,10 @@ export function makeOpenCodeAdapter(
           yield* runOpenCodeSdk("session.update", () =>
             context.client.session.update({
               sessionID: forkedSessionId,
-              permission: buildOpenCodePermissionRules(context.session.runtimeMode),
+              permission: openCodePermissionRules(
+                context.session.threadId,
+                context.session.runtimeMode,
+              ),
             }),
           ).pipe(Effect.mapError(toRequestError));
           yield* clearPendingOpenCodeRequests(context, { type: "session.fork" });

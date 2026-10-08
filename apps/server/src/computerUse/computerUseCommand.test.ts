@@ -1,8 +1,18 @@
+// @effect-diagnostics nodeBuiltinImport:off - builds real files and symlinks to resolve.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { afterEach, describe, expect, it } from "@effect/vitest";
 
 import * as McpProviderSession from "../mcp/McpProviderSession.ts";
-import { autoApprovesComputerUseCommand, isPlainComputerUseCommand } from "./computerUseCommand.ts";
+import { acpComputerUseAllowOnceOption } from "../provider/acp/AcpAdapterSupport.ts";
+import {
+  autoApprovesComputerUseCommand,
+  isComputerUseScreenshotRead,
+  isPlainComputerUseCommand,
+} from "./computerUseCommand.ts";
 
 /** This session's launcher; the only command word that is approved. */
 const CLI = "/home/u/.t3/userdata/computer-use/bin/viewcode-computer";
@@ -180,5 +190,83 @@ describe("autoApprovesComputerUseCommand", () => {
     session({ mode: "control", cli: SPACED });
     expect(autoApprovesComputerUseCommand(threadId, `'${SPACED}' list-windows`)).toBe(true);
     expect(autoApprovesComputerUseCommand(threadId, `${CLI} list-windows`)).toBe(false);
+  });
+});
+
+describe("isComputerUseScreenshotRead", () => {
+  const threadId = ThreadId.make("thread-computer-screenshot-read");
+  afterEach(() => McpProviderSession.clearMcpProviderSession(threadId));
+
+  const setup = () => {
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-cu-shots-"));
+    const shots = NodePath.join(root, "screenshots");
+    NodeFS.mkdirSync(shots);
+    const shot = NodePath.join(shots, "shot-1.png");
+    NodeFS.writeFileSync(shot, "png");
+    const secret = NodePath.join(root, "secret.txt");
+    NodeFS.writeFileSync(secret, "secret");
+    NodeFS.symlinkSync(secret, NodePath.join(shots, "planted.png"));
+    McpProviderSession.setMcpProviderSession({
+      environmentId: EnvironmentId.make("environment"),
+      threadId,
+      providerSessionId: "session",
+      providerInstanceId: ProviderInstanceId.make("cursor"),
+      endpoint: "http://127.0.0.1:1/mcp",
+      authorizationHeader: "Bearer test",
+      capabilities: new Set(["computer"]),
+      computerUse: { mode: "control", cli: CLI, screenshotsDir: shots },
+    });
+    return { shots, shot, secret };
+  };
+
+  it("allows only existing files inside the session's own screenshot folder", () => {
+    const { shots, shot, secret } = setup();
+    expect(isComputerUseScreenshotRead(threadId, shot)).toBe(true);
+    expect(isComputerUseScreenshotRead(threadId, shots)).toBe(false);
+    expect(isComputerUseScreenshotRead(threadId, secret)).toBe(false);
+    expect(isComputerUseScreenshotRead(threadId, `${shots}/../secret.txt`)).toBe(false);
+    expect(isComputerUseScreenshotRead(threadId, NodePath.join(shots, "planted.png"))).toBe(false);
+    expect(isComputerUseScreenshotRead(threadId, NodePath.join(shots, "missing.png"))).toBe(false);
+    expect(isComputerUseScreenshotRead(threadId, "screenshots/shot-1.png")).toBe(false);
+    McpProviderSession.clearMcpProviderSession(threadId);
+    expect(isComputerUseScreenshotRead(threadId, shot)).toBe(false);
+  });
+
+  it("answers an ACP read of a screenshot, and nothing wider", () => {
+    const { shot, secret } = setup();
+    const request = (toolCall: Record<string, unknown>) =>
+      ({
+        sessionId: "s",
+        toolCall: { toolCallId: "t", ...toolCall },
+        options: [
+          { optionId: "allow", name: "Allow", kind: "allow_once" },
+          { optionId: "reject", name: "Reject", kind: "reject_once" },
+        ],
+      }) as unknown as Parameters<typeof acpComputerUseAllowOnceOption>[1];
+    expect(
+      acpComputerUseAllowOnceOption(
+        threadId,
+        request({ kind: "read", locations: [{ path: shot }], rawInput: { path: shot } }),
+      ),
+    ).toBe("allow");
+    expect(
+      acpComputerUseAllowOnceOption(threadId, request({ kind: "read", rawInput: { path: shot } })),
+    ).toBe("allow");
+    // A second path that disagrees, or no path at all, asks as usual.
+    expect(
+      acpComputerUseAllowOnceOption(
+        threadId,
+        request({ kind: "read", locations: [{ path: shot }], rawInput: { path: secret } }),
+      ),
+    ).toBeUndefined();
+    expect(
+      acpComputerUseAllowOnceOption(threadId, request({ kind: "read", rawInput: {} })),
+    ).toBeUndefined();
+    expect(
+      acpComputerUseAllowOnceOption(
+        threadId,
+        request({ kind: "edit", locations: [{ path: shot }], rawInput: { path: shot } }),
+      ),
+    ).toBeUndefined();
   });
 });
