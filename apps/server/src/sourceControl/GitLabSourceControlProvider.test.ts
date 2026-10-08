@@ -213,6 +213,30 @@ it("refines unknown GitLab remotes with mixed-case provider hosts", () => {
   });
 });
 
+it("refines unknown GitLab remotes whose SSH port glab does not record", () => {
+  const provider = GitLabSourceControlProvider.discovery.refineUnknownRemote?.({
+    cwd: "/repo",
+    context: {
+      provider: {
+        kind: "unknown",
+        name: "git.corp.example:2222",
+        baseUrl: "https://git.corp.example:2222",
+      },
+      remoteName: "origin",
+      remoteUrl: "ssh://git@git.corp.example:2222/group/project.git",
+    },
+    auth: {
+      exitCode: ChildProcessSpawner.ExitCode(0),
+      stdout: `git.corp.example
+  ✓ Logged in to git.corp.example as gitlab-user
+`,
+      stderr: "",
+    },
+  });
+
+  assert.strictEqual(provider?.kind, "gitlab");
+});
+
 it("parses authenticated GitLab auth status hosts with ports and single-label names", () => {
   assert.deepStrictEqual(
     parseGitLabAuthStatusHosts(`localhost:8080

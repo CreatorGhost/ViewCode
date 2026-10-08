@@ -162,6 +162,15 @@ export function parseCliHost(text: string): string | undefined {
     .find((line) => /^[a-z0-9][a-z0-9.-]*(?::\d+)?$/iu.test(line));
 }
 
+/**
+ * The host name a CLI's auth listing is compared on. Remote URLs keep their port (an SSH clone
+ * on `:2222`, a web server on `:8443`) while CLIs usually record the bare host, so both sides
+ * drop it.
+ */
+export function cliHostName(host: string): string {
+  return host.trim().toLowerCase().replace(/:\d+$/u, "");
+}
+
 export function matchFirst(text: string, patterns: ReadonlyArray<RegExp>): string | undefined {
   for (const pattern of patterns) {
     const match = pattern.exec(text);

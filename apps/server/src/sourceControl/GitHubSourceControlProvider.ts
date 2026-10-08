@@ -14,11 +14,13 @@ import { findAuthenticatedGitHubAccount, parseGitHubAuthStatus } from "./gitHubA
 import { decodeGitHubPullRequestListJson } from "./gitHubPullRequests.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
+  cliHostName,
   combinedAuthOutput,
   firstSafeAuthLine,
   providerAuth,
   type SourceControlAuthProbeInput,
   type SourceControlCliDiscoverySpec,
+  type SourceControlUnknownRemoteRefinementInput,
 } from "./SourceControlProviderDiscovery.ts";
 
 const decodeLinkSubject = Schema.decodeUnknownEffect(
@@ -105,6 +107,27 @@ function parseGitHubAuth(input: SourceControlAuthProbeInput) {
   });
 }
 
+/**
+ * A GitHub Enterprise Server host carries no "github" label, so the remote alone reads as
+ * unknown. `gh` signed in to that host is what identifies it.
+ */
+function refineUnknownGitHubRemote(input: SourceControlUnknownRemoteRefinementInput) {
+  const host = cliHostName(input.context.provider.name);
+  const authenticated = parseGitHubAuthStatus(input.auth.stdout).accounts.some(
+    (account) => account.authenticated && cliHostName(account.host) === host,
+  );
+
+  if (!authenticated) {
+    return null;
+  }
+
+  return {
+    kind: "github",
+    name: "GitHub Self-Hosted",
+    baseUrl: input.context.provider.baseUrl,
+  } as const;
+}
+
 export const discovery = {
   type: "cli",
   kind: "github",
@@ -113,6 +136,7 @@ export const discovery = {
   versionArgs: ["--version"],
   authArgs: ["auth", "status", "--json", "hosts"],
   parseAuth: parseGitHubAuth,
+  refineUnknownRemote: refineUnknownGitHubRemote,
   installHint:
     "Install the GitHub command-line tool (`gh`) via https://cli.github.com/ or your package manager (for example `brew install gh`).",
 } satisfies SourceControlCliDiscoverySpec;

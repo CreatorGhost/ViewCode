@@ -6,6 +6,7 @@ import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contrac
 import * as GitLabCli from "./GitLabCli.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
+  cliHostName,
   combinedAuthOutput,
   firstSafeAuthLine,
   matchFirst,
@@ -80,9 +81,9 @@ function parseGitLabAuth(input: SourceControlAuthProbeInput) {
 }
 
 function refineUnknownGitLabRemote(input: SourceControlUnknownRemoteRefinementInput) {
-  const host = input.context.provider.name.toLowerCase();
+  const host = cliHostName(input.context.provider.name);
   const authenticated = parseGitLabAuthStatusHosts(combinedAuthOutput(input.auth)).some(
-    (entry) => entry.account !== null && entry.host === host,
+    (entry) => entry.account !== null && cliHostName(entry.host) === host,
   );
 
   if (!authenticated) {

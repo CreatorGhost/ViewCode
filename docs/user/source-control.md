@@ -17,6 +17,9 @@ Install [GitHub CLI](https://cli.github.com/) 2.81.0 or newer, then sign in:
 gh auth login
 ```
 
+For GitHub Enterprise Server, also run `gh auth login --hostname <your-server>`. T3 Code uses that
+sign-in to recognize servers whose host name does not contain `github`.
+
 ### Forgejo and Gitea
 
 Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or
@@ -44,6 +47,9 @@ Install [GitLab CLI](https://gitlab.com/gitlab-org/cli), then sign in:
 ```bash
 glab auth login
 ```
+
+For a self-managed server, run `glab auth login --hostname <your-server>`. T3 Code uses that sign-in
+to recognize servers whose host name does not contain `gitlab`.
 
 ### Bitbucket
 

@@ -1,4 +1,5 @@
-import { assert, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
+import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/sourceControl";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -426,6 +427,68 @@ it("reports an update hint instead of unauthenticated when gh predates --json", 
     Option.getOrElse(auth.detail, () => ""),
     /2\.81\.0/,
   );
+});
+
+describe("refineUnknownRemote", () => {
+  const ghAuthStatus = (
+    accounts: ReadonlyArray<{ readonly host: string; readonly state: string }>,
+  ) =>
+    processResult(
+      JSON.stringify({
+        hosts: Object.fromEntries(
+          accounts.map((account) => [
+            account.host,
+            [{ ...account, active: true, login: "enterprise-user" }],
+          ]),
+        ),
+      }),
+    );
+  const refine = (remoteUrl: string, auth: VcsProcess.VcsProcessOutput) => {
+    const provider = detectSourceControlProviderFromRemoteUrl(remoteUrl);
+    assert.strictEqual(provider?.kind, "unknown");
+    return GitHubSourceControlProvider.discovery.refineUnknownRemote({
+      cwd: "/repo",
+      context: { provider: provider!, remoteName: "origin", remoteUrl },
+      auth,
+    });
+  };
+
+  it("claims an enterprise host gh is signed in to", () => {
+    assert.deepStrictEqual(
+      refine(
+        "git@git.corp.example:team/app.git",
+        ghAuthStatus([
+          { host: "github.com", state: "success" },
+          { host: "git.corp.example", state: "success" },
+        ]),
+      ),
+      { kind: "github", name: "GitHub Self-Hosted", baseUrl: "https://git.corp.example" },
+    );
+  });
+
+  it("matches the host when the remote carries a port", () => {
+    assert.deepStrictEqual(
+      refine(
+        "ssh://git@Git.Corp.Example:2222/team/app.git",
+        ghAuthStatus([{ host: "git.corp.example", state: "success" }]),
+      ),
+      { kind: "github", name: "GitHub Self-Hosted", baseUrl: "https://git.corp.example:2222" },
+    );
+  });
+
+  it("leaves hosts gh is not signed in to unclaimed", () => {
+    assert.strictEqual(
+      refine(
+        "git@git.corp.example:team/app.git",
+        ghAuthStatus([
+          { host: "github.com", state: "success" },
+          { host: "git.corp.example", state: "error" },
+        ]),
+      ),
+      null,
+    );
+    assert.strictEqual(refine("git@git.other.example:team/app.git", ghAuthStatus([])), null);
+  });
 });
 
 for (const kind of ["pull", "issues"]) {

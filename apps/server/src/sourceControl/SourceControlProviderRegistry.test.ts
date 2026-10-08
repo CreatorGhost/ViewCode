@@ -263,6 +263,63 @@ it.effect("routes authenticated self-hosted GitLab remotes on non-standard ports
   }),
 );
 
+it.effect("routes GitHub Enterprise remotes that gh is signed in to", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@git.corp.example:team/app.git" }],
+      process: {
+        run: (input) =>
+          Effect.succeed(
+            processOutput(
+              input.command === "gh"
+                ? JSON.stringify({
+                    hosts: {
+                      "git.corp.example": [
+                        {
+                          state: "success",
+                          active: true,
+                          host: "git.corp.example",
+                          login: "enterprise-user",
+                        },
+                      ],
+                    },
+                  })
+                : "",
+            ),
+          ),
+      },
+    });
+
+    const handle = yield* registry.resolveHandle({ cwd: "/repo" });
+
+    assert.strictEqual(handle.provider.kind, "github");
+    assert.deepStrictEqual(handle.context?.provider, {
+      kind: "github",
+      name: "GitHub Self-Hosted",
+      baseUrl: "https://git.corp.example",
+    });
+  }),
+);
+
+it.effect("names the host no provider could claim", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@git.corp.example:team/app.git" }],
+    });
+
+    const provider = yield* registry.resolve({ cwd: "/repo" });
+    const error = yield* provider
+      .listChangeRequests({ cwd: "/repo", headSelector: "feature", state: "open" })
+      .pipe(Effect.flip);
+
+    assert.strictEqual(provider.kind, "unknown");
+    assert.strictEqual(
+      error.detail,
+      "Could not identify the hosting provider for git.corp.example. Sign in to it with gh, glab or tea.",
+    );
+  }),
+);
+
 it.effect("routes Bitbucket remotes to the Bitbucket provider", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry({
