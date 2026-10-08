@@ -548,7 +548,10 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - ViewCode's desktop identity must never match T3 Code's: profile folder
   `viewcode`, app id `dev.viewcode.app`, WM class `viewcode`. Sharing T3's
   profile shared its IndexedDB lock and cached projects, which stalls first run
-  on "Still connecting".
+  on "Still connecting". A non-default `T3CODE_HOME` also owns its Electron
+  profile under `userdata/electron`, resolved before Clerk initializes storage;
+  isolating only the server database still lets concurrent desktop runs share
+  IndexedDB and authentication state. The default home keeps the installed profile.
 - The same holds for the mobile app (`apps/mobile/app.config.ts`): package
   `com.viewcode.app[.dev|.preview]`, schemes `viewcode[-dev|-preview]`, so it
   installs beside the store T3 Code app without Android asking which app opens

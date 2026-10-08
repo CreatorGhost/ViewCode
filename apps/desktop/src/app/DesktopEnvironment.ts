@@ -88,6 +88,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly appImagePath: Option.Option<string>;
     readonly userDataDirName: string;
     readonly legacyUserDataDirName: string;
+    readonly userDataPathOverride: string | undefined;
     readonly defaultDesktopSettings: DesktopAppSettings.DesktopSettings;
     readonly runtimeInfo: DesktopRuntimeInfo;
     readonly resolvePickFolderDefaultPath: (rawOptions: unknown) => Option.Option<string>;
@@ -212,6 +213,12 @@ const make = Effect.fn("desktop.environment.make")(function* (
     appDataDirectory,
     baseDir,
     stateDir,
+    // A custom server home also needs its own renderer profile, otherwise
+    // isolated desktop runs contend for the installed app's IndexedDB lock.
+    userDataPathOverride:
+      path.resolve(baseDir) === path.resolve(homeDirectory, ".viewcode")
+        ? undefined
+        : path.resolve(stateDir, "electron"),
     desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
     clientSettingsPath: path.join(stateDir, "client-settings.json"),
     savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),

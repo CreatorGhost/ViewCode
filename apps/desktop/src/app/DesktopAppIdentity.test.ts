@@ -126,6 +126,7 @@ const withIdentity = <A, E, R>(
       DesktopAppIdentity.layer.pipe(
         Layer.provideMerge(
           FileSystem.layerNoop({
+            makeDirectory: () => Effect.void,
             exists: (path) =>
               input.legacyPathProbeError
                 ? Effect.fail(input.legacyPathProbeError)
@@ -145,6 +146,56 @@ const withIdentity = <A, E, R>(
 };
 
 describe("DesktopAppIdentity", () => {
+  it.effect("creates a fresh isolated renderer profile before Electron can use it", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const home = yield* fileSystem.makeTempDirectoryScoped();
+      const expected = `${home}/userdata/electron`;
+      assert.isFalse(yield* fileSystem.exists(expected));
+      const resolved = yield* DesktopAppIdentity.resolveUserDataPath.pipe(
+        Effect.provide(makeEnvironmentLayer({ env: { T3CODE_HOME: home } })),
+      );
+      assert.equal(resolved, expected);
+      assert.isTrue(yield* fileSystem.exists(expected));
+      assert.isTrue((yield* fileSystem.stat(expected)).type === "Directory");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps a custom T3 home out of the installed renderer profile", () =>
+    withIdentity(
+      Effect.gen(function* () {
+        const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
+        assert.equal(
+          yield* identity.resolveUserDataPath,
+          "/tmp/viewcode-native-audit/userdata/electron",
+        );
+      }),
+      {
+        environment: { env: { T3CODE_HOME: "/tmp/viewcode-native-audit" } },
+        legacyPathProbeError: PlatformError.systemError({
+          _tag: "PermissionDenied",
+          module: "FileSystem",
+          method: "exists",
+          description: "the installed profile must not be inspected",
+          pathOrDescriptor: "/Users/alice/Library/Application Support/viewcode",
+        }),
+      },
+    ),
+  );
+
+  it.effect("preserves the installed profile for an explicitly configured default T3 home", () =>
+    withIdentity(
+      Effect.gen(function* () {
+        const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
+        assert.equal(
+          yield* identity.resolveUserDataPath,
+          "/Users/alice/Library/Application Support/viewcode",
+        );
+      }),
+      { environment: { env: { T3CODE_HOME: "/Users/alice/.viewcode/" } } },
+    ),
+  );
+
   it.effect("never adopts an installed T3 Code's profile directory", () =>
     withIdentity(
       Effect.gen(function* () {
