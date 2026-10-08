@@ -105,14 +105,20 @@ const SCRIPT = `ObjC.import("AppKit");
 $.NSApplication.sharedApplication.setActivationPolicy($.NSApplicationActivationPolicyProhibited);
 ObjC.import("CoreGraphics");
 ObjC.import("Carbon");
+function foregroundPid() {
+  // A blocking stdin loop otherwise leaves NSWorkspace's notifications queued.
+  $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.001));
+  return Number($.NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier);
+}
 function state() {
+  var front = foregroundPid();
   var p = $.CGEventGetLocation($.CGEventCreate(null));
-  return { front: Number($.NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier), x: p.x, y: p.y };
+  return { front: front, x: p.x, y: p.y };
 }
 var posted = false;
 function execute(r) {
   posted = false;
-  if (r.input.kind === "foreground") return Number($.NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier);
+  if (r.input.kind === "foreground") return foregroundPid();
   var rows = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1 | 16, 0))) || [];
   var matches = rows.filter(function(w) {
     var b = w.kCGWindowBounds;
