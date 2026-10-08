@@ -27,7 +27,12 @@ async function readMediaBlob(src: string): Promise<Blob> {
 
 /** Downloads the original bytes with their original filename, without changing playback URLs. */
 export async function downloadMedia(src: string, name: string): Promise<void> {
-  const url = URL.createObjectURL(await readMediaBlob(src));
+  downloadBlob(await readMediaBlob(src), name);
+}
+
+/** Saves bytes the page already holds under `name`. */
+export function downloadBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
   try {
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -38,10 +43,16 @@ export async function downloadMedia(src: string, name: string): Promise<void> {
   }
 }
 
-/** Converts browser-decodable images, including SVG, into the clipboard's portable PNG format. */
-export async function readMediaPng(src: string): Promise<Blob> {
+const MAX_PNG_PIXELS = 64_000_000;
+
+/**
+ * Converts browser-decodable images, including SVG, into the clipboard's
+ * portable PNG format. `scale` rasterizes at a multiple of the natural size,
+ * which keeps vector images crisp, within the same pixel budget.
+ */
+export async function readMediaPng(src: string, scale = 1): Promise<Blob> {
   const blob = await readMediaBlob(src);
-  if (blob.type.split(";", 1)[0] === "image/png") return blob;
+  if (scale === 1 && blob.type.split(";", 1)[0] === "image/png") return blob;
 
   const url = URL.createObjectURL(blob);
   const image = new Image();
@@ -58,17 +69,18 @@ export async function readMediaPng(src: string): Promise<Blob> {
       );
     }
     const { naturalWidth: width, naturalHeight: height } = image;
-    if (width <= 0 || height <= 0 || width * height > 64_000_000) {
+    if (width <= 0 || height <= 0 || width * height > MAX_PNG_PIXELS) {
       throw new Error(
         "This image is too large or has no usable dimensions. Try saving it instead.",
       );
     }
+    const factor = Math.min(scale, Math.sqrt(MAX_PNG_PIXELS / (width * height)));
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = Math.round(width * factor);
+    canvas.height = Math.round(height * factor);
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Image copying is unavailable in this browser.");
-    context.drawImage(image, 0, 0);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (png) =>

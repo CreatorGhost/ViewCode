@@ -495,7 +495,12 @@ export function MermaidDiagram({
         onClick={() => onExpandedChange(true)}
         dangerouslySetInnerHTML={{ __html: result.svg }}
       />
-      <MermaidDiagramDialog svg={result.svg} open={expanded} onOpenChange={onExpandedChange} />
+      <MermaidDiagramDialog
+        svg={result.svg}
+        background={theme.palette.canvas}
+        open={expanded}
+        onOpenChange={onExpandedChange}
+      />
     </div>
   );
 }

@@ -1,4 +1,12 @@
-import { ScanIcon, XIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
+import {
+  CopyIcon,
+  FileCodeIcon,
+  ImageDownIcon,
+  ScanIcon,
+  XIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+} from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -10,9 +18,12 @@ import {
   useState,
 } from "react";
 
+import { downloadBlob, readMediaPng } from "../media/mediaContent";
 import { Button } from "../ui/button";
 import { Dialog, DialogClose, DialogPopup } from "../ui/dialog";
+import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { standaloneDiagramSvg } from "./diagramExport";
 import {
   fitTransform,
   type Size,
@@ -22,6 +33,63 @@ import {
 } from "./diagramViewport";
 
 const BUTTON_ZOOM_STEP = 1.25;
+const PNG_SCALE = 2;
+
+/** The diagram as a standalone SVG file, painted on the theme's canvas colour. */
+function diagramFile(svg: string, background: string): Blob {
+  const template = document.createElement("template");
+  template.innerHTML = svg;
+  const element = template.content.querySelector("svg");
+  // Images and files need XML; the stored markup is HTML-serialized.
+  const file = element
+    ? standaloneDiagramSvg(new XMLSerializer().serializeToString(element), background)
+    : null;
+  if (!file) throw new Error("The diagram has no usable size.");
+  return new Blob([file], { type: "image/svg+xml" });
+}
+
+async function diagramPng(file: Blob): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    return await readMediaPng(url, PNG_SCALE);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+type ExportAction = "copy" | "png" | "svg";
+
+const EXPORT_FAILURES: Record<ExportAction, string> = {
+  copy: "Could not copy diagram",
+  png: "Could not download PNG",
+  svg: "Could not download SVG",
+};
+
+async function exportDiagram(action: ExportAction, svg: string, background: string) {
+  try {
+    const file = diagramFile(svg, background);
+    if (action === "svg") {
+      downloadBlob(file, "diagram.svg");
+    } else if (action === "png") {
+      downloadBlob(await diagramPng(file), "diagram.png");
+    } else {
+      // Start the clipboard write in the user gesture; rasterizing finishes later.
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": diagramPng(file) })]);
+      toastManager.add({ type: "success", title: "Diagram copied" });
+    }
+  } catch (error) {
+    toastManager.add({
+      type: "error",
+      title: EXPORT_FAILURES[action],
+      description: error instanceof Error ? error.message : "The diagram could not be exported.",
+    });
+  }
+}
+
+const canCopyImage =
+  typeof navigator !== "undefined" &&
+  Boolean(navigator.clipboard?.write) &&
+  typeof ClipboardItem !== "undefined";
 
 // A faint dot grid gives the canvas a sense of scale while panning; it is drawn
 // from the theme's text colour so it follows every theme.
@@ -82,7 +150,7 @@ function IconAction({
 }
 
 /** Wheel zooms around the cursor, drag pans, double-click fits. No animation. */
-function DiagramCanvas({ svg }: { svg: string }) {
+function DiagramCanvas({ svg, background }: { svg: string; background: string }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const transformRef = useRef<ViewTransform>({ x: 0, y: 0, scale: 1 });
@@ -178,6 +246,27 @@ function DiagramCanvas({ svg }: { svg: string }) {
       <div className="flex items-center justify-between gap-2 border-b border-border/60 py-1.5 pr-1.5 pl-3 select-none">
         <span className="font-mono text-2xs text-muted-foreground">Diagram</span>
         <span className="flex items-center gap-0.5" role="toolbar" aria-label="Diagram view">
+          {canCopyImage ? (
+            <IconAction
+              label="Copy image"
+              onClick={() => void exportDiagram("copy", svg, background)}
+            >
+              <CopyIcon className="size-3.5" />
+            </IconAction>
+          ) : null}
+          <IconAction
+            label="Download PNG"
+            onClick={() => void exportDiagram("png", svg, background)}
+          >
+            <ImageDownIcon className="size-3.5" />
+          </IconAction>
+          <IconAction
+            label="Download SVG"
+            onClick={() => void exportDiagram("svg", svg, background)}
+          >
+            <FileCodeIcon className="size-3.5" />
+          </IconAction>
+          <span className="mx-1 h-4 w-px bg-border" aria-hidden />
           <IconAction label="Zoom out" onClick={() => zoomBy(1 / BUTTON_ZOOM_STEP)}>
             <ZoomOutIcon className="size-3.5" />
           </IconAction>
@@ -221,10 +310,13 @@ function DiagramCanvas({ svg }: { svg: string }) {
 /** A larger, pannable view of a rendered diagram. */
 export function MermaidDiagramDialog({
   svg,
+  background,
   open,
   onOpenChange,
 }: {
   svg: string;
+  /** The theme canvas colour the diagram was drawn for; exports paint it behind the diagram. */
+  background: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -238,7 +330,7 @@ export function MermaidDiagramDialog({
         className="h-[calc(100dvh-2rem)] max-w-none overflow-hidden"
       >
         {/* Keyed so a recoloured diagram measures and fits again. */}
-        <DiagramCanvas key={svg} svg={svg} />
+        <DiagramCanvas key={svg} svg={svg} background={background} />
       </DialogPopup>
     </Dialog>
   );
