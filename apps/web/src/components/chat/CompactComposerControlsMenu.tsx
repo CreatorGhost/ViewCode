@@ -1,4 +1,9 @@
-import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
+import {
+  ProviderInteractionMode,
+  providerRuntimeModeLimit,
+  type ProviderRuntimeModeLimits,
+  RuntimeMode,
+} from "@t3tools/contracts";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 import {
@@ -16,8 +21,8 @@ import { useComposerMenuState } from "./useComposerMenuState";
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
-  /** Why Full access runs narrower for this provider (managed policy), if it does. */
-  fullAccessUnavailableReason?: string | undefined;
+  /** The selected provider's status: why a mode does less there, if it does. */
+  runtimeModeLimits?: ProviderRuntimeModeLimits | null | undefined;
   showInteractionModeToggle: boolean;
   traitsMenuContent?: ReactNode;
   size?: "sm" | "xs";
@@ -33,6 +38,10 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   const composerFloatingLayerProps = useComposerMenuProps();
   const size = props.size ?? "sm";
   const [open, setOpen] = useComposerMenuState(props.hidden);
+  // The selected mode's limit, else Full access's, so a policy shows before it is picked.
+  const runtimeModeNote =
+    providerRuntimeModeLimit(props.runtimeModeLimits, props.runtimeMode) ??
+    props.runtimeModeLimits?.fullAccessUnavailableReason;
 
   return (
     <Menu open={open} onOpenChange={setOpen}>
@@ -86,9 +95,9 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           <MenuRadioItem value="auto">Auto</MenuRadioItem>
           <MenuRadioItem value="full-access">Full access</MenuRadioItem>
         </MenuRadioGroup>
-        {props.fullAccessUnavailableReason ? (
+        {runtimeModeNote ? (
           <div className="max-w-64 px-2 py-1.5 text-muted-foreground text-xs">
-            {props.fullAccessUnavailableReason}
+            {runtimeModeNote}
           </div>
         ) : null}
       </MenuPopup>

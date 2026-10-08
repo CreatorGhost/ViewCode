@@ -38,6 +38,10 @@ const PRESENTATION = {
   supportsTurnSteering: false,
   badgeLabel: "Early Access",
   showInteractionModeToggle: false,
+  // Headless `-p` turns have no approval channel; only Full access (`--yolo`)
+  // lets it edit files or run commands.
+  approvalUnavailableReason:
+    "Command Code can't ask for approval, so in this mode its file edits and commands are blocked. Use Full access to let it make changes.",
 } as const;
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({ optionDescriptors: [] });
 const VERSION_PROBE_TIMEOUT_MS = 8_000;

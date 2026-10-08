@@ -27,6 +27,7 @@ import type {
   PreviewAnnotationPayload,
   ProviderApprovalDecision,
   ProviderInteractionMode,
+  ProviderRuntimeModeLimits,
   ResolvedKeybindingsConfig,
   RuntimeMode,
   ScopedThreadRef,
@@ -37,6 +38,7 @@ import type {
 import {
   ProviderDriverKind,
   ProviderInstanceId,
+  providerRuntimeModeLimit,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
@@ -1083,8 +1085,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
-  /** Why Full access runs narrower for this provider (managed policy), if it does. */
-  fullAccessUnavailableReason?: string | undefined;
+  /** The selected provider's status: why a mode does less there, if it does. */
+  runtimeModeLimits?: ProviderRuntimeModeLimits | null | undefined;
   size?: "sm" | "xs";
   hidden?: boolean;
   onToggleInteractionMode: () => void;
@@ -1093,9 +1095,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   const size = props.size ?? "sm";
   const composerFloatingLayerProps = useComposerMenuProps();
   const describe = (mode: RuntimeMode) =>
-    mode === "full-access" && props.fullAccessUnavailableReason
-      ? props.fullAccessUnavailableReason
-      : runtimeModeConfig[mode].description;
+    providerRuntimeModeLimit(props.runtimeModeLimits, mode) ?? runtimeModeConfig[mode].description;
   const [open, setOpen] = useComposerMenuState(props.hidden);
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
@@ -5113,7 +5113,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           showInteractionModeToggle={planModeUiEnabled}
           interactionMode={interactionMode}
           runtimeMode={runtimeMode}
-          fullAccessUnavailableReason={selectedProviderStatus?.fullAccessUnavailableReason}
+          runtimeModeLimits={selectedProviderStatus}
           size={composerControlsInStrip ? "xs" : "sm"}
           hidden={composerControlsHidden || restingHiddenBlockCount > 0}
           onToggleInteractionMode={toggleInteractionMode}
@@ -5229,7 +5229,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           <CompactComposerControlsMenu
             interactionMode={interactionMode}
             runtimeMode={runtimeMode}
-            fullAccessUnavailableReason={selectedProviderStatus?.fullAccessUnavailableReason}
+            runtimeModeLimits={selectedProviderStatus}
             size={composerControlsInStrip ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}

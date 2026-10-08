@@ -96,9 +96,10 @@ describe("ClientSettings rich text composer", () => {
 });
 
 describe("ServerSettings default permissions", () => {
-  it("keeps full access for settings saved before a default was configured", () => {
-    expect(decodeServerSettings({}).defaultRuntimeMode).toBe("full-access");
-    expect(DEFAULT_SERVER_SETTINGS.defaultRuntimeMode).toBe("full-access");
+  // The server writes Full access for installs from before Auto (serverSettings.ts).
+  it("starts new settings in Auto", () => {
+    expect(decodeServerSettings({}).defaultRuntimeMode).toBe("auto");
+    expect(DEFAULT_SERVER_SETTINGS.defaultRuntimeMode).toBe("auto");
   });
 
   it.each(["approval-required", "auto-accept-edits", "auto", "full-access"])(

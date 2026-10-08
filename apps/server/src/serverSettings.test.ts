@@ -1121,9 +1121,55 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
         automaticGitFetchInterval: 10_000,
+        // A fresh install starts new threads in Auto, written so it stays decided.
+        defaultRuntimeMode: "auto",
         // ViewCode: a fresh environment waits for the first-run provider choice.
         providerSelection: "pending",
       });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("keeps Full access as the default of an install from before Auto", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        '{"providerSelection":"chosen"}',
+      );
+
+      const settings = yield* serverSettings.getSettings;
+      assert.equal(settings.defaultRuntimeMode, "full-access");
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
+      assert.equal(persisted.defaultRuntimeMode, "full-access");
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("keeps Full access for a used install that never wrote settings", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* recordProviderUsage("codex");
+
+      const settings = yield* serverSettings.getSettings;
+      assert.equal(settings.defaultRuntimeMode, "full-access");
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("starts a fresh install in Auto and keeps a later choice of Auto", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      assert.equal((yield* serverSettings.getSettings).defaultRuntimeMode, "auto");
+
+      // Auto equals the default but stays on disk, so the next load does not
+      // read its absence as an install from before Auto.
+      yield* serverSettings.updateSettings({ addProjectBaseDirectory: "~/Development" });
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
+      assert.equal(persisted.defaultRuntimeMode, "auto");
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
@@ -1156,7 +1202,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
       const original =
-        '{"providerInstances":{"codex_personal":{"driver":"codex","environment":[{"name":"API_TOKEN","value":"inline-test-token","sensitive":true}],"config":{}}},"providerSelection":"chosen"}';
+        '{"providerInstances":{"codex_personal":{"driver":"codex","environment":[{"name":"API_TOKEN","value":"inline-test-token","sensitive":true}],"config":{}}},"providerSelection":"chosen","defaultRuntimeMode":"full-access"}';
       yield* fs.writeFileString(config.settingsPath, original);
       const error = yield* Effect.flip(
         service.updateSettings({

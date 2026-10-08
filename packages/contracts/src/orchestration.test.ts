@@ -7,7 +7,7 @@ import { CommandId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import {
   ProjectIconOverride,
   DEFAULT_PROVIDER_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
+  LEGACY_DEFAULT_RUNTIME_MODE,
   type ChatImageAttachment,
   ClientOrchestrationCommand,
   ModelSelection,
@@ -263,7 +263,7 @@ it.effect("decodes thread.turn.start defaults for provider and runtime mode", ()
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.modelSelection, undefined);
-    assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+    assert.strictEqual(parsed.runtimeMode, LEGACY_DEFAULT_RUNTIME_MODE);
     assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
   }),
 );
@@ -588,7 +588,7 @@ it.effect("decodes thread.created runtime mode for historical events", () =>
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
 
-    assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+    assert.strictEqual(parsed.runtimeMode, LEGACY_DEFAULT_RUNTIME_MODE);
     assert.strictEqual(parsed.modelSelection.instanceId, "codex");
   }),
 );
@@ -1293,7 +1293,7 @@ it.effect(
         createdAt: "2026-01-01T00:00:00.000Z",
       });
       assert.strictEqual(parsed.modelSelection, undefined);
-      assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+      assert.strictEqual(parsed.runtimeMode, LEGACY_DEFAULT_RUNTIME_MODE);
       assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
       assert.strictEqual(parsed.sourceProposedPlan, undefined);
     }),
@@ -1362,7 +1362,7 @@ it.effect("decodes orchestration session runtime mode defaults", () =>
       lastError: null,
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+    assert.strictEqual(parsed.runtimeMode, LEGACY_DEFAULT_RUNTIME_MODE);
   }),
 );
 

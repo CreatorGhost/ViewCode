@@ -1,6 +1,7 @@
 import type {
   ModelCapabilities,
   ModelSelection,
+  ProviderRuntimeModeLimits,
   ServerConfig as T3ServerConfig,
 } from "@t3tools/contracts";
 import {
@@ -25,8 +26,8 @@ export type ModelOption = {
    * (the provider's `continuation.groupKey`, else its instance id).
    */
   readonly continuationKey?: string;
-  /** The provider's `fullAccessUnavailableReason`: why Full access runs narrower. */
-  readonly fullAccessUnavailableReason?: string;
+  /** Why a runtime mode does less on this model's provider, if it does. */
+  readonly runtimeModeLimits?: ProviderRuntimeModeLimits;
 };
 
 export type ProviderGroup = {
@@ -154,6 +155,22 @@ export function resolveNewTaskModelSelection(input: {
   );
 }
 
+/** Only the provider's runtime-mode reasons, and only when it has one. */
+function runtimeModeLimitsOf(
+  provider: ProviderRuntimeModeLimits | undefined,
+): Pick<ModelOption, "runtimeModeLimits"> {
+  const fullAccess = provider?.fullAccessUnavailableReason;
+  const approval = provider?.approvalUnavailableReason;
+  return fullAccess || approval
+    ? {
+        runtimeModeLimits: {
+          ...(fullAccess ? { fullAccessUnavailableReason: fullAccess } : {}),
+          ...(approval ? { approvalUnavailableReason: approval } : {}),
+        },
+      }
+    : {};
+}
+
 export function buildModelOptions(
   config: T3ServerConfig | null | undefined,
   fallbackModelSelection: ModelSelection | null,
@@ -184,9 +201,7 @@ export function buildModelOptions(
         isLegacy: model.isLegacy === true,
         capabilities: model.capabilities,
         continuationKey: provider.continuation?.groupKey ?? provider.instanceId,
-        ...(provider.fullAccessUnavailableReason
-          ? { fullAccessUnavailableReason: provider.fullAccessUnavailableReason }
-          : {}),
+        ...runtimeModeLimitsOf(provider),
         selection: normalizeSelectionOptions(
           {
             instanceId: provider.instanceId,
@@ -238,9 +253,7 @@ export function buildModelOptions(
           : {}),
         capabilities: model?.capabilities ?? null,
         continuationKey: provider?.continuation?.groupKey ?? fallbackModelSelection.instanceId,
-        ...(provider?.fullAccessUnavailableReason
-          ? { fullAccessUnavailableReason: provider.fullAccessUnavailableReason }
-          : {}),
+        ...runtimeModeLimitsOf(provider),
         selection: fallbackModelSelection,
       });
     }

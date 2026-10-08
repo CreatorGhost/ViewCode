@@ -19,6 +19,7 @@ import {
   type ResponseStreamingMode,
   RuntimeRequestId,
   type RuntimeTurnState,
+  LEGACY_DEFAULT_RUNTIME_MODE,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -1964,7 +1965,7 @@ const make = Effect.gen(function* () {
               ...(event.providerInstanceId !== undefined
                 ? { providerInstanceId: event.providerInstanceId }
                 : {}),
-              runtimeMode: thread.session?.runtimeMode ?? "full-access",
+              runtimeMode: thread.session?.runtimeMode ?? LEGACY_DEFAULT_RUNTIME_MODE,
               activeTurnId: nextActiveTurnId,
               lastError,
               updatedAt: now,
@@ -2464,7 +2465,7 @@ const make = Effect.gen(function* () {
               ...(event.providerInstanceId !== undefined
                 ? { providerInstanceId: event.providerInstanceId }
                 : {}),
-              runtimeMode: thread.session?.runtimeMode ?? "full-access",
+              runtimeMode: thread.session?.runtimeMode ?? LEGACY_DEFAULT_RUNTIME_MODE,
               activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,
               updatedAt: now,

@@ -23,6 +23,7 @@ import {
 } from "./keybindings.ts";
 import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
+import type { RuntimeMode } from "./orchestration.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { ServerProviderUsageLimits, UsageLimitSourceSnapshots } from "./providerUsageLimits.ts";
 import { ServerSettings } from "./settings.ts";
@@ -217,6 +218,9 @@ export const ServerProvider = Schema.Struct({
   // Set when this machine's policy keeps the provider from running with full
   // access; Full access then runs in a narrower mode, which this explains.
   fullAccessUnavailableReason: Schema.optional(TrimmedNonEmptyString),
+  // Set when the provider cannot ask for approval, so every mode but Full
+  // access blocks its edits and commands; this explains it.
+  approvalUnavailableReason: Schema.optional(TrimmedNonEmptyString),
   // The driver streams context window usage, so a started thread will have a
   // meter once its activities load. Clients reserve the meter's space on it.
   reportsContextWindow: Schema.optional(Schema.Boolean),
@@ -260,6 +264,21 @@ export const ServerProvider = Schema.Struct({
   updateState: Schema.optionalKey(ServerProviderUpdateState),
 });
 export type ServerProvider = typeof ServerProvider.Type;
+
+export type ProviderRuntimeModeLimits = Pick<
+  ServerProvider,
+  "fullAccessUnavailableReason" | "approvalUnavailableReason"
+>;
+
+/** Why `mode` does less for this provider than the mode's own description says, if it does. */
+export function providerRuntimeModeLimit(
+  provider: ProviderRuntimeModeLimits | null | undefined,
+  mode: RuntimeMode,
+): string | undefined {
+  return mode === "full-access"
+    ? provider?.fullAccessUnavailableReason
+    : provider?.approvalUnavailableReason;
+}
 
 // Provider status kinds grow over time (ServerProviderState,
 // ServerProviderAuthStatus, ServerProviderVersionAdvisoryStatus,

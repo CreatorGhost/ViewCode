@@ -14,7 +14,9 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_RUNTIME_MODE,
   DEFAULT_SERVER_SETTINGS,
+  LEGACY_DEFAULT_RUNTIME_MODE,
   ModelSelection,
   ProjectScript,
   type ProjectSettingsOverrides,
@@ -378,8 +380,11 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 // Preserve both enabled states because provider history cannot recover a new opt-in.
+// The default runtime mode is always written: `decideDefaultRuntimeMode` reads
+// its absence as an install from before Auto became the default.
 const PERSISTED_SERVER_SETTINGS_DEFAULTS = {
   ...DEFAULT_SERVER_SETTINGS,
+  defaultRuntimeMode: undefined,
   providers: {
     ...DEFAULT_SERVER_SETTINGS.providers,
     cursor: { ...DEFAULT_SERVER_SETTINGS.providers.cursor, enabled: undefined },
@@ -429,6 +434,38 @@ const decodeProjectScriptsJson = Schema.decodeUnknownOption(
 const decodeModelSelectionJson = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.NullOr(ModelSelection)),
 );
+
+const decodePersistedDefaultRuntimeMode = Schema.decodeUnknownOption(
+  fromLenientJson(Schema.Struct({ defaultRuntimeMode: Schema.optionalKey(Schema.Unknown) })),
+);
+
+/**
+ * New threads default to Auto, but installs from before kept Full access as
+ * their default without writing it (settings are stored sparse). The first
+ * load whose file lacks the field decides: an install with a settings file or
+ * provider history keeps Full access, a fresh one gets Auto. Either way the
+ * field is set, written, and never decided again.
+ */
+const decideDefaultRuntimeMode = Effect.fnUntraced(function* (
+  settings: ServerSettings,
+  input: {
+    readonly rawSettingsJson: string | undefined;
+    readonly hasHistory: Effect.Effect<boolean, ServerSettingsError>;
+  },
+) {
+  const persisted =
+    input.rawSettingsJson === undefined
+      ? Option.none()
+      : decodePersistedDefaultRuntimeMode(input.rawSettingsJson);
+  if (Option.isSome(persisted) && persisted.value.defaultRuntimeMode !== undefined) {
+    return settings;
+  }
+  const existingInstall = input.rawSettingsJson !== undefined || (yield* input.hasHistory);
+  return {
+    ...settings,
+    defaultRuntimeMode: existingInstall ? LEGACY_DEFAULT_RUNTIME_MODE : DEFAULT_RUNTIME_MODE,
+  };
+});
 
 interface LegacyProjectSettingsRow {
   readonly projectId: string;
@@ -701,9 +738,10 @@ const make = Effect.gen(function* () {
     const loaded = foldProviderInstanceEnabledFlags(
       restoreUsedProviders(settings, persisted, providerHistory, commandCodeOnPath),
     );
-    const folded = settingsFileTrusted
-      ? foldLegacyProjectSettings(loaded, legacyProjectRows)
-      : loaded;
+    const folded = yield* decideDefaultRuntimeMode(
+      settingsFileTrusted ? foldLegacyProjectSettings(loaded, legacyProjectRows) : loaded,
+      { rawSettingsJson, hasHistory: readEnvironmentHasHistory },
+    );
     // ViewCode: decide once whether this environment still has to choose its
     // providers (see provider/providerSelection.ts).
     const selected =

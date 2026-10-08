@@ -14,7 +14,6 @@ import {
   type OrchestrationSession,
   ThreadId,
   type ProviderSession,
-  type RuntimeMode,
   type TurnId,
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
@@ -142,7 +141,6 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
-const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
 function providerErrorLabel(value: string | undefined): string {
   const normalized = value?.trim();
@@ -2410,7 +2408,7 @@ const make = Effect.gen(function* () {
               ...(thread.session?.providerInstanceId !== undefined
                 ? { providerInstanceId: thread.session.providerInstanceId }
                 : {}),
-              runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+              runtimeMode: thread.session?.runtimeMode ?? thread.runtimeMode,
               activeTurnId: null,
               lastError: thread.session?.lastError ?? null,
               updatedAt: now,

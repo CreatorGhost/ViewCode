@@ -1,4 +1,9 @@
-import type { ProviderOptionDescriptor, RuntimeMode } from "@t3tools/contracts";
+import {
+  type ProviderOptionDescriptor,
+  providerRuntimeModeLimit,
+  type ProviderRuntimeModeLimits,
+  type RuntimeMode,
+} from "@t3tools/contracts";
 
 /**
  * Desktop-oriented effort keywords that don't belong in the phone picker.
@@ -38,16 +43,16 @@ export const RUNTIME_MODE_CHOICES: ReadonlyArray<{
 
 /**
  * A runtime mode's description for the selected model's provider: the
- * provider's own reason replaces it when that mode runs narrower there.
+ * provider's own reason replaces it when that mode does less there.
  */
 export function describeRuntimeMode(
   mode: RuntimeMode,
-  provider: { readonly fullAccessUnavailableReason?: string | undefined } | null | undefined,
+  provider: ProviderRuntimeModeLimits | null | undefined,
 ): string | undefined {
-  if (mode === "full-access" && provider?.fullAccessUnavailableReason) {
-    return provider.fullAccessUnavailableReason;
-  }
-  return RUNTIME_MODE_CHOICES.find((choice) => choice.mode === mode)?.description;
+  return (
+    providerRuntimeModeLimit(provider, mode) ??
+    RUNTIME_MODE_CHOICES.find((choice) => choice.mode === mode)?.description
+  );
 }
 
 export function selectableChoices(

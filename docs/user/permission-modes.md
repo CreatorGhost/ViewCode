@@ -5,8 +5,9 @@ composer; it applies to that thread.
 
 Set the default for new threads in **Settings → General → New threads → Permissions**.
 Projects can override the environment default. New threads use this setting rather than the
-mode of the thread you were viewing. The initial default is **Full access**; existing threads
-and modes you choose in a draft keep their permissions.
+mode of the thread you were viewing. New installations start with **Auto**; installations from
+before Auto became the default keep **Full access**. Existing threads and modes you choose in a
+draft keep their permissions.
 
 | Mode                  | Behavior                                                                              |
 | --------------------- | ------------------------------------------------------------------------------------- |
@@ -31,6 +32,7 @@ Antigravity can still send native approval requests in **Full access**. It only 
 approvals for actions that support them.
 
 Command Code cannot ask for approval. Outside **Full access** it reads and answers, but its file
-edits and shell commands are blocked and show as declined.
+edits and shell commands are blocked and show as declined; the access menu says so. Choose **Full
+access** for Command Code threads that should change files.
 
 See the [provider guides](./install.md#providers) for setup and provider-specific limits.

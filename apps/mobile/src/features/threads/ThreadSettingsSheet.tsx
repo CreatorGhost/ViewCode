@@ -1000,7 +1000,10 @@ function ThreadSettingsChoiceContent(props: {
           rows: RUNTIME_MODE_CHOICES.map((choice) => ({
             id: choice.mode,
             label: choice.label,
-            description: describeRuntimeMode(choice.mode, session.displayedModel),
+            description: describeRuntimeMode(
+              choice.mode,
+              session.displayedModel?.runtimeModeLimits,
+            ),
             selected: choice.mode === session.runtimeMode,
             onPress: () => {
               void Haptics.selectionAsync();
