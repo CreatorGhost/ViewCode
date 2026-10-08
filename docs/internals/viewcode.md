@@ -633,6 +633,20 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   the config is dynamic, so `eas init` cannot write the ID itself, and the cloud
   builder re-evaluates the config, so the ID must also be an EAS environment
   variable (`docs/user/android-app.md`). Without an ID, OTA updates are off.
+- The mobile app has no T3 Connect, Clerk or hosted-relay code. Phones reach an
+  environment only by pairing QR or Add environment with a direct URL (same Wi-Fi,
+  Tailscale, or Quick connect, which is just an ordinary `https` address), and
+  notifications come from each environment through Expo push. Visible "T3" text
+  says ViewCode; internal names (`T3ComposerEditor`, `font-t3-*`, `T3Wordmark.tsx`,
+  `t3code://`, env var names) stay for upstream merges. `lib/runtime.ts` still
+  provides a disabled `ManagedRelayClient` and `connection/platform.ts` an empty
+  `CloudSession`, because the shared `client-runtime` layers require those
+  services. Saved relay-managed connections are dropped when the old connection
+  document is migrated. **Merge cost:** upstream edits to the deleted
+  `apps/mobile/src/features/cloud/`, `CloudEnvironmentRows`, `SettingsAuthRouteScreen`
+  or `agent-awareness/remoteRegistration.ts` conflict as modify/delete; delete them
+  again. Take ours for `app.config.ts`, `pnpm-workspace.yaml` (no `@clerk/expo`) and
+  the Settings screens.
 
 ### Composer picker
 
@@ -686,15 +700,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 ### Phone notifications
 
 - Upstream's push path is T3 Connect: the server publishes agent activity to
-  the hosted relay, which sends FCM/APNs after a Clerk sign-in. ViewCode builds
-  have no Clerk, so each environment also sends its own notifications through
-  Expo's push service (`notifications/PushNotifications.ts`). The phone
+  the hosted relay, which sends FCM/APNs after a Clerk sign-in. The ViewCode
+  mobile app has none of that, so each environment sends its own notifications
+  through Expo's push service (`notifications/PushNotifications.ts`). The phone
   registers its Expo token with `push.register` over its normal connection; the
   environment keeps it per auth session in `<stateDir>/push-devices.json` and
   drops it on `clientRemoved`, when the session has expired (checked before
   every send), on `DeviceNotRegistered` from Expo, or when the same token
-  registers from a new session. A phone with both T3 Connect and direct
-  notifications on would get both; nothing dedupes across the two.
+  registers from a new session. The phone has no Live Activity or relay
+  registration path, so Expo push is the only one.
 - Decisions read the thread's current shell, like `AgentAwarenessRelay`, so a
   turn is "finished" only after the service saw it working; the first sighting
   and a session booting at "ready" never notify, and a turn notifies once. A

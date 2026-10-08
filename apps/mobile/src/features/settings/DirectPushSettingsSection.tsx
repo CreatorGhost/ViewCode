@@ -31,7 +31,7 @@ const CATEGORY_ROWS: Record<
 
 /**
  * Notifications that each connected computer sends itself through Expo push,
- * with no T3 Connect account. Child agents' notifications carry their lead's
+ * with no account or hosted relay. Child agents' notifications carry their lead's
  * title.
  */
 export function DirectPushSettingsSection() {

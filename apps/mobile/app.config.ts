@@ -87,7 +87,6 @@ const VARIANT_CONFIG = {
     scheme: "viewcode-dev",
     iosBundleIdentifier: "com.viewcode.app.dev",
     androidPackage: "com.viewcode.app.dev",
-    relyingParty: "clerk.t3.codes",
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
@@ -95,7 +94,6 @@ const VARIANT_CONFIG = {
     scheme: "viewcode-preview",
     iosBundleIdentifier: "com.viewcode.app.preview",
     androidPackage: "com.viewcode.app.preview",
-    relyingParty: "clerk.t3.codes",
     assets: PREVIEW_ASSETS,
   },
   production: {
@@ -103,7 +101,6 @@ const VARIANT_CONFIG = {
     scheme: "viewcode",
     iosBundleIdentifier: "com.viewcode.app",
     androidPackage: "com.viewcode.app",
-    relyingParty: "clerk.t3.codes",
     assets: RELEASE_ASSETS,
   },
 } as const;
@@ -266,12 +263,8 @@ const config: ExpoConfig = {
     bundleIdentifier: iosBundleIdentifier,
     // Pin code signing to your Apple team (VIEWCODE_APPLE_TEAM_ID) so
     // non-interactive `expo run:ios` does not fall back to a personal team
-    // (which cannot sign app groups, Sign in with Apple, or push entitlements).
+    // (which cannot sign app groups or push entitlements).
     ...(appleTeamId ? { appleTeamId } : {}),
-    associatedDomains: [
-      `applinks:${variant.relyingParty}`,
-      `webcredentials:${variant.relyingParty}`,
-    ],
     entitlements: {
       "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
     },
@@ -363,9 +356,6 @@ const config: ExpoConfig = {
         mode: APP_VARIANT === "development" ? "development" : "production",
       },
     ],
-    // appleSignIn must be gated here: withoutIosPersonalTeamCapabilities.cjs runs before
-    // plugins earlier in this array, so it cannot strip the entitlement Clerk would add.
-    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild }],
     "expo-web-browser",
     [
       "expo-quick-actions",
@@ -485,22 +475,6 @@ const config: ExpoConfig = {
   extra: {
     appVariant: APP_VARIANT,
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
-    relay: {
-      url: repoEnv.T3CODE_RELAY_URL ?? null,
-    },
-    clerk: {
-      publishableKey: repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null,
-      jwtTemplate: repoEnv.EXPO_PUBLIC_CLERK_JWT_TEMPLATE ?? null,
-    },
-    // Native Google sign-in credentials. @clerk/expo reads these from `extra`
-    // under their exact env-var names (not nested), and its config plugin reads
-    // the iOS URL scheme at prebuild to register it in Info.plist.
-    // Unset values must be omitted (not null): the public manifest serializes
-    // null to {}, which is truthy and would defeat Clerk's fallback checks.
-    EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME,
     observability: {
       tracesUrl: repoEnv.EXPO_PUBLIC_OTLP_TRACES_URL ?? "https://api.axiom.co/v1/traces",
       tracesDataset: repoEnv.EXPO_PUBLIC_OTLP_TRACES_DATASET ?? null,
