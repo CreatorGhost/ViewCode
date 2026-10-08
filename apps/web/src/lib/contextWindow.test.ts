@@ -71,6 +71,45 @@ describe("contextWindow", () => {
     });
   });
 
+  describe("handoffs", () => {
+    const usage = (id: string, usedTokens: number, providerInstanceId: string) =>
+      makeActivity(id, "context-window.updated", { usedTokens, providerInstanceId });
+    const handoff = (id: string) =>
+      makeActivity(id, "viewcode.handoff", {
+        from: { instanceId: "cursor", model: "composer" },
+        to: { instanceId: "claudeAgent", model: "opus" },
+      });
+
+    it("ignores the same instance's usage from before a handoff back", () => {
+      const activities = [
+        usage("claude-1", 171_100, "claudeAgent"),
+        handoff("to-cursor"),
+        usage("cursor-1", 5_000, "cursor"),
+        handoff("back-to-claude"),
+      ];
+      expect(deriveLatestContextWindowSnapshot(activities, "claudeAgent")).toBeNull();
+    });
+
+    it("uses usage the new session reported after the handoff", () => {
+      const activities = [
+        usage("claude-1", 171_100, "claudeAgent"),
+        handoff("to-cursor"),
+        usage("cursor-1", 5_000, "cursor"),
+        handoff("back-to-claude"),
+        usage("claude-2", 12_000, "claudeAgent"),
+      ];
+      expect(deriveLatestContextWindowSnapshot(activities, "claudeAgent")?.usedTokens).toBe(12_000);
+    });
+
+    it("treats a stale-session recap as a new session", () => {
+      const activities = [
+        usage("claude-1", 171_100, "claudeAgent"),
+        makeActivity("recovery", "viewcode.session.resume-fallback", {}),
+      ];
+      expect(deriveLatestContextWindowSnapshot(activities, "claudeAgent")).toBeNull();
+    });
+  });
+
   it("ignores malformed payloads", () => {
     const snapshot = deriveLatestContextWindowSnapshot([
       makeActivity("activity-1", "context-window.updated", {}),

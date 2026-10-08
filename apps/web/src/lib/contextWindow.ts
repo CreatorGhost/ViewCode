@@ -28,13 +28,26 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
 };
 
 /**
- * Latest usage the thread's current provider instance reported. After a
- * handoff the newest row still describes the previous provider's session, so
- * with `currentProviderInstanceId` known only rows stamped with that instance
- * count. Rows without a stamp predate instance stamping (2026-09-30) and could
- * belong to any provider in a handed-off thread; they are skipped too, which
- * leaves a legacy single-provider thread reading "Not reported" until its next
- * turn writes a stamped row. With no current instance, nothing is filtered.
+ * Activities that start a fresh native session (a handoff, or a stale session
+ * replaced by a recap). Usage recorded before one describes a session the
+ * thread no longer talks to, even when the instance id matches again.
+ */
+const SESSION_BOUNDARY_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
+  "viewcode.handoff",
+  "viewcode.session.resume-fallback",
+]);
+
+/**
+ * Latest usage the thread's current provider session reported. The walk stops
+ * at the most recent handoff: the rows before it belong to an earlier session,
+ * including the same instance's after a handoff back (Claude → Cursor →
+ * Claude). After a handoff the newest row can also still describe the previous
+ * provider, so with `currentProviderInstanceId` known only rows stamped with
+ * that instance count. Rows without a stamp predate instance stamping
+ * (2026-09-30) and could belong to any provider in a handed-off thread; they
+ * are skipped too, which leaves a legacy single-provider thread reading "Not
+ * reported" until its next turn writes a stamped row. With no current
+ * instance, nothing is filtered by instance.
  */
 export function deriveLatestContextWindowSnapshot(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
@@ -42,6 +55,9 @@ export function deriveLatestContextWindowSnapshot(
 ): ContextWindowSnapshot | null {
   for (let index = activities.length - 1; index >= 0; index -= 1) {
     const activity = activities[index];
+    if (activity && SESSION_BOUNDARY_ACTIVITY_KINDS.has(activity.kind)) {
+      return null;
+    }
     if (!activity || activity.kind !== "context-window.updated") {
       continue;
     }
@@ -85,6 +101,7 @@ export function deriveLatestContextWindowSnapshot(
       durationMs: asFiniteNumber(payload?.durationMs),
       compactsAutomatically: asBoolean(payload?.compactsAutomatically) ?? false,
       autoCompactThreshold: asFiniteNumber(payload?.autoCompactThreshold),
+      promptCacheTtlSeconds: asFiniteNumber(payload?.promptCacheTtlSeconds),
       updatedAt: activity.createdAt,
       providerInstanceId,
     };

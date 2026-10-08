@@ -6616,7 +6616,7 @@ export default function ChatView(props: ChatViewProps) {
     isClaude: activeThread?.session?.providerName === "claudeAgent",
     running: phase === "running",
     model: activeThread?.modelSelection.model,
-    activities: threadActivities,
+    contextWindow: activeContextWindow,
     onCompact:
       compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
   });
