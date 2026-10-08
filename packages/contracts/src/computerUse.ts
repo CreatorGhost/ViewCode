@@ -178,6 +178,11 @@ export const ComputerUseRequest = Schema.Union([
   }),
   /** Types into whatever has keyboard focus in the window (after bringing it to the front). */
   Schema.Struct({ command: Schema.Literal("type-focused"), window: WindowId, text: InputText }),
+  /**
+   * Brings the window to the front and nothing else. On macOS this switches to
+   * the desktop (Space) or full-screen app it is on, so it can be captured.
+   */
+  Schema.Struct({ command: Schema.Literal("focus"), window: WindowId }),
 ]);
 export type ComputerUseRequest = typeof ComputerUseRequest.Type;
 export type ComputerUseCommand = ComputerUseRequest["command"];
@@ -200,6 +205,7 @@ export const COMPUTER_USE_INPUT_COMMANDS = [
   "move",
   "scroll-at",
   "type-focused",
+  "focus",
 ] as const satisfies ReadonlyArray<ComputerUseCommand>;
 
 export const ComputerUseRect = Schema.Struct({

@@ -98,8 +98,10 @@ permissions off in System Settings when you are not using computer use.
   choose menu items by reference, which works in the background without opening the menu.
   Clicks and keys on a menu are refused, because bringing the app forward would close it.
 - Screenshots work for windows that sit entirely on the main display.
-- Agents only see windows on the current desktop. To let an agent work in an app on another
-  desktop (Space) or in full screen, bring its window onto the desktop you are using.
+- A window on another desktop (Space) or in full screen can be read by reference where it is,
+  but an agent has to switch to it before taking a screenshot or clicking. Switching takes the
+  screen like any other action in front, and asks first when your settings ask for input. Some
+  apps only list windows on the current desktop; bring those onto the desktop you are using.
 - Computer use runs on macOS and Linux. Windows is not supported yet.
 - Command Code does not support computer use.
 
@@ -113,9 +115,8 @@ Known gaps:
 
 - An open menu may be missing from a window's screenshot; the agent reads and captures the menu
   itself instead.
-- Windows on other desktops (Spaces) and full-screen apps cannot be reached; there is no "switch
-  to" yet.
-- Not yet confirmed on a real Mac: menu bars and open menus as their own entries, opening
+- Not yet confirmed on a real Mac: switching to a window on another desktop or in full screen,
+  menu bars and open menus as their own entries, opening
   screenshots without a prompt in Cursor, Grok and OpenCode, typing stopping when you switch apps
   mid-way, the wait while you use the mouse or keyboard, **Show on screen**, and the second Dock
   icon some setups show while computer use runs.

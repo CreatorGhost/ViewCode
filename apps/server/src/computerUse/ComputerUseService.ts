@@ -807,7 +807,8 @@ export const make = Effect.gen(function* () {
     const targets = targetsFor(caller.threadId);
     switch (request.command) {
       case "key":
-      case "type-focused": {
+      case "type-focused":
+      case "focus": {
         const window = targets.window(request.window);
         if (!window) return unknownWindow(request.window);
         return isDenied(window) ? deniedApp("not-dispatched") : { _tag: "Window", window };
@@ -894,7 +895,9 @@ export const make = Effect.gen(function* () {
         ? driver.key(target.window.handle, request.keys)
         : request.command === "type-focused"
           ? driver.typeFocused(target.window.handle, request.text)
-          : Effect.die("window target for a non-window command");
+          : request.command === "focus"
+            ? driver.focus(target.window.handle)
+            : Effect.die("window target for a non-window command");
     }
     if (target._tag === "Shot") {
       const { shot } = target;

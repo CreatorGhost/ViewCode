@@ -70,6 +70,7 @@ const COMMAND_ARGUMENTS = {
   move: { required: ["shot", "x", "y"], optional: [] },
   "scroll-at": { required: ["shot", "x", "y", "dx", "dy"], optional: [] },
   "type-focused": { required: ["window", "text"], optional: [] },
+  focus: { required: ["window"], optional: [] },
 } as const satisfies Record<
   ComputerUseCommand,
   { readonly required: ReadonlyArray<string>; readonly optional: ReadonlyArray<string> }
@@ -440,6 +441,8 @@ export function describeInputForApproval(
       return `Scroll by (${request.dx}, ${request.dy}) at (${request.x}, ${request.y}) ${where}${hit}${front}`;
     case "type-focused":
       return `Type ${characterCount(request.text)} into the focused field ${where}${front}`;
+    case "focus":
+      return `Bring ${quoted(target.windowTitle)} in ${singleLine(target.app, 40) || "an app"} to the front, switching desktops if needed`;
   }
 }
 

@@ -116,6 +116,7 @@ const DEFAULT_TIMEOUTS: Record<DriverOp, number> = {
   move: INPUT_TIMEOUT_MS,
   scrollAt: INPUT_TIMEOUT_MS,
   typeFocused: TYPING_TIMEOUT_MS,
+  focus: INPUT_TIMEOUT_MS,
 };
 
 const INPUT_OPS: ReadonlySet<DriverOp> = new Set([
@@ -129,6 +130,7 @@ const INPUT_OPS: ReadonlySet<DriverOp> = new Set([
   "move",
   "scrollAt",
   "typeFocused",
+  "focus",
 ]);
 const SUPPORTED_PLATFORMS: ReadonlySet<NodeJS.Platform> = new Set(["darwin", "linux"]);
 
@@ -589,6 +591,7 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
     scrollAt: (window, expectBounds, point, dx, dy) =>
       call({ op: "scrollAt", window, expectBounds, point, dx, dy }, InputReply),
     typeFocused: (window, text) => call({ op: "typeFocused", window, text }, InputReply),
+    focus: (window) => call({ op: "focus", window }, InputReply),
     press: (element, expect) => call({ op: "press", element, expect }, InputReply),
     setValue: (element, expect, value) =>
       call({ op: "setValue", element, expect, value }, InputReply),

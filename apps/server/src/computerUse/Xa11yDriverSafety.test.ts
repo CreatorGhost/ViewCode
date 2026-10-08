@@ -1431,3 +1431,47 @@ describe("menus are listed and act only in the background", () => {
     expect(captured).toHaveLength(1);
   });
 });
+
+describe("focus brings a window forward and sends nothing else", () => {
+  it("activates a background window, and refuses a menu without activating", async () => {
+    let foreground = 1;
+    const preview: FakeApp = {
+      name: "Preview",
+      pid: 7,
+      windows: [
+        window("doc.pdf"),
+        { role: "menu", bounds: { x: 1, y: 1, width: 9, height: 9 }, actions: [] },
+      ],
+    };
+    const core = makeCore([preview], {
+      get foreground() {
+        return foreground;
+      },
+      activate: (pid) => {
+        foreground = pid;
+      },
+    });
+    const [doc, menu] = await core.list();
+    expect(await core.call({ op: "focus", window: doc!.handle })).toEqual(focused);
+    expect(core.calls.activate).toBe(1);
+    expect(core.sent).toEqual([]);
+    expect(await core.call({ op: "focus", window: menu!.handle })).toMatchObject(refusedNo);
+    expect(core.calls.activate).toBe(1);
+  });
+
+  it("asks the server before activating, and a refusal activates nothing", async () => {
+    const preview: FakeApp = { name: "Preview", pid: 7, windows: [window("doc.pdf")] };
+    const phases: string[] = [];
+    const core = makeCore([preview], {
+      foreground: 1,
+      authorize: (_target, phase) => {
+        phases.push(phase);
+        return { code: "CU-CON-008", message: "An approval is waiting." } as ComputerUseError;
+      },
+    });
+    const [doc] = await core.list();
+    expect(await core.call({ op: "focus", window: doc!.handle })).toMatchObject({ ok: false });
+    expect(phases).toEqual(["prepare"]);
+    expect(core.calls.activate).toBe(0);
+  });
+});

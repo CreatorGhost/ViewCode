@@ -243,6 +243,8 @@ export interface ComputerDriverShape {
     windowHandle: string,
     text: string,
   ) => Effect.Effect<DriverInputResult, ComputerDriverError>;
+  /** Brings the window to the front (switching desktops on macOS) and sends nothing else. */
+  readonly focus: (windowHandle: string) => Effect.Effect<DriverInputResult, ComputerDriverError>;
 }
 
 export class ComputerDriver extends Context.Service<ComputerDriver, ComputerDriverShape>()(

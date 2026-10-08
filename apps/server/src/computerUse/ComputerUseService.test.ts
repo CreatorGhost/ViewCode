@@ -266,6 +266,7 @@ const makeHarness = (
       typeText: (handle) => action("typeText", false)(handle),
       key: (handle) => action("key")(handle),
       scroll: (handle) => action("scroll")(handle),
+      focus: (handle) => action("focus")(handle),
     };
 
     const shell = (): OrchestrationThreadShell => ({
@@ -528,6 +529,20 @@ describe("ComputerUseService approvals", () => {
         "request.opened",
         "request.resolved",
       ]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("focus asks like other input and only brings the window forward", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const refs = yield* observeNotes(harness);
+      harness.autoDecision = "accept";
+      expectDispatched(yield* send(harness, { command: "focus", window: refs.window }));
+      const opened = harness.events.find((event) => event.type === "request.opened");
+      if (opened?.type !== "request.opened") throw new Error("expected request.opened");
+      expect(opened.payload.detail).toContain("to the front");
+      expect(inputCalls(harness)).toHaveLength(1);
+      expect(inputCalls(harness)[0]).toMatch(/^focus:/);
     }).pipe(Effect.scoped),
   );
 

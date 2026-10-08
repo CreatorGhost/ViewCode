@@ -101,6 +101,7 @@ const COMMAND_FLAGS: Record<string, ReadonlyArray<string>> = {
   "set-value": ["ref", "value"],
   type: ["ref", "window", "text"],
   key: ["window", "keys"],
+  focus: ["window"],
   scroll: ["ref", "shot", "x", "y", "dx", "dy"],
   click: ["shot", "x", "y", "button", "count"],
   drag: ["shot", "from", "to"],
@@ -216,6 +217,8 @@ const buildRequest = (command: string, values: ReadonlyMap<string, FlagValue>): 
       return requireFlags("set-value", ["ref", "value"]);
     case "key":
       return requireFlags("key", ["window", "keys"]);
+    case "focus":
+      return requireFlags("focus", ["window"]);
     case "click":
       return requireFlags("click", ["shot", "x", "y"], ["button", "count"]);
     case "move":
@@ -636,6 +639,8 @@ COMMANDS
   type --ref N --text TEXT                  insert text into an observed field
   type --window N --text TEXT               type into whatever has focus in the window
   key --window N --keys CHORD               e.g. enter, escape, tab, cmd+a, cmd+shift+z
+  focus --window N                          bring the window to the front, switching to
+                                            its desktop (Space) or full-screen app
   scroll --ref N [--dx N] [--dy N]          scroll an observed control
   scroll --shot N --x X --y Y [--dx N] [--dy N]   scroll at a point
   click --shot N --x X --y Y [--button left|right|middle] [--count 1|2|3]
@@ -653,7 +658,7 @@ FOCUS
   focus from the user: prefer them. (A control with no accessible press or
   text input, or a field that ignored the change, gets a click or typing in
   front instead.) list-windows, observe
-  and screenshot never take focus. key, type --window, scroll --ref and
+  and screenshot never take focus. focus, key, type --window, scroll --ref and
   everything at --shot coordinates bring the window to the front and take
   focus from the user: use them only when refs cannot do the job, and batch
   them. Never use keyboard shortcuts (e.g. cmd+t) to navigate an app when a
@@ -672,9 +677,11 @@ MENUS (macOS)
   open menu: list windows again and use the menu itself.
 
 THE LOOP
-  1. list-windows to find the window id. Windows on other desktops (Spaces),
-     including full-screen apps, may be missing. If the app you need is not
-     listed, ask the user to bring its window onto the current desktop.
+  1. list-windows to find the window id. A window on another desktop (Space)
+     or in full screen cannot be captured until it is shown: focus --window N
+     switches to it (it takes the screen, so only when you need its pixels or
+     input; refs work without it). If the app you need is not listed at all,
+     ask the user to bring its window onto the current desktop.
   2. observe --window N (add --query to narrow; truncated:true means the list
      was cut). If what you need is not there, screenshot --window N instead.
   3. Act once: by --ref, or at x,y from the newest shot of that window.

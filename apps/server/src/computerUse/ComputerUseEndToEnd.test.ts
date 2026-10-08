@@ -143,6 +143,7 @@ const makeStack = (listen: "unix" | "tcp") =>
       typeText: (handle) => record("typeText")(handle),
       key: (handle) => record("key")(handle),
       scroll: (handle) => record("scroll")(handle),
+      focus: (handle) => record("focus")(handle),
     };
 
     const shell = (): OrchestrationThreadShell => ({

@@ -165,6 +165,7 @@ export type DriverRequest =
       readonly dy: number;
     }
   | { readonly op: "typeFocused"; readonly window: string; readonly text: string }
+  | { readonly op: "focus"; readonly window: string }
   | { readonly op: "press"; readonly element: string; readonly expect: DriverElementIdentity }
   | {
       readonly op: "setValue";
@@ -1266,7 +1267,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
             "failed",
             kind === "menu"
               ? "Could not capture this menu by itself. Observe it instead and press its items by ref."
-              : "Could not capture this window by itself. It may be on another desktop or minimized, or share its place with another window of the app. Make sure it is on the current desktop, then list windows again.",
+              : "Could not capture this window by itself. It may be on another desktop or in full screen (focus --window N switches to it), minimized, or sharing its place with another window of the app.",
           ),
         );
       }
@@ -1529,6 +1530,18 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           await authorize(window, "prepare", { foreground: true });
           await activate(window);
           return await dispatch(() => typeInputText(input, request.text, window), window);
+        }
+        case "focus": {
+          // The activation is the whole action, so it runs under the same
+          // prepare check that precedes every other activation.
+          const window = requireWindow(request.window);
+          await authorize(window, "prepare", { foreground: true });
+          try {
+            await activate(window);
+          } finally {
+            ownInputEndedAt = api.now();
+          }
+          return { ok: true, result: { tookFocus: true } };
         }
         case "key": {
           const window = requireWindow(request.window);
