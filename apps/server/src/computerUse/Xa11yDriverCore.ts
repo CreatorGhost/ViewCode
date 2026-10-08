@@ -985,10 +985,35 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     run: () => Promise<boolean | void>,
     entry: WindowEntry,
     target: InputTarget = {},
+    verifyEffect = true,
   ): Promise<DriverResult> => {
+    const verify = verifyEffect && target.background === true && (await useBackground(entry));
+    const before = verify ? await backgroundEvidence(entry) : undefined;
+    const front = verify ? await api.foregroundPid() : undefined;
     await authorize(entry, "dispatch", target);
     try {
       const fellBack = await run();
+      if (before !== undefined) {
+        let after: string;
+        try {
+          after = await backgroundEvidence(entry);
+        } catch {
+          throw new BackgroundInputError(
+            "The target could not be read after background input; its effect is unknown. Do not retry blindly.",
+            true,
+          );
+        }
+        if (front !== (await api.foregroundPid()))
+          throw new BackgroundInputError(
+            "The foreground app changed during background input. Its effect is unknown; stop and observe again.",
+            true,
+          );
+        if (before === after)
+          throw new BackgroundInputError(
+            "Background input produced no verified change in the target. Its effect is unknown; no foreground retry was made.",
+            true,
+          );
+      }
       const tookFocus = target.background === true ? fellBack === true : true;
       return { ok: true, result: { tookFocus } };
     } catch (error) {
@@ -1498,6 +1523,29 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     platform === "darwin" &&
     !(await isFront(entry, await refreshWindow(entry)));
 
+  const backgroundEvidence = async (entry: WindowEntry) => {
+    const root = await refreshWindow(entry);
+    const state: unknown[] = [];
+    const truncated = await walkBreadthFirst(
+      root,
+      1_000,
+      (child) => {
+        if (state.length >= 1_000) return "stop";
+        const label = elementLabel(child.name, child.description);
+        const secure = isSecureElement({ raw: child.raw, editable: child.editable, label });
+        state.push([child.role, label, child.bounds, child.focused, secure ? null : child.value]);
+        return "continue";
+      },
+      true,
+    );
+    if (truncated)
+      throw new BackgroundInputError(
+        "The accessibility tree is incomplete; background input cannot verify this target.",
+        false,
+      );
+    return JSON.stringify(state);
+  };
+
   const backgroundDispatch = async (
     entry: WindowEntry,
     input: BackgroundInput,
@@ -1535,30 +1583,8 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         );
       }
     }
-    const evidence = async () => {
-      const root = await refreshWindow(entry);
-      const state: unknown[] = [];
-      const truncated = await walkBreadthFirst(
-        root,
-        1_000,
-        (child) => {
-          if (state.length >= 1_000) return "stop";
-          const label = elementLabel(child.name, child.description);
-          const secure = isSecureElement({ raw: child.raw, editable: child.editable, label });
-          state.push([child.role, label, child.bounds, child.focused, secure ? null : child.value]);
-          return "continue";
-        },
-        true,
-      );
-      if (truncated)
-        throw new BackgroundInputError(
-          "The accessibility tree is incomplete; background input cannot verify this target.",
-          false,
-        );
-      return JSON.stringify(state);
-    };
     await authorize(entry, "prepare", { background: true, ...(element ? { element } : {}) });
-    const before = await evidence();
+    const before = await backgroundEvidence(entry);
     return dispatch(
       async () => {
         await api.backgroundInput!(entry.pid, live.bounds!, input, () =>
@@ -1570,7 +1596,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         );
         let after: string;
         try {
-          after = await evidence();
+          after = await backgroundEvidence(entry);
         } catch {
           throw new BackgroundInputError(
             "The target could not be read after background input; its effect is unknown. Do not retry blindly.",
@@ -1589,6 +1615,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         ...(element ? { element } : {}),
         ...("point" in input ? { point: input.point } : {}),
       },
+      false,
     );
   };
 

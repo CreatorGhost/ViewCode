@@ -1493,6 +1493,36 @@ describe("experimental background input", () => {
     pid: 1,
     windows: [window("Scratch", { active: false, focused: false })],
   });
+  for (const outcome of ["changed", "unchanged", "unreadable", "foreground"] as const) {
+    it(`verifies an AX press too, when its result is ${outcome}`, async () => {
+      const target = app();
+      const options: Parameters<typeof makeCore>[1] = { background: true, foreground: 2 };
+      const button: Spec = {
+        role: "button",
+        name: "Apply",
+        value: "before",
+        onPress: () => {
+          if (outcome === "changed") button.value = "after";
+          if (outcome === "unreadable") target.windows[0]!.childrenReadFailure = true;
+          if (outcome === "foreground") options.foreground = 1;
+        },
+      };
+      target.windows[0]!.children = [button];
+      const core = makeCore([target], options);
+      const [w] = await core.list();
+      const [ref] = await core.observe(w!.handle);
+      const result = await core.call({
+        op: "press",
+        element: ref!.handle,
+        expect: { role: "button", label: "Apply" },
+      });
+      expect(result).toMatchObject(
+        outcome === "changed" ? inBackground : { ok: false, error: { dispatched: "unknown" } },
+      );
+      expect(core.calls.activate).toBe(0);
+      expect(core.sent).toEqual([["press", "Apply"]]);
+    });
+  }
   it("posts to the background after policy checks without activating or using the real pointer", async () => {
     const phases: string[] = [];
     const posted: string[] = [];
