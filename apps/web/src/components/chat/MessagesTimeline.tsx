@@ -2574,10 +2574,12 @@ function AssistantMessageMeta({
   alwaysVisible?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
-  // The row stays visible while its reply is read so the stop button is findable.
-  const readingAloud = useReadAloudStore(
-    (state) => state.playingKey === readAloudMessageKey(ctx.routeThreadKey, message.id),
-  );
+  // The row stays visible while its reply is read so the stop button is findable,
+  // and while it explains why the system voice read it.
+  const readingAloud = useReadAloudStore((state) => {
+    const key = readAloudMessageKey(ctx.routeThreadKey, message.id);
+    return state.playingKey === key || state.notice?.key === key;
+  });
 
   return (
     <div

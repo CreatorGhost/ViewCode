@@ -294,6 +294,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["fold tool calls commands work summary worked for transcript"],
   },
   {
+    id: "read-aloud-engine",
+    title: "Read aloud engine",
+    to: "/settings/appearance",
+    searchTerms: [
+      "speak speech text to speech tts natural voice kokoro download model offline remove system",
+    ],
+  },
+  {
     id: "read-aloud-voice",
     title: "Read aloud voice",
     to: "/settings/appearance",

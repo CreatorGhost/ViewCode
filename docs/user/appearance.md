@@ -38,15 +38,28 @@ without replaying its transitions.
 
 ## Read aloud
 
-On web and desktop, select the speaker button under a finished reply to hear it in your system's
-voice; select it again to stop. Only the reply's prose is read: tool calls, progress updates, code
-blocks, and diagrams are skipped, and links are read as their text. Use **Read latest reply aloud**
-and **Stop reading** in the command palette, or assign `readAloud.latest` and `readAloud.stop` in
-**Settings → Keybindings**. Reading stops when you switch threads.
+On web and desktop, select the speaker button under a finished reply to hear it; select it again to
+stop. Only the reply's prose is read: tool calls, progress updates, code blocks, and diagrams are
+skipped, and links are read as their text. Use **Read latest reply aloud** and **Stop reading** in
+the command palette, or assign `readAloud.latest` and `readAloud.stop` in **Settings →
+Keybindings**. Reading stops when you switch threads.
 
-Choose the voice and speed under **Read aloud** in **Settings → Appearance**, and select **Preview**
-to hear them. Speech runs on your device; nothing is sent anywhere. On macOS, download more natural
-voices in **System Settings → Accessibility → Spoken Content → System voice → Manage Voices**.
+Replies are read in a natural voice. It needs a one-time download of about 95 MB from ViewCode's
+GitHub release, kept on the computer running ViewCode, and works offline afterwards. The first time
+you select the speaker button the download starts and your system's voice reads that reply; the
+progress shows beside the button. If the download is blocked, the system voice keeps reading and
+**Settings → Appearance → Read aloud** shows why, with **Try again**.
+
+Under **Read aloud** in **Settings → Appearance** you can:
+
+- Choose the natural voice's size: small (about 95 MB), medium (about 165 MB), or large (about 330
+  MB, the fullest sound), or **System voice (no download)**. Choosing a size downloads it once.
+- Choose the voice and speed, and select **Preview** to hear them.
+- Select **Remove downloaded voice** to delete every downloaded size and free the space.
+
+Speech runs on your device; your replies are never sent anywhere. Natural voices speak English. On
+macOS, download more system voices in **System Settings → Accessibility → Spoken Content → System
+voice → Manage Voices**.
 
 ## Custom themes
 

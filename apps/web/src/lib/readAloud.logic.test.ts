@@ -3,8 +3,13 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   chunkSpeakableBlocks,
   latestReadableReply,
+  naturalVoiceStatus,
+  planReadAloud,
+  playChunksAhead,
+  ReadAloudChunkError,
   readAloudChunks,
   readAloudVoiceChoices,
+  resolveReadAloudVoice,
   speakableBlocksFromMarkdown,
 } from "./readAloud.logic";
 
@@ -149,5 +154,144 @@ describe("readAloudVoiceChoices", () => {
 
   it("falls back to every voice when none speaks the user's language", () => {
     expect(readAloudVoiceChoices(voices, "ja-JP", null)).toHaveLength(3);
+  });
+});
+
+describe("natural voice selection", () => {
+  const natural = { engine: "kokoro", voice: "af_heart", tier: "small" } as const;
+
+  it("defaults to the natural voice and keeps a chosen system voice", () => {
+    expect(resolveReadAloudVoice(null)).toEqual(natural);
+    const system = { engine: "system", voiceURI: "Samantha" } as const;
+    expect(resolveReadAloudVoice(system)).toBe(system);
+  });
+
+  it("reads the tier's phase, or unavailable when the environment has no voice models", () => {
+    const state = {
+      tiers: [{ tier: "small", phase: "ready", downloadedBytes: 1, totalBytes: 1, message: null }],
+    } as const;
+    expect(naturalVoiceStatus(state, "small")).toBe("ready");
+    expect(naturalVoiceStatus(state, "large")).toBe("unavailable");
+    expect(naturalVoiceStatus(null, "small")).toBe("unavailable");
+  });
+
+  it.each([
+    ["ready", { engine: "natural", startDownload: false, notice: null }],
+    ["absent", { engine: "system", startDownload: true, notice: "downloading" }],
+    ["downloading", { engine: "system", startDownload: false, notice: "downloading" }],
+    ["failed", { engine: "system", startDownload: false, notice: "failed" }],
+    ["unavailable", { engine: "system", startDownload: false, notice: "unavailable" }],
+  ] as const)("plans a %s natural voice", (status, plan) => {
+    expect(planReadAloud({ voice: natural, natural: status, systemAvailable: true })).toEqual(plan);
+  });
+
+  it("still starts the download when no system voice can fill in", () => {
+    expect(planReadAloud({ voice: natural, natural: "absent", systemAvailable: false })).toEqual({
+      engine: null,
+      startDownload: true,
+      notice: "downloading",
+    });
+  });
+
+  it("never touches the natural voice for a chosen system voice", () => {
+    const system = { engine: "system", voiceURI: null } as const;
+    expect(planReadAloud({ voice: system, natural: "absent", systemAvailable: true })).toEqual({
+      engine: "system",
+      startDownload: false,
+      notice: null,
+    });
+  });
+});
+
+describe("playChunksAhead", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((onResolve, onReject) => {
+      resolve = onResolve;
+      reject = onReject;
+    });
+    return { promise, resolve, reject };
+  }
+
+  /** A fake engine that records what happens in order and lets the test finish each step. */
+  function fakeEngine() {
+    const log: string[] = [];
+    const syntheses = new Map<string, ReturnType<typeof deferred<string>>>();
+    const plays = new Map<string, ReturnType<typeof deferred<void>>>();
+    return {
+      log,
+      synthesize: (text: string) => {
+        log.push(`synthesize ${text}`);
+        const step = deferred<string>();
+        syntheses.set(text, step);
+        return step.promise;
+      },
+      play: (clip: string) => {
+        log.push(`play ${clip}`);
+        const step = deferred<void>();
+        plays.set(clip, step);
+        return step.promise;
+      },
+      synthesized: (text: string) => syntheses.get(text)!.resolve(`clip ${text}`),
+      failed: (text: string) => syntheses.get(text)!.reject(new Error("synthesis failed")),
+      played: (clip: string) => plays.get(clip)!.resolve(),
+    };
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("synthesizes the next chunk while the current one plays, one ahead", async () => {
+    const engine = fakeEngine();
+    const done = playChunksAhead(["one", "two", "three"], {
+      ...engine,
+      signal: new AbortController().signal,
+    });
+    await settle();
+    expect(engine.log).toEqual(["synthesize one"]);
+    engine.synthesized("one");
+    await settle();
+    expect(engine.log).toEqual(["synthesize one", "synthesize two", "play clip one"]);
+    engine.synthesized("two");
+    await settle();
+    // Two is ready, but three waits until two starts playing.
+    expect(engine.log).toHaveLength(3);
+    engine.played("clip one");
+    await settle();
+    expect(engine.log.slice(3)).toEqual(["synthesize three", "play clip two"]);
+    engine.synthesized("three");
+    engine.played("clip two");
+    await settle();
+    engine.played("clip three");
+    await done;
+    expect(engine.log.at(-1)).toBe("play clip three");
+  });
+
+  it("stops playing and drops pending synthesis when aborted", async () => {
+    const engine = fakeEngine();
+    const controller = new AbortController();
+    const done = playChunksAhead(["one", "two", "three"], { ...engine, signal: controller.signal });
+    engine.synthesized("one");
+    await settle();
+    controller.abort();
+    engine.played("clip one");
+    engine.failed("two");
+    await done;
+    expect(engine.log).toEqual(["synthesize one", "synthesize two", "play clip one"]);
+  });
+
+  it("reports which chunk could not be synthesized", async () => {
+    const engine = fakeEngine();
+    const done = playChunksAhead(["one", "two"], {
+      ...engine,
+      signal: new AbortController().signal,
+    });
+    engine.synthesized("one");
+    await settle();
+    engine.failed("two");
+    engine.played("clip one");
+    const error = await done.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ReadAloudChunkError);
+    expect((error as ReadAloudChunkError).chunkIndex).toBe(1);
   });
 });
