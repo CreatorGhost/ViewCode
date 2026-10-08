@@ -23,14 +23,14 @@ export interface MarkdownClipboardPayload {
   html: string;
 }
 
-function isSkippedElement(element: Element): boolean {
+export function isSkippedElement(element: Element): boolean {
   if (SKIPPED_TAGS.has(element.tagName) || element.localName === "svg") return true;
   if (element.getAttribute("aria-hidden") === "true") return true;
   return SKIPPED_CLASS_NAMES.some((className) => element.classList.contains(className));
 }
 
 /** Hoists surrounding whitespace outside the markers: "` bold `" → " **bold** ". */
-function wrapInlineMarker(content: string, marker: string): string {
+export function wrapInlineMarker(content: string, marker: string): string {
   const match = /^(\s*)([\s\S]*?)(\s*)$/.exec(content);
   const core = match?.[2] ?? "";
   if (!core) return content;
@@ -364,7 +364,8 @@ export function serializeTableElementToCsv(table: Element): string {
   return lines.join("\n");
 }
 
-function sanitizedHtmlFrom(container: Element): string {
+/** Rendered HTML for rich-paste targets, without controls, icons or hidden text. Mutates `container`. */
+export function sanitizedHtmlFrom(container: Element): string {
   for (const node of container.querySelectorAll(SANITIZED_HTML_SELECTOR)) {
     if (
       node.classList.contains("chat-markdown-file-link") ||

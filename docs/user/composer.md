@@ -216,8 +216,10 @@ show their context. Stashing a prompt keeps its chips and what they point to; re
 them back.
 
 On web and desktop, a part of a reply drafted for you to send, set apart as a quote or between
-two horizontal lines, has its own copy button when you hover it. It copies just that part, as
-plain text with its lists kept.
+two horizontal lines, has its own copy button when you hover it. It copies just that part, with
+its formatting for apps that keep it (Slack, email, Notion, Google Docs) and as clean plain text,
+without Markdown symbols, everywhere else. The arrow next to it copies for Slack, for WhatsApp,
+as Markdown or as plain text instead, and the button keeps your last choice on that device.
 
 On mobile, tap a chip to inspect its content. File references open the current file; attached
 files show the copy that was attached to the message.

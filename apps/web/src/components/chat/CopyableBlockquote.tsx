@@ -1,50 +1,52 @@
-import { CheckIcon, CopyIcon } from "lucide-react";
+import * as Schema from "effect/Schema";
+import { CheckIcon, ChevronDownIcon, CopyIcon } from "lucide-react";
 import { type ComponentProps, createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { writeTextToClipboard } from "../../hooks/useCopyToClipboard";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
+import {
+  DRAFT_COPY_FORMAT_LABELS,
+  DRAFT_COPY_FORMATS,
+  type DraftCopyFormat,
+  draftClipboardPayload,
+} from "../../lib/messageFormats";
 import { Button } from "../ui/button";
+import {
+  Menu,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuRadioItemIndicator,
+  MenuTrigger,
+} from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-
-/**
- * Plain text of a rendered quote, with paragraphs and list items on their own
- * lines and ordered-list numbers kept, so a drafted message pastes as written.
- */
-export function blockquoteToPlainText(root: HTMLElement): string {
-  const lines: string[] = [];
-  const walk = (element: Element) => {
-    for (const child of element.children) {
-      if (child.tagName === "OL" || child.tagName === "UL") {
-        const ordered = child.tagName === "OL";
-        const start = ordered ? Number((child as HTMLOListElement).start || 1) : 1;
-        [...child.children].forEach((item, index) => {
-          const text = (item as HTMLElement).innerText.trim();
-          if (text) lines.push(ordered ? `${start + index}. ${text}` : `- ${text}`);
-        });
-      } else if (child.tagName === "BLOCKQUOTE") {
-        walk(child);
-      } else {
-        const text = (child as HTMLElement).innerText.trim();
-        if (text) lines.push(text);
-      }
-    }
-  };
-  walk(root);
-  return lines.join("\n\n");
-}
 
 /** Set inside a copyable quote: a nested quote is copied with its parent, not on its own. */
 const InsideQuoteContext = createContext(false);
 
-/** Copies `root`'s text as a message pastes: hover, focus or touch reveals it. */
+const DRAFT_COPY_FORMAT_STORAGE_KEY = "t3code.draftCopyFormat";
+const DraftCopyFormatSchema = Schema.Literals(DRAFT_COPY_FORMATS);
+const DEFAULT_DRAFT_COPY_FORMAT: DraftCopyFormat = "rich";
+
+/**
+ * Copies `root`'s message in the format last picked on this device (rich text by default),
+ * with a menu for the others: hover, focus or touch reveals it.
+ */
 function CopyOverlay(props: { readonly target: () => HTMLElement | null; readonly label: string }) {
+  const [format, setFormat] = useLocalStorage(
+    DRAFT_COPY_FORMAT_STORAGE_KEY,
+    DEFAULT_DRAFT_COPY_FORMAT,
+    DraftCopyFormatSchema,
+  );
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
-  const copy = () => {
+  const copy = (as: DraftCopyFormat) => {
     const root = props.target();
     if (!root) return;
-    void writeTextToClipboard(blockquoteToPlainText(root), "quote").then(
+    const { text, flavors } = draftClipboardPayload(root, as);
+    void writeTextToClipboard(text, "message", flavors).then(
       () => {
         setCopied(true);
         if (timer.current) clearTimeout(timer.current);
@@ -53,9 +55,14 @@ function CopyOverlay(props: { readonly target: () => HTMLElement | null; readonl
       () => undefined,
     );
   };
+  const label = copied
+    ? "Copied"
+    : format === "rich"
+      ? props.label
+      : DRAFT_COPY_FORMAT_LABELS[format];
 
   return (
-    <div className="absolute top-0 right-0 opacity-0 transition-opacity group-hover/quote:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+    <div className="absolute top-0 right-0 flex opacity-0 transition-opacity group-hover/quote:opacity-100 focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 pointer-coarse:opacity-100">
       <Tooltip>
         <TooltipTrigger
           render={
@@ -63,15 +70,44 @@ function CopyOverlay(props: { readonly target: () => HTMLElement | null; readonl
               type="button"
               variant="ghost-muted"
               size="icon-xs"
-              aria-label={copied ? "Copied" : props.label}
-              onClick={copy}
+              aria-label={label}
+              onClick={() => copy(format)}
             />
           }
         >
           {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
         </TooltipTrigger>
-        <TooltipPopup side="top">{copied ? "Copied" : props.label}</TooltipPopup>
+        <TooltipPopup side="top">{label}</TooltipPopup>
       </Tooltip>
+      <Menu>
+        <MenuTrigger
+          render={<Button type="button" variant="ghost-muted" size="icon-xs" />}
+          aria-label="Copy formats"
+        >
+          <ChevronDownIcon className="size-3" />
+        </MenuTrigger>
+        <MenuPopup align="end">
+          {/* Picking a format copies in it and makes it the button's format on this device. */}
+          <MenuRadioGroup value={format}>
+            {DRAFT_COPY_FORMATS.map((option) => (
+              <MenuRadioItem
+                key={option}
+                value={option}
+                closeOnClick
+                onClick={() => {
+                  setFormat(option);
+                  copy(option);
+                }}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="flex-1">{DRAFT_COPY_FORMAT_LABELS[option]}</span>
+                  <MenuRadioItemIndicator />
+                </span>
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuPopup>
+      </Menu>
     </div>
   );
 }
