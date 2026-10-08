@@ -8,6 +8,7 @@ import {
   ProjectFaviconPath,
 } from "./orchestration.ts";
 import { ToolActivityNativeAppReference } from "./providerRuntime.ts";
+import { VoiceModelTier } from "./voiceModels.ts";
 
 const ASSET_PATH_MAX_LENGTH = 1024;
 
@@ -56,6 +57,11 @@ export const AssetResource = Schema.Union([
   Schema.TaggedStruct("github-media", {
     cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
     url: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
+  }),
+  // A downloaded read-aloud voice model, served as a directory: the client's
+  // speech worker fetches its files by their path inside the model.
+  Schema.TaggedStruct("voice-model", {
+    tier: VoiceModelTier,
   }),
 ]);
 export type AssetResource = typeof AssetResource.Type;
@@ -301,6 +307,17 @@ export class AssetGitHubMediaUrlValidationError extends Schema.TaggedError<Asset
   }
 }
 
+export class AssetVoiceModelNotFoundError extends Schema.TaggedError<AssetVoiceModelNotFoundError>()(
+  "AssetVoiceModelNotFoundError",
+  {
+    resource: AssetResource,
+  },
+) {
+  override get message(): string {
+    return "This voice is not downloaded in this environment.";
+  }
+}
+
 export const AssetAccessError = Schema.Union([
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
@@ -315,6 +332,7 @@ export const AssetAccessError = Schema.Union([
   AssetProjectFaviconInspectionError,
   AssetProjectFaviconNotFoundError,
   AssetGitHubMediaUrlValidationError,
+  AssetVoiceModelNotFoundError,
   AssetSigningKeyLoadError,
 ]);
 export type AssetAccessError = typeof AssetAccessError.Type;

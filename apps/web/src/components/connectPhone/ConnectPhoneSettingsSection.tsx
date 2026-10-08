@@ -7,7 +7,11 @@ import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { describeQuickConnectStatus, resolveQuickConnectView } from "./connectPhone.logic";
 import { openConnectPhoneDialog } from "./ConnectPhoneDialog";
-import { useViewCodeRelaySetupState, useViewCodeRelayState } from "./QuickConnectPhone";
+import {
+  CloudflareAccountPicker,
+  useViewCodeRelaySetupState,
+  useViewCodeRelayState,
+} from "./QuickConnectPhone";
 import { useTailscalePhoneAccess } from "./useTailscalePhoneAccess";
 
 /** Top of Settings → Connections: the one-step way to pair the mobile app. */
@@ -58,7 +62,11 @@ export function ConnectPhoneSettingsSection() {
             />
           )
         }
-      />
+      >
+        {quickSetup?.status === "needs-account" ? (
+          <CloudflareAccountPicker setup={quickSetup} />
+        ) : null}
+      </SettingsRow>
       {tailscale.access?.installed ? (
         <SettingsRow
           title="Turn on Tailscale phone access at launch"

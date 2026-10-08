@@ -1,4 +1,10 @@
 import { renderCodexDirectivesForCopy } from "@t3tools/client-runtime/codex-markdown-directives";
+import {
+  DEFAULT_VOICE_MODEL_TIER,
+  type ReadAloudVoice,
+  type VoiceModelTier,
+  type VoiceModelsState,
+} from "@t3tools/contracts";
 import type { Nodes } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -209,4 +215,119 @@ export function latestReadableReply(
     return message.text.trim().length > 0 ? message : null;
   }
   return null;
+}
+
+/**
+ * The natural voices offered in Settings, best first. The environment mirrors
+ * exactly these (.github/workflows/voice-models.yml), so add one there too.
+ */
+export const NATURAL_VOICES = [
+  { id: "af_heart", name: "Heart", accent: "American" },
+  { id: "af_bella", name: "Bella", accent: "American" },
+  { id: "af_nicole", name: "Nicole", accent: "American" },
+  { id: "am_michael", name: "Michael", accent: "American" },
+  { id: "am_fenrir", name: "Fenrir", accent: "American" },
+  { id: "bf_emma", name: "Emma", accent: "British" },
+  { id: "bm_george", name: "George", accent: "British" },
+] as const;
+
+/** Approximate download per tier (model, tokenizer and voices), shown before the manifest is read. */
+export const NATURAL_VOICE_TIER_BYTES: Record<VoiceModelTier, number> = {
+  small: 96_000_000,
+  medium: 167_000_000,
+  large: 329_000_000,
+};
+
+/** A saved voice, with the default (null) resolved: the natural voice at the small tier. */
+export function resolveReadAloudVoice(saved: ReadAloudVoice | null): ReadAloudVoice {
+  return saved ?? { engine: "kokoro", voice: NATURAL_VOICES[0].id, tier: DEFAULT_VOICE_MODEL_TIER };
+}
+
+/** Where the natural voice stands for one tier; `unavailable` when this client or environment cannot run it. */
+export type NaturalVoiceStatus = "ready" | "absent" | "downloading" | "failed" | "unavailable";
+
+export function naturalVoiceStatus(
+  state: VoiceModelsState | null,
+  tier: VoiceModelTier,
+): NaturalVoiceStatus {
+  const phase = state?.tiers.find((each) => each.tier === tier)?.phase;
+  return phase === undefined ? "unavailable" : phase;
+}
+
+/** Why a reply that wanted the natural voice is read by the system voice; `error` when it failed while reading. */
+export type ReadAloudFallbackReason = "downloading" | "failed" | "unavailable" | "error";
+
+export interface ReadAloudPlan {
+  readonly engine: "natural" | "system" | null;
+  readonly startDownload: boolean;
+  readonly notice: ReadAloudFallbackReason | null;
+}
+
+/**
+ * Which engine reads a reply. The natural voice reads once its tier is
+ * downloaded; until then the system voice reads (never silence), the first
+ * press starts the download, and the user is told why it sounds different. A
+ * failed download is not retried on every press; Settings retries it.
+ */
+export function planReadAloud(input: {
+  readonly voice: ReadAloudVoice;
+  readonly natural: NaturalVoiceStatus;
+  readonly systemAvailable: boolean;
+}): ReadAloudPlan {
+  const system = input.systemAvailable ? "system" : null;
+  if (input.voice.engine === "system")
+    return { engine: system, startDownload: false, notice: null };
+  switch (input.natural) {
+    case "ready":
+      return { engine: "natural", startDownload: false, notice: null };
+    case "absent":
+      return { engine: system, startDownload: true, notice: "downloading" };
+    default:
+      return { engine: system, startDownload: false, notice: input.natural };
+  }
+}
+
+/** A chunk the natural voice could not synthesize; earlier chunks were already heard. */
+export class ReadAloudChunkError extends Error {
+  constructor(
+    readonly chunkIndex: number,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : "Speech synthesis failed.", { cause });
+  }
+}
+
+/**
+ * Plays `chunks` in order and synthesizes each next chunk while the current one
+ * plays, so a long reply starts after one chunk's synthesis. Resolves when the
+ * last chunk ends or `signal` aborts (later results are dropped); rejects with
+ * a `ReadAloudChunkError` naming the chunk that could not be synthesized.
+ */
+export async function playChunksAhead<Clip>(
+  chunks: ReadonlyArray<string>,
+  options: {
+    readonly synthesize: (text: string) => Promise<Clip>;
+    readonly play: (clip: Clip, signal: AbortSignal) => Promise<void>;
+    readonly signal: AbortSignal;
+  },
+): Promise<void> {
+  if (chunks.length === 0 || options.signal.aborted) return;
+  let next = options.synthesize(chunks[0]!);
+  for (let index = 0; index < chunks.length; index += 1) {
+    let clip: Clip;
+    try {
+      clip = await next;
+    } catch (error) {
+      if (options.signal.aborted) return;
+      throw new ReadAloudChunkError(index, error);
+    }
+    if (options.signal.aborted) return;
+    if (index + 1 < chunks.length) {
+      next = options.synthesize(chunks[index + 1]!);
+      // Awaited after this chunk plays; a stop before then drops the failure.
+      next.catch(() => {});
+    }
+    await options.play(clip, options.signal);
+    if (options.signal.aborted) return;
+  }
 }

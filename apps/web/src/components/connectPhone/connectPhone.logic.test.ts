@@ -293,6 +293,17 @@ describe("describeQuickConnectStatus", () => {
         { status: "running", step: "deploying", message: "Setting up your relay…" },
       ),
     ).toBe("Setting up your relay…");
+    // Waiting on the person (an account to choose) says so instead of the connection's line.
+    expect(
+      describeQuickConnectStatus(
+        { kind: "not-set-up" },
+        {
+          status: "needs-account",
+          accounts: [{ id: "a1", name: "Work" }],
+          message: "Your Cloudflare sign-in has several accounts. Choose one for the relay.",
+        },
+      ),
+    ).toBe("Your Cloudflare sign-in has several accounts. Choose one for the relay.");
     expect(describeQuickConnectStatus({ kind: "off" })).toBe("Off.");
     expect(
       describeQuickConnectStatus({ kind: "reconnecting", reason: "The connection dropped." }),

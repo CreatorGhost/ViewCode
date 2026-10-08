@@ -125,6 +125,7 @@ import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts"
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
 import { AntigravityInstallation } from "./provider/AntigravityInstallation.ts";
+import { VoiceModelStore } from "./voiceModels/VoiceModelStore.ts";
 import { detectProviders } from "./provider/providerLaunch.ts";
 import {
   isProviderSelectionPending,
@@ -611,6 +612,7 @@ const makeWsRpcLayer = (
       const providerInstances = yield* ProviderInstanceRegistry;
       const providerInstallation = yield* makeProviderInstallation();
       const antigravityInstallation = yield* AntigravityInstallation;
+      const voiceModels = yield* VoiceModelStore;
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -2883,6 +2885,22 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.providerInstallRemove, providerInstallation.remove(input), {
             "rpc.aggregate": "provider",
           }),
+        [WS_METHODS.voiceModelsDownload]: (input) =>
+          observeRpcEffect(WS_METHODS.voiceModelsDownload, voiceModels.download(input.tier), {
+            "rpc.aggregate": "voice-models",
+          }),
+        [WS_METHODS.voiceModelsCancel]: (input) =>
+          observeRpcEffect(WS_METHODS.voiceModelsCancel, voiceModels.cancel(input.tier), {
+            "rpc.aggregate": "voice-models",
+          }),
+        [WS_METHODS.voiceModelsRemove]: () =>
+          observeRpcEffect(WS_METHODS.voiceModelsRemove, voiceModels.remove, {
+            "rpc.aggregate": "voice-models",
+          }),
+        [WS_METHODS.subscribeVoiceModels]: () =>
+          observeRpcStream(WS_METHODS.subscribeVoiceModels, voiceModels.changes, {
+            "rpc.aggregate": "voice-models",
+          }),
         [WS_METHODS.serverUpdateServer]: (input) =>
           observeRpcEffect(WS_METHODS.serverUpdateServer, serverUpdate.update(input), {
             "rpc.aggregate": "server",
@@ -3469,6 +3487,12 @@ const makeWsRpcLayer = (
             viewCodeRelaySetup.continueSetup,
             { "rpc.aggregate": "relay" },
           ),
+        [WS_METHODS.viewcodeRelaySetupChooseAccount]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.viewcodeRelaySetupChooseAccount,
+            viewCodeRelaySetup.chooseAccount(input.accountId),
+            { "rpc.aggregate": "relay" },
+          ),
         [WS_METHODS.viewcodeRelayRemove]: (input) =>
           observeRpcEffect(WS_METHODS.viewcodeRelayRemove, viewCodeRelaySetup.remove(input), {
             "rpc.aggregate": "relay",
@@ -3662,6 +3686,8 @@ const makeWsRpcLayer = (
                 input.resource._tag === "native-app-icon" ||
                 // GitHub media names the repository it authenticates through itself.
                 input.resource._tag === "github-media" ||
+                // A voice model lives in the environment's own state directory.
+                input.resource._tag === "voice-model" ||
                 (input.resource._tag === "media-file" && path.isAbsolute(input.resource.path))
               ) {
                 return yield* issueAssetUrl({ resource: input.resource });

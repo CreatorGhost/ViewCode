@@ -146,8 +146,9 @@ export type ViewCodeRelayProblem = typeof ViewCodeRelayProblem.Type;
 
 /**
  * `idle`: nothing running (never started, cancelled, or removed).
- * `needs-subdomain`: the Cloudflare account has no workers.dev subdomain;
- * continue after creating one. `succeeded`: deployed and the address answered.
+ * `needs-account`: the sign-in reaches several Cloudflare accounts; continue
+ * by choosing one of `accounts`. `needs-subdomain`: the Cloudflare account has
+ * no workers.dev subdomain; continue after creating one. `succeeded`: deployed and the address answered.
  * `unreachable`: deployed and saved, but the address did not answer in time;
  * the connector keeps trying. `remove-failed`: the Worker could not be
  * deleted; nothing local was changed.
@@ -155,6 +156,7 @@ export type ViewCodeRelayProblem = typeof ViewCodeRelayProblem.Type;
 export const ViewCodeRelaySetupStatus = Schema.Literals([
   "idle",
   "running",
+  "needs-account",
   "needs-subdomain",
   "succeeded",
   "unreachable",
@@ -177,6 +179,10 @@ export const ViewCodeRelaySetupState = Schema.Struct({
       lines: Schema.Array(Schema.String),
     }),
   ),
+  /** With `needs-account`: the accounts to choose from. */
+  accounts: Schema.optional(
+    Schema.Array(Schema.Struct({ id: TrimmedNonEmptyString, name: Schema.String })),
+  ),
   /** While verifying, or when it ended unreachable: what the last attempt saw. */
   problem: Schema.optional(ViewCodeRelayProblem),
   /** One sentence for the person about the current step or the outcome. */
@@ -198,6 +204,12 @@ export const ViewCodeRelaySetupStartInput = Schema.Struct({
   rotateSecret: Schema.optional(Schema.Boolean),
 });
 export type ViewCodeRelaySetupStartInput = typeof ViewCodeRelaySetupStartInput.Type;
+
+/** Answers `needs-account`: the relay goes on this account, now and on every later run. */
+export const ViewCodeRelayChooseAccountInput = Schema.Struct({
+  accountId: TrimmedNonEmptyString,
+});
+export type ViewCodeRelayChooseAccountInput = typeof ViewCodeRelayChooseAccountInput.Type;
 
 export const ViewCodeRelayRemoveInput = Schema.Struct({
   /** Clear this computer's settings without deleting the Worker (after a failed delete). */

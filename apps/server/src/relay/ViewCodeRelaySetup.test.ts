@@ -37,6 +37,12 @@ const NO_SUBDOMAIN_FOR_ACCOUNT: WranglerResult = {
   exitCode: 1,
   output: `${NO_SUBDOMAIN.output}✘ [ERROR] You can either deploy your worker to one or more routes by specifying them in your wrangler.json file, or register a workers.dev subdomain here:\nhttps://dash.cloudflare.com/${ACCOUNT_ID}/workers/onboarding\n`,
 };
+const OTHER_ACCOUNT_ID = "fedcba9876543210fedcba9876543210";
+/** `wrangler whoami --json` for a sign-in that reaches `accounts`. */
+const whoamiJson = (accounts: ReadonlyArray<{ id: string; name: string }>): WranglerResult => ({
+  exitCode: 0,
+  output: toJson({ loggedIn: true, authType: "OAuth Token", email: "me@example.com", accounts }),
+});
 const CLOUDFLARE_TOKEN = "cloudflare-oauth-token-value";
 const AUTH_TOKEN: WranglerResult = {
   exitCode: 0,
@@ -48,6 +54,7 @@ const LOGIN_PROMPT =
 interface Call {
   readonly args: ReadonlyArray<string>;
   readonly input: string | undefined;
+  readonly accountId: string | undefined;
 }
 
 /**
@@ -63,7 +70,7 @@ const makeFakeWrangler = (results: Record<string, ReadonlyArray<WranglerResult>>
       configPath: "/tmp/staged/wrangler.json",
       run: (args, options) =>
         Effect.gen(function* () {
-          calls.push({ args, input: options?.input });
+          calls.push({ args, input: options?.input, accountId: options?.accountId });
           // `whoami --json` and `auth token --json` are scripted by their full command line.
           const command = results[args.join(" ")] === undefined ? (args[0] ?? "") : args.join(" ");
           if (command === "login") {
@@ -231,7 +238,7 @@ describe("ViewCodeRelaySetup", () => {
       const { store, data } = makeMemoryStore({});
       const { probe, probed } = makeProbe([ok]);
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe,
       });
@@ -285,7 +292,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { store, data } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
         http: cloudflare.http,
@@ -302,12 +309,13 @@ describe("ViewCodeRelaySetup", () => {
 
       expect(done).toEqual({ status: "succeeded", message: "Quick connect is set up." });
       expect(data.url).toBe(WORKER_URL);
-      expect(wrangler.calls.map((call) => call.args[0])).toEqual([
+      expect(wrangler.calls.map((call) => call.args.join(" ").split(" --")[0])).toEqual([
+        "whoami",
         "whoami",
         "deploy",
-        "auth",
+        "auth token",
         "deploy",
-        "secret",
+        "secret put HOST_SECRET",
       ]);
       const workers = `/accounts/${ACCOUNT_ID}/workers`;
       const [current, check, claim] = cloudflare.requests;
@@ -342,7 +350,7 @@ describe("ViewCodeRelaySetup", () => {
       );
       const { store } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
         http: cloudflare.http,
@@ -378,7 +386,7 @@ describe("ViewCodeRelaySetup", () => {
         );
         const { store, data } = makeMemoryStore({});
         const setup = yield* makeSetup({
-          prepare: Effect.succeed(wrangler.session),
+          prepare: () => Effect.succeed(wrangler.session),
           store,
           probe: makeProbe([ok]).probe,
           http: cloudflare.http,
@@ -403,37 +411,153 @@ describe("ViewCodeRelaySetup", () => {
     },
   );
 
-  it.effect("does not guess between several accounts", () =>
+  it.effect("uses the only Cloudflare account without asking and remembers it", () =>
     Effect.gen(function* () {
       const wrangler = yield* makeFakeWrangler({
         whoami: [{ exitCode: 0, output: "You are logged in." }],
-        "whoami --json": [
-          {
-            exitCode: 0,
-            output: toJson({
-              loggedIn: true,
-              accounts: [
-                { id: ACCOUNT_ID, name: "Personal" },
-                { id: "fedcba9876543210fedcba9876543210", name: "Work" },
-              ],
-            }),
-          },
-        ],
-        deploy: [NO_SUBDOMAIN],
+        "whoami --json": [whoamiJson([{ id: ACCOUNT_ID, name: "Personal" }])],
+        deploy: [DEPLOYED],
       });
-      const { store } = makeMemoryStore({});
+      const { store, data } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
 
       yield* setup.start({ mode: "new" });
-      const stopped = yield* awaitState(setup.changes, isSettled);
-      expect(stopped.status).toBe("needs-subdomain");
-      expect(stopped.details).toContain("register a workers.dev subdomain");
-      // The sign-in token is never read when it would not be used.
-      expect(wrangler.calls.map((call) => call.args.join(" "))).not.toContain("auth token --json");
+      const done = yield* awaitState(setup.changes, isSettled);
+      expect(done.status).toBe("succeeded");
+      expect(data.relay).toEqual({
+        name: "viewcode-relay",
+        url: WORKER_URL,
+        accountId: ACCOUNT_ID,
+      });
+      const deploy = wrangler.calls.find((call) => call.args[0] === "deploy")!;
+      expect(deploy.accountId).toBe(ACCOUNT_ID);
+    }),
+  );
+
+  it.effect("asks which account to use when the sign-in has several, then deploys there", () =>
+    Effect.gen(function* () {
+      const wrangler = yield* makeFakeWrangler({
+        whoami: [{ exitCode: 0, output: "You are logged in." }],
+        "whoami --json": [
+          whoamiJson([
+            { id: OTHER_ACCOUNT_ID, name: "Personal" },
+            { id: ACCOUNT_ID, name: "Work" },
+          ]),
+        ],
+        // No dashboard link to read the account from: only the choice says which.
+        deploy: [NO_SUBDOMAIN, DEPLOYED],
+        "auth token --json": [AUTH_TOKEN],
+      });
+      const cloudflare = makeFakeCloudflare(freshAccount());
+      const { store, data } = makeMemoryStore({});
+      const setup = yield* makeSetup({
+        prepare: () => Effect.succeed(wrangler.session),
+        store,
+        probe: makeProbe([ok]).probe,
+        http: cloudflare.http,
+      });
+
+      yield* setup.start({ mode: "new" });
+      const asked = yield* awaitState(setup.changes, isSettled);
+      expect(asked.status).toBe("needs-account");
+      expect(asked.accounts).toEqual([
+        { id: OTHER_ACCOUNT_ID, name: "Personal" },
+        { id: ACCOUNT_ID, name: "Work" },
+      ]);
+      // Nothing was deployed or read for an account nobody chose.
+      expect(wrangler.calls.map((call) => call.args.join(" "))).toEqual([
+        "whoami",
+        "whoami --json",
+      ]);
+
+      const unknown = yield* setup
+        .chooseAccount("ffffffffffffffffffffffffffffffff")
+        .pipe(Effect.flip);
+      expect(unknown.detail).toContain("not one of the choices");
+
+      const before = wrangler.calls.length;
+      yield* setup.chooseAccount(ACCOUNT_ID);
+      const done = yield* awaitState(setup.changes, isSettled);
+      expect(done.status).toBe("succeeded");
+      const after = wrangler.calls.slice(before).filter((call) => call.args[0] !== "whoami");
+      expect(after.map((call) => call.args[0])).toEqual(["deploy", "auth", "deploy", "secret"]);
+      expect(after.every((call) => call.accountId === ACCOUNT_ID)).toBe(true);
+      // The workers.dev address went to the chosen account, not a guess.
+      expect(
+        cloudflare.requests.every((request) =>
+          request.path.startsWith(`/accounts/${ACCOUNT_ID}/workers`),
+        ),
+      ).toBe(true);
+      expect(data.relay).toEqual({
+        name: "viewcode-relay",
+        url: WORKER_URL,
+        accountId: ACCOUNT_ID,
+      });
+    }),
+  );
+
+  it.effect("redeploy and remove reuse the remembered account; a vanished one is asked again", () =>
+    Effect.gen(function* () {
+      const relay = { name: "viewcode-relay", url: WORKER_URL, accountId: ACCOUNT_ID };
+      const both = whoamiJson([
+        { id: OTHER_ACCOUNT_ID, name: "Personal" },
+        { id: ACCOUNT_ID, name: "Work" },
+      ]);
+      const wrangler = yield* makeFakeWrangler({
+        whoami: [{ exitCode: 0, output: "You are logged in." }],
+        "whoami --json": [both],
+        deploy: [DEPLOYED],
+        delete: [{ exitCode: 0, output: "Successfully deleted viewcode-relay" }],
+      });
+      const { store, data } = makeMemoryStore({
+        secret: "stored-secret-value",
+        relay,
+        url: WORKER_URL,
+        enabled: true,
+      });
+      const setup = yield* makeSetup({
+        prepare: () => Effect.succeed(wrangler.session),
+        store,
+        probe: makeProbe([ok]).probe,
+      });
+
+      yield* setup.start({ mode: "redeploy", rotateSecret: true });
+      const redeployed = yield* awaitState(setup.changes, isSettled);
+      expect(redeployed.status).toBe("succeeded");
+      const deploy = wrangler.calls.find((call) => call.args[0] === "deploy")!;
+      expect(deploy.accountId).toBe(ACCOUNT_ID);
+      expect(wrangler.calls.find((call) => call.args[0] === "secret")!.accountId).toBe(ACCOUNT_ID);
+      expect(data.relay).toEqual(relay);
+
+      yield* setup.remove({});
+      const removed = yield* awaitState(setup.changes, isSettled);
+      expect(removed.status).toBe("idle");
+      expect(wrangler.calls.find((call) => call.args[0] === "delete")!.accountId).toBe(ACCOUNT_ID);
+
+      // The sign-in no longer reaches the remembered account.
+      const gone = yield* makeFakeWrangler({
+        whoami: [{ exitCode: 0, output: "You are logged in." }],
+        "whoami --json": [
+          whoamiJson([
+            { id: OTHER_ACCOUNT_ID, name: "Personal" },
+            { id: "fedcba9876543210fedcba9876543211", name: "Side" },
+          ]),
+        ],
+      });
+      const later = makeMemoryStore({ secret: "stored-secret-value", relay, url: WORKER_URL });
+      const again = yield* makeSetup({
+        prepare: () => Effect.succeed(gone.session),
+        store: later.store,
+        probe: makeProbe([ok]).probe,
+      });
+      yield* again.start({ mode: "redeploy" });
+      const asked = yield* awaitState(again.changes, isSettled);
+      expect(asked.status).toBe("needs-account");
+      expect(gone.calls.some((call) => call.args[0] === "deploy")).toBe(false);
     }),
   );
 
@@ -453,7 +577,7 @@ describe("ViewCodeRelaySetup", () => {
         const cloudflare = makeFakeCloudflare(freshAccount());
         const { store } = makeMemoryStore({});
         const setup = yield* makeSetup({
-          prepare: Effect.succeed(wrangler.session),
+          prepare: () => Effect.succeed(wrangler.session),
           store,
           probe: makeProbe([ok]).probe,
           http: cloudflare.http,
@@ -479,7 +603,7 @@ describe("ViewCodeRelaySetup", () => {
       const { store } = makeMemoryStore({});
       const { probe, probed } = makeProbe([reset, reset, reset, ok]);
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe,
       });
@@ -513,7 +637,7 @@ describe("ViewCodeRelaySetup", () => {
       const { store, data } = makeMemoryStore({});
       const { probe } = makeProbe([reset]);
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe,
       });
@@ -533,7 +657,7 @@ describe("ViewCodeRelaySetup", () => {
       const { store } = makeMemoryStore({ secret: "stored-secret-value", url: WORKER_URL });
       const { probe } = makeProbe([rejected]);
       const setup = yield* makeSetup({
-        prepare: Effect.die("reuse needs no wrangler"),
+        prepare: () => Effect.die("reuse needs no wrangler"),
         store,
         probe,
       });
@@ -557,7 +681,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { probe, probed } = makeProbe([ok]);
       const setup = yield* makeSetup({
-        prepare: Effect.die("reuse needs no wrangler"),
+        prepare: () => Effect.die("reuse needs no wrangler"),
         store,
         probe,
       });
@@ -581,7 +705,7 @@ describe("ViewCodeRelaySetup", () => {
           });
           const { store, data } = makeMemoryStore({ secret: "stored-secret-value", relay });
           const setup = yield* makeSetup({
-            prepare: Effect.succeed(wrangler.session),
+            prepare: () => Effect.succeed(wrangler.session),
             store,
             probe: makeProbe([ok]).probe,
           });
@@ -615,7 +739,7 @@ describe("ViewCodeRelaySetup", () => {
         enabled: true,
       });
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
@@ -648,7 +772,7 @@ describe("ViewCodeRelaySetup", () => {
         enabled: true,
       });
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
@@ -674,7 +798,7 @@ describe("ViewCodeRelaySetup", () => {
       });
       const { store, data } = makeMemoryStore({});
       const setup = yield* makeSetup({
-        prepare: Effect.succeed(wrangler.session),
+        prepare: () => Effect.succeed(wrangler.session),
         store,
         probe: makeProbe([ok]).probe,
       });
@@ -693,7 +817,7 @@ describe("ViewCodeRelaySetup", () => {
     Effect.gen(function* () {
       const { store } = makeMemoryStore({ secret: "stored-secret-value", url: WORKER_URL });
       const setup = yield* makeSetup({
-        prepare: Effect.die("reuse needs no wrangler"),
+        prepare: () => Effect.die("reuse needs no wrangler"),
         store,
         probe: makeProbe([reset]).probe,
       });

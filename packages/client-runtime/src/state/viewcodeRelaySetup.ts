@@ -35,6 +35,12 @@ export function createViewCodeRelaySetupAtoms<R, E>(
       scheduler,
       concurrency,
     }),
+    chooseAccount: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:viewcode-relay:setup-choose-account",
+      tag: WS_METHODS.viewcodeRelaySetupChooseAccount,
+      scheduler,
+      concurrency,
+    }),
     remove: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:viewcode-relay:remove",
       tag: WS_METHODS.viewcodeRelayRemove,

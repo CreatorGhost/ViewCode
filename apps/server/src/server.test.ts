@@ -148,6 +148,7 @@ import {
   AntigravityInstallationError,
 } from "./provider/AntigravityInstallation.ts";
 import { CodexInstallation } from "./provider/CodexInstallation.ts";
+import { VoiceModelStore } from "./voiceModels/VoiceModelStore.ts";
 import type { ProviderInstance } from "./provider/ProviderDriver.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import { ProviderAdapterRequestError } from "./provider/Errors.ts";
@@ -871,6 +872,7 @@ const buildAppUnderTest = (options?: {
             managedDirectory: "unused-test-antigravity-runtime",
             ...options?.layers?.antigravityInstallation,
           }),
+          Layer.mock(VoiceModelStore)({}),
           Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
             upsert: () => Effect.void,
             getBinding: () => Effect.succeedNone,

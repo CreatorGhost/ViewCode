@@ -30,6 +30,10 @@ import { openMediaFile } from "./MediaFile.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import { githubMediaResponse } from "./GitHubMediaFetch.ts";
+import {
+  VOICE_MODEL_COMPLETE_RECORD,
+  voiceModelTierDirectory,
+} from "../voiceModels/VoiceModelStore.ts";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof NodeFSP>();
@@ -832,6 +836,34 @@ describe("AssetAccess", () => {
         kind: "file",
         path: attachmentPath,
       });
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("serves a downloaded voice model's files and nothing else", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const resource = { _tag: "voice-model", tier: "medium" } as const;
+      const notReady = yield* Effect.flip(issueAssetUrl({ resource }));
+      expect(notReady._tag).toBe("AssetVoiceModelNotFoundError");
+
+      const directory = voiceModelTierDirectory(path, config.stateDir, "medium");
+      yield* fileSystem.makeDirectory(path.join(directory, "onnx"), { recursive: true });
+      yield* fileSystem.writeFileString(path.join(directory, "onnx", "model_fp16.onnx"), "model");
+      yield* fileSystem.writeFileString(path.join(directory, VOICE_MODEL_COMPLETE_RECORD), "{}");
+      yield* fileSystem.writeFileString(path.join(config.stateDir, "secret.txt"), "secret");
+
+      const result = yield* issueAssetUrl({ resource });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const token = suffix.slice(0, suffix.indexOf("/"));
+      expect(yield* resolveAsset(token, "onnx%2Fmodel_fp16.onnx")).toEqual({
+        kind: "file",
+        path: path.join(directory, "onnx", "model_fp16.onnx"),
+      });
+      expect(yield* resolveAsset(token, "onnx/missing.onnx")).toBeNull();
+      expect(yield* resolveAsset(token, VOICE_MODEL_COMPLETE_RECORD)).toBeNull();
+      expect(yield* resolveAsset(token, "..%2F..%2F..%2Fsecret.txt")).toBeNull();
     }).pipe(Effect.provide(testLayer)),
   );
 

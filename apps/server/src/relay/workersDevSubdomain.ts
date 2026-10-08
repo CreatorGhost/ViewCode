@@ -57,17 +57,27 @@ export function parseWranglerAuthToken(output: string): string | null {
   });
 }
 
+export interface CloudflareAccount {
+  readonly id: string;
+  readonly name: string;
+}
+
 const decodeWhoami = Schema.decodeUnknownOption(
   Schema.fromJsonString(
-    Schema.Struct({ accounts: Schema.Array(Schema.Struct({ id: Schema.String })) }),
+    Schema.Struct({
+      accounts: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+    }),
   ),
 );
 
-/** The account ids in `wrangler whoami --json`; null when unreadable. */
-export function parseWhoamiAccountIds(output: string): ReadonlyArray<string> | null {
+/** The accounts in `wrangler whoami --json` (id and name only); null when unreadable. */
+export function parseWhoamiAccounts(output: string): ReadonlyArray<CloudflareAccount> | null {
   return Option.match(decodeWhoami(jsonObjectIn(output)), {
     onNone: () => null,
-    onSome: ({ accounts }) => accounts.map((account) => account.id),
+    onSome: ({ accounts }) =>
+      accounts
+        .filter((account) => account.id.trim() !== "")
+        .map((account) => ({ id: account.id.trim(), name: account.name.trim() || account.id })),
   });
 }
 

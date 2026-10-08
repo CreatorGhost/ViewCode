@@ -1,8 +1,9 @@
 /**
  * ViewCode Quick connect setup from the app: signs in to the person's own
  * Cloudflare account (wrangler's device flow, whose link and code the UI
- * shows), deploys the relay Worker, stores the host secret and verifies the
- * address answers before calling it done. Also removes it again.
+ * shows), asks which account when the sign-in has several, deploys the relay
+ * Worker, stores the host secret and verifies the address answers before
+ * calling it done. Also removes it again.
  *
  * One operation runs at a time, forked into the service's scope, so closing
  * the dialog does not stop it. Progress is a `ViewCodeRelaySetupState` the
@@ -70,7 +71,7 @@ import {
 } from "./wranglerRunner.ts";
 import {
   parseDeployAccountId,
-  parseWhoamiAccountIds,
+  parseWhoamiAccounts,
   parseWranglerAuthToken,
   registerWorkersDevSubdomain,
 } from "./workersDevSubdomain.ts";
@@ -80,7 +81,10 @@ export interface RelaySetupStore {
   readonly readSecret: Effect.Effect<string | null>;
   readonly writeSecret: (secret: string) => Effect.Effect<void, RelaySetupFailure>;
   readonly removeSecret: Effect.Effect<void, RelaySetupFailure>;
-  /** The deployed Worker's name and address (`viewcode-relay.json`), for redeploy and remove. */
+  /**
+   * The deployed Worker's name, address and Cloudflare account
+   * (`viewcode-relay.json`), for redeploy and remove.
+   */
   readonly readRelayState: Effect.Effect<RelayState | null>;
   readonly writeRelayState: (state: RelayState) => Effect.Effect<void, RelaySetupFailure>;
   readonly removeRelayState: Effect.Effect<void, RelaySetupFailure>;
@@ -97,7 +101,10 @@ export interface RelaySetupStore {
 export type ProbeRelay = (origin: string, secret: string) => Effect.Effect<RelayProbeOutcome>;
 
 export interface RelaySetupDeps {
-  readonly prepare: Effect.Effect<WranglerSession, RelaySetupFailure, Scope.Scope>;
+  /** `showProgress` replaces the "checking tools" message, e.g. during a one-time download. */
+  readonly prepare: (
+    showProgress: (message: string) => Effect.Effect<void>,
+  ) => Effect.Effect<WranglerSession, RelaySetupFailure, Scope.Scope>;
   readonly store: RelaySetupStore;
   readonly probe: ProbeRelay;
   /** For the Cloudflare API calls that create a missing workers.dev subdomain. */
@@ -160,6 +167,8 @@ export interface ViewCodeRelaySetupShape {
    * not create it): deploy again with the same options.
    */
   readonly continueSetup: Effect.Effect<void, ViewCodeRelaySetupError>;
+  /** Answers `needs-account`: deploy again on this account, which is then remembered. */
+  readonly chooseAccount: (accountId: string) => Effect.Effect<void, ViewCodeRelaySetupError>;
   readonly remove: (input: {
     readonly localOnly?: boolean | undefined;
   }) => Effect.Effect<void, ViewCodeRelaySetupError>;
@@ -176,13 +185,24 @@ export class ViewCodeRelaySetup extends Context.Service<
   ViewCodeRelaySetupShape
 >()("t3/relay/ViewCodeRelaySetup") {}
 
-type DeployOptions = { readonly mode: "new" | "redeploy"; readonly rotateSecret: boolean };
+type DeployOptions = {
+  readonly mode: "new" | "redeploy";
+  readonly rotateSecret: boolean;
+  /** Chosen by the person after `needs-account`; wins over the remembered one. */
+  readonly accountId?: string;
+};
+
+/** Every wrangler run of `session` acts on `accountId`; unchanged when it is unknown. */
+const forAccount = (session: WranglerSession, accountId: string | null): WranglerSession =>
+  accountId === null
+    ? session
+    : { ...session, run: (args, options) => session.run(args, { ...options, accountId }) };
 
 export const makeRelaySetup = (deps: RelaySetupDeps) =>
   Effect.gen(function* () {
     const state = yield* SubscriptionRef.make<ViewCodeRelaySetupState>(idleState);
     const handle = yield* FiberHandle.make<void, never>();
-    /** What `continueSetup` repeats after a missing subdomain. */
+    /** What `continueSetup` and `chooseAccount` repeat. */
     let pending: DeployOptions | null = null;
     /** Secrets to redact from anything kept from this run's output. */
     let secrets: Array<string | null> = [];
@@ -193,6 +213,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
       details === "" ? next : { ...next, details };
     const setStep = (step: ViewCodeRelaySetupStep, extra: Partial<ViewCodeRelaySetupState> = {}) =>
       publish(withDetails({ status: "running", step, message: STEP_MESSAGE[step], ...extra }));
+    const showToolProgress = (message: string) => setStep("checking-tools", { message });
     const redact = (text: string) => redactSecrets(stripAnsi(text), secrets);
     const appendDetails = (text: string) => {
       const kept = redact(text).trim();
@@ -252,20 +273,37 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
       });
 
     /**
+     * The Cloudflare account to deploy to: `preferred` (just chosen, or
+     * remembered) while the sign-in still reaches it, else the only one. With
+     * several and none of them known, the person chooses. Wrangler itself
+     * cannot ask when it runs non-interactively, and fails instead.
+     */
+    const resolveAccount = (session: WranglerSession, preferred: string | null) =>
+      Effect.gen(function* () {
+        const whoami = yield* session.run(["whoami", "--json"]);
+        const accounts = whoami.exitCode === 0 ? parseWhoamiAccounts(whoami.output) : null;
+        // Unreadable: deploy as before and let wrangler decide (or explain).
+        if (accounts === null || accounts.length === 0) return { accountId: preferred };
+        if (preferred !== null && accounts.some((account) => account.id === preferred)) {
+          return { accountId: preferred };
+        }
+        if (accounts.length === 1) return { accountId: accounts[0]!.id };
+        return { choices: accounts };
+      });
+
+    /**
      * Gives an account without a workers.dev subdomain one, so the person is
      * never sent to the dashboard to pick it. False, with the reason in the
      * details, when it cannot; setup then asks the person after all.
      */
-    const createWorkersDevSubdomain = (session: WranglerSession, deployOutput: string) =>
+    const createWorkersDevSubdomain = (
+      session: WranglerSession,
+      deployOutput: string,
+      knownAccountId: string | null,
+    ) =>
       Effect.gen(function* () {
         yield* setStep("deploying", { message: "Creating your free workers.dev address…" });
-        let accountId = parseDeployAccountId(deployOutput);
-        if (accountId === null) {
-          const whoami = yield* session.run(["whoami", "--json"]);
-          const ids = whoami.exitCode === 0 ? parseWhoamiAccountIds(whoami.output) : null;
-          // With several accounts, guessing could put the address on the wrong one.
-          accountId = ids?.length === 1 ? ids[0]! : null;
-        }
+        const accountId = knownAccountId ?? parseDeployAccountId(deployOutput);
         if (accountId === null) {
           appendDetails("Could not tell which Cloudflare account needs the workers.dev address.");
           return false;
@@ -329,7 +367,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
     const deploy = (options: DeployOptions) =>
       Effect.gen(function* () {
         yield* setStep("checking-tools");
-        const session = yield* deps.prepare;
+        const wrangler = yield* deps.prepare(showToolProgress);
         const remembered = yield* deps.store.readRelayState;
         const name =
           remembered !== null && isValidWorkerName(remembered.name)
@@ -338,7 +376,24 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         const storedSecret = yield* deps.store.readSecret;
         secrets = [storedSecret];
 
-        yield* signIn(session);
+        yield* signIn(wrangler);
+        const account = yield* resolveAccount(
+          wrangler,
+          options.accountId ?? remembered?.accountId ?? null,
+        );
+        if ("choices" in account) {
+          pending = options;
+          yield* publish(
+            withDetails({
+              status: "needs-account",
+              accounts: account.choices,
+              message: "Your Cloudflare sign-in has several accounts. Choose one for the relay.",
+            }),
+          );
+          return;
+        }
+        const { accountId } = account;
+        const session = forAccount(wrangler, accountId);
 
         yield* setStep("deploying");
         const runDeploy = session
@@ -348,14 +403,14 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         let url = parseWorkerUrl(deployed.output, name);
         // Checked before the exit code: without a subdomain wrangler may exit non-zero.
         if (url === null && detectMissingWorkersDevSubdomain(deployed.output)) {
-          if (yield* createWorkersDevSubdomain(session, deployed.output)) {
+          if (yield* createWorkersDevSubdomain(session, deployed.output, accountId)) {
             yield* setStep("deploying");
             deployed = yield* runDeploy;
             url = parseWorkerUrl(deployed.output, name);
           }
         }
         if (url === null && detectMissingWorkersDevSubdomain(deployed.output)) {
-          pending = options;
+          pending = accountId === null ? options : { ...options, accountId };
           yield* publish(
             withDetails({
               status: "needs-subdomain",
@@ -393,7 +448,11 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         yield* Effect.uninterruptible(
           Effect.gen(function* () {
             yield* deps.store.writeSecret(secret);
-            yield* deps.store.writeRelayState({ name, url });
+            yield* deps.store.writeRelayState({
+              name,
+              url,
+              ...(accountId === null ? {} : { accountId }),
+            });
             yield* deps.store.saveRelaySettings({ enabled: true, url });
           }),
         );
@@ -426,9 +485,11 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         if (remembered !== null && !localOnly) {
           const deleted = yield* Effect.gen(function* () {
             yield* setStep("checking-tools");
-            const session = yield* deps.prepare;
+            const wrangler = yield* deps.prepare(showToolProgress);
             secrets = [yield* deps.store.readSecret];
-            yield* signIn(session);
+            yield* signIn(wrangler);
+            // A relay set up before the account was remembered relies on wrangler's own choice.
+            const session = forAccount(wrangler, remembered.accountId ?? null);
             yield* setStep("removing");
             const result = yield* session.run([
               "delete",
@@ -563,6 +624,23 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
           deploy(options),
         );
       }),
+      chooseAccount: (accountId) =>
+        Effect.gen(function* () {
+          const current = yield* SubscriptionRef.get(state);
+          const options = pending;
+          if (current.status !== "needs-account" || options === null) {
+            return yield* new ViewCodeRelaySetupError({ detail: "There is no setup to continue." });
+          }
+          if (!current.accounts?.some((account) => account.id === accountId)) {
+            return yield* new ViewCodeRelaySetupError({
+              detail: "That Cloudflare account is not one of the choices.",
+            });
+          }
+          yield* launch(
+            { status: "running", step: "checking-tools", message: STEP_MESSAGE["checking-tools"] },
+            deploy({ ...options, accountId }),
+          );
+        }),
       relayConnected: Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
         if (current.status === "unreachable") {
@@ -669,10 +747,14 @@ export const layer = Layer.effect(
     };
 
     return yield* makeRelaySetup({
-      prepare: prepareNodeWrangler(import.meta.dirname).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-        Effect.provideService(Path.Path, path),
-      ),
+      prepare: (showProgress) =>
+        prepareNodeWrangler({
+          here: import.meta.dirname,
+          cacheDir: path.join(config.baseDir, "caches"),
+        })(showProgress).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+        ),
       store,
       probe: probeRelay,
       http,
@@ -693,6 +775,7 @@ export const layerUnavailable = Layer.succeed(
     start: () => Effect.fail(unavailable),
     cancel: Effect.void,
     continueSetup: Effect.fail(unavailable),
+    chooseAccount: () => Effect.fail(unavailable),
     remove: () => Effect.fail(unavailable),
     relayConnected: Effect.void,
   }),

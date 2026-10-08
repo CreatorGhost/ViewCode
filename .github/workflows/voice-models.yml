@@ -1,0 +1,111 @@
+name: Voice Models
+
+# Mirrors the Kokoro-82M read-aloud voice model into this repository's
+# `voice-models-v1` release. ViewCode servers download it from here because
+# managed networks often block Hugging Face. Hugging Face stays the fallback
+# mirror, so every file comes from one Hugging Face commit, which the manifest
+# records with each file's size and SHA-256; servers verify both before use.
+#
+# Run it by hand or by changing this file. The `revision` input (a branch, tag
+# or commit; main when pushed) is resolved to its commit hash first, so the release is always pinned to an exact commit. The
+# servers read `manifest.json` from the tag below (`VOICE_MODEL_RELEASE_URL` in
+# apps/server/src/voiceModels/VoiceModelStore.ts), so a new tag needs a
+# matching server change.
+
+on:
+  # Also runs when this file changes on the default branch, so publishing a
+  # change to the mirror needs no manual dispatch.
+  push:
+    branches: [dev]
+    paths: [.github/workflows/voice-models.yml]
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Hugging Face branch, tag or commit to mirror
+        default: main
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: voice-models-v1
+  HF_REPO: onnx-community/Kokoro-82M-v1.0-ONNX
+
+jobs:
+  mirror:
+    name: Mirror Kokoro-82M
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Resolve the revision to a commit
+        env:
+          REQUESTED: ${{ inputs.revision || 'main' }}
+        run: |
+          set -euo pipefail
+          sha=$(curl --fail --location --silent --show-error --retry 3 \
+            "https://huggingface.co/api/models/$HF_REPO/revision/$REQUESTED" | jq -r .sha)
+          if ! [[ "$sha" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "Could not resolve $REQUESTED to a commit (got: $sha)" >&2
+            exit 1
+          fi
+          echo "HF_REVISION=$sha" >> "$GITHUB_ENV"
+          echo "Mirroring $HF_REPO at $sha"
+
+      - name: Download the pinned files
+        run: |
+          set -euo pipefail
+          mkdir -p files
+          # Shared by every tier: what Transformers.js reads besides the model,
+          # plus the voices Settings offers.
+          shared="config.json tokenizer.json tokenizer_config.json"
+          for voice in af_heart af_bella af_nicole am_michael am_fenrir bf_emma bm_george; do
+            shared="$shared voices/$voice.bin"
+          done
+          echo "$shared" > shared.txt
+          for path in $shared onnx/model_quantized.onnx onnx/model_fp16.onnx onnx/model.onnx; do
+            # Release assets are flat, so a file is published under its base name.
+            curl --fail --location --silent --show-error --retry 3 \
+              --output "files/$(basename "$path")" \
+              "https://huggingface.co/$HF_REPO/resolve/$HF_REVISION/$path"
+          done
+          # The model card states the licence (Apache-2.0) and the voices' origin.
+          curl --fail --location --silent --show-error --retry 3 \
+            --output files/MODEL_CARD.md \
+            "https://huggingface.co/$HF_REPO/resolve/$HF_REVISION/README.md"
+          curl --fail --location --silent --show-error --retry 3 \
+            --output files/LICENSE \
+            https://www.apache.org/licenses/LICENSE-2.0.txt
+
+      - name: Write manifest.json
+        run: |
+          set -euo pipefail
+          entry() {
+            local file="files/$(basename "$1")"
+            jq -n --arg path "$1" --argjson size "$(stat --format=%s "$file")" \
+              --arg sha256 "$(sha256sum "$file" | cut -d' ' -f1)" \
+              '{path: $path, size: $size, sha256: $sha256}'
+          }
+          tier() {
+            for path in $(cat shared.txt) "onnx/$1"; do entry "$path"; done | jq -s .
+          }
+          jq -n \
+            --arg repo "$HF_REPO" --arg revision "$HF_REVISION" \
+            --argjson small "$(tier model_quantized.onnx)" \
+            --argjson medium "$(tier model_fp16.onnx)" \
+            --argjson large "$(tier model.onnx)" \
+            '{version: 1, source: {repo: $repo, revision: $revision}, license: "Apache-2.0",
+              tiers: {small: $small, medium: $medium, large: $large}}' > files/manifest.json
+          cat files/manifest.json
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
+              --title "Read aloud voice models (Kokoro-82M)" \
+              --notes "Kokoro-82M (Apache-2.0) from https://huggingface.co/$HF_REPO at revision $HF_REVISION, mirrored for ViewCode's natural read-aloud voice. ViewCode downloads these on demand; do not delete."
+          fi
+          gh release upload "$TAG" files/* --repo "$GITHUB_REPOSITORY" --clobber

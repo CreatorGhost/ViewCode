@@ -47,12 +47,17 @@ Set it up once from the app: open **Connect phone → Anywhere → Quick connect
 - **Sign in.** A Cloudflare page opens (on the desktop app) with a code shown in
   ViewCode. Check that the codes match and approve. If no page opened, use the
   link and code shown. Setup then continues on its own.
+- **Several accounts.** If your sign-in reaches more than one Cloudflare
+  account, ViewCode asks which one should hold the relay and keeps using it for
+  redeploys and removal.
 - **workers.dev address.** A new Cloudflare account has no `workers.dev`
   address yet. ViewCode creates a free one for you (`viewcode-` and a few random
   characters). If that is not possible, ViewCode asks you to choose one under
   **Workers & Pages** instead and continues when you come back.
-- **Needs Node.js.** Setup runs Cloudflare's tools through Node.js 22 or newer.
-  If it is missing, ViewCode says so and links to nodejs.org.
+- **Node.js.** The desktop app needs nothing else: the first time, it gets
+  Cloudflare's tools ready on its own (a Node.js 22 or newer you installed is
+  used instead). With `npx t3`, setup runs them through Node.js 22 or newer; if
+  it is missing, ViewCode says so and links to nodejs.org.
 
 When the relay answers, the code for your phone appears; scan it with the T3 Code
 app. On some company networks a brand-new relay address is blocked for a few

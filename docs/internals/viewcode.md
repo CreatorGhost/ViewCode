@@ -579,8 +579,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
   frames cannot help because the stock phone expects one WebSocket message.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
-  runs `npx --yes wrangler@4` from PATH: the server may run as Electron-as-node, so it never
-  uses its own executable, and a missing Node is a message, not a crash. `infra/` does not
+  runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works: the server
+  is Electron-as-node there, so it downloads only npm (pinned version and integrity,
+  `relay/bundledNpm.ts`) and runs its `npx-cli.js` under its own executable with
+  `ELECTRON_RUN_AS_NODE=1`, a `node` shim first on PATH because wrangler's shebang, npm
+  install scripts and esbuild's postinstall start `node` by name. wrangler itself is not
+  bundled: its `workerd` dependency is about 100 MB per platform, and npx caches it anyway.
+  Under `npx t3` a missing Node is a message, not a crash. `infra/` does not
   ship, so the server build copies the Worker's TypeScript sources to
   `dist/viewcode-relay-worker/` and setup stages them with a generated `wrangler.json`
   whose `alias` maps `@t3tools/shared/viewcodeRelayProtocol` to the flat copy; wrangler
@@ -771,11 +776,29 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   the final message of a settled response. Progress messages written mid-turn
   are never read, and the palette command picks the same message
   (`latestReadableReply` in `apps/web/src/lib/readAloud.logic.ts`).
-- Speech goes through a `ReadAloudEngine` (`apps/web/src/lib/readAloudPlayer.ts`).
-  Only the Web Speech engine exists; a saved voice names its engine
-  (`ReadAloudVoice` in contracts `settings.ts`), so a cloud voice adds an engine
-  and a union member rather than a migration. Voice and speed are client
-  settings because voices are per device.
+- A saved voice names its engine (`ReadAloudVoice` in contracts `settings.ts`):
+  the Web Speech system voice, or the natural voice, Kokoro-82M (Apache-2.0)
+  through `kokoro-js` on ONNX Runtime's WASM backend in a module worker
+  (`readAloudKokoro.worker.ts`). Null is the default, the natural voice's small
+  tier. Voice and speed are client settings because voices are per device.
+- The model is downloaded, never bundled: the q8/fp16/fp32 tiers are 92, 163
+  and 326 MB, which would multiply the installer and every update. Only ONNX
+  Runtime's WASM-only build ships (about 11 MB, aliased in `vite.config.ts`; the
+  default WebGPU build is twice that), loaded from the app, never a CDN.
+- The environment downloads the model, not the client
+  (`apps/server/src/voiceModels/VoiceModelStore.ts`): GitHub release downloads
+  send no CORS headers, and managed networks often block Hugging Face. It reads
+  `manifest.json` from the `voice-models-v1` release (made by
+  `.github/workflows/voice-models.yml`), falls back to Hugging Face per file,
+  and checks every SHA-256. Clients load the files through a signed
+  `voice-model` asset URL, so remote clients use their server's copy. The
+  worker rewrites the hub URLs Transformers.js and kokoro-js (whose voice URLs
+  are fixed) ask for to that URL, and keeps no browser copy.
+- The natural voice never leaves silence: until its tier is downloaded, or if
+  it fails, the system voice reads (the rest of) the reply and a notice beside
+  the button says why. The first press starts the download; a failed one is
+  retried from Settings, not on every press. Chunks are synthesized one ahead
+  of playback (`playChunksAhead`), so a long reply starts after one chunk.
 - Utterances stay under 250 characters: Chromium's `speechSynthesis` cuts off
   or stalls long ones, and drops events for utterances it garbage-collects, so
   the queue stays referenced until it ends.

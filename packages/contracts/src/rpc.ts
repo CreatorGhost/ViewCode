@@ -118,6 +118,7 @@ import {
   ProviderUploadFeedbackResult,
 } from "./provider.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { VoiceModelError, VoiceModelTierInput, VoiceModelsState } from "./voiceModels.ts";
 import {
   ProviderAccountAddInput,
   ProviderAccountAddResult,
@@ -278,6 +279,7 @@ import {
 import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
+  ViewCodeRelayChooseAccountInput,
   ViewCodeRelayRemoveInput,
   ViewCodeRelaySetupError,
   ViewCodeRelaySetupStartInput,
@@ -495,6 +497,12 @@ export const WS_METHODS = {
   usageResumeCancel: "usageResume.cancel",
   usageResumeNow: "usageResume.now",
 
+  // ViewCode read aloud: the natural voice's model, downloaded by the environment
+  voiceModelsDownload: "voiceModels.download",
+  voiceModelsCancel: "voiceModels.cancel",
+  voiceModelsRemove: "voiceModels.remove",
+  subscribeVoiceModels: "subscribeVoiceModels",
+
   // ViewCode phone notifications through the Expo push service
   pushRegister: "push.register",
   pushUnregister: "push.unregister",
@@ -503,6 +511,7 @@ export const WS_METHODS = {
   viewcodeRelaySetupStart: "viewcodeRelay.setup.start",
   viewcodeRelaySetupCancel: "viewcodeRelay.setup.cancel",
   viewcodeRelaySetupContinue: "viewcodeRelay.setup.continue",
+  viewcodeRelaySetupChooseAccount: "viewcodeRelay.setup.chooseAccount",
   viewcodeRelayRemove: "viewcodeRelay.remove",
 
   // Streaming subscriptions
@@ -1130,6 +1139,11 @@ const WsViewCodeRelaySetupContinueRpc = Rpc.make(WS_METHODS.viewcodeRelaySetupCo
   error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
 });
 
+const WsViewCodeRelaySetupChooseAccountRpc = Rpc.make(WS_METHODS.viewcodeRelaySetupChooseAccount, {
+  payload: ViewCodeRelayChooseAccountInput,
+  error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
+});
+
 const WsViewCodeRelayRemoveRpc = Rpc.make(WS_METHODS.viewcodeRelayRemove, {
   payload: ViewCodeRelayRemoveInput,
   error: Schema.Union([ViewCodeRelaySetupError, EnvironmentAuthorizationError]),
@@ -1138,6 +1152,34 @@ const WsViewCodeRelayRemoveRpc = Rpc.make(WS_METHODS.viewcodeRelayRemove, {
 const WsSubscribeAgentControlRpc = Rpc.make(WS_METHODS.subscribeAgentControl, {
   payload: AgentControlSubscribeInput,
   success: AgentControlSnapshot,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const VoiceModelRpcError = Schema.Union([VoiceModelError, EnvironmentAuthorizationError]);
+
+const WsVoiceModelsDownloadRpc = Rpc.make(WS_METHODS.voiceModelsDownload, {
+  payload: VoiceModelTierInput,
+  success: VoiceModelsState,
+  error: VoiceModelRpcError,
+});
+
+const WsVoiceModelsCancelRpc = Rpc.make(WS_METHODS.voiceModelsCancel, {
+  payload: VoiceModelTierInput,
+  success: VoiceModelsState,
+  error: VoiceModelRpcError,
+});
+
+/** Removes every downloaded tier. */
+const WsVoiceModelsRemoveRpc = Rpc.make(WS_METHODS.voiceModelsRemove, {
+  payload: Schema.Struct({}),
+  success: VoiceModelsState,
+  error: VoiceModelRpcError,
+});
+
+const WsSubscribeVoiceModelsRpc = Rpc.make(WS_METHODS.subscribeVoiceModels, {
+  payload: Schema.Struct({}),
+  success: VoiceModelsState,
   error: EnvironmentAuthorizationError,
   stream: true,
 });
@@ -1727,6 +1769,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsAgentsResumeRpc,
   WsAgentsDiscardRpc,
   WsSubscribeAgentControlRpc,
+  WsVoiceModelsDownloadRpc,
+  WsVoiceModelsCancelRpc,
+  WsVoiceModelsRemoveRpc,
+  WsSubscribeVoiceModelsRpc,
   WsUsageResumeCancelRpc,
   WsUsageResumeNowRpc,
   WsPushRegisterRpc,
@@ -1734,6 +1780,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsViewCodeRelaySetupStartRpc,
   WsViewCodeRelaySetupCancelRpc,
   WsViewCodeRelaySetupContinueRpc,
+  WsViewCodeRelaySetupChooseAccountRpc,
   WsViewCodeRelayRemoveRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,

@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - build config resolving a dependency folder.
+import * as NodeModule from "node:module";
+import * as NodePath from "node:path";
 import * as NodeZlib from "node:zlib";
 
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
@@ -14,6 +17,15 @@ import { DEV_PROXIED_PATH_PREFIXES } from "@t3tools/shared/devProxy";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
+
+// Read aloud's natural voice runs ONNX Runtime in a worker. Its WASM-only build
+// (no WebGPU) ships half the wasm of the default one, and its runtime files are
+// emitted with the app instead of loading from a CDN (offline, and no CSP hole).
+const onnxRuntimeDist = NodePath.dirname(
+  NodeModule.createRequire(
+    NodeModule.createRequire(import.meta.url).resolve("@huggingface/transformers"),
+  ).resolve("onnxruntime-web"),
+);
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -220,6 +232,17 @@ export default defineConfig(() => {
     resolve: {
       tsconfigPaths: true,
       dedupe: ["react", "react-dom"],
+      alias: [
+        {
+          find: /^onnxruntime-web$/,
+          replacement: NodePath.join(onnxRuntimeDist, "ort.wasm.bundle.min.mjs"),
+        },
+        { find: /^onnxruntime-web-dist\//, replacement: `${onnxRuntimeDist}/` },
+      ],
+    },
+    // ONNX Runtime reads `import.meta.url`, which only module workers have.
+    worker: {
+      format: "es" as const,
     },
     experimental: {
       bundledDev,

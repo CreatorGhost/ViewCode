@@ -13,6 +13,7 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
+import { VoiceModelTier } from "./voiceModels.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
@@ -302,11 +303,19 @@ export type ChatWidth = typeof ChatWidth.Type;
 export const DEFAULT_CHAT_WIDTH: ChatWidth = "normal";
 
 // ViewCode read aloud (Settings -> Appearance -> Read aloud). A voice names its
-// engine, so adding a second engine extends this union instead of migrating it.
-export const ReadAloudVoice = Schema.Struct({
-  engine: Schema.Literal("system"),
-  voiceURI: TrimmedNonEmptyString,
-});
+// engine: the browser's system voices (a null voiceURI is the system default)
+// or the natural Kokoro voice at a model tier the environment downloads.
+export const ReadAloudVoice = Schema.Union([
+  Schema.Struct({
+    engine: Schema.Literal("system"),
+    voiceURI: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    engine: Schema.Literal("kokoro"),
+    voice: TrimmedNonEmptyString,
+    tier: VoiceModelTier,
+  }),
+]);
 export type ReadAloudVoice = typeof ReadAloudVoice.Type;
 export const MIN_READ_ALOUD_RATE = 0.8;
 export const MAX_READ_ALOUD_RATE = 2;
@@ -523,7 +532,7 @@ export const ClientSettingsSchema = Schema.Struct({
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_WIDTH))),
   // ViewCode: settled turns fold their work behind one summary row.
   collapseFinishedTurns: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // ViewCode: read aloud voice (null is the system default voice) and speed.
+  // ViewCode: read aloud voice (null is the default natural voice) and speed.
   readAloudVoice: Schema.NullOr(ReadAloudVoice).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),

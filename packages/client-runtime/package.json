@@ -119,6 +119,10 @@
       "types": "./src/state/agentControl.ts",
       "default": "./src/state/agentControl.ts"
     },
+    "./state/voice-models": {
+      "types": "./src/state/voiceModels.ts",
+      "default": "./src/state/voiceModels.ts"
+    },
     "./state/auth": {
       "types": "./src/state/auth.ts",
       "default": "./src/state/auth.ts"
