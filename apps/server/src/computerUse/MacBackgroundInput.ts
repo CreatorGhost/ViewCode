@@ -112,6 +112,7 @@ function state() {
 var posted = false;
 function execute(r) {
   posted = false;
+  if (r.input.kind === "foreground") return Number($.NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier);
   var rows = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1 | 16, 0))) || [];
   var matches = rows.filter(function(w) {
     var b = w.kCGWindowBounds;
@@ -199,8 +200,12 @@ export const makeMacBackgroundInput = () => {
     pending = undefined;
     buffered = "";
   };
-  const post = (pid: number, bounds: Rect, input: BackgroundInput) =>
-    new Promise<void>((resolve, reject) => {
+  const post = (
+    pid: number,
+    bounds: Rect,
+    input: BackgroundInput | { readonly kind: "foreground" },
+  ) =>
+    new Promise<void | number>((resolve, reject) => {
       const key = input.kind === "key" ? backgroundKey(input.keys) : undefined;
       if (key === null)
         return reject(
@@ -289,6 +294,12 @@ export const makeMacBackgroundInput = () => {
             return;
           }
           const result = "result" in value ? value.result : undefined;
+          if (input.kind === "foreground") {
+            if (typeof result === "number" && Number.isInteger(result) && result > 0)
+              resolve(result);
+            else reject(refused("The front application could not be read."));
+            return;
+          }
           if (
             typeof result !== "object" ||
             result === null ||
@@ -322,6 +333,12 @@ export const makeMacBackgroundInput = () => {
     });
   return {
     close,
+    // AXFocusedApplication can keep pointing at an inactive app after its
+    // context menu opens. NSWorkspace reports the app that owns the screen.
+    foregroundPid: async () => {
+      const pid = await post(0, { x: 0, y: 0, width: 0, height: 0 }, { kind: "foreground" });
+      return typeof pid === "number" ? pid : null;
+    },
     dispatch: async (
       pid: number,
       bounds: Rect,

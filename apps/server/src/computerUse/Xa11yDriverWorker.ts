@@ -102,7 +102,10 @@ export const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput
   listApps: () => xa11y.App.list(),
   appWindows: async (pid) => (await xa11y.App.byPid(pid, { timeout: 0 })).children(),
   elementIsAlive: async (element) => (await element.parent()) !== null,
-  foregroundPid: async () => (await xa11y.App.foreground({ timeout: 0 })).pid,
+  foregroundPid: async () =>
+    PLATFORM === "darwin"
+      ? backgroundInput.foregroundPid()
+      : (await xa11y.App.foreground({ timeout: 0 })).pid,
   inputSim: () => xa11y.inputSim(),
   ...(PLATFORM === "darwin" && process.env.VIEWCODE_COMPUTER_BACKGROUND === "1"
     ? { backgroundInput: backgroundInput.dispatch }
