@@ -354,6 +354,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   driver, so the agent and the logs can tell the two apart.
 - `VIEWCODE_COMPUTER_BACKGROUND=1` opts macOS into process-directed clicks, scrolling and
   single-window shortcuts for inactive targets, through one background-only JXA helper per worker.
+  The same flag enables a separate cursor on desktop-managed hosts. Its request and arrival reply
+  use the existing typed desktop-host FD channel; headless servers skip it. Cursor arrival precedes
+  the dispatch lock and policy is checked again afterwards. The panel cannot focus or receive input,
+  uses one-shot motion and is hidden after idle. Single-window captures exclude it; content
+  protection alone is not a guarantee for every third-party screen recorder.
   The routing fields are undocumented and the JXA bridge may lack `CGEventSetWindowLocation`.
   AX state must change across complete bounded reads; a post returning success is not evidence.
   A refusal after posting reports an uncertain effect, never a foreground retry. Explicit focus

@@ -18,6 +18,8 @@ import type * as Electron from "electron";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronPowerMonitor from "../electron/ElectronPowerMonitor.ts";
 import * as DesktopTelemetryPublisher from "./DesktopTelemetryPublisher.ts";
+import { AgentCursor } from "../computerUse/AgentCursor.ts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 function makeElectronAppLayer(
   metrics: ReadonlyArray<Electron.ProcessMetric>,
@@ -50,6 +52,79 @@ function makeElectronAppLayer(
 }
 
 describe("DesktopTelemetryPublisher", () => {
+  it.effect("answers cursor requests only after arrival, including a refused arrival", () =>
+    Effect.gen(function* () {
+      const entered = Promise.withResolvers<void>();
+      const arrival = Promise.withResolvers<boolean>();
+      const attached = yield* Deferred.make<void>();
+      const reported = yield* Deferred.make<unknown>();
+      const layer = DesktopTelemetryPublisher.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            makeElectronAppLayer([]),
+            Layer.succeed(ElectronPowerMonitor.ElectronPowerMonitor, {
+              isOnBatteryPower: Effect.succeed(false),
+              getSystemIdleTime: Effect.succeed(0),
+              getSystemIdleState: () => Effect.succeed("active"),
+              getCurrentThermalState: Effect.succeed("nominal"),
+              setKeepAwake: () => Effect.void,
+              onSimpleEvent: () => Effect.void,
+              onThermalStateChange: () => Effect.void,
+              onSpeedLimitChange: () => Effect.void,
+            }),
+            Layer.succeed(HostProcessPlatform, "darwin"),
+            Layer.succeed(AgentCursor, {
+              show: () => {
+                entered.resolve();
+                return arrival.promise;
+              },
+              removeSource: async () => {},
+              close: () => {},
+            }),
+          ),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const publisher = yield* DesktopTelemetryPublisher.DesktopTelemetryPublisher;
+        const decode = Schema.decodeUnknownSync(Schema.fromJsonString(DesktopHostTelemetryMessage));
+        yield* publisher.encoded.pipe(
+          Stream.runForEach((bytes) => {
+            const message = decode(new TextDecoder().decode(bytes).trim());
+            if (message.type === "desktopTelemetryHello")
+              return Deferred.succeed(attached, undefined);
+            if (message.type === "computerUseCursorReady")
+              return Deferred.succeed(reported, message);
+            return Effect.void;
+          }),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(attached);
+        const request = yield* publisher
+          .handleControlForSource("test", {
+            version: 1,
+            type: "computerUseCursor",
+            requestId: "cursor-request",
+            threadId: "thread",
+            threadName: "Test",
+            windowHandle: "window",
+            x: 10,
+            y: 20,
+            action: "click",
+          })
+          .pipe(Effect.forkChild);
+        yield* Effect.promise(() => entered.promise);
+        assert.isUndefined(request.pollUnsafe());
+        arrival.resolve(false);
+        assert.deepEqual(yield* Deferred.await(reported), {
+          version: 1,
+          type: "computerUseCursorReady",
+          requestId: "cursor-request",
+          ready: false,
+        });
+        yield* Fiber.join(request);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
   it.effect("stops when its scope closes during an Electron telemetry sample", () =>
     Effect.gen(function* () {
       const pollStarted = yield* Deferred.make<void>();

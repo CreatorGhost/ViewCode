@@ -6,6 +6,7 @@ import {
   DesktopHostTelemetryMessage,
   type DesktopHostTelemetryMessage as DesktopHostTelemetryMessageValue,
   type DesktopHostTelemetrySnapshot,
+  type DesktopComputerUseCursor,
   DesktopTelemetryControlMessage,
   type DesktopUpdateStatusReport,
   type ResourceTelemetrySourceStatus,
@@ -13,6 +14,7 @@ import {
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -174,6 +176,9 @@ export class DesktopTelemetryReceiver extends Context.Service<
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
     /** Holds or releases the desktop's keep-the-computer-awake assertion. */
     readonly setKeepAwake: (enabled: boolean) => Effect.Effect<void, DesktopTelemetryControlError>;
+    readonly showComputerUseCursor: (
+      message: DesktopComputerUseCursor,
+    ) => Effect.Effect<boolean, DesktopTelemetryControlError>;
     /** Asks the desktop app supervising this server to update itself. The
         desktop answers with desktopUpdateStatus reports carrying the same
         requestId. */
@@ -352,6 +357,7 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
   const latestUpdateReport = yield* Ref.make(Option.none<DesktopUpdateStatusReport>());
   const updateReportChanges = yield* PubSub.sliding<DesktopUpdateStatusReport>(16);
   const controlMutex = yield* Semaphore.make(1);
+  const cursors = new Map<string, Deferred.Deferred<boolean>>();
   const snapshotMutex = yield* Semaphore.make(1);
   const health = yield* Ref.make<DesktopTelemetryReceiverHealth>({
     status: config.desktopTelemetryFd === undefined ? "unavailable" : "starting",
@@ -530,6 +536,13 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
           );
         }
 
+        if (message.type === "computerUseCursorReady") {
+          const waiting = cursors.get(message.requestId);
+          return waiting
+            ? Deferred.succeed(waiting, message.ready).pipe(Effect.asVoid)
+            : Effect.void;
+        }
+
         // Not a resource sample: do not touch `latest` or sample health.
         if (message.type === "desktopUpdateStatus") {
           return recordContact.pipe(
@@ -649,6 +662,26 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
     subscribeHealth: subscribeBeforeSnapshotWithoutMutex(healthChanges, Ref.get(health)),
     setDiagnosticsDemand,
     setKeepAwake: (enabled) => sendControlMessage({ version: 1, type: "setKeepAwake", enabled }),
+    showComputerUseCursor: (message) =>
+      Effect.gen(function* () {
+        if (
+          config.desktopTelemetryControlFd === undefined ||
+          config.desktopTelemetryFd === undefined
+        )
+          return true;
+        const waiting = yield* Deferred.make<boolean>();
+        cursors.set(message.requestId, waiting);
+        return yield* sendControlMessage(message).pipe(
+          Effect.andThen(Deferred.await(waiting)),
+          Effect.timeoutOption(Duration.seconds(3)),
+          Effect.map(Option.getOrElse(() => false)),
+          Effect.ensuring(
+            Effect.sync(() => {
+              cursors.delete(message.requestId);
+            }),
+          ),
+        );
+      }),
     requestDesktopUpdate: (requestId) =>
       sendControlMessage({
         version: 1,
@@ -708,6 +741,7 @@ export const layerTest = (
         ),
       setDiagnosticsDemand: () => Effect.void,
       setKeepAwake: () => Effect.void,
+      showComputerUseCursor: () => Effect.succeed(true),
       requestDesktopUpdate: () => Effect.void,
       commitDesktopUpdate: () => Effect.void,
       cancelDesktopUpdate: () => Effect.void,

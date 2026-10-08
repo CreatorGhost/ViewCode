@@ -32,6 +32,7 @@ import type {
 export interface DriverDispatchTarget {
   readonly window: DriverWindow;
   readonly element?: DriverElementIdentity;
+  readonly point?: DriverPoint;
   /**
    * Set on a `prepare` check when the driver is about to bring the window to
    * the front for this input, including a fallback for a background action.

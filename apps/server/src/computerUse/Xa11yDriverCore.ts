@@ -945,9 +945,20 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           pid: entry.pid,
           title: live.name ?? "",
           focused: live.active,
+          ...(live.bounds ? { bounds: live.bounds } : {}),
           ...(path ? { appIdentifier: path } : {}),
         },
         ...(identity ? { element: identity } : {}),
+        ...(point
+          ? { point }
+          : element?.bounds
+            ? {
+                point: {
+                  x: element.bounds.x + element.bounds.width / 2,
+                  y: element.bounds.y + element.bounds.height / 2,
+                },
+              }
+            : {}),
         ...(foreground ? { foreground: true } : {}),
       },
       phase,
@@ -1118,6 +1129,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
                 }),
           ),
         );
+        if (strict && performance.now() - startedAt > budgetMs) return true;
         for (const [index, node] of batch.entries()) {
           for (const [childIndex, child] of (children[index] ?? []).entries()) {
             if (visited >= OBSERVE_MAX_VISITED) return true;

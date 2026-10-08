@@ -119,6 +119,9 @@ may have sent input. Shortcuts require one document window. Drags, pointer moves
 without a ref still need an explicit focus action, allowed by **Show on screen**. This mode is
 opt-in and uses undocumented window-routing fields that may change with macOS updates.
 Background synthetic input is not yet confirmed across apps; today's default stays the same.
+On desktop hosts this experiment also shows a separate agent pointer with the thread's name.
+It does not accept clicks or keyboard focus, and hides when idle. Its full integration with
+computer actions still needs confirmation in a ViewCode desktop build.
 
 Known gaps:
 

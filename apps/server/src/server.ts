@@ -74,6 +74,7 @@ import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/Provide
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as ComputerUseAncestry from "./computerUse/computerUseAncestry.ts";
 import * as ComputerUseService from "./computerUse/ComputerUseService.ts";
+import * as ComputerUseCursor from "./computerUse/ComputerUseCursor.ts";
 import { browserCliRouteLayer } from "./browserCli/BrowserCliRoute.ts";
 import { computerUseRouteLayer } from "./computerUse/ComputerUseRoute.ts";
 import * as Xa11yComputerDriver from "./computerUse/Xa11yComputerDriver.ts";
@@ -510,6 +511,7 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
 // ProviderService routes its approvals and turn ends to it, so it sits
 // between the two.
 const ComputerUseLayerLive = ComputerUseService.layer.pipe(
+  Layer.provide(ComputerUseCursor.layer.pipe(Layer.provide(DesktopTelemetryReceiverLayerLive))),
   Layer.provide(Xa11yComputerDriver.layer),
   Layer.provide(ComputerUseService.pendingApprovalsLayer),
   Layer.provide(ComputerUseAncestry.layer.pipe(Layer.provide(ProcessRunner.layer))),

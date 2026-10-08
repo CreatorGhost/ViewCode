@@ -306,10 +306,33 @@ export const DesktopUpdateStatusReport = Schema.Struct({
 });
 export type DesktopUpdateStatusReport = typeof DesktopUpdateStatusReport.Type;
 
+/** Ephemeral feedback over the desktop host channel; never sent to remote clients. */
+export const DesktopComputerUseCursor = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("computerUseCursor"),
+  requestId: TrimmedNonEmptyString,
+  threadId: TrimmedNonEmptyString,
+  threadName: Schema.String,
+  windowHandle: TrimmedNonEmptyString,
+  x: Schema.Number,
+  y: Schema.Number,
+  action: Schema.Literals(["click", "key", "type", "scroll", "drag", "move", "error"]),
+});
+export type DesktopComputerUseCursor = typeof DesktopComputerUseCursor.Type;
+
+export const DesktopComputerUseCursorReady = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("computerUseCursorReady"),
+  requestId: TrimmedNonEmptyString,
+  ready: Schema.Boolean,
+});
+export type DesktopComputerUseCursorReady = typeof DesktopComputerUseCursorReady.Type;
+
 export const DesktopHostTelemetryMessage = Schema.Union([
   DesktopHostTelemetryHello,
   DesktopHostTelemetrySnapshot,
   DesktopUpdateStatusReport,
+  DesktopComputerUseCursorReady,
 ]);
 export type DesktopHostTelemetryMessage = typeof DesktopHostTelemetryMessage.Type;
 
@@ -374,6 +397,7 @@ export const DesktopTelemetryControlMessage = Schema.Union([
   DesktopTelemetryRequestDesktopUpdate,
   DesktopTelemetryCommitDesktopUpdate,
   DesktopTelemetryCancelDesktopUpdate,
+  DesktopComputerUseCursor,
 ]);
 export type DesktopTelemetryControlMessage = typeof DesktopTelemetryControlMessage.Type;
 

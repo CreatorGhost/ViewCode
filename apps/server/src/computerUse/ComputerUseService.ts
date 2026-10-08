@@ -87,6 +87,7 @@ import {
   type WindowRecord,
 } from "./computerUseTargets.ts";
 import { clipValue } from "./Xa11yDriverCore.ts";
+import { ComputerUseCursor } from "./ComputerUseCursor.ts";
 
 /** Who is calling: resolved from the session credential, never from the body. */
 export interface ComputerUseCaller {
@@ -218,6 +219,7 @@ const KEPT_IN_BACKGROUND =
   "The user chose to keep this task in the background, so nothing may bring a window to the front until the turn ends. Act on controls by reference (press, set-value, type --ref) and use screenshots to look; if the task cannot be done that way, tell the user.";
 
 interface TurnContext {
+  readonly title: string;
   readonly turnId: TurnId;
   readonly provider: ProviderDriverKind;
   readonly fullAccess: boolean;
@@ -272,6 +274,7 @@ const refused = (error: ComputerUseError): ComputerUseResponse => ({ ok: false, 
 
 export const make = Effect.gen(function* () {
   const driver = yield* ComputerDriver;
+  const showCursor = yield* ComputerUseCursor;
   const settings = yield* ServerSettings.ServerSettingsService;
   const projection = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const config = yield* ServerConfig.ServerConfig;
@@ -375,6 +378,7 @@ export const make = Effect.gen(function* () {
         if (endedTurns.get(caller.threadId) === session.activeTurnId) return undefined;
         lastRunningTurn.set(caller.threadId, session.activeTurnId);
         return {
+          title: thread.title,
           turnId: session.activeTurnId,
           provider: session.providerName,
           // The thread's mode can change mid-session while the provider keeps
@@ -1124,47 +1128,113 @@ export const make = Effect.gen(function* () {
       const refusal = yield* check();
       yield* logInputRefused(caller, request, refusal, "check");
       if (refusal) return refusal;
+      let cursorPoint: string | undefined;
+      let cursorShown = false;
+      const cursor = (native: DriverDispatchTarget, action?: "error") =>
+        Effect.gen(function* () {
+          if (driver.background !== true) return true;
+          const bounds = native.window.bounds;
+          const point =
+            native.point ??
+            (bounds
+              ? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+              : undefined);
+          if (!point) return true;
+          const key = `${native.window.handle}:${point.x}:${point.y}`;
+          if (!action && key === cursorPoint) return true;
+          cursorPoint = key;
+          const kind =
+            request.command === "type" ||
+            request.command === "type-focused" ||
+            request.command === "set-value"
+              ? "type"
+              : request.command === "scroll" || request.command === "scroll-at"
+                ? "scroll"
+                : request.command === "drag"
+                  ? "drag"
+                  : request.command === "move"
+                    ? "move"
+                    : request.command === "key"
+                      ? "key"
+                      : "click";
+          const ready = yield* showCursor({
+            version: 1,
+            type: "computerUseCursor",
+            requestId: NodeCrypto.randomUUID(),
+            threadId: caller.threadId,
+            threadName: turn.title,
+            windowHandle: native.window.handle,
+            x: point.x,
+            y: point.y,
+            action: action ?? kind,
+          });
+          cursorShown ||= ready;
+          return ready;
+        });
+      let lastNative: DriverDispatchTarget | undefined;
       const decide = (
         native: DriverDispatchTarget,
         phase: DriverDispatchPhase,
       ): Effect.Effect<DriverDispatchDecision> => {
         const verdict = (response: ComputerUseResponse | undefined) =>
           response && !response.ok ? response.error : undefined;
-        if (phase === "prepare") {
-          return check(native).pipe(
-            Effect.tap((response) => logInputRefused(caller, request, response, phase)),
-            Effect.map((response): DriverDispatchDecision => {
-              const error = verdict(response);
-              return error ? { allowed: false, error } : { allowed: true, release: Effect.void };
-            }),
-          );
-        }
-        return Effect.uninterruptibleMask((restore) =>
-          Effect.gen(function* () {
-            yield* restore(dispatchLock.take(1));
-            const response = yield* check(native).pipe(
-              Effect.onError(() => dispatchLock.release(1)),
-            );
+        lastNative = native;
+        // Arrival happens before taking the dispatch lock. Native policy is checked
+        // again afterwards, so an approval opened during the arc still stops input.
+        const preview =
+          phase === "dispatch" && driver.background !== true
+            ? Effect.succeed(undefined)
+            : Effect.gen(function* () {
+                const response = yield* check(native);
+                if (response) return response;
+                if (yield* cursor(native)) return undefined;
+                return noTurn(
+                  "The agent cursor could not be shown. No input was dispatched; observe again before retrying.",
+                  "CU-CON-004",
+                );
+              });
+        return preview.pipe(
+          Effect.flatMap((response) => {
             const error = verdict(response);
-            if (error) {
-              yield* dispatchLock.release(1);
-              yield* logInputRefused(caller, request, response, phase);
-              return { allowed: false, error } satisfies DriverDispatchDecision;
-            }
-            let released = false;
-            const release = Effect.suspend(() => {
-              if (released) return Effect.void;
-              released = true;
-              return dispatchLock.release(1).pipe(Effect.asVoid);
-            });
-            return { allowed: true, release } satisfies DriverDispatchDecision;
+            if (error)
+              return logInputRefused(caller, request, response, phase).pipe(
+                Effect.as({ allowed: false, error } as DriverDispatchDecision),
+              );
+            if (phase === "prepare")
+              return Effect.succeed({
+                allowed: true,
+                release: Effect.void,
+              } as DriverDispatchDecision);
+            return Effect.uninterruptibleMask((restore) =>
+              Effect.gen(function* () {
+                yield* restore(dispatchLock.take(1));
+                const response = yield* check(native).pipe(
+                  Effect.onError(() => dispatchLock.release(1)),
+                );
+                const error = verdict(response);
+                if (error) {
+                  yield* dispatchLock.release(1);
+                  yield* logInputRefused(caller, request, response, phase);
+                  return { allowed: false, error } satisfies DriverDispatchDecision;
+                }
+                let released = false;
+                const release = Effect.suspend(() => {
+                  if (released) return Effect.void;
+                  released = true;
+                  return dispatchLock.release(1).pipe(Effect.asVoid);
+                });
+                return { allowed: true, release } satisfies DriverDispatchDecision;
+              }),
+            );
           }),
         );
       };
       return yield* dispatchInput(request, resolved).pipe(
         Effect.provideService(ComputerDriverDispatchCheck, decide),
         Effect.catchTag("ComputerDriverError", (error) =>
-          Effect.succeed(inputFailure(caller, resolved, error)),
+          (lastNative && cursorShown ? cursor(lastNative, "error") : Effect.succeed(true)).pipe(
+            Effect.as(inputFailure(caller, resolved, error)),
+          ),
         ),
       );
     });

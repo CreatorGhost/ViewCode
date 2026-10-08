@@ -23,6 +23,8 @@ import * as Stream from "effect/Stream";
 
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronPowerMonitor from "../electron/ElectronPowerMonitor.ts";
+import { AgentCursor } from "../computerUse/AgentCursor.ts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 const LIVE_SAMPLE_INTERVAL = Duration.seconds(1);
 const BATTERY_SAMPLE_INTERVAL = Duration.seconds(5);
@@ -148,6 +150,9 @@ function sampleInterval(
 export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
   const electronApp = yield* ElectronApp.ElectronApp;
   const powerMonitor = yield* ElectronPowerMonitor.ElectronPowerMonitor;
+  const cursor = yield* AgentCursor;
+  const platform = yield* HostProcessPlatform;
+  yield* Effect.addFinalizer(() => Effect.sync(cursor.close));
   yield* electronApp.whenReady;
 
   const initialPowerState: PowerState = {
@@ -176,6 +181,8 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
   const sequence = yield* Ref.make(0);
   const latestUpdateReport = yield* Ref.make(Option.none<DesktopUpdateStatusReport>());
   const updateReportChanges = yield* PubSub.sliding<DesktopUpdateStatusReport>(16);
+  const cursorReports =
+    yield* PubSub.unbounded<import("@t3tools/contracts").DesktopComputerUseCursorReady>();
   const updateRequestQueue = yield* Queue.unbounded<DesktopTelemetryRequestDesktopUpdate>();
   const updateCommitQueue = yield* Queue.unbounded<DesktopTelemetryCommitDesktopUpdate>();
   const updateCancellationQueue = yield* Queue.unbounded<DesktopTelemetryCancelDesktopUpdate>();
@@ -330,6 +337,23 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
     message,
   ) => {
     switch (message.type) {
+      case "computerUseCursor":
+        return (
+          platform === "darwin"
+            ? Effect.tryPromise(() => cursor.show(sourceId, message))
+            : Effect.succeed(false)
+        ).pipe(
+          Effect.orElseSucceed(() => false),
+          Effect.flatMap((ready) =>
+            PubSub.publish(cursorReports, {
+              version: 1,
+              type: "computerUseCursorReady",
+              requestId: message.requestId,
+              ready,
+            } as const),
+          ),
+          Effect.asVoid,
+        );
       case "setDiagnosticsDemand":
         return Ref.modify(diagnosticsDemandSources, (sources) => {
           const previous = sources.size > 0;
@@ -365,7 +389,9 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
   const removeControlSource: DesktopTelemetryPublisher["Service"]["removeControlSource"] = (
     sourceId,
   ) =>
-    updateKeepAwake(sourceId, false).pipe(
+    Effect.tryPromise(() => cursor.removeSource(sourceId)).pipe(
+      Effect.ignore,
+      Effect.andThen(updateKeepAwake(sourceId, false)),
       Effect.andThen(
         Ref.modify(diagnosticsDemandSources, (sources) => {
           const previous = sources.size > 0;
@@ -407,14 +433,24 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
       );
     }),
   );
-  const encoded = Stream.concat(
-    Stream.make({
-      version: 1,
-      type: "desktopTelemetryHello",
-      electronPid: process.pid,
-    } as const),
-    Stream.merge(snapshots, updateReports),
-  ).pipe(Stream.map((message) => textEncoder.encode(`${encodeMessage(message)}\n`)));
+  const encoded = Stream.unwrap(
+    Effect.gen(function* () {
+      // Hello is the attach receipt: ephemeral replies must already have a
+      // subscriber before the server can act on that receipt.
+      const cursorSubscription = yield* PubSub.subscribe(cursorReports);
+      return Stream.concat(
+        Stream.make({
+          version: 1,
+          type: "desktopTelemetryHello",
+          electronPid: process.pid,
+        } as const),
+        Stream.merge(
+          Stream.merge(snapshots, updateReports),
+          Stream.fromSubscription(cursorSubscription),
+        ),
+      ).pipe(Stream.map((message) => textEncoder.encode(`${encodeMessage(message)}\n`)));
+    }),
+  );
 
   const publishUpdateReport: DesktopTelemetryPublisher["Service"]["publishUpdateReport"] = (
     report,

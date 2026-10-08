@@ -43,6 +43,7 @@ import {
 } from "./ComputerDriver.ts";
 import { ServerProcessAncestry } from "./computerUseAncestry.ts";
 import * as ComputerUseService from "./ComputerUseService.ts";
+import { ComputerUseCursor } from "./ComputerUseCursor.ts";
 import { makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
 import * as NodeHttp from "node:http";
 import * as NodeFS from "node:fs";
@@ -1771,6 +1772,66 @@ describe("ComputerUseService results and logs", () => {
 });
 
 describe("ComputerUseService show on screen", () => {
+  for (const paused of [false, true])
+    it.effect(
+      `waits for the cursor before input${paused ? " and rechecks approvals after arrival" : ""}`,
+      () =>
+        Effect.gen(function* () {
+          const entered = yield* Deferred.make<void>();
+          const arrived = yield* Deferred.make<boolean>();
+          const h = yield* makeHarness("control", (driver) => ({
+            ...driver,
+            background: true,
+          })).pipe(
+            Effect.provideService(ComputerUseCursor, (message) => {
+              if (message.action === "error") return Effect.succeed(true);
+              expect(message).toMatchObject({
+                threadId,
+                threadName: "Thread",
+                windowHandle: "w-notes",
+                action: "key",
+                x: 400,
+                y: 300,
+              });
+              return Deferred.succeed(entered, undefined).pipe(
+                Effect.andThen(Deferred.await(arrived)),
+              );
+            }),
+          );
+          h.thread.runtimeMode = "full-access";
+          const refs = yield* observeNotes(h);
+          const action = yield* send(h, { command: "key", window: refs.window, keys: "tab" }).pipe(
+            Effect.forkChild,
+          );
+          yield* Deferred.await(entered);
+          expect(inputCalls(h)).toEqual([]);
+          h.providerApprovalPending = paused;
+          yield* Deferred.succeed(arrived, true);
+          const result = yield* Fiber.join(action);
+          if (paused) {
+            expectError(result, "CU-CON-008", "not-dispatched");
+            expect(inputCalls(h)).toEqual([]);
+          } else {
+            expectDispatched(result);
+            expect(inputCalls(h)).toEqual(["key:w-notes"]);
+          }
+        }).pipe(Effect.scoped),
+    );
+  it.effect("refuses input when the desktop cannot show the cursor", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness("control", (driver) => ({ ...driver, background: true })).pipe(
+        Effect.provideService(ComputerUseCursor, () => Effect.succeed(false)),
+      );
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      expectError(
+        yield* send(h, { command: "key", window: refs.window, keys: "tab" }),
+        "CU-CON-004",
+        "not-dispatched",
+      );
+      expect(inputCalls(h)).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
   const screenPrompts = (h: Harness) =>
     h.events.filter(
       (event) =>
