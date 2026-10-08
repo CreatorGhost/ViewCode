@@ -111,6 +111,15 @@ Computer use is in beta. Tested on a real Mac: listing windows, reading controls
 typing by reference, controls in Chrome pages, long typing, drags, approvals and the pause while an
 approval waits, and the handling of apps on other desktops.
 
+An experimental macOS background mode is available when the environment starts with
+`VIEWCODE_COMPUTER_BACKGROUND=1`. For inactive windows it tries clicks, scrolling and supported
+shortcuts without activating the app or moving your pointer. It refuses a post when a fresh
+control read shows no change. Check the intended result before retrying: an uncertain refusal
+may have sent input. Shortcuts require one document window. Drags, pointer moves and typing
+without a ref still need an explicit focus action, allowed by **Show on screen**. This mode is
+opt-in and uses undocumented window-routing fields that may change with macOS updates.
+Background synthetic input is not yet confirmed across apps; today's default stays the same.
+
 Known gaps:
 
 - An open menu may be missing from a window's screenshot; the agent reads and captures the menu

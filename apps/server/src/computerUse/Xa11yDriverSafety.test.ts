@@ -34,6 +34,7 @@ interface Spec {
   onFocus?: () => Promise<void>;
   raw?: Record<string, unknown>;
   children?: Spec[];
+  childrenReadFailure?: boolean;
 }
 
 type Sent = Array<readonly [string, ...unknown[]]>;
@@ -59,7 +60,10 @@ const fake = (spec: Spec, sent: Sent): Element => {
     enabled: true,
     active: spec.active ?? false,
     focused: spec.focused ?? false,
-    children: async () => (spec.children ?? []).map((child) => fake(child, sent)),
+    children: async () => {
+      if (spec.childrenReadFailure) throw new Error("AX read failed");
+      return (spec.children ?? []).map((child) => fake(child, sent));
+    },
     tree: async () => ({ role: snapshot.role, name: snapshot.name ?? undefined, children: [] }),
     press: async () => {
       spec.onPress?.();
@@ -107,6 +111,8 @@ const makeCore = (
   apps: FakeApp[],
   options: {
     readonly epoch?: string;
+    readonly background?: boolean;
+    readonly backgroundInput?: Xa11yApi["backgroundInput"];
     foreground?: number | null;
     readonly activate?: (pid: number) => void | Promise<void>;
     readonly primaryDisplay?: () => Rect | null;
@@ -171,6 +177,7 @@ const makeCore = (
     foregroundPid: async () =>
       options.foreground === undefined ? (apps[0]?.pid ?? null) : options.foreground,
     inputSim: () => input,
+    ...(options.backgroundInput ? { backgroundInput: options.backgroundInput } : {}),
     pointerDrag: async (from, to) => void sent.push(["drag", from, to]),
     releaseMouse: async () => void sent.push(["mouseUp", "left"]),
     enableAccessibility: options.enableAccessibility ?? (async () => false),
@@ -195,7 +202,11 @@ const makeCore = (
     now: () => options.clock?.now ?? 0,
     authorizeInput: async (target, phase) => options.authorize?.(target, phase),
   };
-  const core = makeDriverCore(api, { platform: "darwin", epoch: options.epoch ?? "a" });
+  const core = makeDriverCore(api, {
+    platform: "darwin",
+    epoch: options.epoch ?? "a",
+    background: options.background,
+  });
   const call = (request: DriverRequest) => core.handle(request);
   const list = async () =>
     ((await call({ op: "listWindows" })) as { result: Array<{ handle: string; title: string }> })
@@ -1472,6 +1483,196 @@ describe("focus brings a window forward and sends nothing else", () => {
     const [doc] = await core.list();
     expect(await core.call({ op: "focus", window: doc!.handle })).toMatchObject({ ok: false });
     expect(phases).toEqual(["prepare"]);
+    expect(core.calls.activate).toBe(0);
+  });
+});
+
+describe("experimental background input", () => {
+  const app = () => ({
+    name: "TextEdit",
+    pid: 1,
+    windows: [window("Scratch", { active: false, focused: false })],
+  });
+  it("posts to the background after policy checks without activating or using the real pointer", async () => {
+    const phases: string[] = [];
+    const posted: string[] = [];
+    const target = app();
+    const core = makeCore([target], {
+      foreground: 2,
+      background: true,
+      secondsSinceInput: async () => 0,
+      primaryDisplay: () => BOUNDS,
+      authorize: (target, phase) => {
+        expect(target.foreground).not.toBe(true);
+        phases.push(phase);
+      },
+      backgroundInput: async (_pid, _bounds, input, authorize) => {
+        await authorize();
+        posted.push(input.kind);
+        target.windows[0]!.children = [{ role: "static_text", name: "Clicked" }];
+      },
+    });
+    const [w] = await core.list();
+    expect(
+      await core.call({
+        op: "click",
+        window: w!.handle,
+        expectBounds: BOUNDS,
+        point: { x: 100, y: 100 },
+        button: "left",
+        count: 1,
+      }),
+    ).toEqual(inBackground);
+    expect(posted).toEqual(["click"]);
+    expect(phases).toEqual(["prepare", "dispatch", "dispatch"]);
+    expect(core.calls.activate).toBe(0);
+    expect(core.sent).toEqual([]);
+  });
+  it("refuses a moved screenshot and never posts", async () => {
+    const posted: string[] = [];
+    const core = makeCore([app()], {
+      foreground: 2,
+      background: true,
+      primaryDisplay: () => BOUNDS,
+      backgroundInput: async () => {
+        posted.push("sent");
+      },
+    });
+    const [w] = await core.list();
+    expect(
+      await core.call({
+        op: "click",
+        window: w!.handle,
+        expectBounds: { ...BOUNDS, x: 1 },
+        point: { x: 100, y: 100 },
+        button: "left",
+        count: 1,
+      }),
+    ).toMatchObject(staleNo);
+    expect(posted).toEqual([]);
+    expect(core.calls.activate).toBe(0);
+  });
+  it.each(["unchanged", "unreadable"])(
+    "keeps a posted action uncertain when its target is %s",
+    async (mode) => {
+      const target = app();
+      let posts = 0;
+      const core = makeCore([target], {
+        foreground: 2,
+        background: true,
+        primaryDisplay: () => BOUNDS,
+        backgroundInput: async (_pid, _bounds, _input, authorize) => {
+          await authorize();
+          posts += 1;
+          if (mode === "unreadable") target.windows[0]!.childrenReadFailure = true;
+        },
+      });
+      const [w] = await core.list();
+      expect(await core.call({ op: "key", window: w!.handle, keys: "tab" })).toMatchObject({
+        ok: false,
+        error: { dispatched: "unknown" },
+      });
+      expect(posts).toBe(1);
+      expect(core.calls.activate).toBe(0);
+      expect(core.sent).toEqual([]);
+    },
+  );
+  it.each(["unreadable", "truncated"])(
+    "never posts when the initial AX tree is %s",
+    async (mode) => {
+      const target = app();
+      if (mode === "unreadable") target.windows[0]!.childrenReadFailure = true;
+      else target.windows[0]!.children = Array.from({ length: 2_100 }, () => ({ role: "button" }));
+      let posts = 0;
+      const core = makeCore([target], {
+        foreground: 2,
+        background: true,
+        primaryDisplay: () => BOUNDS,
+        backgroundInput: async () => {
+          posts += 1;
+        },
+      });
+      const [w] = await core.list();
+      expect(await core.call({ op: "key", window: w!.handle, keys: "tab" })).toMatchObject({
+        ok: false,
+        error: { dispatched: "no" },
+      });
+      expect(posts).toBe(0);
+      expect(core.calls.activate).toBe(0);
+    },
+  );
+  it("refuses ambiguous process-scoped keys and unsupported actions without taking focus", async () => {
+    const target = app();
+    target.windows.push(window("Sibling"));
+    const core = makeCore([target], {
+      foreground: 2,
+      background: true,
+      primaryDisplay: () => BOUNDS,
+      backgroundInput: async () => {
+        throw new Error("must not send");
+      },
+    });
+    const [w] = await core.list();
+    for (const request of [
+      { op: "key", window: w!.handle, keys: "cmd+a" },
+      { op: "typeFocused", window: w!.handle, text: "private text" },
+      {
+        op: "drag",
+        window: w!.handle,
+        expectBounds: BOUNDS,
+        from: { x: 10, y: 10 },
+        to: { x: 20, y: 20 },
+      },
+    ] as const)
+      expect(await core.call(request)).toMatchObject(refusedNo);
+    expect(core.calls.activate).toBe(0);
+    expect(core.sent).toEqual([]);
+  });
+  it("keeps an unverified post uncertain and never retries it in front", async () => {
+    const { BackgroundInputError } = await import("./MacBackgroundInput.ts");
+    const core = makeCore([app()], {
+      foreground: 2,
+      background: true,
+      primaryDisplay: () => BOUNDS,
+      backgroundInput: async (_pid, _bounds, _input, authorize) => {
+        await authorize();
+        throw new BackgroundInputError("Background input produced no verified change.", true);
+      },
+    });
+    const [w] = await core.list();
+    expect(await core.call({ op: "key", window: w!.handle, keys: "tab" })).toMatchObject({
+      ok: false,
+      error: {
+        kind: "failed",
+        dispatched: "unknown",
+        message: "Background input produced no verified change.",
+      },
+    });
+    expect(core.calls.activate).toBe(0);
+    expect(core.sent).toEqual([]);
+  });
+  it("honors a policy refusal after capture preparation, before the post", async () => {
+    let checks = 0,
+      posted = false;
+    const core = makeCore([app()], {
+      foreground: 2,
+      background: true,
+      primaryDisplay: () => BOUNDS,
+      authorize: (_target, phase) =>
+        phase === "dispatch" && ++checks === 2
+          ? { code: "CU-CON-008", message: "Approval waiting", effect: "not-dispatched" }
+          : undefined,
+      backgroundInput: async (_pid, _bounds, _input, authorize) => {
+        await authorize();
+        posted = true;
+      },
+    });
+    const [w] = await core.list();
+    expect(await core.call({ op: "key", window: w!.handle, keys: "tab" })).toMatchObject({
+      ok: false,
+      error: { code: "CU-CON-008", dispatched: "no" },
+    });
+    expect(posted).toBe(false);
     expect(core.calls.activate).toBe(0);
   });
 });

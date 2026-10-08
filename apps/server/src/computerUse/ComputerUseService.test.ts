@@ -1779,6 +1779,43 @@ describe("ComputerUseService show on screen", () => {
         event.payload.options?.some((option) => option.label === "Keep it in the background"),
     );
 
+  it.effect(
+    "lets the experimental backend address an inactive window without a screen prompt",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness("control", (driver) => ({
+          ...driver,
+          background: true,
+          key: (_handle) =>
+            Effect.gen(function* () {
+              const check = yield* ComputerDriverDispatchCheck;
+              const decision = yield* check(
+                { window: { ...notes, focused: false }, foreground: false },
+                "dispatch",
+              );
+              if (!decision.allowed)
+                return yield* new ComputerDriverError({
+                  kind: "policy",
+                  code: decision.error.code,
+                  message: decision.error.message,
+                  dispatched: "no",
+                });
+              yield* decision.release;
+              return { tookFocus: false };
+            }),
+        }));
+        h.windows = [{ ...notes, focused: false }];
+        h.thread.runtimeMode = "full-access";
+        yield* h.setScreen("ask");
+        const refs = yield* observeNotes(h);
+        expect(yield* send(h, { command: "key", window: refs.window, keys: "tab" })).toMatchObject({
+          ok: true,
+          result: { tookFocus: false },
+        });
+        expect(screenPrompts(h)).toHaveLength(0);
+      }).pipe(Effect.scoped),
+  );
+
   it.effect("asks once per turn before taking the screen, and the answer holds", () =>
     Effect.gen(function* () {
       const h = yield* makeHarness();

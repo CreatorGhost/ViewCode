@@ -667,6 +667,15 @@ FOCUS
   screenshot work until the turn ends. Input results say "tookFocus":true when the action brought
   the window to the front.
 
+  Experimental macOS background mode (VIEWCODE_COMPUTER_BACKGROUND=1): an
+  inactive window can receive clicks, scrolling and supported shortcuts by
+  process-directed events. A fresh accessibility read must show a change;
+  a dropped or unverified post is refused with an uncertain effect, never
+  replayed in front. Verify the intended result before continuing. Shortcuts
+  require one document window and secure input must be off. Background drags,
+  pointer moves and type --window have no verified route: use refs, or focus
+  explicitly only when Show on screen permits it. The default is unchanged.
+
 MENUS (macOS)
   list-windows also lists each app's menu bar (kind "menu-bar") and any open
   context menu (kind "menu"). observe them and press items by ref, e.g.

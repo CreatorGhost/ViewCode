@@ -1215,7 +1215,13 @@ export const make = Effect.gen(function* () {
       // Everything but press, set-value and type by ref brings the window to
       // the front; those only do when their fallback needs it (checked by the
       // driver's prepare call).
-      if (resolved._tag !== "Element" || request.command === "scroll") {
+      const backgroundCandidate =
+        driver.background === true &&
+        !resolved.window.focused &&
+        ["click", "key", "scroll", "scroll-at", "drag", "move", "type-focused"].includes(
+          request.command,
+        );
+      if (!backgroundCandidate && (resolved._tag !== "Element" || request.command === "scroll")) {
         const onScreen = yield* askForScreen(caller, turn, resolved.window);
         if (onScreen) return onScreen;
       }

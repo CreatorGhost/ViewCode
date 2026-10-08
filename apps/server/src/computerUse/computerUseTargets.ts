@@ -22,6 +22,7 @@ export interface WindowRecord {
   readonly appIdentifier?: string;
   readonly pid: number;
   readonly title: string;
+  readonly focused: boolean;
 }
 
 export interface RefRecord {
@@ -107,6 +108,7 @@ export class ThreadTargets {
         ...(window.appIdentifier !== undefined ? { appIdentifier: window.appIdentifier } : {}),
         pid: window.pid,
         title: window.title,
+        focused: window.focused,
       };
       this.windows.set(id, record);
       this.windowIdByHandle.set(window.handle, id);

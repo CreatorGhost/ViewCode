@@ -22,6 +22,10 @@ import * as NodePath from "node:path";
 
 import type { ComputerUseError } from "@t3tools/contracts";
 
+import { makeMacBackgroundInput } from "./MacBackgroundInput.ts";
+
+const backgroundInput = makeMacBackgroundInput();
+
 import {
   macCaptureWindow,
   macDrag,
@@ -98,6 +102,9 @@ export const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput
   elementIsAlive: async (element) => (await element.parent()) !== null,
   foregroundPid: async () => (await xa11y.App.foreground({ timeout: 0 })).pid,
   inputSim: () => xa11y.inputSim(),
+  ...(PLATFORM === "darwin" && process.env.VIEWCODE_COMPUTER_BACKGROUND === "1"
+    ? { backgroundInput: backgroundInput.dispatch }
+    : {}),
   pointerDrag:
     PLATFORM === "darwin"
       ? macDrag
@@ -158,8 +165,10 @@ const loadHandler = (
   }
   // App lookups would otherwise poll for 5 s on a miss.
   xa11y.setDefaultTimeout(0);
-  return makeDriverCore({ ...makeXa11yApi(xa11y), authorizeInput }, { platform: PLATFORM, epoch })
-    .handle;
+  return makeDriverCore(
+    { ...makeXa11yApi(xa11y), authorizeInput },
+    { platform: PLATFORM, epoch, background: process.env.VIEWCODE_COMPUTER_BACKGROUND === "1" },
+  ).handle;
 };
 
 /** Answers one request at a time over the fork IPC channel until the parent disconnects. */
@@ -223,7 +232,9 @@ export const runComputerUseDriverWorker = (): Promise<void> =>
         activeId = undefined;
       });
     });
+    process.once("exit", () => backgroundInput.close());
     process.once("disconnect", () => {
+      backgroundInput.close();
       resolve();
       process.exit(0);
     });

@@ -352,6 +352,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   their synthetic fallbacks (after `ActionNotSupported`), key, type --window, scroll and
   coordinate input bring the exact window to the front. Input results carry `tookFocus` from the
   driver, so the agent and the logs can tell the two apart.
+- `VIEWCODE_COMPUTER_BACKGROUND=1` opts macOS into process-directed clicks, scrolling and
+  single-window shortcuts for inactive targets, through one background-only JXA helper per worker.
+  The routing fields are undocumented and the JXA bridge may lack `CGEventSetWindowLocation`.
+  AX state must change across complete bounded reads; a post returning success is not evidence.
+  A refusal after posting reports an uncertain effect, never a foreground retry. Explicit focus
+  still goes through Show on screen. No private SkyLight activation or background drag is shipped.
 - xa11y elements and window lists are snapshots (`tree(0)` reads no live state), so the driver
   records each element's child-index path at observe and re-walks it from a fresh window read at
   dispatch, refusing on any role, label, native identifier or bounds change. The retained window

@@ -44,6 +44,7 @@ import type {
   DriverDispatchPhase,
   DriverDispatchTarget,
 } from "./ComputerDriver.ts";
+import { BackgroundInputError, type BackgroundInput } from "./MacBackgroundInput.ts";
 import { downscaleRgba, encodePng, fitWithin } from "./ScreenshotImage.ts";
 
 export interface Xa11yApi {
@@ -58,6 +59,13 @@ export interface Xa11yApi {
   /** Pid of the foreground application, or null when the platform cannot say. */
   readonly foregroundPid: () => Promise<number | null>;
   readonly inputSim: () => InputSim;
+  /** Opt-in process-directed input, verified by fresh accessibility reads. */
+  readonly backgroundInput?: (
+    pid: number,
+    bounds: Rect,
+    input: BackgroundInput,
+    authorize: () => Promise<void>,
+  ) => Promise<void>;
   /**
    * A left-button drag between screen points. On macOS this cannot be
    * InputSim's drag, which presses at the screen corner (see `MacQuartz.ts`).
@@ -120,6 +128,7 @@ export interface DriverCoreOptions {
   readonly platform: NodeJS.Platform;
   /** Random per worker process; part of every handle. */
   readonly epoch: string;
+  readonly background?: boolean | undefined;
 }
 
 export type DriverRequest =
@@ -456,6 +465,13 @@ export const classifyXa11yError = (
   context: { readonly afterDispatch: boolean; readonly screen?: boolean },
 ): DriverFailure => {
   const unknown = context.afterDispatch ? "unknown" : "no";
+  if (error instanceof BackgroundInputError) {
+    return {
+      kind: "failed",
+      message: error.message,
+      dispatched: error.dispatched ? "unknown" : "no",
+    };
+  }
   switch (errorName(error)) {
     case "PermissionDeniedError":
       return context.screen
@@ -614,7 +630,7 @@ interface InputTarget {
   readonly element?: Element;
   readonly point?: DriverPoint;
   /** An accessibility action on the element itself: the window need not be in front. */
-  readonly background?: boolean;
+  readonly background?: boolean | undefined;
   /** The driver will bring the window to the front after this `prepare` check. */
   readonly foreground?: boolean;
 }
@@ -1080,6 +1096,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     root: Element,
     budgetMs: number,
     onChild: (child: Element, path: ReadonlyArray<number>) => "continue" | "stop",
+    strict = false,
   ): Promise<boolean> => {
     const startedAt = performance.now();
     type Node = { readonly element: Element; readonly path: ReadonlyArray<number> };
@@ -1090,11 +1107,15 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       for (let start = 0; start < frontier.length; start += OBSERVE_BATCH) {
         if (performance.now() - startedAt > budgetMs) return true;
         const batch = frontier.slice(start, start + OBSERVE_BATCH);
+        if (strict && batch.some((node) => node.path.length >= OBSERVE_MAX_DEPTH)) return true;
         const children = await Promise.all(
           batch.map((node) =>
             node.path.length >= OBSERVE_MAX_DEPTH
               ? Promise.resolve([] as Element[])
-              : node.element.children().catch(() => [] as Element[]),
+              : node.element.children().catch((error) => {
+                  if (strict) throw error;
+                  return [] as Element[];
+                }),
           ),
         );
         for (const [index, node] of batch.entries()) {
@@ -1430,6 +1451,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     text: string,
     replace: boolean,
   ) => {
+    if (await useBackground(target.window)) throw new Refusal(backgroundUnsupported());
     const input = requireInput();
     await authorize(target.window, "prepare", { element: target.element, foreground: true });
     await activate(target.window);
@@ -1458,6 +1480,111 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       throw error;
     }
   };
+
+  const useBackground = async (entry: WindowEntry) =>
+    options.background === true &&
+    platform === "darwin" &&
+    !(await isFront(entry, await refreshWindow(entry)));
+
+  const backgroundDispatch = async (
+    entry: WindowEntry,
+    input: BackgroundInput,
+    element?: Element,
+  ) => {
+    if (windowKind(entry.role)) {
+      throw new Refusal(
+        failure("failed", "Menus need refs; background synthetic input cannot address them."),
+      );
+    }
+    if (!api.backgroundInput) {
+      throw new Refusal(
+        failure("unavailable", "The experimental background input backend is unavailable."),
+      );
+    }
+    const live = await refreshWindow(entry);
+    if (!live.bounds || !(await onPrimaryDisplay(live.bounds))) {
+      throw new Refusal(
+        failure("failed", "Background input needs a window fully on the main display."),
+      );
+    }
+    if ("point" in input && !containsPoint(live.bounds, input.point)) {
+      throw new Refusal(failure("failed", "The point is outside the window."));
+    }
+    if (input.kind === "key") {
+      const documents = (await api.appWindows(entry.pid)).filter(
+        (window) => window.role === "window",
+      );
+      if (documents.length !== 1) {
+        throw new Refusal(
+          failure(
+            "failed",
+            "Background shortcuts require one document window in the app. Use a ref or explicitly focus the window first.",
+          ),
+        );
+      }
+    }
+    const evidence = async () => {
+      const root = await refreshWindow(entry);
+      const state: unknown[] = [];
+      const truncated = await walkBreadthFirst(
+        root,
+        1_000,
+        (child) => {
+          if (state.length >= 1_000) return "stop";
+          const label = elementLabel(child.name, child.description);
+          const secure = isSecureElement({ raw: child.raw, editable: child.editable, label });
+          state.push([child.role, label, child.bounds, child.focused, secure ? null : child.value]);
+          return "continue";
+        },
+        true,
+      );
+      if (truncated)
+        throw new BackgroundInputError(
+          "The accessibility tree is incomplete; background input cannot verify this target.",
+          false,
+        );
+      return JSON.stringify(state);
+    };
+    await authorize(entry, "prepare", { background: true, ...(element ? { element } : {}) });
+    const before = await evidence();
+    return dispatch(
+      async () => {
+        await api.backgroundInput!(entry.pid, live.bounds!, input, () =>
+          authorize(entry, "dispatch", {
+            background: true,
+            ...(element ? { element } : {}),
+            ...("point" in input ? { point: input.point } : {}),
+          }),
+        );
+        let after: string;
+        try {
+          after = await evidence();
+        } catch {
+          throw new BackgroundInputError(
+            "The target could not be read after background input; its effect is unknown. Do not retry blindly.",
+            true,
+          );
+        }
+        if (before === after)
+          throw new BackgroundInputError(
+            "Background input produced no verified change in the target. It may have been ignored. Use a ref or explicitly focus the window first; no foreground retry was made.",
+            true,
+          );
+      },
+      entry,
+      {
+        background: true,
+        ...(element ? { element } : {}),
+        ...("point" in input ? { point: input.point } : {}),
+      },
+    );
+  };
+
+  const backgroundUnsupported = () =>
+    failure(
+      "failed",
+      "This action has no verified background route. Use controls by ref or explicitly focus the window first when Show on screen allows it. No foreground retry was made.",
+    );
 
   const handle = async (request: DriverRequest): Promise<DriverResult> => {
     try {
@@ -1492,6 +1619,12 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           return { ok: true, result: await elementAt(request.window, request.point) };
         case "click": {
           const { point, button, count } = request;
+          const window = requireWindow(request.window);
+          if (await useBackground(window)) {
+            if (!boundsMatch(request.expectBounds, (await refreshWindow(window)).bounds))
+              throw stale("The window moved or resized since the screenshot.");
+            return await backgroundDispatch(window, { kind: "click", point, button, count });
+          }
           const input = await prepareCoordinate(request.window, request.expectBounds, [point]);
           return await dispatch(
             () => input.click([point.x, point.y], { button, count }),
@@ -1501,6 +1634,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "drag": {
           const { from, to } = request;
+          if (await useBackground(requireWindow(request.window))) return backgroundUnsupported();
           await prepareCoordinate(request.window, request.expectBounds, [from, to]);
           return await dispatch(() => api.pointerDrag(from, to), requireWindow(request.window), {
             point: from,
@@ -1508,6 +1642,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "move": {
           const { point } = request;
+          if (await useBackground(requireWindow(request.window))) return backgroundUnsupported();
           const input = await prepareCoordinate(request.window, request.expectBounds, [point]);
           return await dispatch(
             () => input.moveTo([point.x, point.y]),
@@ -1517,6 +1652,17 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "scrollAt": {
           const { point } = request;
+          const window = requireWindow(request.window);
+          if (await useBackground(window)) {
+            if (!boundsMatch(request.expectBounds, (await refreshWindow(window)).bounds))
+              throw stale("The window moved or resized since the screenshot.");
+            return await backgroundDispatch(window, {
+              kind: "scroll",
+              point,
+              dx: request.dx,
+              dy: request.dy,
+            });
+          }
           const input = await prepareCoordinate(request.window, request.expectBounds, [point]);
           return await dispatch(
             () => input.scroll([point.x, point.y], request.dx, request.dy),
@@ -1526,6 +1672,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
         }
         case "typeFocused": {
           const window = requireWindow(request.window);
+          if (await useBackground(window)) return backgroundUnsupported();
           const input = requireInput();
           await authorize(window, "prepare", { foreground: true });
           await activate(window);
@@ -1547,6 +1694,8 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           const window = requireWindow(request.window);
           const chord = translateKeyChord(request.keys, platform);
           if (!chord) return failure("failed", "Unsupported key chord.");
+          if (await useBackground(window))
+            return await backgroundDispatch(window, { kind: "key", keys: request.keys });
           const input = requireInput();
           await authorize(window, "prepare", { foreground: true });
           await activate(window);
@@ -1574,6 +1723,22 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
               // the live element's centre. The preparation can outlast the
               // policy, so the click is authorized again, with its window
               // verifiably the active one.
+              if (await useBackground(target.window)) {
+                if (!target.element.bounds) throw new Refusal(backgroundUnsupported());
+                const bounds = target.element.bounds;
+                const result = await backgroundDispatch(
+                  target.window,
+                  {
+                    kind: "click",
+                    point: { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 },
+                    button: "left",
+                    count: 1,
+                  },
+                  target.element,
+                );
+                if (!result.ok) throw new Refusal(result);
+                return false;
+              }
               const input = requireInput();
               await authorize(target.window, "prepare", {
                 element: target.element,
@@ -1652,8 +1817,22 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           );
         }
         case "scroll": {
-          const input = requireInput();
           const first = await resolveElement(request.element, request.expect);
+          if (await useBackground(first.window)) {
+            const bounds = first.element.bounds;
+            if (!bounds) return backgroundUnsupported();
+            return await backgroundDispatch(
+              first.window,
+              {
+                kind: "scroll",
+                point: { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 },
+                dx: request.dx,
+                dy: request.dy,
+              },
+              first.element,
+            );
+          }
+          const input = requireInput();
           await authorize(first.window, "prepare", { element: first.element, foreground: true });
           await activate(first.window);
           const target = await resolveElement(request.element, request.expect);

@@ -46,6 +46,7 @@ import {
 } from "@t3tools/contracts";
 import { HostProcessIsExecutable, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
+import * as Config from "effect/Config";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
@@ -77,6 +78,7 @@ export interface DriverWorkerLaunch {
 
 export interface Xa11yComputerDriverOptions {
   readonly platform: NodeJS.Platform;
+  readonly background?: boolean;
   /** Resolved on first use, so an unused driver costs nothing. */
   readonly launch: () => DriverWorkerLaunch;
   readonly timeouts?: Partial<Record<DriverOp, number>>;
@@ -576,6 +578,7 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
   });
 
   return {
+    background: options.background === true,
     status: () =>
       SUPPORTED_PLATFORMS.has(options.platform)
         ? call({ op: "status" }, StatusReply).pipe(
@@ -683,8 +686,15 @@ export const layer: Layer.Layer<ComputerDriver> = Layer.effect(
   Effect.gen(function* () {
     const isExecutable = yield* HostProcessIsExecutable;
     const platform = yield* HostProcessPlatform;
+    const background =
+      platform === "darwin" &&
+      (yield* Config.String("VIEWCODE_COMPUTER_BACKGROUND").pipe(
+        Config.withDefault(""),
+        Effect.orDie,
+      )) === "1";
     return yield* makeXa11yComputerDriver({
       platform,
+      background,
       launch: () => resolveDriverLaunch(isExecutable, platform),
     });
   }),

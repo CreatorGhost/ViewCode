@@ -158,6 +158,8 @@ export interface DriverInputResult {
 }
 
 export interface ComputerDriverShape {
+  /** Opt-in background synthetic input; ordinary environments keep foreground delivery. */
+  readonly background?: boolean;
   readonly status: () => Effect.Effect<DriverStatus>;
   readonly listWindows: () => Effect.Effect<ReadonlyArray<DriverWindow>, ComputerDriverError>;
   readonly observe: (
