@@ -215,6 +215,10 @@ Markdown with a link in place of each chip. Older messages that were sent before
 show their context. Stashing a prompt keeps its chips and what they point to; restoring brings
 them back.
 
+On web and desktop, a part of a reply drafted for you to send, set apart as a quote or between
+two horizontal lines, has its own copy button when you hover it. It copies just that part, as
+plain text with its lists kept.
+
 On mobile, tap a chip to inspect its content. File references open the current file; attached
 files show the copy that was attached to the message.
 

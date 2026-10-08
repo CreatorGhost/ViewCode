@@ -89,6 +89,7 @@ import { parseAssistantCitationHref } from "@t3tools/shared/assistantCitations";
 import { parseComposerContextHref } from "@t3tools/shared/composerContextReferences";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
 import remarkGfm from "remark-gfm";
+import { remarkCopySections } from "../markdown-copy-sections";
 import { remarkGithubAlerts } from "../markdown-github-alerts";
 import {
   artifactTemplateFromHastProperties,
@@ -187,7 +188,7 @@ import {
 } from "~/lib/openPullRequestLink";
 import { useOpenLink } from "../browser/useOpenLink";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { CopyableBlockquote } from "./chat/CopyableBlockquote";
+import { CopyableBlockquote, CopyableSection } from "./chat/CopyableBlockquote";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { isAbsolutePath, resolvePathLinkTarget } from "../terminal-links";
 import {
@@ -474,7 +475,11 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
     "*": (defaultSchema.attributes?.["*"] ?? []).filter((attribute) => attribute !== "title"),
     code: [...(defaultSchema.attributes?.code ?? []), "dataCodeMeta", "dataInlineCode"],
     blockquote: [...(defaultSchema.attributes?.blockquote ?? []), "dataAlert"],
-    div: [...(defaultSchema.attributes?.div ?? []), ...CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES],
+    div: [
+      ...(defaultSchema.attributes?.div ?? []),
+      ...CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES,
+      "dataCopySection",
+    ],
     a: [...(defaultSchema.attributes?.a ?? []), "dataPullRequestAutolink"],
     img: [
       ...(defaultSchema.attributes?.img ?? []),
@@ -497,6 +502,7 @@ const CHAT_MARKDOWN_REMARK_PLUGINS = [
   remarkCodexDirectives,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
+  remarkCopySections,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
 
 const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
@@ -507,6 +513,7 @@ const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
   remarkBreaks,
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
+  remarkCopySections,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
 
 const CHAT_MARKDOWN_REHYPE_PLUGINS = [
@@ -2812,6 +2819,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
       return (
         <CodexArtifactTemplateCard template={artifactTemplate} onUse={onUseArtifactTemplate} />
       );
+    }
+    if ((props as Record<string, unknown>)["data-copy-section"] !== undefined) {
+      return <CopyableSection {...props}>{children}</CopyableSection>;
     }
     return <div {...props}>{children}</div>;
   },
