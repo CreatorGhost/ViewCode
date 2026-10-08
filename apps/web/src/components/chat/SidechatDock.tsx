@@ -102,12 +102,15 @@ export const SidechatDock = memo(function SidechatDock(props: {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  // A prefill (the selection action's question) lands in the composer once.
+  // A prefill (the selection action's quote) lands in the composer once, below any
+  // unsent text rather than replacing it.
   useEffect(() => {
     const apply = () => {
       const prefill = useSidechatDockStore.getState().consumePrefill(parentRef);
       if (prefill === null) return;
-      setDraft(prefill);
+      setDraft((current) =>
+        current.trim().length > 0 ? `${current.trimEnd()}\n\n${prefill}` : prefill,
+      );
       textareaRef.current?.focus({ preventScroll: true });
     };
     apply();

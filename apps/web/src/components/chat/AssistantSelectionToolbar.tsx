@@ -4,7 +4,7 @@ import {
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { MessageSquarePlusIcon, QuoteIcon } from "lucide-react";
+import { MessageSquareMoreIcon, MessageSquarePlusIcon, QuoteIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -30,7 +30,7 @@ export function AssistantSelectionToolbar({
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
   /** Opens a new thread with the selection quoted in its composer. */
   onAskInNewChat?: (quotedText: string) => void;
-  /** Extension point for side chats; the action stays hidden while this is unset. */
+  /** Opens the side chat with the selection quoted; hidden where side chats do not apply. */
   onAskInSideChat?: (quotedText: string) => void;
 }) {
   const [selection, setSelection] = useState<{
@@ -187,6 +187,7 @@ export function AssistantSelectionToolbar({
           onClick={ask(onAskInSideChat)}
           onKeyDown={onKeyDown}
         >
+          <MessageSquareMoreIcon aria-hidden="true" className="size-3.5" />
           Ask in side chat
         </Button>
       ) : null}

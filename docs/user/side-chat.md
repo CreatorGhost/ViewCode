@@ -12,6 +12,8 @@ On web and desktop, any of these opens the panel:
 - `Cmd+Shift+/` on Apple devices or `Ctrl+Shift+/` elsewhere. Change it in
   **Settings → Keybindings** under "Side chat".
 - **Ask in side chat** in the command palette.
+- Select text in a reply and choose **Ask in side chat**. The selection is quoted
+  in the side chat's box, below anything you had already typed there.
 
 Type your question and press Enter. The side chat uses the main thread's model
 by default. Pick another model with the picker under the box; the main thread
