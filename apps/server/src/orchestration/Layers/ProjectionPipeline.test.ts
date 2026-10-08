@@ -4680,6 +4680,63 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 
+  it.effect("sets, keeps and clears a project colour through projection and snapshots", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const projectId = ProjectId.make("project-colour");
+      const readColours = Effect.gen(function* () {
+        const shell = yield* snapshotQuery.getShellSnapshot();
+        const snapshot = yield* snapshotQuery.getSnapshot();
+        const byId = yield* snapshotQuery.getProjectShellById(projectId);
+        const byRoot = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/project-colour");
+        const commandModel = yield* snapshotQuery.getCommandReadModel();
+        return [
+          shell.projects.find((project) => project.id === projectId)?.projectColor,
+          snapshot.projects.find((project) => project.id === projectId)?.projectColor,
+          Option.getOrUndefined(byId)?.projectColor,
+          Option.getOrUndefined(byRoot)?.projectColor,
+          commandModel.projects.find((project) => project.id === projectId)?.projectColor,
+        ];
+      });
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-colour-create"),
+        projectId,
+        title: "Colour",
+        workspaceRoot: "/tmp/project-colour",
+        defaultModelSelection: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      assert.deepEqual(yield* readColours, [null, null, null, null, null]);
+
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-colour-set"),
+        projectId,
+        projectColor: "blue",
+      });
+      assert.deepEqual(yield* readColours, ["blue", "blue", "blue", "blue", "blue"]);
+
+      // An update that omits the colour leaves it alone.
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-colour-rename"),
+        projectId,
+        title: "Colour renamed",
+      });
+      assert.deepEqual(yield* readColours, ["blue", "blue", "blue", "blue", "blue"]);
+
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-colour-clear"),
+        projectId,
+        projectColor: null,
+      });
+      assert.deepEqual(yield* readColours, [null, null, null, null, null]);
+    }),
+  );
+
   it.effect("re-creating a deleted thread id starts from an empty projection", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;

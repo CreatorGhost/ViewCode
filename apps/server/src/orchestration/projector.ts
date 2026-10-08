@@ -344,6 +344,7 @@ export function projectEvent(
             autoPull: false,
             faviconPath: payload.faviconPath ?? null,
             projectIcon: payload.projectIcon ?? null,
+            projectColor: null,
             scripts: payload.scripts,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -385,6 +386,9 @@ export function projectEvent(
                     : {}),
                   ...(payload.projectIcon !== undefined
                     ? { projectIcon: payload.projectIcon }
+                    : {}),
+                  ...(payload.projectColor !== undefined
+                    ? { projectColor: payload.projectColor }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
                   updatedAt: payload.updatedAt,

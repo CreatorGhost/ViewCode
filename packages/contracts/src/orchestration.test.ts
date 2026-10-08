@@ -1541,6 +1541,32 @@ it.effect("project icon overrides accept Lucide icons, colors, and emoji", () =>
   }),
 );
 
+it.effect("project colours accept palette colours and null, and reject anything else", () =>
+  Effect.gen(function* () {
+    for (const projectColor of ["blue", null] as const) {
+      const command = yield* decodeOrchestrationCommand({
+        type: "project.meta.update",
+        commandId: "cmd-project-colour",
+        projectId: "project-1",
+        projectColor,
+      });
+      assert.strictEqual(
+        command.type === "project.meta.update" && command.projectColor,
+        projectColor,
+      );
+    }
+    const invalid = yield* Effect.exit(
+      decodeOrchestrationCommand({
+        type: "project.meta.update",
+        commandId: "cmd-project-colour-invalid",
+        projectId: "project-1",
+        projectColor: "#0000ff",
+      }),
+    );
+    assert.strictEqual(invalid._tag, "Failure");
+  }),
+);
+
 it.effect("project monograms validate text and palette colors", () =>
   Effect.gen(function* () {
     for (const text of ["A", "T3", "É", "文書", "कि", "किखि", "e\u0301"]) {
