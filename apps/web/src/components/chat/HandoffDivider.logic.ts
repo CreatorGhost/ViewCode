@@ -1,3 +1,4 @@
+import { formatContextWindowTokens } from "../../lib/contextWindow";
 import type { WorkLogEntry } from "../../session-logic";
 import { getTriggerDisplayModelName, type ModelEsque } from "./providerIconUtils";
 
@@ -48,6 +49,24 @@ export function handoffHeader(label: string, recovery: boolean | undefined): str
 }
 
 /**
+ * "Condensed · ~50k of ~180k tokens" from the server's estimates; the sizes
+ * are absent on handoffs recorded before they were stamped, which keep the
+ * bare mode label.
+ */
+function handoffContextLabel(handoff: HandoffInfo): string | null {
+  if (!handoff.mode) return null;
+  const { carriedTokens, conversationTokens } = handoff;
+  if (handoff.mode === "full") {
+    return carriedTokens === undefined
+      ? "Carried in full"
+      : `Carried in full · ~${formatContextWindowTokens(carriedTokens)} tokens`;
+  }
+  return carriedTokens === undefined || conversationTokens === undefined
+    ? "Condensed"
+    : `Condensed · ~${formatContextWindowTokens(carriedTokens)} of ~${formatContextWindowTokens(conversationTokens)} tokens`;
+}
+
+/**
  * Null when the activity predates the payload (no model pair), so the caller
  * falls back to the plain label.
  */
@@ -70,7 +89,7 @@ export function resolveHandoffView(
     header: handoffHeader(entry.label, handoff.recovery),
     from: { ...from, collapsedName: name(from) },
     to: { ...to, collapsedName: name(to) },
-    contextLabel: handoff.mode === "full" ? "Carried in full" : handoff.mode ? "Condensed" : null,
+    contextLabel: handoffContextLabel(handoff),
     charCount: handoff.summary ? handoff.summary.length : null,
   };
 }

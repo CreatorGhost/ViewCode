@@ -48,6 +48,7 @@ describe("buildHandoff", () => {
     const prelude = handoff.prelude("/tmp/transcript.md");
 
     expect(handoff.mode).toBe("full");
+    expect(handoff.carriedTokens).toBeGreaterThanOrEqual(handoff.conversationTokens);
     expect(prelude).toContain("### 1. User\nRemember the codeword PINEAPPLE and refactor auth.");
     expect(prelude).toContain("### 1. Assistant\nNoted. Starting with the session store.");
     expect(prelude).not.toContain("search_history tool");
@@ -107,6 +108,8 @@ describe("buildHandoff", () => {
       expect(handoff.mode).toBe("compact");
       expect(handoff.budgetTokens).toBe(HANDOFF_BUDGET_TOKENS);
       expect(estimateTokens(prelude)).toBeLessThanOrEqual(HANDOFF_BUDGET_TOKENS);
+      expect(handoff.carriedTokens).toBeLessThanOrEqual(HANDOFF_BUDGET_TOKENS);
+      expect(handoff.carriedTokens).toBeLessThan(handoff.conversationTokens);
       expect(prelude).toContain("## Not shown here");
       expect(prelude).toContain("Turn 118.");
     });

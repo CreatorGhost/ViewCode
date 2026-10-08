@@ -1339,6 +1339,8 @@ const make = Effect.gen(function* () {
             to: pending.to,
             summary: handoff.summary,
             mode: handoff.mode,
+            carriedTokens: handoff.carriedTokens,
+            conversationTokens: handoff.conversationTokens,
             transcriptPath,
           },
           turnId: null,
