@@ -28,8 +28,11 @@ and worktree while you stay in the new thread composer. This requires a Git proj
 ## App rail and open-thread tabs
 
 On web and desktop, a slim rail at the far left stays visible even when the thread sidebar
-is collapsed. Its bottom holds one ring per enabled provider account in the environment of the
-open thread (your local environment when no thread is open). A ring shows how much of that
+is collapsed. Its top lists your projects: click one to show only its threads in the sidebar,
+and click it again or **All projects** to show everything. An amber count marks a project with
+threads waiting for your approval or input, and a small dot one with threads working. Its
+bottom holds one ring per enabled provider account in the environment of the open thread
+(your local environment when no thread is open). A ring shows how much of that
 account's most constrained usage limit is left (green, blue, amber, red as it runs out); hover
 it for every limit and its reset time, or click it to open **Usage**. Below the rings are
 **Settings**, **Pull Requests** (when the environment supports them), and **Connect phone**. On

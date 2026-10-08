@@ -1,9 +1,16 @@
-import { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import {
+  buildRailProjectActivity,
   buildRailUsageRings,
+  railProjectLabel,
   railRingTone,
   railRingTracks,
   resolveRailEnvironmentId,
@@ -169,5 +176,78 @@ describe("railRingTracks", () => {
   it("keeps the one window an account reports", () => {
     const only = w("primary", "weekly", 2);
     expect(railRingTracks([only], only).map((t) => t.window.id)).toEqual(["primary"]);
+  });
+});
+
+describe("buildRailProjectActivity", () => {
+  const local = EnvironmentId.make("local");
+  const remote = EnvironmentId.make("remote");
+  // One folder grouping the same repo on two machines, and a second folder.
+  const groups = [
+    {
+      projectKey: "app",
+      memberProjectRefs: [
+        { environmentId: local, projectId: ProjectId.make("p1") },
+        { environmentId: remote, projectId: ProjectId.make("p9") },
+      ],
+    },
+    {
+      projectKey: "docs",
+      memberProjectRefs: [{ environmentId: local, projectId: ProjectId.make("p2") }],
+    },
+  ];
+  type ActivityThread = Parameters<typeof buildRailProjectActivity>[1][number];
+  const thread = (
+    environmentId: EnvironmentId,
+    projectId: string,
+    overrides: Record<string, unknown> = {},
+  ) =>
+    ({
+      environmentId,
+      projectId,
+      archivedAt: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      session: null,
+      ...overrides,
+    }) as unknown as ActivityThread;
+
+  it("counts threads waiting on the user and working threads across a folder's machines", () => {
+    const activity = buildRailProjectActivity(groups, [
+      thread(local, "p1", { hasPendingApprovals: true }),
+      thread(remote, "p9", { hasPendingUserInput: true }),
+      thread(remote, "p9", { session: { status: "running" } }),
+      thread(local, "p2", { backgroundLiveness: "working" }),
+      thread(local, "p2"),
+    ]);
+    expect(Object.fromEntries(activity)).toEqual({
+      app: { needsYou: 2, working: 1 },
+      docs: { needsYou: 0, working: 1 },
+    });
+  });
+
+  it("skips archived threads, side chats, failures, and projects outside the folders", () => {
+    const activity = buildRailProjectActivity(groups, [
+      thread(local, "p1", { hasPendingApprovals: true, archivedAt: "2026-01-01T00:00:00.000Z" }),
+      thread(local, "p1", { hasPendingApprovals: true, kind: "sidechat" }),
+      thread(local, "gone", { hasPendingApprovals: true }),
+      thread(local, "p2", { session: { status: "error" } }),
+    ]);
+    expect(activity.size).toBe(0);
+  });
+});
+
+describe("railProjectLabel", () => {
+  it("names the waiting count first, then working", () => {
+    expect(railProjectLabel("slicerninja", { needsYou: 2, working: 1 })).toBe(
+      "slicerninja, 2 need you",
+    );
+    expect(railProjectLabel("slicerninja", { needsYou: 1, working: 0 })).toBe(
+      "slicerninja, 1 needs you",
+    );
+    expect(railProjectLabel("slicerninja", { needsYou: 0, working: 3 })).toBe(
+      "slicerninja, working",
+    );
+    expect(railProjectLabel("slicerninja", undefined)).toBe("slicerninja");
   });
 });

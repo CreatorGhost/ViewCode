@@ -1,7 +1,9 @@
 import type { EnvironmentId, ServerProviderUsageWindow } from "@t3tools/contracts";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
+import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { planUsageWindow } from "../chat/composerUsageLimits.logic";
+import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 
 /** How much of a rail ring is left to spend, from comfortable to nearly out. */
 export type RailRingTone = "healthy" | "fair" | "low" | "critical";
@@ -112,4 +114,53 @@ export function resolveRailEnvironmentId(input: {
     input.draftEnvironmentId ??
     input.primaryEnvironmentId
   );
+}
+
+type RailActivityThread = Parameters<typeof resolveSidebarThreadStatus>[0] & {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: string;
+  readonly archivedAt: string | null;
+  readonly kind?: string | null | undefined;
+};
+
+/** Per project folder: threads waiting on the user (approval or input), and threads working. */
+export type RailProjectActivity = { readonly needsYou: number; readonly working: number };
+
+/**
+ * Activity per project folder for the rail's project switcher, over the threads the sidebar
+ * lists (not archived, no side chats). Folders with nothing live are left out.
+ */
+export function buildRailProjectActivity(
+  groups: ReadonlyArray<Pick<SidebarProjectSnapshot, "projectKey" | "memberProjectRefs">>,
+  threads: ReadonlyArray<RailActivityThread>,
+): ReadonlyMap<string, RailProjectActivity> {
+  const groupKeyByPhysicalKey = new Map<string, string>();
+  for (const group of groups) {
+    for (const ref of group.memberProjectRefs) {
+      groupKeyByPhysicalKey.set(`${ref.environmentId}:${ref.projectId}`, group.projectKey);
+    }
+  }
+  const activity = new Map<string, { needsYou: number; working: number }>();
+  for (const thread of threads) {
+    if (thread.archivedAt !== null || thread.kind === "sidechat") continue;
+    const status = resolveSidebarThreadStatus(thread);
+    const needsYou = status === "approval" || status === "input";
+    if (!needsYou && status !== "working") continue;
+    const groupKey = groupKeyByPhysicalKey.get(`${thread.environmentId}:${thread.projectId}`);
+    if (groupKey === undefined) continue;
+    const entry = activity.get(groupKey) ?? { needsYou: 0, working: 0 };
+    if (needsYou) entry.needsYou += 1;
+    else entry.working += 1;
+    activity.set(groupKey, entry);
+  }
+  return activity;
+}
+
+/** The project button's accessible name: how many threads wait on the user, else whether one works. */
+export function railProjectLabel(name: string, activity: RailProjectActivity | undefined): string {
+  if (activity && activity.needsYou > 0) {
+    return `${name}, ${activity.needsYou} ${activity.needsYou === 1 ? "needs" : "need"} you`;
+  }
+  if (activity && activity.working > 0) return `${name}, working`;
+  return name;
 }
