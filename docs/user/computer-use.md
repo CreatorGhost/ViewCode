@@ -91,8 +91,9 @@ permissions off in System Settings when you are not using computer use.
   that ignores the change, as some web page fields do.
 - Screenshot-based actions need Screen Recording; without it agents can only act on controls by
   reference.
-- Codex in a sandboxed permission mode may be unable to reach ViewCode from its shell. Use
-  **Full access** for those threads.
+- In a sandboxed permission mode, Codex's sandbox blocks `viewcode-computer` from reaching
+  ViewCode, so the agent reruns it outside the sandbox and ViewCode approves that for you. If it
+  still cannot connect, use **Full access** for that thread.
 - On macOS, agents see each app's menu bar and any open context menu as their own entries. They
   choose menu items by reference, which works in the background without opening the menu.
   Clicks and keys on a menu are refused, because bringing the app forward would close it.

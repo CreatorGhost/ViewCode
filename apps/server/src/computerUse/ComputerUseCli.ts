@@ -547,7 +547,7 @@ export const runComputerCli = async (io: ComputerCliIo): Promise<number> => {
     return fail({
       code: "CU-EXT-006",
       message:
-        "Could not reach the ViewCode server. If your shell is sandboxed, ask the user to switch this thread to full access.",
+        "Could not reach the ViewCode server. If your shell is sandboxed, run the same command again outside the sandbox (ask for escalated permissions; ViewCode approves its own CLI). Only if that is not possible, ask the user to switch this thread to full access.",
     });
   }
   if (outcome.status === 401 || outcome.status === 403) {
@@ -719,6 +719,8 @@ ERRORS
   CU-EXT-004       the action failed or timed out.
   CU-EXT-005       an invalid reply; look again before deciding anything.
   CU-EXT-006       the ViewCode server is unreachable. Your sandbox may block it:
+                   run the same command outside the sandbox (escalated
+                   permissions; ViewCode approves its own CLI). If you cannot,
                    ask the user to switch this thread to full access.
   CU-INT-001       a ViewCode bug; tell the user.
 An error with "effect":"dispatched-unknown" means the input may have landed.
