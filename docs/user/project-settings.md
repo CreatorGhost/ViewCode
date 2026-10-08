@@ -113,7 +113,8 @@ Give each project its own color so you can see which project you are working in.
 project folder in the sidebar or its button in the app rail and choose **Project color…**, or pick
 one under **Project color** in the project's settings. Colors already used by another project
 carry a dot. The chat's top bar, the project's tabs, its rail button and its sidebar folder then
-show that color. Choose **Default** to restore the normal look.
+show that color. Choose **Default** to restore the normal look. On mobile, pick a color under
+**Color** in the project's overview settings; the project's folder on Home shows it.
 
 ## Keep the default branch current
 

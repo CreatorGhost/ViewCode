@@ -76,10 +76,11 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
   readonly onNewThread: (project: EnvironmentProject) => void;
 }) {
   const { folderKey, onToggle, onNewThread, project } = props;
-  const accent =
-    project.projectIcon && "color" in project.projectIcon
-      ? projectIconColorClassNames(project.projectIcon.color)
-      : null;
+  // The project colour, else the icon's colour, tints the header; the bar marks a project colour.
+  const accentColor =
+    project.projectColor ??
+    (project.projectIcon && "color" in project.projectIcon ? project.projectIcon.color : null);
+  const accent = accentColor ? projectIconColorClassNames(accentColor) : null;
   return (
     <View
       className={cn(
@@ -88,6 +89,14 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
         accent?.background,
       )}
     >
+      {project.projectColor ? (
+        <View
+          className={cn(
+            "absolute top-2 bottom-2 left-0 w-[3px] rounded-full",
+            projectIconColorClassNames(project.projectColor).swatch,
+          )}
+        />
+      ) : null}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={[

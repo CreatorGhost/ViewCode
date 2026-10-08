@@ -3,10 +3,17 @@ import { AppText as Text, AppTextInput } from "../../components/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { useState } from "react";
+import type { ProjectIconColor } from "@t3tools/contracts";
+import { useState, type ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { cn } from "../../lib/cn";
+import {
+  PROJECT_COLORS,
+  projectColorsUsedElsewhere,
+  projectIconColorClassNames,
+} from "../../lib/projectIcon";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -48,6 +55,10 @@ export function SettingsProjectOverviewRouteScreen() {
               key={`${selectedProjectKey}:${members.map((member) => member.id).join(",")}`}
               members={members}
               environments={selectedTargets}
+              colorsUsedElsewhere={projectColorsUsedElsewhere(
+                projectGroups,
+                selectedProjectKey ?? "",
+              )}
             />
           )}
         </ScrollView>
@@ -59,6 +70,7 @@ export function SettingsProjectOverviewRouteScreen() {
 function ProjectOverviewContent(props: {
   readonly members: readonly EnvironmentProject[];
   readonly environments: readonly SettingsTarget[];
+  readonly colorsUsedElsewhere: ReadonlySet<ProjectIconColor>;
 }) {
   const representative = props.members[0]!;
   const displayName = deriveProjectGroupLabel({ representative, members: props.members });
@@ -68,6 +80,25 @@ function ProjectOverviewContent(props: {
     label: "project name update",
     reportFailure: true,
   });
+  const updateProjectColor = useAtomCommand(projectEnvironment.update, {
+    label: "project color update",
+    reportFailure: true,
+  });
+  const projectColor =
+    props.members.find((member) => member.projectColor != null)?.projectColor ?? null;
+  // Written to every checkout shown, like the name.
+  const saveColor = (nextColor: ProjectIconColor | null) => {
+    if (isSaving || nextColor === projectColor) return;
+    setIsSaving(true);
+    void Promise.all(
+      props.members.map((member) =>
+        updateProjectColor({
+          environmentId: member.environmentId,
+          input: { projectId: member.id, projectColor: nextColor },
+        }),
+      ),
+    ).finally(() => setIsSaving(false));
+  };
   const nextName = (draftName ?? displayName).trim();
   const canSave = !isSaving && nextName.length > 0 && nextName !== displayName;
 
@@ -137,6 +168,40 @@ function ProjectOverviewContent(props: {
             ) : null}
           </View>
         </View>
+        <View className="gap-3 border-t border-border-subtle p-4">
+          <Text className="text-sm font-t3-medium text-foreground-muted">Color</Text>
+          <View className="flex-row flex-wrap gap-2">
+            <ColorSwatch
+              label="Default"
+              selected={projectColor === null}
+              onPress={() => saveColor(null)}
+            >
+              <View className="size-6 rounded-full border border-dashed border-foreground-muted" />
+            </ColorSwatch>
+            {PROJECT_COLORS.map((color) => {
+              const used = props.colorsUsedElsewhere.has(color);
+              const name = color.charAt(0).toUpperCase() + color.slice(1);
+              return (
+                <ColorSwatch
+                  key={color}
+                  label={used ? `${name}, used by another project` : name}
+                  selected={projectColor === color}
+                  onPress={() => saveColor(color)}
+                >
+                  <View
+                    className={cn("size-6 rounded-full", projectIconColorClassNames(color).swatch)}
+                  />
+                  {used ? (
+                    <View className="absolute top-0.5 right-0.5 size-2 rounded-full bg-foreground" />
+                  ) : null}
+                </ColorSwatch>
+              );
+            })}
+          </View>
+          <Text className="text-xs text-foreground-muted">
+            Marks the project's folder. A dot marks colors other projects use.
+          </Text>
+        </View>
       </SettingsSection>
 
       <SettingsSection title="Checkouts">
@@ -171,5 +236,27 @@ function ProjectOverviewContent(props: {
         })}
       </SettingsSection>
     </>
+  );
+}
+
+function ColorSwatch(props: {
+  readonly label: string;
+  readonly selected: boolean;
+  readonly onPress: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={props.label}
+      accessibilityState={{ selected: props.selected }}
+      onPress={props.onPress}
+      className={cn(
+        "size-9 items-center justify-center rounded-full border-2 active:opacity-70",
+        props.selected ? "border-foreground" : "border-transparent",
+      )}
+    >
+      {props.children}
+    </Pressable>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveProjectIconGlyph } from "./projectIcon";
+import { projectColorsUsedElsewhere, resolveProjectIconGlyph } from "./projectIcon";
 
 describe("resolveProjectIconGlyph", () => {
   it("draws web's popular Lucide icons with their color", () => {
@@ -13,5 +13,17 @@ describe("resolveProjectIconGlyph", () => {
     expect(
       resolveProjectIconGlyph({ kind: "lucide", name: "tractor", color: "green" }, "Farm app"),
     ).toEqual({ kind: "monogram", text: "FA", color: "green" });
+  });
+});
+
+describe("projectColorsUsedElsewhere", () => {
+  it("collects the colours of every other folder from any of its checkouts", () => {
+    const groups = [
+      { key: "a", members: [{ project: { projectColor: "blue" as const } }] },
+      { key: "b", members: [{ project: {} }, { project: { projectColor: "rose" as const } }] },
+      { key: "c", members: [{ project: { projectColor: null } }] },
+    ];
+    expect([...projectColorsUsedElsewhere(groups, "a")]).toEqual(["rose"]);
+    expect([...projectColorsUsedElsewhere(groups, "c")].sort()).toEqual(["blue", "rose"]);
   });
 });
