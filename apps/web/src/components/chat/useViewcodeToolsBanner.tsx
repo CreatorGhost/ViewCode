@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { ComposerBanner } from "./ComposerBanner";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 
 const DISMISSED_STORAGE_KEY = "viewcode:dismissed-viewcode-tools-notices";
@@ -57,6 +58,8 @@ export function useViewcodeToolsBanner(input: {
       icon: <WrenchIcon />,
       title: "ViewCode tools are off for Claude",
       description: notice.text,
+      // "Why?" shows the clipped notice text too, so the stack adds no ⓘ beside it.
+      actionsShowDescription: true,
       actions: (
         <Popover>
           <PopoverTrigger render={<Button size="xs" variant="ghost" />}>Why?</PopoverTrigger>
@@ -66,7 +69,10 @@ export function useViewcodeToolsBanner(input: {
             side="top"
             className="max-w-80 whitespace-normal"
           >
-            {notice.why}
+            <ComposerBanner.Scroll className="max-h-[min(var(--available-height),24rem,40dvh)]">
+              <p>{notice.text}</p>
+              <p className="mt-1.5">{notice.why}</p>
+            </ComposerBanner.Scroll>
           </PopoverPopup>
         </Popover>
       ),

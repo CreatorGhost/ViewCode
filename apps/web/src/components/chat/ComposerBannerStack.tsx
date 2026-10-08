@@ -17,6 +17,8 @@ export interface ComposerBannerStackItem {
   readonly icon: ReactNode;
   readonly title: ReactNode;
   readonly description?: ReactNode;
+  /** The item's own actions reveal the full description, so a clipped one gets no ⓘ. */
+  readonly actionsShowDescription?: boolean;
   readonly children?: ReactNode;
   readonly actions?: ReactNode;
   readonly dismissLabel?: string;
@@ -243,14 +245,22 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
 }
 
 /** Keep full descriptions reachable only when their inline copy is clipped. */
-function NoticeDescription({ children, compact }: { children: ReactNode; compact?: boolean }) {
+function NoticeDescription({
+  children,
+  compact,
+  details,
+}: {
+  children: ReactNode;
+  compact?: boolean;
+  details: boolean;
+}) {
   const descriptionRef = useRef<HTMLSpanElement>(null);
   const detailsRef = useRef<HTMLButtonElement>(null);
   const [showDetails, setShowDetails] = useState(false);
 
   useLayoutEffect(() => {
     const description = descriptionRef.current;
-    if (!description) return;
+    if (!description || !details) return;
     const measure = () => {
       // Ignore the space taken by the details button itself so it cannot
       // sustain its own overflow after the description would otherwise fit.
@@ -273,7 +283,7 @@ function NoticeDescription({ children, compact }: { children: ReactNode; compact
       observer.disconnect();
       mutations.disconnect();
     };
-  }, []);
+  }, [details]);
 
   return (
     <span className={compact ? "contents" : "flex min-w-8 flex-1 items-center gap-1"}>
@@ -286,7 +296,7 @@ function NoticeDescription({ children, compact }: { children: ReactNode; compact
       >
         {children}
       </span>
-      {showDetails ? (
+      {details && showDetails ? (
         <Popover>
           <PopoverTrigger
             openOnHover
@@ -354,7 +364,10 @@ function ComposerBannerStackAlert({
         <ComposerBanner.Content className="whitespace-nowrap">
           <span className="min-w-0 truncate font-medium leading-7 sm:leading-6">{item.title}</span>
           {item.description ? (
-            <NoticeDescription compact={item.compact ?? false}>
+            <NoticeDescription
+              compact={item.compact ?? false}
+              details={!item.actionsShowDescription}
+            >
               {item.description}
             </NoticeDescription>
           ) : null}
