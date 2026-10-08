@@ -139,5 +139,6 @@ Known gaps:
 - Waiting while you use the mouse or keyboard: covered by tests, still unconfirmed on a real Mac.
 - **Show on screen**: covered by tests, including refusal of a foreground fallback after choosing
   to keep a task in the background. The real desktop prompt still needs confirmation.
-- The extra Dock icon: JXA helpers request background-only activation. The driver's opt-in Helper
-  host and its permissions still need a desktop check before the host default can change.
+- The macOS driver now uses the app's Helper by default. A real desktop check confirmed
+  accessibility reads and screenshots with no driver Dock tile. Environment maintainers can
+  set `VIEWCODE_COMPUTER_DRIVER_HOST=main` if their build needs the main host.

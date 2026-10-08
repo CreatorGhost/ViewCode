@@ -16,7 +16,12 @@ import {
   ComputerDriverDispatchCheck,
   ComputerDriverError,
 } from "./ComputerDriver.ts";
-import { layer, macHelperExecutable, makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
+import {
+  layer,
+  computerDriverHost,
+  macHelperExecutable,
+  makeXa11yComputerDriver,
+} from "./Xa11yComputerDriver.ts";
 import { HostProcessOnShutdown } from "@t3tools/shared/hostProcess";
 
 // Answers by op instead of driving xa11y: each op exercises one way a real
@@ -497,6 +502,34 @@ describe("macHelperExecutable", () => {
   const app = "/Applications/ViewCode (Alpha).app/Contents/MacOS/ViewCode (Alpha)";
   const helper =
     "/Applications/ViewCode (Alpha).app/Contents/Frameworks/ViewCode (Alpha) Helper.app/Contents/MacOS/ViewCode (Alpha) Helper";
+
+  it("defaults macOS bundles to Helper while honoring the main override", () => {
+    const exists = (path: string) => path === helper;
+    expect(computerDriverHost("darwin", app, undefined, exists)).toEqual({
+      command: helper,
+      host: "helper",
+    });
+    expect(computerDriverHost("darwin", app, "helper", exists)).toEqual({
+      command: helper,
+      host: "helper",
+    });
+    expect(computerDriverHost("darwin", app, "main", exists)).toEqual({
+      command: app,
+      host: "main",
+    });
+    expect(computerDriverHost("darwin", app, undefined, () => false)).toEqual({
+      command: app,
+      host: "main",
+    });
+    expect(computerDriverHost("darwin", "/usr/local/bin/node", undefined, exists)).toEqual({
+      command: "/usr/local/bin/node",
+      host: "main",
+    });
+    expect(computerDriverHost("linux", app, "helper", exists)).toEqual({
+      command: app,
+      host: "main",
+    });
+  });
 
   it("finds the Helper beside an app bundle's main executable", () => {
     expect(macHelperExecutable(app, (path) => path === helper)).toBe(helper);

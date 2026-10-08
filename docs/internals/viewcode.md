@@ -397,8 +397,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   window model (xa11y treats each top-level window as an app there).
 - The driver is xa11y in a child process spawned from the app's own executable with
   `ELECTRON_RUN_AS_NODE=1`: macOS keys the Accessibility grant to the responsible app. The sibling
-  Helper host is opt-in (`VIEWCODE_COMPUTER_DRIVER_HOST=helper`); its grants and Dock behavior need
-  confirmation in the actual build before it can become the default. Chromium and
+  Helper is the macOS bundle default after real desktop AX/capture and Dock verification.
+  `VIEWCODE_COMPUTER_DRIVER_HOST=main` restores the main host; missing Helpers and standalone
+  Node keep the main executable. Chromium and
   Electron build their tree only on request: before a pid's first observe the driver sets
   `AXManualAccessibility` (xa11y cannot) and waits 500 ms. `AXEnhancedUserInterface` is never
   used; it changes window animation and resizing in other apps.

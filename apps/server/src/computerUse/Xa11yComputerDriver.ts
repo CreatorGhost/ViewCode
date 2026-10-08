@@ -624,7 +624,7 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
   } satisfies ComputerDriverShape;
 });
 
-/** Opt-in experiment: host the driver in the app's Helper executable instead of the app itself. */
+/** Set to main to override the default macOS Helper host. */
 export const DRIVER_HOST_ENV = "VIEWCODE_COMPUTER_DRIVER_HOST";
 
 /**
@@ -633,10 +633,8 @@ export const DRIVER_HOST_ENV = "VIEWCODE_COMPUTER_DRIVER_HOST";
  * Helper is missing. The Helper is marked `LSUIElement`, so a driver it hosts
  * should get no Dock icon when it connects to the window server; the main
  * executable gets one (the server never connects, so it shows none).
- * Unproven: whether a Helper spawned by us (not by Electron, which disclaims
- * responsibility for its helpers) still inherits the app's Accessibility
- * grant, so this stays opt-in via `VIEWCODE_COMPUTER_DRIVER_HOST=helper`
- * until verified on a Mac.
+ * Real desktop acceptance confirmed AX reads, screenshot capture and no Dock
+ * presence in the Helper. An explicit main override remains available.
  */
 export const macHelperExecutable = (
   execPath: string,
@@ -657,15 +655,21 @@ export const macHelperExecutable = (
   return exists(helper) ? helper : undefined;
 };
 
-const driverHostCommand = (
+export const computerDriverHost = (
   platform: NodeJS.Platform,
+  execPath: string,
+  override: string | undefined,
+  exists: (path: string) => boolean,
 ): { readonly command: string; readonly host: "main" | "helper" } => {
-  if (platform === "darwin" && process.env[DRIVER_HOST_ENV] === "helper") {
-    const helper = macHelperExecutable(process.execPath, (path) => NodeFS.existsSync(path));
+  if (platform === "darwin" && override !== "main") {
+    const helper = macHelperExecutable(execPath, exists);
     if (helper) return { command: helper, host: "helper" };
   }
-  return { command: process.execPath, host: "main" };
+  return { command: execPath, host: "main" };
 };
+
+const driverHostCommand = (platform: NodeJS.Platform) =>
+  computerDriverHost(platform, process.execPath, process.env[DRIVER_HOST_ENV], NodeFS.existsSync);
 
 /**
  * The driver script beside this module: the TS source in development, the
