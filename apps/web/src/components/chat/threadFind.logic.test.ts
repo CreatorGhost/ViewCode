@@ -4,7 +4,12 @@ import type { TimelineEntry } from "../../session-logic";
 import { findThreadMatches, stepFindIndex } from "./threadFind.logic";
 
 const message = (id: string, role: "user" | "assistant" | "system", text: string) =>
-  ({ id: `entry-${id}`, kind: "message", createdAt: "", message: { id, role, text } }) as unknown as TimelineEntry;
+  ({
+    id: `entry-${id}`,
+    kind: "message",
+    createdAt: "",
+    message: { id, role, text },
+  }) as unknown as TimelineEntry;
 
 describe("findThreadMatches", () => {
   const entries = [

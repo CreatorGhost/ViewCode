@@ -285,7 +285,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "chat-width",
     title: "Chat width",
     to: "/settings/appearance",
-    searchTerms: ["column narrow normal wide transcript composer max width reading"],
+    searchTerms: ["column narrow normal wide full transcript composer max width reading monitor"],
   },
   {
     id: "collapse-finished-turns",
@@ -793,6 +793,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [
       "automatic remote branch refresh background credentials security keys seconds off",
     ],
+    environmentOnly: true,
+    scope: "environment-defaults",
+  },
+  {
+    id: "bitbucket-credentials",
+    title: "Bitbucket credentials",
+    to: "/settings/source-control",
+    searchTerms: ["bitbucket atlassian access token api token email credentials sign in"],
     environmentOnly: true,
     scope: "environment-defaults",
   },

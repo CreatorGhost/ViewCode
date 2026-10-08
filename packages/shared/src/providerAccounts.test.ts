@@ -23,9 +23,9 @@ describe("deriveAccountInstanceId", () => {
 
   it("suffixes a taken id and stays within 64 characters", () => {
     expect(deriveAccountInstanceId("codex", "Work", new Set(["codex_work"]))).toBe("codex_work_2");
-    expect(
-      deriveAccountInstanceId("codex", "Work", new Set(["codex_work", "codex_work_2"])),
-    ).toBe("codex_work_3");
+    expect(deriveAccountInstanceId("codex", "Work", new Set(["codex_work", "codex_work_2"]))).toBe(
+      "codex_work_3",
+    );
     const long = deriveAccountInstanceId("claudeAgent", "x".repeat(200));
     expect(long.length).toBeLessThanOrEqual(64);
     const taken = deriveAccountInstanceId("claudeAgent", "x".repeat(200), new Set([long]));

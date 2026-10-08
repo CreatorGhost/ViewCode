@@ -96,6 +96,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.branch",
   "chat.new",
   "chat.newLocal",
+  "chat.newWithoutProject",
   "editor.openFavorite",
   // ViewCode: keyboard shortcuts sheet and diff panel change navigation.
   "shortcuts.open",
@@ -107,6 +108,13 @@ export const STATIC_KEYBINDING_COMMANDS = [
   // ViewCode: read the latest assistant reply aloud with the system voice.
   "readAloud.latest",
   "readAloud.stop",
+  "usage.cost",
+  "usage.tokens",
+  "usage.limits",
+  "usage.period.day",
+  "usage.period.week",
+  "usage.period.month",
+  "usage.period.quarter",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;

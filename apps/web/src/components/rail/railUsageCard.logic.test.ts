@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildRailUsageCardRows, railPlanLabel, railTokenRows, usagePace } from "./railUsageCard.logic";
+import {
+  buildRailUsageCardRows,
+  railPlanLabel,
+  railTokenRows,
+  usagePace,
+} from "./railUsageCard.logic";
 
 const NOW = Date.parse("2026-01-01T00:00:00Z");
 
@@ -55,28 +60,49 @@ describe("usagePace", () => {
 
   it("reports reserve when spending slower than an even pace", () => {
     const pace = usagePace({ remainingPercent: 80, resetsAt, windowDurationMins: week, now });
-    expect(pace).toMatchObject({ markerPercent: 50, status: "ahead", amount: "30% in reserve", eta: "Lasts until reset" });
+    expect(pace).toMatchObject({
+      markerPercent: 50,
+      status: "ahead",
+      amount: "30% in reserve",
+      eta: "Lasts until reset",
+    });
   });
 
   it("reports deficit and a run-out time when spending faster", () => {
     const pace = usagePace({ remainingPercent: 20, resetsAt, windowDurationMins: week, now });
     // 80% used in half the window: 160% projected, runs out in 0.875 d.
-    expect(pace).toMatchObject({ status: "behind", amount: "30% in deficit", eta: "Runs out in 21h 0m" });
+    expect(pace).toMatchObject({
+      status: "behind",
+      amount: "30% in deficit",
+      eta: "Runs out in 21h 0m",
+    });
   });
 
   it("says the limit is reached at 0% left", () => {
-    expect(usagePace({ remainingPercent: 0, resetsAt, windowDurationMins: week, now })?.eta).toBe("Limit reached");
+    expect(usagePace({ remainingPercent: 0, resetsAt, windowDurationMins: week, now })?.eta).toBe(
+      "Limit reached",
+    );
   });
 
   it("has nothing to say without a reset time or a duration", () => {
-    expect(usagePace({ remainingPercent: 50, resetsAt: undefined, windowDurationMins: week, now })).toBeNull();
-    expect(usagePace({ remainingPercent: 50, resetsAt, windowDurationMins: undefined, now })).toBeNull();
+    expect(
+      usagePace({ remainingPercent: 50, resetsAt: undefined, windowDurationMins: week, now }),
+    ).toBeNull();
+    expect(
+      usagePace({ remainingPercent: 50, resetsAt, windowDurationMins: undefined, now }),
+    ).toBeNull();
   });
 });
 
 describe("railTokenRows", () => {
   const totals = (provider: "codex" | "claude", totalTokens: number, sessions: number) => ({
-    provider, totalTokens, sessions, costUsd: 0, records: 0, costShare: 0, tokenShare: 0,
+    provider,
+    totalTokens,
+    sessions,
+    costUsd: 0,
+    records: 0,
+    costShare: 0,
+    tokenShare: 0,
   });
 
   it("lists each window the provider used, skipping empty ones", () => {

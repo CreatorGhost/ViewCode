@@ -112,9 +112,7 @@ describe("cache notice helpers", () => {
   });
 
   it("counts down to expiry", () => {
-    expect(msUntilClaudeCacheExpiry({ lastUsedAt, ttlSeconds: 300, nowMs: at(100) })).toBe(
-      200_000,
-    );
+    expect(msUntilClaudeCacheExpiry({ lastUsedAt, ttlSeconds: 300, nowMs: at(100) })).toBe(200_000);
     expect(msUntilClaudeCacheExpiry({ lastUsedAt, ttlSeconds: 300, nowMs: at(400) })).toBe(0);
   });
 });

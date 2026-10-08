@@ -29,9 +29,7 @@ export const resolveThreadFork = Effect.fn("resolveThreadFork")(function* (input
   const source = yield* projection
     .getThreadDetailById(input.forkFrom.threadId, { activityKinds: [] })
     .pipe(
-      Effect.mapError(
-        (cause) => new OrchestrationDispatchCommandError({ message: cause.message }),
-      ),
+      Effect.mapError((cause) => new OrchestrationDispatchCommandError({ message: cause.message })),
     );
   if (Option.isNone(source)) {
     return yield* new OrchestrationDispatchCommandError({

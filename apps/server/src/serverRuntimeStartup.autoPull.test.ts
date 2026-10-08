@@ -75,7 +75,6 @@ it.effect("parks automatic pull until activation without delaying command readin
           otlpTracesExport: DEFAULT_SIGNAL_EXPORT,
           otlpMetricsExport: DEFAULT_SIGNAL_EXPORT,
           otlpLogsExport: DEFAULT_SIGNAL_EXPORT,
-          otlpServiceName: "t3-server-test",
           otelEnvironment: OtelEnvironment.none,
           staticDir: undefined,
           devAllowedOrigins: [],

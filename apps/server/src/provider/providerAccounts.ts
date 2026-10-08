@@ -71,14 +71,14 @@ export function addAccountSettingsPatch(input: {
   });
   const paths: { readonly homePath: string; readonly shadowHomePath?: string } =
     account.existingDirectory
-    ? existingDirectoryAccountConfig(account.driver, account.existingDirectory)
-    : managedAccountConfig({
-        driver: account.driver,
-        instanceId: account.instanceId,
-        stateDir: input.stateDir,
-        sharedCodexHome,
-        platform: input.platform,
-      });
+      ? existingDirectoryAccountConfig(account.driver, account.existingDirectory)
+      : managedAccountConfig({
+          driver: account.driver,
+          instanceId: account.instanceId,
+          stateDir: input.stateDir,
+          sharedCodexHome,
+          platform: input.platform,
+        });
   const instance: ProviderInstanceConfig = {
     driver: ProviderDriverKind.make(account.driver),
     displayName: account.displayName,
@@ -177,7 +177,11 @@ export const prepareProviderAccountSignIn = Effect.fn("providerAccounts.prepareS
         // writes auth.json into it, exactly as a session would prepare it.
         yield* materializeCodexShadowHome(layout).pipe(
           Effect.mapError((cause) =>
-            fail("prepareSignIn", `Could not prepare the Codex shadow home: ${cause.message}`, cause),
+            fail(
+              "prepareSignIn",
+              `Could not prepare the Codex shadow home: ${cause.message}`,
+              cause,
+            ),
           ),
         );
       } else if (layout.effectiveHomePath) {

@@ -75,7 +75,9 @@ export function ChatAppearanceSettings() {
             }}
           >
             <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Chat width">
-              <SelectValue>{labelFor<ChatWidth>(CHAT_WIDTH_OPTIONS, settings.chatWidth)}</SelectValue>
+              <SelectValue>
+                {labelFor<ChatWidth>(CHAT_WIDTH_OPTIONS, settings.chatWidth)}
+              </SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
               {CHAT_WIDTH_OPTIONS.map((option) => (
@@ -105,7 +107,9 @@ export function ChatAppearanceSettings() {
         control={
           <Switch
             checked={settings.collapseFinishedTurns}
-            onCheckedChange={(checked) => updateSettings({ collapseFinishedTurns: Boolean(checked) })}
+            onCheckedChange={(checked) =>
+              updateSettings({ collapseFinishedTurns: Boolean(checked) })
+            }
             aria-label="Collapse finished turns"
           />
         }

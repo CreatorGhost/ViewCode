@@ -284,7 +284,6 @@ interface ClaudeTurnState {
    * steered instead (the queued message continues the same turn).
    */
   readonly synthetic?: boolean;
-  readonly items: Array<unknown>;
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
   readonly capturedProposedPlanKeys: Set<string>;
@@ -400,26 +399,26 @@ interface ClaudeTaskAgentState {
 }
 
 /**
- * How many racing snapshot models to buffer per session. A snapshot whose
- * task_started never arrives would otherwise pin its entry for the session's
+ * How many entries each task_started lookup map buffers per session. An entry
+ * whose task_started never arrives would otherwise pin it for the session's
  * lifetime; oldest entries evict first.
  */
-const PENDING_TASK_MODEL_CAP = 64;
+const PENDING_TASK_ENTRY_CAP = 256;
 /** How long Stop waits for Claude to abort a turn before killing the process. */
 const CLAUDE_INTERRUPT_GRACE = "3 seconds";
 
 /**
- * Buffers a subagent snapshot's authoritative model under its
- * parent_tool_use_id, for snapshots that beat their task_started to the
- * stream. task_started consumes the entry when it registers the task.
+ * Buffers a value that a later task_started reads by tool_use_id (a racing
+ * snapshot model, or a subagent's tool_use owner). task_started consumes the
+ * entry when it registers the task.
  */
-function rememberPendingTaskModel(
+function rememberPendingTaskEntry(
   pending: Map<string, string>,
-  parentToolUseId: string,
-  model: string,
+  toolUseId: string,
+  value: string,
 ): void {
-  pending.set(parentToolUseId, model);
-  if (pending.size > PENDING_TASK_MODEL_CAP) {
+  pending.set(toolUseId, value);
+  if (pending.size > PENDING_TASK_ENTRY_CAP) {
     const oldest = pending.keys().next();
     if (!oldest.done) {
       pending.delete(oldest.value);
@@ -469,19 +468,27 @@ interface ClaudeSessionContext {
   nativeSessionConfirmed: boolean;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
-  readonly turns: Array<{
-    id: TurnId;
-    items: Array<unknown>;
-  }>;
+  /** Completed turn ids, reported by readThread and trimmed on rollback.
+   * SDK messages are not kept: rollback reads Claude's own history through
+   * turnStartMessageIds, and a long-lived session would otherwise hold every
+   * message it ever produced. */
+  readonly turns: Array<{ readonly id: TurnId }>;
   readonly inFlightTools: Map<number, ToolInFlight>;
   readonly claudeTasks: Map<string, ClaudeTaskState>;
   readonly taskAgents: Map<string, ClaudeTaskAgentState>;
   /**
    * Authoritative subagent models from assistant snapshots that arrived before
    * their task_started registered the task, keyed by parent_tool_use_id.
-   * Written through `rememberPendingTaskModel`, consumed by task_started.
+   * Written through `rememberPendingTaskEntry`, consumed by task_started.
    */
   readonly pendingTaskModels: Map<string, string>;
+  /**
+   * tool_use_id → parent_tool_use_id for tool calls made inside a subagent.
+   * The SDK forwards those calls only as assistant snapshots, never as stream
+   * events, so task_started reads this to find the owner of a task launched
+   * from inside a subagent.
+   */
+  readonly subagentToolParents: Map<string, string>;
   /**
    * Last emitted workflow-member fingerprint per member slot. A coordinator
    * task_progress repeats the FULL member array every tick; without a
@@ -2252,10 +2259,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
     return {
       threadId,
-      turns: context.turns.map((turn) => ({
-        id: turn.id,
-        items: [...turn.items],
-      })),
+      turns: context.turns.map((turn) => ({ id: turn.id, items: [] })),
     };
   });
 
@@ -2900,10 +2904,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       });
     }
 
-    context.turns.push({
-      id: turnState.turnId,
-      items: [...turnState.items],
-    });
+    context.turns.push({ id: turnState.turnId });
 
     yield* emitThreadTokenUsage(context, usageSnapshot, {
       rawMethod: "claude/result",
@@ -3270,10 +3271,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
-    if (context.turnState) {
-      context.turnState.items.push(message.message);
-    }
-
     for (const toolResult of toolResultBlocksFromUserMessage(message)) {
       const toolEntry = Array.from(context.inFlightTools.entries()).find(
         ([, tool]) => tool.itemId === toolResult.toolUseId,
@@ -3445,18 +3442,45 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const owningTaskId = agentIdForParentToolUse(context.taskAgents, assistantParentToolUseId);
       const snapshotModel = trimmedString(message.message.model);
       const owningAgent = owningTaskId ? context.taskAgents.get(owningTaskId) : undefined;
-      if (snapshotModel) {
-        if (owningAgent) {
-          owningAgent.model = snapshotModel;
-        } else {
-          // The snapshot beat its task_started (or its tool_use_id was never
-          // recorded): hold the model until the task registers.
-          rememberPendingTaskModel(
-            context.pendingTaskModels,
-            assistantParentToolUseId,
-            snapshotModel,
-          );
+      const snapshotContent = Array.isArray(message.message.content) ? message.message.content : [];
+      for (const block of snapshotContent) {
+        if (block.type === "tool_use") {
+          rememberPendingTaskEntry(context.subagentToolParents, block.id, assistantParentToolUseId);
         }
+      }
+      if (snapshotModel && owningAgent) {
+        if (owningAgent.model !== snapshotModel) {
+          owningAgent.model = snapshotModel;
+          // Push the correction now. The next task row can be minutes away
+          // when the subagent blocks on a long foreground tool.
+          const stamp = yield* makeEventStamp();
+          yield* offerRuntimeEvent({
+            type: "task.updated",
+            eventId: stamp.eventId,
+            provider: PROVIDER,
+            createdAt: stamp.createdAt,
+            threadId: context.session.threadId,
+            ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+            payload: {
+              taskId: RuntimeTaskId.make(owningAgent.taskId),
+              ...taskLinkageFor(context.taskAgents, owningAgent.taskId),
+            },
+            providerRefs: nativeProviderRefs(context),
+            raw: {
+              source: "claude.sdk.message",
+              method: "claude/assistant",
+              payload: message,
+            },
+          });
+        }
+      } else if (snapshotModel) {
+        // The snapshot beat its task_started (or its tool_use_id was never
+        // recorded): hold the model until the task registers.
+        rememberPendingTaskEntry(
+          context.pendingTaskModels,
+          assistantParentToolUseId,
+          snapshotModel,
+        );
       }
       context.lastAssistantUuid = message.uuid;
       yield* updateResumeCursor(context);
@@ -3473,7 +3497,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         turnId,
         startedAt,
         synthetic: true,
-        items: [],
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
         capturedProposedPlanKeys: new Set(),
@@ -3560,7 +3583,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           cwd: path.resolve(context.session.cwd ?? "."),
         });
       }
-      context.turnState.items.push(message.message);
       if (
         normalizeClaudeActiveTokenUsage(
           message.message.usage,
@@ -3834,15 +3856,23 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
         return;
       case "task_started": {
-        // A task launched by a tool that itself ran inside a subagent (the
-        // in-flight tool carries agentId from parent_tool_use_id) is
-        // agent-internal: a subagent's background shell, not parent work.
-        const launchingTool = message.tool_use_id
-          ? Array.from(context.inFlightTools.values()).find(
-              (tool) => tool.itemId === message.tool_use_id,
-            )
+        // A task launched by a tool that itself ran inside a subagent is
+        // agent-internal: a subagent's background shell, not parent work. A
+        // streamed tool carries agentId from parent_tool_use_id; a tool seen
+        // only in a subagent snapshot resolves through subagentToolParents.
+        const toolUseId = message.tool_use_id;
+        const launchingTool = toolUseId
+          ? Array.from(context.inFlightTools.values()).find((tool) => tool.itemId === toolUseId)
           : undefined;
-        const owningAgentId = launchingTool?.agentId;
+        const launchParentToolUseId = toolUseId
+          ? context.subagentToolParents.get(toolUseId)
+          : undefined;
+        if (toolUseId) {
+          context.subagentToolParents.delete(toolUseId);
+        }
+        const owningAgentId =
+          launchingTool?.agentId ??
+          agentIdForParentToolUse(context.taskAgents, launchParentToolUseId);
         if (
           context.turnState &&
           classifyTaskAgentKind({
@@ -3853,13 +3883,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           context.turnState.hasSubagents = true;
         }
         // Model/effort: the Agent tool's input carries explicit overrides;
-        // absent ones inherit the session's selection (SDK behavior).
-        // Subagent assistant snapshots refine model with the authoritative API
-        // id: one that already arrived is buffered and outranks the seed here,
-        // later ones refine the record in place. AgentInput.effort may be a
-        // named level or an integer.
+        // absent ones inherit the owning subagent's model, else the session's
+        // selection (SDK behavior). Subagent assistant snapshots refine model
+        // with the authoritative API id: one that already arrived is buffered
+        // and outranks the seed here, later ones refine the record in place.
+        // AgentInput.effort may be a named level or an integer.
         const launchInput = launchingTool?.input;
-        const toolUseId = message.tool_use_id;
         const bufferedModel = toolUseId ? context.pendingTaskModels.get(toolUseId) : undefined;
         if (toolUseId) {
           context.pendingTaskModels.delete(toolUseId);
@@ -3867,6 +3896,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         const model =
           bufferedModel ??
           trimmedString(launchInput?.model) ??
+          (owningAgentId ? context.taskAgents.get(owningAgentId)?.model : undefined) ??
           trimmedString(context.session.model ?? undefined);
         const rawLaunchEffort = launchInput?.effort;
         const effort =
@@ -4653,6 +4683,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const claudeTasks = new Map<string, ClaudeTaskState>();
       const taskAgents = new Map<string, ClaudeTaskAgentState>();
       const pendingTaskModels = new Map<string, string>();
+      const subagentToolParents = new Map<string, string>();
       const workflowMemberFingerprints = new Map<string, string>();
       const liveTaskIds = new Set<string>();
 
@@ -5308,6 +5339,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         claudeTasks,
         taskAgents,
         pendingTaskModels,
+        subagentToolParents,
         workflowMemberFingerprints,
         liveTaskIds,
         turnState: undefined,
@@ -5586,7 +5618,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const turnState: ClaudeTurnState = {
         turnId,
         startedAt: yield* nowIso,
-        items: [],
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
         capturedProposedPlanKeys: new Set(),

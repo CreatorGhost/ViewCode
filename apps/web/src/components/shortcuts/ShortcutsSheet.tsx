@@ -36,7 +36,10 @@ export function ShortcutsSheet() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [keybindings]);
 
-  const rows = useMemo(() => (open ? buildShortcutSheetRows(keybindings) : []), [open, keybindings]);
+  const rows = useMemo(
+    () => (open ? buildShortcutSheetRows(keybindings) : []),
+    [open, keybindings],
+  );
   const visible = useMemo(() => filterShortcutSheetRows(rows, query), [rows, query]);
 
   return (

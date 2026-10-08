@@ -37,7 +37,12 @@ export function usagePace(input: {
   resetsAt: string | undefined;
   windowDurationMins: number | undefined;
   now: number;
-}): { markerPercent: number; status: "ahead" | "on-track" | "behind"; amount: string | null; eta: string | null } | null {
+}): {
+  markerPercent: number;
+  status: "ahead" | "on-track" | "behind";
+  amount: string | null;
+  eta: string | null;
+} | null {
   if (!input.resetsAt || !input.windowDurationMins) return null;
   const resetMs = Date.parse(input.resetsAt);
   const durationMs = input.windowDurationMins * 60_000;
@@ -50,9 +55,17 @@ export function usagePace(input: {
   const elapsed = Math.max(elapsedMs / durationMs, 0.05);
   const expectedUsed = clamp(elapsed * 100);
   const projected = used === 0 ? 0 : used / elapsed;
-  const status = used >= 100 ? "behind" : used === 0 || projected <= 80 ? "ahead" : projected <= 100 ? "on-track" : "behind";
+  const status =
+    used >= 100
+      ? "behind"
+      : used === 0 || projected <= 80
+        ? "ahead"
+        : projected <= 100
+          ? "on-track"
+          : "behind";
   const delta = Math.round(Math.abs(used - expectedUsed));
-  const amount = delta === 0 ? null : used > expectedUsed ? `${delta}% in deficit` : `${delta}% in reserve`;
+  const amount =
+    delta === 0 ? null : used > expectedUsed ? `${delta}% in deficit` : `${delta}% in reserve`;
 
   let eta: string | null = "Lasts until reset";
   if (status === "behind") {

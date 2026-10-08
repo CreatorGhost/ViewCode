@@ -3224,10 +3224,12 @@ describe("quiet timeline: nested agents", () => {
       ["task.completed", "task-a"],
       ["task.completed", "task-b"],
       ["task.completed", "task-b"],
-    ].map(([kind, taskId], index) =>
+    ].map(([kind = "", taskId], index) =>
       makeActivity({
         id: EventId.make(`cursor-${index}`),
         kind,
+        summary: "Audit",
+        createdAt: `2026-01-01T00:00:0${index}.000Z`,
         turnId: TurnId.make("cursor-turn"),
         payload: {
           taskId,
@@ -3239,7 +3241,13 @@ describe("quiet timeline: nested agents", () => {
         },
       }),
     );
-    const rows = buildThreadFeed(makeThread({ activities })).flatMap((entry) =>
+    const thread = makeThread({
+      id: ThreadId.make("cursor-thread"),
+      projectId: ProjectId.make("project-1"),
+      title: "Cursor",
+      activities,
+    });
+    const rows = buildThreadFeed(thread).flatMap((entry) =>
       entry.type === "activity-group" ? entry.activities : [],
     );
     expect(rows).toHaveLength(1);

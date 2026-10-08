@@ -32,6 +32,10 @@ html[data-chat-width="wide"] {
   --chat-column-max-width: 64rem;
 }
 
+html[data-chat-width="full"] {
+  --chat-column-max-width: 100%;
+}
+
 html[data-chat-density="compact"] {
   --chat-turn-gap: 0.875rem;
   --chat-row-gap: 0.25rem;

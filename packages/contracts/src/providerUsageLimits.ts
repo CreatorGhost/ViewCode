@@ -52,11 +52,20 @@ export type ServerProviderResetCredits = typeof ServerProviderResetCredits.Type;
 export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
+  /** Opaque credential identity when the provider does not report an account. */
+  credentialFingerprint: Schema.optional(TrimmedNonEmptyString),
   resetCredits: Schema.optional(ServerProviderResetCredits),
   /** Why reset credits could not be read, when that is known; absent credits alone mean unknown. */
   resetCreditsUnavailableReason: Schema.optional(TrimmedNonEmptyString),
   /** Last refresh failed; windows and checkedAt still describe the last successful reading. */
   refreshError: Schema.optional(TrimmedNonEmptyString),
+  /** Provider-owned usage settings when quota windows are not available to the client. */
+  externalUsage: Schema.optional(
+    Schema.Struct({
+      label: TrimmedNonEmptyString,
+      url: TrimmedNonEmptyString,
+    }),
+  ),
   unavailable: Schema.optional(
     Schema.Struct({
       reason: Schema.Literals(["unsupported", "probeFailed"]),

@@ -41,7 +41,10 @@ export function UsageTrack({ row, className }: { row: RailUsageCardRow; classNam
           aria-hidden
           className="absolute inset-y-0 flex w-2 -translate-x-1/2 items-center justify-center"
           // The gap around the tick is the surface the track sits on: the card on the Usage page, the popover in the rail.
-          style={{ left: `${row.markerPercent}%`, backgroundColor: "var(--usage-track-gap, var(--popover))" }}
+          style={{
+            left: `${row.markerPercent}%`,
+            backgroundColor: "var(--usage-track-gap, var(--popover))",
+          }}
         >
           <span className={cn("h-full w-0.5 rounded-full", TONE_FILL[row.paceTone])} />
         </div>
@@ -70,10 +73,7 @@ export function UsageWindowRow({ row }: { row: RailUsageCardRow }) {
     <div className="flex flex-col gap-2 text-sm">
       <span className="flex items-center gap-2 font-medium text-foreground">
         {row.label}
-        <span
-          aria-hidden
-          className={cn("size-1.5 rounded-full", TONE_FILL[row.paceTone])}
-        />
+        <span aria-hidden className={cn("size-1.5 rounded-full", TONE_FILL[row.paceTone])} />
       </span>
       <UsageTrack row={row} />
       <div className="flex flex-col gap-1">

@@ -163,6 +163,7 @@ import {
   orderItemsByPreferredIds,
   reduceSidebarProjectScopeMenuState,
   resolveAdjacentThreadId,
+  resolveSidebarRowAccessibility,
   resolveSidebarThreadStatus,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
@@ -491,7 +492,7 @@ const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
 const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
 
 const rowSurfaceBaseClassName =
-  "group/sidebar-row relative flex w-full cursor-pointer items-center gap-1.5 rounded-md pr-2 text-left text-row outline-none select-none focus-visible:bg-sidebar-foreground/6";
+  "group/sidebar-row relative flex w-full cursor-pointer items-center gap-1.5 rounded-md pr-2 text-left text-row outline-none select-none focus-visible:bg-sidebar-foreground/6 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
 
 // One unsent draft session the user has invested content in: the typed
 // prompt and its project. Clicking is a plain navigation to /draft/$draftId.
@@ -523,6 +524,12 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
     promptPreview.length > 0
       ? promptPreview
       : `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`;
+  const accessibility = resolveSidebarRowAccessibility({
+    title: preview,
+    statusLabel: "Unsent draft",
+    projectDisplayName: props.projectDisplayName,
+    isActive: props.isActive,
+  });
   const handleActivate = useCallback(() => onNavigate(draftId), [draftId, onNavigate]);
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
@@ -548,6 +555,8 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
       <div
         role="button"
         tabIndex={0}
+        aria-label={accessibility.label}
+        aria-current={accessibility.current}
         data-testid="sidebar-draft-row"
         className={cn(
           rowSurfaceBaseClassName,
@@ -1080,7 +1089,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const prBadgeShape = supportsMultiplePullRequests
     ? resolveThreadPullRequestBadge(thread.pullRequests)
     : null;
-  const handlePrStackClick = useCallback(() => {
+  const handlePrListClick = useCallback(() => {
     useRightPanelStore.getState().open(threadRef, "pull-requests");
     if (!props.isActive) onThreadActivate(threadRef);
   }, [onThreadActivate, props.isActive, threadRef]);
@@ -1093,7 +1102,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         number={pr?.number ?? currentLinkedPr?.number}
         url={pr?.url ?? currentLinkedPr?.url}
         status={prStatus}
-        onOpenStack={handlePrStackClick}
+        onOpenList={handlePrListClick}
         onOpenPullRequest={handlePrClick}
       />
     ) : null;
@@ -1164,6 +1173,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     />
   ) : (
     <span
+      aria-hidden
       className={cn(
         "min-w-0 flex-1 truncate",
         props.isActive || isUnread || status === "input" || status === "approval"
@@ -1178,6 +1188,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       {thread.title}
     </span>
   );
+  // The title leads the row's name and its linear reading; the visible title
+  // sits after the status glyph, so it is hidden in favor of this copy.
+  const accessibleTitle = isRenaming ? null : <span className="sr-only">{thread.title}</span>;
+  const accessibility = resolveSidebarRowAccessibility({
+    title: thread.title,
+    statusLabel: status === "ready" ? null : threadStatusLabel(status),
+    projectDisplayName: props.projectDisplayName,
+    isActive: props.isActive,
+  });
 
   const draftIndicator = hasUnsentDraft ? (
     <SquarePenIcon
@@ -1202,7 +1221,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             tabIndex={0}
             data-thread-item
             data-testid={isChild ? "sidebar-row-child" : "sidebar-row"}
-            aria-current={props.isActive ? "page" : undefined}
+            aria-label={accessibility.label}
+            aria-current={accessibility.current}
             aria-expanded={props.descendantCount > 0 ? props.childrenExpanded : undefined}
             aria-busy={isRegeneratingTitle || undefined}
             style={rowStyle}
@@ -1228,6 +1248,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           />
         }
       >
+        {accessibleTitle}
         {isChild ? (
           <ChildAgentConnectors
             depth={props.depth}
@@ -1625,6 +1646,12 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   onFileDropThreads: (threadRef: ScopedThreadRef, files: File[]) => void;
 }) {
   const { thread } = props;
+  const accessibility = resolveSidebarRowAccessibility({
+    title: thread.title,
+    statusLabel: null,
+    projectDisplayName: props.projectDisplayName,
+    isActive: props.isRouteActive,
+  });
   const threadRef = useMemo(
     () => scopeThreadRef(thread.environmentId, thread.id),
     [thread.environmentId, thread.id],
@@ -1701,12 +1728,8 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
               // which owns all keyboard interaction for the listbox.
               tabIndex={-1}
               aria-selected={props.isHighlighted}
-              aria-current={props.isRouteActive ? "page" : undefined}
-              aria-label={
-                props.projectDisplayName
-                  ? `${thread.title}, ${props.projectDisplayName}`
-                  : thread.title
-              }
+              aria-current={accessibility.current}
+              aria-label={accessibility.label}
               onMouseMove={props.onHighlight}
               onClick={props.onSelect}
               className={cn(
@@ -3760,7 +3783,7 @@ export default function Sidebar() {
           </SidebarGroup>
         }
       >
-        <SidebarGroup className="flex-1">
+        <SidebarGroup className="flex-1" role="presentation">
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -3828,7 +3851,12 @@ export default function Sidebar() {
               closeDelay={0}
               timeout={400}
             >
-              <ul role="list" aria-label="Threads" className="flex flex-col gap-px">
+              {/* VoiceOver treats an exposed list as an interaction boundary,
+                  which hides its rows from ordinary linear navigation. A
+                  presentational list also makes its implicit listitems
+                  presentational while preserving every descendant control.
+                  The sidebar's navigation landmark carries the "Threads" name. */}
+              <ul role="presentation" className="flex flex-col gap-px">
                 <SidebarDraftBlock
                   key="draft-sessions"
                   projectDisplayNameByKey={projectDisplayNameByKey}

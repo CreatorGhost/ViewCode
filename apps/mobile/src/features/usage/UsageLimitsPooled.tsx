@@ -3,6 +3,7 @@ import { useLinkTo, useNavigation, type StaticScreenProps } from "@react-navigat
 import { EnvironmentId } from "@t3tools/contracts";
 import {
   collectLimitAccounts,
+  collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
   cursorUsageWindowDetails,
@@ -14,7 +15,7 @@ import {
   type LimitPoolWindow,
 } from "@t3tools/shared/usageLimits";
 import { Fragment, type ReactNode, useId, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Linking, Pressable, ScrollView, View } from "react-native";
 import { Defs, Path, Pattern, Rect, Svg } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -261,6 +262,7 @@ export function UsageLimitsSection({
   const pools = collectLimitPools(collectLimitAccounts(selected), now);
   const notices = limitWarnings(collectLimitNotices(selected));
   const awaitingData = providersAwaitingData(selected);
+  const externalLinks = collectExternalUsageLinks(selected);
   const colors = useProviderColors();
   const cursorPromptAt =
     Math.max(
@@ -274,7 +276,8 @@ export function UsageLimitsSection({
       notices.length === 0 &&
       awaitingData.length === 0 &&
       failedLabels.length === 0 &&
-      !cursorPrompt ? (
+      !cursorPrompt &&
+      externalLinks.length === 0 ? (
         <Text className="py-12 text-center text-base text-foreground-muted">
           {selected.size === 0
             ? "Select an environment to see limits."
@@ -335,6 +338,22 @@ export function UsageLimitsSection({
           ))}
         </View>
       ) : null}
+      {externalLinks.map((link) => (
+        <View key={link.url} className="gap-3 rounded-xl border border-border-subtle p-4">
+          <Text className="text-base font-t3-medium text-foreground">{link.label}</Text>
+          <Text className="text-xs text-foreground-muted">{link.accounts.join(", ")}</Text>
+          {link.message ? (
+            <Text className="text-sm text-foreground-muted">{link.message}</Text>
+          ) : null}
+          <Pressable
+            accessibilityRole="link"
+            className="min-h-11 justify-center"
+            onPress={() => void Linking.openURL(link.url).catch(() => undefined)}
+          >
+            <Text className="text-sm font-t3-medium text-primary">Manage usage</Text>
+          </Pressable>
+        </View>
+      ))}
       {notices.length > 0 || failedLabels.length > 0 ? (
         <View
           accessible

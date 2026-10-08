@@ -23,6 +23,7 @@ export const CHAT_WIDTH_OPTIONS: ReadonlyArray<{ value: ChatWidthValue; label: s
   { value: "narrow", label: "Narrow" },
   { value: "normal", label: "Normal" },
   { value: "wide", label: "Wide" },
+  { value: "full", label: "Full" },
 ];
 
 const isChatDensity = Schema.is(ChatDensity);
@@ -37,10 +38,10 @@ export function normalizeChatWidth(value: unknown): ChatWidthValue {
 }
 
 /** Data attributes `ChatAppearanceSync` writes onto the document element. */
-export function chatAppearanceDataset(input: {
-  chatDensity: unknown;
-  chatWidth: unknown;
-}): { chatDensity: ChatDensityValue; chatWidth: ChatWidthValue } {
+export function chatAppearanceDataset(input: { chatDensity: unknown; chatWidth: unknown }): {
+  chatDensity: ChatDensityValue;
+  chatWidth: ChatWidthValue;
+} {
   return {
     chatDensity: normalizeChatDensity(input.chatDensity),
     chatWidth: normalizeChatWidth(input.chatWidth),

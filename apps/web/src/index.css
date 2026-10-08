@@ -2024,6 +2024,11 @@ code {
   --diff-deletion-foreground: light-dark(var(--color-red-600), var(--color-red-400));
 }
 
+/* Upstream's name for the chat column width; ViewCode sets it in viewcode-chat.css. */
+:root {
+  --chat-max-width: var(--chat-column-max-width);
+}
+
 :root[data-diff-color-scheme="blue-orange"] {
   --diff-addition: light-dark(var(--color-blue-600), var(--color-blue-400));
   --diff-deletion: light-dark(var(--color-orange-600), var(--color-orange-400));

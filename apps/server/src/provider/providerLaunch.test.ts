@@ -6,6 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
   DEFAULT_SERVER_SETTINGS,
+  EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceId,
   ServerSettingsPatch,
@@ -38,7 +39,9 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import { ServerEnvironmentIdentity } from "../environment/ServerEnvironment.ts";
 import { AntigravityInstallation } from "./AntigravityInstallation.ts";
+import { CodexInstallation } from "./CodexInstallation.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./Layers/ProviderInstanceRegistryHydration.ts";
 import * as ProviderEventLoggers from "./Layers/ProviderEventLoggers.ts";
 import { ProviderRegistryLive } from "./Layers/ProviderRegistry.ts";
@@ -200,6 +203,17 @@ const buildRegistry = (
     Layer.updateService(ChildProcessSpawner.ChildProcessSpawner, () => spawner),
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
+    Layer.provideMerge(
+      Layer.mergeAll(
+        Layer.mock(CodexInstallation)({ managedDirectory: "unused-managed-installation" }),
+        Layer.mock(ServerSecretStore.ServerSecretStore)({}),
+        Layer.succeed(ServerEnvironmentIdentity, {
+          getEnvironmentId: Effect.succeed(
+            EnvironmentId.make("00000000-0000-4000-8000-000000000001"),
+          ),
+        }),
+      ),
+    ),
   );
 
 describe("first-run provider selection", () => {

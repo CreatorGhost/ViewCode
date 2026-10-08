@@ -1,6 +1,6 @@
 import type { MenuAction } from "@react-native-menu/menu";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { BackHandler, Keyboard, Pressable, type TextInput, View } from "react-native";
+import { BackHandler, Keyboard, Pressable, type TextInputInstance, View } from "react-native";
 
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
 import { SymbolView } from "../../components/AppSymbol";
@@ -37,7 +37,7 @@ export function HomePillToolbar(props: {
   const { scale, buttonSize } = useAndroidControlSizing();
   const { state } = useWorkspaceState();
   const { onSearchQueryChange } = props;
-  const searchRef = useRef<TextInput>(null);
+  const searchRef = useRef<TextInputInstance>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const searching = searchOpen || props.searchQuery.length > 0;
   const openSearch = useCallback(() => {

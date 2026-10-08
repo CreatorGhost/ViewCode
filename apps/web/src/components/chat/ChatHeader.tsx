@@ -474,8 +474,10 @@ export const ChatHeader = memo(function ChatHeader({
         data-chat-header-actions
         className={cn(
           "flex shrink-0 items-center justify-end gap-1",
-          // Reserve two panel toggles plus their 4px gaps and 1px edge inset.
-          // The page header adds 8px more right padding at sm.
+          // Reserve two panel toggles (32px, 28px at sm) with their 4px gap and 1px edge inset,
+          // plus the same 4px gap the actions keep between themselves so the terminal toggle
+          // does not sit against the last action. The page header adds 8px more right padding
+          // at sm.
           rightPanelOpen ? "pr-0" : "pr-18.25 sm:pr-14.25",
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
