@@ -1283,15 +1283,6 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   const screenshot = async (windowHandle: string, outputPath: string, maxSize: number) => {
     const entry = requireWindow(windowHandle);
     const window = await refreshWindow(entry);
-    const bounds = window.bounds;
-    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-      throw new Refusal(failure("failed", "The window is not on screen."));
-    }
-    if (!(await onPrimaryDisplay(bounds))) {
-      throw new Refusal(
-        failure("failed", "The window is not fully on the main display; move it there."),
-      );
-    }
     const kind = windowKind(entry.role);
     if (kind === "menu-bar") {
       throw new Refusal(
@@ -1299,6 +1290,15 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           "failed",
           "The menu bar cannot be captured. Observe it to read its menus and press items by ref.",
         ),
+      );
+    }
+    const bounds = window.bounds;
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+      throw new Refusal(failure("failed", "The window is not on screen."));
+    }
+    if (!(await onPrimaryDisplay(bounds))) {
+      throw new Refusal(
+        failure("failed", "The window is not fully on the main display; move it there."),
       );
     }
     // AX focus can outlive a Space switch. On macOS even a window reported

@@ -130,8 +130,9 @@ Known gaps:
 - An open menu may be missing from a window's screenshot; the agent reads and captures the menu
   itself instead.
 - Switching to a window on another desktop or in full screen: still unconfirmed on a real Mac.
-- Menu bars and open menus: menu bars were absent from the native window listing in the latest
-  Mac check. Reading and capturing separate menu entries remains unconfirmed.
+- Menu bars now list and read on a real Mac through public accessibility APIs. The menu bar
+  itself cannot be captured. A large or incomplete menu tree can still refuse a background
+  press; opening and capturing separate menus remains unconfirmed.
 - Opening screenshots without a prompt in Cursor, Grok and OpenCode: still unconfirmed.
 - Foreground typing stopping when you switch apps mid-way: covered by tests, still unconfirmed
   on a real Mac. Typing by reference can continue in its target without taking the screen.

@@ -25,8 +25,10 @@ import * as NodePath from "node:path";
 import type { ComputerUseError } from "@t3tools/contracts";
 
 import { makeMacBackgroundInput } from "./MacBackgroundInput.ts";
+import { makeMacMenuAccessibility } from "./MacMenuAccessibility.ts";
 
 const backgroundInput = makeMacBackgroundInput();
+const menus = makeMacMenuAccessibility();
 
 import {
   macCaptureWindow,
@@ -98,10 +100,35 @@ const activateApp = async (pid: number) => {
   if (bundle) await execFileQuietly("/usr/bin/open", ["-a", bundle]);
 };
 
+const withMenus = async (
+  pid: number | null,
+  children: Awaited<ReturnType<import("@crowecawcaw/xa11y").App["children"]>>,
+) => {
+  if (
+    PLATFORM !== "darwin" ||
+    pid === null ||
+    children.some((element) => element.role === "menu_bar") ||
+    !children.some((element) => ["window", "dialog", "alert"].includes(element.role))
+  )
+    return children;
+  return [...children, ...(await menus.list(pid).catch(() => []))];
+};
+
 export const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput"> => ({
-  listApps: () => xa11y.App.list(),
-  appWindows: async (pid) => (await xa11y.App.byPid(pid, { timeout: 0 })).children(),
-  elementIsAlive: async (element) => (await element.parent()) !== null,
+  listApps: async () => {
+    const apps = await xa11y.App.list();
+    for (const app of apps) {
+      const children = app.children.bind(app);
+      app.children = async () => withMenus(app.pid, await children());
+    }
+    return apps;
+  },
+  appWindows: async (pid) => {
+    const children = await (await xa11y.App.byPid(pid, { timeout: 0 })).children();
+    return withMenus(pid, children);
+  },
+  elementIsAlive: async (element) =>
+    menus.owns(element) ? menus.alive(element) : (await element.parent()) !== null,
   foregroundPid: async () =>
     PLATFORM === "darwin"
       ? backgroundInput.foregroundPid()
@@ -118,7 +145,13 @@ export const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput
   secondsSinceInput: async () => (PLATFORM === "darwin" ? macSecondsSinceInput() : null),
   enableAccessibility: async (pid) =>
     PLATFORM === "darwin" ? macEnableManualAccessibility(pid) : false,
-  screenshot: (element) => xa11y.screenshot({ element }),
+  screenshot: (element) => {
+    if (menus.owns(element))
+      throw Object.assign(new Error("Menu screenshots need readable native bounds."), {
+        name: "CaptureFailedError",
+      });
+    return xa11y.screenshot({ element });
+  },
   captureWindow: async (pid, bounds, outputPath, maxSize, options) =>
     PLATFORM === "darwin" ? macCaptureWindow(pid, bounds, outputPath, maxSize, options) : null,
   executablePaths,
@@ -237,9 +270,13 @@ export const runComputerUseDriverWorker = (): Promise<void> =>
         activeId = undefined;
       });
     });
-    process.once("exit", () => backgroundInput.close());
+    process.once("exit", () => {
+      backgroundInput.close();
+      menus.close();
+    });
     process.once("disconnect", () => {
       backgroundInput.close();
+      menus.close();
       resolve();
       process.exit(0);
     });

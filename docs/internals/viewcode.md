@@ -426,7 +426,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `AXExtrasMenuBar`), with the same identity and re-walk rules as windows. They take refs only:
   `activate` refuses on them before touching anything, because a menu is never the active window
   and activating its app closes an open one. An open menu is captured by its own pop-up-level
-  Quartz window (`-l`); the menu bar is never captured.
+  Quartz window (`-l`); the menu bar is never captured. When xa11y omits `AXMenuBar`, a
+  prohibited-activation public AX helper supplies it. Its retained references include a helper
+  generation: restarting that helper must not bind old refs to recycled native IDs.
 - Input that takes the screen refuses with CU-CON-009 while the hardware event system reports
   input in the last 1.5 s (`CGEventSourceSecondsSinceLastEventType`, no Input Monitoring needed).
   The driver's own posted events can count as that input, so only input newer than the driver's
