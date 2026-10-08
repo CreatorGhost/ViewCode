@@ -15,6 +15,8 @@ interface TestThread {
   readonly settled?: boolean;
   readonly pinned?: boolean;
   readonly live?: boolean;
+  /** Waiting on the user; such a thread is live too, as in the sidebar. */
+  readonly needsUser?: boolean;
   readonly settledAt?: number;
   readonly order: number;
 }
@@ -23,7 +25,8 @@ const byOrder = (threads: readonly TestThread[]) =>
   threads.toSorted((left, right) => left.order - right.order);
 
 const isSettled = (thread: TestThread) => thread.settled === true;
-const isLive = (thread: TestThread) => thread.live === true;
+const needsUser = (thread: TestThread) => thread.needsUser === true;
+const isLive = (thread: TestThread) => thread.live === true || needsUser(thread);
 
 function sections(threads: readonly TestThread[]) {
   const tree = buildSidebarThreadTree({
@@ -48,6 +51,7 @@ function sections(threads: readonly TestThread[]) {
     ...partitionSidebarFolderNodes(tree.folders[0]!.nodes, {
       isSettled,
       isLive,
+      needsUser,
       settledAtMs: (thread) => thread.settledAt ?? 0,
     }),
   };
@@ -126,6 +130,53 @@ describe("partitionSidebarFolderNodes", () => {
   });
 });
 
+describe("Needs you group", () => {
+  it("collects trees whose lead waits on the user, keeping their order", () => {
+    const result = sections([
+      { id: "first", order: 1, needsUser: true },
+      { id: "working", order: 2, live: true },
+      { id: "second", order: 3, needsUser: true },
+      { id: "idle", order: 4 },
+    ]);
+    expect(shape(result.needsYou)).toEqual(["first", "second"]);
+    expect(shape(result.active)).toEqual(["working", "idle"]);
+    expect(result.settled).toEqual([]);
+  });
+
+  it("pulls a whole tree up when one of its child agents waits on the user", () => {
+    const result = sections([
+      { id: "lead", order: 1 },
+      { id: "child", parent: "lead", order: 2 },
+      { id: "grandchild", parent: "child", order: 3, needsUser: true },
+      { id: "other", order: 4 },
+    ]);
+    expect(shape(result.needsYou)).toEqual([{ lead: [{ child: ["grandchild"] }] }]);
+    expect(shape(result.active)).toEqual(["other"]);
+  });
+
+  it("takes a settled lead whose child waits, and returns it once nothing waits", () => {
+    const waiting = sections([
+      { id: "lead", order: 1, settled: true },
+      { id: "child", parent: "lead", order: 2, needsUser: true },
+    ]);
+    expect(shape(waiting.needsYou)).toEqual([{ lead: ["child"] }]);
+    expect(waiting.settled).toEqual([]);
+
+    const answered = sections([
+      { id: "lead", order: 1, settled: true },
+      { id: "child", parent: "lead", order: 2 },
+    ]);
+    expect(answered.needsYou).toEqual([]);
+    expect(shape(answered.settled)).toEqual([{ lead: ["child"] }]);
+  });
+
+  it("leaves a pinned thread in the pinned list", () => {
+    const result = sections([{ id: "pinned", order: 1, pinned: true, needsUser: true }]);
+    expect(shape(result.tree.pinned)).toEqual(["pinned"]);
+    expect(result.needsYou).toEqual([]);
+  });
+});
+
 describe("filterSidebarFolderSections", () => {
   const threads: TestThread[] = [
     { id: "alpha", order: 1 },
@@ -133,18 +184,21 @@ describe("filterSidebarFolderSections", () => {
     { id: "gamma-lead", order: 3, settled: true },
     { id: "gamma-child", parent: "gamma-lead", order: 4 },
     { id: "delta-child", parent: "beta", order: 5, live: true },
+    { id: "epsilon-lead", order: 6 },
+    { id: "epsilon-child", parent: "epsilon-lead", order: 7, needsUser: true },
   ];
 
   const search = (query: string) => {
-    const { active, settled } = sections(threads);
+    const { needsYou, active, settled } = sections(threads);
     return filterSidebarFolderSections(
-      { active, settled },
+      { needsYou, active, settled },
       { matches: (key) => key.includes(query), isWorking: isLive },
     );
   };
 
   it("matches active threads without opening Settled", () => {
     const result = search("alpha");
+    expect(result.needsYou).toEqual([]);
     expect(shape(result.active)).toEqual(["alpha"]);
     expect(result.settled).toEqual([]);
     expect(result.settledHasMatch).toBe(false);
@@ -169,8 +223,16 @@ describe("filterSidebarFolderSections", () => {
     expect(shape(result.settled)).toEqual([{ "gamma-lead": ["gamma-child"] }]);
   });
 
+  it("keeps matches inside the Needs you group", () => {
+    const result = search("epsilon-child");
+    expect(shape(result.needsYou)).toEqual([{ "epsilon-lead": ["epsilon-child"] }]);
+    expect(result.active).toEqual([]);
+    expect(result.settledHasMatch).toBe(false);
+  });
+
   it("returns nothing when no thread matches", () => {
     const result = search("zzz");
+    expect(result.needsYou).toEqual([]);
     expect(result.active).toEqual([]);
     expect(result.settled).toEqual([]);
     expect(result.settledHasMatch).toBe(false);

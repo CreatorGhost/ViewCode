@@ -1550,6 +1550,28 @@ const SidebarFolderSearchField = memo(function SidebarFolderSearchField(props: {
   );
 });
 
+/**
+ * The "Needs you · N" label at the top of a project folder. Unlike Settled it
+ * never collapses: these trees are the ones the user must not miss.
+ */
+const SidebarNeedsYouGroupLabel = memo(function SidebarNeedsYouGroupLabel(props: {
+  count: number;
+}) {
+  return (
+    <div
+      data-testid="sidebar-needs-you-group"
+      className="flex h-6 w-full items-center gap-1.5 rounded-md pr-2 pl-2 text-2xs text-sidebar-muted-foreground select-none"
+    >
+      <span className="flex size-5 shrink-0 items-center justify-center">
+        <HandIcon aria-hidden className="size-3" />
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        Needs you · <span className="tabular-nums">{props.count}</span>
+      </span>
+    </div>
+  );
+});
+
 /** The collapsible "Settled · N" row at the bottom of a project folder. */
 const SidebarSettledGroupRow = memo(function SidebarSettledGroupRow(props: {
   folderKey: string;
@@ -2191,8 +2213,8 @@ export default function Sidebar() {
   const treeRef = useRef(tree);
   treeRef.current = tree;
 
-  // Each folder: active trees, then its settled trees. A lead and its child
-  // agents move as one, decided by the lead.
+  // Each folder: trees waiting on the user, active trees, then its settled
+  // trees. A lead and its child agents move as one.
   const folderSectionsByKey = useMemo(
     () =>
       new Map(
@@ -2203,6 +2225,7 @@ export default function Sidebar() {
               partitionSidebarFolderNodes(folder.nodes, {
                 isSettled: (thread) => settledThreadKeys.has(threadKeyOf(thread)),
                 isLive: isSidebarThreadLive,
+                needsUser: isSidebarThreadWaitingOnUser,
                 settledAtMs: (thread) =>
                   firstValidTimestampMs(resolveSettledThreadTimestamp(thread)),
               }),
@@ -2373,7 +2396,7 @@ export default function Sidebar() {
     if (!sections) return null;
     const matchedKeys = new Set(
       searchSidebarThreads(
-        collectSidebarTreeThreads([...sections.active, ...sections.settled]),
+        collectSidebarTreeThreads([...sections.needsYou, ...sections.active, ...sections.settled]),
         folderSearchQuery,
         folderContentMatchKeys,
       ).map(threadKeyOf),
@@ -2417,6 +2440,7 @@ export default function Sidebar() {
         ? EMPTY_THREAD_KEYS
         : new Set(
             collectSidebarTreeThreads([
+              ...folderSearchResult.needsYou,
               ...folderSearchResult.active,
               ...folderSearchResult.settled,
             ]).map(threadKeyOf),
@@ -2462,6 +2486,7 @@ export default function Sidebar() {
         : projectExpandedById[settledGroupPreferenceKey(folderKey)] === true;
       const settled = searched?.settled ?? sections.settled;
       views.set(folderKey, {
+        needsYou: searched?.needsYou ?? sections.needsYou,
         active: searched?.active ?? sections.active,
         settled: settledOpen ? settled : settled.filter((node) => node.key === routeRootKey),
         settledCount: settled.length,
@@ -2481,7 +2506,7 @@ export default function Sidebar() {
         (folder) => {
           const view = folderViewByKey.get(folder.key);
           return (folderExpandedByKey.get(folder.key) ?? true) && view
-            ? [...view.active, ...view.settled]
+            ? [...view.needsYou, ...view.active, ...view.settled]
             : [];
         },
         isThreadExpanded,
@@ -3907,13 +3932,16 @@ export default function Sidebar() {
                 {tree.folders.map((folder) => {
                   const expanded = folderExpandedByKey.get(folder.key) ?? true;
                   const view = folderViewByKey.get(folder.key);
+                  const sections = folderSectionsByKey.get(folder.key);
                   const searching = folderSearch?.folderKey === folder.key;
                   return (
                     <li key={folder.key} className="list-none">
                       <SidebarProjectFolderRow
                         group={folder.project}
                         expanded={expanded}
-                        threadCount={folderSectionsByKey.get(folder.key)?.active.length ?? 0}
+                        threadCount={
+                          (sections?.needsYou.length ?? 0) + (sections?.active.length ?? 0)
+                        }
                         showEnvironment={showProjectEnvironments}
                         primaryEnvironmentId={primaryEnvironmentId}
                         machineByEnvironmentId={environmentMachineById}
@@ -3932,8 +3960,18 @@ export default function Sidebar() {
                           onClose={closeFolderSearch}
                         />
                       ) : null}
-                      {expanded && view && (view.active.length > 0 || view.settledCount > 0) ? (
+                      {expanded &&
+                      view &&
+                      (view.needsYou.length > 0 ||
+                        view.active.length > 0 ||
+                        view.settledCount > 0) ? (
                         <ul role="group" className="flex flex-col gap-px pb-1">
+                          {view.needsYou.length > 0 ? (
+                            <li className="list-none">
+                              <SidebarNeedsYouGroupLabel count={view.needsYou.length} />
+                            </li>
+                          ) : null}
+                          {view.needsYou.map((node) => renderThreadNode(node))}
                           {view.active.map((node) => renderThreadNode(node))}
                           {view.settledCount > 0 ? (
                             <li className="list-none">

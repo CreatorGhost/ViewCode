@@ -1,17 +1,24 @@
 /**
- * Splits one project folder of the sidebar tree into its active threads and
- * the collapsed "Settled" group at the folder's bottom, and narrows a folder
- * to a search query. Generic over the thread record like sidebarThreadTree, so
+ * Splits one project folder of the sidebar tree into the "Needs you" group at
+ * its top, its active threads, and the collapsed "Settled" group at its
+ * bottom, and narrows a folder to a search query. Generic over the thread record like sidebarThreadTree, so
  * tests can use plain objects.
  *
  * A lead and its child agents always travel together: the lead's settled
  * state decides where the whole tree goes, and any live thread in the tree
  * (working, or blocked on the user) keeps it active so work never hides in
- * the Settled group.
+ * the Settled group. A tree with any thread waiting on the user goes to Needs
+ * you instead, and returns to its place once nothing in it waits.
+ *
+ * Pinned trees are not folder nodes, so they stay in the pinned list above
+ * the folders: that is already the top, and moving them would make the pin
+ * order jump whenever an agent asks something.
  */
 import type { SidebarThreadTreeNode } from "./sidebarThreadTree";
 
 export interface SidebarFolderSections<T> {
+  /** Trees waiting on the user, in their active order. */
+  readonly needsYou: readonly SidebarThreadTreeNode<T>[];
   readonly active: readonly SidebarThreadTreeNode<T>[];
   /** Newest settlement first. */
   readonly settled: readonly SidebarThreadTreeNode<T>[];
@@ -41,12 +48,9 @@ export function isSidebarThreadPinnedOnTop(
   return thread.pinnedAt != null && !isSettled;
 }
 
-function subtreeHasLive<T>(
-  node: SidebarThreadTreeNode<T>,
-  isLive: (thread: T) => boolean,
-): boolean {
-  if (isLive(node.thread)) return true;
-  return node.children.some((child) => subtreeHasLive(child, isLive));
+function subtreeHas<T>(node: SidebarThreadTreeNode<T>, predicate: (thread: T) => boolean): boolean {
+  if (predicate(node.thread)) return true;
+  return node.children.some((child) => subtreeHas(child, predicate));
 }
 
 export function partitionSidebarFolderNodes<T>(
@@ -55,17 +59,22 @@ export function partitionSidebarFolderNodes<T>(
     readonly isSettled: (thread: T) => boolean;
     /** Working or waiting on the user: such a tree stays active. */
     readonly isLive: (thread: T) => boolean;
+    /** Waiting on the user (approval or input): such a tree goes to Needs you. */
+    readonly needsUser: (thread: T) => boolean;
     /** Sort key for the Settled group; larger is newer. */
     readonly settledAtMs: (thread: T) => number;
   },
 ): SidebarFolderSections<T> {
+  const needsYou: SidebarThreadTreeNode<T>[] = [];
   const active: SidebarThreadTreeNode<T>[] = [];
   const settled: SidebarThreadTreeNode<T>[] = [];
   for (const node of nodes) {
-    if (input.isSettled(node.thread) && !subtreeHasLive(node, input.isLive)) settled.push(node);
+    if (subtreeHas(node, input.needsUser)) needsYou.push(node);
+    else if (input.isSettled(node.thread) && !subtreeHas(node, input.isLive)) settled.push(node);
     else active.push(node);
   }
   return {
+    needsYou,
     active,
     settled: settled.toSorted(
       (left, right) =>
@@ -112,7 +121,7 @@ export interface SidebarFolderSearchResult<T> extends SidebarFolderSections<T> {
   readonly settledHasMatch: boolean;
 }
 
-/** Narrows both groups to trees containing a matched thread key. */
+/** Narrows every group to trees containing a matched thread key. */
 export function filterSidebarFolderSections<T>(
   sections: SidebarFolderSections<T>,
   input: {
@@ -123,9 +132,13 @@ export function filterSidebarFolderSections<T>(
 ): SidebarFolderSearchResult<T> {
   const prune = (node: SidebarThreadTreeNode<T>) =>
     pruneNode(node, input.matches, input.isWorking) ?? [];
-  const active = sections.active.flatMap(prune);
   const settled = sections.settled.flatMap(prune);
-  return { active, settled, settledHasMatch: settled.length > 0 };
+  return {
+    needsYou: sections.needsYou.flatMap(prune),
+    active: sections.active.flatMap(prune),
+    settled,
+    settledHasMatch: settled.length > 0,
+  };
 }
 
 /**
