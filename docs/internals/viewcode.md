@@ -354,11 +354,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   by `/usr/bin/osascript` (`MacQuartz.ts`), which needs no compiler on the user's Mac. They come
   from a HID-state source after warping the real cursor, since WebKit and Chromium filter drags
   that do not look like hardware input (Synara's driver notes); xa11y's
-  `click` is positioned and stays on xa11y. Every macOS window capture uses `screencapture -l -a`
-  and refuses if the window cannot be isolated: AX focus can survive a Space switch, so a
-  screen-region fallback can return another app's pixels even for a supposedly focused window.
-  Attached menus must be excluded because they extend the image beyond its coordinate bounds.
-  xa11y's macOS `typeText`
+  `click` is positioned and stays on xa11y. macOS captures are planned from Quartz's on-screen
+  window list, never from AX focus, which can survive a Space switch (`planWindowCapture`). With
+  no other app's window over it, the window is captured as its screen region (`-R`), so its open
+  menus show at exact geometry, and the list is read again afterwards in case another app's window
+  arrived. When another app covers it, only its own pixels (`-l -a`): attached windows would stretch
+  a `-l` image past the window bounds, and `-a` drops the menus. With no single on-screen window at
+  the AX bounds the capture is refused. A failed AXParent read is reported as "no parent" even when
+  the app is only busy (long typing), so window and element liveness retry for 1.5 s before a
+  window counts as gone. xa11y's macOS `typeText`
   sends 20 characters per key event and some apps keep only the first, so text goes one code
   point per event. AXValue and AXSelectedText writes can succeed without changing a web field
   (Safari), so the driver re-reads the value and types by keyboard when it did not change.

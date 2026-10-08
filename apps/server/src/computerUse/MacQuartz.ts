@@ -100,24 +100,21 @@ function run() {
 }`;
 
 /**
- * The Quartz window numbers of an app's on-screen, normal-layer windows at
- * exactly these bounds, plus whether Screen Recording is granted (checked
- * without prompting).
+ * The on-screen windows of the current desktop, front to back (pid, layer,
+ * alpha, number, bounds), plus whether Screen Recording is granted (checked
+ * without prompting). `planWindowCapture` decides from it.
  */
-const WINDOW_NUMBERS_SCRIPT = `ObjC.import("CoreGraphics");
-function run(argv) {
-  var n = argv.map(Number);
+const ON_SCREEN_WINDOWS_SCRIPT = `ObjC.import("CoreGraphics");
+function run() {
   var granted = typeof $.CGPreflightScreenCaptureAccess === "function" ? $.CGPreflightScreenCaptureAccess() : true;
   var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1 | 16, 0))) || [];
-  var ids = [];
+  var windows = [];
   for (var i = 0; i < list.length; i++) {
     var w = list[i], b = w.kCGWindowBounds;
-    if (w.kCGWindowOwnerPID !== n[0] || w.kCGWindowLayer !== 0 || !b) continue;
-    if (Math.abs(b.X - n[1]) <= 1 && Math.abs(b.Y - n[2]) <= 1 && Math.abs(b.Width - n[3]) <= 1 && Math.abs(b.Height - n[4]) <= 1) {
-      ids.push(w.kCGWindowNumber);
-    }
+    if (!b) continue;
+    windows.push([w.kCGWindowOwnerPID, w.kCGWindowLayer, w.kCGWindowAlpha === undefined ? 1 : w.kCGWindowAlpha, w.kCGWindowNumber, b.X, b.Y, b.Width, b.Height]);
   }
-  return JSON.stringify({ granted: granted, ids: ids });
+  return JSON.stringify({ granted: granted, windows: windows });
 }`;
 
 const run = (command: string, args: ReadonlyArray<string>, timeoutMs: number) =>
@@ -176,6 +173,66 @@ export const pngDimensions = (bytes: Uint8Array): { width: number; height: numbe
 const permissionDenied = () =>
   Object.assign(new Error("Screen Recording is not granted."), { name: "PermissionDeniedError" });
 
+export interface QuartzWindow {
+  readonly pid: number;
+  readonly layer: number;
+  readonly alpha: number;
+  readonly id: number;
+  readonly bounds: Rect;
+}
+
+type QuartzRow = [number, number, number, number, number, number, number, number];
+
+const isQuartzRow = (row: unknown): row is QuartzRow =>
+  Array.isArray(row) && row.length === 8 && row.every((cell) => Number.isFinite(cell));
+
+const parseQuartzWindows = (value: unknown): ReadonlyArray<QuartzWindow> =>
+  Array.isArray(value)
+    ? value.filter(isQuartzRow).map(([pid, layer, alpha, id, x, y, width, height]) => ({
+        pid,
+        layer,
+        alpha,
+        id,
+        bounds: { x, y, width, height },
+      }))
+    : [];
+
+const sameRect = (left: Rect, right: Rect) =>
+  Math.abs(left.x - right.x) <= 1 &&
+  Math.abs(left.y - right.y) <= 1 &&
+  Math.abs(left.width - right.width) <= 1 &&
+  Math.abs(left.height - right.height) <= 1;
+
+const overlaps = (left: Rect, right: Rect) =>
+  left.x < right.x + right.width &&
+  right.x < left.x + left.width &&
+  left.y < right.y + right.height &&
+  right.y < left.y + left.height;
+
+/**
+ * How to capture an app's window at `bounds` from the current desktop's
+ * on-screen windows (front to back). Null when there is no single such
+ * window. `region`: nothing from another app overlaps it, so the screen at
+ * its bounds is its own pixels plus the app's menus and popovers on top, at
+ * the window's exact geometry. `window`: another app covers part of it, so
+ * only its own pixels are captured, without its menus.
+ */
+export const planWindowCapture = (
+  windows: ReadonlyArray<QuartzWindow>,
+  pid: number,
+  bounds: Rect,
+): { readonly kind: "region" | "window"; readonly id: number } | null => {
+  const matches = windows.filter(
+    (window) => window.pid === pid && window.layer === 0 && sameRect(window.bounds, bounds),
+  );
+  if (matches.length !== 1) return null;
+  const target = matches[0]!;
+  const covered = windows
+    .slice(0, windows.indexOf(target))
+    .some((window) => window.pid !== pid && window.alpha > 0 && overlaps(window.bounds, bounds));
+  return { kind: covered ? "window" : "region", id: target.id };
+};
+
 /** Reject extra capture extent that cannot share the window's coordinate mapping. */
 export const captureMatchesBounds = (
   size: { readonly width: number; readonly height: number },
@@ -187,12 +244,26 @@ export const captureMatchesBounds = (
   size.height > 0 &&
   Math.abs(size.height - (size.width * bounds.height) / bounds.width) <= 2;
 
+const readOnScreenWindows = async () => {
+  const reply = JSON.parse(await jxa(ON_SCREEN_WINDOWS_SCRIPT, [], 5_000)) as {
+    readonly granted?: unknown;
+    readonly windows?: unknown;
+  };
+  if (reply.granted === false) throw permissionDenied();
+  return parseQuartzWindows(reply.windows);
+};
+
 /**
- * Captures only the window's own pixels, even where other windows cover it,
- * scaled so its longest edge is at most `maxSize`. Null when the window has
- * no single on-screen Quartz window at these bounds (minimized, another
- * Space, or two at the same spot); the caller must refuse rather than return
- * another window's pixels from a screen-region capture.
+ * Captures the window as the agent would act on it, scaled so its longest
+ * edge is at most `maxSize`, with the image covering exactly `bounds`. When
+ * no other app overlaps it, that is the screen at its bounds, so open menus
+ * and popovers show; the plan is read again afterwards and the image dropped
+ * if another app's window arrived meanwhile. When another app covers part of
+ * it, only its own pixels (`screencapture -l -a`; attached windows would
+ * stretch the image past `bounds`). Null when the window has no single
+ * on-screen Quartz window at these bounds (minimized, another Space, or two
+ * at the same spot); the caller must refuse rather than return another
+ * window's pixels.
  */
 export const macCaptureWindow = async (
   pid: number,
@@ -200,22 +271,27 @@ export const macCaptureWindow = async (
   outputPath: string,
   maxSize: number,
 ): Promise<{ readonly width: number; readonly height: number } | null> => {
-  const reply = JSON.parse(
-    await jxa(
-      WINDOW_NUMBERS_SCRIPT,
-      [pid, bounds.x, bounds.y, bounds.width, bounds.height].map(coordinate),
-      5_000,
-    ),
-  ) as { readonly granted?: unknown; readonly ids?: unknown };
-  if (reply.granted === false) throw permissionDenied();
-  const ids = Array.isArray(reply.ids) ? reply.ids.filter(Number.isSafeInteger) : [];
-  if (ids.length !== 1) return null;
+  const plan = planWindowCapture(await readOnScreenWindows(), pid, bounds);
+  if (!plan) return null;
   const fullPath = `${outputPath}.window.png`;
   await NodeFSP.mkdir(NodePath.dirname(outputPath), { recursive: true });
+  const rect = [bounds.x, bounds.y, bounds.width, bounds.height].map(Math.round).join(",");
+  const shoot = (kind: "region" | "window") =>
+    run(
+      SCREENCAPTURE,
+      kind === "region"
+        ? ["-x", "-t", "png", `-R${rect}`, fullPath]
+        : ["-x", "-o", "-a", "-t", "png", `-l${plan.id}`, fullPath],
+      10_000,
+    );
   try {
-    // Attached menus extend the PNG outside the AX window bounds, changing
-    // its pixel-to-screen mapping. Capture the window alone, without them.
-    await run(SCREENCAPTURE, ["-x", "-o", "-a", "-t", "png", `-l${ids[0]}`, fullPath], 10_000);
+    await shoot(plan.kind);
+    if (plan.kind === "region") {
+      const after = planWindowCapture(await readOnScreenWindows(), pid, bounds);
+      if (after?.id !== plan.id) return null;
+      // Another app's window arrived during the capture: its own pixels only.
+      if (after.kind === "window") await shoot("window");
+    }
     const full = pngDimensions(await NodeFSP.readFile(fullPath));
     if (!full || !captureMatchesBounds(full, bounds)) return null;
     if (Math.max(full.width, full.height) > maxSize) {
