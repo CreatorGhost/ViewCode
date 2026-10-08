@@ -231,11 +231,37 @@ const resolveClientFilePath = Effect.fn("AntigravityAdapter.resolveClientFilePat
   }) {
     const { path } = input;
     const resolved = path.resolve(input.requestPath);
-    // Follow symlinks on the parent so a link out of the workspace cannot escape it.
-    const parent = yield* input.fileSystem
-      .realPath(path.dirname(resolved))
-      .pipe(Effect.orElseSucceed(() => path.dirname(resolved)));
-    const real = path.join(parent, path.basename(resolved));
+    // New directories have no realPath yet. Resolve the nearest existing
+    // ancestor, then append the missing suffix; this also handles a symlinked
+    // workspace such as macOS's /var and rejects links out of the roots.
+    let ancestor = resolved;
+    const suffix: string[] = [];
+    let real: string;
+    for (;;) {
+      const canonical = yield* input.fileSystem
+        .realPath(ancestor)
+        .pipe(
+          Effect.catch((cause) =>
+            cause.reason._tag === "NotFound"
+              ? Effect.succeed(undefined)
+              : EffectAcpErrors.AcpRequestError.invalidParams(
+                  "The file path could not be verified.",
+                ),
+          ),
+        );
+      if (canonical !== undefined) {
+        real = path.join(canonical, ...suffix);
+        break;
+      }
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) {
+        return yield* EffectAcpErrors.AcpRequestError.invalidParams(
+          "The file path could not be verified.",
+        );
+      }
+      suffix.unshift(path.basename(ancestor));
+      ancestor = parent;
+    }
     const roots = yield* Effect.forEach(input.allowedRoots, (root) =>
       input.fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root)),
     );

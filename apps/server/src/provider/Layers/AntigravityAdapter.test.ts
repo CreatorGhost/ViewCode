@@ -1,3 +1,4 @@
+import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -1376,6 +1377,50 @@ it.layer(layer)("AntigravityAdapter", (it) => {
       }).pipe(Effect.flip);
       expect(missing._tag).toBe("AcpRequestError");
     }).pipe(Effect.scoped),
+  );
+
+  it.effect.skipIf(!symlinksSupported)(
+    "creates nested files through a symlinked workspace while refusing escapes",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const h = yield* makeHarness();
+        const base = yield* fs.makeTempDirectoryScoped({ prefix: "t3-agy-links-" });
+        const real = path.join(base, "real");
+        const link = path.join(base, "link");
+        const outside = path.join(base, "outside");
+        yield* fs.makeDirectory(real);
+        yield* fs.makeDirectory(outside);
+        yield* fs.symlink(real, link);
+        yield* h.adapter.startSession({ threadId, cwd: link, runtimeMode: "approval-required" });
+        const write = h.fileHandlers.write;
+        const read = h.fileHandlers.read;
+        if (!read || !write) return yield* Effect.die("File handlers were not registered.");
+        yield* write({
+          sessionId: nativeSessionId,
+          path: path.join(link, "new", "nested", "inside.txt"),
+          content: "inside",
+        });
+        expect(yield* fs.readFileString(path.join(real, "new", "nested", "inside.txt"))).toBe(
+          "inside",
+        );
+        yield* fs.symlink(outside, path.join(real, "escape"));
+        const escape = yield* write({
+          sessionId: nativeSessionId,
+          path: path.join(link, "escape", "new", "escape.txt"),
+          content: "nope",
+        }).pipe(Effect.flip);
+        expect(escape._tag).toBe("AcpRequestError");
+        expect(yield* fs.exists(path.join(outside, "new"))).toBe(false);
+        yield* fs.writeFileString(path.join(outside, "external.txt"), "outside");
+        yield* fs.symlink(path.join(outside, "external.txt"), path.join(real, "file-link.txt"));
+        const fileEscape = yield* read({
+          sessionId: nativeSessionId,
+          path: path.join(link, "file-link.txt"),
+        }).pipe(Effect.flip);
+        expect(fileEscape._tag).toBe("AcpRequestError");
+      }).pipe(Effect.scoped),
   );
 
   it.effect("does not launch a process for a disabled instance or invalid resume cursor", () =>
