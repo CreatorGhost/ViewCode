@@ -62,16 +62,19 @@ describe("DesktopTelemetryPublisher", () => {
         Layer.provide(
           Layer.mergeAll(
             makeElectronAppLayer([]),
-            Layer.succeed(ElectronPowerMonitor.ElectronPowerMonitor, {
-              isOnBatteryPower: Effect.succeed(false),
-              getSystemIdleTime: Effect.succeed(0),
-              getSystemIdleState: () => Effect.succeed("active"),
-              getCurrentThermalState: Effect.succeed("nominal"),
-              setKeepAwake: () => Effect.void,
-              onSimpleEvent: () => Effect.void,
-              onThermalStateChange: () => Effect.void,
-              onSpeedLimitChange: () => Effect.void,
-            }),
+            Layer.succeed(
+              ElectronPowerMonitor.ElectronPowerMonitor,
+              ElectronPowerMonitor.ElectronPowerMonitor.of({
+                isOnBatteryPower: Effect.succeed(false),
+                getSystemIdleTime: Effect.succeed(0),
+                getSystemIdleState: () => Effect.succeed("active"),
+                getCurrentThermalState: Effect.succeed("nominal"),
+                setKeepAwake: () => Effect.void,
+                onSimpleEvent: () => Effect.void,
+                onThermalStateChange: () => Effect.void,
+                onSpeedLimitChange: () => Effect.void,
+              }),
+            ),
             Layer.succeed(HostProcessPlatform, "darwin"),
             Layer.succeed(AgentCursor, {
               show: () => {
@@ -86,16 +89,22 @@ describe("DesktopTelemetryPublisher", () => {
       );
       yield* Effect.gen(function* () {
         const publisher = yield* DesktopTelemetryPublisher.DesktopTelemetryPublisher;
-        const decode = Schema.decodeUnknownSync(Schema.fromJsonString(DesktopHostTelemetryMessage));
+        const decode = Schema.decodeUnknownEffect(
+          Schema.fromJsonString(DesktopHostTelemetryMessage),
+        );
         yield* publisher.encoded.pipe(
-          Stream.runForEach((bytes) => {
-            const message = decode(new TextDecoder().decode(bytes).trim());
-            if (message.type === "desktopTelemetryHello")
-              return Deferred.succeed(attached, undefined);
-            if (message.type === "computerUseCursorReady")
-              return Deferred.succeed(reported, message);
-            return Effect.void;
-          }),
+          Stream.runForEach((bytes) =>
+            decode(new TextDecoder().decode(bytes).trim()).pipe(
+              Effect.orDie,
+              Effect.flatMap((message) => {
+                if (message.type === "desktopTelemetryHello")
+                  return Deferred.succeed(attached, undefined);
+                if (message.type === "computerUseCursorReady")
+                  return Deferred.succeed(reported, message);
+                return Effect.void;
+              }),
+            ),
+          ),
           Effect.forkChild,
         );
         yield* Deferred.await(attached);
