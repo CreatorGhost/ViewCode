@@ -1,4 +1,4 @@
-# Computer use
+# Computer use (beta)
 
 Computer use lets an agent see the apps open on the machine that runs the environment server and,
 if you allow it, operate them: press buttons, fill in fields, type, click, drag, scroll and send
@@ -98,3 +98,21 @@ permissions off in System Settings when you are not using computer use.
   desktop (Space) or in full screen, bring its window onto the desktop you are using.
 - Computer use runs on macOS and Linux. Windows is not supported yet.
 - Command Code does not support computer use.
+
+## Beta status
+
+Computer use is in beta. Tested on a real Mac: listing windows, reading controls, pressing and
+typing by reference, controls in Chrome pages, long typing, drags, approvals and the pause while an
+approval waits, and the handling of apps on other desktops.
+
+Known gaps:
+
+- An open menu may be missing from a screenshot. Bring the app to the front, open the menu again
+  and take a new screenshot.
+- Windows on other desktops (Spaces) and full-screen apps cannot be reached; there is no "switch
+  to" yet.
+- Claude and Antigravity open their own screenshots without asking. Codex, Cursor, Grok and
+  OpenCode may ask for approval first.
+- Not yet confirmed on a real Mac: typing stopping when you switch apps mid-way, the wait while you
+  use the mouse or keyboard, **Show on screen**, and the second Dock icon some setups show while
+  computer use runs.
