@@ -1384,6 +1384,27 @@ describe("menus are listed and act only in the background", () => {
     expect(listed.result.filter((entry) => entry.kind).every((entry) => !entry.focused)).toBe(true);
   });
 
+  it("presses a foreground app's menu ref without requiring a complete background tree", async () => {
+    const bar = menuBar();
+    bar.children = [
+      { role: "menu_item", name: "File" },
+      ...Array.from({ length: 1005 }, (_, i) => ({ role: "menu_item", name: `Item ${i}` })),
+    ];
+    const preview: FakeApp = { name: "Preview", pid: 7, windows: [window("doc.pdf"), bar] };
+    const core = makeCore([preview], { foreground: 7, background: true });
+    const [, listed] = await core.list();
+    const file = (await core.observe(listed!.handle)).find((e) => e.label === "File")!;
+    expect(
+      await core.call({
+        op: "press",
+        element: file.handle,
+        expect: { role: "menu_item", label: "File" },
+      }),
+    ).toEqual(inBackground);
+    expect(core.sent).toEqual([["press", "File"]]);
+    expect(core.calls.activate).toBe(0);
+  });
+
   it("presses a menu bar item by ref without bringing the app forward", async () => {
     const preview: FakeApp = { name: "Preview", pid: 7, windows: [window("doc.pdf"), menuBar()] };
     const core = makeCore([preview], { foreground: 1 });

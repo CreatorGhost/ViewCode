@@ -1518,10 +1518,13 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     }
   };
 
-  const useBackground = async (entry: WindowEntry) =>
-    options.background === true &&
-    platform === "darwin" &&
-    !(await isFront(entry, await refreshWindow(entry)));
+  const useBackground = async (entry: WindowEntry) => {
+    if (options.background !== true || platform !== "darwin") return false;
+    // A menu cannot be the active document window. Its app may already be
+    // foreground, where an exact AX ref needs no background routing proof.
+    if (windowKind(entry.role)) return (await api.foregroundPid()) !== entry.pid;
+    return !(await isFront(entry, await refreshWindow(entry)));
+  };
 
   const backgroundEvidence = async (entry: WindowEntry) => {
     const root = await refreshWindow(entry);
