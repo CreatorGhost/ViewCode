@@ -2,8 +2,10 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
+  useMemo,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -40,10 +42,12 @@ import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
 import {
+  APP_RAIL_WIDTH,
   resolveInitialThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
   THREAD_MAIN_CONTENT_MIN_WIDTH,
   THREAD_SIDEBAR_MIN_WIDTH,
+  THREAD_SIDEBAR_OVERLAY_BREAKPOINT,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
 import {
@@ -240,8 +244,23 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       ? getWindowFullscreenState()
       : false;
   });
+  // Memoized: Sidebar re-clamps the stored width whenever this object changes.
+  const resizable = useMemo<NonNullable<ComponentProps<typeof Sidebar>["resizable"]>>(
+    () => ({
+      maxWidth: sidebarMaximumWidth,
+      minWidth: THREAD_SIDEBAR_MIN_WIDTH,
+      // The wrapper spans the rail too, so main gets what is left after both.
+      shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+        nextWidth <= currentWidth ||
+        wrapper.clientWidth - APP_RAIL_WIDTH - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+      storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+      onResize: setSidebarWidth,
+    }),
+    [sidebarMaximumWidth],
+  );
   const sidebarProviderStyle = {
-    "--sidebar-width": `${sidebarWidth}px`,
+    // Clamped at render so a narrowed window never squeezes main; the saved width is kept.
+    "--sidebar-width": `${Math.min(sidebarWidth, sidebarMaximumWidth)}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...(isMacosDesktop && !isWindowFullscreen
       ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }
@@ -292,24 +311,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         data-app-rail-layout={isMacosDesktop ? "mac" : "web"}
         defaultOpen
+        overlayBelow={THREAD_SIDEBAR_OVERLAY_BREAKPOINT}
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
         <AppRail />
-        <Sidebar
-          side="left"
-          collapsible="offcanvas"
-          data-app-sidebar=""
-          resizable={{
-            maxWidth: sidebarMaximumWidth,
-            minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-            shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-              nextWidth <= currentWidth ||
-              wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-            storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-            onResize: setSidebarWidth,
-          }}
-        >
+        <Sidebar side="left" collapsible="offcanvas" data-app-sidebar="" resizable={resizable}>
           {isOnSettings ? (
             <>
               <SidebarChromeHeader isElectron={isElectron} />

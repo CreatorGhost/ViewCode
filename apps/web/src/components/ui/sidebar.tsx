@@ -16,7 +16,7 @@ import {
 } from "~/components/ui/sheet";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useResizeDrag } from "~/hooks/useResizeDrag";
-import { useIsMobile } from "~/hooks/useMediaQuery";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
 import * as Schema from "effect/Schema";
@@ -94,6 +94,7 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  overlayBelow = "md",
   className,
   style,
   children,
@@ -102,8 +103,10 @@ function SidebarProvider({
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Viewport width (px or breakpoint) below which the sidebar is an overlay sheet. */
+  overlayBelow?: "md" | number;
 }) {
-  const isMobile = useIsMobile();
+  const isMobile = useMediaQuery({ max: overlayBelow });
   const [openMobile, setOpenMobile] = React.useState(false);
 
   // This is the internal state of the sidebar.

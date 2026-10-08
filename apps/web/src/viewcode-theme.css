@@ -503,7 +503,8 @@ html[data-window-glass="true"] body {
  * App rail (components/rail/AppRail.tsx): a 3rem strip left of the thread sidebar. The
  * sidebar's fixed container is shifted right of it instead of editing ui/sidebar.tsx, and
  * collapsing slides the sidebar under the rail. Web only: macOS keeps the traffic-light
- * inset in --workspace-titlebar-content-left.
+ * inset in --workspace-titlebar-content-left. Below THREAD_SIDEBAR_OVERLAY_BREAKPOINT
+ * (threadSidebarWidth.ts) the thread sidebar is already an overlay sheet beside the rail.
  */
 @media (min-width: 768px) {
   [data-app-rail-layout] {
