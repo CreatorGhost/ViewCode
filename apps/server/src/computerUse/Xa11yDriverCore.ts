@@ -1845,11 +1845,16 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           const target = await resolveElement(request.element, request.expect);
           return await dispatch(
             async () => {
-              try {
-                await target.element.press();
-                return false;
-              } catch (error) {
-                if (errorName(error) !== "ActionNotSupportedError") throw error;
+              // Some bridges accept an unadvertised AXPress but silently ignore
+              // it. Route unsupported controls before dispatch, never replay a
+              // press that might already have landed.
+              if (target.element.actions.includes("press")) {
+                try {
+                  await target.element.press();
+                  return false;
+                } catch (error) {
+                  if (errorName(error) !== "ActionNotSupportedError") throw error;
+                }
               }
               // No accessible press: bring the window to the front and click
               // the live element's centre. The preparation can outlast the

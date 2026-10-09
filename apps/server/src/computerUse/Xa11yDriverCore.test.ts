@@ -3,7 +3,7 @@ import * as NodeModule from "node:module";
 import * as NodeZlib from "node:zlib";
 
 import type { App, InputSim, Screenshot } from "@crowecawcaw/xa11y";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { downscaleRgba, encodePng, fitWithin } from "./ScreenshotImage.ts";
 import {
@@ -237,6 +237,66 @@ describe("driver core over the xa11y test app", () => {
     expect(
       await harness.call({ op: "press", element: "e999", expect: { role: "button", label: "x" } }),
     ).toMatchObject({ ok: false, error: { kind: "stale", dispatched: "no" } });
+  });
+
+  it("clicks an unsupported ref instead of invoking a silent native press", async () => {
+    const harness = makeHarness();
+    const window = await harness.firstWindow();
+    const search = (await harness.observe(window.handle)).elements.find(
+      (element) => element.label === "Search",
+    )!;
+    const nativePress = vi.spyOn(xa11y.Element.prototype, "press").mockResolvedValue(undefined);
+    try {
+      expect(
+        await harness.call({
+          op: "press",
+          element: search.handle,
+          expect: { role: search.role, label: search.label },
+        }),
+      ).toMatchObject({ ok: true, result: { tookFocus: true } });
+      expect(harness.sent).toEqual([["click"]]);
+      expect(nativePress).not.toHaveBeenCalled();
+    } finally {
+      nativePress.mockRestore();
+    }
+  });
+
+  it("refuses an unsupported background ref without invoking press or taking focus", async () => {
+    const harness = makeHarness({ foregroundPid: TEST_PID + 1 });
+    const activate = vi.fn(async () => undefined);
+    const core = makeDriverCore(
+      { ...harness.api, activateApp: activate },
+      { platform: "darwin", epoch: "background-press", background: true },
+    );
+    const windows = await core.handle({ op: "listWindows" });
+    if (!windows.ok) throw new Error("list failed");
+    const window = (windows.result as ReadonlyArray<{ handle: string }>)[0]!;
+    const observation = await core.handle({
+      op: "observe",
+      window: window.handle,
+      maxElements: 100,
+    });
+    if (!observation.ok) throw new Error("observe failed");
+    const search = (
+      observation.result as {
+        elements: ReadonlyArray<{ handle: string; role: string; label: string }>;
+      }
+    ).elements.find((element) => element.label === "Search")!;
+    const nativePress = vi.spyOn(xa11y.Element.prototype, "press").mockResolvedValue(undefined);
+    try {
+      expect(
+        await core.handle({
+          op: "press",
+          element: search.handle,
+          expect: { role: search.role, label: search.label },
+        }),
+      ).toMatchObject({ ok: false, error: { kind: "unavailable", dispatched: "no" } });
+      expect(activate).not.toHaveBeenCalled();
+      expect(harness.sent).toEqual([]);
+      expect(nativePress).not.toHaveBeenCalled();
+    } finally {
+      nativePress.mockRestore();
+    }
   });
 
   it("forgets a window's handles when it is observed again", async () => {

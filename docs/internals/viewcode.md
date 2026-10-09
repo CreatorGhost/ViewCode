@@ -363,9 +363,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Ref actions run in the background: press (AXPress), set-value (AXValue) and type --ref
   (accessible text insertion) act on the element itself, which never needs focus, so they never
   activate, raise or focus anything; activating first took the user's focus for no reason. Only
-  their synthetic fallbacks (after `ActionNotSupported`), key, type --window, scroll and
+  their synthetic fallbacks (when press is not advertised or after `ActionNotSupported`), key, type --window, scroll and
   coordinate input bring the exact window to the front. Input results carry `tookFocus` from the
   driver, so the agent and the logs can tell the two apart.
+  Check the advertised actions before AXPress: Chrome can accept it without doing anything
+  on a web button that only advertises ShowMenu and ScrollToVisible.
 - `VIEWCODE_COMPUTER_BACKGROUND=1` opts macOS into process-directed clicks, scrolling and
   single-window shortcuts for inactive targets, through one background-only JXA helper per worker.
   The same flag enables a separate cursor on desktop-managed hosts. Its request and arrival reply
