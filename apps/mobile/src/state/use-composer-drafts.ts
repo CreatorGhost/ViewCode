@@ -684,7 +684,18 @@ export function mergeArchivedComposerDrafts(
  * being written) until they are enqueued, so a failed outbox read retries on
  * the next `waitForComposerDraftsLoaded()` instead of losing them.
  */
-async function restoreLegacyArchives(): Promise<void> {
+let legacyRestore: Promise<void> | null = null;
+
+// One restore at a time: a second caller would see the first one's
+// not-yet-durable enqueues as already queued and clear the archive early.
+function restoreLegacyArchives(): Promise<void> {
+  legacyRestore ??= restoreLegacyArchivesOnce().finally(() => {
+    legacyRestore = null;
+  });
+  return legacyRestore;
+}
+
+async function restoreLegacyArchivesOnce(): Promise<void> {
   if (legacyArchives.length === 0) return;
   const draftsToRestore = legacyArchives.filter(
     (archive) => Object.keys(archive.drafts).length > 0,
