@@ -661,7 +661,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           (SELECT substr(messages.text, 1, ${THREAD_MESSAGE_PREVIEW_SOURCE_LENGTH})
            FROM projection_thread_messages AS messages
-           WHERE messages.thread_id = projection_threads.thread_id
+           WHERE messages.thread_id = threads.thread_id
              AND messages.role IN ('user', 'assistant')
              AND messages.is_streaming = 0
              AND messages.text <> ''
