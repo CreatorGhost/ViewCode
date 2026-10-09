@@ -215,6 +215,8 @@ const ObserveReply = replyOf(
         role: Schema.String,
         label: Schema.String,
         value: Schema.optionalKey(Schema.String),
+        section: Schema.optionalKey(Schema.String),
+        instance: Schema.optionalKey(Schema.String),
         enabled: Schema.Boolean,
         focused: Schema.Boolean,
       }),
@@ -598,8 +600,11 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
           )
         : Effect.succeed(unavailableStatus(unsupportedReason(options.platform))),
     listWindows: () => call({ op: "listWindows" }, WindowsReply),
-    observe: (window, { maxElements }) =>
-      call({ op: "observe", window, maxElements }, ObserveReply),
+    observe: (window, { maxElements, query }) =>
+      call(
+        { op: "observe", window, maxElements, ...(query !== undefined ? { query } : {}) },
+        ObserveReply,
+      ),
     screenshot: (window, outputPath, { maxSize }) =>
       call({ op: "screenshot", window, outputPath, maxSize }, ScreenshotReply),
     elementAt: (window, point) => call({ op: "elementAt", window, point }, ElementAtReply),

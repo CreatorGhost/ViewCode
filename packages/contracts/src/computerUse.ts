@@ -237,6 +237,10 @@ export const ComputerUseElement = Schema.Struct({
   label: Schema.String,
   /** Clipped. Omitted for secure text fields. */
   value: Schema.optional(Schema.String),
+  /** The nearest heading before the control, to tell same-named controls apart. */
+  section: Schema.optional(Schema.String),
+  /** "2 of 8" when other controls share its role and label. */
+  instance: Schema.optional(Schema.String),
   enabled: Schema.Boolean,
   focused: Schema.Boolean,
 });

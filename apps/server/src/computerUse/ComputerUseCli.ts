@@ -384,6 +384,8 @@ const isElement = (value: unknown) =>
   isString(value.role) &&
   isString(value.label) &&
   optional(value.value, isString) &&
+  optional(value.section, isString) &&
+  optional(value.instance, isString) &&
   isBoolean(value.enabled) &&
   isBoolean(value.focused);
 
@@ -631,7 +633,8 @@ TWO WAYS TO ACT
 COMMANDS
   status                                    what is enabled and permitted now
   list-windows [--app NAME]                 windows: {id, app, title, pid, focused, bounds, kind?}
-  observe --window N [--query TEXT]         controls: {ref, role, label, value?, enabled, focused}
+  observe --window N [--query TEXT]         controls: {ref, role, label, value?, section?,
+                                            instance?, enabled, focused}
   screenshot --window N [--max-size PX]     PNG of the window: {shot, path, width, height}
                                             (longest edge PX, default 1568, 256..2560)
   press --ref N                             activate a control
@@ -691,8 +694,12 @@ THE LOOP
      switches to it (it takes the screen, so only when you need its pixels or
      input; refs work without it). If the app you need is not listed at all,
      ask the user to bring its window onto the current desktop.
-  2. observe --window N (add --query to narrow; truncated:true means the list
-     was cut). If what you need is not there, screenshot --window N instead.
+  2. observe --window N. truncated:true means the list was cut: add --query
+     with the control's text, which searches the whole window, not just the
+     cut list. section is the nearest heading above a control and instance
+     ("2 of 8") counts controls with the same label: use them to pick the
+     right one of several "Next" buttons. If what you need is still not
+     there, screenshot --window N instead.
   3. Act once: by --ref, or at x,y from the newest shot of that window.
   4. Check the result before the next step. An input result usually carries a
      fresh "screenshot" of the window: open it, and take the next x,y from it.

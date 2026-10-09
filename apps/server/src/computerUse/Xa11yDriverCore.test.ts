@@ -12,6 +12,7 @@ import {
   clipValue,
   isSecureElement,
   makeDriverCore,
+  placeObservedElements,
   smallestContaining,
   translateKeyChord,
   VALUE_MAX_CHARS,
@@ -102,8 +103,13 @@ const makeHarness = (
     if (!reply.ok) throw new Error("listWindows failed");
     return (reply.result as ReadonlyArray<{ readonly handle: string }>)[0]!;
   };
-  const observe = async (window: string, maxElements = 100) => {
-    const reply = await call({ op: "observe", window, maxElements });
+  const observe = async (window: string, maxElements = 100, query?: string) => {
+    const reply = await call({
+      op: "observe",
+      window,
+      maxElements,
+      ...(query !== undefined ? { query } : {}),
+    });
     if (!reply.ok) throw new Error("observe failed");
     return reply.result as {
       readonly elements: ReadonlyArray<{
@@ -193,6 +199,15 @@ describe("driver core over the xa11y test app", () => {
     const { elements, truncated } = await harness.observe(window.handle, 3);
     expect(truncated).toBe(true);
     expect(elements.map((element) => element.label)).toEqual(["Navigation", "Back", "Content"]);
+  });
+
+  it("finds a queried control past the cap, because the query is matched while reading", async () => {
+    const harness = makeHarness();
+    const window = await harness.firstWindow();
+    // A cap of 3 alone stops at Navigation, Back and Content.
+    const { elements, truncated } = await harness.observe(window.handle, 3, "item 2");
+    expect(truncated).toBe(false);
+    expect(elements.map((element) => element.label)).toEqual(["Item 2"]);
   });
 
   it("acts only when the element still has the observed identity", async () => {
@@ -637,5 +652,26 @@ describe("pure helpers", () => {
       kind: "permission-accessibility",
       dispatched: "no",
     });
+  });
+});
+
+describe("placeObservedElements", () => {
+  const heading = (label: string, ...path: number[]) => ({ label, path });
+  const control = (label: string, ...path: number[]) => ({ role: "button", label, path });
+
+  it("names the nearest heading before each control and counts same-named controls", () => {
+    const placed = placeObservedElements(
+      [control("Next", 0, 2), control("Previous", 1, 0, 1), control("Next", 1, 0, 2)],
+      [heading("Basic wizard", 0, 0), heading("Ajax Content Example", 1, 0, 0)],
+    );
+    expect(placed).toEqual([
+      { section: "Basic wizard", instance: "1 of 2" },
+      { section: "Ajax Content Example" },
+      { section: "Ajax Content Example", instance: "2 of 2" },
+    ]);
+  });
+
+  it("leaves out both when there is no heading before a unique control", () => {
+    expect(placeObservedElements([control("Save", 0)], [heading("Later", 1)])).toEqual([{}]);
   });
 });

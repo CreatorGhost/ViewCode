@@ -136,7 +136,13 @@ export type DriverRequest =
   | { readonly op: "listWindows" }
   /** Sent first to a replacement worker when the previous one died mid-drag. */
   | { readonly op: "releaseMouse" }
-  | { readonly op: "observe"; readonly window: string; readonly maxElements: number }
+  | {
+      readonly op: "observe";
+      readonly window: string;
+      readonly maxElements: number;
+      /** Kept only controls whose label or value contains this (case-insensitive). */
+      readonly query?: string;
+    }
   | {
       readonly op: "screenshot";
       readonly window: string;
@@ -289,6 +295,57 @@ export const elementLabel = (name: string | null, description: string | null): s
 
 export const clipValue = (value: string): string =>
   value.length <= VALUE_MAX_CHARS ? value : `${value.slice(0, VALUE_MAX_CHARS - 1)}…`;
+
+/** An observe query matches a control's label or value, ignoring case; `needle` is lower case. */
+export const matchesObserveQuery = (
+  label: string,
+  value: string | null | undefined,
+  needle: string,
+): boolean =>
+  label.toLowerCase().includes(needle) || (value?.toLowerCase().includes(needle) ?? false);
+
+/**
+ * Where each observed control sits, so controls with the same label can be told
+ * apart without a screenshot: `section` is the nearest heading before it in
+ * reading order, and `instance` ("2 of 8") counts controls sharing its role
+ * and label. Both inputs must already be in reading order.
+ */
+export const placeObservedElements = (
+  elements: ReadonlyArray<{
+    readonly path: ReadonlyArray<number>;
+    readonly role: string;
+    readonly label: string;
+  }>,
+  headings: ReadonlyArray<{ readonly label: string; readonly path: ReadonlyArray<number> }>,
+): ReadonlyArray<{ readonly section?: string; readonly instance?: string }> => {
+  const totals = new Map<string, number>();
+  const key = (element: { readonly role: string; readonly label: string }) =>
+    `${element.role}\u0000${element.label}`;
+  for (const element of elements) {
+    if (element.label.length === 0) continue;
+    totals.set(key(element), (totals.get(key(element)) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  let headingIndex = 0;
+  let section: string | undefined;
+  return elements.map((element) => {
+    while (
+      headingIndex < headings.length &&
+      comparePaths(headings[headingIndex]!.path, element.path) < 0
+    ) {
+      section = headings[headingIndex]!.label;
+      headingIndex += 1;
+    }
+    const total = element.label.length === 0 ? 0 : (totals.get(key(element)) ?? 0);
+    const nth = total > 1 ? (seen.get(key(element)) ?? 0) + 1 : 0;
+    if (nth > 0) seen.set(key(element), nth);
+    const ownHeading = element.role === "heading";
+    return {
+      ...(section !== undefined && !ownHeading ? { section } : {}),
+      ...(nth > 0 ? { instance: `${nth} of ${total}` } : {}),
+    };
+  });
+};
 
 const SECURE_RAW = /secure|password/i;
 const SECURE_LABEL = /pass(?:word|code|phrase)|\bpin\b/i;
@@ -1176,6 +1233,7 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
   const observe = async (
     windowHandle: string,
     maxElements: number,
+    query?: string,
   ): Promise<{ readonly elements: ReadonlyArray<DriverElement>; readonly truncated: boolean }> => {
     const window = requireWindow(windowHandle);
     if (!accessibilityRequested.has(window.pid)) {
@@ -1186,24 +1244,44 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
     }
     const root = await refreshWindow(window);
     const cap = Math.max(0, Math.min(maxElements, OBSERVE_MAX_VISITED));
+    const needle = query?.trim().toLowerCase() || undefined;
     const kept: Array<{ readonly element: Element; readonly path: ReadonlyArray<number> }> = [];
+    // Headings are recorded whether or not they match, so every kept control
+    // can name the section it sits in.
+    const headings: Array<{ readonly label: string; readonly path: ReadonlyArray<number> }> = [];
     // Breadth-first so a cap keeps the shallow, structural controls; the
-    // result is re-sorted into reading order below.
+    // result is re-sorted into reading order below. A query is matched during
+    // the walk, so it finds controls the cap would otherwise cut.
     const truncated = await walkBreadthFirst(root, OBSERVE_TIME_BUDGET_MS, (child, path) => {
       const label = elementLabel(child.name, child.description);
+      if (child.role === "heading" && label.length > 0 && headings.length < OBSERVE_MAX_VISITED) {
+        headings.push({ label, path });
+      }
       const actionable = child.actions.length > 0 || child.editable;
       if (label.length === 0 && !actionable) return "continue";
+      if (needle !== undefined && !matchesObserveQuery(label, child.value, needle)) {
+        return "continue";
+      }
       if (kept.length >= cap) return "stop";
       kept.push({ element: child, path });
       return "continue";
     });
     kept.sort((left, right) => comparePaths(left.path, right.path));
+    headings.sort((left, right) => comparePaths(left.path, right.path));
+    const placement = placeObservedElements(
+      kept.map(({ element, path }) => ({
+        path,
+        role: element.role,
+        label: elementLabel(element.name, element.description),
+      })),
+      headings,
+    );
 
     // A new observation of a window replaces its previous handles.
     dropElementHandles(window.elementHandles);
     window.elementHandles = new Set();
     const observed: DriverElement[] = [];
-    for (const { element, path } of kept) {
+    for (const [index, { element, path }] of kept.entries()) {
       const handle = mint("e");
       const label = elementLabel(element.name, element.description);
       elements.set(handle, {
@@ -1219,11 +1297,14 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       window.elementHandles.add(handle);
       const value = nonEmpty(element.value);
       const secure = isSecureElement({ raw: element.raw, editable: element.editable, label });
+      const { section, instance } = placement[index] ?? {};
       observed.push({
         handle,
         role: element.role,
         label: clipValue(label),
         ...(value !== undefined && !secure ? { value: clipValue(value) } : {}),
+        ...(section !== undefined ? { section: clipValue(section) } : {}),
+        ...(instance !== undefined ? { instance } : {}),
         enabled: element.enabled,
         focused: element.focused,
       });
@@ -1657,7 +1738,10 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
           return { ok: true, result: null };
         }
         case "observe":
-          return { ok: true, result: await observe(request.window, request.maxElements) };
+          return {
+            ok: true,
+            result: await observe(request.window, request.maxElements, request.query),
+          };
         case "screenshot":
           return {
             ok: true,

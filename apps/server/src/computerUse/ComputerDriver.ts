@@ -95,6 +95,10 @@ export interface DriverElement {
   readonly label: string;
   /** Already clipped by the driver; absent for secure text fields. */
   readonly value?: string;
+  /** The nearest heading before the control in reading order. */
+  readonly section?: string;
+  /** "2 of 8" when other controls share its role and label. */
+  readonly instance?: string;
   readonly enabled: boolean;
   readonly focused: boolean;
 }
@@ -165,7 +169,8 @@ export interface ComputerDriverShape {
   readonly listWindows: () => Effect.Effect<ReadonlyArray<DriverWindow>, ComputerDriverError>;
   readonly observe: (
     windowHandle: string,
-    options: { readonly maxElements: number },
+    /** `query` keeps only matching controls and is applied while the window is read, so it reaches past the cap. */
+    options: { readonly maxElements: number; readonly query?: string },
   ) => Effect.Effect<
     { readonly elements: ReadonlyArray<DriverElement>; readonly truncated: boolean },
     ComputerDriverError

@@ -620,7 +620,10 @@ export const make = Effect.gen(function* () {
       const window = windowFor(caller, windowId);
       if ("ok" in window) return window;
       const observed = yield* driver
-        .observe(window.handle, { maxElements: MAX_OBSERVED_ELEMENTS })
+        .observe(window.handle, {
+          maxElements: MAX_OBSERVED_ELEMENTS,
+          ...(query?.trim() ? { query } : {}),
+        })
         .pipe(
           Effect.map((value) => ({ _tag: "Observed" as const, value })),
           Effect.catchTag("ComputerDriverError", (error) =>
@@ -646,6 +649,8 @@ export const make = Effect.gen(function* () {
         role: element.role,
         label: element.label,
         ...(element.value !== undefined ? { value: element.value } : {}),
+        ...(element.section !== undefined ? { section: element.section } : {}),
+        ...(element.instance !== undefined ? { instance: element.instance } : {}),
         enabled: element.enabled,
         focused: element.focused,
       }));
