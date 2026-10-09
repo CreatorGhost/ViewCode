@@ -826,16 +826,27 @@ export function findLocalComposerClipboardAttachment(
     .find((attachment) => attachment.id === id);
 }
 
+/** Everything that may still own an attachment, including legacy archives not yet restored. */
+function attachmentOwners(): ReadonlyArray<{
+  readonly attachments: ReadonlyArray<DraftComposerAttachment>;
+}> {
+  const drafts = Object.values(appAtomRegistry.get(composerDraftsAtom));
+  const queuedMessages = Object.values(
+    appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
+  ).flat();
+  const archived = legacyArchives.flatMap((archive) => [
+    ...Object.values(archive.drafts),
+    ...archive.queuedMessages,
+  ]);
+  return [...drafts, ...queuedMessages, ...archived];
+}
+
 function isComposerAttachmentFileReferenced(fileUri: string): boolean {
   if (isComposerAttachmentFileRetained(fileUri)) {
     return true;
   }
   const referenceKey = composerAttachmentFileReferenceKey(fileUri);
-  const drafts = Object.values(appAtomRegistry.get(composerDraftsAtom));
-  const queuedMessages = Object.values(
-    appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
-  ).flat();
-  return [...drafts, ...queuedMessages].some((owner) =>
+  return attachmentOwners().some((owner) =>
     owner.attachments.some(
       (attachment) =>
         attachment.fileUri !== undefined &&
@@ -848,11 +859,7 @@ function isComposerAttachmentUploadReferenced(
   environmentId: EnvironmentId,
   attachmentId: string,
 ): boolean {
-  const drafts = Object.values(appAtomRegistry.get(composerDraftsAtom));
-  const queuedMessages = Object.values(
-    appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
-  ).flat();
-  return [...drafts, ...queuedMessages].some((owner) =>
+  return attachmentOwners().some((owner) =>
     owner.attachments.some(
       (attachment) =>
         attachment.uploadEnvironmentId === environmentId &&
