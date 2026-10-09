@@ -678,12 +678,31 @@ export function mergeArchivedComposerDrafts(
   return restored;
 }
 
-/** Puts upgraders' archived signed-out work back; the archive stops being written once this succeeds. */
+/**
+ * Puts upgraders' archived signed-out work back. Drafts merge in at once;
+ * queued messages wait for the outbox, and stay in the archive (which keeps
+ * being written) until they are enqueued, so a failed outbox read retries on
+ * the next `waitForComposerDraftsLoaded()` instead of losing them.
+ */
 async function restoreLegacyArchives(): Promise<void> {
-  const archives = legacyArchives;
-  if (archives.length === 0) return;
+  if (legacyArchives.length === 0) return;
+  const draftsToRestore = legacyArchives.filter(
+    (archive) => Object.keys(archive.drafts).length > 0,
+  );
+  if (draftsToRestore.length > 0) {
+    for (const archive of draftsToRestore) {
+      updateComposerDrafts((current) => mergeArchivedComposerDrafts(current, archive.drafts));
+    }
+    legacyArchives = legacyArchives.map((archive) => ({ ...archive, drafts: {} }));
+    schedulePersistComposerState();
+  }
+  if (legacyArchives.every((archive) => archive.queuedMessages.length === 0)) {
+    legacyArchives = [];
+    schedulePersistComposerState();
+    return;
+  }
   if (!(await threadOutboxManager.load())) return;
-  for (const archive of archives) {
+  for (const archive of legacyArchives) {
     for (const message of archive.queuedMessages) {
       const alreadyQueued = Object.values(
         appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
@@ -692,7 +711,6 @@ async function restoreLegacyArchives(): Promise<void> {
         .some((current) => current.messageId === message.messageId);
       if (!alreadyQueued) await threadOutboxManager.enqueue(message);
     }
-    updateComposerDrafts((current) => mergeArchivedComposerDrafts(current, archive.drafts));
   }
   legacyArchives = [];
   schedulePersistComposerState();
@@ -1073,6 +1091,8 @@ export async function waitForComposerDraftsLoaded(): Promise<void> {
   if (loadPromise !== null) {
     await loadPromise;
   }
+  // Queued messages of a legacy archive wait on the outbox; retry them here.
+  await restoreLegacyArchives().catch(() => undefined);
 }
 
 function updateComposerDrafts(
