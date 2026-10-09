@@ -4,7 +4,7 @@ import {
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { MessageSquareMoreIcon, MessageSquarePlusIcon, QuoteIcon } from "lucide-react";
+import { MessageSquareMoreIcon, QuoteIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -22,14 +22,11 @@ export function AssistantSelectionToolbar({
   viewport,
   threadRef,
   onCite,
-  onAskInNewChat,
   onAskInSideChat,
 }: {
   viewport: HTMLElement | null;
   threadRef: ScopedThreadRef;
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
-  /** Opens a new thread with the selection quoted in its composer. */
-  onAskInNewChat?: (quotedText: string) => void;
   /** Opens the side chat with the selection quoted; hidden where side chats do not apply. */
   onAskInSideChat?: (quotedText: string) => void;
 }) {
@@ -165,19 +162,6 @@ export function AssistantSelectionToolbar({
         <QuoteIcon aria-hidden="true" className="size-3.5" />
         {tooLong ? "Shorten selection" : "Quote in this chat"}
       </Button>
-      {onAskInNewChat ? (
-        <Button
-          type="button"
-          size="xs"
-          variant="glass"
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={ask(onAskInNewChat)}
-          onKeyDown={onKeyDown}
-        >
-          <MessageSquarePlusIcon aria-hidden="true" className="size-3.5" />
-          Ask in new chat
-        </Button>
-      ) : null}
       {onAskInSideChat ? (
         <Button
           type="button"

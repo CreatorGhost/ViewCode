@@ -73,9 +73,8 @@ Leaving reasoning level or service tier unset uses the provider's own configurat
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose
-**Quote in this chat**. **Ask in new chat** starts a new thread in the same project with the
-selection quoted in its composer. You can add a comment about the quote and write instructions
-around it.
+**Quote in this chat**. You can add a comment about the quote and write instructions around it.
+To ask about the selection without interrupting the thread, choose **Ask in side chat** instead.
 
 Select the quote in a draft or sent message to return to its source. If the source
 is unavailable or has changed, the saved quote remains readable.
