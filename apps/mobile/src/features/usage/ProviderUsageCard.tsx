@@ -1,4 +1,5 @@
 import { useNavigation } from "@react-navigation/native";
+import { EnvironmentId } from "@t3tools/contracts";
 import {
   buildRailUsageCardRows,
   railPlanLabel,
@@ -16,7 +17,7 @@ import {
   type LimitPool,
   type LimitPoolWindow,
 } from "@t3tools/shared/usageLimits";
-import { useId, useMemo } from "react";
+import { useEffect, useEffectEvent, useId, useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { Defs, Path, Pattern, Rect, Svg } from "react-native-svg";
 
@@ -214,15 +215,44 @@ function PoolWindow({
   );
 }
 
-function TokenRows({ driver, openedAt }: { readonly driver: string; readonly openedAt: number }) {
+/**
+ * 24h / 7d / 30d tokens for one provider over the selected environments.
+ * `openedAt` is the limits screen's clock, which every limits refresh moves,
+ * so a change in it re-fetches these totals too.
+ */
+function TokenRows({
+  driver,
+  openedAt,
+  environmentIds,
+}: {
+  readonly driver: string;
+  readonly openedAt: number;
+  readonly environmentIds: readonly string[] | null;
+}) {
   const provider = usageProviderForDriver(driver);
   const [day, week, month] = useMemo(() => {
     const at = new Date(openedAt);
     return [makeWindow(1, at, "hour"), makeWindow(7, at), makeWindow(30, at)];
   }, [openedAt]);
-  const d = useUsage(day).merged.providers;
-  const w = useUsage(week).merged.providers;
-  const m = useUsage(month).merged.providers;
+  const selected = useMemo(
+    () =>
+      environmentIds === null ? null : new Set(environmentIds.map((id) => EnvironmentId.make(id))),
+    [environmentIds],
+  );
+  const dayUsage = useUsage(day, selected);
+  const weekUsage = useUsage(week, selected);
+  const monthUsage = useUsage(month, selected);
+  const refreshAll = useEffectEvent((_at: number) => {
+    void dayUsage.refresh();
+    void weekUsage.refresh();
+    void monthUsage.refresh();
+  });
+  useEffect(() => {
+    refreshAll(openedAt);
+  }, [openedAt]);
+  const d = dayUsage.merged.providers;
+  const w = weekUsage.merged.providers;
+  const m = monthUsage.merged.providers;
   if (!provider) return null;
   const rows = railTokenRows(provider, [
     { label: "24h", providers: d },
@@ -260,6 +290,26 @@ export function ProviderUsageCard({
     : `${pool.accounts.length} accounts`;
   const plan = single ? railPlanLabel(single.plan, providerLabel) : null;
   const windows = displayLimitWindows(pool);
+  const navigation = useNavigation();
+  // Multi-account cards open an account from its legend row; a lone account
+  // opens from the header, since its windows render as plain rows.
+  const firstWindow = windows[0];
+  const openSingleAccount = () => {
+    if (!single || !firstWindow) return;
+    navigation.navigate("SettingsSheet", {
+      screen: "SettingsContent",
+      params: {
+        screen: "SettingsUsageAccount",
+        params: {
+          accountKey: single.key,
+          windowId: firstWindow.id,
+          windowKind: firstWindow.kind,
+          environmentIds,
+          now,
+        },
+      },
+    });
+  };
   const rows = single
     ? buildRailUsageCardRows(
         windows.flatMap((window) => {
@@ -278,7 +328,13 @@ export function ProviderUsageCard({
   const showDetails = creditAccounts.length > 0 || usageProviderForDriver(pool.driver) !== null;
   return (
     <View className="gap-5 rounded-2xl border border-border-subtle bg-card p-5">
-      <View className="flex-row items-center gap-3">
+      <Pressable
+        disabled={!single || !firstWindow}
+        accessibilityRole={single && firstWindow ? "button" : undefined}
+        accessibilityHint={single && firstWindow ? "Show account details" : undefined}
+        onPress={openSingleAccount}
+        className="flex-row items-center gap-3 active:opacity-60"
+      >
         <View className="size-9 items-center justify-center rounded-lg border border-border-subtle">
           <ProviderIcon provider={pool.driver} size={20} />
         </View>
@@ -293,7 +349,15 @@ export function ProviderUsageCard({
             <Text className="text-xs font-t3-medium text-foreground">{plan}</Text>
           </View>
         ) : null}
-      </View>
+        {single && firstWindow ? (
+          <SymbolView
+            name="chevron.right"
+            size={14}
+            tintColorClassName="accent-chevron"
+            type="monochrome"
+          />
+        ) : null}
+      </Pressable>
       <View className="gap-5">
         {single
           ? rows.map((row) => <UsageWindowRow key={row.id} row={row} />)
@@ -331,7 +395,7 @@ export function ProviderUsageCard({
               ) : null}
             </View>
           ))}
-          <TokenRows driver={pool.driver} openedAt={now} />
+          <TokenRows driver={pool.driver} openedAt={now} environmentIds={environmentIds} />
         </View>
       ) : null}
     </View>
