@@ -502,7 +502,8 @@ html[data-window-glass="true"] body {
 /*
  * App rail (components/rail/AppRail.tsx): a 3rem strip left of the thread sidebar. The
  * sidebar's fixed container is shifted right of it instead of editing ui/sidebar.tsx, and
- * collapsing slides the sidebar under the rail. Web only: macOS keeps the traffic-light
+ * collapsing slides the sidebar fully off screen, passing under the rail. Parking its edge
+ * behind the rail showed through on window glass, where the rail has no fill. Web only: macOS keeps the traffic-light
  * inset in --workspace-titlebar-content-left. Below THREAD_SIDEBAR_OVERLAY_BREAKPOINT
  * (threadSidebarWidth.ts) the thread sidebar is already an overlay sheet beside the rail.
  */
@@ -514,7 +515,7 @@ html[data-window-glass="true"] body {
     left: var(--app-rail-width) !important;
   }
   [data-app-rail-layout] [data-collapsible="offcanvas"] [data-slot="sidebar-container"] {
-    left: calc(var(--app-rail-width) - var(--sidebar-width)) !important;
+    left: calc(var(--sidebar-width) * -1) !important;
   }
   /* The toggle floats over the rail now, so content starts right after it. macOS keeps the
      traffic-light inset. */
