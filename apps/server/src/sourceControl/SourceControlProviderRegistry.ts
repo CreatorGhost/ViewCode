@@ -64,6 +64,39 @@ export class SourceControlProviderRegistry extends Context.Service<
   }
 >()("t3/sourceControl/SourceControlProviderRegistry") {}
 
+/** The remote's path below the host, lowercased, for SCP-style and URL remotes alike. */
+function remotePathSegments(remoteUrl: string): ReadonlyArray<string> {
+  const trimmed = remoteUrl.trim();
+  let path = /^[^@/:]+@[^/:]+:(.+)$/u.exec(trimmed)?.[1];
+  if (path === undefined) {
+    try {
+      path = new URL(trimmed).pathname;
+    } catch {
+      return [];
+    }
+  }
+  return path
+    .toLowerCase()
+    .split("/")
+    .filter((segment) => segment.length > 0);
+}
+
+/**
+ * Self-hosted servers whose remote shape is recognisable but that no provider can reach: the
+ * Azure CLI refuses Azure DevOps Server outright. Saying so keeps the user from signing in to
+ * a CLI that will never claim the host.
+ */
+function unreachableServerDetail(
+  context: SourceControlProvider.SourceControlProviderContext,
+): string | null {
+  const host = context.provider.name;
+  const segments = remotePathSegments(context.remoteUrl);
+  if (segments.at(-2) === "_git") {
+    return `${host} looks like Azure DevOps Server, which the Azure CLI does not support. Only Azure DevOps Services (dev.azure.com) can be used.`;
+  }
+  return null;
+}
+
 /**
  * A remote no provider recognised or claimed lands here as `unknown`; naming its host and the
  * CLIs that can claim it tells the user what to do instead of reporting a missing registration.
@@ -73,9 +106,13 @@ function unsupportedProviderDetail(
   context: SourceControlProvider.SourceControlProviderContext | undefined,
 ): string {
   if (kind !== "unknown") return `No ${kind} source control provider is registered.`;
-  return context === undefined
-    ? "This repository has no remote on a recognised hosting provider."
-    : `Could not identify the hosting provider for ${context.provider.name}. Sign in to it with gh, glab or tea.`;
+  if (context === undefined) {
+    return "This repository has no remote on a recognised hosting provider.";
+  }
+  return (
+    unreachableServerDetail(context) ??
+    `Could not identify the hosting provider for ${context.provider.name}. Sign in to it with gh, glab or tea.`
+  );
 }
 
 function unsupportedProvider(

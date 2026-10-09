@@ -320,6 +320,28 @@ it.effect("names the host no provider could claim", () =>
   }),
 );
 
+it.effect("says an Azure DevOps Server remote cannot be reached", () =>
+  Effect.gen(function* () {
+    for (const url of [
+      "https://tfs.corp.example/tfs/DefaultCollection/Project/_git/repo",
+      "ssh://tfs.corp.example:22/DefaultCollection/Project/_git/repo",
+    ]) {
+      const registry = yield* makeRegistry({ remotes: [{ name: "origin", url }] });
+
+      const provider = yield* registry.resolve({ cwd: "/repo" });
+      const error = yield* provider
+        .listChangeRequests({ cwd: "/repo", headSelector: "feature", state: "open" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(provider.kind, "unknown");
+      assert.strictEqual(
+        error.detail,
+        "tfs.corp.example looks like Azure DevOps Server, which the Azure CLI does not support. Only Azure DevOps Services (dev.azure.com) can be used.",
+      );
+    }
+  }),
+);
+
 it.effect("routes Bitbucket remotes to the Bitbucket provider", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry({

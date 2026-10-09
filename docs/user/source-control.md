@@ -85,6 +85,10 @@ az extension add --name azure-devops
 az login
 ```
 
+Only Azure DevOps Services (`dev.azure.com` and `*.visualstudio.com`) is supported. The Azure CLI
+does not work with Azure DevOps Server (on-premises, formerly TFS), so pull requests on those
+servers are not available.
+
 ## Start, clone, or publish a project
 
 To start from nothing, choose **New project** in the command palette (`Cmd/Ctrl+K`), or
