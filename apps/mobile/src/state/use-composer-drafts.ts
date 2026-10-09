@@ -399,7 +399,8 @@ const PersistedComposerDraftsSchema = Schema.Struct({
   schemaVersion: Schema.Literal(COMPOSER_DRAFTS_SCHEMA_VERSION),
   drafts: Schema.Record(Schema.String, ComposerDraftSchema),
   stickyModelSelection: Schema.optional(ModelSelectionSchema),
-  cloudAccountId: Schema.optional(Schema.String),
+  // Legacy: builds with T3 Connect archived a signed-out account's unsent work here.
+  // Decoded only so upgraders get it back; `cloudAccountId` beside it is ignored.
   signedOutDrafts: Schema.optional(
     Schema.Record(
       Schema.String,
@@ -430,20 +431,13 @@ export const stickyComposerModelSelectionAtom = Atom.make<ModelSelection | null>
   Atom.withLabel("mobile:sticky-composer-model-selection"),
 );
 
-interface SignedOutDrafts {
+interface LegacyArchive {
   readonly drafts: Record<string, ComposerDraft>;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
 }
 
-interface ComposerCloudDraftState {
-  readonly accountId: string | null;
-  readonly signedOut: Record<string, SignedOutDrafts>;
-}
-
-export const composerCloudDraftsAtom = Atom.make<ComposerCloudDraftState>({
-  accountId: null,
-  signedOut: {},
-}).pipe(Atom.keepAlive);
+// ponytail: kept in memory and written back until restored, so a failed restore never drops it.
+let legacyArchives: ReadonlyArray<LegacyArchive> = [];
 
 let loadPromise: Promise<void> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -608,7 +602,7 @@ export function migrateLegacyNewTaskDraft(
 export function decodePersistedComposerState(value: unknown): {
   readonly drafts: Record<string, ComposerDraft>;
   readonly stickyModelSelection: ModelSelection | null;
-  readonly cloudDrafts: ComposerCloudDraftState;
+  readonly legacyArchives: ReadonlyArray<LegacyArchive>;
 } {
   const parsed = decodePersistedComposerDraftsDocument(value);
   const now = new Date().toISOString();
@@ -642,25 +636,102 @@ export function decodePersistedComposerState(value: unknown): {
         .filter(([, draft]) => !isEmptyDraft(draft) || (draft.importedShareIds?.length ?? 0) > 0),
     ),
     stickyModelSelection: parsed.stickyModelSelection ?? null,
-    cloudDrafts: {
-      accountId: parsed.cloudAccountId ?? null,
-      signedOut: Object.fromEntries(
-        Object.entries(parsed.signedOutDrafts ?? {}).map(([id, saved]) => [
-          id,
-          {
-            // Archived drafts come back through restoreCloudComposerDrafts
-            // without another decode, so they get the same key migration.
-            drafts: Object.fromEntries(
-              Object.entries(saved.drafts).map(([key, draft]) =>
-                migrateLegacyNewTaskDraft(key, draft, now),
-              ),
-            ),
-            queuedMessages: saved.queuedMessages.map(decodeQueuedThreadMessage),
-          },
-        ]),
+    legacyArchives: Object.values(parsed.signedOutDrafts ?? {}).map((saved) => ({
+      drafts: Object.fromEntries(
+        Object.entries(saved.drafts).map(([key, draft]) =>
+          migrateLegacyNewTaskDraft(key, draft, now),
+        ),
       ),
-    },
+      queuedMessages: saved.queuedMessages.map(decodeQueuedThreadMessage),
+    })),
   };
+}
+
+/** Archived drafts folded into live ones; where both exist the live draft wins and the texts merge. */
+export function mergeArchivedComposerDrafts(
+  current: Record<string, ComposerDraft>,
+  archived: Record<string, ComposerDraft>,
+): Record<string, ComposerDraft> {
+  const restored = { ...current };
+  for (const [key, draft] of Object.entries(archived)) {
+    const existing = current[key];
+    if (!existing) {
+      restored[key] = draft;
+      continue;
+    }
+    const text = mergeComposerDraftText(existing.text, draft.text);
+    const attachmentIds = new Set(existing.attachments.map((attachment) => attachment.id));
+    restored[key] = {
+      ...draft,
+      ...existing,
+      text,
+      context: mergeReferencedComposerContext(text, draft.context, existing.context),
+      attachments: [
+        ...existing.attachments,
+        ...draft.attachments.filter((attachment) => !attachmentIds.has(attachment.id)),
+      ],
+      importedShareIds: [
+        ...new Set([...(existing.importedShareIds ?? []), ...(draft.importedShareIds ?? [])]),
+      ],
+    };
+  }
+  return restored;
+}
+
+/**
+ * Puts upgraders' archived signed-out work back. Drafts merge in at once;
+ * queued messages wait for the outbox, and stay in the archive (which keeps
+ * being written) until they are enqueued, so a failed outbox read retries on
+ * the next `waitForComposerDraftsLoaded()` instead of losing them.
+ */
+let legacyRestore: Promise<void> | null = null;
+
+// One restore at a time: a second caller would see the first one's
+// not-yet-durable enqueues as already queued and clear the archive early.
+function restoreLegacyArchives(): Promise<void> {
+  legacyRestore ??= restoreLegacyArchivesOnce().finally(() => {
+    legacyRestore = null;
+  });
+  return legacyRestore;
+}
+
+async function restoreLegacyArchivesOnce(): Promise<void> {
+  if (legacyArchives.length === 0) return;
+  const draftsToRestore = legacyArchives.filter(
+    (archive) => Object.keys(archive.drafts).length > 0,
+  );
+  if (draftsToRestore.length > 0) {
+    for (const archive of draftsToRestore) {
+      updateComposerDrafts((current) => mergeArchivedComposerDrafts(current, archive.drafts));
+    }
+    legacyArchives = legacyArchives.map((archive) => ({ ...archive, drafts: {} }));
+    schedulePersistComposerState();
+  }
+  if (legacyArchives.every((archive) => archive.queuedMessages.length === 0)) {
+    legacyArchives = [];
+    schedulePersistComposerState();
+    return;
+  }
+  if (!(await threadOutboxManager.load())) return;
+  for (const message of legacyArchives.flatMap((archive) => archive.queuedMessages)) {
+    const alreadyQueued = Object.values(
+      appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
+    )
+      .flat()
+      .some((current) => current.messageId === message.messageId);
+    if (!alreadyQueued) await threadOutboxManager.enqueue(message);
+    // Retire each message once it is durably queued, so a later retry never
+    // re-sends one the user has since discarded or pulled back to edit.
+    legacyArchives = legacyArchives.map((archive) => ({
+      ...archive,
+      queuedMessages: archive.queuedMessages.filter(
+        (candidate) => candidate.messageId !== message.messageId,
+      ),
+    }));
+    schedulePersistComposerState();
+  }
+  legacyArchives = [];
+  schedulePersistComposerState();
 }
 
 async function getComposerDraftsFile() {
@@ -677,11 +748,7 @@ async function loadPersistedComposerState(): Promise<
   try {
     const file = await getComposerDraftsFile();
     if (!file.exists) {
-      return {
-        drafts: {},
-        stickyModelSelection: null,
-        cloudDrafts: { accountId: null, signedOut: {} },
-      };
+      return { drafts: {}, stickyModelSelection: null, legacyArchives: [] };
     }
     operation = "read";
     const raw = await file.text();
@@ -700,7 +767,6 @@ async function loadPersistedComposerState(): Promise<
 async function writePersistedComposerState(
   drafts: Record<string, ComposerDraft>,
   stickyModelSelection: ModelSelection | null,
-  cloudDrafts = appAtomRegistry.get(composerCloudDraftsAtom),
 ): Promise<void> {
   let operation: ComposerDraftPersistenceError["operation"] = "open";
   try {
@@ -713,12 +779,11 @@ async function writePersistedComposerState(
       schemaVersion: COMPOSER_DRAFTS_SCHEMA_VERSION,
       drafts: nonEmptyDrafts,
       ...(stickyModelSelection ? { stickyModelSelection } : {}),
-      ...(cloudDrafts.accountId ? { cloudAccountId: cloudDrafts.accountId } : {}),
-      ...(Object.keys(cloudDrafts.signedOut).length > 0
+      ...(legacyArchives.length > 0
         ? {
             signedOutDrafts: Object.fromEntries(
-              Object.entries(cloudDrafts.signedOut).map(([id, saved]) => [
-                id,
+              legacyArchives.map((saved, index) => [
+                `legacy-${index}`,
                 {
                   drafts: saved.drafts,
                   queuedMessages: saved.queuedMessages.map(encodeQueuedThreadMessage),
@@ -778,13 +843,6 @@ export async function flushComposerDrafts(): Promise<void> {
   } while (persistTimer !== null || persistRetryNeeded);
 }
 
-function signedOutAttachmentOwners() {
-  return Object.values(appAtomRegistry.get(composerCloudDraftsAtom).signedOut).flatMap((saved) => [
-    ...Object.values(saved.drafts),
-    ...saved.queuedMessages,
-  ]);
-}
-
 /** Clipboard fragments can refer to a local file that has not finished uploading yet. */
 export function findLocalComposerClipboardAttachment(
   environmentId: EnvironmentId,
@@ -804,16 +862,27 @@ export function findLocalComposerClipboardAttachment(
     .find((attachment) => attachment.id === id);
 }
 
+/** Everything that may still own an attachment, including legacy archives not yet restored. */
+function attachmentOwners(): ReadonlyArray<{
+  readonly attachments: ReadonlyArray<DraftComposerAttachment>;
+}> {
+  const drafts = Object.values(appAtomRegistry.get(composerDraftsAtom));
+  const queuedMessages = Object.values(
+    appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
+  ).flat();
+  const archived = legacyArchives.flatMap((archive) => [
+    ...Object.values(archive.drafts),
+    ...archive.queuedMessages,
+  ]);
+  return [...drafts, ...queuedMessages, ...archived];
+}
+
 function isComposerAttachmentFileReferenced(fileUri: string): boolean {
   if (isComposerAttachmentFileRetained(fileUri)) {
     return true;
   }
   const referenceKey = composerAttachmentFileReferenceKey(fileUri);
-  const drafts = Object.values(appAtomRegistry.get(composerDraftsAtom));
-  const queuedMessages = Object.values(
-    appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
-  ).flat();
-  return [...drafts, ...queuedMessages, ...signedOutAttachmentOwners()].some((owner) =>
+  return attachmentOwners().some((owner) =>
     owner.attachments.some(
       (attachment) =>
         attachment.fileUri !== undefined &&
@@ -826,11 +895,7 @@ function isComposerAttachmentUploadReferenced(
   environmentId: EnvironmentId,
   attachmentId: string,
 ): boolean {
-  const drafts = Object.values(appAtomRegistry.get(composerDraftsAtom));
-  const queuedMessages = Object.values(
-    appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
-  ).flat();
-  return [...drafts, ...queuedMessages, ...signedOutAttachmentOwners()].some((owner) =>
+  return attachmentOwners().some((owner) =>
     owner.attachments.some(
       (attachment) =>
         attachment.uploadEnvironmentId === environmentId &&
@@ -1001,7 +1066,7 @@ export function ensureComposerDraftsLoaded(): void {
     return;
   }
   const loading = loadPersistedComposerState().then((persisted) => {
-    appAtomRegistry.set(composerCloudDraftsAtom, persisted.cloudDrafts);
+    legacyArchives = persisted.legacyArchives;
     if (Object.keys(persisted.drafts).length > 0) {
       const current = appAtomRegistry.get(composerDraftsAtom);
       appAtomRegistry.set(composerDraftsAtom, {
@@ -1015,6 +1080,9 @@ export function ensureComposerDraftsLoaded(): void {
     ) {
       appAtomRegistry.set(stickyComposerModelSelectionAtom, persisted.stickyModelSelection);
     }
+    void restoreLegacyArchives().catch((cause) =>
+      console.warn("[composer-drafts] failed to restore archived drafts", cause),
+    );
   });
   loadPromise = loading;
   // Handle fire-and-forget hook loads without swallowing failures from the
@@ -1041,197 +1109,8 @@ export async function waitForComposerDraftsLoaded(): Promise<void> {
   if (loadPromise !== null) {
     await loadPromise;
   }
-}
-
-export async function getComposerCloudAccountId(): Promise<string | null> {
-  await waitForComposerDraftsLoaded();
-  return appAtomRegistry.get(composerCloudDraftsAtom).accountId;
-}
-
-/** Save an account's local work before its relay environments are removed. */
-export async function archiveCloudComposerDrafts(
-  accountId: string | null,
-  environmentIds: ReadonlySet<EnvironmentId>,
-): Promise<void> {
-  await waitForComposerDraftsLoaded();
-  if (!(await threadOutboxManager.load())) throw new Error("Could not preserve queued messages.");
-  await flushThreadOutbox();
-  const cloud = appAtomRegistry.get(composerCloudDraftsAtom);
-  const owner = accountId ?? cloud.accountId;
-  if (owner === null) return;
-  const queued = Object.values(
-    appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
-  ).flat();
-  const current = appAtomRegistry.get(composerDraftsAtom);
-  const remaining = { ...current };
-  const savedDrafts = { ...cloud.signedOut[owner]?.drafts };
-  for (const [key, draft] of Object.entries(current)) {
-    const environmentId = composerDraftEnvironmentId(key, queued, draft);
-    if (environmentId !== null && environmentIds.has(environmentId)) {
-      savedDrafts[key] = draft;
-      delete remaining[key];
-    }
-  }
-  const savedMessages = new Map(
-    (cloud.signedOut[owner]?.queuedMessages ?? []).map((message) => [message.messageId, message]),
-  );
-  for (const message of queued) {
-    if (environmentIds.has(message.environmentId)) savedMessages.set(message.messageId, message);
-  }
-  appAtomRegistry.set(composerDraftsAtom, remaining);
-  appAtomRegistry.set(composerCloudDraftsAtom, {
-    // Keep the owner through removal. A crash or failed cleanup can retry it
-    // on cold start before a different account activates.
-    accountId: owner,
-    signedOut: {
-      ...cloud.signedOut,
-      [owner]: { drafts: savedDrafts, queuedMessages: [...savedMessages.values()] },
-    },
-  });
-  schedulePersistComposerState();
-  await flushComposerDrafts();
-}
-
-function sameDraftAttachmentIds(
-  left: ReadonlyArray<DraftComposerAttachment>,
-  right: ReadonlyArray<DraftComposerAttachment>,
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((attachment, index) => attachment.id === right[index]?.id)
-  );
-}
-
-/** An in-flight delivery can finish after sign-out took its snapshot. */
-export async function removeDeliveredCloudQueuedMessage(
-  message: QueuedThreadMessage,
-): Promise<void> {
-  await waitForComposerDraftsLoaded();
-  const cloud = appAtomRegistry.get(composerCloudDraftsAtom);
-  const signedOut = { ...cloud.signedOut };
-  let changed = false;
-  for (const [accountId, saved] of Object.entries(signedOut)) {
-    const archived = saved.queuedMessages.find(
-      (candidate) =>
-        candidate.environmentId === message.environmentId &&
-        candidate.messageId === message.messageId,
-    );
-    if (
-      !archived ||
-      archived.commandId !== message.commandId ||
-      archived.threadId !== message.threadId ||
-      archived.text !== message.text ||
-      !sameDraftAttachmentIds(archived.attachments, message.attachments)
-    )
-      continue;
-    // Upload ids may change during preparation; user edits must remain recoverable.
-    if (
-      JSON.stringify([
-        archived.modelSelection,
-        archived.runtimeMode,
-        archived.interactionMode,
-        archived.creation,
-      ]) !==
-      JSON.stringify([
-        message.modelSelection,
-        message.runtimeMode,
-        message.interactionMode,
-        message.creation,
-      ])
-    )
-      continue;
-    const editorKey = `pending-task:${message.messageId}`;
-    const editor = saved.drafts[editorKey];
-    if (
-      editor &&
-      (editor.text !== message.text ||
-        !sameDraftAttachmentIds(editor.attachments, message.attachments) ||
-        (editor.modelSelection !== undefined &&
-          JSON.stringify(editor.modelSelection) !== JSON.stringify(message.modelSelection)) ||
-        (editor.runtimeMode !== undefined && editor.runtimeMode !== message.runtimeMode) ||
-        (editor.interactionMode !== undefined &&
-          editor.interactionMode !== message.interactionMode) ||
-        (editor.workspaceSelection !== undefined &&
-          (editor.workspaceSelection.mode !== message.creation?.workspaceMode ||
-            editor.workspaceSelection.branch !== message.creation?.branch ||
-            editor.workspaceSelection.worktreePath !== message.creation?.worktreePath ||
-            (editor.workspaceSelection.startFromOrigin ?? false) !==
-              (message.creation?.startFromOrigin ?? false))))
-    )
-      continue;
-    const drafts = { ...saved.drafts };
-    delete drafts[editorKey];
-    signedOut[accountId] = {
-      drafts,
-      queuedMessages: saved.queuedMessages.filter((candidate) => candidate !== archived),
-    };
-    changed = true;
-  }
-  if (!changed) return;
-  appAtomRegistry.set(composerCloudDraftsAtom, { ...cloud, signedOut });
-  schedulePersistComposerState();
-  try {
-    await flushComposerDrafts();
-  } catch (error) {
-    // The live outbox can still remove this acknowledged message. Keep the
-    // archive update pending so a later successful flush lands it too.
-    schedulePersistComposerState();
-    throw error;
-  }
-}
-
-/** Restores only this account, before its connections can deliver queued turns. */
-export async function restoreCloudComposerDrafts(accountId: string): Promise<void> {
-  await waitForComposerDraftsLoaded();
-  const cloud = appAtomRegistry.get(composerCloudDraftsAtom);
-  const saved = cloud.signedOut[accountId];
-  if (saved) {
-    if (!(await threadOutboxManager.load())) throw new Error("Could not restore queued messages.");
-    for (const message of saved.queuedMessages) {
-      const alreadyQueued = Object.values(
-        appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
-      )
-        .flat()
-        .some((current) => current.messageId === message.messageId);
-      if (!alreadyQueued) await threadOutboxManager.enqueue(message);
-    }
-    updateComposerDrafts((current) => {
-      const restored = { ...current };
-      for (const [key, draft] of Object.entries(saved.drafts)) {
-        const existing = current[key];
-        const attachmentIds = new Set(existing?.attachments.map((attachment) => attachment.id));
-        restored[key] = existing
-          ? {
-              ...draft,
-              ...existing,
-              text: mergeComposerDraftText(existing.text, draft.text),
-              context: mergeReferencedComposerContext(
-                mergeComposerDraftText(existing.text, draft.text),
-                draft.context,
-                existing.context,
-              ),
-              // A concurrent import must not lose files, even above the send limit.
-              attachments: [
-                ...existing.attachments,
-                ...draft.attachments.filter((attachment) => !attachmentIds.has(attachment.id)),
-              ],
-              importedShareIds: [
-                ...new Set([
-                  ...(existing.importedShareIds ?? []),
-                  ...(draft.importedShareIds ?? []),
-                ]),
-              ],
-            }
-          : draft;
-      }
-      return restored;
-    });
-  }
-  const signedOut = { ...cloud.signedOut };
-  delete signedOut[accountId];
-  appAtomRegistry.set(composerCloudDraftsAtom, { accountId, signedOut });
-  schedulePersistComposerState();
-  await flushComposerDrafts();
+  // Queued messages of a legacy archive wait on the outbox; retry them here.
+  await restoreLegacyArchives().catch(() => undefined);
 }
 
 function updateComposerDrafts(

@@ -44,23 +44,8 @@ export function usageTone(usedPercent: number): UsageTone {
   return "normal";
 }
 
-export function formatUsedPercent(usedPercent: number): string {
-  return `${Math.round(Math.max(0, Math.min(100, usedPercent)))}%`;
-}
-
-const KIND_ORDER: Record<ServerProviderUsageWindow["kind"], number> = {
-  session: 0,
-  weekly: 1,
-  monthly: 2,
-  other: 3,
-};
-
-/** Shortest window first (the session, then weekly), keeping provider order within a kind. */
-export function orderUsageWindows(
-  windows: ReadonlyArray<ServerProviderUsageWindow>,
-): ReadonlyArray<ServerProviderUsageWindow> {
-  return windows.toSorted((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
-}
+export { formatUsedPercent, orderUsageWindows } from "@t3tools/shared/usagePace";
+import { formatUsedPercent, orderUsageWindows } from "@t3tools/shared/usagePace";
 
 /** A full all-model week takes precedence over a newly reset session. */
 export function planUsageWindow(

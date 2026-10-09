@@ -4,9 +4,9 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ServerProvider,
 } from "@t3tools/contracts";
+import { makeWindow } from "@t3tools/shared/usageFormat";
 import { formatResumeAt } from "@t3tools/shared/usageLimit";
 import {
-  type LimitPace,
   type LimitPresentations,
   NO_USAGE_RECORDED_NOTICE,
   limitsNotice,
@@ -129,23 +129,8 @@ export function usageLoadingCaption(
   };
 }
 
-/**
- * A pool's status, said as its consequence. "Ahead of pace" next to "2% left"
- * read as good news, so a fast or nearly empty window is phrased as a warning.
- */
-export function limitPoolStatus(
-  pace: LimitPace | null,
-  remainingPercent: number,
-): { readonly label: string; readonly warn: boolean } | null {
-  if (remainingPercent < 10) return { label: "Running low", warn: true };
-  switch (pace) {
-    case "ahead":
-      return { label: "Using fast", warn: true };
-    case "on":
-      return { label: "On track", warn: false };
-    case "under":
-      return { label: "Plenty left", warn: false };
-    case null:
-      return null;
-  }
+/** The 24h, 7d and 30d windows the provider cards total tokens over, anchored at one clock. */
+export function tokenUsageWindows(openedAt: number) {
+  const at = new Date(openedAt);
+  return [makeWindow(1, at, "hour"), makeWindow(7, at), makeWindow(30, at)] as const;
 }

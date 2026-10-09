@@ -31,8 +31,6 @@ import {
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
 import { useDirectPushRegistration } from "./features/agent-awareness/useDirectPushRegistration";
-import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
-import { useConnectOnboardingNavigation } from "./features/cloud/connectOnboardingNavigation";
 import { AttachmentFileScreen } from "./features/files/AttachmentFileScreen";
 import { ThreadFilesTreeScreen, ThreadFileScreen } from "./features/files/ThreadFilesRouteScreen";
 import { AdaptiveWorkspaceLayout } from "./features/layout/AdaptiveWorkspaceLayout";
@@ -73,7 +71,6 @@ import { NewTaskRouteScreen } from "./features/threads/NewTaskRouteScreen";
 import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppearanceRouteScreen";
 import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsClientStorageRouteScreen";
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
-import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
 import {
@@ -336,7 +333,7 @@ const SettingsContentStack = createNativeStackNavigator({
 });
 
 // The outer stack never owns visible chrome. Settings routes render inside a
-// nested stack whose native header remains mounted, while Clerk owns auth chrome.
+// nested stack whose native header remains mounted.
 // Keeping bar visibility invariant avoids iOS 26's headerless-to-headered jump.
 const SettingsSheetStack = createNativeStackNavigator({
   initialRouteName: "SettingsContent",
@@ -350,15 +347,6 @@ const SettingsSheetStack = createNativeStackNavigator({
       layout: ({ children }) => (
         <SettingsEnvironmentFilterProvider>{children}</SettingsEnvironmentFilterProvider>
       ),
-    }),
-    SettingsAuth: createNativeStackScreen({
-      screen: SettingsAuthRouteScreen,
-      linking: "auth",
-    }),
-    SettingsWaitlist: createNativeStackScreen({
-      // Keep the old deep link working after the Connect GA launch.
-      screen: SettingsAuthRouteScreen,
-      linking: "waitlist",
     }),
   },
 });
@@ -473,7 +461,6 @@ const NewTaskSheetStack = createNativeStackNavigator({
 // influence the adaptive workspace layout: opening Settings over Home should
 // not flip the sidebar in or change the active thread.
 const WORKSPACE_OVERLAY_ROUTES = new Set([
-  "ConnectOnboarding",
   "Connections",
   "ConnectionsNew",
   "GitBranches",
@@ -531,8 +518,6 @@ function RootStackLayout(props: {
   useAgentNotificationNavigation(workspaceLocation.pathname);
   // Registers this phone for notifications from each connected computer.
   useDirectPushRegistration();
-  // Presents the T3 Connect onboarding sheet after an in-session sign-in.
-  useConnectOnboardingNavigation();
   // Launcher app shortcuts: routes shortcut taps and tracks opened threads.
   useAppShortcuts(props.state);
   useEffect(() => {
@@ -759,20 +744,6 @@ const RootStackConfig = createNativeStackNavigator({
       options: {
         ...LEGAL_DOCUMENT_HEADER_OPTIONS,
         title: "Legal",
-      },
-    }),
-    ConnectOnboarding: createNativeStackScreen({
-      screen: ConnectOnboardingRouteScreen,
-      linking: "connect-onboarding",
-      options: {
-        // A root-level Android formSheet does not host the native stack bar;
-        // the route renders an embedded AndroidSheetHeader instead.
-        ...(Platform.OS === "android" ? { headerShown: false } : SHEET_SOLID_HEADER_OPTIONS),
-        title: "Set up T3 Connect",
-        gestureEnabled: true,
-        ...FORM_SHEET_PRESENTATION_OPTIONS,
-        sheetAllowedDetents: [0.6, 0.95],
-        sheetGrabberVisible: true,
       },
     }),
     Connections: createNativeStackScreen({

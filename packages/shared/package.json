@@ -351,6 +351,10 @@
       "types": "./src/hostClassification.ts",
       "import": "./src/hostClassification.ts"
     },
+    "./usagePace": {
+      "types": "./src/usagePace.ts",
+      "import": "./src/usagePace.ts"
+    },
     "./usageLimit": {
       "types": "./src/usageLimit.ts",
       "import": "./src/usageLimit.ts"
