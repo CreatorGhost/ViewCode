@@ -44,8 +44,10 @@ and worktree while you stay in the new thread composer. This requires a Git proj
 ## App rail and open-thread tabs
 
 On web and desktop, a slim rail at the far left stays visible even when the thread sidebar
-is collapsed. Its top lists your projects: click one to show only its threads in the sidebar,
-and click it again or **All projects** to show everything. An amber count marks a project with
+is collapsed. Its top lists your projects: click one to show only its threads in the sidebar
+and open your work there (the thread you last viewed in it, else its most recent thread, else a
+new thread). Picking a project from the sidebar's project menu does the same. Click **All
+projects** to show everything again. An amber count marks a project with
 threads waiting for your approval or input, and a small dot one with threads working. Its
 bottom holds one ring per enabled provider account in the environment of the open thread
 (your local environment when no thread is open). A ring shows how much of that

@@ -30,6 +30,7 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { useSidebarProjectGroups } from "../sidebar/useSidebarProjectGroups";
+import { useSwitchProjectScope } from "../sidebar/useSwitchProjectScope";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -73,19 +74,12 @@ function RailButton(props: {
   );
 }
 
-/** Picking the scoped project again, or All projects (null), shows every project. */
-function toggleRailProjectScope(projectKey: string | null) {
-  const store = useUiStateStore.getState();
-  store.setSidebarProjectScopeKey(
-    projectKey === null || store.sidebarProjectScopeKey === projectKey ? null : projectKey,
-  );
-}
-
 const RailProjectButton = memo(function RailProjectButton(props: {
   project: SidebarProjectSnapshot;
   selected: boolean;
   needsYou: number;
   working: number;
+  onSelect: (project: SidebarProjectSnapshot) => void;
 }) {
   const { project, needsYou, working } = props;
   const navigate = useNavigate();
@@ -95,7 +89,7 @@ const RailProjectButton = memo(function RailProjectButton(props: {
       label={railProjectLabel(project.displayName, { needsYou, working })}
       tooltip={project.displayName}
       pressed={props.selected}
-      onClick={() => toggleRailProjectScope(project.projectKey)}
+      onClick={() => props.onSelect(project)}
       onContextMenu={(event) => {
         event.preventDefault();
         const position = { x: event.clientX, y: event.clientY };
@@ -152,14 +146,15 @@ const RailProjectButton = memo(function RailProjectButton(props: {
 });
 
 /**
- * The sidebar's project scope as one button per project folder, in the scope menu's order. It
- * only narrows the thread sidebar (collapsed or not), with amber counts for threads waiting on
- * the user and a static dot for working ones.
+ * The sidebar's project scope as one button per project folder, in the scope menu's order. A
+ * click narrows the thread sidebar (collapsed or not) and shows that folder's work, with amber
+ * counts for threads waiting on the user and a static dot for working ones.
  */
 const RailProjectSwitcher = memo(function RailProjectSwitcher() {
   const projectGroups = useSidebarProjectGroups();
   const threads = useThreadShells();
   const scopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
+  const switchProject = useSwitchProjectScope();
   const activityByProject = useMemo(
     () => buildRailProjectActivity(projectGroups, threads),
     [projectGroups, threads],
@@ -174,7 +169,7 @@ const RailProjectSwitcher = memo(function RailProjectSwitcher() {
       <RailButton
         label="All projects"
         pressed={selectedKey === null}
-        onClick={() => toggleRailProjectScope(null)}
+        onClick={() => switchProject(null)}
       >
         <FolderIcon />
       </RailButton>
@@ -187,6 +182,7 @@ const RailProjectSwitcher = memo(function RailProjectSwitcher() {
             selected={selectedKey === project.projectKey}
             needsYou={activity?.needsYou ?? 0}
             working={activity?.working ?? 0}
+            onSelect={switchProject}
           />
         );
       })}
