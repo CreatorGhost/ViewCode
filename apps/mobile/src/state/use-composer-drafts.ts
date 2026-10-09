@@ -713,15 +713,22 @@ async function restoreLegacyArchivesOnce(): Promise<void> {
     return;
   }
   if (!(await threadOutboxManager.load())) return;
-  for (const archive of legacyArchives) {
-    for (const message of archive.queuedMessages) {
-      const alreadyQueued = Object.values(
-        appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
-      )
-        .flat()
-        .some((current) => current.messageId === message.messageId);
-      if (!alreadyQueued) await threadOutboxManager.enqueue(message);
-    }
+  for (const message of legacyArchives.flatMap((archive) => archive.queuedMessages)) {
+    const alreadyQueued = Object.values(
+      appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
+    )
+      .flat()
+      .some((current) => current.messageId === message.messageId);
+    if (!alreadyQueued) await threadOutboxManager.enqueue(message);
+    // Retire each message once it is durably queued, so a later retry never
+    // re-sends one the user has since discarded or pulled back to edit.
+    legacyArchives = legacyArchives.map((archive) => ({
+      ...archive,
+      queuedMessages: archive.queuedMessages.filter(
+        (candidate) => candidate.messageId !== message.messageId,
+      ),
+    }));
+    schedulePersistComposerState();
   }
   legacyArchives = [];
   schedulePersistComposerState();
