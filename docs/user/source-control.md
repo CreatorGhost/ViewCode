@@ -53,6 +53,9 @@ to recognize servers whose host name does not contain `gitlab`.
 
 ### Bitbucket
 
+Only Bitbucket Cloud (`bitbucket.org`) is supported. Bitbucket Data Center and Bitbucket Server
+use a different API, so pull requests on those servers are not available.
+
 Open **Settings → Source Control**, expand **Bitbucket**, and choose how to sign in:
 
 - **Access token**: a token created for one repository, project, or workspace. It can only reach

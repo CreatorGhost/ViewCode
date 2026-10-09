@@ -83,8 +83,9 @@ function remotePathSegments(remoteUrl: string): ReadonlyArray<string> {
 
 /**
  * Self-hosted servers whose remote shape is recognisable but that no provider can reach: the
- * Azure CLI refuses Azure DevOps Server outright. Saying so keeps the user from signing in to
- * a CLI that will never claim the host.
+ * Azure CLI refuses Azure DevOps Server outright, and the Bitbucket provider speaks only the
+ * Bitbucket Cloud API, which Data Center does not serve. Saying so keeps the user from signing
+ * in to a CLI that will never claim the host.
  */
 function unreachableServerDetail(
   context: SourceControlProvider.SourceControlProviderContext,
@@ -93,6 +94,10 @@ function unreachableServerDetail(
   const segments = remotePathSegments(context.remoteUrl);
   if (segments.at(-2) === "_git") {
     return `${host} looks like Azure DevOps Server, which the Azure CLI does not support. Only Azure DevOps Services (dev.azure.com) can be used.`;
+  }
+  // Data Center's HTTP clone path is `/scm/{project}/{repo}`, under an optional context path.
+  if (segments.at(-3) === "scm") {
+    return `${host} looks like Bitbucket Data Center, which is not supported. Only Bitbucket Cloud (bitbucket.org) can be used.`;
   }
   return null;
 }

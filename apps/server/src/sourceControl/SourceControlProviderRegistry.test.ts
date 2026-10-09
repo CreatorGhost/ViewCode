@@ -342,6 +342,28 @@ it.effect("says an Azure DevOps Server remote cannot be reached", () =>
   }),
 );
 
+it.effect("says a Bitbucket Data Center remote cannot be reached", () =>
+  Effect.gen(function* () {
+    for (const url of [
+      "https://git.corp.example/scm/PROJ/repo.git",
+      "https://git.corp.example/bitbucket/scm/PROJ/repo.git",
+    ]) {
+      const registry = yield* makeRegistry({ remotes: [{ name: "origin", url }] });
+
+      const provider = yield* registry.resolve({ cwd: "/repo" });
+      const error = yield* provider
+        .listChangeRequests({ cwd: "/repo", headSelector: "feature", state: "open" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(provider.kind, "unknown");
+      assert.strictEqual(
+        error.detail,
+        "git.corp.example looks like Bitbucket Data Center, which is not supported. Only Bitbucket Cloud (bitbucket.org) can be used.",
+      );
+    }
+  }),
+);
+
 it.effect("routes Bitbucket remotes to the Bitbucket provider", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry({
