@@ -1683,6 +1683,11 @@ function PullRequestsRouteView() {
       ),
     [listErrors],
   );
+  /** The same reasons by project name, for an empty list that would otherwise read as none. */
+  const unavailableProjectReasons = useMemo(
+    () => new Map(listErrors.map((error) => [error.projectTitle, error.message] as const)),
+    [listErrors],
+  );
 
   // Stable so the memoized rows can skip re-rendering when the list around them changes.
   const selectEntry = useCallback(
@@ -1766,6 +1771,7 @@ function PullRequestsRouteView() {
           hasProjects={!projectsKnown || projects.length > 0}
           refreshing={refreshing}
           onRefresh={() => void refreshFromHost()}
+          unavailableProjects={unavailableProjectReasons}
           query={typedQuery}
           filtered={
             menuFiltered ||
