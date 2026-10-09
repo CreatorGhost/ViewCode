@@ -48,7 +48,12 @@ import {
   newTaskDraftKey,
   parseLegacyNewTaskDraftKey,
 } from "./new-task-draft-key";
-import {} from "./thread-outbox-model";
+import {
+  decodeQueuedThreadMessage,
+  encodeQueuedThreadMessage,
+  QueuedThreadMessageSchema,
+  type QueuedThreadMessage,
+} from "./thread-outbox-model";
 import { flushThreadOutbox, threadOutboxManager } from "./thread-outbox";
 import { composerDraftEnvironmentId } from "../lib/composerAttachmentUploadQueue";
 
@@ -394,6 +399,17 @@ const PersistedComposerDraftsSchema = Schema.Struct({
   schemaVersion: Schema.Literal(COMPOSER_DRAFTS_SCHEMA_VERSION),
   drafts: Schema.Record(Schema.String, ComposerDraftSchema),
   stickyModelSelection: Schema.optional(ModelSelectionSchema),
+  // Legacy: builds with T3 Connect archived a signed-out account's unsent work here.
+  // Decoded only so upgraders get it back; `cloudAccountId` beside it is ignored.
+  signedOutDrafts: Schema.optional(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({
+        drafts: Schema.Record(Schema.String, ComposerDraftSchema),
+        queuedMessages: Schema.Array(QueuedThreadMessageSchema),
+      }),
+    ),
+  ),
 });
 
 const decodePersistedComposerDraftsDocument = Schema.decodeUnknownSync(
@@ -414,6 +430,14 @@ export const stickyComposerModelSelectionAtom = Atom.make<ModelSelection | null>
   Atom.keepAlive,
   Atom.withLabel("mobile:sticky-composer-model-selection"),
 );
+
+interface LegacyArchive {
+  readonly drafts: Record<string, ComposerDraft>;
+  readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
+}
+
+// ponytail: kept in memory and written back until restored, so a failed restore never drops it.
+let legacyArchives: ReadonlyArray<LegacyArchive> = [];
 
 let loadPromise: Promise<void> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -578,6 +602,7 @@ export function migrateLegacyNewTaskDraft(
 export function decodePersistedComposerState(value: unknown): {
   readonly drafts: Record<string, ComposerDraft>;
   readonly stickyModelSelection: ModelSelection | null;
+  readonly legacyArchives: ReadonlyArray<LegacyArchive>;
 } {
   const parsed = decodePersistedComposerDraftsDocument(value);
   const now = new Date().toISOString();
@@ -611,7 +636,66 @@ export function decodePersistedComposerState(value: unknown): {
         .filter(([, draft]) => !isEmptyDraft(draft) || (draft.importedShareIds?.length ?? 0) > 0),
     ),
     stickyModelSelection: parsed.stickyModelSelection ?? null,
+    legacyArchives: Object.values(parsed.signedOutDrafts ?? {}).map((saved) => ({
+      drafts: Object.fromEntries(
+        Object.entries(saved.drafts).map(([key, draft]) =>
+          migrateLegacyNewTaskDraft(key, draft, now),
+        ),
+      ),
+      queuedMessages: saved.queuedMessages.map(decodeQueuedThreadMessage),
+    })),
   };
+}
+
+/** Archived drafts folded into live ones; where both exist the live draft wins and the texts merge. */
+export function mergeArchivedComposerDrafts(
+  current: Record<string, ComposerDraft>,
+  archived: Record<string, ComposerDraft>,
+): Record<string, ComposerDraft> {
+  const restored = { ...current };
+  for (const [key, draft] of Object.entries(archived)) {
+    const existing = current[key];
+    if (!existing) {
+      restored[key] = draft;
+      continue;
+    }
+    const text = mergeComposerDraftText(existing.text, draft.text);
+    const attachmentIds = new Set(existing.attachments.map((attachment) => attachment.id));
+    restored[key] = {
+      ...draft,
+      ...existing,
+      text,
+      context: mergeReferencedComposerContext(text, draft.context, existing.context),
+      attachments: [
+        ...existing.attachments,
+        ...draft.attachments.filter((attachment) => !attachmentIds.has(attachment.id)),
+      ],
+      importedShareIds: [
+        ...new Set([...(existing.importedShareIds ?? []), ...(draft.importedShareIds ?? [])]),
+      ],
+    };
+  }
+  return restored;
+}
+
+/** Puts upgraders' archived signed-out work back; the archive stops being written once this succeeds. */
+async function restoreLegacyArchives(): Promise<void> {
+  const archives = legacyArchives;
+  if (archives.length === 0) return;
+  if (!(await threadOutboxManager.load())) return;
+  for (const archive of archives) {
+    for (const message of archive.queuedMessages) {
+      const alreadyQueued = Object.values(
+        appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
+      )
+        .flat()
+        .some((current) => current.messageId === message.messageId);
+      if (!alreadyQueued) await threadOutboxManager.enqueue(message);
+    }
+    updateComposerDrafts((current) => mergeArchivedComposerDrafts(current, archive.drafts));
+  }
+  legacyArchives = [];
+  schedulePersistComposerState();
 }
 
 async function getComposerDraftsFile() {
@@ -628,7 +712,7 @@ async function loadPersistedComposerState(): Promise<
   try {
     const file = await getComposerDraftsFile();
     if (!file.exists) {
-      return { drafts: {}, stickyModelSelection: null };
+      return { drafts: {}, stickyModelSelection: null, legacyArchives: [] };
     }
     operation = "read";
     const raw = await file.text();
@@ -659,6 +743,19 @@ async function writePersistedComposerState(
       schemaVersion: COMPOSER_DRAFTS_SCHEMA_VERSION,
       drafts: nonEmptyDrafts,
       ...(stickyModelSelection ? { stickyModelSelection } : {}),
+      ...(legacyArchives.length > 0
+        ? {
+            signedOutDrafts: Object.fromEntries(
+              legacyArchives.map((saved, index) => [
+                `legacy-${index}`,
+                {
+                  drafts: saved.drafts,
+                  queuedMessages: saved.queuedMessages.map(encodeQueuedThreadMessage),
+                },
+              ]),
+            ),
+          }
+        : {}),
     } as const;
     const encoded = JSON.stringify(document);
     operation = "write";
@@ -926,6 +1023,7 @@ export function ensureComposerDraftsLoaded(): void {
     return;
   }
   const loading = loadPersistedComposerState().then((persisted) => {
+    legacyArchives = persisted.legacyArchives;
     if (Object.keys(persisted.drafts).length > 0) {
       const current = appAtomRegistry.get(composerDraftsAtom);
       appAtomRegistry.set(composerDraftsAtom, {
@@ -939,6 +1037,9 @@ export function ensureComposerDraftsLoaded(): void {
     ) {
       appAtomRegistry.set(stickyComposerModelSelectionAtom, persisted.stickyModelSelection);
     }
+    void restoreLegacyArchives().catch((cause) =>
+      console.warn("[composer-drafts] failed to restore archived drafts", cause),
+    );
   });
   loadPromise = loading;
   // Handle fire-and-forget hook loads without swallowing failures from the

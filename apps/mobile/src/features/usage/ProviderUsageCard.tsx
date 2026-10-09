@@ -6,7 +6,6 @@ import {
   railTokenRows,
   usageProviderForDriver,
 } from "@t3tools/shared/usagePace";
-import { makeWindow } from "@t3tools/shared/usageFormat";
 import {
   cursorUsageWindowDetails,
   displayLimitWindows,
@@ -17,7 +16,7 @@ import {
   type LimitPool,
   type LimitPoolWindow,
 } from "@t3tools/shared/usageLimits";
-import { useEffect, useEffectEvent, useId, useMemo } from "react";
+import { useId, useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { Defs, Path, Pattern, Rect, Svg } from "react-native-svg";
 
@@ -28,7 +27,7 @@ import { useUsage } from "../../state/usage";
 import { ResetCredits } from "./UsageLimitsSection";
 import { UsageWindowRow } from "./UsageWindowRow";
 import { useProviderColors } from "./usageProviders";
-import { limitDriverLabel } from "./usageScreenModel";
+import { limitDriverLabel, tokenUsageWindows } from "./usageScreenModel";
 
 type ProviderColors = ReturnType<typeof useProviderColors>;
 
@@ -217,8 +216,8 @@ function PoolWindow({
 
 /**
  * 24h / 7d / 30d tokens for one provider over the selected environments.
- * `openedAt` is the limits screen's clock, which every limits refresh moves,
- * so a change in it re-fetches these totals too.
+ * Served from the usage cache; the screen's pull-to-refresh moves `openedAt`
+ * and refreshes the same windows (see `useRefreshLimits`).
  */
 function TokenRows({
   driver,
@@ -230,10 +229,7 @@ function TokenRows({
   readonly environmentIds: readonly string[] | null;
 }) {
   const provider = usageProviderForDriver(driver);
-  const [day, week, month] = useMemo(() => {
-    const at = new Date(openedAt);
-    return [makeWindow(1, at, "hour"), makeWindow(7, at), makeWindow(30, at)];
-  }, [openedAt]);
+  const [day, week, month] = useMemo(() => tokenUsageWindows(openedAt), [openedAt]);
   const selected = useMemo(
     () =>
       environmentIds === null ? null : new Set(environmentIds.map((id) => EnvironmentId.make(id))),
@@ -242,14 +238,6 @@ function TokenRows({
   const dayUsage = useUsage(day, selected);
   const weekUsage = useUsage(week, selected);
   const monthUsage = useUsage(month, selected);
-  const refreshAll = useEffectEvent((_at: number) => {
-    void dayUsage.refresh();
-    void weekUsage.refresh();
-    void monthUsage.refresh();
-  });
-  useEffect(() => {
-    refreshAll(openedAt);
-  }, [openedAt]);
   const d = dayUsage.merged.providers;
   const w = weekUsage.merged.providers;
   const m = monthUsage.merged.providers;

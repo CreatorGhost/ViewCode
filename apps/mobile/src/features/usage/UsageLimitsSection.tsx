@@ -9,15 +9,17 @@ import type {
 import { formatDuration, limitsNotice, usageRefreshNotice } from "@t3tools/shared/usageLimits";
 import { buildRailUsageCardRows } from "@t3tools/shared/usagePace";
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
-import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
+import { refreshUsage, refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
 import { Alert, Linking, Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { ProviderIcon } from "../../components/ProviderIcon";
+import { appAtomRegistry } from "../../state/atom-registry";
 import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { UsageWindowRow } from "./UsageWindowRow";
+import { tokenUsageWindows } from "./usageScreenModel";
 
 type Driver = ServerProvider["driver"];
 
@@ -273,7 +275,7 @@ export function useRefreshLimits(
   const [failedEnvironments, setFailedEnvironments] = useState<
     readonly { environmentId: EnvironmentId; label: string }[]
   >([]);
-  const refresh = async (automatic = false, afterPending = false) => {
+  const refresh = async (automatic = false, afterPending = false, at = Date.now()) => {
     const connected = [...presentations].filter(
       ([environmentId, presentation]) =>
         presentation.connection.phase === "connected" &&
@@ -298,8 +300,29 @@ export function useRefreshLimits(
         }),
       );
     } finally {
-      setNow(Date.now());
+      setNow(at);
     }
+  };
+  // The provider cards total tokens from the usage cache; a manual refresh re-reads those windows.
+  const refreshTokens = async (at: number) => {
+    const environmentIds = [...presentations]
+      .filter(
+        ([environmentId, presentation]) =>
+          presentation.connection.phase === "connected" &&
+          (selectedEnvironmentIds === null || selectedEnvironmentIds.has(environmentId)),
+      )
+      .map(([environmentId]) => environmentId);
+    await Promise.all(
+      tokenUsageWindows(at).map((input) =>
+        refreshUsage({
+          registry: appAtomRegistry,
+          server: serverEnvironment,
+          presentations: environmentPresentations,
+          environmentIds,
+          input,
+        }).catch(() => undefined),
+      ),
+    );
   };
   // Always toggles `refreshing`, even with nothing to probe: Android's
   // RefreshControl keeps its spinner up until it sees true then false.
@@ -308,7 +331,8 @@ export function useRefreshLimits(
     refreshingRef.current = true;
     setRefreshing(true);
     try {
-      await refresh();
+      const at = Date.now();
+      await Promise.all([refresh(false, false, at), refreshTokens(at)]);
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);

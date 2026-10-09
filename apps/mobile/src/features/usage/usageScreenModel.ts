@@ -4,6 +4,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ServerProvider,
 } from "@t3tools/contracts";
+import { makeWindow } from "@t3tools/shared/usageFormat";
 import { formatResumeAt } from "@t3tools/shared/usageLimit";
 import {
   type LimitPresentations,
@@ -126,4 +127,10 @@ export function usageLoadingCaption(
         : `Waiting for ${disconnected.length} environments to connect…`,
     waitingForConnection: true,
   };
+}
+
+/** The 24h, 7d and 30d windows the provider cards total tokens over, anchored at one clock. */
+export function tokenUsageWindows(openedAt: number) {
+  const at = new Date(openedAt);
+  return [makeWindow(1, at, "hour"), makeWindow(7, at), makeWindow(30, at)] as const;
 }

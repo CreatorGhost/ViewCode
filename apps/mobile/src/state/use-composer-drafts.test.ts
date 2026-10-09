@@ -165,6 +165,7 @@ import {
   createComposerDraftContextHistory,
   setComposerDraftContext,
   decodePersistedComposerState,
+  mergeArchivedComposerDrafts,
   ensureComposerDraftsLoaded,
   type ComposerDraft,
   findNewTaskDraftKeys,
@@ -234,6 +235,32 @@ function contextDraft(start: number, count: number): ComposerDraft {
 }
 
 describe("mobile composer drafts", () => {
+  it("decodes a legacy signedOutDrafts archive and merges it, keeping the live draft", () => {
+    const decoded = decodePersistedComposerState({
+      schemaVersion: 1,
+      drafts: {},
+      cloudAccountId: "acct",
+      signedOutDrafts: {
+        acct: {
+          drafts: {
+            shared: { text: "archived", attachments: [] },
+            only: { text: "only archived", attachments: [] },
+          },
+          queuedMessages: [],
+        },
+      },
+    });
+    const archive = decoded.legacyArchives[0];
+    expect(archive?.drafts.only?.text).toBe("only archived");
+    const merged = mergeArchivedComposerDrafts(
+      { shared: { text: "live", attachments: [] } },
+      archive?.drafts ?? {},
+    );
+    expect(merged.only?.text).toBe("only archived");
+    expect(merged.shared?.text).toContain("live");
+    expect(merged.shared?.text).toContain("archived");
+  });
+
   it("restores visible file chips from legacy drafts", async () => {
     const file = {
       type: "file" as const,

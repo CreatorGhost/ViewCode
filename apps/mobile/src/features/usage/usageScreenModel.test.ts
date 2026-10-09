@@ -8,6 +8,7 @@ import {
   limitWarnings,
   providersAwaitingData,
   usageLoadingCaption,
+  tokenUsageWindows,
   usageResumeRows,
 } from "./usageScreenModel";
 
@@ -144,5 +145,14 @@ describe("usageLoadingCaption", () => {
         { label: "Box", isConnected: false },
       ]).caption,
     ).toBe("Waiting for 2 environments to connect…");
+  });
+});
+
+describe("tokenUsageWindows", () => {
+  it("builds the 24h hourly, 7d and 30d windows from one clock", () => {
+    const [day, week, month] = tokenUsageWindows(Date.UTC(2026, 0, 31, 12));
+    expect(day.resolution).toBe("hour");
+    expect(week.resolution ?? "day").toBe("day");
+    expect(month.sinceDay < week.sinceDay).toBe(true);
   });
 });
