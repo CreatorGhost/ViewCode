@@ -15,6 +15,7 @@
 - [Visual replies](./user/html-renders.md)
 - [Import browser sessions](./user/browser-import.md)
 - [Agent browser](./user/agent-browser.md)
+- [Use ViewCode as your default browser](./user/default-browser.md)
 - [Devices](./user/devices.md)
 - [Computer use](./user/computer-use.md)
 - [Usage and limits](./user/usage.md)

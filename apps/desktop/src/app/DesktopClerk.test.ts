@@ -53,7 +53,14 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
+import * as DesktopWebLinks from "./DesktopWebLinks.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+
+/** Clerk forwards web links; tests that are not about links ignore them. */
+const ignoreWebLinks = DesktopWebLinks.DesktopWebLinks.of({
+  receive: () => Effect.void,
+  setRendererReady: () => Effect.void,
+});
 
 const makeDesktopClerkLayer = (
   isDevelopment = true,
@@ -258,11 +265,12 @@ describe("DesktopClerk", () => {
 
       assert.isTrue(Exit.isSuccess(exit));
       assert.equal(quit.mock.calls.length, 0);
-      assert.deepEqual(registeredEvents, ["open-url", "second-instance"]);
+      assert.deepEqual(registeredEvents, ["open-url", "open-file", "second-instance"]);
     }).pipe(
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWebLinks.DesktopWebLinks, ignoreWebLinks),
     );
   });
 
@@ -291,6 +299,7 @@ describe("DesktopClerk", () => {
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWebLinks.DesktopWebLinks, ignoreWebLinks),
     );
   });
 });
@@ -337,6 +346,7 @@ it.effect(
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWebLinks.DesktopWebLinks, ignoreWebLinks),
     );
   },
 );
@@ -418,7 +428,55 @@ for (const entry of ["startup", "open-url"] as const) {
           ElectronWindow.ElectronWindow,
           {} as ElectronWindow.ElectronWindow["Service"],
         ),
+        Effect.provideService(DesktopWebLinks.DesktopWebLinks, ignoreWebLinks),
       );
     }).pipe(Effect.scoped),
   );
 }
+
+it.effect("hands a web link to the renderer and leaves other links alone", () =>
+  Effect.gen(function* () {
+    storageMock.mockReturnValue(storageAdapter);
+    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    const electronApp = {
+      whenReady: Effect.void,
+      on: (name: string, listener: (...args: unknown[]) => void) =>
+        Effect.sync(() => {
+          listeners.set(name, listener);
+        }),
+    } as unknown as ElectronApp.ElectronApp["Service"];
+    const received: Array<string> = [];
+    yield* Effect.gen(function* () {
+      const clerk = yield* DesktopClerk.DesktopClerk;
+      yield* clerk.configure;
+      const open = (url: string) => {
+        const event = { preventDefault: vi.fn() };
+        listeners.get("open-url")!(event, url);
+        return event.preventDefault.mock.calls.length;
+      };
+      // macOS hands the default browser every web link.
+      assert.strictEqual(open("https://example.com/page"), 1);
+      assert.strictEqual(open("http://localhost:3000/"), 1);
+      // Anything else is not a web page; Electron keeps its own handling.
+      assert.strictEqual(open("mailto:hello@example.com"), 0);
+      yield* Effect.yieldNow;
+      assert.deepStrictEqual(received, ["https://example.com/page", "http://localhost:3000/"]);
+    }).pipe(
+      Effect.provide(makeDesktopClerkLayer()),
+      Effect.provideService(HostProcessArguments, ["t3"]),
+      Effect.provideService(ElectronApp.ElectronApp, electronApp),
+      Effect.provideService(
+        ElectronWindow.ElectronWindow,
+        {} as ElectronWindow.ElectronWindow["Service"],
+      ),
+      Effect.provideService(
+        DesktopWebLinks.DesktopWebLinks,
+        DesktopWebLinks.DesktopWebLinks.of({
+          receive: (url) => Effect.sync(() => void received.push(url)),
+          setRendererReady: () => Effect.void,
+        }),
+      ),
+    );
+  }).pipe(Effect.scoped),
+);

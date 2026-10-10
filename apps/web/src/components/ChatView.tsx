@@ -5213,6 +5213,13 @@ export default function ChatView(props: ChatViewProps) {
     }
     useRightPanelStore.getState().toggleVisibility(activeThreadRef);
   }, [activeThreadRef, closePreviewPanel, rightPanelOpen]);
+  // A thread started for a link the OS opened shows its browser maximized, like a browser window.
+  useEffect(() => {
+    if (!canMaximizeRightPanel) return;
+    if (useRightPanelStore.getState().consumeMaximizeRequest(routeThreadRef)) {
+      setMaximizedRightPanelThreadKey(routeThreadKey);
+    }
+  }, [canMaximizeRightPanel, routeThreadKey, routeThreadRef]);
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel) return;
     setMaximizedRightPanelThreadKey((threadKey) =>

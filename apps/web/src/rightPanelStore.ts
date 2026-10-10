@@ -114,6 +114,13 @@ export interface ThreadRightPanelState {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
+  /**
+   * A thread whose right panel should open maximized the next time it shows,
+   * such as one started for a link the OS opened. Its view consumes it once.
+   */
+  pendingMaximizeThreadKey: string | null;
+  requestMaximize: (ref: ScopedThreadRef) => void;
+  consumeMaximizeRequest: (ref: ScopedThreadRef) => boolean;
   /** Session-only count of user panel choices per thread. Automatic updates do not advance it. */
   userActionRevisionByThreadKey: Record<string, number>;
   getUserActionRevision: (ref: ScopedThreadRef) => number;
@@ -481,6 +488,13 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
+      pendingMaximizeThreadKey: null,
+      requestMaximize: (ref) => set({ pendingMaximizeThreadKey: scopedThreadKey(ref) }),
+      consumeMaximizeRequest: (ref) => {
+        if (get().pendingMaximizeThreadKey !== scopedThreadKey(ref)) return false;
+        set({ pendingMaximizeThreadKey: null });
+        return true;
+      },
       userActionRevisionByThreadKey: {},
       getUserActionRevision: (ref) =>
         get().userActionRevisionByThreadKey[scopedThreadKey(ref)] ?? 0,
