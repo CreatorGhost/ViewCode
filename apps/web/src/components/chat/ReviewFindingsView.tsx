@@ -78,6 +78,7 @@ import { FindIssuesButton, type ReviewStartTarget } from "./ReviewStart";
 import {
   firstFindingToReveal,
   placeReviewFindings,
+  revealFirstAgain,
   type PlacedReviewFinding,
   postedReviewFindingsEqual,
   reviewFileCollapsed,
@@ -225,7 +226,8 @@ function ReviewFindingsViewContent({
   const [showDismissed, setShowDismissed] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
   const [ticks, setTicks] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
-  const [currentKey, setCurrentKey] = useState<ReviewFindingKey | null>(null);
+  // The issue stepped to, by identity, so it stays the same issue when a newer set renumbers it.
+  const [currentIdentity, setCurrentIdentity] = useState<string | null>(null);
   const [toggledFiles, setToggledFiles] = useState<ReadonlySet<string>>(() => new Set());
   const [fixing, setFixing] = useState<ReadonlyArray<ReviewFindingEntry> | null>(null);
   // The view lives as long as its review, so a newer set of the same review (sent while it
@@ -236,7 +238,6 @@ function ReviewFindingsViewContent({
     setShownActivityId(source.activityId);
     setExpanded(new Set());
     setTicks(new Set());
-    setCurrentKey(null);
     setPendingRatings(NO_PENDING_RATINGS);
   }
   const [viewer, setViewer] = useState<CodeViewHandle<FindingAnnotationGroup> | null>(null);
@@ -267,6 +268,14 @@ function ReviewFindingsViewContent({
   const dismissed = useMemo(
     () => reviewFindingMarksByKey(entries, dismissedByIdentity),
     [dismissedByIdentity, entries],
+  );
+  const currentKey = useMemo<ReviewFindingKey | null>(
+    () =>
+      currentIdentity === null
+        ? null
+        : (entries.find((entry) => reviewFindingIdentity(entry.finding) === currentIdentity)?.key ??
+          null),
+    [currentIdentity, entries],
   );
   const identityOf = useCallback(
     (key: ReviewFindingKey) => {
@@ -493,10 +502,12 @@ function ReviewFindingsViewContent({
 
   // Each step to a finding, the same one again included (Issue 1/1), scrolls to it and marks it.
   const [focusStep, setFocusStep] = useState(0);
+  const readerNavigated = useRef(false);
   const goTo = (index: number) => {
     const key = order[index];
     if (key === undefined) return;
-    setCurrentKey(key);
+    readerNavigated.current = true;
+    setCurrentIdentity(identityOf(key));
     setFocusStep((step) => step + 1);
     const placement = placed.find((entry) => entry.entry.key === key);
     // A folded file opens so its finding can be shown.
@@ -541,6 +552,22 @@ function ReviewFindingsViewContent({
   // Opening the view, or the first findings arriving, goes to the first one, unless the reader
   // has already scrolled somewhere of their own.
   const autoRevealed = useRef(false);
+  // A newer set renumbers the issues: the panel goes to the new first one when it had gone to the
+  // first on its own, so the counter ("Issue 1/4") and the card in view agree.
+  const revealedForSet = useRef(source.activityId);
+  useEffect(() => {
+    if (revealedForSet.current === source.activityId) return;
+    revealedForSet.current = source.activityId;
+    if (
+      revealFirstAgain({
+        autoRevealed: autoRevealed.current,
+        readerNavigated: readerNavigated.current,
+        readerScrolled: readerScrolled(),
+      })
+    ) {
+      autoRevealed.current = false;
+    }
+  }, [readerScrolled, source.activityId]);
   useEffect(() => {
     const first = firstFindingToReveal({
       order,

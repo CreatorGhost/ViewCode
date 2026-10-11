@@ -206,6 +206,19 @@ export function firstFindingToReveal(input: {
 }
 
 /**
+ * Whether a newer set of the same review goes to its first issue again: only when the panel went
+ * to the first one on its own and the reader has neither stepped nor scrolled since, so the card in
+ * view and the counter stay on the same issue.
+ */
+export function revealFirstAgain(input: {
+  readonly autoRevealed: boolean;
+  readonly readerNavigated: boolean;
+  readonly readerScrolled: boolean;
+}): boolean {
+  return input.autoRevealed && !input.readerNavigated && !input.readerScrolled;
+}
+
+/**
  * Whether a file shows folded to one row: files with findings open and the rest fold, each until
  * the reader toggles it.
  */

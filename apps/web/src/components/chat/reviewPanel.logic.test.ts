@@ -13,6 +13,7 @@ import {
   reviewFixAllMode,
   reviewIssueOrder,
   reviewPostAllWaits,
+  revealFirstAgain,
 } from "./reviewPanel.logic";
 
 describe("placeReviewFindings", () => {
@@ -158,6 +159,23 @@ describe("firstFindingToReveal", () => {
     expect(reveal({ revealed: true })).toBeNull();
     expect(reveal({ readerScrolled: true })).toBeNull();
     expect(reveal({ order: [] })).toBeNull();
+  });
+});
+
+describe("revealFirstAgain", () => {
+  it("goes to the new first issue only when the panel went to the last one on its own", () => {
+    const again = (input: Partial<Parameters<typeof revealFirstAgain>[0]>) =>
+      revealFirstAgain({
+        autoRevealed: true,
+        readerNavigated: false,
+        readerScrolled: false,
+        ...input,
+      });
+    expect(again({})).toBe(true);
+    // The reader stepped or scrolled: the counter follows what they chose instead.
+    expect(again({ readerNavigated: true })).toBe(false);
+    expect(again({ readerScrolled: true })).toBe(false);
+    expect(again({ autoRevealed: false })).toBe(false);
   });
 });
 
