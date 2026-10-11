@@ -156,7 +156,7 @@ import {
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ShellCommandBlock } from "./ShellCommandBlock";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
-import { REVIEW_VERDICT_BADGES } from "./ReviewPanel";
+import { REVIEW_VERDICT_BADGES } from "./ReviewFindingsView";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
