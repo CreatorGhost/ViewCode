@@ -1,11 +1,14 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  EventId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
   PullRequestUnavailableError,
   type OrchestrationCommand,
   type OrchestrationProjectShell,
+  type OrchestrationThread,
+  type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   type PullRequestDetail,
   type PullRequestSummary,
@@ -16,6 +19,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
@@ -26,6 +30,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as PullRequestAgentReview from "./PullRequestAgentReview.ts";
 import * as PullRequestService from "./PullRequestService.ts";
 
+const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const PROJECT_ID = ProjectId.make("project-1");
 const REFERENCE = { projectId: PROJECT_ID, repository: "t3tools/t3code", number: 42 };
 const PROJECT_MODEL = { instanceId: ProviderInstanceId.make("claude"), model: "claude-sonnet" };
@@ -80,12 +85,55 @@ const SOURCE_THREADS: Record<string, OrchestrationThreadShell> = {
   } as OrchestrationThreadShell,
 };
 
+const EARLIER_REVIEW_THREAD = ThreadId.make("earlier-review");
+
+const earlierFindings = (
+  id: string,
+  target: object,
+  headSha?: string,
+): OrchestrationThreadActivity => ({
+  id: EventId.make(id),
+  tone: "info",
+  kind: "viewcode.review.findings",
+  summary: "Review: request changes, 1 finding",
+  payload: {
+    verdict: "request-changes",
+    mergeConfidence: 2,
+    reviewEffort: 2,
+    findings: [
+      {
+        severity: "blocker",
+        confidence: 90,
+        path: "src/a.ts",
+        line: 3,
+        title: "Unchecked input",
+        detail: "It reaches the shell.",
+      },
+    ],
+    needsChecking: [],
+    target,
+    ...(headSha === undefined ? {} : { headSha }),
+  },
+  turnId: null,
+  createdAt: "2026-08-20T00:00:00.000Z",
+});
+
+const PR_TARGET = {
+  kind: "pull-request",
+  host: "github.com",
+  repository: "t3tools/t3code",
+  number: 42,
+  url: "https://github.com/t3tools/t3code/pull/42",
+};
+
 const makeHarness = (options: {
   readonly defaultModel?: typeof PROJECT_MODEL | null;
   readonly summary?: Effect.Effect<PullRequestSummary, PullRequestService.PullRequestError>;
   readonly rejectLink?: boolean;
   readonly detail?: Effect.Effect<PullRequestDetail, PullRequestService.PullRequestError>;
   readonly reviewStyles?: Record<string, string>;
+  /** Findings activities on the earlier review thread. */
+  readonly earlierFindings?: ReadonlyArray<OrchestrationThreadActivity>;
 }) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
@@ -106,6 +154,16 @@ const makeHarness = (options: {
           Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
         getThreadShellById: (threadId) =>
           Effect.succeed(Option.fromNullishOr(SOURCE_THREADS[threadId])),
+        getThreadDetailById: (threadId) =>
+          Effect.succeed(
+            threadId === EARLIER_REVIEW_THREAD
+              ? Option.some({
+                  id: threadId,
+                  projectId: PROJECT_ID,
+                  activities: options.earlierFindings ?? [],
+                } as unknown as OrchestrationThread)
+              : Option.none(),
+          ),
       }),
       Layer.mock(OrchestrationEngineService)({
         readEvents: () => Stream.empty,
@@ -362,6 +420,114 @@ describe("PullRequestAgentReview", () => {
       expect((yield* Ref.get(harness.commands)).map((command) => command.type)).toEqual([
         "thread.create",
       ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("re-reviews", () => {
+  const turnText = (commands: ReadonlyArray<OrchestrationCommand>) => {
+    const turn = commands.at(-1);
+    return turn?.type === "thread.turn.start" ? turn.message.text : "";
+  };
+
+  it.effect("reviews only what changed since the earlier review and hands over its findings", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        detail: Effect.succeed({ headSha: "bbbbbbb" } as PullRequestDetail),
+        earlierFindings: [earlierFindings("earlier", PR_TARGET, "aaaaaaa")],
+      });
+      yield* harness.reviews.start({
+        reference: REFERENCE,
+        incremental: true,
+        basedOn: { threadId: EARLIER_REVIEW_THREAD, activityId: EventId.make("earlier") },
+        linkSource: "manual",
+      });
+      const commands = yield* Ref.get(harness.commands);
+      expect(commands.find((command) => command.type === "thread.activity.append")).toMatchObject({
+        activity: {
+          payload: {
+            headSha: "bbbbbbb",
+            incremental: true,
+            basedOn: { activityId: "earlier", headSha: "aaaaaaa" },
+          },
+        },
+      });
+      const previousPath = `${harness.stateDir}/review-previous/earlier.json`;
+      const text = turnText(commands);
+      expect(text).toContain(`previous review's findings are in ${previousPath}`);
+      expect(text).toContain("`git diff aaaaaaa...bbbbbbb`");
+      expect(text).toContain("pass previous with how many were fixed");
+
+      const fs = yield* FileSystem.FileSystem;
+      expect(decodeJson(yield* fs.readFileString(previousPath))).toMatchObject({
+        reviewedCommit: "aaaaaaa",
+        findings: [{ key: "finding:0", title: "Unchecked input" }],
+        needsChecking: [],
+      });
+      const playbook = yield* fs.readFileString(
+        `${harness.stateDir}/review-playbooks/quick-review.md`,
+      );
+      expect(playbook).toContain("## Re-review");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("re-reads the whole change when the earlier review named no commit", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        detail: Effect.succeed({ headSha: "bbbbbbb" } as PullRequestDetail),
+        earlierFindings: [earlierFindings("earlier", PR_TARGET)],
+      });
+      yield* harness.reviews.start({
+        reference: REFERENCE,
+        incremental: true,
+        basedOn: { threadId: EARLIER_REVIEW_THREAD, activityId: EventId.make("earlier") },
+        linkSource: "manual",
+      });
+      const text = turnText(yield* Ref.get(harness.commands));
+      expect(text).toContain("Review the whole change again.");
+      expect(text).not.toContain("git diff aaaaaaa");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("refuses findings about something else and creates nothing", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        earlierFindings: [
+          earlierFindings("other-pr", { ...PR_TARGET, number: 7 }),
+          earlierFindings("local", { kind: "local" }),
+        ],
+      });
+      for (const activityId of ["other-pr", "missing"]) {
+        const error = yield* harness.reviews
+          .start({
+            reference: REFERENCE,
+            incremental: true,
+            basedOn: { threadId: EARLIER_REVIEW_THREAD, activityId: EventId.make(activityId) },
+            linkSource: "manual",
+          })
+          .pipe(Effect.flip);
+        expect(error).toMatchObject({ stage: "based-on" });
+      }
+      const local = yield* harness.reviews
+        .startLocal({
+          projectId: PROJECT_ID,
+          incremental: true,
+          basedOn: { threadId: EARLIER_REVIEW_THREAD, activityId: EventId.make("other-pr") },
+        })
+        .pipe(Effect.flip);
+      expect(local).toMatchObject({ stage: "based-on" });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+
+      // The local findings re-review a local review.
+      yield* harness.reviews.startLocal({
+        projectId: PROJECT_ID,
+        incremental: true,
+        basedOn: { threadId: EARLIER_REVIEW_THREAD, activityId: EventId.make("local") },
+      });
+      expect(turnText(yield* Ref.get(harness.commands))).toContain("This is a re-review.");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

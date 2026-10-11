@@ -3214,6 +3214,8 @@ const makeWsRpcLayer = (
           modelSelection,
           focus,
           findingsMode,
+          incremental,
+          basedOn,
           ...reference
         }) =>
           observeRpcEffect(
@@ -3226,6 +3228,8 @@ const makeWsRpcLayer = (
                 modelSelection,
                 focus,
                 findingsMode,
+                incremental,
+                basedOn,
                 linkSource: "manual",
               }),
             ).pipe(
@@ -3958,17 +3962,11 @@ const makeWsRpcLayer = (
             review.getDiffFileContents(input),
             { "rpc.aggregate": "review" },
           ),
-        [WS_METHODS.reviewStartLocal]: ({
-          mode,
-          modelSelection,
-          focus,
-          projectId,
-          sourceThreadId,
-        }) =>
+        [WS_METHODS.reviewStartLocal]: (input) =>
           observeRpcEffect(
             WS_METHODS.reviewStartLocal,
             pullRequestAgentReview
-              .startLocal({ projectId, sourceThreadId, mode, modelSelection, focus })
+              .startLocal(input)
               .pipe(
                 Effect.mapError(
                   (error) => new ReviewStartError({ detail: error.message, cause: error }),

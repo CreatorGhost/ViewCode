@@ -483,7 +483,7 @@ const make = Effect.gen(function* () {
       requireThread(PullRequestListFailedError).pipe(Effect.map(listThreadPullRequests)),
     watch_pull_request: (input) => setWatching(input, true),
     unwatch_pull_request: (input) => setWatching(input, false),
-    submit_review_findings: ({ target: requested, mode: requestedMode, ...report }) =>
+    submit_review_findings: ({ target: requested, mode: requestedMode, previous, ...report }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(ReviewFindingsFailedError);
         const target = reviewFindingsTarget(thread, requested);
@@ -511,6 +511,11 @@ const make = Effect.gen(function* () {
           ...(target.kind === "pull-request" && started.headSha !== undefined
             ? { headSha: started.headSha }
             : {}),
+          // A re-review says which findings it started from, so clients can tell it apart.
+          ...(started.incremental === true && started.basedOn !== undefined
+            ? { incremental: true, basedOn: started.basedOn }
+            : {}),
+          ...(previous === undefined ? {} : { previous }),
         };
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const count = report.findings.length;

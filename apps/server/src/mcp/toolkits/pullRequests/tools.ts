@@ -11,6 +11,7 @@ import {
   ReviewFindingsMode,
   ReviewFindingsReport,
   ReviewPostFindingsError,
+  ReviewPreviousSummary,
   REVIEW_POST_MAX_OVERALL_COMMENT_CHARS,
   ThreadPullRequestLinkSource,
   TrimmedNonEmptyString,
@@ -372,6 +373,12 @@ export const SubmitReviewFindingsInput = Schema.Struct({
     ReviewFindingsMode.annotate({
       description:
         "Pass only when the review request names one. Otherwise ViewCode decides: review comments for somebody else's pull request, fixes for the user's own or for local changes.",
+    }),
+  ),
+  previous: Schema.optional(
+    ReviewPreviousSummary.annotate({
+      description:
+        "Only for a re-review: how many of the previous review's findings are fixed and how many are still open. Still-open ones are also passed again in findings or needsChecking.",
     }),
   ),
 });

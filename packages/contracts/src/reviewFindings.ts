@@ -112,6 +112,31 @@ export type ReviewFindingsMode = typeof ReviewFindingsMode.Type;
 export const ReviewCommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{7,64}$/i));
 export type ReviewCommitSha = typeof ReviewCommitSha.Type;
 
+/**
+ * Which earlier findings a re-review starts from, as the reader's client names them: the review
+ * thread and its findings activity. The server reads the rest, the commit included, itself.
+ */
+export const ReviewBasedOnInput = Schema.Struct({
+  threadId: ThreadId,
+  activityId: EventId,
+});
+export type ReviewBasedOnInput = typeof ReviewBasedOnInput.Type;
+
+/** The earlier findings a re-review started from, as recorded by the server. */
+export const ReviewBasedOn = Schema.Struct({
+  activityId: EventId,
+  /** The commit the earlier review read; absent when it named none. */
+  headSha: Schema.optional(ReviewCommitSha),
+});
+export type ReviewBasedOn = typeof ReviewBasedOn.Type;
+
+/** What a re-review found of the earlier findings. */
+export const ReviewPreviousSummary = Schema.Struct({
+  fixed: NonNegativeInt,
+  stillOpen: NonNegativeInt,
+});
+export type ReviewPreviousSummary = typeof ReviewPreviousSummary.Type;
+
 /** The `REVIEW_FINDINGS_ACTIVITY_KIND` activity payload. */
 export const ReviewFindingsActivityPayload = Schema.Struct({
   ...ReviewFindingsReport.fields,
@@ -123,6 +148,14 @@ export const ReviewFindingsActivityPayload = Schema.Struct({
    * pinned to. Absent for a local review, a host that did not say, and older findings.
    */
   headSha: Schema.optional(ReviewCommitSha),
+  /**
+   * A re-review: only what changed since `basedOn.headSha` was read, the earlier findings checked
+   * again, and the unfixed ones carried into these.
+   */
+  incremental: Schema.optional(Schema.Boolean),
+  basedOn: Schema.optional(ReviewBasedOn),
+  /** How the earlier findings fared, as the re-review reported it. */
+  previous: Schema.optional(ReviewPreviousSummary),
 });
 export type ReviewFindingsActivityPayload = typeof ReviewFindingsActivityPayload.Type;
 
@@ -165,6 +198,8 @@ export const REVIEW_STARTED_ACTIVITY_KIND = "viewcode.review.started";
 
 export const ReviewStartedActivityPayload = Schema.Struct({
   headSha: Schema.optional(ReviewCommitSha),
+  incremental: Schema.optional(Schema.Boolean),
+  basedOn: Schema.optional(ReviewBasedOn),
 });
 export type ReviewStartedActivityPayload = typeof ReviewStartedActivityPayload.Type;
 

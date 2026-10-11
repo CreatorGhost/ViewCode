@@ -482,6 +482,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   one), because the reviewer reads the checkout rather than a host, and is only told not to change
   it. What to diff (uncommitted changes, else the branch against its base) is decided by the
   reviewer from the checkout, not by the server at start.
+- A re-review (`incremental` with `basedOn`, capability `incrementalAgentReview`) names the
+  earlier findings by thread and activity, never by commit: the server reads that activity, refuses
+  findings of another target, writes them to `<stateDir>/review-previous/<activityId>.json` for
+  the reviewer and takes the earlier `headSha` from them, so the range `previous...current` is the
+  server's own record. Without both commits it is a full review that still checks the earlier
+  findings. The start records `incremental` and `basedOn` with the commit, and the findings carry
+  them plus the reviewer's `previous` counts; unfixed earlier findings are resubmitted by the
+  reviewer, so the latest activity stays the whole current set.
 - The method lives in a playbook per mode (`apps/server/src/review/ReviewPlaybook.ts`); the first
   message is short and names the mode, the pull request and the playbook's path. The text ships in
   the bundle and is written to `<stateDir>/review-playbooks/` on use, not read from a file beside

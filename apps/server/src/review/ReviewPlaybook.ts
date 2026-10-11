@@ -90,6 +90,14 @@ sends findings from it to a session that fixes them, so each \`detail\` must sta
 written report stays the reader's version; the tool call does not replace it. If you review again
 in this thread, call the tool again with the full new set. Without the tool, the report is enough.
 
+## Re-review
+
+When the first message says this is a re-review, it names a JSON file of the previous review's
+findings (\`findings\` and \`needsChecking\`, each with its \`key\`) and the range to read. Review
+that range as you would a change, then check every previous finding against the code as it is now:
+fixed, or still open. Report both. When you call the tool, pass each previous finding that is still
+open again (updated where the code moved), and \`previous\` with the two counts.
+
 When the first message says your findings will be posted to the pull request as the user's review
 comments, each \`detail\` is posted as it stands: on its line, or in the review's text when it has
 no line in the diff, with \`suggestedFix\` below it as a code block. Write it to the author, as the

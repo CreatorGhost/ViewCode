@@ -3,6 +3,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
+  REVIEW_FINDINGS_ACTIVITY_KIND,
   REVIEW_STARTED_ACTIVITY_KIND,
   ReviewCommitSha,
   ThreadId,
@@ -14,6 +15,9 @@ import {
   type RuntimeMode,
   type PullRequestStartReviewResult,
   type PullRequestSummary,
+  type ReviewBasedOn,
+  type ReviewBasedOnInput,
+  type ReviewFindingsActivityPayload,
   type ReviewFindingsMode,
   type ReviewStartedActivityPayload,
   type SourceControlProviderKind,
@@ -21,8 +25,12 @@ import {
 } from "@t3tools/contracts";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { reviewStyleKey } from "@t3tools/shared/reviewFindings";
-import { normalizeThreadPullRequestKey } from "@t3tools/shared/threadPullRequests";
+import { readReviewFindings, reviewStyleKey } from "@t3tools/shared/reviewFindings";
+import {
+  normalizeThreadPullRequestKey,
+  threadPullRequestKeyOf,
+} from "@t3tools/shared/threadPullRequests";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -52,6 +60,7 @@ export class PullRequestAgentReviewError extends Schema.TaggedError<PullRequestA
     stage: Schema.Literals([
       "project",
       "source-thread",
+      "based-on",
       "settings",
       "model",
       "link-key",
@@ -71,6 +80,8 @@ export class PullRequestAgentReviewError extends Schema.TaggedError<PullRequestA
         return "The review's project was not found.";
       case "source-thread":
         return "The thread whose changes were to be reviewed was not found in this project.";
+      case "based-on":
+        return "The earlier review to start from was not found, or reviewed something else.";
       case "settings":
         return "Could not read the default settings for new threads.";
       case "model":
@@ -101,6 +112,9 @@ export interface PullRequestAgentReviewInput {
   readonly focus?: string | undefined;
   /** Absent: decided from the pull request's author when the findings are recorded. */
   readonly findingsMode?: ReviewFindingsMode | undefined;
+  /** Re-review from the findings in `basedOn`; ignored without them. */
+  readonly incremental?: boolean | undefined;
+  readonly basedOn?: ReviewBasedOnInput | undefined;
   /** "manual" when a user asked for the review, "agent" when an agent did. */
   readonly linkSource: ThreadPullRequestLinkSource;
 }
@@ -118,6 +132,8 @@ export interface LocalAgentReviewInput {
   readonly modelSelection?: ModelSelection | undefined;
   readonly fallbackModelSelection?: ModelSelection | undefined;
   readonly focus?: string | undefined;
+  readonly incremental?: boolean | undefined;
+  readonly basedOn?: ReviewBasedOnInput | undefined;
 }
 
 /** Who opened a pull request and who it is read as; null where the host could not say. */
@@ -190,6 +206,31 @@ const TITLE_PREFIXES: Record<AgentReviewMode, string> = {
   security: "Security audit",
 };
 
+/** What a re-review is told: where the earlier findings are, and what to read again. */
+export interface ReReview {
+  readonly previousPath: string;
+  /** The commit the earlier review read and the one this one reads, where both are known. */
+  readonly previousHeadSha?: string | undefined;
+  readonly headSha?: string | undefined;
+}
+
+/** The re-review paragraph of a first message: what to review, and what to check again. */
+export function reReviewLines(reReview: ReReview): ReadonlyArray<string> {
+  const { previousHeadSha, headSha } = reReview;
+  const scope =
+    previousHeadSha === undefined || headSha === undefined
+      ? "Review the whole change again."
+      : previousHeadSha === headSha
+        ? `Nothing was pushed since that review read commit ${previousHeadSha}, so there is nothing new to review.`
+        : `That review read commit ${previousHeadSha}. Review only what changed since: \`git diff ${previousHeadSha}...${headSha}\` (fetch the head first), and the code those changes reach.`;
+  return [
+    "",
+    `This is a re-review. The previous review's findings are in ${reReview.previousPath} (see the playbook's Re-review section).`,
+    scope,
+    `Then check every previous finding against the code as it is now, and when you call ${SUBMIT_REVIEW_FINDINGS_TOOL}, include each one still open again and pass previous with how many were fixed and how many are still open.`,
+  ];
+}
+
 export function pullRequestReviewTitle(
   mode: AgentReviewMode,
   pr: Pick<PullRequestSummary, "number" | "title">,
@@ -213,6 +254,7 @@ export function buildPullRequestReviewPrompt(input: {
   readonly headSha?: string | undefined;
   /** Only a mode the user chose; otherwise the server decides when the findings arrive. */
   readonly findingsMode?: ReviewFindingsMode | undefined;
+  readonly reReview?: ReReview | undefined;
   /**
    * Present when the findings will be posted as review comments: the user's style, and the
    * file of their own past review comments learned for the account they will be posted as.
@@ -236,6 +278,7 @@ export function buildPullRequestReviewPrompt(input: {
   ];
   const focus = input.focus?.trim();
   if (focus) lines.push("", `Focus on: ${focus}`);
+  if (input.reReview !== undefined) lines.push(...reReviewLines(input.reReview));
   if (input.findingsMode !== undefined) {
     lines.push(
       "",
@@ -274,6 +317,7 @@ export function buildLocalReviewPrompt(input: {
   readonly cwd: string;
   readonly branch: string | null;
   readonly focus?: string | undefined;
+  readonly reReview?: ReReview | undefined;
 }): string {
   const lines = [
     `${reviewModeLabel(input.mode)} of the local changes in ${input.cwd}${input.branch === null ? "" : ` on branch ${input.branch}`}.`,
@@ -284,9 +328,15 @@ export function buildLocalReviewPrompt(input: {
   ];
   const focus = input.focus?.trim();
   if (focus) lines.push("", `Focus on: ${focus}`);
+  if (input.reReview !== undefined) lines.push(...reReviewLines(input.reReview));
   lines.push("", `When you call ${SUBMIT_REVIEW_FINDINGS_TOOL}, pass target "local".`);
   return lines.join("\n");
 }
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+/** Where a re-review's earlier findings are written for the reviewer, below the state directory. */
+const PREVIOUS_FINDINGS_DIR = "review-previous";
 
 const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
@@ -464,6 +514,59 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  /**
+   * The earlier findings a re-review starts from, written where the reviewer can read them. They
+   * must be of the same target, or the re-review would check findings about something else.
+   */
+  const preparePrevious = Effect.fn("PullRequestAgentReview.preparePrevious")(function* (
+    projectId: ProjectId,
+    basedOn: ReviewBasedOnInput,
+    sameTarget: (payload: ReviewFindingsActivityPayload) => boolean,
+  ) {
+    const failure = (cause?: unknown) =>
+      new PullRequestAgentReviewError({ stage: "based-on", projectId, cause });
+    const thread = yield* snapshots
+      .getThreadDetailById(basedOn.threadId, { activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND] })
+      .pipe(Effect.mapError(failure));
+    const activity = Option.getOrUndefined(thread)?.activities.find(
+      (entry) => entry.id === basedOn.activityId,
+    );
+    const payload = activity === undefined ? undefined : readReviewFindings(activity);
+    if (
+      Option.isNone(thread) ||
+      thread.value.projectId !== projectId ||
+      payload === undefined ||
+      !sameTarget(payload)
+    ) {
+      return yield* failure();
+    }
+    const content = encodeJson({
+      reviewedCommit: payload.headSha ?? null,
+      findings: payload.findings.map((finding, index) => ({
+        key: `finding:${index}`,
+        ...finding,
+      })),
+      needsChecking: payload.needsChecking.map((finding, index) => ({
+        key: `check:${index}`,
+        ...finding,
+      })),
+    });
+    const dir = path.join(config.stateDir, PREVIOUS_FINDINGS_DIR);
+    const target = path.join(dir, `${basedOn.activityId}.json`);
+    // Two re-reviews of the same findings write the same text; a rename keeps either whole.
+    const temporary = `${target}.${process.pid}.${(yield* Clock.currentTimeMillis).toString(36)}.tmp`;
+    yield* Effect.gen(function* () {
+      yield* fileSystem.makeDirectory(dir, { recursive: true });
+      yield* fileSystem.writeFileString(temporary, content);
+      yield* fileSystem.rename(temporary, target);
+    }).pipe(Effect.mapError(failure));
+    const recorded: ReviewBasedOn = {
+      activityId: basedOn.activityId,
+      ...(payload.headSha === undefined ? {} : { headSha: payload.headSha }),
+    };
+    return { path: target, basedOn: recorded };
+  });
+
   const startLocal = Effect.fn("PullRequestAgentReview.startLocal")(function* (
     input: LocalAgentReviewInput,
   ) {
@@ -492,6 +595,14 @@ const make = Effect.gen(function* () {
       worktreePath = source.value.worktreePath;
     }
     const playbookPath = yield* writePlaybook(input.projectId, mode);
+    const previous =
+      input.incremental === true && input.basedOn !== undefined
+        ? yield* preparePrevious(
+            input.projectId,
+            input.basedOn,
+            (payload) => payload.target.kind === "local",
+          )
+        : undefined;
     // The same checkout as the thread whose changes these are; the reviewer only reads it.
     return yield* launch({
       projectId: input.projectId,
@@ -500,13 +611,14 @@ const make = Effect.gen(function* () {
       runtimeMode: defaults.defaultRuntimeMode,
       branch,
       worktreePath,
-      started: {},
+      started: previous === undefined ? {} : { incremental: true, basedOn: previous.basedOn },
       text: buildLocalReviewPrompt({
         mode,
         playbookPath,
         cwd: worktreePath ?? project.workspaceRoot,
         branch,
         focus: input.focus,
+        ...(previous === undefined ? {} : { reReview: { previousPath: previous.path } }),
       }),
     });
   });
@@ -537,6 +649,17 @@ const make = Effect.gen(function* () {
     const playbookPath = yield* writePlaybook(reference.projectId, mode);
 
     const detail = yield* readDetail(reference);
+    const reviewedKey = threadPullRequestKeyOf(key);
+    const previous =
+      input.incremental === true && input.basedOn !== undefined
+        ? yield* preparePrevious(
+            reference.projectId,
+            input.basedOn,
+            (payload) =>
+              payload.target.kind === "pull-request" &&
+              threadPullRequestKeyOf(payload.target) === reviewedKey,
+          )
+        : undefined;
     // Somebody else's pull request gets comments written the way this account writes them.
     const authorship = input.findingsMode === "fix" ? null : detail.authorship;
     const viewer = authorship?.viewer ?? null;
@@ -570,7 +693,10 @@ const make = Effect.gen(function* () {
       branch: null,
       worktreePath: null,
       link: { ...key, url: summary.url, source: input.linkSource },
-      started: detail.headSha === undefined ? {} : { headSha: detail.headSha },
+      started: {
+        ...(detail.headSha === undefined ? {} : { headSha: detail.headSha }),
+        ...(previous === undefined ? {} : { incremental: true, basedOn: previous.basedOn }),
+      },
       text: buildPullRequestReviewPrompt({
         mode,
         playbookPath,
@@ -579,6 +705,15 @@ const make = Effect.gen(function* () {
         headSha: detail.headSha,
         findingsMode: input.findingsMode,
         comments,
+        ...(previous === undefined
+          ? {}
+          : {
+              reReview: {
+                previousPath: previous.path,
+                previousHeadSha: previous.basedOn.headSha,
+                headSha: detail.headSha,
+              },
+            }),
       }),
     });
   });

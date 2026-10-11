@@ -403,6 +403,46 @@ describe("pull request toolkit handlers", () => {
       }),
     );
 
+    it.effect("marks a re-review's findings with what it started from and how those fared", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          thread: makeThread([makeLink(7)]),
+          activities: [
+            {
+              id: EventId.make("started"),
+              tone: "info",
+              kind: "viewcode.review.started",
+              summary: "Review started",
+              payload: {
+                headSha: "bbbbbbb",
+                incremental: true,
+                basedOn: { activityId: "earlier", headSha: "aaaaaaa" },
+                timelineBypass: true,
+              },
+              turnId: null,
+              createdAt: "2026-08-20T00:00:00.000Z",
+            },
+          ],
+        });
+        yield* harness.call("submit_review_findings", {
+          ...report,
+          previous: { fixed: 2, stillOpen: 1 },
+        });
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          {
+            activity: {
+              payload: {
+                headSha: "bbbbbbb",
+                incremental: true,
+                basedOn: { activityId: "earlier", headSha: "aaaaaaa" },
+                previous: { fixed: 2, stillOpen: 1 },
+              },
+            },
+          },
+        ]);
+      }),
+    );
+
     it.effect("records comments for somebody else's pull request and fixes for the reader's", () =>
       Effect.gen(function* () {
         const theirs = yield* makeHarness({

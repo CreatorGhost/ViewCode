@@ -243,6 +243,7 @@ export const make = Effect.gen(function* () {
       pullRequestStackActions: true,
       pullRequestAgentReview: true,
       localAgentReview: true,
+      incrementalAgentReview: true,
       learnedReviewStyle: true,
       threadPullRequestLinking: true,
       environmentIcon: true,

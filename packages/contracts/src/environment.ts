@@ -163,6 +163,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   pullRequestAgentReview: Schema.optionalKey(Schema.Boolean),
   /** Server understands review.startLocal (and the review_local_changes agent tool). */
   localAgentReview: Schema.optionalKey(Schema.Boolean),
+  /** Server understands `incremental` and `basedOn` when starting a review. */
+  incrementalAgentReview: Schema.optionalKey(Schema.Boolean),
   /** Server learns an account's review style from its own reviews (`review.learnStyle`). */
   learnedReviewStyle: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
