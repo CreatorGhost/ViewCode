@@ -90,6 +90,8 @@ export interface ReviewFindingCardProps {
   readonly failure: string | undefined;
   readonly markdownCwd: string | undefined;
   readonly threadRef: ScopedThreadRef;
+  /** Hands the view the card's element, which it scrolls to and marks. */
+  readonly register?: ((key: ReviewFindingKey, element: HTMLElement | null) => void) | undefined;
 }
 
 /**
@@ -115,6 +117,7 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
   failure,
   markdownCwd,
   threadRef,
+  register,
 }: ReviewFindingCardProps) {
   const { finding, key } = entry;
   const SeverityIcon = SEVERITY_ICONS[finding.severity];
@@ -125,6 +128,7 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
         current ? "border-primary" : "border-border/70",
         dismissed && "opacity-64",
       )}
+      ref={register === undefined ? undefined : (element) => register(key, element)}
       data-review-finding={key}
       contentEditable={false}
       onPointerDown={(event) => event.stopPropagation()}

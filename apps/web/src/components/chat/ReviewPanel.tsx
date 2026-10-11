@@ -8,7 +8,7 @@ import type { ReviewFindingsSource } from "@t3tools/client-runtime/review-findin
 import type { PostedReviewFinding } from "@t3tools/shared/reviewFindings";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { ListChecksIcon } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useCallback, useMemo, useRef } from "react";
 
 import { useServerConfigs } from "../../state/entities";
 import {
@@ -30,6 +30,8 @@ import { ReviewStatusBar } from "./ReviewProgress";
 import { ReviewStartForm, type ReviewStartTarget, useReviewRetry } from "./ReviewStart";
 import type { ReviewDiffTarget } from "./useReviewDiff";
 import { type LatestReviewStatus, useReviewFindingsSource } from "./useReviewFindingsSource";
+
+const SCROLL_KEYS = new Set(["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "]);
 
 /**
  * What a review view shows, in a thread's Review panel or on the pull request page: where the
@@ -68,8 +70,29 @@ export function ReviewSurface({
   const progress = review?.progress ?? null;
   // The findings below are this review's own, sent while it still works.
   const ownFindings = source !== null && review !== null && source.threadId === review.threadId;
+  // Whether the reader scrolled during this review, in the change or its findings: the first
+  // findings to arrive then do not pull them away from where they are reading.
+  const scrolled = useRef<{ readonly review: string | null; scrolled: boolean }>({
+    review: null,
+    scrolled: false,
+  });
+  const reviewKey = source?.threadId ?? review?.threadId ?? null;
+  const readerScrolled = useCallback(
+    () => scrolled.current.review === reviewKey && scrolled.current.scrolled,
+    [reviewKey],
+  );
+  const noteScroll = () => {
+    scrolled.current = { review: reviewKey, scrolled: true };
+  };
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-col"
+      onWheelCapture={noteScroll}
+      onTouchMoveCapture={noteScroll}
+      onKeyDownCapture={(event) => {
+        if (SCROLL_KEYS.has(event.key)) noteScroll();
+      }}
+    >
       {review !== null ? (
         <ReviewStatusBar
           environmentId={environmentId}
@@ -95,6 +118,7 @@ export function ReviewSurface({
             onFixInChat={onFixInChat}
             startReview={startReview}
             stillReviewing={ownFindings && progress?.kind === "running"}
+            readerScrolled={readerScrolled}
           />
         ) : progress?.kind === "running" && change !== null ? (
           <ReviewChangeView

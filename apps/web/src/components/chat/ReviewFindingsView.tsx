@@ -28,6 +28,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   type PostedReviewFinding,
+  REVIEW_FINDING_SEVERITY_LABELS,
   REVIEW_VERDICT_LABELS,
   reviewFindingsMode,
 } from "@t3tools/shared/reviewFindings";
@@ -43,6 +44,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
+import { cn } from "~/lib/utils";
 import { fnv1a32, resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { useServerConfigs, useThreadShell } from "../../state/entities";
@@ -53,7 +55,11 @@ import { StyledDiffCodeView } from "../diffs/StyledDiffCodeView";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
-import { type ReviewFindingAction, ReviewFindingCard } from "./ReviewFindingCard";
+import {
+  REVIEW_SEVERITY_BADGES,
+  type ReviewFindingAction,
+  ReviewFindingCard,
+} from "./ReviewFindingCard";
 import { ReviewFixAllDialog } from "./ReviewFixAllDialog";
 import {
   type ReviewFixRequest,
@@ -93,6 +99,26 @@ export type ReviewFixInChat = (
   request: ReviewFixInChatRequest,
 ) => void | Promise<ReviewFixDestination | null>;
 
+/**
+ * Marks a finding the reader stepped to with one fade of the accent, then leaves it as it was. The
+ * card may be drawn a frame or two after the scroll that brings it in.
+ */
+function flashReviewFinding(find: () => HTMLElement | undefined, attempt = 0): void {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const element = find();
+  if (element === undefined) {
+    if (attempt < 10) requestAnimationFrame(() => flashReviewFinding(find, attempt + 1));
+    return;
+  }
+  element.animate(
+    [
+      { backgroundColor: "color-mix(in srgb, var(--primary) 16%, var(--background))" },
+      { backgroundColor: "var(--background)" },
+    ],
+    { duration: 1200, easing: "ease-out" },
+  );
+}
+
 interface FindingAnnotationGroup {
   readonly findings: ReadonlyArray<PlacedReviewFinding>;
 }
@@ -121,6 +147,11 @@ interface ReviewFindingsViewProps {
   readonly startReview: ReviewStartTarget | null;
   /** These are the findings so far of a review still at work; a later set replaces them. */
   readonly stillReviewing: boolean;
+  /**
+   * Whether the reader has scrolled the review surface themselves, in which case opening does not
+   * jump to the first finding.
+   */
+  readonly readerScrolled: () => boolean;
 }
 
 /**
@@ -141,6 +172,7 @@ export const ReviewFindingsView = memo(
     previous.onFixInChat === next.onFixInChat &&
     previous.startReview === next.startReview &&
     previous.stillReviewing === next.stillReviewing &&
+    previous.readerScrolled === next.readerScrolled &&
     previous.source.activityId === next.source.activityId &&
     previous.source.threadTitle === next.source.threadTitle &&
     postedReviewFindingsEqual(previous.posted, next.posted) &&
@@ -158,6 +190,7 @@ function ReviewFindingsViewContent({
   onFixInChat,
   startReview,
   stillReviewing,
+  readerScrolled,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
   const reviewThreadRef = useMemo(
@@ -195,7 +228,6 @@ function ReviewFindingsViewContent({
     setPendingRatings(NO_PENDING_RATINGS);
   }
   const [viewer, setViewer] = useState<CodeViewHandle<FindingAnnotationGroup> | null>(null);
-  const generalRef = useRef<HTMLDivElement | null>(null);
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
   const capabilities = useServerConfigs().get(environmentId)?.environment.capabilities;
@@ -363,7 +395,10 @@ function ReviewFindingsViewContent({
   const fix = useCallback(
     async (selection: ReadonlyArray<ReviewFindingEntry>) => {
       if (selection.length === 0) return;
-      const request = reviewFindingsFixPrompt({ activityId: source.activityId, entries: selection });
+      const request = reviewFindingsFixPrompt({
+        activityId: source.activityId,
+        entries: selection,
+      });
       const keys = selection.map((entry) => entry.key);
       if (!fixInReviewThread && onFixInChat !== undefined) {
         const sent = await onFixInChat(request);
@@ -426,35 +461,63 @@ function ReviewFindingsViewContent({
     [],
   );
 
+  // Each step to a finding, the same one again included (Issue 1/1), scrolls to it and marks it.
+  const [focusStep, setFocusStep] = useState(0);
   const goTo = (index: number) => {
     const key = order[index];
     if (key === undefined) return;
     setCurrentKey(key);
+    setFocusStep((step) => step + 1);
     const placement = placed.find((entry) => entry.entry.key === key);
     // A folded file opens so its finding can be shown.
     if (placement && fileCollapsed(placement.fileKey)) toggleFile(placement.fileKey);
   };
+  // Cards by key, to mark the one stepped to: the diff draws its cards wherever it likes.
+  const cardElements = useRef(new Map<string, HTMLElement>());
+  const registerCard = useCallback((key: ReviewFindingKey, element: HTMLElement | null) => {
+    if (element === null) cardElements.current.delete(key);
+    else cardElements.current.set(key, element);
+  }, []);
+  /** Scrolls a finding into view and marks it once; false while its file is not drawn yet. */
+  const reveal = useCallback(
+    (key: ReviewFindingKey): boolean => {
+      const placement = placed.find((entry) => entry.entry.key === key) ?? null;
+      if (placement === null) {
+        cardElements.current.get(key)?.scrollIntoView({ block: "nearest" });
+      } else {
+        if (viewer === null) return false;
+        viewer.scrollTo({
+          type: "range",
+          id: placement.fileKey,
+          range: {
+            start: placement.startLine,
+            end: placement.lineNumber,
+            side: "additions",
+            endSide: "additions",
+          },
+          align: "center",
+        });
+      }
+      flashReviewFinding(() => cardElements.current.get(key));
+      return true;
+    },
+    [placed, viewer],
+  );
   // Scrolls once the viewer has drawn the finding's file open.
   useEffect(() => {
-    if (currentKey === null) return;
-    if (currentPlacement === null) {
-      generalRef.current
-        ?.querySelector(`[data-review-finding="${currentKey}"]`)
-        ?.scrollIntoView({ block: "nearest" });
-      return;
-    }
-    viewer?.scrollTo({
-      type: "range",
-      id: currentPlacement.fileKey,
-      range: {
-        start: currentPlacement.startLine,
-        end: currentPlacement.lineNumber,
-        side: "additions",
-        endSide: "additions",
-      },
-      align: "center",
-    });
-  }, [currentKey, currentPlacement, viewer]);
+    if (focusStep === 0 || currentKey === null) return;
+    reveal(currentKey);
+  }, [currentKey, focusStep, reveal]);
+  // Opening the view, or the first findings arriving, goes to the first one, unless the reader
+  // has already scrolled somewhere of their own.
+  const autoRevealed = useRef(false);
+  useEffect(() => {
+    // Until the change is read every finding sits under General, which is not where it stays.
+    if (autoRevealed.current || diff.pending) return;
+    const first = order[0];
+    if (first === undefined || readerScrolled()) return;
+    if (reveal(first)) autoRevealed.current = true;
+  }, [diff.pending, order, readerScrolled, reveal]);
 
   const items = useMemo<CodeViewDiffItem<FindingAnnotationGroup>[]>(
     () =>
@@ -565,6 +628,7 @@ function ReviewFindingsViewContent({
       failure={failures.get(entry.key)}
       markdownCwd={cwd}
       threadRef={threadRef ?? reviewThreadRef}
+      register={registerCard}
     />
   );
   const renderAnnotation = (annotation: DiffLineAnnotation<FindingAnnotationGroup>) => (
@@ -616,6 +680,10 @@ function ReviewFindingsViewContent({
     ? (tickedKeys.length === 0 && unposted.length === 0) || busyKeys.size > 0
     : openEntries.length === 0;
   const placedKeys = new Set(placed.map((entry) => entry.entry.key));
+  const shownByKey = new Map(shown.map((entry) => [entry.key, entry] as const));
+  // Files without findings fold to one row; this opens them all, or folds them again.
+  const filesWithoutFindings = diff.files.filter((file) => !filesWithFindings.has(file.fileKey));
+  const allFilesOpen = diff.files.every((file) => !fileCollapsed(file.fileKey));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -669,6 +737,23 @@ function ReviewFindingsViewContent({
             <ChevronRightIcon aria-hidden />
           </Button>
         </span>
+        {filesWithoutFindings.length > 0 ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            aria-pressed={allFilesOpen}
+            onClick={() =>
+              setToggledFiles(
+                allFilesOpen
+                  ? new Set()
+                  : new Set(filesWithoutFindings.map((file) => file.fileKey)),
+              )
+            }
+          >
+            {allFilesOpen ? "Fold other files" : "Show all files"}
+          </Button>
+        ) : null}
         {startReview ? <FindIssuesButton target={startReview} rereview={rereview} /> : null}
         <Button type="button" size="xs" disabled={primaryDisabled} onClick={primary.run}>
           {commentMode ? <MessageSquarePlusIcon aria-hidden /> : <WrenchIcon aria-hidden />}
@@ -696,9 +781,40 @@ function ReviewFindingsViewContent({
         )}
         <span>· {formatRelativeTimeLabel(source.createdAt)}</span>
       </div>
+      {order.length > 0 ? (
+        <ol
+          aria-label="Issues"
+          className="max-h-36 shrink-0 overflow-y-auto border-b border-border/60 py-1"
+        >
+          {order.map((key, index) => {
+            const entry = shownByKey.get(key);
+            if (entry === undefined) return null;
+            const { finding } = entry;
+            return (
+              <li key={key}>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full min-w-0 items-center gap-2 px-3 py-0.5 text-start text-xs hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-ring",
+                    key === currentKey && "bg-accent/60",
+                  )}
+                  onClick={() => goTo(index)}
+                >
+                  <Badge size="sm" variant={REVIEW_SEVERITY_BADGES[finding.severity]}>
+                    {REVIEW_FINDING_SEVERITY_LABELS[finding.severity]}
+                  </Badge>
+                  <span className="min-w-0 flex-1 truncate text-foreground">{finding.title}</span>
+                  <span className="max-w-[45%] shrink-0 truncate text-muted-foreground">
+                    {finding.line === undefined ? finding.path : `${finding.path}:${finding.line}`}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
       {general.length > 0 ? (
         <section
-          ref={generalRef}
           aria-label="General"
           className="max-h-[40%] shrink-0 overflow-y-auto border-b border-border/60 py-1"
         >
@@ -734,7 +850,9 @@ function ReviewFindingsViewContent({
       {fixing !== null ? (
         <ReviewFixAllDialog
           entries={fixing}
-          chatTitle={!fixInReviewThread && onFixInChat !== undefined ? (panelThread?.title ?? null) : null}
+          chatTitle={
+            !fixInReviewThread && onFixInChat !== undefined ? (panelThread?.title ?? null) : null
+          }
           onSend={(selection) => {
             setFixing(null);
             void fix(selection);
