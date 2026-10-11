@@ -183,6 +183,15 @@ after you choose what to submit it as and write its overall comment. Posted find
 pull request. To have the agent write them the way you do, describe your style under **Your review
 style** in the GitHub entry of **Settings → Source control** (one per account).
 
+On GitHub you can also let it learn from your own reviews: **Learn from my reviews** in the same
+place reads up to 40 of your recent review comments and review texts from the past year, as that
+account, and the agent imitates how you write them (tone, length, how you mark nits and blockers,
+whether you ask or tell), not what they say. Empty, approval-only and bot-like comments are
+skipped, and only repositories the account can see count. The card shows how many it learned from
+and when, with a few examples; **Learn again** refreshes them and **Forget** deletes them. They stay
+on the server you are connected to and reach only the reviewing agent. Your written style wins
+where the two disagree. Other hosts do not offer this.
+
 ### Mark files as viewed
 
 Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a

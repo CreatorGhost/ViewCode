@@ -492,6 +492,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   that message also asks for each `detail` written as the comment itself, in the reading account's
   style from server settings (`pullRequestReviewStyles`, keyed by `reviewStyleKey`: host and login),
   since the reviewer runs on the server whichever client started it.
+- A learned style (`LearnedReviewStyles`, GitHub only) is the account's own past review writing,
+  not a summary: the server makes no model call, so the samples are stored as they are in
+  `<stateDir>/review-style/<host>/<login>.json` and the comment-review message names the file for
+  the reviewer to read and imitate, which keeps the first message short. They are read as that
+  login with `GitHubCli.executeAsAccount` (another account's token only in the child's
+  environment, never `gh auth switch`), and refused when GitHub answers as someone else, which a
+  `GH_TOKEN` in the server's environment would cause.
 - Findings live in the web Review panel (a right-panel surface), not in the transcript. Thread
   shells carry no activities, so a thread without findings of its own finds a linked review by
   subscribing to the activities of up to five other threads linked to the same pull request, and
