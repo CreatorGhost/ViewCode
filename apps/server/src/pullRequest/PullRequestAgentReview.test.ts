@@ -231,6 +231,8 @@ describe("PullRequestAgentReview", () => {
         branch: null,
         worktreePath: null,
       });
+      // Started from the pull request page, which is no chat: a thread of its own.
+      expect(create).not.toHaveProperty("parentThreadId");
       expect(link).toMatchObject({
         type: "thread.pull-request.link",
         threadId: result.threadId,
@@ -246,7 +248,13 @@ describe("PullRequestAgentReview", () => {
         threadId: result.threadId,
         activity: {
           kind: "viewcode.review.started",
-          payload: { headSha: "0a1b2c3d4e", timelineBypass: true },
+          // What was asked for, for clients to recognise the review and start it again.
+          payload: {
+            mode: "security",
+            focus: "token handling",
+            headSha: "0a1b2c3d4e",
+            timelineBypass: true,
+          },
           turnId: null,
         },
       });
@@ -265,6 +273,55 @@ describe("PullRequestAgentReview", () => {
       const playbook = yield* fs.readFileString(playbookPath);
       expect(playbook).toContain("# ViewCode Security audit");
       expect(playbook).toContain("Never modify the user's working tree");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("runs a review asked for from a chat as that chat's child agent", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      const source = ThreadId.make("source-thread");
+      const result = yield* harness.reviews.start({
+        reference: REFERENCE,
+        mode: "deep",
+        linkSource: "manual",
+        sourceThreadId: source,
+      });
+      const commands = yield* Ref.get(harness.commands);
+      expect(commands.map((command) => command.type)).toEqual([
+        "thread.create",
+        "thread.pull-request.link",
+        "thread.activity.append",
+        "thread.turn.start",
+        "thread.activity.append",
+      ]);
+      expect(commands[0]).toMatchObject({ threadId: result.threadId, parentThreadId: source });
+      const turn = commands[3];
+      // The chat shows the reviewer as an agent it started, and is sent nothing back.
+      expect(commands[4]).toMatchObject({
+        threadId: source,
+        activity: {
+          kind: "viewcode.agent-message.sent",
+          turnId: null,
+          payload: {
+            messageId: turn?.type === "thread.turn.start" ? turn.message.messageId : "",
+            toThreadId: result.threadId,
+            toName: "Deep review: #42 Cache the probe",
+            kind: "spawn",
+            review: "deep",
+            replyExpected: false,
+          },
+        },
+      });
+
+      const elsewhere = yield* harness.reviews
+        .start({
+          reference: REFERENCE,
+          linkSource: "manual",
+          sourceThreadId: ThreadId.make("elsewhere-thread"),
+        })
+        .pipe(Effect.flip);
+      expect(elsewhere).toMatchObject({ stage: "source-thread" });
+      expect(yield* Ref.get(harness.commands)).toHaveLength(commands.length);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -463,7 +520,7 @@ describe("rated findings", () => {
 
 describe("re-reviews", () => {
   const turnText = (commands: ReadonlyArray<OrchestrationCommand>) => {
-    const turn = commands.at(-1);
+    const turn = commands.find((command) => command.type === "thread.turn.start");
     return turn?.type === "thread.turn.start" ? turn.message.text : "";
   };
 
@@ -631,7 +688,7 @@ describe("re-reviews", () => {
 
 describe("PullRequestAgentReview.startLocal", () => {
   const turnText = (commands: ReadonlyArray<OrchestrationCommand>) => {
-    const turn = commands.at(-1);
+    const turn = commands.find((command) => command.type === "thread.turn.start");
     return turn?.type === "thread.turn.start" ? turn.message.text : "";
   };
 
@@ -650,17 +707,27 @@ describe("PullRequestAgentReview.startLocal", () => {
         "thread.create",
         "thread.activity.append",
         "thread.turn.start",
+        "thread.activity.append",
       ]);
       expect(commands[0]).toMatchObject({
         threadId: result.threadId,
         projectId: PROJECT_ID,
+        parentThreadId: "source-thread",
         branch: "feature/cache",
         worktreePath: "/worktrees/project/cache",
         runtimeMode: "approval-required",
         modelSelection: PROJECT_MODEL,
       });
       expect(commands[1]).toMatchObject({
-        activity: { kind: "viewcode.review.started", turnId: null },
+        activity: {
+          kind: "viewcode.review.started",
+          turnId: null,
+          payload: { mode: "deep", focus: "error handling" },
+        },
+      });
+      expect(commands[3]).toMatchObject({
+        threadId: "source-thread",
+        activity: { payload: { kind: "spawn", review: "deep", toThreadId: result.threadId } },
       });
       const text = turnText(commands);
       expect(text).toContain("Deep review of the local changes in /worktrees/project/cache");
@@ -680,6 +747,8 @@ describe("PullRequestAgentReview.startLocal", () => {
       expect(result.title).toBe("Review: local changes");
       const commands = yield* Ref.get(harness.commands);
       expect(commands[0]).toMatchObject({ branch: null, worktreePath: null });
+      expect(commands[0]).not.toHaveProperty("parentThreadId");
+      expect(commands).toHaveLength(3);
       expect(turnText(commands)).toContain("local changes in /workspace/project.");
     }).pipe(Effect.provide(NodeServices.layer)),
   );

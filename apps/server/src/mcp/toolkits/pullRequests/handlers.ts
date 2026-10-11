@@ -621,6 +621,7 @@ const make = Effect.gen(function* () {
           // A user who never set a default model gets a reviewer like the agent that asked.
           fallbackModelSelection: thread.modelSelection,
           linkSource: "agent",
+          sourceThreadId: thread.id,
         });
         return { ...target, threadId: started.threadId, title: started.title };
       }),

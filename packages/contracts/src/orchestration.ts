@@ -32,7 +32,7 @@ import {
   PullRequestReviewDecision,
   PullRequestState,
 } from "./pullRequest.ts";
-import { ReviewBasedOnInput, ReviewFindingsMode } from "./reviewFindings.ts";
+import { AgentReviewMode, ReviewBasedOnInput, ReviewFindingsMode } from "./reviewFindings.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -1386,15 +1386,6 @@ const ThreadPullRequestWatchCommand = Schema.Struct({
   ),
 });
 
-/**
- * Starts an agent review of a pull request: a new thread on the reference's project, linked to
- * the pull request, whose first message asks for the review. Lives here rather than beside
- * `PullRequestRef` because it carries a model selection.
- */
-/** How thorough an agent review is: one pass, several agents, or a security audit. */
-export const AgentReviewMode = Schema.Literals(["quick", "deep", "security"]);
-export type AgentReviewMode = typeof AgentReviewMode.Type;
-
 /** How each client offers the modes, in this order; the first is the default. */
 export const AGENT_REVIEW_MODES: ReadonlyArray<{
   readonly mode: AgentReviewMode;
@@ -1420,6 +1411,11 @@ export const AGENT_REVIEW_MODES: ReadonlyArray<{
   },
 ];
 
+/**
+ * Starts an agent review of a pull request: a new thread on the reference's project, linked to
+ * the pull request, whose first message asks for the review. Lives here rather than beside
+ * `PullRequestRef` because it carries a model selection.
+ */
 export const PullRequestStartReviewInput = Schema.Struct({
   ...PullRequestRef.fields,
   /** Absent: a quick review. */
@@ -1440,6 +1436,11 @@ export const PullRequestStartReviewInput = Schema.Struct({
    */
   incremental: Schema.optional(Schema.Boolean),
   basedOn: Schema.optional(ReviewBasedOnInput),
+  /**
+   * The chat the review is asked for from, which the reviewer runs as a child agent of. Absent
+   * (the pull request page): a thread of its own. Older servers ignore it.
+   */
+  sourceThreadId: Schema.optional(ThreadId),
 });
 export type PullRequestStartReviewInput = typeof PullRequestStartReviewInput.Type;
 
@@ -1450,7 +1451,10 @@ export type PullRequestStartReviewInput = typeof PullRequestStartReviewInput.Typ
  */
 export const ReviewStartLocalInput = Schema.Struct({
   projectId: ProjectId,
-  /** The thread whose checkout to review. Absent: the project's workspace. */
+  /**
+   * The thread whose checkout to review, which the reviewer runs as a child agent of. Absent: the
+   * project's workspace, in a thread of its own.
+   */
   sourceThreadId: Schema.optional(ThreadId),
   /** Absent: a quick review. */
   mode: Schema.optional(AgentReviewMode),

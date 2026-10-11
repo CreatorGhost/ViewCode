@@ -1,3 +1,6 @@
+import { AgentReviewMode } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+
 /**
  * Agent-to-agent message envelope.
  *
@@ -85,15 +88,29 @@ export interface AgentMessageSentPayload {
   readonly delivery: "started" | "queued";
   /** For a spawn: the few-word task the caller gave, shown as the row's title. */
   readonly task?: string;
+  /** For a spawn: the agent is a review of this kind the user started from the chat. */
+  readonly review?: AgentReviewMode;
 }
+
+const isAgentReviewMode = Schema.is(AgentReviewMode);
 
 /** Reads a sent-message activity payload; null when it is malformed. */
 export function readAgentMessageSentPayload(
   payload: Record<string, unknown> | null,
 ): AgentMessageSentPayload | null {
   if (!payload) return null;
-  const { messageId, toThreadId, toName, body, replyExpected, inReplyTo, kind, delivery, task } =
-    payload;
+  const {
+    messageId,
+    toThreadId,
+    toName,
+    body,
+    replyExpected,
+    inReplyTo,
+    kind,
+    delivery,
+    task,
+    review,
+  } = payload;
   if (
     typeof messageId !== "string" ||
     typeof toThreadId !== "string" ||
@@ -112,5 +129,6 @@ export function readAgentMessageSentPayload(
     kind: kind === "spawn" ? "spawn" : "message",
     delivery: delivery === "queued" ? "queued" : "started",
     ...(typeof task === "string" && task.trim() !== "" ? { task: task.trim() } : {}),
+    ...(kind === "spawn" && isAgentReviewMode(review) ? { review } : {}),
   };
 }

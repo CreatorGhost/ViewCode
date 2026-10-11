@@ -32,6 +32,10 @@ export const REVIEW_FINDING_MAX_RULE_CHARS = 200;
 /** Leaves room in a host's 65,536-character review for findings that have no line to sit on. */
 export const REVIEW_POST_MAX_OVERALL_COMMENT_CHARS = 10_000;
 
+/** How thorough an agent review is: one pass, several agents, or a security audit. */
+export const AgentReviewMode = Schema.Literals(["quick", "deep", "security"]);
+export type AgentReviewMode = typeof AgentReviewMode.Type;
+
 export const ReviewFindingSeverity = Schema.Literals(["blocker", "important", "nit", "question"]);
 export type ReviewFindingSeverity = typeof ReviewFindingSeverity.Type;
 
@@ -239,6 +243,12 @@ export type ReviewStartFixThreadResult = typeof ReviewStartFixThreadResult.Type;
 export const REVIEW_STARTED_ACTIVITY_KIND = "viewcode.review.started";
 
 export const ReviewStartedActivityPayload = Schema.Struct({
+  /**
+   * What was asked for, so clients tell a review thread from others and can start it again.
+   * Absent on reviews from before it was recorded.
+   */
+  mode: Schema.optional(AgentReviewMode),
+  focus: Schema.optional(Schema.String),
   headSha: Schema.optional(ReviewCommitSha),
   incremental: Schema.optional(Schema.Boolean),
   basedOn: Schema.optional(ReviewBasedOn),

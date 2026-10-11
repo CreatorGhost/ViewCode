@@ -3218,6 +3218,7 @@ const makeWsRpcLayer = (
           findingsMode,
           incremental,
           basedOn,
+          sourceThreadId,
           ...reference
         }) =>
           observeRpcEffect(
@@ -3232,6 +3233,7 @@ const makeWsRpcLayer = (
                 findingsMode,
                 incremental,
                 basedOn,
+                sourceThreadId,
                 linkSource: "manual",
               }),
             ).pipe(

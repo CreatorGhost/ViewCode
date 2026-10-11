@@ -511,7 +511,7 @@ const UnwatchPullRequestTool = Tool.make("unwatch_pull_request", {
 
 const ReviewPullRequestTool = Tool.make("review_pull_request", {
   description:
-    "Start an agent review of a pull request in a new ViewCode thread on this thread's project, linked to the pull request, for the user to read and continue. The reviewer follows ViewCode's review playbook for the chosen mode, changes no files and posts nothing to the host. It runs with the user's default model for new threads in the project, or this thread's model when none is set. The call returns once the review has started; it does not wait for or return the findings. Pass the URL, or repository plus number.",
+    "Start an agent review of a pull request as your child agent: a new ViewCode thread on this thread's project, linked to the pull request, for the user to read and continue. Its findings show in the user's Review panel; nothing is sent back to you. The reviewer follows ViewCode's review playbook for the chosen mode, changes no files and posts nothing to the host. It runs with the user's default model for new threads in the project, or this thread's model when none is set. The call returns once the review has started; it does not wait for or return the findings. Pass the URL, or repository plus number.",
   parameters: ReviewPullRequestInput,
   success: ReviewPullRequestResult,
   failure: PullRequestToolError,
@@ -525,7 +525,7 @@ const ReviewPullRequestTool = Tool.make("review_pull_request", {
 
 const ReviewLocalChangesTool = Tool.make("review_local_changes", {
   description:
-    "Start an agent review of this thread's local changes in a new ViewCode thread on the same branch and checkout, for the user to read and continue: the uncommitted changes, or the branch against its base when there are none. The reviewer follows ViewCode's review playbook for the chosen mode and changes no files. It runs with the user's default model for new threads in the project, or this thread's model when none is set. The call returns once the review has started; it does not wait for or return the findings.",
+    "Start an agent review of this thread's local changes as your child agent, on the same branch and checkout, for the user to read and continue (its findings show in the user's Review panel; nothing is sent back to you): the uncommitted changes, or the branch against its base when there are none. The reviewer follows ViewCode's review playbook for the chosen mode and changes no files. It runs with the user's default model for new threads in the project, or this thread's model when none is set. The call returns once the review has started; it does not wait for or return the findings.",
   parameters: ReviewLocalChangesInput,
   success: ReviewLocalChangesResult,
   failure: PullRequestToolError,

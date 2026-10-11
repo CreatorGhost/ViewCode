@@ -301,6 +301,8 @@ describe("pull request toolkit handlers", () => {
           findingsMode: "fix",
           fallbackModelSelection: { instanceId: "codex", model: "gpt-5" },
           linkSource: "agent",
+          // The reviewer runs as the asking agent's child.
+          sourceThreadId: THREAD_ID,
         },
       ]);
     }),
