@@ -5,10 +5,10 @@
  * The samples go nowhere else; the user sees a few of them and how many there are.
  */
 import {
+  LearnedReviewStyleAccount,
   LearnedReviewStyleError,
   LearnedReviewStyleSample,
   type LearnedReviewStyle,
-  type LearnedReviewStyleAccount,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -43,6 +43,7 @@ const LearnedReviewStyleFile = Schema.Struct({
   samples: Schema.Array(LearnedReviewStyleSample),
 });
 type LearnedReviewStyleFile = typeof LearnedReviewStyleFile.Type;
+const isAccount = Schema.is(LearnedReviewStyleAccount);
 const decodeFile = Schema.decodeUnknownOption(Schema.fromJsonString(LearnedReviewStyleFile));
 const encodeFile = Schema.encodeSync(Schema.fromJsonString(LearnedReviewStyleFile));
 
@@ -71,12 +72,14 @@ const readLearnedFile = (target: string) =>
 
 /**
  * The samples file a reviewer should read for an account, or null when nothing was learned for
- * it. Never fails: a review starts without samples rather than not at all.
+ * it. Never fails: a review starts without samples rather than not at all. Takes any host's
+ * names, so one that cannot be a learned account's is simply not found.
  */
 export const findLearnedReviewStyleFile = Effect.fn("LearnedReviewStyles.find")(function* (input: {
   readonly stateDir: string;
-  readonly account: LearnedReviewStyleAccount;
+  readonly account: { readonly host: string; readonly login: string };
 }) {
+  if (!isAccount(input.account)) return null;
   const path = yield* Path.Path;
   const target = learnedReviewStylePath(path, input.stateDir, input.account);
   const file = yield* readLearnedFile(target).pipe(

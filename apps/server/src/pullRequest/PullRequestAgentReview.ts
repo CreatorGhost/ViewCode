@@ -29,6 +29,7 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "../config.ts";
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { findLearnedReviewStyleFile } from "../review/LearnedReviewStyles.ts";
 import {
   ensureReviewPlaybook,
   reviewModeLabel,
@@ -178,8 +179,13 @@ export function buildPullRequestReviewPrompt(input: {
   readonly focus?: string | undefined;
   /** Only a mode the user chose; otherwise the server decides when the findings arrive. */
   readonly findingsMode?: ReviewFindingsMode | undefined;
-  /** Present when the findings will be posted as review comments, with the user's style. */
-  readonly comments?: { readonly style: string | null } | undefined;
+  /**
+   * Present when the findings will be posted as review comments: the user's style, and the
+   * file of their own past review comments learned for the account they will be posted as.
+   */
+  readonly comments?:
+    | { readonly style: string | null; readonly samplesPath: string | null }
+    | undefined;
 }): string {
   const { pr } = input;
   const lines = [
@@ -202,6 +208,12 @@ export function buildPullRequestReviewPrompt(input: {
       "",
       "I will post your findings to this pull request as my review comments, so write each finding's detail as the comment itself (see the playbook's Report section).",
     );
+    if (input.comments.samplesPath !== null) {
+      lines.push(
+        "",
+        `Write them the way I write reviews: my past review comments are in ${input.comments.samplesPath} (see the playbook).`,
+      );
+    }
     if (input.comments.style !== null) {
       lines.push("", "Write them in my review style:", "", input.comments.style);
     }
@@ -289,10 +301,22 @@ const make = Effect.gen(function* () {
       viewer === null
         ? ""
         : (settings.pullRequestReviewStyles[reviewStyleKey(key.host, viewer)] ?? "");
-    const comments =
-      authorship !== null && (input.findingsMode ?? reviewFindingsModeFor(authorship)) === "comment"
-        ? { style: style.length > 0 ? style : null }
-        : undefined;
+    const commenting =
+      authorship !== null &&
+      (input.findingsMode ?? reviewFindingsModeFor(authorship)) === "comment";
+    const samplesPath =
+      !commenting || viewer === null
+        ? null
+        : yield* findLearnedReviewStyleFile({
+            stateDir: config.stateDir,
+            account: { host: key.host, login: viewer },
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          );
+    const comments = commenting
+      ? { style: style.length > 0 ? style : null, samplesPath }
+      : undefined;
 
     const threadId = ThreadId.make(yield* uuid);
     const createdAt = DateTime.formatIso(yield* DateTime.now);

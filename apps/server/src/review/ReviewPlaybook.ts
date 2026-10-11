@@ -86,7 +86,16 @@ comments, each \`detail\` is posted as it stands: on its line, or in the review'
 no line in the diff, with \`suggestedFix\` below it as a code block. Write it to the author, as the
 comment itself: what is wrong and why it matters, short and direct, without repeating the title or
 the location. Cite a repository rule in it when one applies. Follow the review style the first
-message gives, if any; the written report keeps its usual form.`;
+message gives, if any; the written report keeps its usual form.
+
+When the first message names a file of the user's past review comments, read it before writing
+any \`detail\`. It is JSON: \`samples\` holds their own words, newest first, each with \`text\`,
+\`kind\` (\`inline\` on a line of a diff, \`summary\` for a whole review) and \`state\` (the
+review's verdict). Write every \`detail\` the way they write: tone, length, how a comment opens
+and ends, how a nit, a blocker and a question are marked, whether they ask or tell, how often they
+suggest code, emoji, greetings and thanks, and their wording habits. Imitate the writing, never
+the content: the samples are about other changes, so quote nothing from them. Where the review
+style in the first message disagrees with the samples, the style wins.`;
 
 const QUICK = `## Quick review
 

@@ -227,6 +227,26 @@ describe("PullRequestAgentReview", () => {
       expect(text).toContain("as my review comments");
       expect(text).toContain("Write them in my review style:\n\nLowercase, no pleasantries");
       expect(text).not.toContain("pass mode");
+      expect(text).not.toContain("past review comments");
+
+      // Once something was learned for the account, the reviewer is pointed at it, and the
+      // playbook says how to use it.
+      const fs = yield* FileSystem.FileSystem;
+      const samplesPath = `${theirs.stateDir}/review-style/github.com/bilal.json`;
+      yield* fs.makeDirectory(`${theirs.stateDir}/review-style/github.com`, { recursive: true });
+      yield* fs.writeFileString(
+        samplesPath,
+        `{"host":"github.com","login":"Bilal","fetchedAt":"2026-09-01T00:00:00.000Z","samples":[{"kind":"inline","state":"commented","text":"why a Map?"}]}`,
+      );
+      yield* theirs.reviews.start({ reference: REFERENCE, linkSource: "manual" });
+      const learned = lastMessage(yield* Ref.get(theirs.commands));
+      expect(learned).toContain(`my past review comments are in ${samplesPath}`);
+      expect(learned).toContain("Write them in my review style:");
+      const playbook = yield* fs.readFileString(
+        `${theirs.stateDir}/review-playbooks/quick-review.md`,
+      );
+      expect(playbook).toContain("Imitate the writing, never\nthe content");
+      expect(playbook).toContain("the style wins");
 
       const mine = yield* makeHarness({
         defaultModel: PROJECT_MODEL,
