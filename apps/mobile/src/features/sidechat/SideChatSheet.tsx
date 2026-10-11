@@ -79,9 +79,10 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
       requests.approvals.length > 0 ||
       requests.userInputs.length > 0);
   const { send, stop, pending, error, clearError } = useSidechatActions();
+  // Claude settles to "ready" after a failed turn but keeps lastError, so any
+  // retained error shows once the side chat is idle, whatever its status.
   const displayedError =
-    error ??
-    (!pending && !working && active?.session?.status === "error" ? active.session.lastError : null);
+    error ?? (!pending && !working ? (active?.session?.lastError ?? null) : null);
   const [question, setQuestion] = useState("");
   const [submittedMessageId, setSubmittedMessageId] = useState<MessageId | null>(null);
   const listRef = useRef<LegendListRef | null>(null);
