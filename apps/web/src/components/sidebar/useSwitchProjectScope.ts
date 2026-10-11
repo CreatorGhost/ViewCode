@@ -3,6 +3,7 @@ import { useCallback } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useOpenPullRequests } from "../pullRequest/useOpenPullRequests";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { readThreadShell, readThreadShells } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -14,16 +15,22 @@ import { pickProjectSwitchThread, projectRefKey } from "./projectSwitch.logic";
 /**
  * Switches the sidebar to one project folder (or All, with null) and shows that folder's work:
  * the thread already open stays when it belongs there, else the folder's latest thread opens,
- * else a new thread in it. Picking the scoped folder again never returns to All.
+ * else a new thread in it. Picking the scoped folder again never returns to All. On the Pull
+ * Requests page the list follows the folder instead, and the page stays open.
  */
 export function useSwitchProjectScope() {
   const navigate = useNavigate();
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const openPullRequests = useOpenPullRequests();
   return useCallback(
     (project: SidebarProjectSnapshot | null) => {
       useUiStateStore.getState().setSidebarProjectScopeKey(project?.projectKey ?? null);
+      if (router.state.location.pathname === "/pull-requests") {
+        void openPullRequests();
+        return;
+      }
       if (!project) return;
       const memberProjectKeys = new Set(project.memberProjectRefs.map(projectRefKey));
       const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
@@ -54,6 +61,6 @@ export function useSwitchProjectScope() {
         project.memberProjectRefs[0];
       if (projectRef) void handleNewThread(projectRef);
     },
-    [handleNewThread, navigate, primaryEnvironmentId, router],
+    [handleNewThread, navigate, openPullRequests, primaryEnvironmentId, router],
   );
 }
