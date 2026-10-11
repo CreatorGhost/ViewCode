@@ -9,6 +9,7 @@ import {
   type EnvironmentId,
   type ModelSelection,
   type PullRequestRef,
+  type PullRequestStartReviewResult,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -46,23 +47,11 @@ import { Radio, RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
 
 /**
- * Starts an agent review of a pull request: a new thread on the project, linked to the pull
- * request, that opens once the review is under way. The server words the request and picks the
- * permissions; this only chooses how thorough, with which model, and what to look at.
+ * The choices an agent review starts from: how thorough, with which model (the project's default
+ * for new threads until the reader picks another), and what to look at. `start` reports a
+ * failure itself and resolves to the new review thread, or null.
  */
-export function PullRequestAgentReviewDialog({
-  environmentId,
-  reference,
-  number,
-  onClose,
-}: {
-  environmentId: EnvironmentId;
-  reference: PullRequestRef;
-  number: number;
-  onClose: () => void;
-}) {
-  const id = useId();
-  const navigate = useNavigate();
+export function useAgentReviewForm(environmentId: EnvironmentId, reference: PullRequestRef) {
   const startReview = useAtomCommand(pullRequestEnvironment.startReview, { reportFailure: false });
   const settings = useEnvironmentSettings(environmentId);
   const project = useProject(scopeProjectRef(environmentId, reference.projectId));
@@ -77,7 +66,6 @@ export function PullRequestAgentReviewDialog({
       ),
     [providers, settings],
   );
-  // The model a new thread in this project would start on, until the reader picks another.
   const [picked, setPicked] = useState<ModelSelection | null>(null);
   const selection =
     picked ??
@@ -94,8 +82,8 @@ export function PullRequestAgentReviewDialog({
   const [focus, setFocus] = useState("");
   const [pending, setPending] = useState(false);
 
-  const start = async () => {
-    if (pending) return;
+  const start = async (): Promise<PullRequestStartReviewResult | null> => {
+    if (pending) return null;
     setPending(true);
     const trimmedFocus = focus.trim();
     const result = await startReview({
@@ -117,10 +105,113 @@ export function PullRequestAgentReviewDialog({
           description: error instanceof Error ? error.message : "An error occurred.",
         });
       }
-      return;
+      return null;
     }
+    return result.value;
+  };
+
+  return {
+    entries,
+    modelOptions,
+    selection,
+    setPicked,
+    mode,
+    setMode,
+    focus,
+    setFocus,
+    pending,
+    canStart: !pending && selection !== null,
+    start,
+  };
+}
+
+export type AgentReviewForm = ReturnType<typeof useAgentReviewForm>;
+
+/** Mode, model and focus for an agent review, wherever one is started. */
+export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
+  const id = useId();
+  const { selection } = form;
+  return (
+    <div className="flex flex-col gap-4">
+      <RadioGroup
+        aria-label="Review mode"
+        value={form.mode}
+        onValueChange={(value) => {
+          const next = AGENT_REVIEW_MODES.find((entry) => entry.mode === value);
+          if (next) form.setMode(next.mode);
+        }}
+      >
+        {AGENT_REVIEW_MODES.map((entry) => (
+          <label
+            key={entry.mode}
+            className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm"
+          >
+            <Radio value={entry.mode} className="mt-0.5" />
+            <span className="flex min-w-0 flex-col">
+              <span className="font-medium">{entry.label}</span>
+              <span className="text-xs text-muted-foreground">{entry.description}</span>
+            </span>
+          </label>
+        ))}
+      </RadioGroup>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm">Model</span>
+        {selection ? (
+          <ProviderModelPicker
+            activeInstanceId={selection.instanceId}
+            model={selection.model}
+            lockedProvider={null}
+            instanceEntries={form.entries}
+            modelOptionsByInstance={form.modelOptions}
+            triggerAriaLabel="Review model"
+            disabled={form.pending}
+            onInstanceModelChange={(instanceId, model) =>
+              form.setPicked(createModelSelection(instanceId, model))
+            }
+          />
+        ) : (
+          <span className="text-sm text-muted-foreground">No providers available</span>
+        )}
+      </div>
+      <Label className="flex min-w-0 flex-col items-stretch" htmlFor={`${id}-focus`}>
+        Focus (optional)
+        <Input
+          id={`${id}-focus`}
+          placeholder="For example: error handling, migrations"
+          maxLength={500}
+          value={form.focus}
+          disabled={form.pending}
+          onChange={(event) => form.setFocus(event.target.value)}
+        />
+      </Label>
+    </div>
+  );
+}
+
+/**
+ * Starts an agent review of a pull request: a new thread on the project, linked to the pull
+ * request, that opens once the review is under way. The server words the request and picks the
+ * permissions; this only chooses how thorough, with which model, and what to look at.
+ */
+export function PullRequestAgentReviewDialog({
+  environmentId,
+  reference,
+  number,
+  onClose,
+}: {
+  environmentId: EnvironmentId;
+  reference: PullRequestRef;
+  number: number;
+  onClose: () => void;
+}) {
+  const navigate = useNavigate();
+  const form = useAgentReviewForm(environmentId, reference);
+
+  const start = async () => {
+    const started = await form.start();
+    if (started === null) return;
     onClose();
-    const threadId = result.value.threadId;
+    const threadId = started.threadId;
     await waitForThreadShell(scopeThreadRef(environmentId, threadId));
     await navigate({ to: "/$environmentId/$threadId", params: { environmentId, threadId } });
   };
@@ -129,7 +220,7 @@ export function PullRequestAgentReviewDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !pending) onClose();
+        if (!open && !form.pending) onClose();
       }}
     >
       <DialogPopup className="sm:max-w-md">
@@ -148,66 +239,14 @@ export function PullRequestAgentReviewDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
-            <div className="flex flex-col gap-4">
-              <RadioGroup
-                aria-label="Review mode"
-                value={mode}
-                onValueChange={(value) => {
-                  const next = AGENT_REVIEW_MODES.find((entry) => entry.mode === value);
-                  if (next) setMode(next.mode);
-                }}
-              >
-                {AGENT_REVIEW_MODES.map((entry) => (
-                  <label
-                    key={entry.mode}
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm"
-                  >
-                    <Radio value={entry.mode} className="mt-0.5" />
-                    <span className="flex min-w-0 flex-col">
-                      <span className="font-medium">{entry.label}</span>
-                      <span className="text-xs text-muted-foreground">{entry.description}</span>
-                    </span>
-                  </label>
-                ))}
-              </RadioGroup>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm">Model</span>
-                {selection ? (
-                  <ProviderModelPicker
-                    activeInstanceId={selection.instanceId}
-                    model={selection.model}
-                    lockedProvider={null}
-                    instanceEntries={entries}
-                    modelOptionsByInstance={modelOptions}
-                    triggerAriaLabel="Review model"
-                    disabled={pending}
-                    onInstanceModelChange={(instanceId, model) =>
-                      setPicked(createModelSelection(instanceId, model))
-                    }
-                  />
-                ) : (
-                  <span className="text-sm text-muted-foreground">No providers available</span>
-                )}
-              </div>
-              <Label className="flex min-w-0 flex-col items-stretch" htmlFor={`${id}-focus`}>
-                Focus (optional)
-                <Input
-                  id={`${id}-focus`}
-                  placeholder="For example: error handling, migrations"
-                  maxLength={500}
-                  value={focus}
-                  disabled={pending}
-                  onChange={(event) => setFocus(event.target.value)}
-                />
-              </Label>
-            </div>
+            <AgentReviewFields form={form} />
           </DialogPanel>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
+            <Button type="button" variant="outline" disabled={form.pending} onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={pending || selection === null}>
-              {pending ? "Starting..." : "Start review"}
+            <Button type="submit" disabled={!form.canStart}>
+              {form.pending ? "Starting..." : "Start review"}
             </Button>
           </DialogFooter>
         </form>

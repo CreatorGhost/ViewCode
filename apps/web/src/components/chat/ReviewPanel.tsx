@@ -8,6 +8,7 @@ import {
 import type {
   ProjectId,
   PullRequestReviewVerdict,
+  PullRequestStartReviewResult,
   ReviewFindingsTarget,
   ReviewVerdict,
   ScopedThreadRef,
@@ -17,7 +18,8 @@ import {
   REVIEW_VERDICT_LABELS,
   reviewFindingsMode,
 } from "@t3tools/shared/reviewFindings";
-import { Link } from "@tanstack/react-router";
+import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -32,17 +34,26 @@ import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { fnv1a32, resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
+import { useServerConfigs } from "../../state/entities";
 import { reviewEnvironment } from "../../state/review";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { StyledDiffCodeView } from "../diffs/StyledDiffCodeView";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "../ui/empty";
 import { toastManager } from "../ui/toast";
 import { type ReviewFindingAction, ReviewFindingCard } from "./ReviewFindingCard";
 import { ReviewFixDialog, type ReviewFixItem } from "./ReviewFixDialog";
 import { ReviewPostDialog } from "./ReviewPostDialog";
+import { FindIssuesButton, ReviewStartForm, type ReviewStartTarget } from "./ReviewStart";
 import {
   placeReviewFindings,
   type PlacedReviewFinding,
@@ -97,6 +108,8 @@ interface ReviewFindingsViewProps {
   readonly cwd: string | undefined;
   readonly posted: ReadonlyMap<string, PostedReviewFinding>;
   readonly onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
+  /** Where a new review of the pull request starts, when one can. */
+  readonly startReview: ReviewStartTarget | null;
 }
 
 function postedEqual(
@@ -120,6 +133,7 @@ const ReviewFindingsView = memo(
     previous.projectId === next.projectId &&
     previous.cwd === next.cwd &&
     previous.onFixInChat === next.onFixInChat &&
+    previous.startReview === next.startReview &&
     previous.source.activityId === next.source.activityId &&
     previous.source.threadTitle === next.source.threadTitle &&
     postedEqual(previous.posted, next.posted),
@@ -132,6 +146,7 @@ function ReviewFindingsViewContent({
   cwd,
   posted,
   onFixInChat,
+  startReview,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
   const { environmentId } = threadRef;
@@ -542,6 +557,7 @@ function ReviewFindingsViewContent({
             <ChevronRightIcon aria-hidden />
           </Button>
         </span>
+        {startReview ? <FindIssuesButton target={startReview} /> : null}
         <Button type="button" size="xs" disabled={primaryDisabled} onClick={primary.run}>
           {commentMode ? <MessageSquarePlusIcon aria-hidden /> : <WrenchIcon aria-hidden />}
           {primary.label}
@@ -643,7 +659,49 @@ export function ReviewPanel({
   cwd: string | undefined;
   onFixInChat?: ((request: ReviewFixInChatRequest) => void) | undefined;
 }) {
-  const { source, posted, projectId } = useReviewFindingsSource(threadRef);
+  const { source, posted, pullRequests, projectId } = useReviewFindingsSource(threadRef);
+  const navigate = useNavigate();
+  const { environmentId } = threadRef;
+  const canStartReview =
+    useServerConfigs().get(environmentId)?.environment.capabilities.pullRequestAgentReview === true;
+  // A review started from here keeps this thread open; its findings arrive here once it
+  // submits them, since it is linked to the same pull request.
+  const [started, setStarted] = useState<PullRequestStartReviewResult | null>(null);
+  const pullRequest = resolveThreadCurrentPullRequestLink(pullRequests);
+  const host = pullRequest?.host;
+  const repository = pullRequest?.repository;
+  const number = pullRequest?.number;
+  const startReview = useMemo<ReviewStartTarget | null>(
+    () =>
+      canStartReview &&
+      projectId !== null &&
+      host !== undefined &&
+      repository !== undefined &&
+      number !== undefined
+        ? {
+            environmentId,
+            reference: { projectId, host, repository, number },
+            onStarted: (review) => {
+              setStarted(review);
+              toastManager.add({
+                type: "success",
+                title: "Review started",
+                description: "Its findings appear in this panel when it is done.",
+                actionProps: {
+                  children: "Open review",
+                  onClick: () => {
+                    void navigate({
+                      to: "/$environmentId/$threadId",
+                      params: { environmentId, threadId: review.threadId },
+                    });
+                  },
+                },
+              });
+            },
+          }
+        : null,
+    [canStartReview, environmentId, host, navigate, number, projectId, repository],
+  );
   if (source === null) {
     return (
       <Empty size="compact">
@@ -653,9 +711,29 @@ export function ReviewPanel({
           </EmptyMedia>
           <EmptyTitle>No review findings yet</EmptyTitle>
           <EmptyDescription>
-            When an agent reviews this thread's pull request, its findings appear here.
+            {started !== null ? (
+              <>
+                <Link
+                  to="/$environmentId/$threadId"
+                  params={{ environmentId, threadId: started.threadId }}
+                  className="text-foreground hover:underline"
+                >
+                  {started.title}
+                </Link>{" "}
+                is under way. Its findings appear here when it is done.
+              </>
+            ) : startReview !== null ? (
+              `Have an agent review PR #${startReview.reference.number}; its findings appear here.`
+            ) : (
+              "Link a pull request to this thread to have an agent review it here."
+            )}
           </EmptyDescription>
         </EmptyHeader>
+        {startReview !== null && started === null ? (
+          <EmptyContent>
+            <ReviewStartForm target={startReview} />
+          </EmptyContent>
+        ) : null}
       </Empty>
     );
   }
@@ -669,6 +747,7 @@ export function ReviewPanel({
       cwd={cwd}
       posted={posted}
       onFixInChat={onFixInChat}
+      startReview={startReview}
     />
   );
 }

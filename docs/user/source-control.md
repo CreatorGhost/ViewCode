@@ -176,7 +176,9 @@ session already working on the pull request or to a new session on its branch in
 own. **Dismiss** hides a finding until you show dismissed ones again. For a review of somebody
 else's pull request the findings are review comments instead: **Post comment** posts one, and
 **Post all** or **Post selected** posts several as one review, each time after you choose what to
-submit it as and write its overall comment. Posted findings link to the pull request.
+submit it as and write its overall comment. Posted findings link to the pull request. To review a
+thread's pull request from the panel, pick the mode, model and focus in its empty state, or under
+**Find issues** for a new review; the thread stays open and the findings arrive when it is done.
 
 ### Mark files as viewed
 

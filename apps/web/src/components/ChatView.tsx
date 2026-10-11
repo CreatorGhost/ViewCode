@@ -9857,6 +9857,7 @@ export default function ChatView(props: ChatViewProps) {
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "review" && isServerThread ? (
       <ReviewPanel
+        key={activeThreadKey}
         threadRef={activeThreadRef}
         cwd={gitCwd ?? undefined}
         onFixInChat={fixReviewFindingsInChat}
