@@ -20,6 +20,13 @@ gh auth login
 For GitHub Enterprise Server, also run `gh auth login --hostname <your-server>`. T3 Code uses that
 sign-in to recognize servers whose host name does not contain `github`.
 
+If you work for several organizations with separate GitHub accounts, sign in to each with
+`gh auth login`. T3 Code starts with the active account (`gh auth status`) and, for a repository
+that account can't see, uses whichever of your other signed-in accounts can, without switching the
+active account in your terminals. Pull requests show which account each project is read with. A
+newly granted access or a sign-out is picked up within about ten minutes. `git push` still uses your
+Git credentials, so give each organization's remotes credentials or an SSH key that can push.
+
 ### Forgejo and Gitea
 
 Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or

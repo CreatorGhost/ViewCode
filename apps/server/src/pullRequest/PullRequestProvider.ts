@@ -340,6 +340,14 @@ export interface PullRequestProviderApi {
     readonly cwd: string;
     readonly host?: string;
   }) => Effect.Effect<string, PullRequestProviderError>;
+  /**
+   * The account a repository is read as when the host CLI picked one other than the viewer (one
+   * of several signed in to the host), else null.
+   */
+  readonly accountFor?: (input: {
+    readonly host: string;
+    readonly repository: string;
+  }) => Effect.Effect<string | null>;
 
   readonly listChangeRequests: (
     input: ProviderRepositoryRef & {

@@ -1168,6 +1168,29 @@ it.effect("keeps healthy repositories when one of them cannot be read", () =>
   }),
 );
 
+it.effect("names the account each GitHub project was read as", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
+        project({ id: "p2", title: "client", workspaceRoot: "/b", repository: "acme/client" }),
+      ],
+      providers: [
+        fakeProvider("github", {
+          listChangeRequests: () =>
+            Effect.succeed({ items: [], truncated: false, continues: true }),
+          accountFor: (input) =>
+            Effect.succeed(input.repository === "acme/client" ? "bilal-acme" : null),
+        }),
+      ],
+    });
+
+    const result = yield* service.list({ state: "open" });
+
+    assert.deepStrictEqual({ ...result.accounts }, { p1: "bilal", p2: "bilal-acme" });
+  }),
+);
+
 it.effect("tries another workspace on the same host for the viewer", () =>
   Effect.gen(function* () {
     const service = yield* makeService({

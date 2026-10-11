@@ -585,6 +585,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             return value.length > 0 ? value : null;
           }),
         ),
+      accountFor: () => Effect.succeed(null),
       getPullRequest: (input) =>
         execute({
           cwd: input.cwd,

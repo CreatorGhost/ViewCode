@@ -489,6 +489,11 @@ export class GitHubPullRequestCli extends Context.Service<
       readonly cwd: string;
       readonly host: string;
     }) => Effect.Effect<string, GitHubPullRequestCliError>;
+    /** The gh login a repository is read as when it is not gh's active account, else null. */
+    readonly accountFor: (input: {
+      readonly host: string;
+      readonly repository: string;
+    }) => Effect.Effect<string | null>;
 
     readonly listPullRequests: (input: {
       readonly cwd: string;
@@ -1888,6 +1893,7 @@ export const make = Effect.gen(function* () {
     getRoutingIdentity,
     getViewerLogin: (input) =>
       getRoutingIdentity(input).pipe(Effect.map((identity) => identity.viewer)),
+    accountFor: (input) => github.accountFor(input),
 
     listPullRequests: (input) => {
       const fallbackMaxRows = Math.max(input.limit + 1, PULL_REQUEST_FALLBACK_MAX_ROWS);

@@ -630,6 +630,12 @@ export const PullRequestListResult = Schema.Struct({
    * cannot carry an optional value through the JSON codec.
    */
   viewers: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString),
+  /**
+   * The account each GitHub project's repository was read as, keyed by project id. Usually the
+   * host's viewer; another login where several accounts are signed in to the host and only that
+   * one can see the repository. Absent from older servers and for other providers.
+   */
+  accounts: Schema.optional(Schema.Record(ProjectId, TrimmedNonEmptyString)),
   providers: Schema.Array(PullRequestProviderSummary),
   /**
    * By update, newest first, across every repository this answer covers. A page that appends a

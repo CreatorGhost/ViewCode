@@ -547,6 +547,8 @@ function withRateLimitBackoff(
     ...(api.withVerifiedCredential === undefined
       ? {}
       : { withVerifiedCredential: api.withVerifiedCredential }),
+    // Read from memory, so there is no host call for a pause to hold back.
+    ...(api.accountFor === undefined ? {} : { accountFor: api.accountFor }),
     listChangeRequests: wrap("listChangeRequests", api.listChangeRequests),
     ...(api.listChangeRequestsAcross === undefined
       ? {}
@@ -1446,8 +1448,18 @@ export const make = Effect.gen(function* () {
         if (batch.nextCursor !== null) nextCursors[batch.key] = batch.nextCursor;
       }
 
+      // Asked after the reads, so an account picked while reading this page is the one named.
+      const accounts: Record<string, string> = {};
+      for (const { project, host, repository, api } of readable) {
+        if (api.kind !== "github") continue;
+        const routed =
+          api.accountFor === undefined ? null : yield* api.accountFor({ host, repository });
+        accounts[project.id] = routed ?? viewers[host]!;
+      }
+
       return {
         viewers: viewers as PullRequestListResult["viewers"],
+        accounts: accounts as NonNullable<PullRequestListResult["accounts"]>,
         providers,
         entries: batches
           .flatMap((batch) => batch.entries)
