@@ -18,6 +18,7 @@ import { HomeScreen } from "./HomeScreen";
 import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
 import { useHomeThreadSelection } from "./home-thread-navigation";
+import { buildHomeTerminalTargets, findSelectedTerminalTarget } from "./homeTerminalTargets";
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
@@ -106,6 +107,25 @@ export function HomeRouteScreen() {
       threads,
     ],
   );
+  // Android's bottom bar opens a terminal through a project's latest thread.
+  const terminalTargets = useMemo(
+    () =>
+      Platform.OS === "android"
+        ? buildHomeTerminalTargets({
+            scopes: buildHomeProjectScopes({
+              projects,
+              environmentId: selectedEnvironmentId,
+              projectGroupingMode: listOptions.projectGroupingMode,
+            }),
+            threads,
+          })
+        : [],
+    [listOptions.projectGroupingMode, projects, selectedEnvironmentId, threads],
+  );
+  const selectedTerminalTarget = useMemo(
+    () => findSelectedTerminalTarget(terminalTargets, selectedProjectKey),
+    [selectedProjectKey, terminalTargets],
+  );
   useEffect(() => {
     if (
       selectedProjectKey !== null &&
@@ -160,8 +180,15 @@ export function HomeRouteScreen() {
   return (
     <AndroidHomeFabLayout
       onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
-      onStartVoiceTask={() =>
-        navigation.navigate("NewTaskSheet", { screen: "NewTask", params: { dictate: "1" } })
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+      terminalTargets={terminalTargets}
+      selectedTerminalTarget={selectedTerminalTarget}
+      onOpenTerminal={(target) =>
+        navigation.navigate("ThreadTerminal", {
+          environmentId: String(target.environmentId),
+          threadId: String(target.threadId),
+        })
       }
     >
       <>

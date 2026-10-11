@@ -3,6 +3,7 @@ import {
   THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME,
   THREAD_LIST_V2_ROW_DIVIDERS,
   THREAD_LIST_V2_PROVIDER_LEADS_TITLE,
+  THREAD_LIST_V2_META_ICONS,
   selectedThreadRowColors,
   getThreadListV2NewBranchMenuTitle,
   getThreadListV2RowAppearance,
@@ -1088,6 +1089,64 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             {thread.session.lastError}
           </Text>
+        ) : THREAD_LIST_V2_META_ICONS && (thread.branch || props.environmentLabel) ? (
+          /* Machine, then branch, each led by its glyph and truncating on its own. */
+          <View className="min-w-0 flex-1 flex-row items-center gap-1.5">
+            {props.environmentLabel ? (
+              <>
+                {props.environmentMachine ? (
+                  <EnvironmentMachineSymbol
+                    kind={props.environmentMachine}
+                    size={12}
+                    tintColorClassName={
+                      selected
+                        ? selectedThreadRowColors.mutedIconTintClassName
+                        : rowAppearance.tertiaryIconTintClassName
+                    }
+                  />
+                ) : null}
+                <Text
+                  className={cn(
+                    "shrink text-xs",
+                    selected
+                      ? selectedThreadRowColors.mutedForegroundClassName
+                      : rowAppearance.tertiaryForegroundClassName,
+                  )}
+                  numberOfLines={1}
+                >
+                  {props.environmentLabel}
+                </Text>
+              </>
+            ) : null}
+            {thread.branch ? (
+              <>
+                {props.environmentLabel ? <View className="w-1.5" /> : null}
+                <SymbolView
+                  name="arrow.triangle.branch"
+                  size={12}
+                  tintColorClassName={
+                    selected
+                      ? selectedThreadRowColors.mutedIconTintClassName
+                      : rowAppearance.tertiaryIconTintClassName
+                  }
+                  type="monochrome"
+                />
+                <Text
+                  className={cn(
+                    "shrink text-xs",
+                    selected
+                      ? selectedThreadRowColors.mutedForegroundClassName
+                      : rowAppearance.mutedForegroundClassName,
+                  )}
+                  style={{ fontFamily: MONO_FONT }}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  {thread.branch}
+                </Text>
+              </>
+            ) : null}
+          </View>
         ) : thread.branch || props.environmentLabel ? (
           /* "branch · machine" share one truncating line. The machine sits
              last so a tight fit cuts the repetitive label, not the branch —

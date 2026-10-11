@@ -6,6 +6,8 @@ export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-6 py-2.5";
 export const THREAD_LIST_V2_ROW_DIVIDERS = false;
 /** Clean list: the provider glyph leads the title instead of trailing the meta line. */
 export const THREAD_LIST_V2_PROVIDER_LEADS_TITLE = true;
+/** Synara-style meta line: an icon leads the machine and the branch. */
+export const THREAD_LIST_V2_META_ICONS = true;
 
 export const selectedThreadRowColors = {
   foregroundClassName: "text-thread-selected-foreground",

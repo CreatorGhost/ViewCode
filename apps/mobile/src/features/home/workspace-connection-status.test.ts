@@ -1,7 +1,30 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import type { WorkspaceState } from "../../state/workspaceModel";
-import { workspaceConnectionStatusPresentation } from "./workspace-connection-status";
+import type { WorkspaceEnvironment } from "../../state/workspaceModel";
+import {
+  environmentConnectionLabel,
+  selectedEnvironmentHealth,
+  workspaceConnectionStatusPresentation,
+  workspaceFleetSubtitle,
+} from "./workspace-connection-status";
+
+function environment(
+  id: string,
+  overrides: Partial<WorkspaceEnvironment> = {},
+): WorkspaceEnvironment {
+  return {
+    environmentId: id as never,
+    environmentLabel: id,
+    displayUrl: "",
+    isRelayManaged: false,
+    isEnabled: true,
+    connectionState: "connected",
+    connectionError: null,
+    connectionErrorTraceId: null,
+    ...overrides,
+  };
+}
 
 function workspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
   return {
@@ -96,5 +119,92 @@ describe("workspace connection status", () => {
       detail: "Loading threads...",
       showsProgress: true,
     });
+  });
+});
+
+describe("workspace fleet subtitle", () => {
+  it("counts online computers and singularises one", () => {
+    expect(workspaceFleetSubtitle("online", [environment("a")])).toEqual({
+      lead: "1 computer",
+      tail: "1 online",
+      tailTone: "muted",
+    });
+    expect(workspaceFleetSubtitle("online", [environment("a"), environment("b")])).toEqual({
+      lead: "2 computers",
+      tail: "2 online",
+      tailTone: "muted",
+    });
+  });
+
+  it("warns about environments that are not online", () => {
+    const subtitle = workspaceFleetSubtitle("online", [
+      environment("a"),
+      environment("b", { connectionState: "offline" }),
+      environment("c", { connectionState: "reconnecting" }),
+    ]);
+
+    expect(subtitle).toEqual({ lead: "3 computers", tail: "2 offline", tailTone: "warning" });
+  });
+
+  it("ignores switched-off environments", () => {
+    const subtitle = workspaceFleetSubtitle("online", [
+      environment("a"),
+      environment("b", { isEnabled: false, connectionState: "offline" }),
+    ]);
+
+    expect(subtitle).toEqual({ lead: "1 computer", tail: "1 online", tailTone: "muted" });
+  });
+
+  it("stays calm while every environment is still connecting", () => {
+    const subtitle = workspaceFleetSubtitle("online", [
+      environment("a", { connectionState: "connecting" }),
+      environment("b", { connectionState: "reconnecting" }),
+    ]);
+
+    expect(subtitle).toEqual({ lead: "Connecting…", tail: null, tailTone: "muted" });
+  });
+
+  it("reports the network being offline before counting", () => {
+    expect(workspaceFleetSubtitle("offline", [environment("a")])).toEqual({
+      lead: "You are offline",
+      tail: null,
+      tailTone: "muted",
+    });
+  });
+
+  it("handles having no enabled environments", () => {
+    expect(workspaceFleetSubtitle("online", [])).toEqual({
+      lead: "No computers connected",
+      tail: null,
+      tailTone: "muted",
+    });
+  });
+});
+
+describe("environment connection label and health", () => {
+  it("maps phases to menu subtitles", () => {
+    expect(environmentConnectionLabel("connected")).toBe("Online");
+    expect(environmentConnectionLabel("connecting")).toBe("Reconnecting…");
+    expect(environmentConnectionLabel("reconnecting")).toBe("Reconnecting…");
+    expect(environmentConnectionLabel("error")).toBe("Offline");
+    expect(environmentConnectionLabel("offline")).toBe("Offline");
+  });
+
+  it("is healthy for all environments only when every enabled one is connected", () => {
+    const offlineButDisabled = environment("b", { isEnabled: false, connectionState: "offline" });
+    expect(selectedEnvironmentHealth([environment("a"), offlineButDisabled], null)).toBe("online");
+    expect(
+      selectedEnvironmentHealth(
+        [environment("a"), environment("c", { connectionState: "error" })],
+        null,
+      ),
+    ).toBe("attention");
+  });
+
+  it("follows the selected environment alone", () => {
+    const environments = [environment("a"), environment("b", { connectionState: "offline" })];
+    expect(selectedEnvironmentHealth(environments, "a" as never)).toBe("online");
+    expect(selectedEnvironmentHealth(environments, "b" as never)).toBe("attention");
+    expect(selectedEnvironmentHealth(environments, "missing" as never)).toBe("attention");
   });
 });

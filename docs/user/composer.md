@@ -165,8 +165,7 @@ transcription or cancellation; only the message text is sent when you submit.
 
 On Android, the composer's microphone uses your phone's speech recognition
 service (usually Google's), which transcribes while you speak. Confirm to insert
-the text, as on iPhone. The microphone on Home's **Start a new thread** bar opens
-a new task that is already listening once you pick its project.
+the text, as on iPhone.
 
 The microphone only appears when the phone has a speech recognition service
 enabled. Depending on that service and your language, audio may be sent to its
