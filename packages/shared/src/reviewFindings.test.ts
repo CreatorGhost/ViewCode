@@ -15,6 +15,7 @@ import {
   fencedCode,
   readReviewFindings,
   reviewFindingLocation,
+  reviewFindingsMode,
 } from "./reviewFindings.ts";
 
 describe("reviewFindingLocation", () => {
@@ -131,5 +132,23 @@ describe("readReviewFindings", () => {
       readReviewFindings({ kind: "viewcode.review.findings", payload: { verdict: "approve" } }),
     ).toBeUndefined();
     expect(readReviewFindings({ kind: "html.render", payload })).toBeUndefined();
+  });
+
+  it("reads findings recorded before they had a mode as fixes", () => {
+    const payload = {
+      verdict: "approve",
+      mergeConfidence: 5,
+      reviewEffort: 1,
+      findings: [],
+      needsChecking: [],
+      target: { kind: "local" },
+    };
+    const legacy = readReviewFindings({ kind: "viewcode.review.findings", payload });
+    expect(legacy && reviewFindingsMode(legacy)).toBe("fix");
+    const comments = readReviewFindings({
+      kind: "viewcode.review.findings",
+      payload: { ...payload, mode: "comment" },
+    });
+    expect(comments && reviewFindingsMode(comments)).toBe("comment");
   });
 });

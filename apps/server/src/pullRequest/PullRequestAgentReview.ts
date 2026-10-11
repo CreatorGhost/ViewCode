@@ -8,6 +8,7 @@ import {
   type PullRequestRef,
   type PullRequestStartReviewResult,
   type PullRequestSummary,
+  type ReviewFindingsMode,
   type SourceControlProviderKind,
   type ThreadPullRequestLinkSource,
 } from "@t3tools/contracts";
@@ -27,7 +28,11 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "../config.ts";
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ensureReviewPlaybook, reviewModeLabel } from "../review/ReviewPlaybook.ts";
+import {
+  ensureReviewPlaybook,
+  reviewModeLabel,
+  SUBMIT_REVIEW_FINDINGS_TOOL,
+} from "../review/ReviewPlaybook.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as PullRequestService from "./PullRequestService.ts";
 import { pullRequestSyncKey } from "./pullRequestSyncKey.ts";
@@ -79,8 +84,27 @@ export interface PullRequestAgentReviewInput {
   readonly modelSelection?: ModelSelection | undefined;
   readonly fallbackModelSelection?: ModelSelection | undefined;
   readonly focus?: string | undefined;
+  /** Absent: decided from the pull request's author when the findings are recorded. */
+  readonly findingsMode?: ReviewFindingsMode | undefined;
   /** "manual" when a user asked for the review, "agent" when an agent did. */
   readonly linkSource: ThreadPullRequestLinkSource;
+}
+
+/** Who opened a pull request and who it is read as; null where the host could not say. */
+export interface PullRequestAuthorship {
+  readonly author: string | null;
+  readonly viewer: string | null;
+}
+
+/**
+ * What a review's findings are for: fixes on the reader's own pull request, review comments on
+ * somebody else's. Without both names nobody can be told apart, and fixing is the choice that
+ * posts nothing.
+ */
+export function reviewFindingsModeFor(authorship: PullRequestAuthorship): ReviewFindingsMode {
+  const { author, viewer } = authorship;
+  if (author === null || viewer === null) return "fix";
+  return author.toLowerCase() === viewer.toLowerCase() ? "fix" : "comment";
 }
 
 /**
@@ -97,6 +121,8 @@ export class PullRequestAgentReview extends Context.Service<
       PullRequestStartReviewResult,
       PullRequestService.PullRequestError | PullRequestAgentReviewError
     >;
+    /** Never fails: a host that cannot say leaves both names null. */
+    readonly authorship: (reference: PullRequestRef) => Effect.Effect<PullRequestAuthorship>;
   }
 >()("t3/pullRequest/PullRequestAgentReview") {}
 
@@ -149,6 +175,8 @@ export function buildPullRequestReviewPrompt(input: {
     "provider" | "repository" | "url" | "number" | "title" | "headBranch" | "baseBranch"
   >;
   readonly focus?: string | undefined;
+  /** Only a mode the user chose; otherwise the server decides when the findings arrive. */
+  readonly findingsMode?: ReviewFindingsMode | undefined;
 }): string {
   const { pr } = input;
   const lines = [
@@ -160,6 +188,12 @@ export function buildPullRequestReviewPrompt(input: {
   ];
   const focus = input.focus?.trim();
   if (focus) lines.push("", `Focus on: ${focus}`);
+  if (input.findingsMode !== undefined) {
+    lines.push(
+      "",
+      `When you call ${SUBMIT_REVIEW_FINDINGS_TOOL}, pass mode "${input.findingsMode}".`,
+    );
+  }
   return lines.join("\n");
 }
 
@@ -265,6 +299,7 @@ const make = Effect.gen(function* () {
             playbookPath,
             pr: summary,
             focus: input.focus,
+            findingsMode: input.findingsMode,
           }),
           attachments: [],
         },
@@ -277,7 +312,21 @@ const make = Effect.gen(function* () {
     return { threadId, title };
   });
 
-  return PullRequestAgentReview.of({ start });
+  // The detail names both, and is usually cached from the page the review started on.
+  const authorship = (reference: PullRequestRef) =>
+    pullRequests.detail(reference).pipe(
+      Effect.map((detail): PullRequestAuthorship => ({
+        author: detail.author?.login ?? null,
+        viewer: detail.viewer ?? null,
+      })),
+      Effect.catch((error) =>
+        Effect.logWarning("Could not read who opened the reviewed pull request", {
+          detail: error.message,
+        }).pipe(Effect.as<PullRequestAuthorship>({ author: null, viewer: null })),
+      ),
+    );
+
+  return PullRequestAgentReview.of({ start, authorship });
 });
 
 export const layer = Layer.effect(PullRequestAgentReview, make);

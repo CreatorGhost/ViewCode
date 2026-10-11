@@ -6,6 +6,7 @@ import {
   type OrchestrationCommand,
   type OrchestrationProjectShell,
   type OrchestrationThreadShell,
+  type PullRequestRef,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
@@ -134,6 +135,7 @@ interface HarnessOptions {
   readonly thread?: OrchestrationThreadShell | null;
   readonly project?: OrchestrationProjectShell | null;
   readonly reject?: (command: OrchestrationCommand) => OrchestrationCommandInvariantError | null;
+  readonly authorship?: PullRequestAgentReview.PullRequestAuthorship;
 }
 
 const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
@@ -143,6 +145,7 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
   const reviews = yield* Ref.make<
     ReadonlyArray<PullRequestAgentReview.PullRequestAgentReviewInput>
   >([]);
+  const authorshipReads = yield* Ref.make<ReadonlyArray<PullRequestRef>>([]);
   const thread = options.thread === undefined ? makeThread([]) : options.thread;
   const project = options.project === undefined ? makeProject() : options.project;
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
@@ -170,6 +173,10 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
         Ref.update(reviews, (all) => [...all, input]).pipe(
           Effect.as({ threadId: ThreadId.make("review-thread"), title: "Review: #7 Fix" }),
         ),
+      authorship: (reference) =>
+        Ref.update(authorshipReads, (all) => [...all, reference]).pipe(
+          Effect.as(options.authorship ?? { author: "octocat", viewer: "octocat" }),
+        ),
     }),
   );
   const toolkit = yield* PullRequestsToolkit.pipe(
@@ -190,7 +197,7 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
       Effect.provide(dependencies),
     );
-  return { commands, reviews, call };
+  return { commands, reviews, authorshipReads, call };
 });
 
 describe("pull request toolkit handlers", () => {
@@ -202,6 +209,7 @@ describe("pull request toolkit handlers", () => {
         number: 7,
         mode: "deep",
         focus: "migrations",
+        findingsMode: "fix",
       });
       expect(result).toMatchObject({
         host: "github.com",
@@ -219,6 +227,7 @@ describe("pull request toolkit handlers", () => {
           },
           mode: "deep",
           focus: "migrations",
+          findingsMode: "fix",
           fallbackModelSelection: { instanceId: "codex", model: "gpt-5" },
           linkSource: "agent",
         },
@@ -276,6 +285,56 @@ describe("pull request toolkit handlers", () => {
               },
             },
           },
+        ]);
+      }),
+    );
+
+    it.effect("records comments for somebody else's pull request and fixes for the reader's", () =>
+      Effect.gen(function* () {
+        const theirs = yield* makeHarness({
+          thread: makeThread([makeLink(7)]),
+          authorship: { author: "Octocat", viewer: "bilal" },
+        });
+        yield* theirs.call("submit_review_findings", report);
+        expect(yield* Ref.get(theirs.authorshipReads)).toEqual([
+          { projectId: PROJECT_ID, host: "github.com", repository: "t3tools/t3code", number: 7 },
+        ]);
+        expect(yield* Ref.get(theirs.commands)).toMatchObject([
+          { activity: { payload: { mode: "comment" } } },
+        ]);
+
+        const mine = yield* makeHarness({
+          thread: makeThread([makeLink(7)]),
+          authorship: { author: "Bilal", viewer: "bilal" },
+        });
+        yield* mine.call("submit_review_findings", report);
+        expect(yield* Ref.get(mine.commands)).toMatchObject([
+          { activity: { payload: { mode: "fix" } } },
+        ]);
+      }),
+    );
+
+    it.effect("takes the reviewer's mode over the pull request's author", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          thread: makeThread([makeLink(7)]),
+          authorship: { author: "octocat", viewer: "bilal" },
+        });
+        yield* harness.call("submit_review_findings", { ...report, mode: "fix" });
+        expect(yield* Ref.get(harness.authorshipReads)).toEqual([]);
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          { activity: { payload: { mode: "fix" } } },
+        ]);
+      }),
+    );
+
+    it.effect("records fixes for local changes, whatever mode was asked for", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness();
+        yield* harness.call("submit_review_findings", { ...report, mode: "comment" });
+        expect(yield* Ref.get(harness.authorshipReads)).toEqual([]);
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          { activity: { payload: { target: { kind: "local" }, mode: "fix" } } },
         ]);
       }),
     );

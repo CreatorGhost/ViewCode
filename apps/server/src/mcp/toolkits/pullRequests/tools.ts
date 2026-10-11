@@ -5,6 +5,7 @@ import {
   PullRequestOperationError,
   PullRequestUnavailableError,
   PullRequestState,
+  ReviewFindingsMode,
   ReviewFindingsReport,
   ThreadPullRequestLinkSource,
   TrimmedNonEmptyString,
@@ -271,6 +272,12 @@ export const ReviewPullRequestInput = Schema.Struct({
       description: 'What the reviewer should look at most closely, for example "error handling".',
     }),
   ),
+  findingsMode: Schema.optional(
+    ReviewFindingsMode.annotate({
+      description:
+        "What the user does with the findings: fix them, or post them to the pull request as review comments. Defaults to comment when the pull request is somebody else's and fix when it is the user's own; pass it only when the user asked for the other.",
+    }),
+  ),
 });
 export type ReviewPullRequestInput = typeof ReviewPullRequestInput.Type;
 
@@ -287,6 +294,12 @@ export const SubmitReviewFindingsInput = Schema.Struct({
     Schema.Literals(["pull-request", "local"]).annotate({
       description:
         "What you reviewed. Defaults to the pull request linked to this thread, or local when none is linked.",
+    }),
+  ),
+  mode: Schema.optional(
+    ReviewFindingsMode.annotate({
+      description:
+        "Pass only when the review request names one. Otherwise ViewCode decides: review comments for somebody else's pull request, fixes for the user's own or for local changes.",
     }),
   ),
 });
@@ -383,7 +396,7 @@ const ReviewPullRequestTool = Tool.make("review_pull_request", {
 
 const SubmitReviewFindingsTool = Tool.make(SUBMIT_REVIEW_FINDINGS_TOOL, {
   description:
-    "Hand ViewCode the findings of the review you just reported, after writing the report. ViewCode shows them under your report as a card from which the user can send findings to a coding session to fix. Pass every reported finding under findings and the ones you could not settle under needsChecking, with the severities, confidences, paths and lines from your report; detail says what is wrong, why it matters and how it is reached; suggestedFix is code that applies as it stands. Calling it again replaces the findings recorded for this thread, so a re-review submits its full set.",
+    "Hand ViewCode the findings of the review you just reported, after writing the report. ViewCode shows them to the user, who sends them to a coding session to fix or, on somebody else's pull request, posts them as review comments. Pass every reported finding under findings and the ones you could not settle under needsChecking, with the severities, confidences, paths and lines from your report; detail says what is wrong, why it matters and how it is reached; suggestedFix is code that applies as it stands. Calling it again replaces the findings recorded for this thread, so a re-review submits its full set.",
   parameters: SubmitReviewFindingsInput,
   success: SubmitReviewFindingsResult,
   failure: PullRequestToolError,

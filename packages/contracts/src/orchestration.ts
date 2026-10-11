@@ -32,6 +32,7 @@ import {
   PullRequestReviewDecision,
   PullRequestState,
 } from "./pullRequest.ts";
+import { ReviewFindingsMode } from "./reviewFindings.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -1427,6 +1428,11 @@ export const PullRequestStartReviewInput = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   /** What to look at most closely, for example "security"; appended to the review request. */
   focus: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))),
+  /**
+   * What the findings are for. Absent: "comment" on somebody else's pull request, "fix" on the
+   * reader's own.
+   */
+  findingsMode: Schema.optional(ReviewFindingsMode),
 });
 export type PullRequestStartReviewInput = typeof PullRequestStartReviewInput.Type;
 

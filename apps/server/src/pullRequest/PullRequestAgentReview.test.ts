@@ -5,6 +5,7 @@ import {
   PullRequestUnavailableError,
   type OrchestrationCommand,
   type OrchestrationProjectShell,
+  type PullRequestDetail,
   type PullRequestSummary,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
@@ -66,12 +67,16 @@ const makeHarness = (options: {
   readonly defaultModel?: typeof PROJECT_MODEL | null;
   readonly summary?: Effect.Effect<PullRequestSummary, PullRequestService.PullRequestError>;
   readonly rejectLink?: boolean;
+  readonly detail?: Effect.Effect<PullRequestDetail, PullRequestService.PullRequestError>;
 }) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
     const dependencies = Layer.mergeAll(
       Layer.mock(PullRequestService.PullRequestService)({
         summary: () => options.summary ?? Effect.succeed(summary),
+        detail: () =>
+          options.detail ??
+          Effect.fail(new PullRequestUnavailableError({ reason: "provider-unsupported" })),
       }),
       Layer.mock(ProjectionSnapshotQuery)({
         getProjectShellById: (projectId) =>
@@ -177,6 +182,41 @@ describe("PullRequestAgentReview", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("asks the reviewer to pass the findings mode the user chose", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      yield* harness.reviews.start({
+        reference: REFERENCE,
+        findingsMode: "comment",
+        linkSource: "manual",
+      });
+      const turn = (yield* Ref.get(harness.commands)).at(-1);
+      expect(turn?.type === "thread.turn.start" ? turn.message.text : "").toContain(
+        'When you call submit_review_findings, pass mode "comment".',
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("reads who opened the pull request, and nobody when the host cannot say", () =>
+    Effect.gen(function* () {
+      const read = yield* makeHarness({
+        detail: Effect.succeed({
+          author: { login: "octocat", name: null, avatarUrl: null },
+          viewer: "bilal",
+        } as PullRequestDetail),
+      });
+      expect(yield* read.reviews.authorship(REFERENCE)).toEqual({
+        author: "octocat",
+        viewer: "bilal",
+      });
+      const unreadable = yield* makeHarness({});
+      expect(yield* unreadable.reviews.authorship(REFERENCE)).toEqual({
+        author: null,
+        viewer: null,
+      });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("refuses before creating anything when no model can be chosen", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({});
@@ -217,4 +257,24 @@ describe("PullRequestAgentReview", () => {
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
+});
+
+describe("reviewFindingsModeFor", () => {
+  it("comments on somebody else's pull request and fixes the reader's own", () => {
+    expect(
+      PullRequestAgentReview.reviewFindingsModeFor({ author: "octocat", viewer: "bilal" }),
+    ).toBe("comment");
+    expect(PullRequestAgentReview.reviewFindingsModeFor({ author: "Bilal", viewer: "bilal" })).toBe(
+      "fix",
+    );
+  });
+
+  it("fixes when either name is unknown, since fixing posts nothing", () => {
+    expect(PullRequestAgentReview.reviewFindingsModeFor({ author: null, viewer: "bilal" })).toBe(
+      "fix",
+    );
+    expect(PullRequestAgentReview.reviewFindingsModeFor({ author: "octocat", viewer: null })).toBe(
+      "fix",
+    );
+  });
 });

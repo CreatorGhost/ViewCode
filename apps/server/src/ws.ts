@@ -3204,7 +3204,13 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "pull-requests" },
           ),
-        [WS_METHODS.pullRequestsStartReview]: ({ mode, modelSelection, focus, ...reference }) =>
+        [WS_METHODS.pullRequestsStartReview]: ({
+          mode,
+          modelSelection,
+          focus,
+          findingsMode,
+          ...reference
+        }) =>
           observeRpcEffect(
             WS_METHODS.pullRequestsStartReview,
             withPullRequestViewer(
@@ -3214,6 +3220,7 @@ const makeWsRpcLayer = (
                 mode,
                 modelSelection,
                 focus,
+                findingsMode,
                 linkSource: "manual",
               }),
             ).pipe(

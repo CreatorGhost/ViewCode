@@ -6,6 +6,7 @@ import {
   type OrchestrationProjectShell,
   type OrchestrationThreadShell,
   type ReviewFindingsActivityPayload,
+  type ReviewFindingsMode,
   type ReviewFindingsTarget,
   type SourceControlProviderKind,
   type ThreadId,
@@ -343,12 +344,25 @@ const make = Effect.gen(function* () {
       requireThread(PullRequestListFailedError).pipe(Effect.map(listThreadPullRequests)),
     watch_pull_request: (input) => setWatching(input, true),
     unwatch_pull_request: (input) => setWatching(input, false),
-    submit_review_findings: ({ target: requested, ...report }) =>
+    submit_review_findings: ({ target: requested, mode: requestedMode, ...report }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(ReviewFindingsFailedError);
         const target = reviewFindingsTarget(thread, requested);
         if (target === null) return yield* new ReviewFindingsTargetMissingError({});
-        const payload: ReviewFindingsActivityPayload = { ...report, target };
+        // Local changes have nowhere to post to.
+        const mode: ReviewFindingsMode =
+          target.kind === "local"
+            ? "fix"
+            : (requestedMode ??
+              PullRequestAgentReview.reviewFindingsModeFor(
+                yield* reviews.authorship({
+                  projectId: thread.projectId,
+                  host: target.host,
+                  repository: target.repository,
+                  number: target.number,
+                }),
+              ));
+        const payload: ReviewFindingsActivityPayload = { ...report, target, mode };
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const count = report.findings.length;
         // Clients show only the latest findings activity, which is how a re-review replaces the
@@ -384,7 +398,7 @@ const make = Effect.gen(function* () {
             "Recorded and shown to the reader under your report. Don't repeat the findings; end your turn.",
         };
       }),
-    review_pull_request: ({ mode, focus, ...targetInput }) =>
+    review_pull_request: ({ mode, focus, findingsMode, ...targetInput }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(PullRequestReviewFailedError);
         const project = yield* projectOf(thread, PullRequestReviewFailedError);
@@ -398,6 +412,7 @@ const make = Effect.gen(function* () {
           },
           mode,
           focus,
+          findingsMode,
           // A user who never set a default model gets a reviewer like the agent that asked.
           fallbackModelSelection: thread.modelSelection,
           linkSource: "agent",

@@ -484,6 +484,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Findings arrive twice on purpose: the written report for the reader, and `submit_review_findings`
   for the app, recorded as a `viewcode.review.findings` activity. Activities are append-only, so a
   re-review replaces the set only by coming later: clients render the latest one and skip the rest.
+- Whether findings are fixes or review comments (`mode` on that payload; absent reads as fix) is
+  decided by the server when they are recorded: comment when the pull request's author is not the
+  account it is read as (`PullRequestAgentReview.authorship`), fix when either is unknown, since
+  fixing posts nothing. A mode chosen at review start reaches the tool only as a line in the first
+  message; nothing else carries it from start to record.
 - Fix to an existing session goes through the web composer's queue (in memory; it sends now, at
   the next tool boundary, or at turn end for providers that cannot steer), because the server has
   no queue for user turns and inventing one would fork that behaviour. Only a new session is a

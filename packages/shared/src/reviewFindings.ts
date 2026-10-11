@@ -4,6 +4,7 @@ import {
   type OrchestrationThreadActivity,
   type ReviewFinding,
   type ReviewFindingToFix,
+  type ReviewFindingsMode,
   type ReviewFindingsTarget,
   type ReviewFindingSeverity,
   type ReviewVerdict,
@@ -40,6 +41,13 @@ export function readReviewFindings(
 ): ReviewFindingsActivityPayload | undefined {
   if (activity.kind !== REVIEW_FINDINGS_ACTIVITY_KIND) return undefined;
   return Option.getOrUndefined(decodePayload(activity.payload));
+}
+
+/** What a review's findings are for; findings recorded before there was a choice are fixes. */
+export function reviewFindingsMode(
+  payload: Pick<ReviewFindingsActivityPayload, "mode">,
+): ReviewFindingsMode {
+  return payload.mode ?? "fix";
 }
 
 /**

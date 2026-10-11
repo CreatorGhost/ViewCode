@@ -88,10 +88,19 @@ export const ReviewFindingsTarget = Schema.Union([
 ]);
 export type ReviewFindingsTarget = typeof ReviewFindingsTarget.Type;
 
+/**
+ * What the reader does with the findings: fix them (their own pull request, or a local review), or
+ * post them as review comments (somebody else's pull request).
+ */
+export const ReviewFindingsMode = Schema.Literals(["fix", "comment"]);
+export type ReviewFindingsMode = typeof ReviewFindingsMode.Type;
+
 /** The `REVIEW_FINDINGS_ACTIVITY_KIND` activity payload. */
 export const ReviewFindingsActivityPayload = Schema.Struct({
   ...ReviewFindingsReport.fields,
   target: ReviewFindingsTarget,
+  /** Decided when the findings are recorded. Absent on findings from before it existed: "fix". */
+  mode: Schema.optional(ReviewFindingsMode),
 });
 export type ReviewFindingsActivityPayload = typeof ReviewFindingsActivityPayload.Type;
 
