@@ -1,6 +1,6 @@
 import type { ComposerTextPaste } from "../native/T3ComposerEditor.types";
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 
 import {
@@ -53,11 +53,13 @@ import {
   insertComposerDraftText,
   insertComposerDraftContext,
   clearComposerDraftContent,
+  composerDraftNeedsThreadReconcile,
   composerDraftsAtom,
   composerContextImportsAtom,
   ensureComposerDraftsLoaded,
   getComposerDraftSnapshot,
   mergeComposerDraftContent,
+  reconcileComposerDraftWithThread,
   removeComposerDraftAttachment,
   scheduleUnusedComposerAttachmentCleanup,
   setComposerDraftText,
@@ -240,10 +242,36 @@ export function useThreadComposerState() {
   }, [acknowledgedMessages, selectedThreadMessages]);
 
   const selectedDraft = selectedThreadKey ? composerDrafts[selectedThreadKey] : null;
+  const selectedThread = selectedThreadDetail ?? selectedThreadShell;
+  // The thread's settings are what the next message uses. A model or mode
+  // picked here and not sent yet gives way when the thread changes elsewhere
+  // (another device, the server, an agent), and a new pick binds to the
+  // thread's current settings. Before paint, so the picker never shows a
+  // stale pick.
+  const serverModelSelection = selectedThread?.modelSelection;
+  const serverRuntimeMode = selectedThread?.runtimeMode;
+  const serverInteractionMode = selectedThread?.interactionMode;
+  const serverThreadSettings = useMemo(
+    () =>
+      serverModelSelection && serverRuntimeMode && serverInteractionMode
+        ? {
+            modelSelection: serverModelSelection,
+            runtimeMode: serverRuntimeMode,
+            interactionMode: serverInteractionMode,
+          }
+        : null,
+    [serverInteractionMode, serverModelSelection, serverRuntimeMode],
+  );
+  const draftNeedsThreadReconcile =
+    serverThreadSettings !== null &&
+    composerDraftNeedsThreadReconcile(selectedDraft, serverThreadSettings);
+  useLayoutEffect(() => {
+    if (!draftNeedsThreadReconcile || !selectedThreadKey || serverThreadSettings === null) return;
+    reconcileComposerDraftWithThread(selectedThreadKey, serverThreadSettings);
+  }, [draftNeedsThreadReconcile, selectedThreadKey, serverThreadSettings]);
   const draftMessage = selectedDraft?.text ?? "";
   const draftAttachments = selectedDraft?.attachments ?? [];
   const selectedThreadQueueCount = selectedThreadQueuedMessages.length;
-  const selectedThread = selectedThreadDetail ?? selectedThreadShell;
   const modelSelection = selectedDraft?.modelSelection ?? selectedThread?.modelSelection ?? null;
   const runtimeMode = selectedDraft?.runtimeMode ?? selectedThread?.runtimeMode ?? null;
   const selectedProvider = selectedEnvironmentRuntime?.serverConfig?.providers.find(

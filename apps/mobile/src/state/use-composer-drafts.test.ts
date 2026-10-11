@@ -184,6 +184,7 @@ import {
   setComposerDraftText,
   insertComposerDraftContext,
   insertComposerDraftText,
+  reconcileComposerDraftWithThread,
   rememberComposerDraftSelection,
   setComposerDraftAttachmentUpload,
   waitForComposerDraftsLoaded,
@@ -192,6 +193,7 @@ import {
   stickyComposerModelSelectionAtom,
   undoComposerDraftMerge,
   undoComposerDraftMergeState,
+  updateComposerDraftSettings,
 } from "./use-composer-drafts";
 import { retainComposerAttachmentFileForPreview } from "../lib/composerAttachmentPreviewRetention";
 
@@ -2719,5 +2721,79 @@ describe("mobile composer drafts", () => {
       },
     });
     expect(composerAttachmentCleanupMocks.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("mobile composer drafts follow their thread's settings", () => {
+  const threadKey = "environment-1:thread-1";
+  const opus = {
+    instanceId: ProviderInstanceId.make("claudeAgent"),
+    model: "claude-opus-5-5",
+    options: [{ id: "effort", value: "high" }],
+  };
+  const gpt = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-6.1" };
+  const thread = (modelSelection: typeof opus | typeof gpt) => ({
+    modelSelection,
+    runtimeMode: "full-access" as const,
+    interactionMode: "default" as const,
+  });
+
+  it("drops an unsent model pick when the thread's model changes on another device", () => {
+    setComposerDraftText(threadKey, "next prompt");
+    updateComposerDraftSettings(threadKey, { modelSelection: gpt });
+    reconcileComposerDraftWithThread(threadKey, thread(opus));
+    expect(getComposerDraftSnapshot(threadKey).modelSelection).toEqual(gpt);
+
+    // The desktop switched the thread to GPT, then back to Opus.
+    reconcileComposerDraftWithThread(threadKey, thread(gpt));
+    reconcileComposerDraftWithThread(threadKey, thread(opus));
+
+    const draft = getComposerDraftSnapshot(threadKey);
+    expect(draft.text).toBe("next prompt");
+    expect(draft.modelSelection).toBeUndefined();
+  });
+
+  it("keeps a pick made after the thread changed", () => {
+    updateComposerDraftSettings(threadKey, {
+      modelSelection: gpt,
+      runtimeMode: "approval-required",
+    });
+    reconcileComposerDraftWithThread(threadKey, thread(opus));
+    reconcileComposerDraftWithThread(threadKey, thread(gpt));
+
+    updateComposerDraftSettings(threadKey, { modelSelection: opus });
+    reconcileComposerDraftWithThread(threadKey, thread(gpt));
+
+    const draft = getComposerDraftSnapshot(threadKey);
+    expect(draft.modelSelection).toEqual(opus);
+    // The runtime pick was made against a thread value that has not changed.
+    expect(draft.runtimeMode).toBe("approval-required");
+  });
+
+  it("makes picks saved by older builds follow the thread", () => {
+    const { drafts } = decodePersistedComposerState({
+      schemaVersion: 1,
+      drafts: { [threadKey]: { ...DRAFT, modelSelection: opus, interactionMode: "plan" } },
+    });
+    appAtomRegistry.set(composerDraftsAtom, drafts);
+
+    reconcileComposerDraftWithThread(threadKey, thread(gpt));
+
+    expect(getComposerDraftSnapshot(threadKey)).toEqual(DRAFT);
+  });
+
+  it("keeps a bound pick through a reload", () => {
+    updateComposerDraftSettings(threadKey, { modelSelection: gpt });
+    reconcileComposerDraftWithThread(threadKey, thread(opus));
+    const { drafts } = decodePersistedComposerState(
+      JSON.parse(
+        JSON.stringify({ schemaVersion: 1, drafts: appAtomRegistry.get(composerDraftsAtom) }),
+      ),
+    );
+    appAtomRegistry.set(composerDraftsAtom, drafts);
+
+    reconcileComposerDraftWithThread(threadKey, thread(opus));
+
+    expect(getComposerDraftSnapshot(threadKey).modelSelection).toEqual(gpt);
   });
 });
