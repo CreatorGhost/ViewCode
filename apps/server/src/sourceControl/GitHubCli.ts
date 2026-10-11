@@ -389,12 +389,15 @@ export class GitHubCli extends Context.Service<
 
     /**
      * The gh login this repository's commands currently run as when it is not gh's active
-     * account, or null for the active account. Read from memory only.
+     * account, or null for the active account. Read from memory, except that a `cwd` in place of
+     * a repository reads that checkout's remotes, and only once some owner on the host is routed.
      */
-    readonly accountFor: (input: {
-      readonly host: string;
-      readonly repository: string;
-    }) => Effect.Effect<string | null>;
+    readonly accountFor: (
+      input: { readonly host: string } & (
+        | { readonly repository: string }
+        | { readonly cwd: string }
+      ),
+    ) => Effect.Effect<string | null>;
   }
 >()("t3/sourceControl/GitHubCli") {}
 
@@ -1152,12 +1155,15 @@ export const make = Effect.gen(function* () {
     executeAsAccount,
     accountFor: (input) =>
       Effect.map(
-        Clock.currentTimeMillis,
-        (now) =>
-          liveRoute(
-            `${input.host.toLowerCase()}\0${input.repository.split("/")[0]!.toLowerCase()}`,
-            now,
-          )?.login ?? null,
+        routeOf(
+          {
+            host: input.host.toLowerCase(),
+            owner: "repository" in input ? input.repository.split("/")[0]!.toLowerCase() : null,
+            read: true,
+          },
+          "cwd" in input ? input.cwd : globalThis.process.cwd(),
+        ),
+        (route) => route?.login ?? null,
       ),
     listPullRequestsByHead,
     listOpenPullRequests: (input) =>

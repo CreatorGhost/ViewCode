@@ -78,6 +78,7 @@ describe("AssetAccess", () => {
     }).pipe(
       Effect.provide(
         Layer.mock(GitHubCli.GitHubCli)({
+          accountFor: () => Effect.succeed(null),
           execute: () =>
             Effect.sync(() => ({
               exitCode: ChildProcessSpawner.ExitCode(0),
@@ -99,6 +100,69 @@ describe("AssetAccess", () => {
                 status: request.headers.authorization ? 200 : 404,
                 headers: { "content-type": "image/png" },
               }),
+            ),
+          );
+        }),
+      ),
+      Effect.scoped,
+    );
+  });
+
+  it.effect("fetches media as the account its repository's reads are routed to", () => {
+    const asked: Array<string> = [];
+    const lookups: Array<string> = [];
+    const authorizations: Array<string | undefined> = [];
+    return Effect.gen(function* () {
+      const expiresAt = Number.MAX_SAFE_INTEGER;
+      // The owner named in the path, and for an upload that names none, the checkout it was read in.
+      yield* githubMediaResponse(
+        {
+          url: "https://media.githubusercontent.com/media/acme/app/main/a.png",
+          cwd: "/r",
+          expiresAt,
+        },
+        {},
+      );
+      yield* githubMediaResponse(
+        { url: "https://github.com/user-attachments/assets/abc", cwd: "/acme-app", expiresAt },
+        {},
+      );
+      expect(asked).toEqual(["repository acme/", "cwd /acme-app"]);
+      // That account's own token, looked up once and reused for the second request.
+      expect(lookups).toEqual(["auth token --hostname github.com --user bilal-acme"]);
+      expect(authorizations).toEqual(["Bearer token-bilal-acme", "Bearer token-bilal-acme"]);
+    }).pipe(
+      Effect.provide(
+        Layer.mock(GitHubCli.GitHubCli)({
+          accountFor: (input) =>
+            Effect.sync(() => {
+              const subject =
+                "repository" in input ? `repository ${input.repository}` : `cwd ${input.cwd}`;
+              asked.push(subject);
+              return subject.includes("acme") ? "bilal-acme" : null;
+            }),
+          execute: (input) =>
+            Effect.sync(() => {
+              lookups.push(input.args.join(" "));
+              const user = input.args.indexOf("--user");
+              return {
+                exitCode: ChildProcessSpawner.ExitCode(0),
+                stdout: user < 0 ? "token-active" : `token-${input.args[user + 1]}`,
+                stderr: "",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              };
+            }),
+        }),
+      ),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make((request) => {
+          authorizations.push(request.headers.authorization);
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              new Response(null, { status: 200, headers: { "content-type": "image/png" } }),
             ),
           );
         }),

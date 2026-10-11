@@ -1054,6 +1054,8 @@ describe("GitHubCli account routing", () => {
           yield* gh.accountFor({ host: "github.com", repository: "acme/web" }),
           "freelance",
         );
+        // A checkout names its owner through its remotes, for a caller holding only the path.
+        assert.strictEqual(yield* gh.accountFor({ host: "github.com", cwd: "/acme" }), "freelance");
 
         // The owner's other repositories, and the checkout's own commands, go straight to it.
         yield* gh.execute(listAcme("api"));
