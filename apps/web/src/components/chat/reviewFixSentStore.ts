@@ -8,7 +8,12 @@ export interface ReviewFixDestination {
 
 export type ReviewFindingRating = "up" | "down";
 
-/** Keyed by findings set (`environmentId:activityId`), then by finding key. */
+/** Which findings set a card's state belongs to. */
+export function reviewFindingsCardKey(environmentId: string, activityId: string): string {
+  return `${environmentId}:${activityId}`;
+}
+
+/** Keyed by findings set (`reviewFindingsCardKey`), then by finding key. */
 type ByCard<T> = Readonly<Record<string, Readonly<Record<string, T>>>>;
 
 interface ReviewFixSentState {

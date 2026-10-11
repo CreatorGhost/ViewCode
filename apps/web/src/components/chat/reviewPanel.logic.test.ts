@@ -11,12 +11,16 @@ import { describe, expect, it } from "vite-plus/test";
 import { reviewCommentContextReference } from "../../lib/composerContextRecords";
 import { formatInlineContextReference } from "../../lib/composerContextReferences";
 import {
+  openReviewFindingCount,
   placeReviewFindings,
   reviewFindingEntries,
   reviewFindingsFixPrompt,
   reviewPostOverallComment,
   reviewSourceCandidates,
+  reviewThreadMode,
+  selectPullRequestReviewFindings,
   selectReviewFindingsSource,
+  selectRunningPullRequestReview,
 } from "./reviewPanel.logic";
 
 const prTarget = (number: number): ReviewFindingsTarget => ({
@@ -125,6 +129,103 @@ describe("selectReviewFindingsSource", () => {
   });
 });
 
+describe("selectPullRequestReviewFindings", () => {
+  it("shows the newest review of the pull request with no thread of its own to prefer", () => {
+    const source = selectPullRequestReviewFindings({
+      pullRequests: [PR_7],
+      threads: [
+        thread("old-review", [findingsActivity("old", "2026-08-01T00:00:00.000Z")]),
+        // A re-review in the same thread replaces its earlier set.
+        thread("re-review", [
+          findingsActivity("first", "2026-08-02T00:00:00.000Z"),
+          findingsActivity("second", "2026-08-04T00:00:00.000Z"),
+        ]),
+        thread("stack-review", [
+          findingsActivity("stack", "2026-08-05T00:00:00.000Z", prTarget(8)),
+        ]),
+        thread("work", [otherActivity("tool", "2026-08-06T00:00:00.000Z")]),
+      ],
+    });
+    expect(source).toMatchObject({ threadId: "re-review", activityId: "second" });
+  });
+
+  it("shows nothing for a pull request nobody reviewed", () => {
+    expect(
+      selectPullRequestReviewFindings({
+        pullRequests: [PR_7],
+        threads: [
+          thread("stack-review", [
+            findingsActivity("stack", "2026-08-05T00:00:00.000Z", prTarget(8)),
+          ]),
+        ],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("selectRunningPullRequestReview", () => {
+  const candidate = (
+    id: string,
+    title: string,
+    running: boolean,
+    activities: ReadonlyArray<Activity> = [],
+    createdAt = "2026-08-01T00:00:00.000Z",
+  ) => ({ ...thread(id, activities), title, running, createdAt });
+
+  it("finds the newest review thread of the pull request still working on its findings", () => {
+    const running = selectRunningPullRequestReview({
+      number: 7,
+      threads: [
+        candidate("quick", "Review: #7 Fix the cache", true),
+        candidate("deep", "Deep review: #7 Fix the cache", true, [], "2026-08-02T00:00:00.000Z"),
+        // Not reviews of this pull request, or not running, or already done.
+        candidate("work", "Fix the cache", true, [], "2026-08-03T00:00:00.000Z"),
+        candidate("layer", "Review: #70 Other", true, [], "2026-08-03T00:00:00.000Z"),
+        candidate("idle", "Security audit: #7 Fix", false, [], "2026-08-03T00:00:00.000Z"),
+        candidate(
+          "done",
+          "Security audit: #7 Fix",
+          true,
+          [findingsActivity("found", "2026-08-03T00:00:00.000Z")],
+          "2026-08-03T00:00:00.000Z",
+        ),
+      ],
+    });
+    expect(running?.thread.id).toBe("deep");
+    expect(running?.mode).toBe("deep");
+  });
+
+  it("reads each mode from the title the server gives a review", () => {
+    expect(reviewThreadMode("Review: #7 Fix", 7)).toBe("quick");
+    expect(reviewThreadMode("Security audit: #7 Fix", 7)).toBe("security");
+    expect(reviewThreadMode("Review: #7", 7)).toBeNull();
+    expect(reviewThreadMode("Code review: #7 Fix", 7)).toBeNull();
+  });
+});
+
+describe("openReviewFindingCount", () => {
+  const findings = {
+    findings: [
+      { severity: "nit" as const, confidence: 70, path: "a.ts", title: "A", detail: "A." },
+      { severity: "nit" as const, confidence: 70, path: "b.ts", title: "B", detail: "B." },
+    ],
+    needsChecking: [
+      { severity: "question" as const, confidence: 40, path: "c.ts", title: "C", detail: "C." },
+    ],
+  };
+
+  it("counts the findings neither dismissed nor posted", () => {
+    expect(openReviewFindingCount(findings, {}, new Map())).toBe(3);
+    expect(
+      openReviewFindingCount(
+        findings,
+        { "finding:0": true },
+        new Map([["check:0", { placement: "inline", url: "https://x", verdict: "comment" }]]),
+      ),
+    ).toBe(1);
+  });
+});
+
 const link = (number: number, source: ThreadPullRequestLink["source"] = "manual") =>
   ({
     host: "github.com",
@@ -163,6 +264,15 @@ describe("reviewSourceCandidates", () => {
       ],
     });
     expect(candidates.map((candidate) => candidate.id)).toEqual(["newer", "older"]);
+  });
+
+  it("reads every linked thread for the pull request page, which is no thread", () => {
+    const candidates = reviewSourceCandidates({
+      threadId: null,
+      pullRequests: [PR_7],
+      threads: [shell("work"), shell("other-pr", { pullRequests: [link(8)] })],
+    });
+    expect(candidates.map((candidate) => candidate.id)).toEqual(["work"]);
   });
 
   it("reads nothing for a thread without a pull request", () => {

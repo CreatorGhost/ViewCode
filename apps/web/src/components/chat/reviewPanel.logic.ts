@@ -1,4 +1,5 @@
 import {
+  type AgentReviewMode,
   REVIEW_FINDINGS_ACTIVITY_KIND,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
@@ -10,6 +11,7 @@ import {
 import type { FileDiffMetadata } from "@pierre/diffs";
 import {
   fencedCode,
+  type PostedReviewFinding,
   readReviewFindings,
   REVIEW_FINDING_SEVERITIES,
   REVIEW_VERDICT_LABELS,
@@ -77,20 +79,15 @@ function latestSource(thread: ThreadFindings): ReviewFindingsSource | null {
 }
 
 /**
- * Which findings a thread's Review panel shows: the thread's own latest set when it is itself a
- * review, otherwise the newest set any linked thread submitted about one of this thread's pull
- * requests. A review of something else, such as another layer of a stack, does not count.
+ * The newest findings any of these threads submitted about one of these pull requests. A review
+ * of something else, such as another layer of a stack, does not count.
  */
-export function selectReviewFindingsSource(input: {
-  readonly thread: ThreadFindings;
+export function selectPullRequestReviewFindings(input: {
   readonly pullRequests: ReadonlyArray<ThreadPullRequestKey>;
-  readonly linkedThreads: ReadonlyArray<ThreadFindings>;
+  readonly threads: ReadonlyArray<ThreadFindings>;
 }): ReviewFindingsSource | null {
-  const own = latestSource(input.thread);
-  if (own !== null) return own;
   let newest: ReviewFindingsSource | null = null;
-  for (const thread of input.linkedThreads) {
-    if (thread.id === input.thread.id) continue;
+  for (const thread of input.threads) {
     const source = latestSource(thread);
     if (source === null || source.findings.target.kind !== "pull-request") continue;
     const target = source.findings.target;
@@ -100,17 +97,37 @@ export function selectReviewFindingsSource(input: {
   return newest;
 }
 
+/**
+ * Which findings a thread's Review panel shows: the thread's own latest set when it is itself a
+ * review, otherwise the newest set a linked thread submitted about one of this thread's pull
+ * requests (`selectPullRequestReviewFindings`).
+ */
+export function selectReviewFindingsSource(input: {
+  readonly thread: ThreadFindings;
+  readonly pullRequests: ReadonlyArray<ThreadPullRequestKey>;
+  readonly linkedThreads: ReadonlyArray<ThreadFindings>;
+}): ReviewFindingsSource | null {
+  return (
+    latestSource(input.thread) ??
+    selectPullRequestReviewFindings({
+      pullRequests: input.pullRequests,
+      threads: input.linkedThreads.filter((thread) => thread.id !== input.thread.id),
+    })
+  );
+}
+
 /** How many linked threads the panel reads for findings; each one is a thread subscription. */
 export const REVIEW_SOURCE_CANDIDATE_LIMIT = 5;
 
 /**
- * The threads that may hold a review of this thread's pull requests, most recently active first:
- * other unarchived threads linked to one of them. Only these have their activities read.
+ * The threads that may hold a review of these pull requests, most recently active first: the
+ * unarchived threads linked to one of them, other than the thread asking (null on the pull
+ * request page, which is no thread). Only these have their activities read.
  */
 export function reviewSourceCandidates<
   T extends Pick<OrchestrationThreadShell, "id" | "pullRequests" | "archivedAt" | "updatedAt">,
 >(input: {
-  readonly threadId: ThreadId;
+  readonly threadId: ThreadId | null;
   readonly pullRequests: ReadonlyArray<ThreadPullRequestKey>;
   readonly threads: ReadonlyArray<T>;
 }): ReadonlyArray<T> {
@@ -126,6 +143,50 @@ export function reviewSourceCandidates<
     )
     .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .slice(0, REVIEW_SOURCE_CANDIDATE_LIMIT);
+}
+
+// The titles the server gives a review thread (`pullRequestReviewTitle`), by mode.
+const REVIEW_TITLE_PREFIXES: ReadonlyArray<readonly [prefix: string, mode: AgentReviewMode]> = [
+  ["Review", "quick"],
+  ["Deep review", "deep"],
+  ["Security audit", "security"],
+];
+
+/** The kind of review a thread is of this pull request, read from its title; null for any other. */
+export function reviewThreadMode(title: string, number: number): AgentReviewMode | null {
+  return (
+    REVIEW_TITLE_PREFIXES.find(([prefix]) => title.startsWith(`${prefix}: #${number} `))?.[1] ??
+    null
+  );
+}
+
+/** Whether a thread's session or latest turn is in flight. */
+export function threadTurnRunning(
+  thread: Pick<OrchestrationThreadShell, "session" | "latestTurn">,
+): boolean {
+  const status = thread.session?.status;
+  return status === "starting" || status === "running" || thread.latestTurn?.state === "running";
+}
+
+/**
+ * A review of this pull request still under way, the newest if there are several: a linked thread
+ * titled as its review whose turn is running and which has not submitted findings yet. Nothing
+ * else marks a review thread, so a renamed one reads as an ordinary thread.
+ */
+export function selectRunningPullRequestReview<
+  T extends ThreadFindings & { readonly createdAt: string; readonly running: boolean },
+>(input: {
+  readonly number: number;
+  readonly threads: ReadonlyArray<T>;
+}): { readonly thread: T; readonly mode: AgentReviewMode } | null {
+  let newest: { readonly thread: T; readonly mode: AgentReviewMode } | null = null;
+  for (const thread of input.threads) {
+    const mode = reviewThreadMode(thread.title, input.number);
+    if (mode === null || !thread.running) continue;
+    if (latestReviewFindingsActivity(thread.activities) !== undefined) continue;
+    if (newest === null || thread.createdAt > newest.thread.createdAt) newest = { thread, mode };
+  }
+  return newest;
 }
 
 /** A finding's place in the payload: which list, and its index there. */
@@ -154,6 +215,29 @@ export function reviewFindingEntries(
       needsChecking: true,
     })),
   ];
+}
+
+/** How many findings of a set are still to act on: neither dismissed nor posted. */
+export function openReviewFindingCount(
+  findings: Pick<ReviewFindingsActivityPayload, "findings" | "needsChecking">,
+  dismissed: Readonly<Record<string, true>>,
+  posted: ReadonlyMap<string, PostedReviewFinding>,
+): number {
+  return reviewFindingEntries(findings).filter(
+    (entry) => dismissed[entry.key] !== true && !posted.has(entry.key),
+  ).length;
+}
+
+export function postedReviewFindingsEqual(
+  left: ReadonlyMap<string, PostedReviewFinding>,
+  right: ReadonlyMap<string, PostedReviewFinding>,
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const [key, entry] of left) {
+    const other = right.get(key);
+    if (other?.placement !== entry.placement || other.url !== entry.url) return false;
+  }
+  return true;
 }
 
 export interface ReviewDiffFile {
