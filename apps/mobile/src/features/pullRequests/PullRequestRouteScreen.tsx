@@ -1,6 +1,12 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import {
+  openReviewFindingCount,
+  selectPullRequestReviewFindings,
+  selectRunningPullRequestReview,
+} from "@t3tools/client-runtime/review-findings";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -14,8 +20,11 @@ import {
   type PullRequestDetail,
   type PullRequestMergeMethod,
   type PullRequestRef,
+  type ThreadId,
+  type ThreadPullRequestKey,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { postedReviewFindings, REVIEW_VERDICT_LABELS } from "@t3tools/shared/reviewFindings";
 import { Image } from "expo-image";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
@@ -43,6 +52,11 @@ import { relativeTime } from "../../lib/time";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useEnvironmentServerConfig, useProject } from "../../state/entities";
 import { pullRequestEnvironment } from "../../state/pullRequests";
+import {
+  linkedReviewThreadsAtom,
+  reviewFindingsCardKey,
+  useDismissedReviewFindings,
+} from "../../state/review-findings";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useStickyComposerModelSelection } from "../../state/use-composer-drafts";
@@ -126,6 +140,17 @@ function InfoRow(props: {
     </View>
   );
 }
+
+/** The host a pull request lives on, from its URL when the link did not name one. */
+function pullRequestHost(url: string): string | null {
+  try {
+    return new URL(url).host || null;
+  } catch {
+    return null;
+  }
+}
+
+const NO_POSTED = new Map<string, never>();
 
 function AuthorAvatar(props: { readonly login: string; readonly avatarUrl: string | null }) {
   if (props.avatarUrl) {
@@ -247,6 +272,11 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
   const stickyModelSelection = useStickyComposerModelSelection();
   const startReview = useAtomCommand(pullRequestEnvironment.startReview, { reportFailure: false });
   const [startingReview, setStartingReview] = useState(false);
+  // A review started here, until its thread shows up among the pull request's linked threads.
+  const [startedReview, setStartedReview] = useState<{
+    readonly threadId: ThreadId;
+    readonly mode: AgentReviewMode;
+  } | null>(null);
   const canStartReview = serverConfig?.environment.capabilities.pullRequestAgentReview === true;
   const reviewModelSelection = useMemo(() => {
     const projectDefault = resolveDefaultableModelSelection(
@@ -296,23 +326,68 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
             );
             return;
           }
-          navigation.navigate("Thread", {
-            environmentId: params.environmentId,
-            threadId: result.value.threadId,
-          });
+          // Like web, the review runs in its own thread while this screen stays open; its
+          // findings show here when it is done.
+          setStartedReview({ threadId: result.value.threadId, mode });
         })
         .finally(() => setStartingReview(false));
     },
-    [
-      environmentId,
-      navigation,
-      params.environmentId,
-      reference,
-      reviewModelSelection,
-      startReview,
-      startingReview,
-    ],
+    [environmentId, reference, reviewModelSelection, startReview, startingReview],
   );
+
+  // Agent reviews of this pull request: the newest findings any linked thread submitted, and a
+  // review still under way.
+  const pullRequestKey = useMemo<ThreadPullRequestKey | null>(() => {
+    const host = params.host ?? (detail ? pullRequestHost(detail.url) : null);
+    return host === null ? null : { host, repository: params.repository, number };
+  }, [detail, number, params.host, params.repository]);
+  const linkedReviews = useAtomValue(
+    linkedReviewThreadsAtom(
+      pullRequestKey === null
+        ? null
+        : { environmentId, threadId: null, pullRequests: [pullRequestKey] },
+    ),
+  );
+  const reviewSource = useMemo(
+    () =>
+      pullRequestKey === null
+        ? null
+        : selectPullRequestReviewFindings({
+            pullRequests: [pullRequestKey],
+            threads: linkedReviews,
+          }),
+    [linkedReviews, pullRequestKey],
+  );
+  const runningReview = useMemo(() => {
+    const running = selectRunningPullRequestReview({ number, threads: linkedReviews });
+    if (running !== null) return { threadId: running.thread.id, mode: running.mode };
+    return startedReview !== null &&
+      !linkedReviews.some((thread) => thread.id === startedReview.threadId)
+      ? startedReview
+      : null;
+  }, [linkedReviews, number, startedReview]);
+  const reviewSourceActivities =
+    reviewSource === null
+      ? null
+      : (linkedReviews.find((thread) => thread.id === reviewSource.threadId)?.activities ?? null);
+  const reviewPosted = useMemo(
+    () =>
+      reviewSource === null || reviewSourceActivities === null
+        ? NO_POSTED
+        : postedReviewFindings(reviewSourceActivities, reviewSource.activityId),
+    [reviewSource, reviewSourceActivities],
+  );
+  const reviewDismissed = useDismissedReviewFindings(
+    reviewFindingsCardKey(environmentId, reviewSource?.activityId ?? ""),
+  );
+  const openFindingCount =
+    reviewSource === null
+      ? 0
+      : openReviewFindingCount(reviewSource.findings, reviewDismissed, reviewPosted);
+  const runningReviewLabel =
+    runningReview === null
+      ? null
+      : (AGENT_REVIEW_MODES.find((entry) => entry.mode === runningReview.mode)?.label ?? "Review");
 
   const methodActions = useMemo<MenuAction[]>(
     () =>
@@ -505,6 +580,60 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
                     ? "No comments"
                     : `${commentCount} ${commentCount === 1 ? "comment" : "comments"}`}
                 </Text>
+              </InfoRow>
+            ) : null}
+            {reviewSource !== null ? (
+              <InfoRow icon="checklist" label="Findings">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityHint="Opens the review findings."
+                  hitSlop={6}
+                  onPress={() =>
+                    navigation.navigate("ThreadReviewFindings", {
+                      environmentId: params.environmentId,
+                      threadId: reviewSource.threadId,
+                      fromThreadId: params.threadId,
+                    })
+                  }
+                  className="flex-row items-center gap-1.5 active:opacity-70"
+                >
+                  <Text className="shrink text-[15px] text-foreground" numberOfLines={1}>
+                    {REVIEW_VERDICT_LABELS[reviewSource.findings.verdict]} ·{" "}
+                    {openFindingCount === 0 ? "nothing open" : `${openFindingCount} open`}
+                  </Text>
+                  <SymbolView
+                    name="chevron.right"
+                    size={13}
+                    tintColorClassName="accent-icon-subtle"
+                    type="monochrome"
+                  />
+                </Pressable>
+              </InfoRow>
+            ) : null}
+            {runningReview !== null ? (
+              <InfoRow icon="clock" label="Reviewing">
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityHint="Opens the review's chat."
+                  hitSlop={6}
+                  onPress={() =>
+                    navigation.navigate("Thread", {
+                      environmentId: params.environmentId,
+                      threadId: runningReview.threadId,
+                    })
+                  }
+                  className="flex-row items-center gap-1.5 active:opacity-70"
+                >
+                  <Text className="shrink text-[15px] text-foreground" numberOfLines={1}>
+                    {runningReviewLabel} under way · Open chat
+                  </Text>
+                  <SymbolView
+                    name="chevron.right"
+                    size={13}
+                    tintColorClassName="accent-icon-subtle"
+                    type="monochrome"
+                  />
+                </Pressable>
               </InfoRow>
             ) : null}
           </View>

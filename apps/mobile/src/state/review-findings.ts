@@ -1,8 +1,17 @@
 import { useAtomValue } from "@effect/atom-react";
+import { createLinkedReviewThreadsAtomFamily } from "@t3tools/client-runtime/state/review-findings";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
 import { appAtomRegistry } from "./atom-registry";
+import { environmentThreadDetails, environmentThreadShells } from "./threads";
+
+/** The threads that may hold a review of some pull requests, with their review activities. */
+export const linkedReviewThreadsAtom = createLinkedReviewThreadsAtomFamily({
+  threadShellsAtom: environmentThreadShells.threadShellsAtom,
+  activitiesAtom: environmentThreadDetails.activitiesAtom,
+  label: "mobile-linked-reviews",
+});
 
 export interface ReviewFixDestination {
   readonly threadId: ThreadId;

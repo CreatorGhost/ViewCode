@@ -515,23 +515,24 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `GH_TOKEN` in the server's environment would cause.
 - Findings live in the web Review panel (a right-panel surface) and the pull request detail's Review
   tab, both one view (`ReviewFindingsView`), not in the transcript. Mobile has a findings screen
-  (`features/review/findings/`) opened from the transcript's findings row: a list by severity
-  with no diff, since a phone has no room to read findings under their lines. Which set a thread
-  or pull request shows, and the read of linked threads, are client-runtime's
-  (`reviewFindings.ts`, `state/reviewFindings.ts`) so both clients agree. Thread shells carry no
-  activities, so a thread without findings of its own, or the pull request detail, finds a linked
-  review by subscribing to the activities of up to five threads linked to the same pull request,
-  and only while that panel or detail is open. A review still under way is recognised by the title
-  the server gives its thread (`pullRequestReviewTitle`, read back by `reviewThreadMode`); change
-  one and change the other. Starting a review from the pull request detail stays there. From a
-  thread working on the pull request, Fix with agent writes an editable request into that thread's
-  composer; it never sends.
-- Fix from the review thread itself goes to another session: an existing one through the web
-  composer's queue (in memory; it sends now, at the next tool boundary, or at turn end for
-  providers that cannot steer), because the server has no queue for user turns and inventing one
-  would fork that behaviour. Only a new session is a server method (`ReviewFixThread.start`,
-  `review.startFixThread`), which checks the pull request out into a worktree of its own. Which
-  findings were sent where or dismissed is client memory only.
+  (`features/review/findings/`) opened from the transcript's findings row and the Android pull
+  request screen: a list by severity with no diff, since a phone has no room to read findings
+  under their lines. Which set a thread or pull request shows, and the read of linked threads, are
+  client-runtime's (`reviewFindings.ts`, `state/reviewFindings.ts`) so both clients agree. Thread
+  shells carry no activities, so a thread without findings of its own, or the pull request detail,
+  finds a linked review by subscribing to the activities of up to five threads linked to the same
+  pull request, and only while that panel or detail is open. A review still under way is
+  recognised by the title the server gives its thread (`pullRequestReviewTitle`, read back by
+  `reviewThreadMode`); change one and change the other. Starting a review from the pull request
+  detail (or the Android pull request screen) stays there. From a thread working on the pull
+  request, Fix with agent writes an editable request into that thread's composer; it never sends.
+- Fix from the review thread itself goes to another session: an existing one through the client's
+  own queue for that thread (web's composer queue, in memory, sends now, at the next tool boundary,
+  or at turn end for providers that cannot steer; mobile's thread outbox), because the server has
+  no queue for user turns and inventing one would fork that behaviour. Only a new session is a
+  server method (`ReviewFixThread.start`, `review.startFixThread`), which checks the pull request
+  out into a worktree of its own. Which findings were sent where or dismissed is client memory
+  only.
 - Undoing fixes (`ReviewFixThread.undo`, `review.undoFixes`, capability `reviewFixUndo`) is the
   chat's own `thread.checkpoint.revert`, to the turn count a hidden `viewcode.review.fix-started`
   activity recorded before the session's first turn (always 0: only new sessions get one). It is

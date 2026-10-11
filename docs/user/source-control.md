@@ -170,7 +170,8 @@ stay on the pull request, whose **Review** tab says the review is under way and 
 when it is done. With no review yet, you can start one from that tab too. It runs with your
 default permissions for new threads, reads the change without touching your checkout, and posts
 nothing to the host unless you ask. On Android the review button is in the pull request screen's
-header and uses your default model. Agents can start a review with the `review_pull_request` tool,
+header and uses your default model; the screen stays open, says the review is under way, and links
+to its findings when it is done. Agents can start a review with the `review_pull_request` tool,
 and review a thread's own uncommitted changes (or its branch, when there are none) with
 `review_local_changes`; that review runs on the thread's branch and worktree and changes nothing.
 
@@ -191,9 +192,10 @@ finding for its detail and suggested fix. The phone shows no diff, so each findi
 and line instead. **Fix with agent** (or **Fix all**) sends the findings to a session already
 working on the change or to a new session, as on web; opened from a thread's pull request, it
 writes the request into that thread's message box instead. For somebody else's pull request,
-**Post comment**, **Post all** and **Post selected** (tick the findings first) open a sheet where you
-choose what to submit the review as and write its overall comment before posting. **Dismiss** hides a finding until you
-show dismissed ones, and the thumbs tell later reviews of the project which findings helped.
+**Post comment**, **Post all** and **Post selected** (tick the findings first) open a sheet where
+you choose what to submit the review as and write its overall comment before posting. **Dismiss**
+hides a finding until you show dismissed ones, and the thumbs tell later reviews of the project
+which findings helped.
 
 For a review of somebody else's pull request the findings are review comments instead: **Post
 comment** posts one, and **Post all** or **Post selected** posts several as one review, each time
