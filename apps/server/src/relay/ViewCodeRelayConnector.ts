@@ -44,6 +44,7 @@ import {
   classifyDialError,
   type DialFailure,
   describeErrorChain,
+  DIAL_TIMEOUT_MS,
   initialRelayHealth,
   type LocalTarget,
   reconnectDelayMs,
@@ -52,6 +53,7 @@ import {
   type RelayHealth,
   type RelayHealthEvent,
   STABLE_CONNECTION_MS,
+  stampTryingSince,
   toViewCodeRelayState,
 } from "./viewCodeRelayHealth.ts";
 
@@ -165,15 +167,18 @@ export const makeRelayStateHolder = Effect.gen(function* () {
     toViewCodeRelayState(initialRelayHealth, { configured: false, origin: undefined }),
   );
   const publish = Effect.gen(function* () {
-    const next = toViewCodeRelayState(yield* Ref.get(health), yield* Ref.get(configRef));
-    yield* SubscriptionRef.update(state, (current) =>
-      current.status === next.status &&
-      current.configured === next.configured &&
-      current.reason === next.reason &&
-      current.httpBaseUrl === next.httpBaseUrl
+    const derived = toViewCodeRelayState(yield* Ref.get(health), yield* Ref.get(configRef));
+    const now = yield* Clock.currentTimeMillis;
+    yield* SubscriptionRef.update(state, (current) => {
+      const next = stampTryingSince(current, derived, now);
+      return current.status === next.status &&
+        current.configured === next.configured &&
+        current.reason === next.reason &&
+        current.httpBaseUrl === next.httpBaseUrl &&
+        current.tryingSince === next.tryingSince
         ? current
-        : next,
-    );
+        : next;
+    });
   });
   const holder: RelayStateHolder = {
     state,
@@ -191,10 +196,10 @@ export const makeRelayStateHolder = Effect.gen(function* () {
 });
 
 /**
- * Keeps one connection to the relay alive until interrupted: dial, serve, and
- * on any end wait out a jittered backoff (1s doubling to 30s; reset after a
- * connection that held for 30s) before dialing again. A network signal cuts
- * the wait short. A refused secret stops retrying: only a new config helps,
+ * Keeps one connection to the relay alive until interrupted: dial (at most
+ * `DIAL_TIMEOUT_MS`), serve, and on any end wait out a jittered backoff (1s
+ * doubling to 30s; reset after a connection that held for 30s) before dialing
+ * again. A network signal cuts the wait short. A refused secret stops retrying: only a new config helps,
  * and the caller restarts this loop when the config changes.
  */
 export const runRelayConnection = (input: {
@@ -217,7 +222,18 @@ export const runRelayConnection = (input: {
     });
     for (;;) {
       yield* holder.apply({ type: "attempt" });
-      const dialed = yield* Effect.result(input.dial(input.config));
+      const dialed = yield* Effect.result(
+        input.dial(input.config).pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.millis(DIAL_TIMEOUT_MS),
+            orElse: () =>
+              Effect.fail<DialFailure>({
+                kind: "network",
+                detail: `No answer within ${DIAL_TIMEOUT_MS / 1000}s.`,
+              }),
+          }),
+        ),
+      );
       if (Result.isFailure(dialed)) {
         yield* holder.apply({ type: "dial-failed", failure: dialed.failure });
         if (dialed.failure.kind === "auth") return yield* Effect.never;

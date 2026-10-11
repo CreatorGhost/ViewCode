@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { CheckIcon, ChevronDownIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon } from "lucide-react";
 import { type ComponentProps, createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { writeTextToClipboard } from "../../hooks/useCopyToClipboard";
@@ -11,15 +11,8 @@ import {
   draftClipboardPayload,
 } from "../../lib/messageFormats";
 import { Button } from "../ui/button";
-import {
-  Menu,
-  MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuRadioItemIndicator,
-  MenuTrigger,
-} from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { CopyFormatMenu } from "./CopyFormatMenu";
 
 /** Set inside a copyable quote: a nested quote is copied with its parent, not on its own. */
 const InsideQuoteContext = createContext(false);
@@ -79,35 +72,14 @@ function CopyOverlay(props: { readonly target: () => HTMLElement | null; readonl
         </TooltipTrigger>
         <TooltipPopup side="top">{label}</TooltipPopup>
       </Tooltip>
-      <Menu>
-        <MenuTrigger
-          render={<Button type="button" variant="ghost-muted" size="icon-xs" />}
-          aria-label="Copy formats"
-        >
-          <ChevronDownIcon className="size-3" />
-        </MenuTrigger>
-        <MenuPopup align="end">
-          {/* Picking a format copies in it and makes it the button's format on this device. */}
-          <MenuRadioGroup value={format}>
-            {DRAFT_COPY_FORMATS.map((option) => (
-              <MenuRadioItem
-                key={option}
-                value={option}
-                closeOnClick
-                onClick={() => {
-                  setFormat(option);
-                  copy(option);
-                }}
-              >
-                <span className="flex items-center gap-2">
-                  <span className="flex-1">{DRAFT_COPY_FORMAT_LABELS[option]}</span>
-                  <MenuRadioItemIndicator />
-                </span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuPopup>
-      </Menu>
+      <CopyFormatMenu
+        formats={DRAFT_COPY_FORMATS}
+        value={format}
+        onPick={(option) => {
+          setFormat(option);
+          copy(option);
+        }}
+      />
     </div>
   );
 }

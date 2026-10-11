@@ -100,20 +100,17 @@ import {
   saveConnection,
   savePreferencesPatch,
 } from "../persistence/imperative";
-import { toStableSavedRemoteConnection } from "./connection";
+import type { SavedRemoteConnection } from "./connection";
 
-const managedConnection = {
+const savedConnection: SavedRemoteConnection = {
   environmentId: EnvironmentId.make("environment-1"),
   environmentLabel: "Desktop",
   pairingUrl: "https://desktop.example/",
   displayUrl: "https://desktop.example/",
   httpBaseUrl: "https://desktop.example/",
   wsBaseUrl: "wss://desktop.example/",
-  bearerToken: null,
-  authenticationMethod: "dpop",
-  dpopAccessToken: "short-lived-token",
-  relayManaged: true,
-} as const;
+  bearerToken: "bearer-token",
+};
 
 describe("mobile connection storage", () => {
   beforeEach(() => {
@@ -121,22 +118,12 @@ describe("mobile connection storage", () => {
     vi.clearAllMocks();
   });
 
-  it("persists relay-managed connections without their ephemeral access token", async () => {
-    await saveConnection(managedConnection);
+  it("persists and reloads a directly paired connection", async () => {
+    await saveConnection(savedConnection);
 
     const savedValue = mocks.setItemAsync.mock.calls[0]?.[1];
-    expect(savedValue).toBeDefined();
-    expect(JSON.parse(savedValue ?? "")).toEqual({
-      connections: [toStableSavedRemoteConnection(managedConnection)],
-    });
-  });
-
-  it("loads relay-managed connection metadata without a cached access token", async () => {
-    await saveConnection(managedConnection);
-
-    await expect(loadSavedConnections()).resolves.toEqual([
-      toStableSavedRemoteConnection(managedConnection),
-    ]);
+    expect(JSON.parse(savedValue ?? "")).toEqual({ connections: [savedConnection] });
+    await expect(loadSavedConnections()).resolves.toEqual([savedConnection]);
   });
 
   it("preserves secure-storage read failures with operation and key context", async () => {

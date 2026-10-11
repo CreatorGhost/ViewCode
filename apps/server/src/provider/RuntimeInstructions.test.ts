@@ -141,6 +141,9 @@ describe("buildRuntimeInstructions", () => {
     expect(buildRuntimeInstructions({ harness: "Cursor", browserCli: true })).toContain(
       "prefer them: they drive the same browser and tab",
     );
+    // The rule against other browsers holds with or without the MCP tools.
+    expect(withoutMcp).toContain("Do not launch Playwright");
+    expect(withoutMcp).toContain("project's own end-to-end tests");
   });
 
   it("keeps known model and effort metadata on one line", () => {

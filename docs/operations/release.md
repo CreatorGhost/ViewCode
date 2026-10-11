@@ -331,7 +331,7 @@ available.
 - Update UX:
   - Background checks run on startup delay + interval.
   - No automatic download or install.
-  - The desktop UI shows a rocket update button when an update is available; click once to download, click again after download to restart/install.
+  - The desktop UI shows a rocket update button when an update is available; click once to download, click again after download to restart/install. Ad-hoc signed macOS builds open the GitHub release page instead (see [Free signed DMG](#free-signed-dmg-no-apple-developer-account)).
 - Provider: GitHub Releases (`provider: github`) configured at build time.
 - Repository slug source:
   - `T3CODE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`), if set.
@@ -435,7 +435,32 @@ prerelease, desktop updater release, hosted nightly alias, and marketing site, b
 commit a version bump to `main`. Only run it when a real nightly release is acceptable.
 
 Manual `channel=stable` is also a real stable-channel release. Omitting signing secrets only makes
-platform artifacts unsigned; it does not prevent publication.
+macOS artifacts ad-hoc signed and the other platforms' artifacts unsigned; it does not prevent
+publication.
+
+## Free signed DMG (no Apple Developer account)
+
+Without `--signed`, the macOS build signs the app ad-hoc (`codesign --sign -`), turns the hardened
+runtime off, and skips notarization. Apple Silicon refuses to run an unsigned app, so this is the
+cheapest build that launches. On a Mac, from the repository root:
+
+```bash
+pnpm i && pnpm dist:desktop:dmg
+```
+
+This runs `build:desktop` first, then packages for the Mac's own architecture. Use
+`dist:desktop:dmg:arm64`, `dist:desktop:dmg:x64`, or `pnpm dist:desktop:dmg --arch universal` for
+another one. The DMG lands in `release/` as
+`ViewCode-<version>-<arch>.dmg`. Gatekeeper blocks the first launch of an app that is not
+notarized: right-click the app in Applications and choose **Open**, or allow it under **System
+Settings → Privacy & Security → Open Anyway**. Later launches open normally.
+
+Updates are manual for ad-hoc builds. Squirrel.Mac installs an update only when it satisfies the
+running app's designated requirement, and an ad-hoc requirement matches one exact build, so the
+packager records the signing mode as `t3codeMacSigning` in the app's `package.json` and the app's
+update button opens the GitHub release page instead of downloading. That needs an update feed:
+local builds have none unless `T3CODE_DESKTOP_UPDATE_REPOSITORY=owner/repo` is set when packaging,
+and the repository's releases must carry the `latest-mac.yml` manifest.
 
 ## 2) Apple signing + notarization setup (macOS)
 
@@ -529,7 +554,7 @@ Checklist:
 
 ## 5) Troubleshooting
 
-- macOS build unsigned when expected signed:
+- macOS build ad-hoc signed when expected signed:
   - Check all Apple secrets plus `APPLE_TEAM_ID` are populated and non-empty.
   - Confirm the provisioning profile belongs to `APPLE_TEAM_ID.com.t3tools.t3code` and includes
     Associated Domains.

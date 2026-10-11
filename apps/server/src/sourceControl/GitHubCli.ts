@@ -302,20 +302,26 @@ export interface GitHubRepositoryCloneUrls {
   readonly sshUrl: string;
 }
 
+interface GitHubCliCommand {
+  readonly cwd: string;
+  readonly args: ReadonlyArray<string>;
+  /** Account routing context for requests that name only node IDs. Never sent to gh. */
+  readonly repository?: string;
+  readonly timeoutMs?: number;
+  /** Piped to the child's stdin, for payloads that must never appear in argv. */
+  readonly stdin?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly maxOutputBytes?: number;
+  readonly rateLimitHost?: string;
+  readonly allowReserve?: boolean;
+}
+
 export class GitHubCli extends Context.Service<
   GitHubCli,
   {
-    readonly execute: (input: {
-      readonly cwd: string;
-      readonly args: ReadonlyArray<string>;
-      readonly timeoutMs?: number;
-      /** Piped to the child's stdin, for payloads that must never appear in argv. */
-      readonly stdin?: string;
-      readonly env?: NodeJS.ProcessEnv;
-      readonly maxOutputBytes?: number;
-      readonly rateLimitHost?: string;
-      readonly allowReserve?: boolean;
-    }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
+    readonly execute: (
+      input: GitHubCliCommand,
+    ) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
 
     readonly listOpenPullRequests: (input: {
       readonly cwd: string;
@@ -375,17 +381,27 @@ export class GitHubCli extends Context.Service<
     }) => Effect.Effect<void, GitHubCliError>;
 
     /**
-     * The gh login this repository's commands currently run as when it is not gh's active
-     * account, or null for the active account. Read from memory only.
+     * Runs one command as `login`, one of the accounts signed in to `host`, whichever account is
+     * active: the active one as it is, another by its token in the child's environment only.
+     * Fails with an authentication error when `login` is not signed in there.
      */
-    readonly accountFor: (input: {
-      readonly host: string;
-      readonly repository: string;
-    }) => Effect.Effect<string | null>;
+    readonly executeAsAccount: (
+      input: GitHubCliCommand & { readonly host: string; readonly login: string },
+    ) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
+
+    /**
+     * The gh login this repository's commands currently run as when it is not gh's active
+     * account, or null for the active account. Read from memory, except that a `cwd` in place of
+     * a repository reads that checkout's remotes, and only once some owner on the host is routed.
+     */
+    readonly accountFor: (
+      input: { readonly host: string } & (
+        | { readonly repository: string }
+        | { readonly cwd: string }
+      ),
+    ) => Effect.Effect<string | null>;
   }
 >()("t3/sourceControl/GitHubCli") {}
-
-type GitHubCliCommand = Parameters<GitHubCli["Service"]["execute"]>[0];
 
 const RawGitHubRepositoryCloneUrlsSchema = Schema.Struct({
   nameWithOwner: TrimmedNonEmptyString,
@@ -716,6 +732,7 @@ export const make = Effect.gen(function* () {
       : gitHubCommandTarget({
           args: input.args,
           stdin: input.stdin,
+          repository: input.repository,
           defaultHost:
             input.rateLimitHost ??
             input.env?.GH_HOST ??
@@ -1116,16 +1133,40 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const executeAsAccount: GitHubCli["Service"]["executeAsAccount"] = Effect.fn(
+    "GitHubCli.executeAsAccount",
+  )(function* ({ host: anyHost, login, ...input }) {
+    const host = anyHost.toLowerCase();
+    const notSignedIn = new GitHubCliAuthenticationError({
+      command: "gh",
+      cwd: input.cwd,
+      cause: new Error("The account is not signed in to the GitHub CLI on this host."),
+    });
+    const account = (yield* Cache.get(signedInAccounts, host)).find(
+      (candidate) => candidate.account.toLowerCase() === login.toLowerCase(),
+    );
+    if (account === undefined) return yield* notSignedIn;
+    if (account.active) return yield* runGh(input, input.env);
+    const token = yield* Cache.get(accountTokens, `${host}\0${account.account}`).pipe(
+      Effect.mapError(() => notSignedIn),
+    );
+    return yield* runAs(input, host, token);
+  });
+
   return GitHubCli.of({
     execute,
+    executeAsAccount,
     accountFor: (input) =>
       Effect.map(
-        Clock.currentTimeMillis,
-        (now) =>
-          liveRoute(
-            `${input.host.toLowerCase()}\0${input.repository.split("/")[0]!.toLowerCase()}`,
-            now,
-          )?.login ?? null,
+        routeOf(
+          {
+            host: input.host.toLowerCase(),
+            owner: "repository" in input ? input.repository.split("/")[0]!.toLowerCase() : null,
+            read: true,
+          },
+          "cwd" in input ? input.cwd : globalThis.process.cwd(),
+        ),
+        (route) => route?.login ?? null,
       ),
     listPullRequestsByHead,
     listOpenPullRequests: (input) =>

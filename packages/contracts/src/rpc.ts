@@ -98,9 +98,21 @@ import {
   ReviewDiffPreviewResult,
 } from "./review.ts";
 import {
+  LearnedReviewStyle,
+  LearnedReviewStyleAccount,
+  LearnedReviewStyleError,
   ReviewFixThreadError,
+  ReviewPostFindingsError,
+  ReviewPostFindingsInput,
+  ReviewPostFindingsResult,
   ReviewStartFixThreadInput,
   ReviewStartFixThreadResult,
+  ReviewRateFindingError,
+  ReviewRateFindingInput,
+  ReviewUndoFixesError,
+  ReviewUndoFixesInput,
+  ReviewUndoFixesResult,
+  ReviewStartError,
 } from "./reviewFindings.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
@@ -118,6 +130,7 @@ import {
   OrchestrationGetWorkflowScriptError,
   PullRequestStartReviewInput,
   PullRequestStartReviewResult,
+  ReviewStartLocalInput,
 } from "./orchestration.ts";
 import {
   ProviderUploadFeedbackError,
@@ -391,6 +404,13 @@ export const WS_METHODS = {
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
   reviewStartFixThread: "review.startFixThread",
+  reviewStartLocal: "review.startLocal",
+  reviewPostFindings: "review.postFindings",
+  reviewRateFinding: "review.rateFinding",
+  reviewUndoFixes: "review.undoFixes",
+  reviewGetLearnedStyle: "review.getLearnedStyle",
+  reviewLearnStyle: "review.learnStyle",
+  reviewForgetLearnedStyle: "review.forgetLearnedStyle",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -1421,6 +1441,53 @@ const WsReviewStartFixThreadRpc = Rpc.make(WS_METHODS.reviewStartFixThread, {
   error: Schema.Union([ReviewFixThreadError, EnvironmentAuthorizationError]),
 });
 
+/** Only send to environments advertising `localAgentReview`. */
+const WsReviewStartLocalRpc = Rpc.make(WS_METHODS.reviewStartLocal, {
+  payload: ReviewStartLocalInput,
+  success: PullRequestStartReviewResult,
+  error: Schema.Union([ReviewStartError, EnvironmentAuthorizationError]),
+});
+
+/** Like starting a fix, only reaches servers that record review findings. */
+const WsReviewPostFindingsRpc = Rpc.make(WS_METHODS.reviewPostFindings, {
+  payload: ReviewPostFindingsInput,
+  success: ReviewPostFindingsResult,
+  error: Schema.Union([ReviewPostFindingsError, EnvironmentAuthorizationError]),
+});
+
+/** Only send to environments advertising `reviewFixUndo`. */
+const WsReviewUndoFixesRpc = Rpc.make(WS_METHODS.reviewUndoFixes, {
+  payload: ReviewUndoFixesInput,
+  success: ReviewUndoFixesResult,
+  error: Schema.Union([ReviewUndoFixesError, EnvironmentAuthorizationError]),
+});
+
+/** Only send to environments advertising `reviewFindingRatings`. */
+const WsReviewRateFindingRpc = Rpc.make(WS_METHODS.reviewRateFinding, {
+  payload: ReviewRateFindingInput,
+  success: Schema.Void,
+  error: Schema.Union([ReviewRateFindingError, EnvironmentAuthorizationError]),
+});
+
+/** The learned-style methods only reach servers advertising `learnedReviewStyle`. */
+const WsReviewGetLearnedStyleRpc = Rpc.make(WS_METHODS.reviewGetLearnedStyle, {
+  payload: LearnedReviewStyleAccount,
+  success: Schema.NullOr(LearnedReviewStyle),
+  error: Schema.Union([LearnedReviewStyleError, EnvironmentAuthorizationError]),
+});
+
+const WsReviewLearnStyleRpc = Rpc.make(WS_METHODS.reviewLearnStyle, {
+  payload: LearnedReviewStyleAccount,
+  success: LearnedReviewStyle,
+  error: Schema.Union([LearnedReviewStyleError, EnvironmentAuthorizationError]),
+});
+
+const WsReviewForgetLearnedStyleRpc = Rpc.make(WS_METHODS.reviewForgetLearnedStyle, {
+  payload: LearnedReviewStyleAccount,
+  success: Schema.Void,
+  error: Schema.Union([LearnedReviewStyleError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1839,6 +1906,13 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
   WsReviewStartFixThreadRpc,
+  WsReviewStartLocalRpc,
+  WsReviewRateFindingRpc,
+  WsReviewUndoFixesRpc,
+  WsReviewPostFindingsRpc,
+  WsReviewGetLearnedStyleRpc,
+  WsReviewLearnStyleRpc,
+  WsReviewForgetLearnedStyleRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,

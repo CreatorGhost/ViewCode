@@ -44,6 +44,19 @@ describe("desktop update button state", () => {
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
   });
 
+  it("points manual-update builds at GitHub instead of an in-app download", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "available",
+      availableVersion: "1.1.0",
+      manualUpdate: true,
+    };
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
+    expect(getDesktopUpdateButtonTooltip(state)).toBe(
+      "Version 1.1.0 is available. Download it from GitHub.",
+    );
+  });
+
   it("keeps retry action available after a download error", () => {
     const state: DesktopUpdateState = {
       ...baseState,
@@ -182,13 +195,13 @@ describe("getDesktopUpdateActionError", () => {
 describe("desktop update UI helpers", () => {
   it("builds the stable release URL for a downloaded version", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30",
+      "https://github.com/CreatorGhost/ViewCode/releases/tag/v0.0.30",
     );
   });
 
   it("builds the nightly release URL without dropping its version suffix", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30-nightly.20260728.931")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30-nightly.20260728.931",
+      "https://github.com/CreatorGhost/ViewCode/releases/tag/v0.0.30-nightly.20260728.931",
     );
   });
 
@@ -199,7 +212,7 @@ describe("desktop update UI helpers", () => {
 
   it("builds the release history URL", () => {
     expect(getDesktopUpdateReleaseHistoryUrl()).toBe(
-      "https://github.com/pingdotgg/t3code/releases",
+      "https://github.com/CreatorGhost/ViewCode/releases",
     );
   });
 

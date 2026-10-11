@@ -63,24 +63,53 @@ const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inlin
  */
 const tokenCache = new Map<string, { readonly at: number; readonly token: Redacted.Redacted }>();
 
+/**
+ * The repository owner a media URL names, where it names one: a raw path and an older attachment
+ * path start with it, an LFS path follows `/media/` with it, and a `user-attachments` upload says
+ * nothing about whose it is.
+ */
+function mediaOwner(url: string): string | null {
+  const { hostname, pathname } = new URL(url);
+  const segments = pathname.split("/");
+  if (hostname === "media.githubusercontent.com") return segments[2] || null;
+  if (segments[1] === "user-attachments") return null;
+  return segments[1] || null;
+}
+
 const githubToken = Effect.fn("GitHubMediaFetch.githubToken")(function* (input: {
   readonly cwd: string;
   readonly host: string;
+  readonly url: string;
 }) {
-  // `gh` stores a token per host, not per repository, so the directory it runs in is not part
-  // of the answer and must not fragment the cache a client could otherwise churn. This route
-  // pins no credential; if it ever does, the pin belongs in this key.
-  const key = input.host;
+  const github = yield* GitHubCli.GitHubCli;
+  // Several accounts can be signed in to one host, one per organisation, and only the account the
+  // repository's own reads are routed to can see a private one's media. An upload that names no
+  // owner belongs to the repository the body was read from, which is the checkout at `cwd`.
+  const owner = mediaOwner(input.url);
+  const login = yield* github.accountFor(
+    owner === null
+      ? { host: input.host, cwd: input.cwd }
+      : { host: input.host, repository: `${owner}/` },
+  );
+  // `gh` stores a token per account on a host, not per repository, so the directory it runs in
+  // is not part of the answer and must not fragment the cache a client could otherwise churn.
+  // This route pins no credential; if it ever does, the pin belongs in this key.
+  const key = `${input.host}\0${login ?? ""}`;
   const now = yield* Clock.currentTimeMillis;
   const cached = tokenCache.get(key);
   if (cached !== undefined && now - cached.at < TOKEN_CACHE_TTL_MS) return cached.token;
-  const github = yield* GitHubCli.GitHubCli;
   // No credential is a normal state: a public asset still loads, and a private one fails the way
   // it does in a browser that is not signed in.
   const token = yield* github
     .execute({
       cwd: input.cwd,
-      args: ["auth", "token", "--hostname", input.host],
+      args: [
+        "auth",
+        "token",
+        "--hostname",
+        input.host,
+        ...(login === null ? [] : ["--user", login]),
+      ],
       env: { GH_DEBUG: "" },
     })
     .pipe(
@@ -146,7 +175,7 @@ export const githubMediaResponse = Effect.fn("GitHubMediaFetch.githubMediaRespon
   requestHeaders: Record<string, string | undefined>,
 ) {
   // Both media hosts are served by github.com's account, which is the host `gh` stores it under.
-  const token = yield* githubToken({ cwd: asset.cwd, host: "github.com" });
+  const token = yield* githubToken({ cwd: asset.cwd, host: "github.com", url: asset.url });
   const forwarded: Record<string, string> = {};
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = requestHeaders[name];

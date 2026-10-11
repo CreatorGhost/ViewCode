@@ -1059,6 +1059,7 @@ function PullRequestsRouteView() {
               ...data,
               entries: accumulatedEntries,
               viewers: baselineQuery.data?.viewers ?? data.viewers,
+              accounts: baselineQuery.data?.accounts ?? data.accounts,
               providers: baselineQuery.data?.providers ?? data.providers,
             },
             ...(partitions === undefined ? {} : { partitions }),
@@ -1305,7 +1306,12 @@ function PullRequestsRouteView() {
 
   const entries = useMemo(() => {
     const known = ordered?.key === filterKey ? ordered.entries : (listData?.entries ?? []);
-    const involvementEntries = filterPullRequestsByInvolvement(known, viewers, search.involvement);
+    const involvementEntries = filterPullRequestsByInvolvement(
+      known,
+      viewers,
+      search.involvement,
+      accounts,
+    );
     // The hosts search more than the row shows — a body, a review, a commit message — so once
     // their answer is in, narrowing it again here would throw away matches the reader asked for.
     // The local pass stands in for the answer that has not arrived yet, and for the hosts that
@@ -1316,7 +1322,11 @@ function PullRequestsRouteView() {
     // new filters has not arrived yet. Checks are absent here, because no row carries them.
     const narrowedEntries = hasLocalFilters
       ? involvementEntries.filter((entry) =>
-          matchesPullRequestFilters(entry, localFilters, pullRequestEntryViewer(entry, viewers)),
+          matchesPullRequestFilters(
+            entry,
+            localFilters,
+            pullRequestEntryViewer(entry, viewers, accounts),
+          ),
         )
       : involvementEntries;
     // Newest update first once nothing is typed, so a list merged from several hosts reads in
@@ -1334,6 +1344,7 @@ function PullRequestsRouteView() {
         matchesPullRequestQuery(entry, typedParsed.text),
     );
   }, [
+    accounts,
     filterKey,
     hasLocalFilters,
     localFilters,
@@ -1389,7 +1400,11 @@ function PullRequestsRouteView() {
       rows === undefined || !hasLocalFilters
         ? rows
         : rows.filter((entry) =>
-            matchesPullRequestFilters(entry, localFilters, pullRequestEntryViewer(entry, viewers)),
+            matchesPullRequestFilters(
+              entry,
+              localFilters,
+              pullRequestEntryViewer(entry, viewers, accounts),
+            ),
           );
     const authored = narrow(
       partitionsWanted ? (authoredQuery.data?.entries ?? held?.authored) : undefined,
@@ -1410,6 +1425,7 @@ function PullRequestsRouteView() {
         : partitioned,
     );
   }, [
+    accounts,
     hasLocalFilters,
     localFilters,
     authoredQuery.data?.entries,
@@ -1583,7 +1599,7 @@ function PullRequestsRouteView() {
                   matchesPullRequestFilters(
                     entry,
                     localFilters,
-                    pullRequestEntryViewer(entry, viewers),
+                    pullRequestEntryViewer(entry, viewers, accounts),
                   ),
               )
             : answered,
@@ -1601,6 +1617,7 @@ function PullRequestsRouteView() {
       search.involvement,
     );
   }, [
+    accounts,
     groups,
     hasLocalFilters,
     localFilters,

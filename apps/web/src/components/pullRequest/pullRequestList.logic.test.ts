@@ -6,6 +6,7 @@ import {
   findScopedProject,
   mergePullRequestLists,
   pullRequestEntryKey,
+  pullRequestEntryViewer,
   pullRequestEnvironmentSetKey,
   groupPullRequestsByInvolvement,
   groupPullRequestsByProject,
@@ -1530,6 +1531,41 @@ describe('who "I" am, per server', () => {
         (row) => row.number,
       ),
     ).toEqual([1]);
+  });
+
+  it("counts a project read as another of the host's accounts as that account's own work", () => {
+    // Signed in as Bilal for personal work and as bilal-acme for the employer's repositories.
+    const byWork = { login: "bilal-acme", name: null, avatarUrl: null };
+    const merged = mergePullRequestLists([
+      [
+        ENV_1,
+        {
+          ...answer({ "github.com": "Bilal" }, [
+            entry({ number: 1, author: byBilal }),
+            entry({ number: 2, author: byWork, projectId: "acme" as ProjectId }),
+            entry({ number: 3, author: byBilal, projectId: "acme" as ProjectId }),
+          ]),
+          accounts: { ["acme" as ProjectId]: "bilal-acme" },
+        },
+      ],
+    ])!;
+
+    expect(
+      filterPullRequestsByInvolvement(
+        merged.entries,
+        merged.viewers,
+        "authored",
+        merged.accounts,
+      ).map((row) => row.number),
+    ).toEqual([1, 2]);
+    expect(
+      groupPullRequestsByInvolvement(merged.entries, merged.viewers, merged.accounts)
+        .find((group) => group.key === "authored")
+        ?.entries.map((row) => row.number),
+    ).toEqual([1, 2]);
+    expect(
+      merged.entries.map((row) => pullRequestEntryViewer(row, merged.viewers, merged.accounts)),
+    ).toEqual(["bilal", "bilal-acme", "bilal-acme"]);
   });
 
   it("still reads a single server's host-keyed viewers, which is what a snapshot carries", () => {

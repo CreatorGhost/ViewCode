@@ -1,12 +1,16 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  EventId,
   GitManagerError,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   type GitPreparePullRequestThreadInput,
   type OrchestrationCommand,
   type OrchestrationProjectShell,
+  type OrchestrationThread,
+  type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   type ReviewFindingToFix,
 } from "@t3tools/contracts";
@@ -19,7 +23,10 @@ import * as Stream from "effect/Stream";
 
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionThreadCheckpointContext,
+} from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ReviewFixThread from "./ReviewFixThread.ts";
 
@@ -82,19 +89,90 @@ const findings: ReadonlyArray<ReviewFindingToFix> = [
   },
 ];
 
+const FIX_THREAD_ID = ThreadId.make("fix-thread");
+
+const fixStarted: OrchestrationThreadActivity = {
+  id: EventId.make("fix-started"),
+  tone: "info",
+  kind: "viewcode.review.fix-started",
+  summary: "Started fixing review findings",
+  payload: {
+    reviewThreadId: REVIEW_THREAD_ID,
+    findingsActivityId: "findings",
+    turnCountBefore: 0,
+    timelineBypass: true,
+  },
+  turnId: null,
+  createdAt: "2026-08-20T00:00:00.000Z",
+};
+
 const makeHarness = (options: {
   readonly defaultModel?: typeof PROJECT_MODEL;
   readonly checkoutFails?: boolean;
+  readonly threads?: ReadonlyArray<OrchestrationThreadShell>;
+  /** The fix session to undo: its activities, turn count and session status. */
+  readonly fixThread?: {
+    readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+    readonly turnCount: number;
+    readonly status?: "running" | "ready";
+  };
 }) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
     const checkouts = yield* Ref.make<ReadonlyArray<GitPreparePullRequestThreadInput>>([]);
     const dependencies = Layer.mergeAll(
       Layer.mock(ProjectionSnapshotQuery)({
+        getShellSnapshot: () =>
+          Effect.succeed({
+            snapshotSequence: 0,
+            projects: [project],
+            threads: options.threads ?? [reviewThread],
+            updatedAt: reviewThread.updatedAt,
+          }),
         getThreadShellById: (threadId) =>
-          Effect.succeed(threadId === REVIEW_THREAD_ID ? Option.some(reviewThread) : Option.none()),
+          Effect.succeed(
+            threadId === REVIEW_THREAD_ID
+              ? Option.some(reviewThread)
+              : threadId === FIX_THREAD_ID && options.fixThread !== undefined
+                ? Option.some({
+                    ...reviewThread,
+                    id: FIX_THREAD_ID,
+                    session:
+                      options.fixThread.status === undefined
+                        ? null
+                        : {
+                            threadId: FIX_THREAD_ID,
+                            status: options.fixThread.status,
+                            providerName: "codex",
+                            runtimeMode: "full-access",
+                            activeTurnId: null,
+                            lastError: null,
+                            updatedAt: "2026-08-20T00:00:00.000Z",
+                          },
+                  })
+                : Option.none(),
+          ),
         getProjectShellById: (projectId) =>
           Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
+        getThreadDetailById: (threadId) =>
+          Effect.succeed(
+            threadId === FIX_THREAD_ID && options.fixThread !== undefined
+              ? Option.some({
+                  id: threadId,
+                  activities: options.fixThread.activities,
+                } as unknown as OrchestrationThread)
+              : Option.none(),
+          ),
+        getThreadCheckpointContext: (threadId) =>
+          Effect.succeed(
+            threadId === FIX_THREAD_ID && options.fixThread !== undefined
+              ? Option.some({
+                  checkpoints: Array.from({ length: options.fixThread.turnCount }, (_, index) => ({
+                    checkpointTurnCount: index + 1,
+                  })),
+                } as unknown as ProjectionThreadCheckpointContext)
+              : Option.none(),
+          ),
       }),
       Layer.mock(OrchestrationEngineService)({
         readEvents: () => Stream.empty,
@@ -150,18 +228,19 @@ describe("ReviewFixThread", () => {
         reviewThreadId: REVIEW_THREAD_ID,
         target: PR_TARGET,
         findings,
+        findingsActivityId: EventId.make("findings"),
       });
       expect(result.title).toBe("Fix review findings: #42 Cache the probe");
       expect(yield* Ref.get(harness.checkouts)).toEqual([
         {
           cwd: "/workspace/project",
           reference: PR_TARGET.url,
-          // Its own worktree, so the user's checkout does not move.
+          // The PR worktree, so the user's checkout does not move.
           mode: "worktree",
           threadId: result.threadId,
         },
       ]);
-      const [create, link, turn] = yield* Ref.get(harness.commands);
+      const [create, link, started, turn] = yield* Ref.get(harness.commands);
       expect(create).toMatchObject({
         type: "thread.create",
         threadId: result.threadId,
@@ -179,10 +258,96 @@ describe("ReviewFixThread", () => {
         number: 42,
         source: "manual",
       });
+      // What the session fixes and where to go back to, outside any turn.
+      expect(started).toMatchObject({
+        type: "thread.activity.append",
+        threadId: result.threadId,
+        activity: {
+          kind: "viewcode.review.fix-started",
+          turnId: null,
+          payload: {
+            reviewThreadId: REVIEW_THREAD_ID,
+            findingsActivityId: "findings",
+            turnCountBefore: 0,
+          },
+        },
+      });
       const text = turn?.type === "thread.turn.start" ? turn.message.text : "";
       expect(text).toContain('from "Review: #42 Cache the probe" on PR #42');
       expect(text).toContain("verify each against the code first");
       expect(text).toContain("1. Cache never expires");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("refuses a checkout where another session is running or has an active turn", () =>
+    Effect.gen(function* () {
+      for (const status of ["running", "ready"] as const) {
+        const harness = yield* makeHarness({
+          threads: [
+            {
+              ...reviewThread,
+              id: FIX_THREAD_ID,
+              worktreePath: "/workspace/.worktrees/cache-probe",
+              session: {
+                threadId: FIX_THREAD_ID,
+                status,
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: status === "running" ? null : TurnId.make("active-turn"),
+                lastError: null,
+                updatedAt: reviewThread.updatedAt,
+              },
+            },
+          ],
+        });
+        const error = yield* harness.service
+          .start({ reviewThreadId: REVIEW_THREAD_ID, target: PR_TARGET, findings })
+          .pipe(Effect.flip);
+        expect(error).toMatchObject({ _tag: "ReviewFixThreadError", stage: "checkout-busy" });
+        expect(error.message).toBe(
+          "Another session is working in this pull request's checkout. Stop or finish it before starting a new fix session.",
+        );
+        expect(yield* Ref.get(harness.checkouts)).toHaveLength(1);
+        expect(yield* Ref.get(harness.commands)).toEqual([]);
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows an idle session to share the pull request's checkout", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        threads: [
+          {
+            ...reviewThread,
+            id: FIX_THREAD_ID,
+            worktreePath: "/workspace/.worktrees/cache-probe",
+            session: {
+              threadId: FIX_THREAD_ID,
+              status: "ready",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: reviewThread.updatedAt,
+            },
+          },
+        ],
+      });
+      const result = yield* harness.service.start({
+        reviewThreadId: REVIEW_THREAD_ID,
+        target: PR_TARGET,
+        findings,
+      });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        {
+          type: "thread.create",
+          threadId: result.threadId,
+          worktreePath: "/workspace/.worktrees/cache-probe",
+        },
+        { type: "thread.pull-request.link" },
+        { type: "thread.activity.append" },
+        { type: "thread.turn.start", threadId: result.threadId },
+      ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -197,12 +362,47 @@ describe("ReviewFixThread", () => {
       expect(result.title).toBe("Fix review findings: Review: #42 Cache the probe");
       expect(yield* Ref.get(harness.checkouts)).toEqual([]);
       const sent = yield* Ref.get(harness.commands);
-      expect(sent.map((command) => command.type)).toEqual(["thread.create", "thread.turn.start"]);
+      expect(sent.map((command) => command.type)).toEqual([
+        "thread.create",
+        "thread.activity.append",
+        "thread.turn.start",
+      ]);
       expect(sent[0]).toMatchObject({
         modelSelection: REVIEW_MODEL,
         branch: "feature",
         worktreePath: "/workspace/project-feature",
       });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("undoes a fix session back to before its fix through the checkpoint revert", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        fixThread: { activities: [fixStarted], turnCount: 2, status: "ready" },
+      });
+      expect(yield* harness.service.undo({ threadId: FIX_THREAD_ID })).toEqual({
+        turnCount: 0,
+        undoneTurns: 2,
+      });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        { type: "thread.checkpoint.revert", threadId: FIX_THREAD_ID, turnCount: 0 },
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("undoes nothing that is not a fix, still running, or already undone", () =>
+    Effect.gen(function* () {
+      const cases = [
+        [{ activities: [], turnCount: 2 }, "not-a-fix"],
+        [{ activities: [fixStarted], turnCount: 1, status: "running" as const }, "running"],
+        [{ activities: [fixStarted], turnCount: 0 }, "nothing"],
+      ] as const;
+      for (const [fixThread, stage] of cases) {
+        const harness = yield* makeHarness({ fixThread });
+        const error = yield* harness.service.undo({ threadId: FIX_THREAD_ID }).pipe(Effect.flip);
+        expect(error).toMatchObject({ _tag: "ReviewUndoFixesError", stage });
+        expect(yield* Ref.get(harness.commands)).toEqual([]);
+      }
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

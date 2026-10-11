@@ -15,7 +15,9 @@ import { HttpBody, HttpClient, HttpRouter, HttpServerResponse } from "effect/uns
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerConfig from "../config.ts";
+import * as TurnOrigin from "../orchestration/TurnOrigin.ts";
 import * as PullRequestAgentReview from "../pullRequest/PullRequestAgentReview.ts";
+import * as ReviewFindingsPoster from "../review/ReviewFindingsPoster.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
@@ -60,6 +62,8 @@ const PullRequestsTestLayer = McpHttpServer.PullRequestsToolkitRegistrationLive.
       }),
       Layer.mock(OrchestrationEngineService)({}),
       Layer.mock(PullRequestAgentReview.PullRequestAgentReview)({}),
+      Layer.mock(ReviewFindingsPoster.ReviewFindingsPoster)({}),
+      Layer.mock(TurnOrigin.TurnOrigin)({}),
       NodeServices.layer,
     ),
   ),

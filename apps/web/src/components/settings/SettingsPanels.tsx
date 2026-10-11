@@ -403,7 +403,10 @@ function AboutVersionSection() {
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
-  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
+  const actionLabel: Record<string, string> = {
+    download: updateState?.manualUpdate ? "Download from GitHub" : "Download",
+    install: "Install",
+  };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
     downloading: "Downloading…",
@@ -412,9 +415,11 @@ function AboutVersionSection() {
   const buttonLabel =
     actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
   const description =
-    action === "download" || action === "install"
-      ? "Update available."
-      : "Current version of the application.";
+    action === "download" && updateState?.manualUpdate
+      ? "A new version is available. This build updates by downloading it from GitHub."
+      : action === "download" || action === "install"
+        ? "Update available."
+        : "Current version of the application.";
 
   return (
     <>
@@ -575,6 +580,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.collapseFinishedTurns !== DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns
         ? ["Collapse finished turns"]
         : []),
+      ...(settings.headerActionsVisible !== DEFAULT_UNIFIED_SETTINGS.headerActionsVisible
+        ? ["Actions and Git in the top bar"]
+        : []),
       ...(settings.readAloudVoice !== DEFAULT_UNIFIED_SETTINGS.readAloudVoice
         ? ["Read aloud voice"]
         : []),
@@ -721,6 +729,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.chatDensity,
       settings.chatWidth,
       settings.collapseFinishedTurns,
+      settings.headerActionsVisible,
       settings.readAloudVoice,
       settings.readAloudRate,
       followSystem,
@@ -801,6 +810,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       chatDensity: DEFAULT_UNIFIED_SETTINGS.chatDensity,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       collapseFinishedTurns: DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns,
+      headerActionsVisible: DEFAULT_UNIFIED_SETTINGS.headerActionsVisible,
       readAloudVoice: DEFAULT_UNIFIED_SETTINGS.readAloudVoice,
       readAloudRate: DEFAULT_UNIFIED_SETTINGS.readAloudRate,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,

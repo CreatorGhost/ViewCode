@@ -1,9 +1,19 @@
 import {
+  REVIEW_FINDING_RATING_ACTIVITY_KIND,
   REVIEW_FINDINGS_ACTIVITY_KIND,
+  REVIEW_FINDINGS_POSTED_ACTIVITY_KIND,
+  ReviewFindingRatingActivityPayload,
   ReviewFindingsActivityPayload,
+  ReviewFindingsPostedActivityPayload,
   type OrchestrationThreadActivity,
+  type PullRequestReviewCommentDraft,
+  type PullRequestReviewPosition,
+  type PullRequestReviewVerdict,
   type ReviewFinding,
+  type ReviewFindingPlacement,
+  type ReviewFindingRating,
   type ReviewFindingToFix,
+  type ReviewFindingsMode,
   type ReviewFindingsTarget,
   type ReviewFindingSeverity,
   type ReviewVerdict,
@@ -42,6 +52,18 @@ export function readReviewFindings(
   return Option.getOrUndefined(decodePayload(activity.payload));
 }
 
+/** One account's key in `pullRequestReviewStyles`: its host and login, as hosts compare them. */
+export function reviewStyleKey(host: string, login: string): string {
+  return `${host.toLowerCase()}/${login.toLowerCase()}`;
+}
+
+/** What a review's findings are for; findings recorded before there was a choice are fixes. */
+export function reviewFindingsMode(
+  payload: Pick<ReviewFindingsActivityPayload, "mode">,
+): ReviewFindingsMode {
+  return payload.mode ?? "fix";
+}
+
 /**
  * The findings activity a thread shows: the latest one. Activities are append-only, so a
  * re-review replaces the earlier set by coming after it.
@@ -52,6 +74,101 @@ export function latestReviewFindingsActivityId(
   return (
     activities.findLast((activity) => activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND)?.id ?? null
   );
+}
+
+const decodePostedPayload = Schema.decodeUnknownOption(ReviewFindingsPostedActivityPayload);
+
+export interface PostedReviewFinding {
+  readonly placement: ReviewFindingPlacement;
+  /** The pull request the review is on. */
+  readonly url: string;
+  readonly verdict: PullRequestReviewVerdict;
+}
+
+/**
+ * Which findings of one findings activity were posted to the pull request, by key, from the
+ * records the server appends to the review thread after each review it posts.
+ */
+export function postedReviewFindings(
+  activities: ReadonlyArray<Pick<OrchestrationThreadActivity, "kind" | "payload">>,
+  findingsActivityId: string,
+): ReadonlyMap<string, PostedReviewFinding> {
+  const posted = new Map<string, PostedReviewFinding>();
+  for (const activity of activities) {
+    if (activity.kind !== REVIEW_FINDINGS_POSTED_ACTIVITY_KIND) continue;
+    const payload = Option.getOrUndefined(decodePostedPayload(activity.payload));
+    if (payload === undefined || payload.findingsActivityId !== findingsActivityId) continue;
+    for (const { key, placement } of payload.findings) {
+      posted.set(key, { placement, url: payload.url, verdict: payload.verdict });
+    }
+  }
+  return posted;
+}
+
+const decodeRatingPayload = Schema.decodeUnknownOption(ReviewFindingRatingActivityPayload);
+
+/** One rating record, or undefined for another activity or a bad payload. */
+export function readReviewFindingRating(
+  activity: Pick<OrchestrationThreadActivity, "kind" | "payload">,
+): ReviewFindingRatingActivityPayload | undefined {
+  if (activity.kind !== REVIEW_FINDING_RATING_ACTIVITY_KIND) return undefined;
+  return Option.getOrUndefined(decodeRatingPayload(activity.payload));
+}
+
+/** How the findings of one findings activity are rated now, by key: the latest rating wins. */
+export function reviewFindingRatings(
+  activities: ReadonlyArray<Pick<OrchestrationThreadActivity, "kind" | "payload">>,
+  findingsActivityId: string,
+): ReadonlyMap<string, ReviewFindingRating> {
+  const ratings = new Map<string, ReviewFindingRating>();
+  for (const activity of activities) {
+    const payload = readReviewFindingRating(activity);
+    if (payload === undefined || payload.findingsActivityId !== findingsActivityId) continue;
+    if (payload.rating === null) ratings.delete(payload.key);
+    else ratings.set(payload.key, payload.rating);
+  }
+  return ratings;
+}
+
+export interface RatedReviewFinding {
+  readonly rating: ReviewFindingRating;
+  readonly title: string;
+  readonly severity: ReviewFindingRatingActivityPayload["finding"]["severity"];
+  readonly path: string;
+  readonly rule?: string;
+}
+
+/**
+ * The project's most recently rated findings, newest last, at most `limit`: each finding once, as
+ * last rated, and none whose rating was taken back. Activities are read oldest first.
+ */
+export function recentRatedReviewFindings(
+  activities: ReadonlyArray<Pick<OrchestrationThreadActivity, "kind" | "payload">>,
+  projectId: string,
+  limit: number,
+): ReadonlyArray<RatedReviewFinding> {
+  const latest = new Map<string, RatedReviewFinding | null>();
+  for (const activity of activities) {
+    const payload = readReviewFindingRating(activity);
+    if (payload === undefined || payload.projectId !== projectId) continue;
+    const id = `${payload.findingsActivityId}/${payload.key}`;
+    // Re-inserting moves the finding to the end, so the order is by its latest rating.
+    latest.delete(id);
+    latest.set(
+      id,
+      payload.rating === null
+        ? null
+        : {
+            rating: payload.rating,
+            title: payload.finding.title,
+            severity: payload.finding.severity,
+            path: payload.finding.path,
+            ...(payload.finding.rule === undefined ? {} : { rule: payload.finding.rule }),
+          },
+    );
+  }
+  const rated = [...latest.values()].filter((entry): entry is RatedReviewFinding => entry !== null);
+  return rated.slice(Math.max(0, rated.length - limit));
 }
 
 /**
@@ -124,4 +241,158 @@ export function reviewFindingLocation(finding: {
       ? `${finding.line}-${finding.endLine}`
       : `${finding.line}`;
   return `${finding.path}:${range}`;
+}
+
+/**
+ * The verdict a review of the findings is submitted with until the reader picks another: request
+ * changes or approve where the reviewer said so, a plain comment for anything in between.
+ */
+export function reviewSubmitVerdictFor(verdict: ReviewVerdict): PullRequestReviewVerdict {
+  switch (verdict) {
+    case "request-changes":
+      return "request-changes";
+    case "approve":
+      return "approve";
+    case "approve-with-nits":
+      return "comment";
+  }
+}
+
+/** The lines of a pull request's head that a host takes a comment on, by file. */
+export type ReviewCommentableLines = ReadonlyMap<
+  string,
+  {
+    /** What the file was called before the change, where that differs. */
+    readonly oldPath: string | undefined;
+    readonly lines: ReadonlyMap<number, PullRequestReviewPosition>;
+  }
+>;
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+function patchPath(header: string): string | null {
+  const path = header.replace(/\t.*$/, "");
+  if (path === "/dev/null") return null;
+  return path.replace(/^[ab]\//, "");
+}
+
+/**
+ * Which lines of the head a unified diff shows, added or unchanged: hosts refuse a comment on any
+ * other line, and refuse the whole review with it. Hunks are read by their counts, so a removed
+ * line that happens to start with `--` is not mistaken for a file header.
+ */
+export function reviewCommentableLines(patch: string): ReviewCommentableLines {
+  const files = new Map<
+    string,
+    { oldPath: string | undefined; lines: Map<number, PullRequestReviewPosition> }
+  >();
+  let oldPath: string | null = null;
+  let file: { lines: Map<number, PullRequestReviewPosition> } | null = null;
+  let oldLine = 0;
+  let newLine = 0;
+  let oldLeft = 0;
+  let newLeft = 0;
+  for (const line of patch.split("\n")) {
+    if (oldLeft > 0 || newLeft > 0) {
+      const mark = line[0];
+      if (mark === "+") {
+        file?.lines.set(newLine, { kind: "added", newLine });
+        newLine++;
+        newLeft--;
+      } else if (mark === "-") {
+        oldLine++;
+        oldLeft--;
+      } else if (mark === " " || line === "") {
+        file?.lines.set(newLine, { kind: "context", oldLine, newLine, side: "right" });
+        oldLine++;
+        newLine++;
+        oldLeft--;
+        newLeft--;
+      }
+      // "\ No newline at end of file" belongs to the line before it.
+      continue;
+    }
+    if (line.startsWith("diff ")) {
+      oldPath = null;
+      file = null;
+    } else if (line.startsWith("--- ")) {
+      oldPath = patchPath(line.slice(4));
+    } else if (line.startsWith("+++ ")) {
+      const path = patchPath(line.slice(4));
+      if (path === null) {
+        file = null;
+        continue;
+      }
+      const entry = files.get(path) ?? {
+        oldPath: oldPath !== null && oldPath !== path ? oldPath : undefined,
+        lines: new Map<number, PullRequestReviewPosition>(),
+      };
+      files.set(path, entry);
+      file = entry;
+    } else {
+      const hunk = HUNK_HEADER.exec(line);
+      if (hunk === null) continue;
+      oldLine = Number(hunk[1]);
+      oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      newLine = Number(hunk[3]);
+      newLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
+    }
+  }
+  return files;
+}
+
+/**
+ * A finding as the review comment that carries it, exactly as posted: the reviewer's words, then
+ * its fix as code. One in the review's own text also says what and where it is, since no line
+ * places it.
+ */
+export function reviewFindingCommentBody(
+  finding: ReviewFinding,
+  placement: ReviewFindingPlacement,
+): string {
+  const parts =
+    placement === "inline"
+      ? [finding.detail]
+      : [`**${finding.title}** (\`${reviewFindingLocation(finding)}\`)`, finding.detail];
+  if (finding.suggestedFix) parts.push(fencedCode(finding.suggestedFix, finding.path));
+  return parts.join("\n\n");
+}
+
+/**
+ * One review carrying findings: each on its line where the diff shows that line, the rest in the
+ * review's text under the reader's overall comment. Without the diff every finding goes in the
+ * text, which a host never refuses.
+ */
+export function buildReviewFromFindings(input: {
+  readonly overallComment: string;
+  readonly findings: ReadonlyArray<{ readonly key: string; readonly finding: ReviewFinding }>;
+  readonly commentable: ReviewCommentableLines | null;
+}): {
+  readonly body: string;
+  readonly comments: ReadonlyArray<PullRequestReviewCommentDraft>;
+  readonly placements: ReadonlyArray<{
+    readonly key: string;
+    readonly placement: ReviewFindingPlacement;
+  }>;
+} {
+  const comments: Array<PullRequestReviewCommentDraft> = [];
+  const inBody: Array<string> = [];
+  const placements = input.findings.map(({ key, finding }) => {
+    const file = input.commentable?.get(finding.path);
+    const position = finding.line === undefined ? undefined : file?.lines.get(finding.line);
+    if (file === undefined || position === undefined) {
+      inBody.push(reviewFindingCommentBody(finding, "body"));
+      return { key, placement: "body" as const };
+    }
+    comments.push({
+      path: finding.path,
+      ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }),
+      position,
+      body: reviewFindingCommentBody(finding, "inline"),
+    });
+    return { key, placement: "inline" as const };
+  });
+  const overall = input.overallComment.trim();
+  const body = [...(overall.length > 0 ? [overall] : []), ...inBody].join("\n\n");
+  return { body, comments, placements };
 }

@@ -8,12 +8,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialNewThreadButton } from "../../components/MaterialNewThreadButton";
 import type { AndroidHomeFabLayout as SharedAndroidHomeFabLayout } from "./AndroidHomeFab.shared";
-import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { useWorkspaceState } from "../../state/workspace";
 import { HomeComposerLauncher } from "./HomeComposerLauncher";
 import { MaterialFabScrollContext } from "./MaterialFabScrollContext";
 import { updateMaterialFabScroll } from "./material-fab-scroll";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+
+const noop = () => {};
 
 export function AndroidHomeFabLayout(props: ComponentProps<typeof SharedAndroidHomeFabLayout>) {
   const insets = useSafeAreaInsets();
@@ -34,18 +35,20 @@ export function AndroidHomeFabLayout(props: ComponentProps<typeof SharedAndroidH
     scrollState.current = next;
   }, []);
 
-  // The phone list gets the composer launcher; the tablet sidebar keeps the
-  // FAB, remounted when its font or pane changes to clear its cached width.
+  // The phone list gets the search bar; the tablet sidebar keeps the FAB,
+  // remounted when its font or pane changes to clear its cached width.
   return (
     <View className="flex-1" onLayout={(event) => setLayoutWidth(event.nativeEvent.layout.width)}>
       <MaterialFabScrollContext value={onScroll}>{props.children}</MaterialFabScrollContext>
       {state.hasConnections && !props.sidebar ? (
         <HomeComposerLauncher
+          searchQuery={props.searchQuery ?? ""}
+          onSearchQueryChange={props.onSearchQueryChange ?? noop}
+          terminalTargets={props.terminalTargets ?? []}
+          selectedTerminalTarget={props.selectedTerminalTarget ?? null}
+          onOpenTerminal={props.onOpenTerminal ?? noop}
           onStartNewTask={props.onStartNewTask}
-          onStartVoiceTask={
-            getLocalVoiceTranscriber() === null ? undefined : props.onStartVoiceTask
-          }
-          style={{ bottom: Math.max(insets.bottom, 16) + 8 }}
+          bottomInset={Math.max(insets.bottom, 16) + 8}
         />
       ) : null}
       {state.hasConnections && props.sidebar && layoutWidth !== null ? (

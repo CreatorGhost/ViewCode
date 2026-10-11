@@ -264,7 +264,10 @@ type ThreadSettingsSessionProps = {
   readonly optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly onUpdateOptionSelections: (selections: ReadonlyArray<ProviderOptionSelection>) => void;
   readonly runtimeMode: RuntimeMode;
-  readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
+  /** Omit to reuse the model picker without offering runtime changes. */
+  readonly onUpdateRuntimeMode?: (mode: RuntimeMode) => void;
+  /** Header title; reusers such as the side chat name what they configure. */
+  readonly title?: string;
 };
 
 export type ExistingThreadSettingsRouteSession = ThreadSettingsSessionProps & {
@@ -318,7 +321,8 @@ type ThreadSettingsSessionValue = {
   readonly favoritesLoaded: boolean;
   readonly toggleFavorite: (option: ModelOption) => void;
   readonly runtimeMode: RuntimeMode;
-  readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
+  readonly onUpdateRuntimeMode?: (mode: RuntimeMode) => void;
+  readonly title?: string;
   /** The staged model, else the applied one: whose provider the runtime rows describe. */
   readonly displayedModel: ModelOption | null;
   readonly displayedDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
@@ -490,6 +494,7 @@ function ThreadSettingsSessionProvider(
       needsHandoff,
       runtimeMode: props.runtimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
+      title: props.title,
       displayedModel,
       displayedDescriptors,
       favoriteKeys,
@@ -528,6 +533,7 @@ function ThreadSettingsSessionProvider(
       pressModel,
       providerFilter,
       props.onUpdateRuntimeMode,
+      props.title,
       props.providerGroups,
       props.runtimeMode,
       searchQuery,
@@ -791,16 +797,18 @@ function ThreadSettingsOptionsItem(props: {
             </Animated.View>
           );
         })}
-        <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
-          <DisclosureRow
-            isLast
-            label="Runtime"
-            value={
-              RUNTIME_MODE_CHOICES.find((choice) => choice.mode === session.runtimeMode)?.label
-            }
-            onPress={() => props.onOpenSubmenu({ kind: "runtime" })}
-          />
-        </Animated.View>
+        {session.onUpdateRuntimeMode ? (
+          <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
+            <DisclosureRow
+              isLast
+              label="Runtime"
+              value={
+                RUNTIME_MODE_CHOICES.find((choice) => choice.mode === session.runtimeMode)?.label
+              }
+              onPress={() => props.onOpenSubmenu({ kind: "runtime" })}
+            />
+          </Animated.View>
+        ) : null}
       </Animated.View>
 
       {Platform.OS !== "ios" && session.hasLegacyModels ? (
@@ -1015,7 +1023,7 @@ function ThreadSettingsChoiceContent(props: {
             selected: choice.mode === session.runtimeMode,
             onPress: () => {
               void Haptics.selectionAsync();
-              session.onUpdateRuntimeMode(choice.mode);
+              session.onUpdateRuntimeMode?.(choice.mode);
               props.onSelected();
             },
           })),
@@ -1198,7 +1206,7 @@ function ThreadSettingsModelsScreen() {
             </View>
           }
           onBack={presentation.onClose}
-          title="Thread settings"
+          title={session.title ?? "Thread settings"}
           hideBottomBorder
         />
       ) : null}
@@ -1207,8 +1215,10 @@ function ThreadSettingsModelsScreen() {
           session.providerFilter,
           session.providerGroups.map((group) => group.providerKey),
           session.showLegacy,
+          session.title,
         ]}
         options={{
+          title: session.title ?? "Thread settings",
           unstable_headerToolbarItems: usesNativeMailSearchToolbar
             ? () => [
                 createNativeMailSearchToolbarItem({

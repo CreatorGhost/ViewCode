@@ -1191,6 +1191,107 @@ it.effect("names the account each GitHub project was read as", () =>
   }),
 );
 
+it.effect("asks about each repository as the account it is read as", () =>
+  Effect.gen(function* () {
+    const asked: Array<string> = [];
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
+        project({ id: "p2", title: "client", workspaceRoot: "/b", repository: "acme/client" }),
+      ],
+      providers: [
+        fakeProvider("github", {
+          // Routed already, so a search across both would run as the wrong account.
+          accountFor: (input) =>
+            Effect.succeed(input.repository === "acme/client" ? "bilal-acme" : null),
+          listChangeRequestsAcross: (input) =>
+            Effect.sync(() => {
+              asked.push(`across ${input.repositories.join(",")} as ${input.viewer}`);
+              return {
+                items: [batchedChangeRequest(1, "pingdotgg/t3code", "2026-07-02T00:00:00Z")],
+                truncated: false,
+              };
+            }),
+          listChangeRequests: (input) =>
+            Effect.sync(() => {
+              asked.push(`${input.repository} as ${input.viewer}`);
+              return {
+                items: [
+                  {
+                    ...changeRequest(2, "2026-07-03T00:00:00Z"),
+                    reviewRequestLogins: ["bilal-acme"],
+                  },
+                ],
+                truncated: false,
+                continues: true,
+              };
+            }),
+        }),
+      ],
+    });
+
+    const result = yield* service.list({ state: "open", involvement: "reviewing" });
+
+    assert.deepStrictEqual(asked.toSorted(), [
+      "acme/client as bilal-acme",
+      "across pingdotgg/t3code as bilal",
+    ]);
+    assert.deepStrictEqual(
+      result.entries.map((entry) => [entry.repository, entry.viewerReviewRequested]),
+      [
+        ["acme/client", true],
+        ["pingdotgg/t3code", false],
+      ],
+    );
+  }),
+);
+
+it.effect("asks again as the account a repository's first read found", () =>
+  Effect.gen(function* () {
+    const asked: Array<string> = [];
+    let routed: string | null = null;
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "client", workspaceRoot: "/b", repository: "acme/client" }),
+      ],
+      providers: [
+        fakeProvider("github", {
+          accountFor: () => Effect.sync(() => routed),
+          listChangeRequests: (input) =>
+            Effect.sync(() => {
+              asked.push(`${input.involvement} as ${input.viewer}`);
+              // The active account cannot see the repository; gh answers as another one.
+              routed = "bilal-acme";
+              return {
+                items: [
+                  {
+                    ...changeRequest(1, "2026-07-02T00:00:00Z"),
+                    reviewRequestLogins: ["bilal-acme"],
+                  },
+                ],
+                truncated: false,
+                continues: true,
+              };
+            }),
+        }),
+      ],
+    });
+
+    const authored = yield* service.list({ state: "open", involvement: "authored" });
+    routed = null;
+    const all = yield* service.list({ state: "closed", involvement: "all" });
+
+    // Only a question that names the reader is worth asking twice.
+    assert.deepStrictEqual(asked, ["authored as bilal", "authored as bilal-acme", "all as bilal"]);
+    assert.deepStrictEqual({ ...authored.accounts }, { p1: "bilal-acme" });
+    // The rows are still judged against the account that answered.
+    assert.deepStrictEqual(
+      all.entries.map((entry) => entry.viewerReviewRequested),
+      [true],
+    );
+  }),
+);
+
 it.effect("tries another workspace on the same host for the viewer", () =>
   Effect.gen(function* () {
     const service = yield* makeService({

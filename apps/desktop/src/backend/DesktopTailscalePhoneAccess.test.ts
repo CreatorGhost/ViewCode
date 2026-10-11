@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -33,6 +34,10 @@ describe("shouldAutoEnableTailscaleServe", () => {
 });
 
 describe("detectTailscaleInstalled", () => {
+  // A platform with no known install paths, so the result depends on PATH alone
+  // and not on whether this machine has Tailscale.
+  const onlyPathCounts = Effect.provideService(HostProcessPlatform, "freebsd");
+
   it.effect("finds the CLI on PATH by looking at files only", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -44,12 +49,13 @@ describe("detectTailscaleInstalled", () => {
       yield* fileSystem.chmod(cli, 0o755);
       assert.isFalse(yield* detectTailscaleInstalled({ PATH: empty }));
       assert.isTrue(yield* detectTailscaleInstalled({ PATH: installed }));
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.scoped, onlyPathCounts, Effect.provide(NodeServices.layer)),
   );
 
   it.effect("reports an empty PATH as not installed", () =>
     detectTailscaleInstalled({ PATH: "" }).pipe(
       Effect.map((installed) => assert.isFalse(installed)),
+      onlyPathCounts,
       Effect.provide(NodeServices.layer),
     ),
   );

@@ -9,6 +9,7 @@ import Animated, { FadeIn } from "react-native-reanimated";
 import { OverlayPortal } from "./OverlayPortal";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 import { MaterialMenuPopup } from "./MaterialMenuPopup";
+import { MENU_CORNER_RADIUS } from "./menuCornerRadius";
 
 const SCREEN_MARGIN = 12;
 const ANCHOR_GAP = 6;
@@ -214,12 +215,12 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
             ) : (
               <Animated.View
                 entering={FadeIn.duration(120)}
-                className="absolute overflow-hidden bg-card-alt shadow-md"
+                className="absolute overflow-hidden border border-border-subtle bg-card shadow-md"
                 style={{
                   left,
                   maxHeight,
                   width: menuWidth,
-                  borderRadius: 4 * scale,
+                  borderRadius: MENU_CORNER_RADIUS,
                   ...(opensDown
                     ? { top: local.y + local.height + ANCHOR_GAP }
                     : { bottom: (rootHeight ?? 0) - local.y + ANCHOR_GAP }),

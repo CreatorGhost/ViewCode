@@ -380,6 +380,58 @@ describe("buildThreadFeed", () => {
     expect(feed.filter((entry) => entry.type === "html-render")).toHaveLength(1);
   });
 
+  it("shows only the latest review findings, each as its own row", () => {
+    const turnId = TurnId.make("turn-1");
+    const findings = (id: string, second: number, verdict: string) =>
+      makeActivity({
+        id: EventId.make(id),
+        kind: "viewcode.review.findings",
+        summary: "Review: Request changes, 1 finding",
+        createdAt: `2026-04-01T00:00:0${second}.000Z`,
+        turnId,
+        payload: {
+          verdict,
+          mergeConfidence: 2,
+          reviewEffort: 3,
+          findings: [
+            {
+              severity: "blocker",
+              confidence: 90,
+              path: "src/a.ts",
+              line: 4,
+              title: "Null deref",
+              detail: "It throws.",
+            },
+          ],
+          needsChecking: [],
+          target: { kind: "local" },
+        },
+      });
+    const thread = makeThread({
+      id: ThreadId.make("review"),
+      projectId: ProjectId.make("project-1"),
+      title: "Review",
+      activities: [
+        findings("first", 1, "request-changes"),
+        makeActivity({
+          id: EventId.make("command"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Ran command",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId,
+          payload: { itemType: "command_execution", status: "completed", detail: "ls" },
+        }),
+        // A re-review replaces the earlier set.
+        findings("second", 3, "approve"),
+      ],
+    });
+    const feed = deriveThreadFeedPresentation(buildThreadFeed(thread), null, new Set());
+    const rows = feed.filter((entry) => entry.type === "review-findings");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: "second", findings: { verdict: "approve" } });
+  });
+
   it("keeps another MCP server's send_message tool call in the work log", () => {
     const thread = makeThread({
       id: ThreadId.make("lead"),

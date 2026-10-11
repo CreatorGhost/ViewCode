@@ -3,10 +3,21 @@ import {
   WorktreeSetupCard,
   type WorktreeSetupCardProps,
 } from "./worktree-setup-card";
-import { parseAgentMessage } from "@t3tools/shared/agentMessages";
-import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
+import {
+  AgentChatterHeaderRow,
+  IncomingAgentMessageCard,
+  OutgoingAgentMessageCard,
+} from "./AgentMessageCard";
+import {
+  findLastUserMessageIndex,
+  groupAgentChatter,
+  isAgentMessageEntry,
+  readAgentEnvelope,
+  type AgentChatterHeaderEntry,
+} from "./agentChatter";
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import type {
   ChatAttachment,
@@ -92,7 +103,7 @@ import { isPdfFile } from "../../lib/filePreview";
 import { flattenThemeColor } from "../../lib/mobileTheme";
 import { PresentationSource } from "../../components/NativePresentation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { FadeIn, type SharedValue } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, ReduceMotion, type SharedValue } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
 import { useFontFamily } from "../../lib/useFontFamily";
@@ -176,8 +187,12 @@ import {
   WORK_GROUP_TOGGLE_HEIGHT,
 } from "./thread-work-log";
 import { appendPendingThreadMessages, type PendingThreadFeedEntry } from "./pending-thread-feed";
+
+/** What the list renders: the presented feed with agent chatter folded behind headers. */
+type RenderedFeedEntry = PendingThreadFeedEntry | AgentChatterHeaderEntry;
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
+import { ReviewFindingsFeedCard } from "../review/findings/ReviewFindingsFeedCard";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import {
@@ -279,6 +294,13 @@ export interface ThreadFeedProps {
   readonly usesAutomaticContentInsets?: boolean;
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
   readonly onEndFollowEnabledChange?: (enabled: boolean) => void;
+  /**
+   * Distance from the feed's bottom edge to the "Your last message" chip. The
+   * screen supplies it so the chip clears the floating scroll/status controls.
+   */
+  readonly lastMessageChipBottomInset?: number;
+  /** Whether the chip rides the keyboard; the screen passes the composer's own flag. */
+  readonly lastMessageChipFollowsKeyboard?: boolean;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
   readonly onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   /** Non-null when older turns exist beyond the loaded window. */
@@ -595,6 +617,15 @@ function MessageAttachmentUnknown(props: { readonly name: string }) {
     </View>
   );
 }
+
+// Agent rows are one line tall, so they must not share a size estimate with user bubbles.
+function getFeedItemType(entry: RenderedFeedEntry): string {
+  if (entry.type !== "message") return entry.type;
+  return isAgentMessageEntry(entry) ? "agent-message:in" : `message:${entry.message.role}`;
+}
+
+const LAST_MESSAGE_CHIP_ENTERING = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
+const LAST_MESSAGE_CHIP_EXITING = FadeOut.duration(120).reduceMotion(ReduceMotion.System);
 
 const ThreadMediaVisibleContext = createContext(false);
 // LegendList only computes hook visibility when the list has a viewability config.
@@ -1421,7 +1452,7 @@ function useMarkdownStyles(
 }
 
 function renderFeedEntry(
-  info: { item: PendingThreadFeedEntry; index: number },
+  info: { item: RenderedFeedEntry; index: number },
   props: Pick<
     ThreadFeedProps,
     | "environmentId"
@@ -1444,6 +1475,7 @@ function renderFeedEntry(
     readonly onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
     readonly onToggleWorkRow: (rowId: string, anchorKey: string) => void;
     readonly onToggleTurnFold: (turnId: TurnId) => void;
+    readonly onToggleAgentChatter: (groupId: string, expanded: boolean) => void;
     readonly onToggleReasoning: (messageId: string) => void;
     readonly onPressPreview: (source: FilePreviewSource) => void;
     readonly onPressVideo: (attachment: ChatFileAttachment, sourceIdentifier: string) => void;
@@ -1494,6 +1526,16 @@ function renderFeedEntry(
     );
   }
 
+  if (entry.type === "agent-chatter") {
+    return (
+      <AgentChatterHeaderRow
+        entry={entry}
+        iconColor={iconSubtleColor}
+        onToggle={props.onToggleAgentChatter}
+      />
+    );
+  }
+
   if (entry.type === "thinking") {
     return <ThreadThinkingRow rowSizing={props.workRowSizing} iconSubtleColor={iconSubtleColor} />;
   }
@@ -1504,6 +1546,17 @@ function renderFeedEntry(
         environmentId={props.environmentId}
         threadId={props.threadId}
         render={entry.render}
+        iconColor={iconSubtleColor}
+      />
+    );
+  }
+
+  if (entry.type === "review-findings") {
+    return (
+      <ReviewFindingsFeedCard
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        findings={entry.findings}
         iconColor={iconSubtleColor}
       />
     );
@@ -1609,7 +1662,7 @@ function renderFeedEntry(
         </ThreadReasoningRow>
       );
     }
-    const agentEnvelope = message.role === "user" ? parseAgentMessage(message.text) : null;
+    const agentEnvelope = readAgentEnvelope(message);
     if (agentEnvelope) {
       return (
         <IncomingAgentMessageCard
@@ -2124,12 +2177,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     readonly expandedWorkRows: Record<string, boolean>;
     readonly expandedTurnIds: ReadonlySet<TurnId>;
     readonly expandedReasoningMessageIds: ReadonlySet<string>;
+    /** Agent-chatter groups the user opened or closed, by group id; absent means the default. */
+    readonly agentChatterOverrides: Readonly<Record<string, boolean>>;
   }>({
     copiedRowId: null,
     expandedWorkGroups: {},
     expandedWorkRows: {},
     expandedTurnIds: new Set(),
     expandedReasoningMessageIds: new Set(),
+    agentChatterOverrides: {},
   });
   const {
     copiedRowId,
@@ -2137,6 +2193,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     expandedWorkRows,
     expandedTurnIds,
     expandedReasoningMessageIds,
+    agentChatterOverrides,
   } = interactionState;
   const [expandedFile, setExpandedFile] = useState<FilePreviewSource | null>(null);
   const [expandedVideo, setExpandedVideo] = useState<VideoPreviewSource | null>(null);
@@ -2584,7 +2641,34 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.latestTurn,
     ],
   );
-  const setupAnchorIndex = presentedFeed.findIndex(
+  const working = props.activeWorkStartedAt !== null;
+  const { entries: renderedFeed, memberIds: chatterMemberIds } = useMemo(
+    () => groupAgentChatter(presentedFeed, { overrides: agentChatterOverrides, working }),
+    [presentedFeed, agentChatterOverrides, working],
+  );
+  // "Your last message" chip: shown while the user's last message has scrolled
+  // out of view above. LegendList reports viewable rows only when membership
+  // changes, so keep the first viewable row's id and resolve its index against
+  // the current list (folding a group shifts indices without changing membership).
+  const [firstViewableId, setFirstViewableId] = useState<string | null>(null);
+  const handleViewableItemsChanged = useCallback(
+    (info: { readonly viewableItems: ReadonlyArray<{ readonly key: string }> }) => {
+      setFirstViewableId(info.viewableItems[0]?.key ?? null);
+    },
+    [],
+  );
+  const lastUserMessageIndex = useMemo(
+    () => findLastUserMessageIndex(renderedFeed),
+    [renderedFeed],
+  );
+  const showLastMessageChip = useMemo(
+    () =>
+      lastUserMessageIndex >= 0 &&
+      firstViewableId !== null &&
+      renderedFeed.findIndex((entry) => entry.id === firstViewableId) > lastUserMessageIndex,
+    [firstViewableId, lastUserMessageIndex, renderedFeed],
+  );
+  const setupAnchorIndex = renderedFeed.findIndex(
     (entry) => entry.type === "message" && entry.message.role === "user",
   );
   // The empty↔filled key below remounts the list and resets its imperative
@@ -2594,7 +2678,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // The thinking row a running thread shows while its messages load is not
   // content: the list must still remount, and so open at the end, when they
   // arrive.
-  const listMountKey = `${feedThreadKey}:${presentedFeed.some((entry) => entry.type !== "thinking") ? "filled" : "empty"}`;
+  const listMountKey = `${feedThreadKey}:${renderedFeed.some((entry) => entry.type !== "thinking") ? "filled" : "empty"}`;
   useLayoutEffect(() => {
     const bottom = props.contentInsetEndAdjustment.value;
     if (bottom > 0) {
@@ -2605,12 +2689,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const anchoredEndSpace = useMemo(
     () =>
       resolveChatListAnchoredEndSpace(
-        presentedFeed,
+        renderedFeed,
         props.anchorMessageId,
         (entry) => (entry.type === "message" && entry.message.role === "user" ? entry.id : null),
         { anchorOffset: anchorTopInset + CHAT_LIST_ANCHOR_OFFSET },
       ),
-    [presentedFeed, props.anchorMessageId, anchorTopInset],
+    [renderedFeed, props.anchorMessageId, anchorTopInset],
   );
   const terminalAssistantMessageIds = useMemo(() => {
     const terminalIdsByTurn = new Map<TurnId, string>();
@@ -2714,7 +2798,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
   }, [settleDisclosureAfterLayout]);
 
-  const shouldRestoreVisibleContentPosition = useCallback((entry: ThreadFeedEntry) => {
+  const shouldRestoreVisibleContentPosition = useCallback((entry: RenderedFeedEntry) => {
     const disclosureAnchorKey = disclosureAnchorKeyRef.current;
     return disclosureAnchorKey === null || entry.id === disclosureAnchorKey;
   }, []);
@@ -2789,6 +2873,34 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     [suspendEndScrollMaintenanceForDisclosure],
   );
 
+  const onToggleAgentChatter = useCallback(
+    (groupId: string, expanded: boolean) => {
+      suspendEndScrollMaintenanceForDisclosure(`agent-chatter:${groupId}`);
+      setInteractionState((current) => ({
+        ...current,
+        agentChatterOverrides: { ...current.agentChatterOverrides, [groupId]: expanded },
+      }));
+    },
+    [suspendEndScrollMaintenanceForDisclosure],
+  );
+
+  const onJumpToLastUserMessage = useCallback(() => {
+    if (lastUserMessageIndex < 0) {
+      return;
+    }
+    void Haptics.selectionAsync();
+    // Leave follow first or maintainScrollAtEnd pulls the list straight back down.
+    setEndFollow(false);
+    void props.listRef.current
+      ?.scrollToIndex({
+        index: lastUserMessageIndex,
+        viewPosition: 0,
+        viewOffset: anchorTopInset + CHAT_LIST_ANCHOR_OFFSET,
+        animated: true,
+      })
+      .catch(() => undefined);
+  }, [anchorTopInset, lastUserMessageIndex, props.listRef, setEndFollow]);
+
   const onToggleReasoning = useCallback(
     (messageId: string) => {
       // Reasoning details use their own row within the expanded activity history.
@@ -2827,7 +2939,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // exact; message rows stay undefined and use LegendList's per-type running
   // average once one of their type has been measured.
   const getFixedItemSize = useCallback(
-    (entry: ThreadFeedEntry) => {
+    (entry: RenderedFeedEntry) => {
       if (entry.type === "html-render") {
         return htmlRenderRowHeight(htmlRenderFrameHeight(entry.render));
       }
@@ -2864,9 +2976,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // Disclosures can mount existing offscreen rows as well as new work rows.
   // Fade those in after movement; never retain removed rows over replacements.
   const renderItem = useCallback(
-    (info: { item: PendingThreadFeedEntry; index: number }) => (
+    (info: { item: RenderedFeedEntry; index: number }) => (
       <Animated.View
         key={info.item.id}
+        // Rows inside an open agent-chatter group hang off a thin rule.
+        className={
+          chatterMemberIds.has(info.item.id)
+            ? "ml-1.5 border-l border-border-subtle pl-3"
+            : undefined
+        }
         entering={disclosureToggleSettling ? THREAD_FEED_DISCLOSURE_ENTER_TRANSITION : undefined}
       >
         <ThreadMediaVisibility>
@@ -2888,6 +3006,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             onToggleWorkGroup,
             onToggleWorkRow,
             onToggleTurnFold,
+            onToggleAgentChatter,
             onToggleReasoning,
             onPressPreview,
             onPressVideo,
@@ -2915,6 +3034,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       </Animated.View>
     ),
     [
+      chatterMemberIds,
       props.worktreeSetup,
       props.setupWorkingStartedAt,
       props.threadId,
@@ -2944,6 +3064,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       markdownLinkHandlers,
       onPressPreview,
       onPressVideo,
+      onToggleAgentChatter,
       onToggleReasoning,
       onToggleTurnFold,
       onToggleWorkGroup,
@@ -3046,14 +3167,13 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             maintainVisibleContentPosition={
               endFollowEnabled && !disclosureToggleSettling ? false : maintainVisibleContentPosition
             }
-            data={presentedFeed}
+            data={renderedFeed}
             extraData={listAppearanceData}
             renderItem={renderItem}
             viewabilityConfig={THREAD_MEDIA_VIEWABILITY_CONFIG}
+            onViewableItemsChanged={handleViewableItemsChanged}
             keyExtractor={(entry) => entry.id}
-            getItemType={(entry) =>
-              entry.type === "message" ? `message:${entry.message.role}` : entry.type
-            }
+            getItemType={getFeedItemType}
             getFixedItemSize={getFixedItemSize}
             // Virtualized rows must move with their measurements. Native layout
             // transitions can retain stale positions during sync, even at duration 0.
@@ -3113,6 +3233,40 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             }}
           />
         </View>
+        {showLastMessageChip ? (
+          // The composer lives in a KeyboardStickyView, so the chip needs the
+          // same translation or the keyboard covers it.
+          <KeyboardStickyView
+            enabled={props.lastMessageChipFollowsKeyboard ?? false}
+            pointerEvents="box-none"
+            style={StyleSheet.absoluteFill}
+            offset={{ closed: 0, opened: 0 }}
+          >
+            <Animated.View
+              pointerEvents="box-none"
+              className="absolute inset-x-0 z-10 items-center"
+              style={{ bottom: props.lastMessageChipBottomInset ?? bottomContentInset }}
+              entering={LAST_MESSAGE_CHIP_ENTERING}
+              exiting={LAST_MESSAGE_CHIP_EXITING}
+            >
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Your last message"
+                accessibilityHint="Scrolls up to the last message you sent."
+                onPress={onJumpToLastUserMessage}
+                className="h-8 flex-row items-center gap-1.5 rounded-full border border-border bg-glass-fallback px-3 shadow-md shadow-black/10 active:opacity-70"
+              >
+                <SymbolView
+                  name="arrow.up"
+                  size={12}
+                  tintColor={iconSubtleColor}
+                  type="monochrome"
+                />
+                <Text className="text-xs font-t3-medium text-foreground">Your last message</Text>
+              </Pressable>
+            </Animated.View>
+          </KeyboardStickyView>
+        ) : null}
         {presentedFeed.length === 0 &&
         !props.worktreeSetup &&
         props.activeWorkStartedAt === null &&

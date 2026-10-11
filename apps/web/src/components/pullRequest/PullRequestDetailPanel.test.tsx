@@ -98,6 +98,18 @@ vi.mock("./PullRequestMarkdown", () => ({
 }));
 vi.mock("~/browser/useOpenLink", () => ({ useOpenLink: () => vi.fn() }));
 vi.mock("./PullRequestThreadLinks", () => ({ PullRequestThreadLinks: () => null }));
+vi.mock("./PullRequestAgentReviewDialog", () => ({
+  PullRequestAgentReviewDialog: () => null,
+  useReviewStartedHandler: () => vi.fn(),
+}));
+vi.mock("../chat/useReviewFindingsSource", () => ({
+  usePullRequestReviewFindings: () => ({
+    source: null,
+    posted: new Map(),
+    running: null,
+    openCount: 0,
+  }),
+}));
 vi.mock("./PullRequestSummaryTab", () => ({
   PullRequestSummaryTab: ({
     onFixFinding,

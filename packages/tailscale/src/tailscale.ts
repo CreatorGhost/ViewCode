@@ -1,7 +1,8 @@
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
@@ -13,12 +14,78 @@ const TAILSCALE_SERVE_TIMEOUT = Duration.seconds(10);
 const TAILSCALE_PROBE_TIMEOUT = Duration.millis(2_500);
 
 // tailscale is a real executable everywhere (`tailscale.exe` on Windows), so
-// it is always spawned directly rather than through cmd.exe shell mode.
+// it is always spawned directly, with its arguments as an array, rather than
+// through a shell. Install paths with spaces need no quoting.
 const tailscaleCommandForPlatform = (platform: NodeJS.Platform): "tailscale" | "tailscale.exe" =>
   platform === "win32" ? "tailscale.exe" : "tailscale";
 
+// Windows environment names are case-insensitive, but a copied env object is not.
+const readEnvironmentValue = (env: NodeJS.ProcessEnv, name: string): string | undefined => {
+  const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+  const value = key === undefined ? undefined : env[key]?.trim();
+  return value ? value : undefined;
+};
+
+/**
+ * Where installers put the CLI, for when it is not on PATH: apps launched from
+ * the desktop often get a short PATH, and the Mac app never adds one. Only these
+ * fixed paths are ever tried; nothing else on the machine is searched.
+ */
+export function knownTailscaleExecutablePaths(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+): ReadonlyArray<string> {
+  switch (platform) {
+    case "darwin":
+      return [
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+      ];
+    case "linux":
+      return [
+        "/usr/bin/tailscale",
+        "/usr/sbin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/snap/bin/tailscale",
+      ];
+    case "win32":
+      return ["ProgramFiles", "ProgramFiles(x86)"].flatMap((name) => {
+        const directory = readEnvironmentValue(env, name);
+        return directory ? [`${directory.replace(/[\\/]+$/, "")}\\Tailscale\\tailscale.exe`] : [];
+      });
+    default:
+      return [];
+  }
+}
+
+/**
+ * The CLI to run: the PATH name when `isAvailable` finds it there, otherwise
+ * the first known install path that exists and is executable, otherwise null.
+ * `isAvailable` takes either form; callers pass a filesystem-only check.
+ */
+export const findTailscaleExecutable = Effect.fnUntraced(function* <R>(input: {
+  readonly platform: NodeJS.Platform;
+  readonly env: NodeJS.ProcessEnv;
+  readonly isAvailable: (command: string) => Effect.Effect<boolean, never, R>;
+}): Effect.fn.Return<string | null, never, R> {
+  for (const command of [
+    tailscaleCommandForPlatform(input.platform),
+    ...knownTailscaleExecutablePaths(input.platform, input.env),
+  ]) {
+    if (yield* input.isAvailable(command)) return command;
+  }
+  return null;
+});
+
+interface TailscaleCommandTarget {
+  readonly executable: string;
+  readonly subcommand: "status" | "serve";
+  readonly argumentCount: number;
+}
+
 const TailscaleCommandContext = {
-  executable: Schema.Literals(["tailscale", "tailscale.exe"]),
+  executable: Schema.String,
   subcommand: Schema.Literals(["status", "serve"]),
   argumentCount: Schema.Number,
 };
@@ -214,18 +281,26 @@ export const parseTailscaleStatus = (
     }),
   );
 
-export const readTailscaleStatus = Effect.gen(function* () {
-  const args = ["status", "--json"];
+/**
+ * Spawns the CLI by its PATH name and, when PATH has none, tries each known
+ * install path in turn. A missing path fails to spawn, so nothing is probed
+ * first. When none starts, the PATH failure is the one reported.
+ */
+const spawnTailscale = Effect.fnUntraced(function* (
+  subcommand: "status" | "serve",
+  args: ReadonlyArray<string>,
+) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const hostPlatform = yield* HostProcessPlatform;
-  const executable = tailscaleCommandForPlatform(hostPlatform);
-  const commandContext = {
-    executable,
-    subcommand: "status" as const,
-    argumentCount: args.length,
-  };
-  return yield* Effect.gen(function* () {
-    const child = yield* spawner.spawn(ChildProcess.make(executable, args)).pipe(
+  const platform = yield* HostProcessPlatform;
+  const env = yield* HostProcessEnvironment;
+  const spawnAs = (executable: string) => {
+    const commandContext: TailscaleCommandTarget = {
+      executable,
+      subcommand,
+      argumentCount: args.length,
+    };
+    return spawner.spawn(ChildProcess.make(executable, args)).pipe(
+      Effect.map((child) => ({ child, commandContext })),
       Effect.mapError((cause) => new TailscaleCommandSpawnError({ ...commandContext, cause })),
       // Spawning can also fail as a defect rather than a typed error - a
       // non-directory entry on PATH makes node throw ENOTDIR synchronously.
@@ -234,6 +309,35 @@ export const readTailscaleStatus = Effect.gen(function* () {
         Effect.fail(new TailscaleCommandSpawnError({ ...commandContext, cause })),
       ),
     );
+  };
+  const onPath = yield* Effect.result(spawnAs(tailscaleCommandForPlatform(platform)));
+  if (Result.isSuccess(onPath)) return onPath.success;
+  if (isNotFoundSpawnError(onPath.failure)) {
+    for (const executable of knownTailscaleExecutablePaths(platform, env)) {
+      const installed = yield* Effect.result(spawnAs(executable));
+      if (Result.isSuccess(installed)) return installed.success;
+    }
+  }
+  return yield* onPath.failure;
+});
+
+const isNotFoundSpawnError = (error: TailscaleCommandSpawnError): boolean => {
+  const cause = error.cause as { readonly reason?: { readonly _tag?: unknown } } | undefined;
+  return cause?.reason?._tag === "NotFound";
+};
+
+export const readTailscaleStatus = Effect.gen(function* () {
+  const args = ["status", "--json"];
+  // Becomes the executable that started, for the errors after the spawn.
+  let commandContext: TailscaleCommandTarget = {
+    executable: tailscaleCommandForPlatform(yield* HostProcessPlatform),
+    subcommand: "status",
+    argumentCount: args.length,
+  };
+  return yield* Effect.gen(function* () {
+    const spawned = yield* spawnTailscale("status", args);
+    commandContext = spawned.commandContext;
+    const child = spawned.child;
     const [stdout, stderr, exitCode] = yield* Effect.all(
       [
         collectStdout(child.stdout),
@@ -290,22 +394,17 @@ const runTailscaleCommand = (
   timeoutInput: Duration.Input,
 ): Effect.Effect<void, TailscaleCommandError, ChildProcessSpawner.ChildProcessSpawner> =>
   Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const hostPlatform = yield* HostProcessPlatform;
-    const executable = tailscaleCommandForPlatform(hostPlatform);
-    const commandContext = {
-      executable,
-      subcommand: "serve" as const,
+    // Becomes the executable that started, for the errors after the spawn.
+    let commandContext: TailscaleCommandTarget = {
+      executable: tailscaleCommandForPlatform(yield* HostProcessPlatform),
+      subcommand: "serve",
       argumentCount: args.length,
     };
     const timeout = Duration.fromInputUnsafe(timeoutInput);
     return yield* Effect.gen(function* () {
-      const child = yield* spawner.spawn(ChildProcess.make(executable, args)).pipe(
-        Effect.mapError((cause) => new TailscaleCommandSpawnError({ ...commandContext, cause })),
-        Effect.catchDefect((cause) =>
-          Effect.fail(new TailscaleCommandSpawnError({ ...commandContext, cause })),
-        ),
-      );
+      const spawned = yield* spawnTailscale("serve", args);
+      commandContext = spawned.commandContext;
+      const child = spawned.child;
       const [stderr, exitCode] = yield* Effect.all(
         [collectStderr(child.stderr), child.exitCode.pipe(Effect.map(Number))],
         { concurrency: "unbounded" },

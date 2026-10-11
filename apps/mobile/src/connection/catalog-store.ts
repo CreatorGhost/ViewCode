@@ -48,6 +48,19 @@ interface CatalogStore {
   ) => Effect.Effect<void, ConnectionTransientError>;
 }
 
+/** T3 Connect relay entries have no transport here; they would show as broken connections. */
+function withoutRelayTargets(catalog: ConnectionCatalogDocumentType) {
+  const relay = catalog.targets.filter((target) => target._tag === "RelayConnectionTarget");
+  if (relay.length === 0) return null;
+  const ids = new Set(relay.map((target) => target.environmentId));
+  return {
+    ...catalog,
+    targets: catalog.targets.filter((target) => !ids.has(target.environmentId)),
+    remoteDpopTokens: catalog.remoteDpopTokens.filter((token) => !ids.has(token.environmentId)),
+    disabledEnvironmentIds: catalog.disabledEnvironmentIds.filter((id) => !ids.has(id)),
+  };
+}
+
 export const make = Effect.fn("mobile.connectionStorage.makeCatalogStore")(function* () {
   const storage = yield* MobileSecureStorage.MobileSecureStorage;
   const getItem = (key: string) =>
@@ -98,6 +111,11 @@ export const make = Effect.fn("mobile.connectionStorage.makeCatalogStore")(funct
       );
     } else {
       catalog = yield* loadLegacyCatalog();
+    }
+    const cleaned = withoutRelayTargets(catalog);
+    if (cleaned) {
+      catalog = cleaned;
+      yield* setItem(CONNECTION_CATALOG_KEY, yield* encodeCatalog(catalog));
     }
     yield* Ref.set(state, Option.some(catalog));
     return catalog;

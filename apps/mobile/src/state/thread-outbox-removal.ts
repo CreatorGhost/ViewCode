@@ -9,6 +9,7 @@ import {
   flushComposerDrafts,
   scheduleUnusedComposerAttachmentCleanup,
   waitForComposerDraftsLoaded,
+  waitForLegacyArchiveRestore,
 } from "./use-composer-drafts";
 
 async function cleanUpRemovedMessages(
@@ -71,6 +72,9 @@ export async function removeThreadOutboxMessage(
   expectedRevision?: number,
   canRemove?: () => boolean,
 ): Promise<boolean> {
+  // A restored legacy message may still be in the on-disk archive until its
+  // retirement lands; removing first would let a restart queue it again.
+  await waitForLegacyArchiveRestore();
   const removed = await threadOutboxManager.remove(message, expectedRevision, canRemove);
   if (removed === null) {
     return false;
@@ -86,6 +90,7 @@ export async function clearThreadOutboxEnvironment(environmentId: EnvironmentId)
   // clearEnvironment loads and merges persisted messages itself and reports
   // what it actually removed, so the release set cannot miss messages a
   // failed earlier hydration would have hidden.
+  await waitForLegacyArchiveRestore();
   const removed = await threadOutboxManager.clearEnvironment(environmentId);
   await cleanUpRemovedMessages(removed);
 }

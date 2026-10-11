@@ -96,4 +96,17 @@ function ContextStrip({ className, ...props }: ComponentProps<"div">) {
   );
 }
 
-export const ComposerSurface = { Shell, Host, Main, ContextStrip };
+/**
+ * The light that circles the composer's edge while a turn runs. Render it inside
+ * `Main` only while the agent works; viewcode-chat.css draws it as a rotating
+ * sweep masked to the border, so it animates on the compositor without repaints.
+ */
+function LiveRing() {
+  return (
+    <span aria-hidden="true" data-composer-live-ring="">
+      <span />
+    </span>
+  );
+}
+
+export const ComposerSurface = { Shell, Host, Main, ContextStrip, LiveRing };

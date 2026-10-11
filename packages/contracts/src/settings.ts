@@ -532,6 +532,8 @@ export const ClientSettingsSchema = Schema.Struct({
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_WIDTH))),
   // ViewCode: settled turns fold their work behind one summary row.
   collapseFinishedTurns: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // ViewCode: the chat top bar's project actions and Git buttons (off keeps it quiet).
+  headerActionsVisible: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // ViewCode: read aloud voice (null is the default natural voice) and speed.
   readAloudVoice: Schema.NullOr(ReadAloudVoice).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1031,6 +1033,9 @@ export const SourceControlWritingStyleSettings = Schema.Struct({
 });
 export type SourceControlWritingStyleSettings = typeof SourceControlWritingStyleSettings.Type;
 
+/** Long enough for a paragraph and a few example comments, short enough for a first message. */
+export const PullRequestReviewStyle = TrimmedString.check(Schema.isMaxLength(4_000));
+
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 export const DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL = Duration.minutes(5);
 
@@ -1399,6 +1404,14 @@ export const ServerSettings = Schema.Struct({
   pullRequestMergeMethod: Schema.NullOr(PullRequestMergeMethod).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /**
+   * How the user writes review comments, by account (`reviewStyleKey`: host and login). A
+   * reviewer whose findings will be posted to somebody else's pull request writes them this way.
+   * Server-side because the reviewer runs here, whichever client started it. Empty means none.
+   */
+  pullRequestReviewStyles: Schema.Record(TrimmedNonEmptyString, PullRequestReviewStyle).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
 
   // Legacy single-instance-per-driver settings. Continues to be the source
   // of truth until `providerInstances` (below) lands per-driver migration
@@ -1717,6 +1730,10 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
+  /** Merged per account; an empty style clears that account's. */
+  pullRequestReviewStyles: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, PullRequestReviewStyle),
+  ),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),
@@ -1865,6 +1882,7 @@ export const ClientSettingsPatch = Schema.Struct({
   chatDensity: Schema.optionalKey(ChatDensity),
   chatWidth: Schema.optionalKey(ChatWidth),
   collapseFinishedTurns: Schema.optionalKey(Schema.Boolean),
+  headerActionsVisible: Schema.optionalKey(Schema.Boolean),
   readAloudVoice: Schema.optionalKey(Schema.NullOr(ReadAloudVoice)),
   readAloudRate: Schema.optionalKey(ReadAloudRate),
 });

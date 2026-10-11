@@ -29,10 +29,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import {
   FRESH_SIDECHAT,
-  isPinnedToBottom,
   resolveActiveSidechat,
   sidechatsOf,
-} from "./sidechat.logic";
+} from "@t3tools/client-runtime/state/sidechat";
+import { isPinnedToBottom } from "./sidechat.logic";
 import { useSidechatActions } from "./useSidechatActions";
 
 const EMPTY_PROMPT_HINT = "Ask a quick question about this thread";

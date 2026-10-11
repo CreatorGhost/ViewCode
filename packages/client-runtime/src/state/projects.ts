@@ -86,8 +86,34 @@ export function isFilesystemBrowseQuery(value: string, platform = ""): boolean {
     value.startsWith("..\\") ||
     value.startsWith("/") ||
     value.startsWith("~/") ||
-    (allowWindowsPaths && isWindowsAbsolutePath(value))
+    (allowWindowsPaths && (value.startsWith("~\\") || isWindowsAbsolutePath(value)))
   );
+}
+
+/**
+ * Folder pickers start prefilled (`~/` or the base directory), so a path typed
+ * or pasted after that text restarts from its own root, as Emacs's find-file
+ * does: `~/~/app/` is `~/app/`, `~//tmp/x` is `/tmp/x`, and on Windows
+ * `C:\Users\me\D:\work` is `D:\work`. Without this the server joins the whole
+ * string onto the home directory. Run it on every edit of a browse query.
+ */
+export function restartBrowsePathAtTypedRoot(value: string, platform = ""): string {
+  if (!isFilesystemBrowseQuery(value, platform)) return value;
+  const windows = isWindowsPlatform(platform);
+  const isSeparator = (char: string | undefined) => char === "/" || (windows && char === "\\");
+  for (let index = value.length - 1; index > 0; index -= 1) {
+    if (!isSeparator(value[index - 1])) continue;
+    const rest = value.slice(index);
+    if (
+      (rest.startsWith("~") && isSeparator(rest[1])) ||
+      (windows && /^[a-zA-Z]:[\\/]/.test(rest)) ||
+      // `//` restarts at `/`, except in `scheme://`, which is a pasted URL.
+      (!windows && rest.startsWith("/") && value[index - 2] !== ":")
+    ) {
+      return rest;
+    }
+  }
+  return value;
 }
 
 export function isUnsupportedWindowsProjectPath(value: string, platform: string): boolean {

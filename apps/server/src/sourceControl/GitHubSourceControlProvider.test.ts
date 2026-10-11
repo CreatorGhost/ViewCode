@@ -262,6 +262,32 @@ it("accepts active authenticated GitHub accounts when another account fails", ()
   );
 });
 
+it("lists every account signed in to the host, the active one first", () => {
+  const account = (login: string, host: string, active = false, state = "success") => ({
+    state,
+    active,
+    host,
+    login,
+  });
+  const auth = GitHubSourceControlProvider.discovery.parseAuth(
+    processResult(
+      JSON.stringify({
+        hosts: {
+          "github.com": [
+            account("work-user", "github.com"),
+            account("active-user", "github.com", true),
+            account("stale-user", "github.com", false, "error"),
+          ],
+          "ghe.example.com": [account("enterprise-user", "ghe.example.com", true)],
+        },
+      }),
+    ),
+  );
+
+  // Another host's account and one that cannot authenticate have no settings to show here.
+  assert.deepStrictEqual(auth.accounts, ["active-user", "work-user"]);
+});
+
 it("parses GitHub auth JSON from stdout when stderr has warnings", () => {
   const auth = GitHubSourceControlProvider.discovery.parseAuth(
     processResult(

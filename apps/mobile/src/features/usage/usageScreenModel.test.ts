@@ -5,10 +5,10 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   limitDriverLabel,
-  limitPoolStatus,
   limitWarnings,
   providersAwaitingData,
   usageLoadingCaption,
+  tokenUsageWindows,
   usageResumeRows,
 } from "./usageScreenModel";
 
@@ -148,16 +148,11 @@ describe("usageLoadingCaption", () => {
   });
 });
 
-describe("limitPoolStatus", () => {
-  it("warns when the window is nearly empty, whatever the pace", () => {
-    expect(limitPoolStatus("under", 2)).toEqual({ label: "Running low", warn: true });
-    expect(limitPoolStatus(null, 9)).toEqual({ label: "Running low", warn: true });
-  });
-
-  it("phrases pace as its consequence", () => {
-    expect(limitPoolStatus("ahead", 40)).toEqual({ label: "Using fast", warn: true });
-    expect(limitPoolStatus("on", 40)).toEqual({ label: "On track", warn: false });
-    expect(limitPoolStatus("under", 40)).toEqual({ label: "Plenty left", warn: false });
-    expect(limitPoolStatus(null, 40)).toBeNull();
+describe("tokenUsageWindows", () => {
+  it("builds the 24h hourly, 7d and 30d windows from one clock", () => {
+    const [day, week, month] = tokenUsageWindows(Date.UTC(2026, 0, 31, 12));
+    expect(day.resolution).toBe("hour");
+    expect(week.resolution ?? "day").toBe("day");
+    expect(month.sinceDay < week.sinceDay).toBe(true);
   });
 });

@@ -22,7 +22,7 @@ import type { ThreadShell } from "../../types";
 import { useThreadTabsStore } from "../../threadTabsStore";
 import { useUiStateStore } from "../../uiStateStore";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
-import { isSidechat } from "../chat/sidechat.logic";
+import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 import {
   hasUnseenCompletion,
   resolveSidebarThreadStatus,

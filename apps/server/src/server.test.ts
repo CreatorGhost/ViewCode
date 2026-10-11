@@ -133,6 +133,10 @@ import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionRe
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import * as AgentMessaging from "./agents/AgentMessaging.ts";
 import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
+import * as TurnOrigin from "./orchestration/TurnOrigin.ts";
+import * as ReviewFindingRatings from "./review/ReviewFindingRatings.ts";
+import * as LearnedReviewStyles from "./review/LearnedReviewStyles.ts";
+import * as ReviewFindingsPoster from "./review/ReviewFindingsPoster.ts";
 import * as ReviewFixThread from "./review/ReviewFixThread.ts";
 import * as UsageResume from "./agents/UsageResume.ts";
 import * as PushNotifications from "./notifications/PushNotifications.ts";
@@ -1054,6 +1058,10 @@ const buildAppUnderTest = (options?: {
           }),
           Layer.mock(PullRequestAgentReview.PullRequestAgentReview)({}),
           Layer.mock(ReviewFixThread.ReviewFixThread)({}),
+          Layer.mock(ReviewFindingsPoster.ReviewFindingsPoster)({}),
+          Layer.mock(ReviewFindingRatings.ReviewFindingRatings)({}),
+          Layer.mock(TurnOrigin.TurnOrigin)({}),
+          Layer.mock(LearnedReviewStyles.LearnedReviewStyles)({}),
           Layer.mock(UsageResume.UsageResume)({
             start: () => Effect.void,
             drain: Effect.void,

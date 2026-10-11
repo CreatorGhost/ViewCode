@@ -1,9 +1,15 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { reviewFixCandidates } from "@t3tools/client-runtime/review-findings";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ReviewFindingsTarget, ReviewFindingToFix, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  EventId,
+  ReviewFindingsTarget,
+  ReviewFindingToFix,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 import { buildReviewFixMessage } from "@t3tools/shared/reviewFindings";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -27,7 +33,6 @@ import {
 } from "../ui/dialog";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
-import { reviewFixCandidates } from "./reviewFix.logic";
 import { useReviewFixSentStore } from "./reviewFixSentStore";
 
 const NEW_SESSION = "new";
@@ -46,12 +51,15 @@ export interface ReviewFixItem {
  */
 export function ReviewFixDialog({
   reviewThreadRef,
+  findingsActivityId,
   cardKey,
   target,
   items,
   onClose,
 }: {
   reviewThreadRef: ScopedThreadRef;
+  /** Recorded with a new session, which can then be undone (`review.undoFixes`). */
+  findingsActivityId: EventId;
   cardKey: string;
   target: ReviewFindingsTarget;
   items: ReadonlyArray<ReviewFixItem>;
@@ -89,7 +97,12 @@ export function ReviewFixDialog({
       setPending(true);
       const result = await startFixThread({
         environmentId,
-        input: { reviewThreadId: reviewThreadRef.threadId, target, findings: [...findings] },
+        input: {
+          reviewThreadId: reviewThreadRef.threadId,
+          target,
+          findings: [...findings],
+          findingsActivityId,
+        },
       });
       setPending(false);
       if (result._tag === "Failure") {

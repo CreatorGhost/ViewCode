@@ -1100,6 +1100,8 @@ export function encodeGraphQlRequestJson(input: {
 
 /** The body of `POST /repos/{owner}/{repo}/pulls/{number}/reviews`, which sends a review whole. */
 const ReviewSubmissionSchema = Schema.Struct({
+  /** Absent: the head. A comment on an older commit shows as outdated once its line changed. */
+  commit_id: Schema.optionalKey(Schema.String),
   event: Schema.Literals(["COMMENT", "APPROVE", "REQUEST_CHANGES"]),
   body: Schema.String,
   comments: Schema.Array(
@@ -1156,8 +1158,10 @@ export function buildReviewSubmissionJson(input: {
   readonly verdict: PullRequestReviewVerdict;
   readonly body: string;
   readonly comments: ReadonlyArray<PullRequestReviewCommentDraft>;
+  readonly commitId?: string;
 }): string {
   return encodeReviewSubmission({
+    ...(input.commitId === undefined ? {} : { commit_id: input.commitId }),
     event: REVIEW_EVENTS[input.verdict],
     body: input.body,
     comments: input.comments.map((comment) => ({

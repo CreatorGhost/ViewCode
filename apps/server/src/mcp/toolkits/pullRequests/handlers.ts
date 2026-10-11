@@ -3,15 +3,22 @@ import {
   EventId,
   pullRequestHostOf,
   REVIEW_FINDINGS_ACTIVITY_KIND,
+  REVIEW_FINDINGS_POSTED_ACTIVITY_KIND,
+  REVIEW_STARTED_ACTIVITY_KIND,
+  ReviewStartedActivityPayload,
   type OrchestrationProjectShell,
+  type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
+  type ReviewFinding,
   type ReviewFindingsActivityPayload,
+  type ReviewFindingsMode,
   type ReviewFindingsTarget,
   type SourceControlProviderKind,
   type ThreadId,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { changeRequestUrlFor, parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import { postedReviewFindings, readReviewFindings } from "@t3tools/shared/reviewFindings";
 import {
   normalizeThreadPullRequestKey,
   resolveThreadPullRequestChains,
@@ -23,13 +30,20 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as TurnOrigin from "../../../orchestration/TurnOrigin.ts";
 import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
+import * as ReviewFindingsPoster from "../../../review/ReviewFindingsPoster.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
   type ListThreadPullRequestsResult,
+  type PostReviewFindingsInput,
+  ReviewPostFailedError,
+  ReviewPostNotRequestedError,
+  ReviewPostNothingError,
   PullRequestLinkFailedError,
   PullRequestUrlInvalidError,
   PullRequestTargetIncompleteError,
@@ -174,6 +188,53 @@ export function reviewFindingsTarget(
   return { kind: "pull-request", ...normalizeThreadPullRequestKey(link), url: link.url };
 }
 
+const decodeReviewStarted = Schema.decodeUnknownOption(ReviewStartedActivityPayload);
+
+/** How many other threads on the same pull request are searched for findings to post. */
+const POST_FINDINGS_LINKED_THREADS = 5;
+
+/**
+ * The findings a `post_review_findings` call asked for, by their card keys, without those already
+ * posted. Exported so the choice is testable without a layer.
+ */
+export function selectFindingsToPost(
+  payload: {
+    readonly findings: ReadonlyArray<ReviewFinding>;
+    readonly needsChecking: ReadonlyArray<ReviewFinding>;
+  },
+  request: Pick<PostReviewFindingsInput, "keys" | "severities">,
+  posted: ReadonlySet<string>,
+):
+  | {
+      readonly selected: ReadonlyArray<{ readonly key: string; readonly finding: ReviewFinding }>;
+      readonly alreadyPosted: number;
+    }
+  | ReviewPostNothingError["reason"] {
+  const reported = payload.findings.map((finding, index) => ({ key: `finding:${index}`, finding }));
+  const unsettled = payload.needsChecking.map((finding, index) => ({
+    key: `check:${index}`,
+    finding,
+  }));
+  let chosen: ReadonlyArray<{ readonly key: string; readonly finding: ReviewFinding }>;
+  if (request.keys !== undefined) {
+    const byKey = new Map([...reported, ...unsettled].map((entry) => [entry.key, entry]));
+    const picked = request.keys.map((key) => byKey.get(key));
+    if (picked.some((entry) => entry === undefined)) return "unknown-key";
+    chosen = [...new Set(picked as ReadonlyArray<{ key: string; finding: ReviewFinding }>)];
+  } else {
+    // Unsettled findings go only when named: nobody confirmed them.
+    const severities = request.severities;
+    chosen =
+      severities === undefined
+        ? reported
+        : reported.filter((entry) => severities.includes(entry.finding.severity));
+  }
+  if (chosen.length === 0) return "none-selected";
+  const selected = chosen.filter((entry) => !posted.has(entry.key));
+  if (selected.length === 0) return "already-posted";
+  return { selected, alreadyPosted: chosen.length - selected.length };
+}
+
 const VERDICT_LABELS: Record<ReviewFindingsActivityPayload["verdict"], string> = {
   approve: "approve",
   "approve-with-nits": "approve with nits",
@@ -185,6 +246,84 @@ const make = Effect.gen(function* () {
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const crypto = yield* Crypto.Crypto;
   const reviews = yield* PullRequestAgentReview.PullRequestAgentReview;
+  const poster = yield* ReviewFindingsPoster.ReviewFindingsPoster;
+  const turnOrigin = yield* TurnOrigin.TurnOrigin;
+
+  const reviewActivities = (threadId: ThreadId) =>
+    snapshots
+      .getThreadDetailById(threadId, {
+        activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND, REVIEW_FINDINGS_POSTED_ACTIVITY_KIND],
+      })
+      .pipe(
+        Effect.map((thread) => Option.getOrUndefined(thread)?.activities ?? []),
+        Effect.mapError((cause) => new ReviewPostFailedError({ cause })),
+      );
+
+  /**
+   * The findings to post from: the one asked for, else the latest on this thread, else the latest
+   * on another thread linked to the same pull request (a review thread, from a thread that works
+   * on the pull request).
+   */
+  const findFindingsToPost = Effect.fn("PullRequestsToolkit.findFindingsToPost")(function* (
+    thread: OrchestrationThreadShell,
+    requestedId: string | undefined,
+  ) {
+    const pick = (activities: ReadonlyArray<OrchestrationThreadActivity>) =>
+      requestedId === undefined
+        ? activities.findLast((activity) => activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND)
+        : activities.find(
+            (activity) =>
+              activity.id === requestedId && activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND,
+          );
+    const own = yield* reviewActivities(thread.id);
+    const found = pick(own);
+    if (found !== undefined) return { threadId: thread.id, activity: found, activities: own };
+    const keys = new Set(
+      visibleThreadPullRequests(thread.pullRequests).map(threadPullRequestKeyOf),
+    );
+    if (keys.size === 0) return undefined;
+    const linked = (yield* snapshots
+      .listThreadsWithPullRequests()
+      .pipe(Effect.mapError((cause) => new ReviewPostFailedError({ cause }))))
+      .filter(
+        (other) =>
+          other.id !== thread.id &&
+          visibleThreadPullRequests(other.pullRequests).some((link) =>
+            keys.has(threadPullRequestKeyOf(link)),
+          ),
+      )
+      .slice(-POST_FINDINGS_LINKED_THREADS);
+    let latest:
+      | {
+          readonly threadId: ThreadId;
+          readonly activity: OrchestrationThreadActivity;
+          readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+        }
+      | undefined;
+    for (const other of linked) {
+      const activities = yield* reviewActivities(other.id);
+      const candidate = pick(activities);
+      if (
+        candidate !== undefined &&
+        (latest === undefined || candidate.createdAt > latest.activity.createdAt)
+      ) {
+        latest = { threadId: other.id, activity: candidate, activities };
+      }
+    }
+    return latest;
+  });
+
+  /** What the server recorded when it started the review in this thread; empty when it did not. */
+  const reviewStart = (threadId: ThreadId) =>
+    snapshots.getThreadDetailById(threadId, { activityKinds: [REVIEW_STARTED_ACTIVITY_KIND] }).pipe(
+      Effect.map((thread): ReviewStartedActivityPayload => {
+        const latest = Option.getOrUndefined(thread)?.activities.at(-1);
+        return latest === undefined
+          ? {}
+          : Option.getOrElse(decodeReviewStarted(latest.payload), () => ({}));
+      }),
+      Effect.orElseSucceed((): ReviewStartedActivityPayload => ({})),
+    );
 
   const commandId = (tag: string, threadId: ThreadId) =>
     crypto.randomUUIDv4.pipe(
@@ -199,7 +338,8 @@ const make = Effect.gen(function* () {
       | typeof PullRequestListFailedError
       | typeof PullRequestWatchFailedError
       | typeof PullRequestReviewFailedError
-      | typeof ReviewFindingsFailedError,
+      | typeof ReviewFindingsFailedError
+      | typeof ReviewPostFailedError,
   ) {
     const scope = yield* McpInvocationContext.requireMcpCapability("pull-requests");
     const thread = yield* snapshots
@@ -343,12 +483,40 @@ const make = Effect.gen(function* () {
       requireThread(PullRequestListFailedError).pipe(Effect.map(listThreadPullRequests)),
     watch_pull_request: (input) => setWatching(input, true),
     unwatch_pull_request: (input) => setWatching(input, false),
-    submit_review_findings: ({ target: requested, ...report }) =>
+    submit_review_findings: ({ target: requested, mode: requestedMode, previous, ...report }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(ReviewFindingsFailedError);
         const target = reviewFindingsTarget(thread, requested);
         if (target === null) return yield* new ReviewFindingsTargetMissingError({});
-        const payload: ReviewFindingsActivityPayload = { ...report, target };
+        // Local changes have nowhere to post to.
+        const mode: ReviewFindingsMode =
+          target.kind === "local"
+            ? "fix"
+            : (requestedMode ??
+              PullRequestAgentReview.reviewFindingsModeFor(
+                yield* reviews.authorship({
+                  projectId: thread.projectId,
+                  host: target.host,
+                  repository: target.repository,
+                  number: target.number,
+                }),
+              ));
+        const started = yield* reviewStart(thread.id);
+        const payload: ReviewFindingsActivityPayload = {
+          ...report,
+          target,
+          mode,
+          // The commit the start asked for; the reviewer was told to review it even if the pull
+          // request moved on, so posting pins its comments there.
+          ...(target.kind === "pull-request" && started.headSha !== undefined
+            ? { headSha: started.headSha }
+            : {}),
+          // A re-review says which findings it started from, so clients can tell it apart.
+          ...(started.incremental === true && started.basedOn !== undefined
+            ? { incremental: true, basedOn: started.basedOn }
+            : {}),
+          ...(previous === undefined ? {} : { previous }),
+        };
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const count = report.findings.length;
         // Clients show only the latest findings activity, which is how a re-review replaces the
@@ -384,7 +552,58 @@ const make = Effect.gen(function* () {
             "Recorded and shown to the reader under your report. Don't repeat the findings; end your turn.",
         };
       }),
-    review_pull_request: ({ mode, focus, ...targetInput }) =>
+    post_review_findings: (input) =>
+      Effect.gen(function* () {
+        const thread = yield* requireThread(ReviewPostFailedError);
+        // Only a turn the user started with their own message may post under their name.
+        const turnId = thread.session?.activeTurnId ?? null;
+        const askedByUser =
+          turnId !== null && (yield* turnOrigin.startedByUser({ threadId: thread.id, turnId }));
+        if (!askedByUser) return yield* new ReviewPostNotRequestedError({});
+
+        const source = yield* findFindingsToPost(thread, input.findingsActivityId);
+        const payload = source === undefined ? undefined : readReviewFindings(source.activity);
+        if (source === undefined || payload === undefined) {
+          return yield* new ReviewPostNothingError({ reason: "no-findings" });
+        }
+        if (payload.target.kind !== "pull-request") {
+          return yield* new ReviewPostNothingError({ reason: "local" });
+        }
+        const posted = postedReviewFindings(source.activities, source.activity.id);
+        const selection = selectFindingsToPost(payload, input, new Set(posted.keys()));
+        if (typeof selection === "string") {
+          return yield* new ReviewPostNothingError({ reason: selection });
+        }
+        const result = yield* poster.post({
+          reviewThreadId: source.threadId,
+          findingsActivityId: source.activity.id,
+          target: payload.target,
+          verdict: input.verdict ?? "comment",
+          overallComment: input.overallComment ?? "",
+          findings: selection.selected,
+        });
+        const inline = result.findings.filter((entry) => entry.placement === "inline").length;
+        return {
+          url: result.url,
+          posted: result.findings.length,
+          inline,
+          inText: result.findings.length - inline,
+          alreadyPosted: selection.alreadyPosted,
+          headMoved: result.headMoved ?? false,
+        };
+      }),
+    review_local_changes: ({ mode, focus }) =>
+      Effect.gen(function* () {
+        const thread = yield* requireThread(PullRequestReviewFailedError);
+        return yield* reviews.startLocal({
+          projectId: thread.projectId,
+          sourceThreadId: thread.id,
+          mode,
+          focus,
+          fallbackModelSelection: thread.modelSelection,
+        });
+      }),
+    review_pull_request: ({ mode, focus, findingsMode, ...targetInput }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(PullRequestReviewFailedError);
         const project = yield* projectOf(thread, PullRequestReviewFailedError);
@@ -398,6 +617,7 @@ const make = Effect.gen(function* () {
           },
           mode,
           focus,
+          findingsMode,
           // A user who never set a default model gets a reviewer like the agent that asked.
           fallbackModelSelection: thread.modelSelection,
           linkSource: "agent",

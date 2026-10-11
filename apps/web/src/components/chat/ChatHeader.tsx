@@ -35,6 +35,7 @@ import ProjectScriptsControl, {
 import { OpenInPicker } from "./OpenInPicker";
 import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { useClientSettings } from "~/hooks/useSettings";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
@@ -51,6 +52,7 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import { OpenThreadTabs, type ActiveTabExtras } from "../tabs/OpenThreadTabs";
 import { useSplitPaneActions } from "../../splitView/SplitPaneContext";
 import { SplitPaneControls } from "../../splitView/SplitPaneControls";
+import { ReviewHeaderButton } from "./ReviewHeaderButton";
 import { SidechatHeaderButton } from "./SidechatHeaderButton";
 
 interface ChatHeaderProps {
@@ -207,6 +209,9 @@ export const ChatHeader = memo(function ChatHeader({
     activeProjectScripts ? activeProjectCwd : null,
   );
   const remoteOpenState = useRemoteOpenState(activeThreadEnvironmentId);
+  const headerActionsVisible = useClientSettings((settings) => settings.headerActionsVisible);
+  const showProjectScripts = headerActionsVisible ? activeProjectScripts : undefined;
+  const showGitActions = headerActionsVisible && Boolean(activeProjectName && gitCwd);
   const showOpenInPicker = shouldShowOpenInPicker({
     activeProjectName,
     activeThreadEnvironmentId,
@@ -400,12 +405,12 @@ export const ChatHeader = memo(function ChatHeader({
   );
   const headerActions = (
     <>
-      {activeProjectScripts && (
+      {showProjectScripts && (
         <>
           <ProjectScriptsControl
             onRequestMenuClose={() => setActionsOpen(false)}
             presentation={actionsCollapsed ? "menu" : "toolbar"}
-            scripts={activeProjectScripts}
+            scripts={showProjectScripts}
             fileScripts={fileScripts}
             keybindings={keybindings}
             preferredScriptId={preferredScriptId}
@@ -418,8 +423,10 @@ export const ChatHeader = memo(function ChatHeader({
       )}
       {showOpenInPicker && (
         <>
-          {actionsCollapsed && activeProjectScripts && <MenuSeparator />}
+          {actionsCollapsed && showProjectScripts && <MenuSeparator />}
+          {/* ViewCode: the editor's own logo says "open", so the label is dropped. */}
           <OpenInPicker
+            compact
             presentation={actionsCollapsed ? "menu" : "toolbar"}
             environmentId={activeThreadEnvironmentId}
             keybindings={keybindings}
@@ -428,9 +435,9 @@ export const ChatHeader = memo(function ChatHeader({
           />
         </>
       )}
-      {activeProjectName && gitCwd && (
+      {showGitActions && gitCwd && (
         <>
-          {actionsCollapsed && (activeProjectScripts || showOpenInPicker) && <MenuSeparator />}
+          {actionsCollapsed && (showProjectScripts || showOpenInPicker) && <MenuSeparator />}
           <GitActionsControl
             presentation={actionsCollapsed ? "menu" : "toolbar"}
             gitCwd={gitCwd}
@@ -485,8 +492,7 @@ export const ChatHeader = memo(function ChatHeader({
         <Menu open={actionsCollapsed && actionsOpen} onOpenChange={setActionsOpen}>
           <MenuTrigger
             className={
-              actionsCollapsed &&
-              (activeProjectScripts || showOpenInPicker || (activeProjectName && gitCwd))
+              actionsCollapsed && (showProjectScripts || showOpenInPicker || showGitActions)
                 ? undefined
                 : "hidden"
             }
@@ -506,6 +512,13 @@ export const ChatHeader = memo(function ChatHeader({
             {createPortal(headerActions, actionsContainer)}
           </MenuPopup>
         </Menu>
+        {isServerThread ? (
+          <ReviewHeaderButton
+            environmentId={activeThreadEnvironmentId}
+            threadId={activeThreadId}
+            compact={actionsCollapsed}
+          />
+        ) : null}
         {isServerThread ? (
           <SidechatHeaderButton
             environmentId={activeThreadEnvironmentId}

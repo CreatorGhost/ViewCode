@@ -7196,6 +7196,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
             )}
           </div>
+          {phase === "running" ? <ComposerSurface.LiveRing /> : null}
         </ComposerSurface.Main>
       </div>
     </form>

@@ -70,7 +70,7 @@ export function computerUseInstructions(grant: ComputerUseGrant): string {
  * ViewCode's MCP server (managed MCP, or the tools turned off) can still use
  * it. With MCP, the preview_* tools drive the same browser and tab.
  */
-export const BROWSER_CLI_GUIDANCE = `ViewCode's collaborative browser, which the user sees in their ViewCode window, is also available from your shell as the viewcode-browser command. Run \`viewcode-browser help\` before first use; its output is the manual. When the viewcode MCP preview_* tools are in your tool list, prefer them: they drive the same browser and tab. Otherwise use viewcode-browser to open, inspect and test web pages and local dev servers instead of standalone Playwright, agent-browser or a headless Chrome, unless it reports that no browser is available or the user asks for a different browser.`;
+export const BROWSER_CLI_GUIDANCE = `ViewCode's collaborative browser, which the user sees in their ViewCode window, is also available from your shell as the viewcode-browser command. Run \`viewcode-browser help\` before first use; its output is the manual. When the viewcode MCP preview_* tools are in your tool list, prefer them: they drive the same browser and tab. Either way, open, inspect and test web pages and local dev servers in this browser, which the user can watch. Do not launch Playwright (with any engine, including its Firefox), Puppeteer, agent-browser, a headless Chrome or another browser window unless viewcode-browser reports that no browser is available, the user asks for a different browser, or you are running the project's own end-to-end tests.`;
 
 export const BROWSER_CLI_INSTRUCTIONS = `<viewcode_browser>\n${BROWSER_CLI_GUIDANCE}\n</viewcode_browser>`;
 

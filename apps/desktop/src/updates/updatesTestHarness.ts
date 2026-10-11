@@ -9,6 +9,7 @@ import * as Option from "effect/Option";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -37,6 +38,10 @@ export interface UpdatesHarnessOptions {
   readonly platform?: NodeJS.Platform;
   /** Contents of the resources/package-type marker a Linux package ships. */
   readonly packageType?: string | undefined;
+  /** Contents of the packaged resources/app-update.yml. */
+  readonly appUpdateYml?: string | undefined;
+  /** Contents of the packaged app's package.json. */
+  readonly appPackageJson?: string | undefined;
 }
 
 export function makeHarness(options: UpdatesHarnessOptions = {}) {
@@ -49,6 +54,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
   const sentStates: DesktopUpdateState[] = [];
   const installSteps: string[] = [];
+  const openedUrls: string[] = [];
 
   const addListener = (eventName: string, listener: (...args: readonly unknown[]) => void) => {
     const eventListeners = listeners.get(eventName) ?? new Set();
@@ -108,6 +114,16 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
           }),
       ).pipe(Effect.asVoid),
   } satisfies ElectronUpdater.ElectronUpdater["Service"]);
+
+  const shellLayer = Layer.succeed(ElectronShell.ElectronShell, {
+    openExternal: (rawUrl) =>
+      Effect.sync(() => {
+        openedUrls.push(String(rawUrl));
+        return true;
+      }),
+    openSystemSettings: () => Effect.die("unexpected System Settings request"),
+    copyText: () => Effect.die("unexpected clipboard write"),
+  } satisfies ElectronShell.ElectronShell["Service"]);
 
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
@@ -211,10 +227,16 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   // Tracks the restart markers installs leave, so installs stay free of real
   // disk I/O that would outrun the tests' settle loops.
   const updateRestartMarkers = new Set<string>();
+  const packagedFiles: Record<string, string | undefined> = {
+    "/missing/resources/package-type": options.packageType,
+    "/missing/resources/app-update.yml": options.appUpdateYml,
+    "/repo/package.json": options.appPackageJson,
+  };
   const fileSystemLayer = FileSystem.layerNoop({
-    readFileString: (path) =>
-      path === "/missing/resources/package-type" && options.packageType !== undefined
-        ? Effect.succeed(options.packageType)
+    readFileString: (path) => {
+      const contents = packagedFiles[path];
+      return contents !== undefined
+        ? Effect.succeed(contents)
         : Effect.fail(
             PlatformError.systemError({
               module: "FileSystem",
@@ -222,7 +244,8 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
               _tag: "NotFound",
               pathOrDescriptor: path,
             }),
-          ),
+          );
+    },
     makeDirectory: () => Effect.void,
     writeFileString: (path) =>
       Effect.sync(() => {
@@ -237,6 +260,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const layer = DesktopUpdates.layer.pipe(
     Layer.provide(fileSystemLayer),
     Layer.provideMerge(updaterLayer),
+    Layer.provideMerge(shellLayer),
     Layer.provideMerge(windowLayer),
     Layer.provideMerge(backendLayer),
     Layer.provideMerge(DesktopState.layer),
@@ -258,6 +282,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     checkCount: () => checkCount,
     quitAndInstalls: () => quitAndInstallCount,
     installSteps,
+    openedUrls,
     updateRestartMarkers,
     downloadCount: () => downloadCount,
     feedUrls: (): ElectronUpdater.ElectronUpdaterFeedUrl[] => feedUrls,

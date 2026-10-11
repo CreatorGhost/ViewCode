@@ -14,6 +14,8 @@ import { resolveScaledTextRole } from "../lib/appearancePreferences";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import type { MaterialMenuPopupProps } from "./MaterialMenuPopup";
+import { useFontFamily } from "../lib/useFontFamily";
+import { MENU_CORNER_RADIUS } from "./menuCornerRadius";
 import { isAppSymbolName, SymbolView, type AppSymbolName } from "./AppSymbol";
 
 function MenuIcon(props: {
@@ -53,6 +55,9 @@ export function MaterialMenuPopup(props: MaterialMenuPopupProps) {
   const caption = resolveScaledTextRole("caption", appearance.baseFontSize);
   const foreground = colors["--color-foreground"];
   const muted = colors["--color-foreground-muted"];
+  // Compose falls back to Roboto; name the app's face so menus match the screen behind them.
+  const regular = useFontFamily("regular");
+  const medium = useFontFamily("medium");
   // A fixed native item height clips wrapped labels; a minimum lets each row grow.
   const itemModifiers = [width(props.menuWidth), defaultMinSize({ minHeight: menuItemHeight })];
   const items = (
@@ -63,7 +68,10 @@ export function MaterialMenuPopup(props: MaterialMenuPopupProps) {
             <MenuIcon name="arrow.left" />
           </DropdownMenuItem.LeadingIcon>
           <DropdownMenuItem.Text>
-            <Text color={foreground} style={{ typography: "bodyLarge", ...body }}>
+            <Text
+              color={foreground}
+              style={{ typography: "bodyLarge", ...body, fontFamily: medium }}
+            >
               {props.parent.title}
             </Text>
           </DropdownMenuItem.Text>
@@ -71,7 +79,7 @@ export function MaterialMenuPopup(props: MaterialMenuPopupProps) {
       ) : props.title ? (
         <Text
           color={muted}
-          style={{ typography: "bodySmall", ...caption }}
+          style={{ typography: "bodySmall", ...caption, fontFamily: medium }}
           modifiers={[padding(16 * scale, 8 * scale, 16 * scale, 8 * scale)]}
         >
           {props.title}
@@ -96,7 +104,7 @@ export function MaterialMenuPopup(props: MaterialMenuPopupProps) {
           <DropdownMenuItem.Text>
             <Column>
               <Text
-                style={{ typography: "bodyLarge", ...body }}
+                style={{ typography: "bodyLarge", ...body, fontFamily: regular }}
                 color={
                   action.attributes?.disabled
                     ? muted
@@ -108,7 +116,10 @@ export function MaterialMenuPopup(props: MaterialMenuPopupProps) {
                 {action.title}
               </Text>
               {action.subtitle ? (
-                <Text color={muted} style={{ typography: "bodySmall", ...caption }}>
+                <Text
+                  color={muted}
+                  style={{ typography: "bodySmall", ...caption, fontFamily: regular }}
+                >
                   {action.subtitle}
                 </Text>
               ) : null}
@@ -151,7 +162,12 @@ export function MaterialMenuPopup(props: MaterialMenuPopupProps) {
         height: props.anchor.height,
       }}
     >
-      <DropdownMenu expanded onDismissRequest={props.onClose} color={colors["--color-card-alt"]}>
+      <DropdownMenu
+        expanded
+        onDismissRequest={props.onClose}
+        color={colors["--color-card"]}
+        cornerRadius={MENU_CORNER_RADIUS}
+      >
         <DropdownMenu.Trigger>
           <Box modifiers={[size(props.anchor.width, props.anchor.height)]} />
         </DropdownMenu.Trigger>
