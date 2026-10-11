@@ -58,11 +58,26 @@ function parseGitHubAuth(input: SourceControlAuthProbeInput) {
   const host = authenticatedAccount?.host;
 
   if (authenticatedAccount) {
-    return providerAuth({
-      status: "authenticated",
-      account: authenticatedAccount.account,
-      host,
-    });
+    return {
+      ...providerAuth({
+        status: "authenticated",
+        account: authenticatedAccount.account,
+        host,
+      }),
+      // gh signs in one account per organisation on a host, and commands are routed to whichever
+      // can see a repository, so settings that belong to an account need every one of them.
+      accounts: [
+        authenticatedAccount.account,
+        ...authStatus.accounts
+          .filter(
+            (account) =>
+              account.authenticated &&
+              account.host === host &&
+              account.account !== authenticatedAccount.account,
+          )
+          .map((account) => account.account),
+      ],
+    };
   }
 
   const failedAccount = authStatus.accounts.find((entry) => entry.active) ?? authStatus.accounts[0];

@@ -184,7 +184,8 @@ For a review of somebody else's pull request the findings are review comments in
 comment** posts one, and **Post all** or **Post selected** posts several as one review, each time
 after you choose what to submit it as and write its overall comment. Posted findings link to the
 pull request. To have the agent write them the way you do, describe your style under **Your review
-style** in the GitHub entry of **Settings → Source control** (one per account).
+style** in the GitHub entry of **Settings → Source control** (one per account; with several signed
+in, pick the account above it first).
 
 On GitHub you can also let it learn from your own reviews: **Learn from my reviews** in the same
 place reads up to 40 of your recent review comments and review texts from the past year, as that

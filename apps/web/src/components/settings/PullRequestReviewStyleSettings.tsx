@@ -12,16 +12,63 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Label } from "../ui/label";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 
 /** The server's bound on a style, which is also all of it a reviewer's first message can carry. */
 const REVIEW_STYLE_MAX_CHARS = 4_000;
 
 /**
+ * The review style of each account signed in to the host, one at a time. Pull requests in a
+ * repository only another account can see are reviewed and posted as that account, so its style
+ * is set here too rather than only the active account's.
+ */
+export function PullRequestReviewStyleAccounts({
+  environmentId,
+  host,
+  logins,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly host: string;
+  /** The active account first. */
+  readonly logins: ReadonlyArray<string>;
+}) {
+  const [picked, setPicked] = useState<string | null>(null);
+  // A login that signed out since it was picked falls back to the active account.
+  const login = picked !== null && logins.includes(picked) ? picked : logins[0];
+  if (login === undefined) return null;
+  return (
+    <div className="grid gap-3">
+      {logins.length > 1 ? (
+        <Select value={login} onValueChange={(value) => setPicked(value as string)}>
+          <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="GitHub account">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup align="start" alignItemWithTrigger={false}>
+            {logins.map((option) => (
+              <SelectItem key={option} hideIndicator value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      ) : null}
+      <PullRequestReviewStyleSettings
+        // Drafts and learning state belong to one account; switching must not carry them over.
+        key={login}
+        environmentId={environmentId}
+        host={host}
+        login={login}
+      />
+    </div>
+  );
+}
+
+/**
  * How this account writes review comments. A reviewer whose findings will be posted to somebody
  * else's pull request as this account writes them this way. Saved on the server, per account.
  */
-export function PullRequestReviewStyleSettings({
+function PullRequestReviewStyleSettings({
   environmentId,
   host,
   login,

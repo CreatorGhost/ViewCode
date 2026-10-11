@@ -123,6 +123,11 @@ export const SourceControlProviderAuth = Schema.Struct({
   account: Schema.Option(TrimmedNonEmptyString),
   host: Schema.Option(TrimmedNonEmptyString),
   detail: Schema.Option(TrimmedNonEmptyString),
+  /**
+   * Every account signed in to `host` that can authenticate, `account` first. Only GitHub signs
+   * in several accounts to one host; absent for the other providers and from older servers.
+   */
+  accounts: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 });
 export type SourceControlProviderAuth = typeof SourceControlProviderAuth.Type;
 

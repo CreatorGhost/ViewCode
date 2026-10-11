@@ -57,7 +57,7 @@ import {
   type Icon,
 } from "../Icons";
 import { BitbucketCredentialsSettings } from "./BitbucketCredentialsSettings";
-import { PullRequestReviewStyleSettings } from "./PullRequestReviewStyleSettings";
+import { PullRequestReviewStyleAccounts } from "./PullRequestReviewStyleSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
@@ -607,11 +607,11 @@ export function SourceControlSettingsPanel() {
                   ) : item.kind === "github" &&
                     item.auth.status === "authenticated" &&
                     Option.isSome(item.auth.account) ? (
-                    <PullRequestReviewStyleSettings
-                      key={`${environmentId}:${item.auth.account.value}`}
+                    <PullRequestReviewStyleAccounts
+                      key={environmentId}
                       environmentId={environmentId}
                       host={Option.getOrElse(item.auth.host, () => "github.com")}
-                      login={item.auth.account.value}
+                      logins={item.auth.accounts ?? [item.auth.account.value]}
                     />
                   ) : undefined}
                 </DiscoveryItemRow>
