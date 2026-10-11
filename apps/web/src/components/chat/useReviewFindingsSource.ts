@@ -85,6 +85,8 @@ export interface LatestReviewStatus {
   readonly scope: LocalReviewScope | null;
   readonly modelSelection: ModelSelection;
   readonly startedAt: string;
+  /** When the reviewer's latest turn ended, for how long a review that is over took. */
+  readonly endedAt: string | null;
   readonly progress: ReviewProgress;
 }
 
@@ -102,6 +104,7 @@ function useLatestReview(threads: ReadonlyArray<LinkedReviewThread>): LatestRevi
             scope: latest.scope,
             modelSelection: latest.thread.modelSelection,
             startedAt: latest.thread.createdAt,
+            endedAt: latest.thread.endedAt,
             progress: latest.progress,
           },
     [latest],

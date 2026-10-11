@@ -7,6 +7,7 @@ import {
   buildAgentReviewStart,
   canChooseLocalReviewScope,
   filterReviewCommits,
+  formatReviewDuration,
   formatReviewElapsed,
   localReviewScopeLabel,
   pastedReviewCommitSha,
@@ -191,6 +192,22 @@ describe("reviewStatusText", () => {
       "The review ended before sending all its findings",
     );
     expect(text({ kind: "done" })).toBeNull();
+  });
+
+  it("says how long a review that is over took", () => {
+    expect(formatReviewDuration(19_400)).toBe("took 19s");
+    expect(formatReviewDuration(200)).toBe("took 1s");
+    expect(formatReviewDuration(3 * 60_000 + 20_000)).toBe("took 3 min");
+    expect(formatReviewDuration(65 * 60_000)).toBe("took 1 h 5 min");
+    expect(
+      reviewStatusText({
+        progress: { kind: "ended", partial: false },
+        label: "Deep review · GPT-6.1",
+        elapsedMs: 0,
+        durationMs: 19_000,
+        newer: false,
+      }),
+    ).toBe("The review ended without sending findings · took 19s");
   });
 
   it("counts whole minutes, then hours, and cuts an error to one line", () => {

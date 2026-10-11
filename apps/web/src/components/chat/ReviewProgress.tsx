@@ -1,5 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
-import { formatReviewElapsed, reviewStatusText } from "@t3tools/client-runtime/agent-review";
+import {
+  formatReviewDuration,
+  formatReviewElapsed,
+  reviewStatusText,
+} from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   collectChildAgents,
@@ -30,12 +34,15 @@ export function useReviewElapsedMs(startedAt: string, endMs: number | null): num
   return now - Date.parse(startedAt);
 }
 
-/** The review's elapsed time in the words the status bar uses ("6 min"). */
+/**
+ * The review's time in the status bar's words: how long it has run ("6 min") while it runs, how
+ * long it took ("took 19s") once it is over (`endMs`).
+ */
 export function ReviewElapsed({ startedAt, endMs }: { startedAt: string; endMs: number | null }) {
   const elapsedMs = useReviewElapsedMs(startedAt, endMs);
   return (
     <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
-      {formatReviewElapsed(elapsedMs)}
+      {endMs === null ? formatReviewElapsed(elapsedMs) : formatReviewDuration(elapsedMs)}
     </span>
   );
 }
@@ -91,7 +98,9 @@ export function ReviewStatusBar({
     setStopping(false);
   };
   if (progress.kind === "done") return null;
-  const text = reviewStatusText({ progress, label, elapsedMs, newer });
+  const durationMs =
+    review.endedAt === null ? null : Date.parse(review.endedAt) - Date.parse(review.startedAt);
+  const text = reviewStatusText({ progress, label, elapsedMs, durationMs, newer });
   const viewAgent = (
     <Button
       type="button"

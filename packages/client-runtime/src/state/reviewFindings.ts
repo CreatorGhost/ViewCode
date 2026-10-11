@@ -30,6 +30,8 @@ export interface LinkedReviewThread {
   readonly id: ThreadId;
   readonly title: string;
   readonly createdAt: string;
+  /** When its latest turn ended; null while it runs or before it ran. */
+  readonly endedAt: string | null;
   readonly modelSelection: ModelSelection;
   /** Where its work stands, counting the agents it started (`reviewRunState`). */
   readonly run: ReviewRunState;
@@ -66,6 +68,7 @@ function linkedThreadEqual(left: LinkedReviewThread, right: LinkedReviewThread):
     left.id === right.id &&
     left.title === right.title &&
     left.createdAt === right.createdAt &&
+    left.endedAt === right.endedAt &&
     left.child === right.child &&
     reviewRunStatesEqual(left.run, right.run) &&
     left.modelSelection.instanceId === right.modelSelection.instanceId &&
@@ -130,6 +133,7 @@ export function createLinkedReviewThreadsAtomFamily(input: {
             id: shell.id,
             title: shell.title,
             createdAt: shell.createdAt,
+            endedAt: shell.latestTurn?.completedAt ?? null,
             modelSelection: shell.modelSelection,
             run: reviewRunState(shell, agents, queued),
             child: asking !== null && shell.parentThreadId === asking,

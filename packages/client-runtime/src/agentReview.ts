@@ -100,6 +100,20 @@ export function formatReviewElapsed(durationMs: number): string {
   return rest > 0 ? `${hours} h ${rest} min` : `${hours} h`;
 }
 
+/**
+ * How long a review that is over took, to the second under a minute: "took 19s", "took 3 min",
+ * "took 1 h 5 min". A running review shows `formatReviewElapsed` instead.
+ */
+export function formatReviewDuration(durationMs: number): string {
+  const seconds = Math.max(1, Math.floor(Math.max(0, durationMs) / 1_000));
+  if (seconds < 60) return `took ${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `took ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest > 0 ? `took ${hours} h ${rest} min` : `took ${hours} h`;
+}
+
 const MAX_ERROR_CHARS = 140;
 
 /** A provider's error cut to its first line, short enough for one status line. */
@@ -123,20 +137,26 @@ export function reviewStatusText(input: {
   /** "Deep review · GPT-6.1". */
   readonly label: string;
   readonly elapsedMs: number;
+  /** How long a review that is over took, when known; said after why it stopped. */
+  readonly durationMs?: number | null;
   readonly newer: boolean;
 }): string | null {
   const { progress, label, newer } = input;
+  const took =
+    input.durationMs === undefined || input.durationMs === null
+      ? ""
+      : ` · ${formatReviewDuration(input.durationMs)}`;
   switch (progress.kind) {
     case "done":
       return null;
     case "running":
       return `${newer ? "A new review is running:" : "Reviewing…"} ${label} · ${formatReviewElapsed(input.elapsedMs)}`;
     case "failed":
-      return `${newer ? "A new review failed" : "Review failed"}: ${shortReviewError(progress.error)}`;
+      return `${newer ? "A new review failed" : "Review failed"}: ${shortReviewError(progress.error)}${took}`;
     case "ended":
       return progress.partial
-        ? "The review ended before sending all its findings"
-        : `${newer ? "A new review" : "The review"} ended without sending findings`;
+        ? `The review ended before sending all its findings${took}`
+        : `${newer ? "A new review" : "The review"} ended without sending findings${took}`;
   }
 }
 
