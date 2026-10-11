@@ -192,6 +192,7 @@ import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
+import * as LearnedReviewStyles from "./review/LearnedReviewStyles.ts";
 import * as ReviewFindingsPoster from "./review/ReviewFindingsPoster.ts";
 import * as ReviewFixThread from "./review/ReviewFixThread.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
@@ -713,6 +714,7 @@ const makeWsRpcLayer = (
       const pullRequestAgentReview = yield* PullRequestAgentReview.PullRequestAgentReview;
       const reviewFixThread = yield* ReviewFixThread.ReviewFixThread;
       const reviewFindingsPoster = yield* ReviewFindingsPoster.ReviewFindingsPoster;
+      const learnedReviewStyles = yield* LearnedReviewStyles.LearnedReviewStyles;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
@@ -3961,6 +3963,18 @@ const makeWsRpcLayer = (
           }),
         [WS_METHODS.reviewPostFindings]: (input) =>
           observeRpcEffect(WS_METHODS.reviewPostFindings, reviewFindingsPoster.post(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewGetLearnedStyle]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewGetLearnedStyle, learnedReviewStyles.status(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewLearnStyle]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewLearnStyle, learnedReviewStyles.learn(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewForgetLearnedStyle]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewForgetLearnedStyle, learnedReviewStyles.forget(input), {
             "rpc.aggregate": "review",
           }),
         [WS_METHODS.terminalOpen]: (input) =>

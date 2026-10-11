@@ -98,6 +98,9 @@ import {
   ReviewDiffPreviewResult,
 } from "./review.ts";
 import {
+  LearnedReviewStyle,
+  LearnedReviewStyleAccount,
+  LearnedReviewStyleError,
   ReviewFixThreadError,
   ReviewPostFindingsError,
   ReviewPostFindingsInput,
@@ -395,6 +398,9 @@ export const WS_METHODS = {
   reviewGetDiffFileContents: "review.getDiffFileContents",
   reviewStartFixThread: "review.startFixThread",
   reviewPostFindings: "review.postFindings",
+  reviewGetLearnedStyle: "review.getLearnedStyle",
+  reviewLearnStyle: "review.learnStyle",
+  reviewForgetLearnedStyle: "review.forgetLearnedStyle",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -1432,6 +1438,25 @@ const WsReviewPostFindingsRpc = Rpc.make(WS_METHODS.reviewPostFindings, {
   error: Schema.Union([ReviewPostFindingsError, EnvironmentAuthorizationError]),
 });
 
+/** The learned-style methods only reach servers advertising `learnedReviewStyle`. */
+const WsReviewGetLearnedStyleRpc = Rpc.make(WS_METHODS.reviewGetLearnedStyle, {
+  payload: LearnedReviewStyleAccount,
+  success: Schema.NullOr(LearnedReviewStyle),
+  error: Schema.Union([LearnedReviewStyleError, EnvironmentAuthorizationError]),
+});
+
+const WsReviewLearnStyleRpc = Rpc.make(WS_METHODS.reviewLearnStyle, {
+  payload: LearnedReviewStyleAccount,
+  success: LearnedReviewStyle,
+  error: Schema.Union([LearnedReviewStyleError, EnvironmentAuthorizationError]),
+});
+
+const WsReviewForgetLearnedStyleRpc = Rpc.make(WS_METHODS.reviewForgetLearnedStyle, {
+  payload: LearnedReviewStyleAccount,
+  success: Schema.Void,
+  error: Schema.Union([LearnedReviewStyleError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1851,6 +1876,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewGetDiffFileContentsRpc,
   WsReviewStartFixThreadRpc,
   WsReviewPostFindingsRpc,
+  WsReviewGetLearnedStyleRpc,
+  WsReviewLearnStyleRpc,
+  WsReviewForgetLearnedStyleRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,

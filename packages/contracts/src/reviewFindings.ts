@@ -1,6 +1,13 @@
 import * as Schema from "effect/Schema";
 
-import { EventId, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  EventId,
+  IsoDateTime,
+  NonNegativeInt,
+  PositiveInt,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { PullRequestReviewVerdict } from "./pullRequest.ts";
 
 /**
@@ -258,6 +265,75 @@ export class ReviewFixThreadError extends Schema.TaggedError<ReviewFixThreadErro
         return "The session was created, but the pull request could not be linked to it.";
       case "start-turn":
         return "The session was created, but the findings could not be sent to it.";
+    }
+  }
+}
+
+/**
+ * Learned review style: an account's own recent review writing, read from the host as that
+ * account and kept on the server, for a reviewer whose findings will be posted as that account
+ * to imitate. GitHub only.
+ */
+export const LearnedReviewStyleAccount = Schema.Struct({
+  /** A host name, with a port when it has one. */
+  host: Schema.String.check(
+    Schema.isMaxLength(255),
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9.-]*(:\d{1,5})?$/),
+  ),
+  login: Schema.String.check(
+    Schema.isMaxLength(100),
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
+  ),
+});
+export type LearnedReviewStyleAccount = typeof LearnedReviewStyleAccount.Type;
+
+/** A comment on a line of the diff, or the text of a whole review. */
+export const LearnedReviewStyleSampleKind = Schema.Literals(["inline", "summary"]);
+export type LearnedReviewStyleSampleKind = typeof LearnedReviewStyleSampleKind.Type;
+
+/** The review a sample was written in, as it was submitted. */
+export const LearnedReviewStyleSampleState = Schema.Literals([
+  "approved",
+  "changes-requested",
+  "commented",
+  "dismissed",
+]);
+export type LearnedReviewStyleSampleState = typeof LearnedReviewStyleSampleState.Type;
+
+export const LearnedReviewStyleSample = Schema.Struct({
+  kind: LearnedReviewStyleSampleKind,
+  state: LearnedReviewStyleSampleState,
+  text: Schema.String,
+});
+export type LearnedReviewStyleSample = typeof LearnedReviewStyleSample.Type;
+
+/** What was learned for one account: how many samples, when, and a few to show the user. */
+export const LearnedReviewStyle = Schema.Struct({
+  sampleCount: NonNegativeInt,
+  fetchedAt: IsoDateTime,
+  preview: Schema.Array(LearnedReviewStyleSample),
+});
+export type LearnedReviewStyle = typeof LearnedReviewStyle.Type;
+
+export class LearnedReviewStyleError extends Schema.TaggedError<LearnedReviewStyleError>()(
+  "LearnedReviewStyleError",
+  {
+    stage: Schema.Literals(["account", "fetch", "store"]),
+    /** What the host said, which is the only way to know what to do about it. */
+    detail: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    switch (this.stage) {
+      case "account":
+        return "This account is not signed in to the GitHub CLI on the server.";
+      case "fetch":
+        return this.detail
+          ? `Could not read your reviews: ${this.detail}`
+          : "Could not read your reviews.";
+      case "store":
+        return "Could not read or save what was learned in the server's state directory.";
     }
   }
 }

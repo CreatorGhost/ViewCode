@@ -161,6 +161,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   pullRequestStackActions: Schema.optionalKey(Schema.Boolean),
   /** Server understands pullRequests.startReview: an agent review in a new, linked thread. */
   pullRequestAgentReview: Schema.optionalKey(Schema.Boolean),
+  /** Server learns an account's review style from its own reviews (`review.learnStyle`). */
+  learnedReviewStyle: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows
       foreground runs, pre-update servers). */
