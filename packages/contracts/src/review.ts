@@ -6,6 +6,12 @@ import { VcsError } from "./vcs.ts";
 export const ReviewDiffPreviewInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   baseRef: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * The end of the branch range instead of HEAD: `baseRef...headRef`, such as one commit's
+   * `<sha>^...<sha>`. Older servers ignore it and diff against HEAD; clients send it only to
+   * servers advertising `localAgentReviewScope`.
+   */
+  headRef: Schema.optional(TrimmedNonEmptyString),
   ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
   file: Schema.optionalKey(
     Schema.Struct({

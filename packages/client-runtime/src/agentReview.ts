@@ -140,7 +140,7 @@ export function reviewStatusText(input: {
   }
 }
 
-/** What a review of local changes reads, in a few words: "Branch against origin/main". */
+/** What a review of local changes reads, in a few words: "Branch vs origin/main". */
 export function localReviewScopeLabel(scope: LocalReviewScope | null | undefined): string {
   switch (scope?.kind) {
     case undefined:
@@ -148,9 +148,52 @@ export function localReviewScopeLabel(scope: LocalReviewScope | null | undefined
     case "uncommitted":
       return "Uncommitted changes";
     case "branch":
-      return scope.base === undefined ? "Branch against its base" : `Branch against ${scope.base}`;
+      return scope.base === undefined ? "Branch vs its base" : `Branch vs ${scope.base}`;
     case "commit":
       return `Commit ${scope.sha.slice(0, 7)}`;
+  }
+}
+
+/**
+ * What a review's change view shows, as its header names it: "PR #12", "Branch vs origin/main",
+ * "Commit 7523ce0", "Uncommitted changes", or "Local changes" for a review that left it to the
+ * reviewer. `shownBase` is the base the diff was read against, for a branch review that named none.
+ */
+export function reviewedChangeLabel(
+  target: { readonly kind: "pull-request"; readonly number: number } | { readonly kind: "local" },
+  scope: LocalReviewScope | null,
+  shownBase: string | null,
+): string {
+  if (target.kind === "pull-request") return `PR #${target.number}`;
+  if (scope === null) return "Local changes";
+  if (scope.kind === "branch" && scope.base === undefined && shownBase !== null) {
+    return localReviewScopeLabel({ kind: "branch", base: shownBase });
+  }
+  return localReviewScopeLabel(scope);
+}
+
+/**
+ * What to read for a review of local changes, as `review.getDiffPreview` takes it, and which of
+ * its sources is the reviewed change: the branch range for a branch (against its named base) or a
+ * commit (`<sha>^...<sha>`), the working tree for uncommitted changes, and for a review that left it
+ * to the reviewer the working tree, else the branch.
+ */
+export function localReviewDiffRequest(scope: LocalReviewScope | null): {
+  readonly baseRef?: string;
+  readonly headRef?: string;
+  readonly source: "working-tree" | "branch-range" | "auto";
+} {
+  switch (scope?.kind) {
+    case undefined:
+      return { source: "auto" };
+    case "uncommitted":
+      return { source: "working-tree" };
+    case "branch":
+      return scope.base === undefined
+        ? { source: "branch-range" }
+        : { baseRef: scope.base, source: "branch-range" };
+    case "commit":
+      return { baseRef: `${scope.sha}^`, headRef: scope.sha, source: "branch-range" };
   }
 }
 

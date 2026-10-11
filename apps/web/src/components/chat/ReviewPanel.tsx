@@ -120,6 +120,7 @@ export function ReviewSurface({
           <ReviewChangeView
             environmentId={environmentId}
             target={change}
+            scope={change.kind === "local" ? (review?.scope ?? null) : null}
             projectId={projectId}
             cwd={cwd}
           />

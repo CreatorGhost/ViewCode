@@ -1,5 +1,6 @@
 import type { CodeViewDiffItem } from "@pierre/diffs/react";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { reviewedChangeLabel } from "@t3tools/client-runtime/agent-review";
+import type { EnvironmentId, LocalReviewScope, ProjectId } from "@t3tools/contracts";
 import { useMemo } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
@@ -16,15 +17,18 @@ import { type ReviewDiffTarget, useReviewDiff } from "./useReviewDiff";
 export function ReviewChangeView({
   environmentId,
   target,
+  scope,
   projectId,
   cwd,
 }: {
   environmentId: EnvironmentId;
   target: ReviewDiffTarget;
+  /** What of the local changes the running review reads. */
+  scope: LocalReviewScope | null;
   projectId: ProjectId | null;
   cwd: string | undefined;
 }) {
-  const diff = useReviewDiff({ environmentId, target, projectId, cwd: cwd ?? null });
+  const diff = useReviewDiff({ environmentId, target, projectId, cwd: cwd ?? null, scope });
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
   const items = useMemo<CodeViewDiffItem<undefined>[]>(
@@ -47,6 +51,9 @@ export function ReviewChangeView({
   );
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <p className="border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
+        Reviewing {reviewedChangeLabel(target, scope, diff.base)}
+      </p>
       {diff.partial || diff.error !== null ? (
         <p className="border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
           {diff.error !== null

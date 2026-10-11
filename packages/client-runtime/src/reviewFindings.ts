@@ -56,6 +56,8 @@ export interface ReviewFindingsSource {
   readonly activityId: OrchestrationThreadActivity["id"];
   readonly createdAt: string;
   readonly findings: ReviewFindingsActivityPayload;
+  /** What of the local changes the review was asked to read; null for the default or a PR. */
+  readonly scope: LocalReviewScope | null;
 }
 
 /** A thread's latest findings activity; activities are append-only, so a re-review comes last. */
@@ -88,6 +90,7 @@ export function latestReviewFindingsSource(thread: ThreadFindings): ReviewFindin
     activityId: activity.id,
     createdAt: activity.createdAt,
     findings,
+    scope: reviewStartedRecord(thread.activities)?.scope ?? null,
   };
 }
 

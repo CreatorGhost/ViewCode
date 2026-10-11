@@ -2,6 +2,8 @@ import { ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  localReviewDiffRequest,
+  reviewedChangeLabel,
   buildAgentReviewStart,
   canChooseLocalReviewScope,
   filterReviewCommits,
@@ -105,7 +107,7 @@ describe("local review scopes", () => {
     expect(localReviewScopeLabel(null)).toBe("Uncommitted changes, else the branch");
     expect(localReviewScopeLabel({ kind: "uncommitted" })).toBe("Uncommitted changes");
     expect(localReviewScopeLabel({ kind: "branch", base: "origin/main" })).toBe(
-      "Branch against origin/main",
+      "Branch vs origin/main",
     );
     expect(localReviewScopeLabel({ kind: "commit", sha: "a1b2c3d4e5f6" })).toBe("Commit a1b2c3d");
   });
@@ -132,6 +134,39 @@ describe("local review scopes", () => {
     expect(pastedReviewCommitSha(" A1B2C3D ")).toBe("a1b2c3d");
     expect(pastedReviewCommitSha("a1b2c3")).toBeNull();
     expect(pastedReviewCommitSha("main")).toBeNull();
+  });
+});
+
+describe("the change a review shows", () => {
+  it("reads each scope's own diff", () => {
+    expect(localReviewDiffRequest(null)).toEqual({ source: "auto" });
+    expect(localReviewDiffRequest({ kind: "uncommitted" })).toEqual({ source: "working-tree" });
+    expect(localReviewDiffRequest({ kind: "branch" })).toEqual({ source: "branch-range" });
+    expect(localReviewDiffRequest({ kind: "branch", base: "origin/main" })).toEqual({
+      baseRef: "origin/main",
+      source: "branch-range",
+    });
+    expect(localReviewDiffRequest({ kind: "commit", sha: "7523ce0abc" })).toEqual({
+      baseRef: "7523ce0abc^",
+      headRef: "7523ce0abc",
+      source: "branch-range",
+    });
+  });
+
+  it("names it in the header", () => {
+    const local = { kind: "local" } as const;
+    expect(reviewedChangeLabel({ kind: "pull-request", number: 12 }, null, null)).toBe("PR #12");
+    expect(reviewedChangeLabel(local, null, null)).toBe("Local changes");
+    expect(reviewedChangeLabel(local, { kind: "branch" }, "origin/main")).toBe(
+      "Branch vs origin/main",
+    );
+    expect(reviewedChangeLabel(local, { kind: "branch", base: "release" }, "origin/main")).toBe(
+      "Branch vs release",
+    );
+    expect(reviewedChangeLabel(local, { kind: "commit", sha: "7523ce0abc" }, null)).toBe(
+      "Commit 7523ce0",
+    );
+    expect(reviewedChangeLabel(local, { kind: "uncommitted" }, null)).toBe("Uncommitted changes");
   });
 });
 

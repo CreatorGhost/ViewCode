@@ -1,5 +1,6 @@
 import type { CodeViewItem, DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
 import type { CodeViewDiffItem, CodeViewHandle } from "@pierre/diffs/react";
+import { reviewedChangeLabel } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   reviewFindingEntries,
@@ -24,7 +25,6 @@ import type {
   ProjectId,
   PullRequestReviewVerdict,
   ReviewFindingRating,
-  ReviewFindingsTarget,
   ReviewVerdict,
   ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -134,10 +134,6 @@ interface FindingAnnotationGroup {
 const EMPTY_SENT: Readonly<Record<string, ReviewFixDestination>> = {};
 const EMPTY_DISMISSED: Readonly<Record<string, true>> = {};
 const NO_PENDING_RATINGS: ReadonlyMap<string, ReviewFindingRating | null> = new Map();
-
-function targetLabel(target: ReviewFindingsTarget): string {
-  return target.kind === "pull-request" ? `PR #${target.number}` : "Local changes";
-}
 
 interface ReviewFindingsViewProps {
   readonly environmentId: EnvironmentId;
@@ -258,6 +254,7 @@ function ReviewFindingsViewContent({
     target: findings.target,
     projectId,
     cwd: cwd ?? null,
+    scope: source.scope,
   });
   const entries = useMemo(() => reviewFindingEntries(findings), [findings]);
   const sent = useMemo(
@@ -809,7 +806,7 @@ function ReviewFindingsViewContent({
         </Badge>
         <span>
           Merge confidence {findings.mergeConfidence}/5 · Review effort {findings.reviewEffort}/5 ·{" "}
-          {targetLabel(findings.target)} · Reviewed by
+          {reviewedChangeLabel(findings.target, source.scope, diff.base)} · Reviewed by
         </span>
         {source.threadId === threadRef?.threadId ? (
           <span className="min-w-0 truncate text-foreground">{source.threadTitle}</span>

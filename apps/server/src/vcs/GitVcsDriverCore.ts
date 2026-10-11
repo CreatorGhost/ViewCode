@@ -2595,6 +2595,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       (branch
         ? yield* resolveBaseBranchForNoUpstream(cwd, branch).pipe(Effect.orElseSucceed(() => null))
         : null);
+    // A named end of the range (one commit's review) needs no current branch. A ref that reads as
+    // an option is never passed to git.
+    const headRef =
+      input.headRef !== undefined && !input.headRef.startsWith("-") ? input.headRef : null;
+    const rangeReadable =
+      baseRef !== null && !baseRef.startsWith("-") && (headRef !== null || Boolean(branch));
 
     const diffArgs = [
       "diff",
@@ -2697,8 +2703,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       [
         readDirty,
         readTrackedDiff(
-          baseRef && branch && input.file?.sourceKind !== "working-tree"
-            ? `${baseRef}...HEAD`
+          rangeReadable && input.file?.sourceKind !== "working-tree"
+            ? `${baseRef}...${headRef ?? "HEAD"}`
             : null,
         ),
       ],
@@ -2744,7 +2750,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         kind: "branch-range",
         title: baseRef ? `Against ${baseRef}` : "Against base branch",
         baseRef,
-        headRef: branch ?? "HEAD",
+        headRef: headRef ?? branch ?? "HEAD",
         diff: baseDiff,
         files: baseFiles,
         diffHash: baseDiffHash,
