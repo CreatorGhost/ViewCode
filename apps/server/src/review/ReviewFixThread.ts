@@ -30,8 +30,8 @@ import * as ServerSettings from "../serverSettings.ts";
 
 /**
  * Starts a new session that fixes findings from an agent review. A pull request review's session
- * works on the pull request's head in a worktree of its own, so the user's checkout stays where
- * it is, and is linked to the pull request; a local review's session works where the review did.
+ * works on the pull request's head in a worktree, reusing its checkout when no session is working
+ * there, and is linked to the pull request; a local review's session works where the review did.
  * It runs on the project's defaults for new threads, falling back to the reviewer's model.
  *
  * Sending findings to a session that already exists is the client's job: it goes through the
@@ -113,6 +113,20 @@ const make = Effect.gen(function* () {
             worktreePath: review.value.worktreePath,
             title: `Fix review findings: ${review.value.title}`,
           };
+
+    if (target.kind === "pull-request" && checkout.worktreePath !== null) {
+      const snapshot = yield* snapshots
+        .getShellSnapshot()
+        .pipe(Effect.mapError(failure("checkout")));
+      const busy = snapshot.threads.some(
+        (thread) =>
+          thread.id !== threadId &&
+          thread.archivedAt === null &&
+          thread.worktreePath === checkout.worktreePath &&
+          (thread.session?.status === "running" || thread.session?.activeTurnId != null),
+      );
+      if (busy) return yield* new ReviewFixThreadError({ stage: "checkout-busy" });
+    }
 
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     yield* engine

@@ -5,6 +5,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   type GitPreparePullRequestThreadInput,
   type OrchestrationCommand,
   type OrchestrationProjectShell,
@@ -108,6 +109,7 @@ const fixStarted: OrchestrationThreadActivity = {
 const makeHarness = (options: {
   readonly defaultModel?: typeof PROJECT_MODEL;
   readonly checkoutFails?: boolean;
+  readonly threads?: ReadonlyArray<OrchestrationThreadShell>;
   /** The fix session to undo: its activities, turn count and session status. */
   readonly fixThread?: {
     readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
@@ -120,6 +122,13 @@ const makeHarness = (options: {
     const checkouts = yield* Ref.make<ReadonlyArray<GitPreparePullRequestThreadInput>>([]);
     const dependencies = Layer.mergeAll(
       Layer.mock(ProjectionSnapshotQuery)({
+        getShellSnapshot: () =>
+          Effect.succeed({
+            snapshotSequence: 0,
+            projects: [project],
+            threads: options.threads ?? [reviewThread],
+            updatedAt: reviewThread.updatedAt,
+          }),
         getThreadShellById: (threadId) =>
           Effect.succeed(
             threadId === REVIEW_THREAD_ID
@@ -226,7 +235,7 @@ describe("ReviewFixThread", () => {
         {
           cwd: "/workspace/project",
           reference: PR_TARGET.url,
-          // Its own worktree, so the user's checkout does not move.
+          // The PR worktree, so the user's checkout does not move.
           mode: "worktree",
           threadId: result.threadId,
         },
@@ -267,6 +276,78 @@ describe("ReviewFixThread", () => {
       expect(text).toContain('from "Review: #42 Cache the probe" on PR #42');
       expect(text).toContain("verify each against the code first");
       expect(text).toContain("1. Cache never expires");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("refuses a checkout where another session is running or has an active turn", () =>
+    Effect.gen(function* () {
+      for (const status of ["running", "ready"] as const) {
+        const harness = yield* makeHarness({
+          threads: [
+            {
+              ...reviewThread,
+              id: FIX_THREAD_ID,
+              worktreePath: "/workspace/.worktrees/cache-probe",
+              session: {
+                threadId: FIX_THREAD_ID,
+                status,
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: status === "running" ? null : TurnId.make("active-turn"),
+                lastError: null,
+                updatedAt: reviewThread.updatedAt,
+              },
+            },
+          ],
+        });
+        const error = yield* harness.service
+          .start({ reviewThreadId: REVIEW_THREAD_ID, target: PR_TARGET, findings })
+          .pipe(Effect.flip);
+        expect(error).toMatchObject({ _tag: "ReviewFixThreadError", stage: "checkout-busy" });
+        expect(error.message).toBe(
+          "Another session is working in this pull request's checkout. Stop or finish it before starting a new fix session.",
+        );
+        expect(yield* Ref.get(harness.checkouts)).toHaveLength(1);
+        expect(yield* Ref.get(harness.commands)).toEqual([]);
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows an idle session to share the pull request's checkout", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        threads: [
+          {
+            ...reviewThread,
+            id: FIX_THREAD_ID,
+            worktreePath: "/workspace/.worktrees/cache-probe",
+            session: {
+              threadId: FIX_THREAD_ID,
+              status: "ready",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: reviewThread.updatedAt,
+            },
+          },
+        ],
+      });
+      const result = yield* harness.service.start({
+        reviewThreadId: REVIEW_THREAD_ID,
+        target: PR_TARGET,
+        findings,
+      });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        {
+          type: "thread.create",
+          threadId: result.threadId,
+          worktreePath: "/workspace/.worktrees/cache-probe",
+        },
+        { type: "thread.pull-request.link" },
+        { type: "thread.activity.append" },
+        { type: "thread.turn.start", threadId: result.threadId },
+      ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
