@@ -1231,78 +1231,101 @@ export const make = Effect.gen(function* () {
         continuation?.get(project.cursorKey);
 
       /**
+       * The login a project's repository is read as: the account gh routed its owner to where
+       * several are signed in to the host, else the host's own viewer. Involvement and `author:me`
+       * name it, so a repository only another account can see is asked about that account.
+       */
+      const accountOf = (project: SupportedProject): Effect.Effect<string> =>
+        project.api.accountFor === undefined
+          ? Effect.succeed(viewers[project.host]!)
+          : Effect.map(
+              project.api.accountFor({ host: project.host, repository: project.repository }),
+              (routed) => routed ?? viewers[project.host]!,
+            );
+      /** Whether the host is asked about the reader, not only the rows judged after the read. */
+      const queryNamesViewer = involvement !== "all" || input.filters?.author !== undefined;
+
+      /**
        * One repository asked on its own. What every host without a search across repositories
        * does, and what a batched read falls back to for a repository it could not answer for.
        */
       const readRepository = (project: SupportedProject): Effect.Effect<RepositoryBatch> => {
         {
-          const viewer = viewers[project.host]!;
           const key = project.cursorKey;
           const cursor = cursorOf(project);
-          return project.api
-            .listChangeRequests({
-              cwd: project.project.workspaceRoot,
-              repository: project.repository,
-              host: project.host,
-              state: input.state,
-              involvement,
-              viewer,
-              limit,
-              // Each host matches this its own way, and one that cannot match text at all
-              // answers unnarrowed rather than failing.
-              query: input.query,
-              filters: input.filters,
-              // Only the two fields a host can act on: which rows have already been sent at the
-              // boundary instant is this service's business, not a provider's.
-              ...(cursor === undefined
-                ? {}
-                : {
-                    cursor: { updatedBefore: cursor.updatedBefore, delivered: cursor.delivered },
-                  }),
-            })
-            .pipe(
-              observeRead,
-              Effect.map(({ value: page, observedAt }): RepositoryBatch => {
-                // The boundary instant was asked for inclusively, so the rows already sent at it
-                // come back with the slice. Dropping them here rather than asking for strictly
-                // older is what keeps their neighbours at the same instant from being skipped.
-                const items =
-                  cursor === undefined
-                    ? page.items
-                    : page.items.filter(
-                        (item) =>
-                          item.updatedAt !== cursor.updatedBefore ||
-                          !cursor.seenAt.includes(item.number),
-                      );
-                return {
-                  key,
-                  entries: items
-                    .filter((item) => matchesRowFilters(item, input.filters, viewer))
-                    .map((item) => toEntry({ project, item, viewer, observedAt })),
-                  errors: [],
-                  truncated: page.truncated,
-                  nextCursor:
-                    page.continues && page.truncated
-                      ? nextListCursor(cursor, page.items, items, page.cursorAdvance)
-                      : null,
-                };
-              }),
-              // One unreachable repository must not blank the page. A host-level failure is
-              // already reported through `providers`, so it degrades the same way here.
-              Effect.orElseSucceed((): RepositoryBatch => ({
+          const readAs = (viewer: string) =>
+            project.api
+              .listChangeRequests({
+                cwd: project.project.workspaceRoot,
+                repository: project.repository,
+                host: project.host,
+                state: input.state,
+                involvement,
+                viewer,
+                limit,
+                // Each host matches this its own way, and one that cannot match text at all
+                // answers unnarrowed rather than failing.
+                query: input.query,
+                filters: input.filters,
+                // Only the two fields a host can act on: which rows have already been sent at the
+                // boundary instant is this service's business, not a provider's.
+                ...(cursor === undefined
+                  ? {}
+                  : {
+                      cursor: { updatedBefore: cursor.updatedBefore, delivered: cursor.delivered },
+                    }),
+              })
+              .pipe(observeRead);
+          return Effect.gen(function* () {
+            const asked = yield* accountOf(project);
+            const first = yield* readAs(asked);
+            // The read that first finds a repository's account was asked about the active one,
+            // so a question that names the reader is asked again as the account that answered.
+            const viewer = yield* accountOf(project);
+            const read = viewer !== asked && queryNamesViewer ? yield* readAs(viewer) : first;
+            return { viewer, read };
+          }).pipe(
+            Effect.map(({ viewer, read: { value: page, observedAt } }): RepositoryBatch => {
+              // The boundary instant was asked for inclusively, so the rows already sent at it
+              // come back with the slice. Dropping them here rather than asking for strictly
+              // older is what keeps their neighbours at the same instant from being skipped.
+              const items =
+                cursor === undefined
+                  ? page.items
+                  : page.items.filter(
+                      (item) =>
+                        item.updatedAt !== cursor.updatedBefore ||
+                        !cursor.seenAt.includes(item.number),
+                    );
+              return {
                 key,
-                entries: [],
-                errors: [
-                  {
-                    projectId: project.project.id,
-                    projectTitle: project.project.title,
-                    message: `${project.repository} could not be read.`,
-                  },
-                ],
-                truncated: false,
-                nextCursor: null,
-              })),
-            );
+                entries: items
+                  .filter((item) => matchesRowFilters(item, input.filters, viewer))
+                  .map((item) => toEntry({ project, item, viewer, observedAt })),
+                errors: [],
+                truncated: page.truncated,
+                nextCursor:
+                  page.continues && page.truncated
+                    ? nextListCursor(cursor, page.items, items, page.cursorAdvance)
+                    : null,
+              };
+            }),
+            // One unreachable repository must not blank the page. A host-level failure is
+            // already reported through `providers`, so it degrades the same way here.
+            Effect.orElseSucceed((): RepositoryBatch => ({
+              key,
+              entries: [],
+              errors: [
+                {
+                  projectId: project.project.id,
+                  projectTitle: project.project.title,
+                  message: `${project.repository} could not be read.`,
+                },
+              ],
+              truncated: false,
+              nextCursor: null,
+            })),
+          );
         }
       };
 
@@ -1364,52 +1387,56 @@ export const make = Effect.gen(function* () {
               );
               return Effect.forEach(
                 chunk,
-                (project): Effect.Effect<RepositoryBatch> => {
-                  const fetched = rows.get(project.repository.trim().toLowerCase()) ?? [];
-                  // GitHub does not index every repository for search — a renamed one answers for
-                  // its old name with silence rather than with an error — so a repository the
-                  // search said nothing at all about is read on its own, once, before it is
-                  // believed. Only on its first slice: after that it has a boundary to carry on
-                  // from, and silence past one means the rows are older rather than absent. That
-                  // keeps a search-invisible repository from disappearing on a busy host, at the
-                  // price of one request per repository with nothing in the first slice — which
-                  // run together, and only there.
-                  const lastVisible = searchVisibleAt.get(
-                    searchVisibilityKey(project.host, project.repository),
-                  );
-                  const searchIsKnownVisible =
-                    !page.truncated &&
-                    lastVisible !== undefined &&
-                    now - lastVisible <= Duration.toMillis(SEARCH_VISIBILITY_TTL);
-                  if (
-                    fetched.length === 0 &&
-                    cursorOf(project) === undefined &&
-                    !searchIsKnownVisible
-                  ) {
-                    return readRepository(project);
-                  }
-                  const cursorHere = cursorOf(project);
-                  const items =
-                    cursorHere === undefined
-                      ? fetched
-                      : fetched.filter(
-                          (item) =>
-                            item.updatedAt !== cursorHere.updatedBefore ||
-                            !cursorHere.seenAt.includes(item.number),
-                        );
-                  return Effect.succeed({
-                    key: project.cursorKey,
-                    entries: items
-                      .filter((item) => matchesRowFilters(item, input.filters, viewer))
-                      .map((item) => toEntry({ project, item, viewer, observedAt })),
-                    errors: [],
-                    truncated: page.truncated,
-                    nextCursor:
-                      page.truncated && boundary !== null
-                        ? listCursorAt(cursorHere, boundary, fetched, items.length)
-                        : null,
-                  });
-                },
+                (project) =>
+                  Effect.flatMap(accountOf(project), (account): Effect.Effect<RepositoryBatch> => {
+                    // The search went out as the active account and about it. A repository this
+                    // read found another account for is asked again on its own, as that account.
+                    if (account !== viewer) return readRepository(project);
+                    const fetched = rows.get(project.repository.trim().toLowerCase()) ?? [];
+                    // GitHub does not index every repository for search — a renamed one answers for
+                    // its old name with silence rather than with an error — so a repository the
+                    // search said nothing at all about is read on its own, once, before it is
+                    // believed. Only on its first slice: after that it has a boundary to carry on
+                    // from, and silence past one means the rows are older rather than absent. That
+                    // keeps a search-invisible repository from disappearing on a busy host, at the
+                    // price of one request per repository with nothing in the first slice — which
+                    // run together, and only there.
+                    const lastVisible = searchVisibleAt.get(
+                      searchVisibilityKey(project.host, project.repository),
+                    );
+                    const searchIsKnownVisible =
+                      !page.truncated &&
+                      lastVisible !== undefined &&
+                      now - lastVisible <= Duration.toMillis(SEARCH_VISIBILITY_TTL);
+                    if (
+                      fetched.length === 0 &&
+                      cursorOf(project) === undefined &&
+                      !searchIsKnownVisible
+                    ) {
+                      return readRepository(project);
+                    }
+                    const cursorHere = cursorOf(project);
+                    const items =
+                      cursorHere === undefined
+                        ? fetched
+                        : fetched.filter(
+                            (item) =>
+                              item.updatedAt !== cursorHere.updatedBefore ||
+                              !cursorHere.seenAt.includes(item.number),
+                          );
+                    return Effect.succeed({
+                      key: project.cursorKey,
+                      entries: items
+                        .filter((item) => matchesRowFilters(item, input.filters, viewer))
+                        .map((item) => toEntry({ project, item, viewer, observedAt })),
+                      errors: [],
+                      truncated: page.truncated,
+                      nextCursor:
+                        page.truncated && boundary !== null
+                          ? listCursorAt(cursorHere, boundary, fetched, items.length)
+                          : null,
+                    });
+                  }),
                 { concurrency: REPOSITORY_CONCURRENCY },
               );
             }),
@@ -1424,7 +1451,12 @@ export const make = Effect.gen(function* () {
       const together = new Map<string, Array<SupportedProject>>();
       const separate: Array<SupportedProject> = [];
       for (const project of readable) {
-        if (project.api.listChangeRequestsAcross === undefined) {
+        // A search across repositories runs as the active account, so a repository already
+        // routed to another one is read on its own, as that account.
+        if (
+          project.api.listChangeRequestsAcross === undefined ||
+          (yield* accountOf(project)) !== viewers[project.host]
+        ) {
           separate.push(project);
           continue;
         }
@@ -1450,11 +1482,9 @@ export const make = Effect.gen(function* () {
 
       // Asked after the reads, so an account picked while reading this page is the one named.
       const accounts: Record<string, string> = {};
-      for (const { project, host, repository, api } of readable) {
-        if (api.kind !== "github") continue;
-        const routed =
-          api.accountFor === undefined ? null : yield* api.accountFor({ host, repository });
-        accounts[project.id] = routed ?? viewers[host]!;
+      for (const project of readable) {
+        if (project.api.kind !== "github") continue;
+        accounts[project.project.id] = yield* accountOf(project);
       }
 
       return {

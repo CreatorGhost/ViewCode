@@ -140,16 +140,29 @@ export function collectPullRequestListFacets(
 }
 
 /**
- * The signed-in login for the host a row came from, or null where none was given. Shared by
- * authorship matching here and by `author:me` resolution wherever a row's own viewer is needed.
+ * The account each project was read as, keyed `"<environmentId>:<projectId>"` as the merged
+ * listing writes it. Absent for a project read as its host's viewer on an older server.
+ */
+export type PullRequestAccounts = Readonly<Record<string, string>>;
+
+/**
+ * The signed-in login a row was read as, or null where none was given. Shared by authorship
+ * matching here and by `author:me` resolution wherever a row's own viewer is needed.
  */
 export function pullRequestEntryViewer(
   entry: ScopedEntry,
   viewers: PullRequestViewers,
+  accounts?: PullRequestAccounts,
 ): string | null {
-  // The environment's own answer first; a plain host key is what a single-environment listing
-  // still writes, and what the snapshot from one carries.
-  return normalize(viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
+  // The project's own account first: a machine signed in to several accounts on one host reads
+  // each organisation's repositories as the account that can see them, and that account is who
+  // "me" is there. Then the environment's host answer; a plain host key is what a
+  // single-environment listing still writes, and what the snapshot from one carries.
+  const account =
+    entry.environmentId === undefined
+      ? undefined
+      : accounts?.[`${entry.environmentId}:${entry.projectId}`];
+  return normalize(account ?? viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
 }
 
 /**
@@ -157,8 +170,12 @@ export function pullRequestEntryViewer(
  * GitHub, GitLab and a GitHub Enterprise install, and the account that owns one says nothing
  * about the others.
  */
-function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {
-  const viewer = pullRequestEntryViewer(entry, viewers);
+function isAuthoredByViewer(
+  entry: ScopedEntry,
+  viewers: PullRequestViewers,
+  accounts: PullRequestAccounts | undefined,
+): boolean {
+  const viewer = pullRequestEntryViewer(entry, viewers, accounts);
   return viewer !== null && normalize(entry.author?.login) === viewer;
 }
 
@@ -331,12 +348,14 @@ export function filterPullRequestsByInvolvement<Entry extends ScopedEntry>(
   entries: ReadonlyArray<Entry>,
   viewers: PullRequestViewers,
   involvement: PullRequestInvolvement,
+  accounts?: PullRequestAccounts,
 ): ReadonlyArray<Entry> {
+  // The server already judged review requests against the account each project was read as.
   if (involvement === "reviewing") {
     return entries.filter((entry) => entry.viewerReviewRequested);
   }
   if (involvement === "authored") {
-    return entries.filter((entry) => isAuthoredByViewer(entry, viewers));
+    return entries.filter((entry) => isAuthoredByViewer(entry, viewers, accounts));
   }
   return entries;
 }
@@ -408,6 +427,7 @@ export function matchesPullRequestFilters(
 export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
   entries: ReadonlyArray<Entry>,
   viewers: PullRequestViewers,
+  accounts?: PullRequestAccounts,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
   const buckets: Record<PullRequestGroupKey, Entry[]> = {
     reviewRequested: [],
@@ -415,7 +435,7 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
     others: [],
   };
   for (const entry of entries) {
-    if (isAuthoredByViewer(entry, viewers)) {
+    if (isAuthoredByViewer(entry, viewers, accounts)) {
       buckets.authored.push(entry);
     } else if (entry.viewerReviewRequested) {
       buckets.reviewRequested.push(entry);
@@ -730,7 +750,7 @@ export interface MergedPullRequestList {
    * The host account each project was read as, keyed `"<environmentId>:<projectId>"` like its
    * group. Absent in snapshots saved before accounts existed.
    */
-  readonly accounts?: Readonly<Record<string, string>> | undefined;
+  readonly accounts?: PullRequestAccounts | undefined;
   readonly providers: PullRequestListResult["providers"];
   readonly entries: ReadonlyArray<EnvironmentPullRequestEntry>;
   readonly errors: ReadonlyArray<EnvironmentPullRequestError>;
