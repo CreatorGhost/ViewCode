@@ -65,6 +65,11 @@ export function createReviewEnvironmentAtoms<R, E>(
       label: "environment-data:review:start-fix-thread",
       tag: WS_METHODS.reviewStartFixThread,
     }),
+    /** Reverts a fix session to before its fix; servers advertising `reviewFixUndo`. */
+    undoFixes: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:undo-fixes",
+      tag: WS_METHODS.reviewUndoFixes,
+    }),
     /** Posts findings to the reviewed pull request as one review. */
     postFindings: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:post-findings",

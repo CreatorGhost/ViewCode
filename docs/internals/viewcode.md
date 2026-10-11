@@ -528,6 +528,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   would fork that behaviour. Only a new session is a server method (`ReviewFixThread.start`,
   `review.startFixThread`), which checks the pull request out into a worktree of its own. Which
   findings were sent where or dismissed is client memory only.
+- Undoing fixes (`ReviewFixThread.undo`, `review.undoFixes`, capability `reviewFixUndo`) is the
+  chat's own `thread.checkpoint.revert`, to the turn count a hidden `viewcode.review.fix-started`
+  activity recorded before the session's first turn (always 0: only new sessions get one). It is
+  not recognised from the message text, and a fix sent through the composer to an existing session
+  cannot be undone this way, because a turn start has no field to mark it. The revert takes back
+  every turn since, and restores files only where the reactor allows it: a pull request fix's own
+  worktree, not a local fix that shares the review's checkout, where it fails with the chat's
+  usual reason.
 - Ratings are not (`ReviewFindingRatings.rate`, `review.rateFinding`, capability
   `reviewFindingRatings`): each is a hidden `viewcode.review.rating` activity on the review thread,
   outside any turn, carrying the finding's title, severity, path and rule and the project, so every

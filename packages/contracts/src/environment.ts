@@ -167,6 +167,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   incrementalAgentReview: Schema.optionalKey(Schema.Boolean),
   /** Server keeps findings' ratings (`review.rateFinding`) and shows them to later reviews. */
   reviewFindingRatings: Schema.optionalKey(Schema.Boolean),
+  /** Server records fix sessions and undoes them (`review.undoFixes`). */
+  reviewFixUndo: Schema.optionalKey(Schema.Boolean),
   /** Server learns an account's review style from its own reviews (`review.learnStyle`). */
   learnedReviewStyle: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on

@@ -109,6 +109,9 @@ import {
   ReviewStartFixThreadResult,
   ReviewRateFindingError,
   ReviewRateFindingInput,
+  ReviewUndoFixesError,
+  ReviewUndoFixesInput,
+  ReviewUndoFixesResult,
   ReviewStartError,
 } from "./reviewFindings.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
@@ -404,6 +407,7 @@ export const WS_METHODS = {
   reviewStartLocal: "review.startLocal",
   reviewPostFindings: "review.postFindings",
   reviewRateFinding: "review.rateFinding",
+  reviewUndoFixes: "review.undoFixes",
   reviewGetLearnedStyle: "review.getLearnedStyle",
   reviewLearnStyle: "review.learnStyle",
   reviewForgetLearnedStyle: "review.forgetLearnedStyle",
@@ -1451,6 +1455,13 @@ const WsReviewPostFindingsRpc = Rpc.make(WS_METHODS.reviewPostFindings, {
   error: Schema.Union([ReviewPostFindingsError, EnvironmentAuthorizationError]),
 });
 
+/** Only send to environments advertising `reviewFixUndo`. */
+const WsReviewUndoFixesRpc = Rpc.make(WS_METHODS.reviewUndoFixes, {
+  payload: ReviewUndoFixesInput,
+  success: ReviewUndoFixesResult,
+  error: Schema.Union([ReviewUndoFixesError, EnvironmentAuthorizationError]),
+});
+
 /** Only send to environments advertising `reviewFindingRatings`. */
 const WsReviewRateFindingRpc = Rpc.make(WS_METHODS.reviewRateFinding, {
   payload: ReviewRateFindingInput,
@@ -1897,6 +1908,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewStartFixThreadRpc,
   WsReviewStartLocalRpc,
   WsReviewRateFindingRpc,
+  WsReviewUndoFixesRpc,
   WsReviewPostFindingsRpc,
   WsReviewGetLearnedStyleRpc,
   WsReviewLearnStyleRpc,

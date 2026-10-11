@@ -182,6 +182,8 @@ export const ReviewStartFixThreadInput = Schema.Struct({
   reviewThreadId: ThreadId,
   target: ReviewFindingsTarget,
   findings: ReviewFindingsToFix,
+  /** The findings activity they come from, recorded with the fix so it can be traced and undone. */
+  findingsActivityId: Schema.optional(EventId),
 });
 export type ReviewStartFixThreadInput = typeof ReviewStartFixThreadInput.Type;
 
@@ -203,6 +205,57 @@ export const ReviewStartedActivityPayload = Schema.Struct({
   basedOn: Schema.optional(ReviewBasedOn),
 });
 export type ReviewStartedActivityPayload = typeof ReviewStartedActivityPayload.Type;
+
+/**
+ * Recorded on a session `ReviewFixThread` starts, before its first turn, outside any turn: what
+ * it fixes, and the turn count to revert to for undoing the fixes. Hidden from the transcript.
+ */
+export const REVIEW_FIX_STARTED_ACTIVITY_KIND = "viewcode.review.fix-started";
+
+export const ReviewFixStartedActivityPayload = Schema.Struct({
+  reviewThreadId: ThreadId,
+  findingsActivityId: Schema.optional(EventId),
+  /** The checkpoint before the fix: undoing reverts the session to it. */
+  turnCountBefore: NonNegativeInt,
+});
+export type ReviewFixStartedActivityPayload = typeof ReviewFixStartedActivityPayload.Type;
+
+/** Undoes what a fix session changed, files and conversation, back to before its first turn. */
+export const ReviewUndoFixesInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type ReviewUndoFixesInput = typeof ReviewUndoFixesInput.Type;
+
+export const ReviewUndoFixesResult = Schema.Struct({
+  /** The checkpoint the session is being reverted to. */
+  turnCount: NonNegativeInt,
+  /** How many turns the revert takes back, the fix's own and any after it. */
+  undoneTurns: NonNegativeInt,
+});
+export type ReviewUndoFixesResult = typeof ReviewUndoFixesResult.Type;
+
+export class ReviewUndoFixesError extends Schema.TaggedError<ReviewUndoFixesError>()(
+  "ReviewUndoFixesError",
+  {
+    stage: Schema.Literals(["thread", "not-a-fix", "running", "nothing", "revert"]),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    switch (this.stage) {
+      case "thread":
+        return "The session was not found.";
+      case "not-a-fix":
+        return "This session was not started to fix review findings, so there is nothing to undo.";
+      case "running":
+        return "Stop the session before undoing its fixes.";
+      case "nothing":
+        return "Nothing to undo: the session has not changed anything since the fix started.";
+      case "revert":
+        return "Could not undo the fixes.";
+    }
+  }
+}
 
 /**
  * Recorded on the review thread once findings are posted, so every client knows which were and

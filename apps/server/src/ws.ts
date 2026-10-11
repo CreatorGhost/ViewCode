@@ -3984,6 +3984,10 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.reviewPostFindings, reviewFindingsPoster.post(input), {
             "rpc.aggregate": "review",
           }),
+        [WS_METHODS.reviewUndoFixes]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewUndoFixes, reviewFixThread.undo(input), {
+            "rpc.aggregate": "review",
+          }),
         [WS_METHODS.reviewRateFinding]: (input) =>
           observeRpcEffect(WS_METHODS.reviewRateFinding, reviewFindingRatings.rate(input), {
             "rpc.aggregate": "review",
