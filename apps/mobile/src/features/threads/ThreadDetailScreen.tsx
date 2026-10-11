@@ -275,6 +275,10 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
   }, [threadId, feed]);
 }
 
+// Gap between the composer overlay and the "Your last message" chip when no
+// floating control occupies the slot above the composer.
+const LAST_MESSAGE_CHIP_REST_GAP = 8;
+
 const USER_INPUT_TOGGLE_TIMING = {
   duration: USER_INPUT_TOGGLE_DURATION_MS,
   easing: Easing.out(Easing.cubic),
@@ -959,6 +963,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               usesAutomaticContentInsets={props.usesAutomaticContentInsets}
               onHeaderMaterialVisibilityChange={props.onHeaderMaterialVisibilityChange}
               onEndFollowEnabledChange={setEndFollowEnabled}
+              lastMessageChipBottomInset={
+                estimatedOverlayHeight +
+                (showFloatingStatus || showScrollToEndButton
+                  ? FLOATING_WORKING_CONTROL_COVERAGE
+                  : LAST_MESSAGE_CHIP_REST_GAP)
+              }
               skills={selectedProviderSkills}
               onUseArtifactTemplate={handleUseArtifactTemplate}
               loadEarlier={props.loadEarlier ?? null}
