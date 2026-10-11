@@ -124,8 +124,9 @@ describe("reviewFindingsFixPrompt", () => {
       [
         `Verify this issue exists and fix it: ${chip}`,
         "**Stale label**",
-        "The label keeps the old count.",
+        // The fix comes before the detail, so the folded message shows it.
         "Suggested fix:\n\n```ts\nconst label = String(count);\n```",
+        "The label keeps the old count.",
       ].join("\n\n"),
     );
   });

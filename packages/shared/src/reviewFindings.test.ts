@@ -107,6 +107,10 @@ describe("fencedCode", () => {
     expect(fencedCode("  const a = 1;\n", "src/a.ts")).toBe("```ts\n  const a = 1;\n```");
     expect(fencedCode("const s = ````;", "Makefile")).toBe("`````\nconst s = ````;\n`````");
   });
+
+  it("drops blank lines around the code, which read as an empty block", () => {
+    expect(fencedCode("\n\n  const a = 1;\n\n", "src/a.ts")).toBe("```ts\n  const a = 1;\n```");
+  });
 });
 
 describe("buildReviewFixMessage", () => {

@@ -232,7 +232,9 @@ export function fencedCode(code: string, path: string): string {
   const longestRun = Math.max(0, ...(code.match(/`+/g) ?? []).map((run) => run.length));
   const fence = "`".repeat(Math.max(3, longestRun + 1));
   const extension = /\.([A-Za-z0-9]{1,10})$/.exec(path)?.[1] ?? "";
-  return `${fence}${extension}\n${code.replace(/\n+$/, "")}\n${fence}`;
+  // Blank lines around the code would show as an empty-looking block; indentation is kept.
+  const body = code.replace(/^(?:[ \t]*\r?\n)+/, "").replace(/\s+$/, "");
+  return `${fence}${extension}\n${body}\n${fence}`;
 }
 
 /** The expanded body of one finding: where it is, what is wrong, and the fix. */

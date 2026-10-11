@@ -108,14 +108,19 @@ function reviewFindingChip(activityId: string, entry: ReviewFindingEntry): Revie
   };
 }
 
+/**
+ * One finding's body in a fix request: the suggested fix first, since a sent message folds after
+ * a dozen lines and a fix below a long detail read as an empty code block there; then the detail.
+ */
 function findingBody(entry: ReviewFindingEntry): ReadonlyArray<string> {
   const { finding } = entry;
-  const parts = [finding.detail];
-  if (entry.needsChecking) parts.push("The reviewer could not settle this one.");
-  if (finding.rule) parts.push(`Rule: ${finding.rule}`);
+  const parts: string[] = [];
   if (finding.suggestedFix) {
     parts.push(`Suggested fix:\n\n${fencedCode(finding.suggestedFix, finding.path)}`);
   }
+  parts.push(finding.detail);
+  if (entry.needsChecking) parts.push("The reviewer could not settle this one.");
+  if (finding.rule) parts.push(`Rule: ${finding.rule}`);
   return parts;
 }
 
