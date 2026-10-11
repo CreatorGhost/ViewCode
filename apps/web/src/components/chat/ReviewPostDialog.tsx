@@ -1,4 +1,8 @@
 import {
+  type ReviewFindingEntry,
+  reviewPostOverallComment,
+} from "@t3tools/client-runtime/review-findings";
+import {
   type PullRequestReviewVerdict,
   REVIEW_POST_MAX_OVERALL_COMMENT_CHARS,
   type ReviewFindingPlacement,
@@ -25,7 +29,6 @@ import {
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
-import { type ReviewFindingEntry, reviewPostOverallComment } from "./reviewPanel.logic";
 
 const SUBMIT_AS: Record<PullRequestReviewVerdict, string> = {
   comment: "Comment",

@@ -1,3 +1,4 @@
+import type { ReviewFindingEntry, ReviewFindingKey } from "@t3tools/client-runtime/review-findings";
 import type { ReviewFindingSeverity, ScopedThreadRef } from "@t3tools/contracts";
 import {
   fencedCode,
@@ -23,7 +24,6 @@ import ChatMarkdown from "../ChatMarkdown";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
-import type { ReviewFindingEntry, ReviewFindingKey } from "./reviewPanel.logic";
 import type { ReviewFindingRating, ReviewFixDestination } from "./reviewFixSentStore";
 
 export const REVIEW_SEVERITY_BADGES: Record<

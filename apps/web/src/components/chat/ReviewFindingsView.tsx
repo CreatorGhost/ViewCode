@@ -2,6 +2,12 @@ import type { CodeViewItem, DiffLineAnnotation, SelectedLineRange } from "@pierr
 import type { CodeViewDiffItem, CodeViewHandle } from "@pierre/diffs/react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  reviewFindingEntries,
+  type ReviewFindingEntry,
+  type ReviewFindingKey,
+  type ReviewFindingsSource,
+} from "@t3tools/client-runtime/review-findings";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -47,10 +53,6 @@ import {
   placeReviewFindings,
   type PlacedReviewFinding,
   postedReviewFindingsEqual,
-  reviewFindingEntries,
-  type ReviewFindingEntry,
-  type ReviewFindingKey,
-  type ReviewFindingsSource,
   reviewFindingsFixPrompt,
 } from "./reviewPanel.logic";
 import {

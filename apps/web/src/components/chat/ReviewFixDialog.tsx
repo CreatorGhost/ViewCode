@@ -1,4 +1,5 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { reviewFixCandidates } from "@t3tools/client-runtime/review-findings";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -27,7 +28,6 @@ import {
 } from "../ui/dialog";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
-import { reviewFixCandidates } from "./reviewFix.logic";
 import { useReviewFixSentStore } from "./reviewFixSentStore";
 
 const NEW_SESSION = "new";
