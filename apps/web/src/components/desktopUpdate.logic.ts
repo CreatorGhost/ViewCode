@@ -72,6 +72,10 @@ export function getArm64IntelBuildWarningDescription(state: DesktopUpdateState):
 
 export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string {
   if (state.status === "available") {
+    // The desktop app opens the release page for this download.
+    if (state.manualUpdate) {
+      return `Version ${state.availableVersion ?? "update"} is available. Download it from GitHub.`;
+    }
     return `Update ${state.availableVersion ?? "available"} ready to download`;
   }
   if (state.status === "downloading") {

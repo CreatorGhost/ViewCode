@@ -69,7 +69,9 @@ or use a package manager:
 A macOS build that is not notarized, such as one you built yourself, is blocked
 the first time you open it. Right-click the app in Applications, choose **Open**,
 and confirm, or click **Open Anyway** in **System Settings → Privacy & Security**.
-You only need to do this once per install.
+You only need to do this once per install. Such a build cannot install its own
+updates: when one is available, the update button opens its GitHub release, where
+you download the new DMG and replace the app in Applications.
 
 The `.deb` updates itself like the other desktop builds. It asks for your
 password to install each update. If your desktop has no password prompt, the

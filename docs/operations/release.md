@@ -331,7 +331,7 @@ available.
 - Update UX:
   - Background checks run on startup delay + interval.
   - No automatic download or install.
-  - The desktop UI shows a rocket update button when an update is available; click once to download, click again after download to restart/install.
+  - The desktop UI shows a rocket update button when an update is available; click once to download, click again after download to restart/install. Ad-hoc signed macOS builds open the GitHub release page instead (see [Free signed DMG](#free-signed-dmg-no-apple-developer-account)).
 - Provider: GitHub Releases (`provider: github`) configured at build time.
 - Repository slug source:
   - `T3CODE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`), if set.
@@ -454,6 +454,13 @@ another one. The DMG lands in `release/` as
 `ViewCode-<version>-<arch>.dmg`. Gatekeeper blocks the first launch of an app that is not
 notarized: right-click the app in Applications and choose **Open**, or allow it under **System
 Settings → Privacy & Security → Open Anyway**. Later launches open normally.
+
+Updates are manual for ad-hoc builds. Squirrel.Mac installs an update only when it satisfies the
+running app's designated requirement, and an ad-hoc requirement matches one exact build, so the
+packager records the signing mode as `t3codeMacSigning` in the app's `package.json` and the app's
+update button opens the GitHub release page instead of downloading. That needs an update feed:
+local builds have none unless `T3CODE_DESKTOP_UPDATE_REPOSITORY=owner/repo` is set when packaging,
+and the repository's releases must carry the `latest-mac.yml` manifest.
 
 ## 2) Apple signing + notarization setup (macOS)
 

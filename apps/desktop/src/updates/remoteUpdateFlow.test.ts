@@ -48,6 +48,17 @@ describe("nextRemoteDesktopUpdateStep", () => {
     });
   });
 
+  it("ends without downloading when the build installs updates by hand", () => {
+    const step = nextRemoteDesktopUpdateStep(
+      makeState({ status: "available", availableVersion: "1.2.4", manualUpdate: true }),
+      NO_ATTEMPTS,
+      null,
+    );
+    assert.equal(step.action, "done");
+    assert.equal(step.action === "done" ? step.outcome : null, "failed");
+    assert.include(step.action === "done" ? step.reason : "", "1.2.4");
+  });
+
   it("installs only from the downloaded status the updater will accept", () => {
     assert.deepEqual(
       nextRemoteDesktopUpdateStep(

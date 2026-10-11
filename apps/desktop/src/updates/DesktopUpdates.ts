@@ -28,6 +28,7 @@ import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as IpcChannels from "../ipc/channels.ts";
@@ -72,6 +73,11 @@ const DownloadProgressInfo = Schema.Struct({
   percent: Schema.Number,
 });
 const decodeAppUpdateYmlConfig = Schema.decodeUnknownEffect(AppUpdateYmlConfig);
+// Written into the packaged app's package.json by scripts/build-desktop-artifact.ts.
+const AppPackageMacSigning = Schema.Struct({
+  t3codeMacSigning: Schema.optional(Schema.String),
+});
+const decodeAppPackageMacSigning = Schema.decodeEffect(Schema.fromJsonString(AppPackageMacSigning));
 const decodeUpdateInfo = Schema.decodeUnknownEffect(UpdateInfo);
 const decodeDownloadProgressInfo = Schema.decodeUnknownEffect(DownloadProgressInfo);
 
@@ -214,13 +220,45 @@ function parseAppUpdateYml(raw: string): Effect.Effect<Option.Option<AppUpdateYm
 function createBaseUpdateState(
   channel: DesktopUpdateChannel,
   enabled: boolean,
+  manualUpdate: boolean,
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
 ): DesktopUpdateState {
   return {
     ...createInitialDesktopUpdateState(environment.appVersion, environment.runtimeInfo, channel),
     enabled,
     status: enabled ? "idle" : "disabled",
+    manualUpdate,
   };
+}
+
+const GITHUB_NAME_PATTERN = /^[\w.-]+$/;
+
+/**
+ * The GitHub releases page an ad-hoc signed macOS build sends its updates to.
+ * Squirrel.Mac installs an update only when its signature satisfies the
+ * running app's designated requirement, and an ad-hoc requirement names one
+ * exact build, so such a build can find updates but never install them.
+ */
+function resolveManualUpdateReleasesUrl(input: {
+  readonly platform: NodeJS.Platform;
+  readonly macSigning: string | undefined;
+  readonly feed: Option.Option<Readonly<Record<string, string>>>;
+}): Option.Option<string> {
+  if (input.platform !== "darwin" || input.macSigning !== "ad-hoc") return Option.none();
+  return Option.flatMap(input.feed, ({ provider, owner, repo }) =>
+    provider === "github" &&
+    owner !== undefined &&
+    repo !== undefined &&
+    GITHUB_NAME_PATTERN.test(owner) &&
+    GITHUB_NAME_PATTERN.test(repo)
+      ? Option.some(`https://github.com/${owner}/${repo}/releases`)
+      : Option.none(),
+  );
+}
+
+/** Release tags are `v<version>`, the electron-updater GitHub provider default. */
+function resolveManualUpdateDownloadUrl(releasesUrl: string, version: string | null): string {
+  return version ? `${releasesUrl}/tag/v${encodeURIComponent(version)}` : releasesUrl;
 }
 
 function getCanRetryFromState(state: DesktopUpdateState): boolean {
@@ -278,6 +316,7 @@ export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
   const desktopState = yield* DesktopState.DesktopState;
+  const electronShell = yield* ElectronShell.ElectronShell;
   const electronUpdater = yield* ElectronUpdater.ElectronUpdater;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -285,6 +324,7 @@ export const make = Effect.gen(function* () {
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
 
   const appUpdateYmlConfigRef = yield* Ref.make<Option.Option<AppUpdateYmlConfig>>(Option.none());
+  const manualUpdateReleasesUrlRef = yield* Ref.make<Option.Option<string>>(Option.none());
   const activeUpdateActionRef = yield* Ref.make<Option.Option<UpdateAction>>(Option.none());
   const finishedUpdateActions = yield* PubSub.unbounded<UpdateAction>();
   const updaterConfiguredRef = yield* Ref.make(false);
@@ -332,6 +372,17 @@ export const make = Effect.gen(function* () {
       }),
     ),
   );
+
+  const readMacSigning =
+    environment.platform === "darwin" && environment.isPackaged
+      ? fileSystem.readFileString(environment.path.join(environment.appRoot, "package.json")).pipe(
+          Effect.flatMap(decodeAppPackageMacSigning),
+          Effect.map((metadata) => Option.fromNullishOr(metadata.t3codeMacSigning)),
+          Effect.orElseSucceed(() => Option.none<string>()),
+        )
+      : Effect.succeedNone;
+
+  const isManualUpdate = Ref.get(manualUpdateReleasesUrlRef).pipe(Effect.map(Option.isSome));
 
   // The .deb carries electron-builder's resources/package-type marker.
   // electron-updater reads the same file and installs updates with dpkg.
@@ -458,10 +509,29 @@ export const make = Effect.gen(function* () {
         );
   });
 
+  // Hands the available version to the browser instead of Squirrel.Mac,
+  // which would refuse to install it.
+  const openManualUpdateDownload = Effect.fn("desktop.updates.openManualUpdateDownload")(function* (
+    releasesUrl: string,
+    state: DesktopUpdateState,
+  ) {
+    const opened = yield* electronShell.openExternal(
+      resolveManualUpdateDownloadUrl(releasesUrl, state.availableVersion),
+    );
+    if (!opened) {
+      yield* logUpdaterWarning("Could not open the release page for a manual update.");
+    }
+    return { accepted: opened, completed: false };
+  });
+
   const downloadAvailableUpdate = Effect.gen(function* () {
     const state = yield* Ref.get(updateStateRef);
     if (!(yield* Ref.get(updaterConfiguredRef)) || state.status !== "available") {
       return { accepted: false, completed: false };
+    }
+    const manualUpdateReleasesUrl = yield* Ref.get(manualUpdateReleasesUrlRef);
+    if (Option.isSome(manualUpdateReleasesUrl)) {
+      return yield* openManualUpdateDownload(manualUpdateReleasesUrl.value, state);
     }
 
     if (!(yield* tryStartUpdateAction("download"))) {
@@ -914,6 +984,12 @@ export const make = Effect.gen(function* () {
 
       const appUpdateYmlConfig = yield* readAppUpdateYml;
       yield* Ref.set(appUpdateYmlConfigRef, appUpdateYmlConfig);
+      const manualUpdateReleasesUrl = resolveManualUpdateReleasesUrl({
+        platform: environment.platform,
+        macSigning: Option.getOrUndefined(yield* readMacSigning),
+        feed: appUpdateYmlConfig,
+      });
+      yield* Ref.set(manualUpdateReleasesUrlRef, manualUpdateReleasesUrl);
 
       if (config.mockUpdates) {
         yield* electronUpdater.setFeedURL({
@@ -924,7 +1000,14 @@ export const make = Effect.gen(function* () {
 
       const settings = yield* desktopSettings.get;
       const enabled = yield* shouldEnableAutoUpdates;
-      yield* setState(createBaseUpdateState(settings.updateChannel, enabled, environment));
+      yield* setState(
+        createBaseUpdateState(
+          settings.updateChannel,
+          enabled,
+          Option.isSome(manualUpdateReleasesUrl),
+          environment,
+        ),
+      );
       if (!enabled) {
         return;
       }
@@ -995,7 +1078,9 @@ export const make = Effect.gen(function* () {
           );
 
         const enabled = yield* shouldEnableAutoUpdates;
-        yield* setState(createBaseUpdateState(nextChannel, enabled, environment));
+        yield* setState(
+          createBaseUpdateState(nextChannel, enabled, yield* isManualUpdate, environment),
+        );
 
         if (!enabled || !(yield* Ref.get(updaterConfiguredRef))) {
           return yield* Ref.get(updateStateRef);

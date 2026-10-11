@@ -44,6 +44,19 @@ describe("desktop update button state", () => {
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
   });
 
+  it("points manual-update builds at GitHub instead of an in-app download", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "available",
+      availableVersion: "1.1.0",
+      manualUpdate: true,
+    };
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
+    expect(getDesktopUpdateButtonTooltip(state)).toBe(
+      "Version 1.1.0 is available. Download it from GitHub.",
+    );
+  });
+
   it("keeps retry action available after a download error", () => {
     const state: DesktopUpdateState = {
       ...baseState,

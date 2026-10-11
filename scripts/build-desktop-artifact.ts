@@ -926,6 +926,9 @@ interface StagePackageJson {
   readonly version: string;
   readonly buildVersion: string;
   readonly t3codeCommitHash: string;
+  // macOS only. The desktop updater reads it to send ad-hoc builds' updates
+  // to the release page (apps/desktop/src/updates/DesktopUpdates.ts).
+  readonly t3codeMacSigning?: MacSigningMode;
   readonly private: true;
   readonly packageManager: string;
   readonly description: string;
@@ -2619,7 +2622,8 @@ export type MacSigningMode = "developer-id" | "ad-hoc";
 // macOS build is signed ad-hoc, because Apple Silicon refuses to launch an
 // unsigned app and electron-builder skips signing when it finds no certificate.
 // An ad-hoc app is not notarized, so Gatekeeper asks the user to approve it
-// once (right-click > Open) on first launch.
+// once (right-click > Open) on first launch, and Squirrel.Mac will not install
+// updates into it, so the app offers them as release page downloads instead.
 export function resolveMacSigningMode(signed: boolean): MacSigningMode {
   return signed ? "developer-id" : "ad-hoc";
 }
@@ -3691,6 +3695,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     version: appVersion,
     buildVersion: appVersion,
     t3codeCommitHash: commitHash,
+    ...(options.platform === "mac"
+      ? { t3codeMacSigning: resolveMacSigningMode(options.signed) }
+      : {}),
     private: true,
     packageManager: rootPackageJson.packageManager,
     description: "T3 Code desktop build",
