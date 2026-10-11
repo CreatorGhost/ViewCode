@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { REVIEW_SEVERITY_BADGES } from "./ReviewFindingCard";
+import { reviewFixAllInitiallyTicked } from "./reviewPanel.logic";
 
 function findingLocation(entry: ReviewFindingEntry): string {
   const { path, line } = entry.finding;
@@ -27,17 +28,28 @@ function findingLocation(entry: ReviewFindingEntry): string {
  */
 export function ReviewFixAllDialog({
   entries,
+  sent,
   chatTitle,
   onSend,
   onClose,
 }: {
+  /** In the panel's order. */
   entries: ReadonlyArray<ReviewFindingEntry>;
+  /** Findings already sent to a chat, which start unticked. */
+  sent: Readonly<Record<string, unknown>>;
   /** The chat the request goes to, when the view knows it. */
   chatTitle: string | null;
   onSend: (selection: ReadonlyArray<ReviewFindingEntry>) => void;
   onClose: () => void;
 }) {
-  const [left, setLeft] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
+  const [left, setLeft] = useState<ReadonlySet<ReviewFindingKey>>(
+    () =>
+      new Set(
+        entries
+          .filter((entry) => !reviewFixAllInitiallyTicked(entry, sent))
+          .map((entry) => entry.key),
+      ),
+  );
   const selection = entries.filter((entry) => !left.has(entry.key));
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
@@ -50,7 +62,9 @@ export function ReviewFixAllDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Fix {entries.length} issues</DialogTitle>
+            <DialogTitle>
+              Fix {selection.length} {selection.length === 1 ? "issue" : "issues"}
+            </DialogTitle>
             <DialogDescription>
               They go to {chatTitle ?? "the chat this review belongs to"} as one message. The agent
               checks each issue first and says which it fixed and which it skipped.
@@ -83,6 +97,7 @@ export function ReviewFixAllDialog({
                       <span className="truncate text-muted-foreground text-xs">
                         {findingLocation(entry)}
                         {entry.needsChecking ? " · needs checking" : ""}
+                        {sent[entry.key] !== undefined ? " · Already sent" : ""}
                       </span>
                     </span>
                   </label>

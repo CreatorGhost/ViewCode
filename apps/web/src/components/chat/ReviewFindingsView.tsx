@@ -705,7 +705,7 @@ function ReviewFindingsViewContent({
         label: "Fix all",
         run: () =>
           reviewFixAllMode(openEntries.length) === "choose"
-            ? setFixing(openEntries)
+            ? setFixing(inIssueOrder(openEntries))
             : void fix(openEntries),
       };
   const postAllWaits = reviewPostAllWaits({
@@ -717,6 +717,15 @@ function ReviewFindingsViewContent({
     ? (tickedKeys.length === 0 && unposted.length === 0) || busyKeys.size > 0 || postAllWaits
     : openEntries.length === 0;
   const placedKeys = new Set(placed.map((entry) => entry.entry.key));
+  // Fix all lists the issues as the panel does.
+  const inIssueOrder = (list: ReadonlyArray<ReviewFindingEntry>) =>
+    list.toSorted((left, right) => {
+      const rank = (entry: ReviewFindingEntry) => {
+        const index = order.indexOf(entry.key);
+        return index === -1 ? order.length : index;
+      };
+      return rank(left) - rank(right);
+    });
   const shownByKey = new Map(shown.map((entry) => [entry.key, entry] as const));
   // Files without findings fold to one row; this opens them all, or folds them again.
   const filesWithoutFindings = diff.files.filter((file) => !filesWithFindings.has(file.fileKey));
@@ -890,6 +899,7 @@ function ReviewFindingsViewContent({
       {fixing !== null ? (
         <ReviewFixAllDialog
           entries={fixing}
+          sent={sent}
           chatTitle={
             !fixInReviewThread && onFixInChat === undefined ? (panelThread?.title ?? null) : null
           }
