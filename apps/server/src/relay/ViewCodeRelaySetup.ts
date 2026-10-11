@@ -45,6 +45,7 @@ import {
   wranglerNeedsLogin,
 } from "@t3tools/shared/viewcodeRelaySetup";
 import * as Undici from "@effect/platform-node/Undici";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -117,6 +118,13 @@ export interface RelaySetupDeps {
  * corporate firewall for a while, so one reset is never the verdict.
  */
 export const VERIFY_DELAYS_SECONDS = [5, 10, 20, 40, 60, 60, 60, 60, 60, 60, 60, 60, 60] as const;
+/**
+ * Every wrangler run ends: one that has not finished by then is stopped and
+ * setup fails with Try again, never an endless spinner. The first run also
+ * downloads wrangler, hence the generous bound; sign-in waits for the person.
+ */
+export const WRANGLER_RUN_TIMEOUT = Duration.minutes(10);
+export const SIGN_IN_TIMEOUT = Duration.minutes(15);
 /** A just-stored Worker secret can take a moment to apply; 401s in a row before believing it. */
 const CREDENTIAL_REJECTIONS_BEFORE_REPORTING = 3;
 const DETAILS_MAX_CHARS = 16_000;
@@ -191,6 +199,29 @@ type DeployOptions = {
   /** Chosen by the person after `needs-account`; wins over the remembered one. */
   readonly accountId?: string;
 };
+
+/** Bounds every run of `session` (see `WRANGLER_RUN_TIMEOUT`); a run that times out is stopped. */
+const withTimeouts = (session: WranglerSession): WranglerSession => ({
+  ...session,
+  run: (args, options) => {
+    const signingIn = args[0] === "login";
+    const limit = signingIn ? SIGN_IN_TIMEOUT : WRANGLER_RUN_TIMEOUT;
+    const minutes = Duration.toMinutes(limit);
+    return session.run(args, options).pipe(
+      Effect.timeoutOrElse({
+        duration: limit,
+        orElse: () =>
+          Effect.fail(
+            new RelaySetupFailure({
+              message: signingIn
+                ? `The Cloudflare sign-in was not approved within ${minutes} minutes. Try again.`
+                : `Cloudflare's tool did not finish within ${minutes} minutes. Try again.`,
+            }),
+          ),
+      }),
+    );
+  },
+});
 
 /** Every wrangler run of `session` acts on `accountId`; unchanged when it is unknown. */
 const forAccount = (session: WranglerSession, accountId: string | null): WranglerSession =>
@@ -367,7 +398,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
     const deploy = (options: DeployOptions) =>
       Effect.gen(function* () {
         yield* setStep("checking-tools");
-        const wrangler = yield* deps.prepare(showToolProgress);
+        const wrangler = withTimeouts(yield* deps.prepare(showToolProgress));
         const remembered = yield* deps.store.readRelayState;
         const name =
           remembered !== null && isValidWorkerName(remembered.name)
@@ -485,7 +516,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         if (remembered !== null && !localOnly) {
           const deleted = yield* Effect.gen(function* () {
             yield* setStep("checking-tools");
-            const wrangler = yield* deps.prepare(showToolProgress);
+            const wrangler = withTimeouts(yield* deps.prepare(showToolProgress));
             secrets = [yield* deps.store.readSecret];
             yield* signIn(wrangler);
             // A relay set up before the account was remembered relies on wrangler's own choice.
@@ -554,8 +585,21 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
         yield* FiberHandle.run(
           handle,
           operation.pipe(
-            Effect.catch((failure) =>
-              Effect.logWarning("Quick connect setup stopped", { reason: failure.message }).pipe(
+            // Anything but Cancel ends as `failed`: an unexpected error must not
+            // leave the dialog on "running" for good.
+            Effect.catchCause((cause) => {
+              if (Cause.hasInterruptsOnly(cause)) return Effect.void;
+              const failure = Option.getOrElse(
+                Cause.findErrorOption(cause),
+                () =>
+                  new RelaySetupFailure({
+                    message: "Quick connect setup stopped unexpectedly. Try again.",
+                    details: String(Cause.squash(cause)),
+                  }),
+              );
+              return Effect.logWarning("Quick connect setup stopped", {
+                reason: failure.message,
+              }).pipe(
                 Effect.andThen(
                   publish(
                     withDetails({
@@ -568,8 +612,8 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
                     }),
                   ),
                 ),
-              ),
-            ),
+              );
+            }),
           ),
         );
       });

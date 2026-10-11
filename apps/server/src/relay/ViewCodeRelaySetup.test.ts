@@ -12,7 +12,12 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
-import { makeRelaySetup, type RelaySetupDeps, type RelaySetupStore } from "./ViewCodeRelaySetup.ts";
+import {
+  makeRelaySetup,
+  type RelaySetupDeps,
+  type RelaySetupStore,
+  WRANGLER_RUN_TIMEOUT,
+} from "./ViewCodeRelaySetup.ts";
 import type { WranglerResult, WranglerSession } from "./wranglerRunner.ts";
 
 const WORKER_URL = "https://viewcode-relay.me.workers.dev";
@@ -810,6 +815,52 @@ describe("ViewCodeRelaySetup", () => {
       yield* setup.cancel;
       expect(yield* setup.current).toEqual({ status: "idle", message: "Setup cancelled." });
       expect(data).toMatchObject({ url: null, secret: null });
+    }),
+  );
+
+  it.effect("stops a Cloudflare tool that never finishes and says so", () =>
+    Effect.gen(function* () {
+      const wrangler = yield* makeFakeWrangler({
+        whoami: [{ exitCode: 0, output: "You are logged in." }],
+      });
+      const session: WranglerSession = {
+        ...wrangler.session,
+        run: (args, options) =>
+          args[0] === "deploy" ? Effect.never : wrangler.session.run(args, options),
+      };
+      const { store, data } = makeMemoryStore({});
+      const setup = yield* makeSetup({
+        prepare: () => Effect.succeed(session),
+        store,
+        probe: makeProbe([ok]).probe,
+      });
+      yield* setup.start({ mode: "new" });
+      yield* awaitState(setup.changes, (state) => state.step === "deploying");
+      const settled = yield* awaitState(setup.changes, isSettled).pipe(Effect.forkChild);
+      yield* TestClock.adjust(WRANGLER_RUN_TIMEOUT);
+      expect(yield* Fiber.join(settled)).toMatchObject({
+        status: "failed",
+        message: "Cloudflare's tool did not finish within 10 minutes. Try again.",
+      });
+      expect(data.url).toBeNull();
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("an unexpected error ends setup as failed instead of running forever", () =>
+    Effect.gen(function* () {
+      const { store } = makeMemoryStore({});
+      const setup = yield* makeSetup({
+        prepare: () => Effect.die(new Error("spawn EINVAL")),
+        store,
+        probe: makeProbe([ok]).probe,
+      });
+      yield* setup.start({ mode: "new" });
+      const done = yield* awaitState(setup.changes, isSettled);
+      expect(done).toMatchObject({
+        status: "failed",
+        message: "Quick connect setup stopped unexpectedly. Try again.",
+      });
+      expect(done.details).toContain("spawn EINVAL");
     }),
   );
 

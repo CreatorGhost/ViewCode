@@ -52,7 +52,7 @@ export interface WranglerSession {
       /** The Cloudflare account to act on (`CLOUDFLARE_ACCOUNT_ID`), when the sign-in has several. */
       readonly accountId?: string;
     },
-  ) => Effect.Effect<WranglerResult>;
+  ) => Effect.Effect<WranglerResult, RelaySetupFailure>;
 }
 
 /**
