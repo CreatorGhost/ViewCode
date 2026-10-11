@@ -31,7 +31,7 @@ import {
 } from "../ChatView.logic";
 import { toastManager } from "../ui/toast";
 import { fileAttachmentCapabilityBlockReason } from "./composerAttachmentFiles";
-import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "./composerPromptHistory";
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 
 async function run<W, A, E>(command: AtomCommand<W, A, E>, input: W): Promise<A> {
   const result = await runAtomCommand(appAtomRegistry, command, input, { reportFailure: false });
