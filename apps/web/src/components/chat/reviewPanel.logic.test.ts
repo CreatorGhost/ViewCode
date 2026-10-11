@@ -2,6 +2,7 @@ import {
   EventId,
   REVIEW_FINDINGS_ACTIVITY_KIND,
   ThreadId,
+  TurnId,
   type ReviewFindingsTarget,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
@@ -18,6 +19,7 @@ import {
   reviewPostOverallComment,
   reviewSourceCandidates,
   reviewThreadMode,
+  reviewTurnInFlight,
   selectPullRequestReviewFindings,
   selectReviewFindingsSource,
   selectRunningPullRequestReview,
@@ -193,6 +195,36 @@ describe("selectRunningPullRequestReview", () => {
     });
     expect(running?.thread.id).toBe("deep");
     expect(running?.mode).toBe("deep");
+  });
+
+  it("counts a review as running from the moment its first turn is asked for", () => {
+    const turn = (state: "running" | "completed") => ({
+      turnId: TurnId.make("turn-1"),
+      state,
+      requestedAt: "2026-08-01T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+      assistantMessageId: null,
+    });
+    const session = (status: "ready" | "running" | "error") => ({
+      threadId: ThreadId.make("review"),
+      status,
+      providerName: null,
+      runtimeMode: "full-access" as const,
+      activeTurnId: null,
+      lastError: null,
+      updatedAt: "2026-08-01T00:00:00.000Z",
+    });
+    // Not yet adopted by a session.
+    expect(reviewTurnInFlight({ session: null, latestTurn: null })).toBe(true);
+    expect(reviewTurnInFlight({ session: session("running"), latestTurn: null })).toBe(true);
+    expect(reviewTurnInFlight({ session: session("ready"), latestTurn: turn("running") })).toBe(
+      true,
+    );
+    expect(reviewTurnInFlight({ session: session("ready"), latestTurn: turn("completed") })).toBe(
+      false,
+    );
+    expect(reviewTurnInFlight({ session: session("error"), latestTurn: null })).toBe(false);
   });
 
   it("reads each mode from the title the server gives a review", () => {

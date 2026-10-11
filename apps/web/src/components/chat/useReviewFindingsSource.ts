@@ -21,14 +21,16 @@ import { useMemo } from "react";
 
 import { useThreadShell } from "../../state/entities";
 import { environmentThreadDetails, environmentThreadShells } from "../../state/threads";
+import { reviewFindingsCardKey, useReviewFixSentStore } from "./reviewFixSentStore";
 import {
   latestReviewFindingsActivity,
+  openReviewFindingCount,
   reviewSourceCandidates,
   type ReviewFindingsSource,
   selectPullRequestReviewFindings,
   selectReviewFindingsSource,
   selectRunningPullRequestReview,
-  threadTurnRunning,
+  reviewTurnInFlight,
 } from "./reviewPanel.logic";
 
 const NO_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = [];
@@ -116,7 +118,7 @@ const linkedReviewThreadsAtomFamily = Atom.family((serialized: string) => {
           title: shell.title,
           createdAt: shell.createdAt,
           modelSelection: shell.modelSelection,
-          running: threadTurnRunning(shell),
+          running: reviewTurnInFlight(shell),
           activities,
         };
         const before = previous.find((entry) => entry.id === shell.id);
@@ -202,19 +204,25 @@ export interface RunningPullRequestReview {
   readonly modelSelection: ModelSelection;
 }
 
+export interface PullRequestReview {
+  readonly source: ReviewFindingsSource | null;
+  readonly posted: ReadonlyMap<string, PostedReviewFinding>;
+  readonly running: RunningPullRequestReview | null;
+  /** How many of the findings are still to act on (`openReviewFindingCount`). */
+  readonly openCount: number;
+}
+
+const NO_DISMISSED: Readonly<Record<string, true>> = {};
+
 /**
  * What the pull request page shows of agent reviews of one pull request: the newest findings any
- * linked thread submitted about it, which of them were posted, and a review still under way. Null
- * for a pull request no thread can be linked to.
+ * linked thread submitted about it, which of them were posted or are still open, and a review
+ * still under way. Nothing for a pull request no thread can be linked to (a null key).
  */
 export function usePullRequestReviewFindings(
   environmentId: EnvironmentId,
   pullRequest: ThreadPullRequestKey | null,
-): {
-  readonly source: ReviewFindingsSource | null;
-  readonly posted: ReadonlyMap<string, PostedReviewFinding>;
-  readonly running: RunningPullRequestReview | null;
-} {
+): PullRequestReview {
   const pullRequests = useMemo(() => (pullRequest === null ? [] : [pullRequest]), [pullRequest]);
   const linkedThreads = useLinkedReviewThreads(
     pullRequest === null ? null : { environmentId, threadId: null, pullRequests },
@@ -248,5 +256,13 @@ export function usePullRequestReviewFindings(
       : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
         NO_ACTIVITIES);
   const posted = usePostedFindings(source, sourceActivities);
-  return { source, posted, running };
+  const dismissed = useReviewFixSentStore((state) =>
+    source === null
+      ? NO_DISMISSED
+      : (state.dismissedByCard[reviewFindingsCardKey(environmentId, source.activityId)] ??
+        NO_DISMISSED),
+  );
+  const openCount =
+    source === null ? 0 : openReviewFindingCount(source.findings, dismissed, posted);
+  return { source, posted, running, openCount };
 }

@@ -1,4 +1,4 @@
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -12,9 +12,9 @@ import {
   type PullRequestStartReviewResult,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
-import { useId, useMemo, useState } from "react";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { useCallback, useId, useMemo, useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
@@ -29,7 +29,6 @@ import { useEnvironments } from "../../state/environments";
 import { pullRequestEnvironment } from "../../state/pullRequests";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { waitForThreadShell } from "../agents/useCreateChildAgent";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Button } from "../ui/button";
 import {
@@ -189,31 +188,62 @@ export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
 }
 
 /**
+ * What starting a review from the pull request page does: the reader stays, a toast offers the
+ * review's chat, and `onShow` brings the Review tab forward, where its findings will appear.
+ */
+export function useReviewStartedHandler(
+  environmentId: EnvironmentId,
+  onShow: () => void,
+): (started: PullRequestStartReviewResult) => void {
+  const navigate = useNavigate();
+  return useCallback(
+    (started: PullRequestStartReviewResult) => {
+      onShow();
+      toastManager.add({
+        type: "success",
+        title: "Review started",
+        description: "Its findings appear in the Review tab when it is done.",
+        actionProps: {
+          children: "Open chat",
+          onClick: () => {
+            void navigate({
+              to: "/$environmentId/$threadId",
+              params: { environmentId, threadId: started.threadId },
+            });
+          },
+        },
+      });
+    },
+    [environmentId, navigate, onShow],
+  );
+}
+
+/**
  * Starts an agent review of a pull request: a new thread on the project, linked to the pull
- * request, that opens once the review is under way. The server words the request and picks the
- * permissions; this only chooses how thorough, with which model, and what to look at.
+ * request. The reader stays where they are; `onStarted` says where the review went. The server
+ * words the request and picks the permissions; this only chooses how thorough, with which model,
+ * and what to look at.
  */
 export function PullRequestAgentReviewDialog({
   environmentId,
   reference,
   number,
+  onStarted,
   onClose,
 }: {
   environmentId: EnvironmentId;
   reference: PullRequestRef;
   number: number;
+  onStarted: (started: PullRequestStartReviewResult) => void;
   onClose: () => void;
 }) {
-  const navigate = useNavigate();
   const form = useAgentReviewForm(environmentId, reference);
 
   const start = async () => {
     const started = await form.start();
     if (started === null) return;
     onClose();
-    const threadId = started.threadId;
-    await waitForThreadShell(scopeThreadRef(environmentId, threadId));
-    await navigate({ to: "/$environmentId/$threadId", params: { environmentId, threadId } });
+    onStarted(started);
   };
 
   return (
@@ -234,8 +264,9 @@ export function PullRequestAgentReviewDialog({
           <DialogHeader>
             <DialogTitle>Review #{number} with an agent</DialogTitle>
             <DialogDescription>
-              Opens a thread linked to this pull request. The agent reads the change without
-              touching your checkout and posts nothing unless you ask.
+              Starts a thread linked to this pull request; its findings show in the Review tab. The
+              agent reads the change without touching your checkout and posts nothing unless you
+              ask.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>

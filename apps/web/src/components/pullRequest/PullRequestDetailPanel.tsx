@@ -16,6 +16,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { normalizeThreadPullRequestKey } from "@t3tools/shared/threadPullRequests";
 import {
   ArrowDownUpIcon,
   ArrowLeftIcon,
@@ -90,7 +91,11 @@ import {
 import { useAtomCommand } from "~/state/use-atom-command";
 import { PullRequestStackMenu } from "./PullRequestStackMenu";
 import { PullRequestThreadLinks } from "./PullRequestThreadLinks";
-import { PullRequestAgentReviewDialog } from "./PullRequestAgentReviewDialog";
+import {
+  PullRequestAgentReviewDialog,
+  useReviewStartedHandler,
+} from "./PullRequestAgentReviewDialog";
+import { usePullRequestReviewFindings } from "../chat/useReviewFindingsSource";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
@@ -186,7 +191,7 @@ import {
 } from "./pullRequestPresentation";
 import { PullRequestGlyph } from "./pullRequestIcons";
 
-type DetailTab = "summary" | "timeline" | "code";
+type DetailTab = "summary" | "timeline" | "code" | "review";
 
 const ACTION_SUCCESS_LABELS: Record<PullRequestAction, string> = {
   merge: "Pull request merged",
@@ -255,12 +260,20 @@ const TABS: ReadonlyArray<{ value: DetailTab; label: string }> = [
   { value: "summary", label: "Summary" },
   { value: "timeline", label: "Timeline" },
   { value: "code", label: "Code" },
+  { value: "review", label: "Review" },
 ];
 
 // The diff viewer pulls in its worker pool, so load it only when the reader approaches Code.
 // Start the download on tab hover or focus, before the click, without loading it for every PR.
 const loadCodeTab = () => import("./PullRequestCodeTab");
 const PullRequestCodeTab = lazy(loadCodeTab);
+// The Review tab shows findings over the same diff viewer.
+const loadReviewTab = () => import("./PullRequestReviewTab");
+const PullRequestReviewTab = lazy(loadReviewTab);
+const TAB_PRELOADS: Partial<Record<DetailTab, () => Promise<unknown>>> = {
+  code: loadCodeTab,
+  review: loadReviewTab,
+};
 
 /**
  * What the last hand-off wrote into each draft, kept outside React because the panel that wrote it
@@ -958,6 +971,21 @@ export function PullRequestDetailPanel({
     true;
   const checkoutRoot =
     acting?.workspaceRoot ?? detail?.workspaceRoot ?? project?.workspaceRoot ?? null;
+  // Agent reviews run on the acting server, against its project for this pull request, and are
+  // found by the threads linked to it there.
+  const actingProjectId = acting?.projectId ?? reference.projectId;
+  const reviewReference = useMemo(
+    () => ({ ...reference, projectId: actingProjectId }),
+    [actingProjectId, reference],
+  );
+  const detailUrl = detail?.url ?? null;
+  const reviewPullRequest = useMemo(() => {
+    const parsed = detailUrl === null ? null : parseChangeRequestUrl(detailUrl);
+    return parsed === null ? null : normalizeThreadPullRequestKey(parsed);
+  }, [detailUrl]);
+  const review = usePullRequestReviewFindings(actingEnvironmentId, reviewPullRequest);
+  const showReviewTab = useCallback(() => setTab("review"), []);
+  const onReviewStarted = useReviewStartedHandler(actingEnvironmentId, showReviewTab);
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId: actingEnvironmentId,
     cwd: checkoutRoot,
@@ -1447,9 +1475,15 @@ export function PullRequestDetailPanel({
   const freshness = detail === null ? null : resolveBaseFreshness(detail);
   // A host that cannot produce a patch has no Code tab to open. While detail is loading the ghost
   // uses this optimistic tab set to reserve the same chrome; a host without a patch removes Code
-  // when its capabilities arrive.
-  const visibleTabs = TABS.filter(
-    (item) => item.value !== "code" || detail === null || detail.capabilities.diff,
+  // when its capabilities arrive. Review needs a pull request threads can link to, and a server
+  // that can review it or a review already made.
+  const visibleTabs = TABS.filter((item) =>
+    item.value === "code"
+      ? detail === null || detail.capabilities.diff
+      : item.value === "review"
+        ? (detail === null || reviewPullRequest !== null) &&
+          (canStartAgentReview || review.source !== null || review.running !== null)
+        : true,
   );
   // The Code tab can be opened while the detail is still on its way, and the detail may then say
   // this host has no patch to show. The tab goes, so whoever was standing on it is moved back to
@@ -1663,8 +1697,9 @@ export function PullRequestDetailPanel({
       {agentReviewOpen && detail ? (
         <PullRequestAgentReviewDialog
           environmentId={actingEnvironmentId}
-          reference={{ ...reference, projectId: acting?.projectId ?? reference.projectId }}
+          reference={reviewReference}
           number={detail.number}
+          onStarted={onReviewStarted}
           onClose={() => setAgentReviewOpen(false)}
         />
       ) : null}
@@ -2076,7 +2111,7 @@ export function PullRequestDetailPanel({
                       <span className="flex min-w-0 flex-col">
                         <span>Review with agent...</span>
                         <span className="text-xs text-muted-foreground">
-                          Starts a review in a new thread you can keep talking to.
+                          Starts a review here, in a thread you can keep talking to.
                         </span>
                       </span>
                     </MenuItem>
@@ -2567,16 +2602,25 @@ export function PullRequestDetailPanel({
                 if (nextTab) setTab(nextTab);
               }}
             >
-              {visibleTabs.map((item) => (
-                <Toggle
-                  key={item.value}
-                  value={item.value}
-                  onPointerEnter={item.value === "code" ? () => void loadCodeTab() : undefined}
-                  onFocus={item.value === "code" ? () => void loadCodeTab() : undefined}
-                >
-                  {item.label}
-                </Toggle>
-              ))}
+              {visibleTabs.map((item) => {
+                const preload = TAB_PRELOADS[item.value];
+                const preloadTab = preload ? () => void preload() : undefined;
+                return (
+                  <Toggle
+                    key={item.value}
+                    value={item.value}
+                    onPointerEnter={preloadTab}
+                    onFocus={preloadTab}
+                  >
+                    {item.label}
+                    {item.value === "review" && review.openCount > 0 ? (
+                      <Badge size="sm" variant="secondary">
+                        {review.openCount}
+                      </Badge>
+                    ) : null}
+                  </Toggle>
+                );
+              })}
             </ToggleGroup>
             {tab === "summary" ? (
               <span
@@ -2814,6 +2858,21 @@ export function PullRequestDetailPanel({
                     onFixFinding={startFixFinding}
                     onRefresh={refreshDetail}
                     refreshToken={codeRefreshToken}
+                  />
+                </Suspense>
+              </div>
+            ) : null}
+            {mountedTabs.has("review") ? (
+              <div className={cn("absolute inset-0", tab !== "review" && "invisible")}>
+                <Suspense fallback={null}>
+                  <PullRequestReviewTab
+                    environmentId={actingEnvironmentId}
+                    reference={reviewReference}
+                    review={review}
+                    canStart={canStartAgentReview}
+                    threadRef={threadRef}
+                    cwd={checkoutRoot ?? undefined}
+                    onStarted={onReviewStarted}
                   />
                 </Suspense>
               </div>

@@ -499,11 +499,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   login with `GitHubCli.executeAsAccount` (another account's token only in the child's
   environment, never `gh auth switch`), and refused when GitHub answers as someone else, which a
   `GH_TOKEN` in the server's environment would cause.
-- Findings live in the web Review panel (a right-panel surface), not in the transcript. Thread
-  shells carry no activities, so a thread without findings of its own finds a linked review by
-  subscribing to the activities of up to five other threads linked to the same pull request, and
-  only while the panel is open. From a thread working on the pull request, Fix with agent writes an
-  editable request into that thread's composer; it never sends.
+- Findings live in the web Review panel (a right-panel surface) and the pull request detail's Review
+  tab, both one view (`ReviewFindingsView`), not in the transcript. Thread shells carry no
+  activities, so a thread without findings of its own, or the pull request detail, finds a linked
+  review by subscribing to the activities of up to five threads linked to the same pull request,
+  and only while that panel or detail is open. A review still under way is recognised by the title
+  the server gives its thread (`pullRequestReviewTitle`, read back by `reviewThreadMode`); change
+  one and change the other. Starting a review from the pull request detail stays there. From a
+  thread working on the pull request, Fix with agent writes an editable request into that thread's
+  composer; it never sends.
 - Fix from the review thread itself goes to another session: an existing one through the web
   composer's queue (in memory; it sends now, at the next tool boundary, or at turn end for
   providers that cannot steer), because the server has no queue for user turns and inventing one

@@ -160,10 +160,15 @@ export function reviewThreadMode(title: string, number: number): AgentReviewMode
   );
 }
 
-/** Whether a thread's session or latest turn is in flight. */
-export function threadTurnRunning(
+/**
+ * Whether a review thread's session or latest turn is in flight. A review is created with its
+ * first turn, which counts from the moment it is asked for: until a session adopts it, the thread
+ * has neither a session nor a turn.
+ */
+export function reviewTurnInFlight(
   thread: Pick<OrchestrationThreadShell, "session" | "latestTurn">,
 ): boolean {
+  if (thread.session === null && thread.latestTurn === null) return true;
   const status = thread.session?.status;
   return status === "starting" || status === "running" || thread.latestTurn?.state === "running";
 }

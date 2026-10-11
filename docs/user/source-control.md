@@ -160,22 +160,25 @@ declined pull request.
 Choose **Review with agent...** in a pull request's actions menu to have an agent review it. Pick
 **Quick review** (one pass), **Deep review** (several agents that check each other's findings), or
 **Security audit**, then the model and, optionally, what to focus on. Deep reviews and security
-audits run several agents and use more of your plan. The review opens in a new thread in the
-project, linked to the pull request, so you can keep asking the agent about it. It runs with your
+audits run several agents and use more of your plan. The review runs in a new thread in the
+project, linked to the pull request, so you can keep asking the agent about it (**Open chat**); you
+stay on the pull request, whose **Review** tab says the review is under way and shows its findings
+when it is done. With no review yet, you can start one from that tab too. It runs with your
 default permissions for new threads, reads the change without touching your checkout, and posts
 nothing to the host unless you ask. On Android the review button is in the pull request screen's
-header and uses your default model. Agents can start a review with the `review_pull_request` tool.
+header, uses your default model and opens the review thread. Agents can start a review with the
+`review_pull_request` tool.
 
-When the review is done, choose **Review** at the top of the chat (on web and desktop), in the
-review thread or in any thread linked to the same pull request. The side panel shows the change
-with each finding under the lines it is about; findings without a place in the diff are listed
-under **General**, and the arrows step from one finding to the next. **Fix with agent** (or **Fix
-all**) writes a request to verify and fix the findings into this thread's message box, with their
-lines attached, for you to edit and send. In the review thread itself it instead sends them to a
-session already working on the pull request or to a new session on its branch in a worktree of its
-own. **Dismiss** hides a finding until you show dismissed ones again. To review a thread's pull
-request from the panel, pick the mode, model and focus in its empty state, or under **Find issues**
-for a new review; the thread stays open and the findings arrive when it is done.
+The findings also show under **Review** at the top of the chat (on web and desktop), in the review
+thread or in any thread linked to the same pull request. Both show the change with each finding
+under the lines it is about; findings without a place in the diff are listed under **General**, and
+the arrows step from one finding to the next. **Fix with agent** (or **Fix all**) writes a request
+to verify and fix the findings into this thread's message box, with their lines attached, for you to
+edit and send. On the pull request's **Review** tab and in the review thread itself it instead sends
+them to a session already working on the pull request or to a new session on its branch in a
+worktree of its own. **Dismiss** hides a finding until you show dismissed ones again. To review a
+thread's pull request from the panel, pick the mode, model and focus in its empty state, or under
+**Find issues** for a new review; the thread stays open and the findings arrive when it is done.
 
 For a review of somebody else's pull request the findings are review comments instead: **Post
 comment** posts one, and **Post all** or **Post selected** posts several as one review, each time
