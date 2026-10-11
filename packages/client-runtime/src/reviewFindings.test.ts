@@ -357,6 +357,33 @@ describe("selectLatestReview", () => {
     expect(latest(undefined)).toEqual({ kind: "done" });
   });
 
+  it("says a review failed when its reviewer errored, even if later turns completed", () => {
+    const error = (message: string) => ({
+      id: EventId.make(`error-${message}`),
+      kind: "runtime.error",
+      createdAt: "2026-08-02T00:05:00.000Z",
+      payload: { message },
+    });
+    const progress = (activities: ReadonlyArray<Activity>, run = { kind: "ended" } as const) =>
+      selectLatestReview([candidate("deep", activities, "2026-08-02T00:00:00.000Z", run)])
+        ?.progress;
+    // The lead failed, then its lenses' answers woke it into turns that completed.
+    expect(progress([started({ mode: "deep" }), error("Quota exceeded")])).toEqual({
+      kind: "failed",
+      error: "Quota exceeded",
+      partial: false,
+    });
+    // An error before this review started belongs to an earlier one.
+    expect(progress([error("Old failure"), started({ mode: "deep" })])).toEqual({
+      kind: "ended",
+      partial: false,
+    });
+    // Final findings, or a review still at work, outrank an error on the way.
+    expect(
+      progress([started({ mode: "deep" }), error("Blip")], { kind: "running" } as never),
+    ).toEqual({ kind: "running", partial: false });
+  });
+
   it("reads a review started before the mode was recorded as a quick one", () => {
     expect(
       selectLatestReview([candidate("old", [started({})], "2026-08-01T00:00:00.000Z")])?.mode,

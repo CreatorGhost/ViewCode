@@ -15,6 +15,7 @@ import { Atom } from "effect/unstable/reactivity";
 import { scopeThreadRef } from "../environment/scoped.ts";
 import {
   type ReviewRunState,
+  RUNTIME_ERROR_ACTIVITY_KIND,
   reviewRunState,
   reviewRunStatesEqual,
   reviewSourceCandidates,
@@ -53,6 +54,7 @@ const NO_LINKED: ReadonlyArray<LinkedReviewThread> = [];
 function isReviewActivity(activity: OrchestrationThreadActivity): boolean {
   return (
     activity.kind === REVIEW_STARTED_ACTIVITY_KIND ||
+    activity.kind === RUNTIME_ERROR_ACTIVITY_KIND ||
     activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND ||
     activity.kind === REVIEW_FINDINGS_POSTED_ACTIVITY_KIND ||
     activity.kind === REVIEW_FINDING_RATING_ACTIVITY_KIND

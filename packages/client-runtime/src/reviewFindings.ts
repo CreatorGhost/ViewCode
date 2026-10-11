@@ -311,6 +311,31 @@ export function reviewProgress(input: {
   return { ...input.run, partial: input.findings !== null };
 }
 
+/** Recorded when a provider fails a turn (`runtime.error`); a review reads it to say why. */
+export const RUNTIME_ERROR_ACTIVITY_KIND = "runtime.error";
+
+/**
+ * The last provider error a review hit since it started, if any. A deep review whose lead failed
+ * is woken again by its agents' answers into turns that complete, so the failure is only in the
+ * record of what happened, not in where its turns stand now.
+ */
+export function reviewErrorSinceStart(
+  activities: ReadonlyArray<Pick<FindingsActivity, "kind" | "payload">>,
+): string | null {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index]!;
+    if (activity.kind === REVIEW_STARTED_ACTIVITY_KIND) return null;
+    if (activity.kind !== RUNTIME_ERROR_ACTIVITY_KIND) continue;
+    const payload = activity.payload;
+    const message =
+      payload !== null && typeof payload === "object" && "message" in payload
+        ? payload.message
+        : undefined;
+    return typeof message === "string" && message.trim().length > 0 ? message : "";
+  }
+  return null;
+}
+
 /** The latest review a view knows of, as `selectLatestReview` finds it. */
 export interface LatestReview<T> {
   readonly thread: T;
@@ -335,13 +360,23 @@ export function selectLatestReview<
   }
   if (newest === null) return null;
   const { thread, started } = newest;
+  // A review that stopped after a provider error failed, whatever turns ran after it.
+  const error = thread.run.kind === "running" ? null : reviewErrorSinceStart(thread.activities);
+  const run: ReviewRunState =
+    error === null
+      ? thread.run
+      : {
+          kind: "failed",
+          error:
+            thread.run.kind === "failed" && thread.run.error ? thread.run.error : error || null,
+        };
   return {
     thread,
     mode: started.mode ?? "quick",
     focus: started.focus,
     scope: started.scope,
     progress: reviewProgress({
-      run: thread.run,
+      run,
       findings: latestReviewFindingsSource(thread)?.findings ?? null,
     }),
   };
