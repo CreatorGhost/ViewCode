@@ -729,6 +729,7 @@ const RootStackConfig = createNativeStackNavigator({
         // One tall detent: sheets lay content out at their largest detent, so a
         // shorter first stop would hide the composer pinned to the bottom.
         sheetAllowedDetents: [0.92],
+        sheetCornerRadius: 24,
         sheetGrabberVisible: true,
       },
     }),
