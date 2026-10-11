@@ -447,6 +447,7 @@ const persistenceQueue = new SerializedAsyncQueue();
 /** Resets module-level state between test runs. */
 export function resetComposerDraftsLoadState(): void {
   loadPromise = null;
+  legacyRestore = null;
   persistRetryNeeded = false;
 }
 
@@ -679,57 +680,49 @@ export function mergeArchivedComposerDrafts(
 }
 
 /**
- * Puts upgraders' archived signed-out work back. Drafts merge in at once;
- * queued messages wait for the outbox, and stay in the archive (which keeps
- * being written) until they are enqueued, so a failed outbox read retries on
- * the next `waitForComposerDraftsLoaded()` instead of losing them.
+ * Restores archived messages independently of the once-only draft hydration.
+ * Failed attempts reread only the archive, so cleared live drafts stay cleared.
  */
 let legacyRestore: Promise<void> | null = null;
 
 // One restore at a time: a second caller would see the first one's
 // not-yet-durable enqueues as already queued and clear the archive early.
 function restoreLegacyArchives(): Promise<void> {
-  legacyRestore ??= restoreLegacyArchivesOnce()
-    .catch((cause) => {
-      // Retry from the durable archive on the next load or composer persist.
-      // The restore's own flush still waits only for hydration.
-      loadPromise = null;
-      throw cause;
-    })
-    .finally(() => {
-      legacyRestore = null;
-    });
+  legacyRestore ??= restoreLegacyArchivesOnce().catch((cause) => {
+    legacyRestore = null;
+    throw cause;
+  });
   return legacyRestore;
 }
 
 /**
  * Resolves once any in-flight legacy restore has landed its archive
  * retirements. Removing or delivering a restored message earlier could leave
- * it in the on-disk archive, and a restart would queue it again. Failures are
- * the restore's own to report.
+ * it in the on-disk archive, and a restart would queue it again. A failed
+ * retirement blocks removal and delivery until a later attempt succeeds.
  */
 export async function waitForLegacyArchiveRestore(): Promise<void> {
-  await legacyRestore?.catch(() => undefined);
+  if (loadPromise === null) return;
+  await loadPromise;
+  await restoreLegacyArchives();
 }
 
 async function restoreLegacyArchivesOnce(): Promise<void> {
+  if (loadPromise !== null) await loadPromise;
   if (legacyArchives.length === 0) return;
-  const draftsToRestore = legacyArchives.filter(
-    (archive) => Object.keys(archive.drafts).length > 0,
-  );
-  if (draftsToRestore.length > 0) {
-    for (const archive of draftsToRestore) {
-      updateComposerDrafts((current) => mergeArchivedComposerDrafts(current, archive.drafts));
-    }
-    legacyArchives = legacyArchives.map((archive) => ({ ...archive, drafts: {} }));
-    schedulePersistComposerState();
-  }
+  // Serialize the read with saves, and never merge disk drafts a second time.
+  await persistenceQueue.run(async () => {
+    const persisted = await loadPersistedComposerState();
+    legacyArchives = persisted.legacyArchives.map((archive) => ({ ...archive, drafts: {} }));
+  });
   if (legacyArchives.every((archive) => archive.queuedMessages.length === 0)) {
     legacyArchives = [];
     schedulePersistComposerState();
     return;
   }
-  if (!(await threadOutboxManager.load())) return;
+  if (!(await threadOutboxManager.load())) {
+    throw new Error("Could not load the outbox to restore archived messages.");
+  }
   for (const message of legacyArchives.flatMap((archive) => archive.queuedMessages)) {
     const alreadyQueued = Object.values(
       appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom),
@@ -742,14 +735,21 @@ async function restoreLegacyArchivesOnce(): Promise<void> {
     // retirement itself must land before this restore resolves: removal and
     // delivery wait on the restore, so a discarded or sent message can never
     // still be in the archive on disk and come back after a restart.
-    legacyArchives = legacyArchives.map((archive) => ({
-      ...archive,
-      queuedMessages: archive.queuedMessages.filter(
-        (candidate) => candidate.messageId !== message.messageId,
-      ),
-    }));
-    schedulePersistComposerState();
-    await flushComposerDrafts();
+    await persistenceQueue.run(async () => {
+      const retiredArchives = legacyArchives.map((archive) => ({
+        ...archive,
+        queuedMessages: archive.queuedMessages.filter(
+          (candidate) => candidate.messageId !== message.messageId,
+        ),
+      }));
+      await writePersistedComposerState(
+        appAtomRegistry.get(composerDraftsAtom),
+        appAtomRegistry.get(stickyComposerModelSelectionAtom),
+        retiredArchives,
+      );
+      // Ordinary saves must retain the message until its retirement is durable.
+      legacyArchives = retiredArchives;
+    });
   }
   legacyArchives = [];
   schedulePersistComposerState();
@@ -788,6 +788,7 @@ async function loadPersistedComposerState(): Promise<
 async function writePersistedComposerState(
   drafts: Record<string, ComposerDraft>,
   stickyModelSelection: ModelSelection | null,
+  archives = legacyArchives,
 ): Promise<void> {
   let operation: ComposerDraftPersistenceError["operation"] = "open";
   try {
@@ -800,10 +801,10 @@ async function writePersistedComposerState(
       schemaVersion: COMPOSER_DRAFTS_SCHEMA_VERSION,
       drafts: nonEmptyDrafts,
       ...(stickyModelSelection ? { stickyModelSelection } : {}),
-      ...(legacyArchives.length > 0
+      ...(archives.length > 0
         ? {
             signedOutDrafts: Object.fromEntries(
-              legacyArchives.map((saved, index) => [
+              archives.map((saved, index) => [
                 `legacy-${index}`,
                 {
                   drafts: saved.drafts,
@@ -839,6 +840,10 @@ export async function flushComposerDrafts(): Promise<void> {
   if (loadPromise !== null) {
     await loadPromise;
   }
+  // Fire-and-forget: archive retirements write through this same queue.
+  void restoreLegacyArchives().catch((cause) =>
+    console.warn("[composer-drafts] failed to restore archived drafts", cause),
+  );
   // An edit during an awaited write schedules another debounced write, so
   // keep landing snapshots until no debounce is pending after a queue drain.
   do {
@@ -1065,10 +1070,13 @@ function schedulePersistComposerState(): void {
     // so flushComposerDrafts' queue drain cannot resolve ahead of it.
     void persistenceQueue.run(async () => {
       try {
-        // Hydration only: waiting on the legacy restore here would deadlock
-        // it, since the restore flushes this queue after each retirement.
+        // Waiting on the legacy restore here would deadlock its retirement
+        // writes, which use this same queue.
         ensureComposerDraftsLoaded();
         if (loadPromise !== null) await loadPromise;
+        void restoreLegacyArchives().catch((cause) =>
+          console.warn("[composer-drafts] failed to restore archived drafts", cause),
+        );
         await writePersistedComposerState(
           appAtomRegistry.get(composerDraftsAtom),
           appAtomRegistry.get(stickyComposerModelSelectionAtom),
@@ -1104,6 +1112,12 @@ export function ensureComposerDraftsLoaded(): void {
     ) {
       appAtomRegistry.set(stickyComposerModelSelectionAtom, persisted.stickyModelSelection);
     }
+    for (const archive of legacyArchives) {
+      if (Object.keys(archive.drafts).length > 0) {
+        updateComposerDrafts((current) => mergeArchivedComposerDrafts(current, archive.drafts));
+      }
+    }
+    legacyArchives = legacyArchives.map((archive) => ({ ...archive, drafts: {} }));
     void restoreLegacyArchives().catch((cause) =>
       console.warn("[composer-drafts] failed to restore archived drafts", cause),
     );

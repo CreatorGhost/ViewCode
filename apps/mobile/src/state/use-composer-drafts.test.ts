@@ -187,6 +187,7 @@ import {
   rememberComposerDraftSelection,
   setComposerDraftAttachmentUpload,
   waitForComposerDraftsLoaded,
+  waitForLegacyArchiveRestore,
   setStickyComposerModelSelection,
   stickyComposerModelSelectionAtom,
   undoComposerDraftMerge,
@@ -360,6 +361,83 @@ describe("mobile composer drafts", () => {
     await waitForComposerDraftsLoaded();
     expect(enqueue).toHaveBeenCalledTimes(2);
   });
+
+  it.each(["persist", "waitForLegacyArchiveRestore", "waitForComposerDraftsLoaded"] as const)(
+    "keeps a cleared draft cleared when %s retries a failed legacy retirement",
+    async (retry) => {
+      vi.useFakeTimers();
+      const draftKey = "environment-1:thread-1";
+      const messages = [1, 2].map((index) => ({
+        environmentId: EnvironmentId.make("environment-1"),
+        threadId: ThreadId.make("thread-1"),
+        messageId: MessageId.make(`legacy-message-${index}`),
+        commandId: CommandId.make(`legacy-command-${index}`),
+        text: `Archived message ${index}`,
+        attachments: [],
+        createdAt: "2026-08-24T12:00:00.000Z",
+      }));
+      composerDraftFileMocks.setDocument({
+        schemaVersion: 1,
+        drafts: { [draftKey]: DRAFT },
+        signedOutDrafts: {
+          acct: { drafts: {}, queuedMessages: messages.map(encodeQueuedThreadMessage) },
+        },
+      });
+      const outboxLoad = vi.spyOn(threadOutboxManager, "load").mockResolvedValue(true);
+      onTestFinished(() => outboxLoad.mockRestore());
+      const enqueue = vi
+        .spyOn(threadOutboxManager, "enqueue")
+        .mockImplementation(async (message) => {
+          const current = appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom);
+          appAtomRegistry.set(threadOutboxManager.queuedMessagesByThreadKeyAtom, {
+            ...current,
+            [draftKey]: [...(current[draftKey] ?? []), message],
+          });
+        });
+      onTestFinished(() => enqueue.mockRestore());
+
+      composerDraftFileMocks.setWriteError(new Error("storage temporarily unavailable"));
+      await waitForComposerDraftsLoaded();
+      expect(getComposerDraftSnapshot(draftKey)).toEqual(DRAFT);
+      expect(enqueue).toHaveBeenCalledTimes(1);
+      if (retry === "waitForLegacyArchiveRestore") {
+        // Removal and delivery must stay blocked while the retirement cannot land.
+        await expect(waitForLegacyArchiveRestore()).rejects.toMatchObject({ operation: "write" });
+        expect(enqueue).toHaveBeenCalledTimes(1);
+      }
+
+      clearComposerDraftContent(draftKey);
+      expect(appAtomRegistry.get(composerDraftsAtom)[draftKey]).toBeUndefined();
+      // The failed retirement left the old draft on disk when the user cleared it.
+      expect(JSON.parse(composerDraftFileMocks.getDocument()).drafts[draftKey]).toEqual(DRAFT);
+      composerDraftFileMocks.setWriteError(null);
+      if (retry === "persist") await vi.runAllTimersAsync();
+      else if (retry === "waitForLegacyArchiveRestore") await waitForLegacyArchiveRestore();
+      else await waitForComposerDraftsLoaded();
+      await flushComposerDrafts();
+
+      expect(appAtomRegistry.get(composerDraftsAtom)[draftKey]).toBeUndefined();
+      expect(JSON.parse(composerDraftFileMocks.getDocument()).drafts[draftKey]).toBeUndefined();
+      expect(enqueue.mock.calls.map(([message]) => message.messageId)).toEqual(
+        messages.map((message) => message.messageId),
+      );
+      expect(appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom)).toEqual({
+        [draftKey]: messages,
+      });
+      expect(
+        decodePersistedComposerState(JSON.parse(composerDraftFileMocks.getDocument()))
+          .legacyArchives,
+      ).toEqual([]);
+
+      appAtomRegistry.set(threadOutboxManager.queuedMessagesByThreadKeyAtom, {});
+      await waitForLegacyArchiveRestore();
+      await waitForComposerDraftsLoaded();
+      resetComposerDraftsLoadState();
+      await waitForComposerDraftsLoaded();
+      expect(enqueue).toHaveBeenCalledTimes(2);
+      expect(appAtomRegistry.get(composerDraftsAtom)[draftKey]).toBeUndefined();
+    },
+  );
 
   it("restores visible file chips from legacy drafts", async () => {
     const file = {
