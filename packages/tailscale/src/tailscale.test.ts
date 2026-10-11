@@ -8,13 +8,15 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import {
   buildTailscaleHttpsBaseUrl,
   disableTailscaleServe,
   ensureTailscaleServe,
+  findTailscaleExecutable,
   isTailscaleIpv4Address,
+  knownTailscaleExecutablePaths,
   parseTailscaleMagicDnsName,
   parseTailscaleStatus,
   readTailscaleStatus,
@@ -376,6 +378,147 @@ describe("tailscale", () => {
       assert.deepEqual(commands, [
         { command: "tailscale", args: ["serve", "--https=8443", "off"] },
       ]);
+    });
+  });
+
+  describe("finding the CLI off PATH", () => {
+    const programFiles = { ProgramFiles: "C:\\Program Files", "ProgramFiles(x86)": "D:\\Apps\\" };
+
+    it("lists only fixed install paths for each platform", () => {
+      assert.deepEqual(knownTailscaleExecutablePaths("darwin", {}), [
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+      ]);
+      assert.deepEqual(knownTailscaleExecutablePaths("linux", {}), [
+        "/usr/bin/tailscale",
+        "/usr/sbin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/snap/bin/tailscale",
+      ]);
+      assert.deepEqual(knownTailscaleExecutablePaths("win32", programFiles), [
+        "C:\\Program Files\\Tailscale\\tailscale.exe",
+        "D:\\Apps\\Tailscale\\tailscale.exe",
+      ]);
+      // Windows environment names ignore case; unset ones add nothing.
+      assert.deepEqual(knownTailscaleExecutablePaths("win32", { PROGRAMFILES: "E:\\PF" }), [
+        "E:\\PF\\Tailscale\\tailscale.exe",
+      ]);
+      assert.deepEqual(knownTailscaleExecutablePaths("win32", {}), []);
+      assert.deepEqual(knownTailscaleExecutablePaths("freebsd", {}), []);
+    });
+
+    const find = (platform: NodeJS.Platform, env: NodeJS.ProcessEnv, available: string[]) => {
+      const checked: string[] = [];
+      return findTailscaleExecutable({
+        platform,
+        env,
+        isAvailable: (command) =>
+          Effect.sync(() => {
+            checked.push(command);
+            return available.includes(command);
+          }),
+      }).pipe(Effect.map((found) => ({ found, checked })));
+    };
+
+    it.effect("prefers PATH, then the first install that exists", () =>
+      Effect.gen(function* () {
+        const onPath = yield* find("darwin", {}, ["tailscale", "/opt/homebrew/bin/tailscale"]);
+        assert.deepEqual(onPath, { found: "tailscale", checked: ["tailscale"] });
+
+        const app = yield* find("darwin", {}, [
+          "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        ]);
+        assert.equal(app.found, "/Applications/Tailscale.app/Contents/MacOS/Tailscale");
+
+        const snap = yield* find("linux", {}, ["/snap/bin/tailscale"]);
+        assert.equal(snap.found, "/snap/bin/tailscale");
+
+        const windows = yield* find("win32", programFiles, ["D:\\Apps\\Tailscale\\tailscale.exe"]);
+        assert.equal(windows.found, "D:\\Apps\\Tailscale\\tailscale.exe");
+        assert.equal(windows.checked[0], "tailscale.exe");
+
+        const missing = yield* find("linux", {}, []);
+        assert.equal(missing.found, null);
+        assert.equal(missing.checked.length, 5);
+      }),
+    );
+
+    const notFound = PlatformError.systemError({
+      _tag: "NotFound",
+      module: "ChildProcess",
+      method: "spawn",
+    });
+
+    // Spawns succeed only for `installed`; every other command is missing.
+    const installedAt = (
+      platform: NodeJS.Platform,
+      env: NodeJS.ProcessEnv,
+      installed: string,
+      spawned: Array<{ command: string; args: ReadonlyArray<string> }>,
+    ) =>
+      Layer.mergeAll(
+        Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) => {
+            const child = command as unknown as {
+              readonly command: string;
+              readonly args: ReadonlyArray<string>;
+            };
+            spawned.push({ command: child.command, args: child.args });
+            return child.command === installed
+              ? Effect.succeed(mockHandle({ stdout: tailscaleStatusWithSingleIpJson }))
+              : Effect.fail(notFound);
+          }),
+        ),
+        Layer.succeed(HostProcessPlatform, platform),
+        Layer.succeed(HostProcessEnvironment, env),
+      );
+
+    it.effect("runs the Mac app's CLI when PATH has none", () => {
+      const spawned: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+      const app = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+      return Effect.gen(function* () {
+        const status = yield* readTailscaleStatus.pipe(
+          Effect.provide(installedAt("darwin", {}, app, spawned)),
+        );
+        assert.equal(status.magicDnsName, "desktop.tail.ts.net");
+        assert.deepEqual(
+          spawned.map((entry) => entry.command),
+          ["tailscale", app],
+        );
+      });
+    });
+
+    it.effect(
+      "passes a Windows install path with spaces as the command, not a shell string",
+      () => {
+        const spawned: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+        const installed = "C:\\Program Files\\Tailscale\\tailscale.exe";
+        return Effect.gen(function* () {
+          yield* ensureTailscaleServe({ localPort: 3773 }).pipe(
+            Effect.provide(installedAt("win32", programFiles, installed, spawned)),
+          );
+          assert.deepEqual(spawned.at(-1), {
+            command: installed,
+            args: ["serve", "--bg", "--https=443", "http://127.0.0.1:3773"],
+          });
+        });
+      },
+    );
+
+    it.effect("reports the PATH failure when no install path starts", () => {
+      const spawned: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+      return Effect.gen(function* () {
+        const error = yield* readTailscaleStatus.pipe(
+          Effect.flip,
+          Effect.provide(installedAt("linux", {}, "/nowhere", spawned)),
+        );
+        assert.instanceOf(error, TailscaleCommandSpawnError);
+        assert.equal(error.executable, "tailscale");
+        assert.strictEqual(error.cause, notFound);
+        assert.equal(spawned.length, 5);
+      });
     });
   });
 });

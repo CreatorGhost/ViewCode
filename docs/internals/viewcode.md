@@ -615,7 +615,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   (no phone sign-in). Modes come from `resolveConnectModes`: Same Wi-Fi and Quick
   connect always (Quick connect and Tailscale sit under one Anywhere tab, Quick
   connect first); Tailscale only when the desktop finds the `tailscale` CLI on disk
-  (a PATH search, never a spawn; `DesktopTailscalePhoneAccess.ts`), whose "Turn on"
+  (PATH, then fixed install paths such as the Mac app's bundled CLI, which never
+  joins PATH; never a spawn; `knownTailscaleExecutablePaths` in `packages/tailscale`
+  is shared with the spawns, which fall back the same way), whose "Turn on"
   reuses `setTailscaleServeEnabled`, and whose launch-time opt-in
   (`tailscaleAutoServe`) defaults off because managed laptops' security software
   kills tailscaled. The dialog does not offer upstream's hosted T3 Connect tunnel:

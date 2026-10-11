@@ -1,5 +1,7 @@
 import type { DesktopTailscalePhoneAccess as PhoneAccess } from "@t3tools/contracts";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isCommandAvailable } from "@t3tools/shared/shell";
+import { findTailscaleExecutable } from "@t3tools/tailscale";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -37,9 +39,20 @@ export function shouldAutoEnableTailscaleServe(input: {
   );
 }
 
-/** Looks for the `tailscale` CLI on PATH. Only checks files; spawns nothing. */
-export const detectTailscaleInstalled = (env?: NodeJS.ProcessEnv) =>
-  isCommandAvailable("tailscale", env === undefined ? {} : { env });
+/**
+ * Looks for the `tailscale` CLI on PATH, then at its fixed install paths (the
+ * Mac app, Homebrew, Program Files, distro and snap locations). Only checks
+ * files; spawns nothing.
+ */
+export const detectTailscaleInstalled = Effect.fnUntraced(function* (env?: NodeJS.ProcessEnv) {
+  const searchEnv = env ?? (yield* HostProcessEnvironment);
+  const found = yield* findTailscaleExecutable({
+    platform: yield* HostProcessPlatform,
+    env: searchEnv,
+    isAvailable: (command) => isCommandAvailable(command, { env: searchEnv }),
+  });
+  return found !== null;
+});
 
 export class DesktopTailscalePhoneAccess extends Context.Service<
   DesktopTailscalePhoneAccess,
