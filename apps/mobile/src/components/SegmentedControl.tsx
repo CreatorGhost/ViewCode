@@ -2,7 +2,6 @@ import { Platform, Pressable, View } from "react-native";
 import Animated, { Easing, LinearTransition, ReduceMotion } from "react-native-reanimated";
 import { AppText as Text } from "./AppText";
 import { cn } from "../lib/cn";
-import { MaterialSegmentedControl } from "./MaterialSegmentedControl";
 import type { SegmentedControlProps } from "./SegmentedControl.types";
 
 export type { SegmentedControlProps } from "./SegmentedControl.types";
@@ -11,15 +10,16 @@ export function SegmentedControl<Value extends number | string>(
   props: SegmentedControlProps<Value>,
 ) {
   const compact = props.size === "compact";
-  if (Platform.OS === "android") {
-    return <MaterialSegmentedControl {...props} />;
-  }
+  // Android draws the same pill as iOS, its selected half filled like Home's
+  // status chips, instead of Material's outlined segmented button.
+  const android = Platform.OS === "android";
   return (
     <View
       accessible={false}
       className={cn(
         "flex-row overflow-hidden",
         "rounded-full border-continuous bg-card",
+        android && "border border-border-subtle",
         props.className,
       )}
     >
@@ -28,7 +28,10 @@ export function SegmentedControl<Value extends number | string>(
         layout={LinearTransition.duration(200)
           .easing(Easing.out(Easing.cubic))
           .reduceMotion(ReduceMotion.System)}
-        className="absolute inset-y-0 rounded-full bg-secondary"
+        className={cn(
+          "absolute inset-y-0 rounded-full",
+          android ? "bg-foreground" : "bg-secondary",
+        )}
         style={{
           width: `${100 / props.options.length}%`,
           start: `${
@@ -58,7 +61,9 @@ export function SegmentedControl<Value extends number | string>(
             <Text
               className={cn(
                 compact ? "text-xs" : "text-sm",
-                active ? "font-t3-medium text-secondary-foreground" : "text-foreground-muted",
+                active
+                  ? cn("font-t3-medium", android ? "text-screen" : "text-secondary-foreground")
+                  : "text-foreground-muted",
               )}
             >
               {option.label}
