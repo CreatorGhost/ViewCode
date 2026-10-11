@@ -5,10 +5,14 @@ import {
   localReviewDiffRequest,
   reviewedChangeLabel,
   reviewStopPlan,
+  type AgentReviewChanges,
+  agentReviewTargetChoices,
+  agentReviewTargetLabel,
   buildAgentReviewStart,
   canChooseLocalReviewScope,
   filterReviewCommits,
   formatReviewDuration,
+  inferAgentReviewTarget,
   formatReviewElapsed,
   localReviewScopeLabel,
   pastedReviewCommitSha,
@@ -256,5 +260,75 @@ describe("reviewStatusText", () => {
     expect(formatReviewElapsed(-5_000)).toBe("just started");
     expect(shortReviewError("x".repeat(200))).toHaveLength(140);
     expect(shortReviewError(null)).toBe("the reviewer stopped with an error");
+  });
+});
+
+describe("what a review of a chat's work reads", () => {
+  const changes = (overrides: Partial<AgentReviewChanges> = {}): AgentReviewChanges => ({
+    pullRequestNumber: null,
+    dirty: true,
+    branch: { base: "origin/main" },
+    canReviewLocal: true,
+    canScope: true,
+    ...overrides,
+  });
+  const labels = (input: AgentReviewChanges) =>
+    agentReviewTargetChoices(input).map((target) =>
+      agentReviewTargetLabel(target, input.pullRequestNumber),
+    );
+  const inferred = (section: Parameters<typeof inferAgentReviewTarget>[0], input = changes()) => {
+    const target = inferAgentReviewTarget(section, input);
+    return target === null ? null : agentReviewTargetLabel(target, input.pullRequestNumber);
+  };
+
+  it("offers only what has changes, and what the server can review", () => {
+    expect(labels(changes({ pullRequestNumber: 12 }))).toEqual([
+      "This PR #12",
+      "Current changes",
+      "Branch vs origin/main",
+    ]);
+    expect(labels(changes({ dirty: false, branch: null }))).toEqual([]);
+    expect(labels(changes({ branch: { base: null } }))).toEqual([
+      "Current changes",
+      "Branch vs its base",
+    ]);
+    expect(labels(changes({ pullRequestNumber: 12, canReviewLocal: false }))).toEqual([
+      "This PR #12",
+    ]);
+  });
+
+  it("leaves what to read to a server that cannot be told, or to a checkout not read yet", () => {
+    expect(labels(changes({ canScope: false }))).toEqual(["Local changes"]);
+    expect(labels(changes({ dirty: null, branch: null }))).toEqual(["Local changes"]);
+    expect(labels(changes({ canScope: false, dirty: false, branch: null }))).toEqual([]);
+  });
+
+  it("reads the uncommitted changes from those or a turn's diff while the tree is dirty", () => {
+    const withPullRequest = changes({ pullRequestNumber: 12 });
+    expect(inferred("working-tree", withPullRequest)).toBe("Current changes");
+    expect(inferred("turn", withPullRequest)).toBe("Current changes");
+    expect(inferred("turn", changes({ dirty: false, pullRequestNumber: 12 }))).toBe("This PR #12");
+    expect(inferred("turn", changes({ dirty: false }))).toBe("Branch vs origin/main");
+  });
+
+  it("reads what is committed from the branch diff: the pull request, else the branch", () => {
+    expect(inferred("branch-range", changes({ pullRequestNumber: 12 }))).toBe("This PR #12");
+    expect(inferred("branch-range")).toBe("Branch vs origin/main");
+    // A diff with nothing in it falls to the other.
+    expect(inferred("branch-range", changes({ branch: null }))).toBe("Current changes");
+    expect(inferred("working-tree", changes({ dirty: false }))).toBe("Branch vs origin/main");
+  });
+
+  it("finds nothing to review in a clean checkout without a pull request", () => {
+    expect(inferred("working-tree", changes({ dirty: false, branch: null }))).toBeNull();
+    expect(inferred(null, changes({ dirty: false, branch: null, pullRequestNumber: 3 }))).toBe(
+      "This PR #3",
+    );
+  });
+
+  it("names a picked commit by its short SHA", () => {
+    expect(
+      agentReviewTargetLabel({ kind: "local", scope: { kind: "commit", sha: "a1b2c3d4e5" } }, null),
+    ).toBe("Commit a1b2c3d");
   });
 });

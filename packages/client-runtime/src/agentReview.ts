@@ -9,6 +9,7 @@ import {
   type ReviewBasedOnInput,
   type EnvironmentId,
   type OrchestrationThreadShell,
+  type ReviewDiffPreviewSourceKind,
   type ReviewStartLocalInput,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -281,4 +282,113 @@ export function reviewStopPlan(
     ],
     discard: [...agents.map((agent) => agent.thread.id), review.threadId],
   };
+}
+
+/**
+ * What a review asked for from a chat's changes reads: the chat's pull request, or its local
+ * changes (`scope` null where the server picks or cannot be told: uncommitted, else the branch).
+ */
+export type AgentReviewTarget =
+  | { readonly kind: "pull-request" }
+  | { readonly kind: "local"; readonly scope: LocalReviewScope | null };
+
+/** What of a chat's work there is to review, and what its server can review. */
+export interface AgentReviewChanges {
+  /** The chat's current pull request, where the server reviews pull requests. */
+  readonly pullRequestNumber: number | null;
+  /** Whether the checkout has uncommitted changes; null while that is unknown. */
+  readonly dirty: boolean | null;
+  /** The branch's committed changes and the base they are against; null when it has none. */
+  readonly branch: { readonly base: string | null } | null;
+  /** The server reviews local changes (`localAgentReview`). */
+  readonly canReviewLocal: boolean;
+  /** The server reads what of them to review (`localAgentReviewScope`). */
+  readonly canScope: boolean;
+}
+
+/**
+ * What a review of a chat's work can read, in the order offered: its pull request, its uncommitted
+ * changes, its branch against the base. A server that cannot be told what of the local changes to
+ * read gets one "local changes" choice, as does a checkout not read yet. Nothing without changes
+ * is offered; a commit is picked on its own.
+ */
+export function agentReviewTargetChoices(
+  changes: AgentReviewChanges,
+): ReadonlyArray<AgentReviewTarget> {
+  const choices: AgentReviewTarget[] = [];
+  if (changes.pullRequestNumber !== null) choices.push({ kind: "pull-request" });
+  if (!changes.canReviewLocal) return choices;
+  if (!changes.canScope || changes.dirty === null) {
+    if (changes.dirty !== false || changes.branch !== null) {
+      choices.push({ kind: "local", scope: null });
+    }
+    return choices;
+  }
+  if (changes.dirty) choices.push({ kind: "local", scope: { kind: "uncommitted" } });
+  if (changes.branch !== null) {
+    const { base } = changes.branch;
+    choices.push({
+      kind: "local",
+      scope: base === null ? { kind: "branch" } : { kind: "branch", base },
+    });
+  }
+  return choices;
+}
+
+/**
+ * What a review reads unless the reader picks otherwise, from the diff they are looking at: the
+ * uncommitted changes, for those or for one turn's while the tree is dirty; otherwise what is
+ * committed, the pull request or else the branch against its base. A diff with nothing in it
+ * falls to the other. Null when there is nothing to review.
+ */
+export function inferAgentReviewTarget(
+  section: ReviewDiffPreviewSourceKind | "turn" | null,
+  changes: AgentReviewChanges,
+): AgentReviewTarget | null {
+  const choices = agentReviewTargetChoices(changes);
+  const uncommitted = choices.find(
+    (choice) =>
+      choice.kind === "local" && (choice.scope === null || choice.scope.kind === "uncommitted"),
+  );
+  const committed =
+    choices.find((choice) => choice.kind === "pull-request") ??
+    choices.find((choice) => choice.kind === "local" && choice.scope?.kind === "branch");
+  return (
+    (section === "branch-range" ? (committed ?? uncommitted) : (uncommitted ?? committed)) ?? null
+  );
+}
+
+/** A target's identity, to tell the chosen one among a menu's choices. */
+export function agentReviewTargetKey(target: AgentReviewTarget): string {
+  if (target.kind === "pull-request") return "pull-request";
+  switch (target.scope?.kind) {
+    case undefined:
+      return "local";
+    case "uncommitted":
+      return "local:uncommitted";
+    case "branch":
+      return `local:branch:${target.scope.base ?? ""}`;
+    case "commit":
+      return `local:commit:${target.scope.sha}`;
+  }
+}
+
+/** A target as a menu offers it: "This PR #12", "Current changes", "Branch vs origin/main". */
+export function agentReviewTargetLabel(
+  target: AgentReviewTarget,
+  pullRequestNumber: number | null,
+): string {
+  if (target.kind === "pull-request") {
+    return pullRequestNumber === null ? "This PR" : `This PR #${pullRequestNumber}`;
+  }
+  switch (target.scope?.kind) {
+    case undefined:
+      return "Local changes";
+    case "uncommitted":
+      return "Current changes";
+    case "branch":
+      return `Branch vs ${target.scope.base ?? "its base"}`;
+    case "commit":
+      return `Commit ${target.scope.sha.slice(0, 7)}`;
+  }
 }
