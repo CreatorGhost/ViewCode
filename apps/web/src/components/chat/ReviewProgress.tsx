@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { reviewStatusText } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   collectChildAgents,
@@ -14,7 +15,7 @@ import { cn } from "~/lib/utils";
 import { useServerConfigs, useThreadShells } from "../../state/entities";
 import { environmentThreadDetails } from "../../state/threads";
 import { Button } from "../ui/button";
-import { formatReviewElapsed, reviewWorkLine, shortReviewError } from "./reviewProgress.logic";
+import { reviewWorkLine } from "./reviewProgress.logic";
 import type { LatestReviewStatus } from "./useReviewFindingsSource";
 
 /** "Deep review · GPT-6.1": the kind of review and the model it runs on. */
@@ -54,9 +55,12 @@ export function ReviewStatusBar({
   const navigate = useNavigate();
   if (progress.kind === "done") return null;
   // The clock's minute is UTC ("YYYY-MM-DDTHH:MM"); it re-renders the bar once a minute.
-  const elapsed = formatReviewElapsed(
-    Date.parse(`${nowMinute}:00.000Z`) - Date.parse(review.startedAt),
-  );
+  const text = reviewStatusText({
+    progress,
+    label,
+    elapsedMs: Date.parse(`${nowMinute}:00.000Z`) - Date.parse(review.startedAt),
+    newer,
+  });
   const viewAgent = (
     <Button
       type="button"
@@ -93,13 +97,7 @@ export function ReviewStatusBar({
           />
         )}
         <span className={cn("min-w-0 truncate", progress.kind === "failed" && "text-destructive")}>
-          {progress.kind === "running"
-            ? `${newer ? "A new review is running" : "Reviewing…"} ${label} · ${elapsed}`
-            : progress.kind === "failed"
-              ? `${newer ? "A new review failed" : "Review failed"}: ${shortReviewError(progress.error)}`
-              : progress.partial
-                ? "The review ended before sending all its findings"
-                : `${newer ? "A new review" : "The review"} ended without sending findings`}
+          {text}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {viewAgent}

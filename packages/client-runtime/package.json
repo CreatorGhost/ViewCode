@@ -211,6 +211,10 @@
       "types": "./src/state/relayDiscovery.ts",
       "default": "./src/state/relayDiscovery.ts"
     },
+    "./agent-review": {
+      "types": "./src/agentReview.ts",
+      "default": "./src/agentReview.ts"
+    },
     "./review-findings": {
       "types": "./src/reviewFindings.ts",
       "default": "./src/reviewFindings.ts"

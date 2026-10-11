@@ -117,6 +117,26 @@ export type ReviewFindingsMode = typeof ReviewFindingsMode.Type;
 export const ReviewCommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{7,64}$/i));
 export type ReviewCommitSha = typeof ReviewCommitSha.Type;
 
+/** A git ref a review of local changes diffs against, as the reader names it. */
+export const ReviewBaseRef = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(200),
+  Schema.isPattern(/^[A-Za-z0-9._/@{}^~-]+$/),
+  Schema.makeFilter((ref) => !ref.startsWith("-") || "A ref cannot start with a dash."),
+);
+
+/**
+ * What a review of local changes reads: the uncommitted changes, the branch against a base (its
+ * remote's default branch when none is named), or one commit. Absent: the uncommitted changes, or
+ * the branch when there are none, as the reviewer finds them. Only for servers advertising
+ * `localAgentReviewScope`; older ones ignore it and review the default.
+ */
+export const LocalReviewScope = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("uncommitted") }),
+  Schema.Struct({ kind: Schema.Literal("branch"), base: Schema.optional(ReviewBaseRef) }),
+  Schema.Struct({ kind: Schema.Literal("commit"), sha: ReviewCommitSha }),
+]);
+export type LocalReviewScope = typeof LocalReviewScope.Type;
+
 /**
  * Which earlier findings a re-review starts from, as the reader's client names them: the review
  * thread and its findings activity. The server reads the rest, the commit included, itself.
@@ -254,6 +274,8 @@ export const ReviewStartedActivityPayload = Schema.Struct({
    */
   mode: Schema.optional(AgentReviewMode),
   focus: Schema.optional(Schema.String),
+  /** What a review of local changes was asked to read. */
+  scope: Schema.optional(LocalReviewScope),
   headSha: Schema.optional(ReviewCommitSha),
   incremental: Schema.optional(Schema.Boolean),
   basedOn: Schema.optional(ReviewBasedOn),

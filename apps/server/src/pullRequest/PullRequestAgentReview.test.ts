@@ -740,6 +740,25 @@ describe("PullRequestAgentReview.startLocal", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("reviews what the reader chose, and records it for the review to be repeated", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      const scopes = [
+        { scope: { kind: "uncommitted" }, text: "the uncommitted changes there, and only those" },
+        { scope: { kind: "branch" }, text: "with <base> the remote's default branch" },
+        { scope: { kind: "branch", base: "release/2.0" }, text: "`git diff release/2.0...HEAD`" },
+        { scope: { kind: "commit", sha: "abc1234" }, text: "`git show abc1234`" },
+      ] as const;
+      for (const { scope, text } of scopes) {
+        yield* Ref.set(harness.commands, []);
+        yield* harness.reviews.startLocal({ projectId: PROJECT_ID, scope });
+        const commands = yield* Ref.get(harness.commands);
+        expect(turnText(commands)).toContain(text);
+        expect(commands[1]).toMatchObject({ activity: { payload: { scope } } });
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("reviews the project's workspace without a source thread", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({ defaultModel: PROJECT_MODEL });

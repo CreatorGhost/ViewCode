@@ -32,7 +32,12 @@ import {
   PullRequestReviewDecision,
   PullRequestState,
 } from "./pullRequest.ts";
-import { AgentReviewMode, ReviewBasedOnInput, ReviewFindingsMode } from "./reviewFindings.ts";
+import {
+  AgentReviewMode,
+  LocalReviewScope,
+  ReviewBasedOnInput,
+  ReviewFindingsMode,
+} from "./reviewFindings.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -1464,6 +1469,8 @@ export const ReviewStartLocalInput = Schema.Struct({
   /** Review again with the findings in `basedOn` checked; see `PullRequestStartReviewInput`. */
   incremental: Schema.optional(Schema.Boolean),
   basedOn: Schema.optional(ReviewBasedOnInput),
+  /** What to read; see `LocalReviewScope`. */
+  scope: Schema.optional(LocalReviewScope),
 });
 export type ReviewStartLocalInput = typeof ReviewStartLocalInput.Type;
 

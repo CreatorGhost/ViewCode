@@ -15,6 +15,7 @@ import {
 import type {
   AgentReviewMode,
   EnvironmentId,
+  LocalReviewScope,
   ModelSelection,
   OrchestrationThreadActivity,
   ProjectId,
@@ -77,6 +78,7 @@ export interface LatestReviewStatus {
   readonly title: string;
   readonly mode: AgentReviewMode;
   readonly focus: string | null;
+  readonly scope: LocalReviewScope | null;
   readonly modelSelection: ModelSelection;
   readonly startedAt: string;
   readonly progress: ReviewProgress;
@@ -93,6 +95,7 @@ function useLatestReview(threads: ReadonlyArray<LinkedReviewThread>): LatestRevi
             title: latest.thread.title,
             mode: latest.mode,
             focus: latest.focus,
+            scope: latest.scope,
             modelSelection: latest.thread.modelSelection,
             startedAt: latest.thread.createdAt,
             progress: latest.progress,

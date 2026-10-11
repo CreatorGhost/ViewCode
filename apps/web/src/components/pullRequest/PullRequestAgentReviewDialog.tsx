@@ -1,3 +1,8 @@
+import {
+  type AgentReviewChoices,
+  type AgentReviewRequest,
+  buildAgentReviewStart,
+} from "@t3tools/client-runtime/agent-review";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
@@ -7,8 +12,8 @@ import {
   AGENT_REVIEW_MODES,
   type AgentReviewMode,
   type EnvironmentId,
+  type LocalReviewScope,
   type ModelSelection,
-  type ProjectId,
   type PullRequestRef,
   type PullRequestStartReviewResult,
   type ReviewBasedOnInput,
@@ -28,7 +33,7 @@ import {
   resolveDefaultProviderModelSelection,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
-import { useProject } from "../../state/entities";
+import { useProject, useServerConfigs } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { pullRequestEnvironment } from "../../state/pullRequests";
 import { reviewEnvironment } from "../../state/review";
@@ -50,27 +55,7 @@ import { Label } from "../ui/label";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
 
-/**
- * What an agent review reads: a pull request, or the local changes of a thread's checkout
- * (servers advertising `localAgentReview`). Asked for from a chat (`sourceThreadId`), the reviewer
- * runs as that chat's child agent.
- */
-export type AgentReviewRequest =
-  | {
-      readonly kind: "pull-request";
-      readonly reference: PullRequestRef;
-      readonly sourceThreadId?: ThreadId | undefined;
-    }
-  | { readonly kind: "local"; readonly projectId: ProjectId; readonly sourceThreadId: ThreadId };
-
-/** How a review is asked for: how thorough, with which model and what to look at. */
-export interface AgentReviewChoices {
-  readonly mode: AgentReviewMode;
-  readonly modelSelection: ModelSelection | null;
-  readonly focus: string;
-  /** Re-review only what changed since these findings. */
-  readonly basedOn?: ReviewBasedOnInput | undefined;
-}
+export type { AgentReviewChoices, AgentReviewRequest };
 
 /** A review that started, and how thorough it is, for what the start says to the reader. */
 export type StartedAgentReview = PullRequestStartReviewResult & { readonly mode: AgentReviewMode };
@@ -86,24 +71,18 @@ export function useStartAgentReview(
   const startReview = useAtomCommand(pullRequestEnvironment.startReview, { reportFailure: false });
   const startLocalReview = useAtomCommand(reviewEnvironment.startLocal, { reportFailure: false });
   const [pending, setPending] = useState(false);
+  const configs = useServerConfigs();
+  const canScope =
+    environmentId !== null &&
+    configs.get(environmentId)?.environment.capabilities.localAgentReviewScope === true;
   const start = async (choices: AgentReviewChoices): Promise<StartedAgentReview | null> => {
     if (pending || environmentId === null || request === null) return null;
     setPending(true);
-    const focus = choices.focus.trim();
-    const input = {
-      mode: choices.mode,
-      ...(choices.modelSelection ? { modelSelection: choices.modelSelection } : {}),
-      ...(focus ? { focus } : {}),
-      ...(choices.basedOn ? { incremental: true, basedOn: choices.basedOn } : {}),
-      ...(request.sourceThreadId ? { sourceThreadId: request.sourceThreadId } : {}),
-    };
+    const call = buildAgentReviewStart(request, choices, { canScope });
     const result =
-      request.kind === "pull-request"
-        ? await startReview({ environmentId, input: { ...request.reference, ...input } })
-        : await startLocalReview({
-            environmentId,
-            input: { projectId: request.projectId, ...input },
-          });
+      call.method === "pullRequests.startReview"
+        ? await startReview({ environmentId, input: call.input })
+        : await startLocalReview({ environmentId, input: call.input });
     setPending(false);
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
@@ -118,7 +97,7 @@ export function useStartAgentReview(
     }
     return { ...result.value, mode: choices.mode };
   };
-  return { pending, start };
+  return { pending, canScope, start };
 }
 
 /**
@@ -158,11 +137,17 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
   );
   const [mode, setMode] = useState<AgentReviewMode>("quick");
   const [focus, setFocus] = useState("");
-  const { pending } = starter;
+  // What of the local changes to read; null leaves it to the reviewer (uncommitted, else branch).
+  const [scope, setScope] = useState<LocalReviewScope | null>(null);
+  const { pending, canScope } = starter;
   const start = (basedOn?: ReviewBasedOnInput) =>
-    starter.start({ mode, modelSelection: selection, focus, basedOn });
+    starter.start({ mode, modelSelection: selection, focus, basedOn, scope });
 
   return {
+    /** Whether a review of local changes can be told what to read. */
+    canScope: request.kind === "local" && canScope,
+    scope,
+    setScope,
     entries,
     modelOptions,
     selection,

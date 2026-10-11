@@ -8,6 +8,7 @@ import {
   ReviewCommitSha,
   ThreadId,
   type AgentReviewMode,
+  type LocalReviewScope,
   type ModelSelection,
   type OrchestrationCommand,
   type ProjectId,
@@ -141,6 +142,8 @@ export interface LocalAgentReviewInput {
   readonly focus?: string | undefined;
   readonly incremental?: boolean | undefined;
   readonly basedOn?: ReviewBasedOnInput | undefined;
+  /** Absent: the uncommitted changes, or the branch when there are none. */
+  readonly scope?: LocalReviewScope | undefined;
 }
 
 /** Who opened a pull request and who it is read as; null where the host could not say. */
@@ -331,11 +334,28 @@ export function localReviewTitle(mode: AgentReviewMode, branch: string | null): 
  * The first message of a review of local changes: the mode, where the checkout is, what to diff
  * and where the playbook is.
  */
+/** What a review of local changes is told to read, in its first message. */
+export function localReviewScopeLine(scope: LocalReviewScope | undefined): string {
+  switch (scope?.kind) {
+    case undefined:
+      return "Review the uncommitted changes there: `git status`, `git diff HEAD` and the untracked files (`git ls-files --others --exclude-standard`). If there are none, review the branch against the branch it was made from instead (`git diff <base>...HEAD`, with <base> the remote's default branch), and say which of the two you reviewed.";
+    case "uncommitted":
+      return "Review the uncommitted changes there, and only those: `git status`, `git diff HEAD` and the untracked files (`git ls-files --others --exclude-standard`).";
+    case "branch":
+      return scope.base === undefined
+        ? "Review the branch against the branch it was made from: `git diff <base>...HEAD`, with <base> the remote's default branch. Leave out uncommitted changes."
+        : `Review the branch against \`${scope.base}\`: \`git diff ${scope.base}...HEAD\`. Leave out uncommitted changes.`;
+    case "commit":
+      return `Review commit ${scope.sha} and only that commit: \`git show ${scope.sha}\`.`;
+  }
+}
+
 export function buildLocalReviewPrompt(input: {
   readonly mode: AgentReviewMode;
   readonly playbookPath: string;
   readonly cwd: string;
   readonly branch: string | null;
+  readonly scope?: LocalReviewScope | undefined;
   readonly focus?: string | undefined;
   readonly reReview?: ReReview | undefined;
   readonly ratedFindingsPath?: string | null | undefined;
@@ -343,7 +363,7 @@ export function buildLocalReviewPrompt(input: {
   const lines = [
     `${reviewModeLabel(input.mode)} of the local changes in ${input.cwd}${input.branch === null ? "" : ` on branch ${input.branch}`}.`,
     "",
-    "Review the uncommitted changes there: `git status`, `git diff HEAD` and the untracked files (`git ls-files --others --exclude-standard`). If there are none, review the branch against the branch it was made from instead (`git diff <base>...HEAD`, with <base> the remote's default branch), and say which of the two you reviewed.",
+    localReviewScopeLine(input.scope),
     "",
     `Read the review playbook at ${input.playbookPath} and follow it for these changes. Do not change my working tree, index or branch, and post nothing to the host.`,
   ];
@@ -678,11 +698,13 @@ const make = Effect.gen(function* () {
       started: {
         mode,
         ...reviewFocus(input.focus),
+        ...(input.scope === undefined ? {} : { scope: input.scope }),
         ...(previous === undefined ? {} : { incremental: true, basedOn: previous.basedOn }),
       },
       text: buildLocalReviewPrompt({
         mode,
         playbookPath,
+        scope: input.scope,
         cwd: worktreePath ?? project.workspaceRoot,
         branch,
         focus: input.focus,

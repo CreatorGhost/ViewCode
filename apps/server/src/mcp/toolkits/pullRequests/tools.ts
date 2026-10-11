@@ -6,6 +6,7 @@ import {
   PullRequestReviewVerdict,
   PullRequestUnavailableError,
   PullRequestState,
+  LocalReviewScope,
   ReviewFindingKey,
   ReviewFindingSeverity,
   ReviewFindingsMode,
@@ -345,6 +346,12 @@ export type ReviewPullRequestInput = typeof ReviewPullRequestInput.Type;
 export const ReviewLocalChangesInput = Schema.Struct({
   mode: ReviewPullRequestInput.fields.mode,
   focus: ReviewPullRequestInput.fields.focus,
+  scope: Schema.optional(
+    LocalReviewScope.annotate({
+      description:
+        'What to review: {"kind":"uncommitted"}, {"kind":"branch","base":"main"} (base defaults to the remote\'s default branch) or {"kind":"commit","sha":"..."}. Default: the uncommitted changes, or the branch when there are none.',
+    }),
+  ),
 });
 export type ReviewLocalChangesInput = typeof ReviewLocalChangesInput.Type;
 

@@ -1,5 +1,6 @@
 import {
   type AgentReviewMode,
+  type LocalReviewScope,
   REVIEW_FINDINGS_ACTIVITY_KIND,
   REVIEW_FIX_STARTED_ACTIVITY_KIND,
   REVIEW_STARTED_ACTIVITY_KIND,
@@ -212,6 +213,8 @@ export interface ReviewStartedRecord {
   /** Absent from reviews started before it was recorded. */
   readonly mode: AgentReviewMode | null;
   readonly focus: string | null;
+  /** What a review of local changes was asked to read; null for the default. */
+  readonly scope: LocalReviewScope | null;
 }
 
 const startedRecords = new WeakMap<FindingsActivity, ReviewStartedRecord | null>();
@@ -229,7 +232,13 @@ export function reviewStartedRecord(
   if (record === undefined) {
     const payload = Option.getOrUndefined(decodeStarted(activity.payload));
     record =
-      payload === undefined ? null : { mode: payload.mode ?? null, focus: payload.focus ?? null };
+      payload === undefined
+        ? null
+        : {
+            mode: payload.mode ?? null,
+            focus: payload.focus ?? null,
+            scope: payload.scope ?? null,
+          };
     startedRecords.set(activity, record);
   }
   return record;
@@ -257,10 +266,7 @@ function agentTurnInFlight(thread: RunShell): boolean {
  * does, or finished after its own last turn: that answer is on its way. Otherwise it failed, with
  * the provider's error, or ended.
  */
-export function reviewRunState(
-  review: RunShell,
-  agents: ReadonlyArray<RunShell>,
-): ReviewRunState {
+export function reviewRunState(review: RunShell, agents: ReadonlyArray<RunShell>): ReviewRunState {
   if (reviewTurnInFlight(review)) return RUNNING;
   const reviewEnded = review.latestTurn?.completedAt ?? "";
   for (const agent of agents) {
@@ -304,6 +310,7 @@ export interface LatestReview<T> {
   readonly thread: T;
   readonly mode: AgentReviewMode;
   readonly focus: string | null;
+  readonly scope: LocalReviewScope | null;
   readonly progress: ReviewProgress;
 }
 
@@ -326,6 +333,7 @@ export function selectLatestReview<
     thread,
     mode: started.mode ?? "quick",
     focus: started.focus,
+    scope: started.scope,
     progress: reviewProgress({
       run: thread.run,
       findings: latestReviewFindingsSource(thread)?.findings ?? null,

@@ -602,7 +602,7 @@ const make = Effect.gen(function* () {
           headMoved: result.headMoved ?? false,
         };
       }),
-    review_local_changes: ({ mode, focus }) =>
+    review_local_changes: ({ mode, focus, scope }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(PullRequestReviewFailedError);
         return yield* reviews.startLocal({
@@ -610,6 +610,7 @@ const make = Effect.gen(function* () {
           sourceThreadId: thread.id,
           mode,
           focus,
+          scope,
           fallbackModelSelection: thread.modelSelection,
         });
       }),
