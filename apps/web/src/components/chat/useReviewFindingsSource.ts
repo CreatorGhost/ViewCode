@@ -4,8 +4,10 @@ import {
   openReviewFindingCount,
   type ReviewFindingsSource,
   selectPullRequestReviewFindings,
+  type ReviewThreadTarget,
+  reviewTurnInFlight,
   selectReviewFindingsSource,
-  selectRunningPullRequestReview,
+  selectRunningReview,
 } from "@t3tools/client-runtime/review-findings";
 import {
   createLinkedReviewThreadsAtomFamily,
@@ -24,7 +26,10 @@ import type {
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { type PostedReviewFinding, postedReviewFindings } from "@t3tools/shared/reviewFindings";
-import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+import {
+  resolveThreadCurrentPullRequestLink,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
 import { useMemo } from "react";
 
 import { useThreadShell } from "../../state/entities";
@@ -58,16 +63,48 @@ function usePostedFindings(
   );
 }
 
+/** A review still under way (see `selectRunningReview`). */
+export interface RunningReview {
+  readonly threadId: ThreadId;
+  readonly title: string;
+  readonly mode: AgentReviewMode;
+  readonly modelSelection: ModelSelection;
+}
+
+function useRunningReview(
+  target: ReviewThreadTarget | null,
+  threads: ReadonlyArray<LinkedReviewThread>,
+): RunningReview | null {
+  const running = useMemo(
+    () => (target === null ? null : selectRunningReview({ target, threads })),
+    [target, threads],
+  );
+  return useMemo(
+    () =>
+      running === null
+        ? null
+        : {
+            threadId: running.thread.id,
+            title: running.thread.title,
+            mode: running.mode,
+            modelSelection: running.thread.modelSelection,
+          },
+    [running],
+  );
+}
+
 /**
  * The findings a thread's Review panel shows (see `selectReviewFindingsSource`), which of them
- * were posted to the pull request, and the pull requests a new review of it would look at.
- * Linked threads are only read while the thread has no findings of its own.
+ * were posted to the pull request, the pull requests a new review of it would look at, and a
+ * review of the current one (or of the thread's local changes, without one) still under way.
+ * Other threads are only read while the thread has no findings of its own.
  */
 export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
   readonly source: ReviewFindingsSource | null;
   readonly posted: ReadonlyMap<string, PostedReviewFinding>;
   readonly pullRequests: ReadonlyArray<ThreadPullRequestLink>;
   readonly projectId: ProjectId | null;
+  readonly running: RunningReview | null;
 } {
   const shell = useThreadShell(threadRef);
   const activities =
@@ -78,9 +115,21 @@ export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
   );
   const hasOwnFindings = latestReviewFindingsActivity(activities) !== undefined;
   const linkedThreads = useLinkedReviewThreads(
-    hasOwnFindings
+    hasOwnFindings || shell === null
       ? null
-      : { environmentId: threadRef.environmentId, threadId: threadRef.threadId, pullRequests },
+      : {
+          environmentId: threadRef.environmentId,
+          threadId: threadRef.threadId,
+          pullRequests,
+          checkout:
+            pullRequests.length === 0
+              ? {
+                  projectId: shell.projectId,
+                  branch: shell.branch,
+                  worktreePath: shell.worktreePath,
+                }
+              : null,
+        },
   );
   const title = shell?.title ?? "";
   const source = useMemo(
@@ -100,21 +149,41 @@ export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
         : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
           NO_ACTIVITIES);
   const posted = usePostedFindings(source, sourceActivities);
-  return { source, posted, pullRequests, projectId: shell?.projectId ?? null };
-}
-
-/** A review of a pull request still under way (see `selectRunningPullRequestReview`). */
-export interface RunningPullRequestReview {
-  readonly threadId: ThreadId;
-  readonly title: string;
-  readonly mode: AgentReviewMode;
-  readonly modelSelection: ModelSelection;
+  const currentNumber = resolveThreadCurrentPullRequestLink(pullRequests)?.number;
+  const runningTarget = useMemo<ReviewThreadTarget>(
+    () =>
+      currentNumber === undefined
+        ? { kind: "local" }
+        : { kind: "pull-request", number: currentNumber },
+    [currentNumber],
+  );
+  // The thread may itself be the review under way.
+  const selfRunning = shell !== null && reviewTurnInFlight(shell);
+  const runningCandidates = useMemo(
+    () =>
+      shell === null || !selfRunning
+        ? linkedThreads
+        : [
+            ...linkedThreads,
+            {
+              id: shell.id,
+              title: shell.title,
+              createdAt: shell.createdAt,
+              modelSelection: shell.modelSelection,
+              running: true,
+              activities,
+            },
+          ],
+    [activities, linkedThreads, selfRunning, shell],
+  );
+  const running = useRunningReview(runningTarget, runningCandidates);
+  return { source, posted, pullRequests, projectId: shell?.projectId ?? null, running };
 }
 
 export interface PullRequestReview {
   readonly source: ReviewFindingsSource | null;
   readonly posted: ReadonlyMap<string, PostedReviewFinding>;
-  readonly running: RunningPullRequestReview | null;
+  readonly running: RunningReview | null;
   /** How many of the findings are still to act on (`openReviewFindingCount`). */
   readonly openCount: number;
 }
@@ -138,25 +207,11 @@ export function usePullRequestReviewFindings(
     () => selectPullRequestReviewFindings({ pullRequests, threads: linkedThreads }),
     [linkedThreads, pullRequests],
   );
-  const runningReview = useMemo(
-    () =>
-      pullRequest === null
-        ? null
-        : selectRunningPullRequestReview({ number: pullRequest.number, threads: linkedThreads }),
-    [linkedThreads, pullRequest],
+  const runningTarget = useMemo<ReviewThreadTarget | null>(
+    () => (pullRequest === null ? null : { kind: "pull-request", number: pullRequest.number }),
+    [pullRequest],
   );
-  const running = useMemo<RunningPullRequestReview | null>(
-    () =>
-      runningReview === null
-        ? null
-        : {
-            threadId: runningReview.thread.id,
-            title: runningReview.thread.title,
-            mode: runningReview.mode,
-            modelSelection: runningReview.thread.modelSelection,
-          },
-    [runningReview],
-  );
+  const running = useRunningReview(runningTarget, linkedThreads);
   const sourceActivities =
     source === null
       ? NO_ACTIVITIES

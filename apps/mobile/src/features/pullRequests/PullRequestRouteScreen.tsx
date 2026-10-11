@@ -5,7 +5,7 @@ import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   openReviewFindingCount,
   selectPullRequestReviewFindings,
-  selectRunningPullRequestReview,
+  selectRunningReview,
 } from "@t3tools/client-runtime/review-findings";
 import {
   isAtomCommandInterrupted,
@@ -359,7 +359,10 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
     [linkedReviews, pullRequestKey],
   );
   const runningReview = useMemo(() => {
-    const running = selectRunningPullRequestReview({ number, threads: linkedReviews });
+    const running = selectRunningReview({
+      target: { kind: "pull-request", number },
+      threads: linkedReviews,
+    });
     if (running !== null) return { threadId: running.thread.id, mode: running.mode };
     return startedReview !== null &&
       !linkedReviews.some((thread) => thread.id === startedReview.threadId)

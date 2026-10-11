@@ -63,6 +63,7 @@ import {
   PaletteIcon,
   MessageSquareMoreIcon,
   RotateCcwIcon,
+  ScanSearchIcon,
   SettingsIcon,
   SmartphoneIcon,
   SquareIcon,
@@ -2084,6 +2085,23 @@ function OpenCommandPaletteDialog(props: {
         useRightPanelStore.getState().open(threadRef, "review");
       },
     });
+    // The Review panel offers a review of the thread's own checkout when no pull request is linked.
+    if (
+      activeThreadServerConfig?.environment.capabilities.localAgentReview === true &&
+      visibleThreadPullRequests(activeThread.pullRequests).length === 0
+    ) {
+      actionItems.push({
+        kind: "action",
+        value: "action:review-my-changes",
+        searchTerms: ["review", "local changes", "uncommitted", "find issues", "agent review"],
+        title: "Review my changes",
+        description: "Have an agent review this thread's uncommitted changes",
+        icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          useRightPanelStore.getState().open(threadRef, "review");
+        },
+      });
+    }
   }
   if (activeThread !== null && activeThread.kind !== "sidechat") {
     const thread = activeThread;

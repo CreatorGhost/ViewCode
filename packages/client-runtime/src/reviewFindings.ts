@@ -96,22 +96,36 @@ export function selectPullRequestReviewFindings(input: {
   return newest;
 }
 
+/** The newest findings any of these threads submitted about local changes. */
+export function selectLocalReviewFindings(
+  threads: ReadonlyArray<ThreadFindings>,
+): ReviewFindingsSource | null {
+  let newest: ReviewFindingsSource | null = null;
+  for (const thread of threads) {
+    const source = latestReviewFindingsSource(thread);
+    if (source === null || source.findings.target.kind !== "local") continue;
+    if (newest === null || source.createdAt > newest.createdAt) newest = source;
+  }
+  return newest;
+}
+
 /**
  * Which findings a thread's review view shows: the thread's own latest set when it is itself a
  * review, otherwise the newest set a linked thread submitted about one of this thread's pull
- * requests (`selectPullRequestReviewFindings`).
+ * requests (`selectPullRequestReviewFindings`), or without pull requests the newest review of its
+ * checkout's local changes (`localReviewSourceCandidates`).
  */
 export function selectReviewFindingsSource(input: {
   readonly thread: ThreadFindings;
   readonly pullRequests: ReadonlyArray<ThreadPullRequestKey>;
   readonly linkedThreads: ReadonlyArray<ThreadFindings>;
 }): ReviewFindingsSource | null {
+  const others = input.linkedThreads.filter((thread) => thread.id !== input.thread.id);
   return (
     latestReviewFindingsSource(input.thread) ??
-    selectPullRequestReviewFindings({
-      pullRequests: input.pullRequests,
-      threads: input.linkedThreads.filter((thread) => thread.id !== input.thread.id),
-    })
+    (input.pullRequests.length > 0
+      ? selectPullRequestReviewFindings({ pullRequests: input.pullRequests, threads: others })
+      : selectLocalReviewFindings(others))
   );
 }
 
@@ -144,19 +158,64 @@ export function reviewSourceCandidates<
     .slice(0, REVIEW_SOURCE_CANDIDATE_LIMIT);
 }
 
-// The titles the server gives a review thread (`pullRequestReviewTitle`), by mode.
+// The titles the server gives a review thread (`pullRequestReviewTitle`, `localReviewTitle`),
+// by mode.
 const REVIEW_TITLE_PREFIXES: ReadonlyArray<readonly [prefix: string, mode: AgentReviewMode]> = [
   ["Review", "quick"],
   ["Deep review", "deep"],
   ["Security audit", "security"],
 ];
 
-/** The kind of review a thread is of this pull request, read from its title; null for any other. */
-export function reviewThreadMode(title: string, number: number): AgentReviewMode | null {
-  return (
-    REVIEW_TITLE_PREFIXES.find(([prefix]) => title.startsWith(`${prefix}: #${number} `))?.[1] ??
-    null
-  );
+/** What a review thread is about, as its title names it. */
+export type ReviewThreadTarget =
+  | { readonly kind: "pull-request"; readonly number: number }
+  | { readonly kind: "local" };
+
+/**
+ * The kind of review a thread is of this pull request, or of local changes ("Review: local
+ * changes", with " on <branch>" when it has one), read from its title; null for any other.
+ */
+export function reviewThreadMode(
+  title: string,
+  target: ReviewThreadTarget,
+): AgentReviewMode | null {
+  const matches = (prefix: string) => {
+    if (target.kind === "pull-request") return title.startsWith(`${prefix}: #${target.number} `);
+    const head = `${prefix}: local changes`;
+    return title === head || title.startsWith(`${head} on `);
+  };
+  return REVIEW_TITLE_PREFIXES.find(([prefix]) => matches(prefix))?.[1] ?? null;
+}
+
+/**
+ * The threads that may hold a review of a checkout's local changes, most recently active first:
+ * the unarchived reviews of local changes on the same branch and worktree of the project, other
+ * than the thread asking. Nothing links a local review to the thread it reviewed, so only threads
+ * titled as one are read, which keeps ordinary threads on a shared checkout unsubscribed.
+ */
+export function localReviewSourceCandidates<
+  T extends Pick<
+    OrchestrationThreadShell,
+    "id" | "title" | "projectId" | "branch" | "worktreePath" | "archivedAt" | "updatedAt"
+  >,
+>(input: {
+  readonly threadId: ThreadId;
+  readonly checkout: Pick<OrchestrationThreadShell, "projectId" | "branch" | "worktreePath">;
+  readonly threads: ReadonlyArray<T>;
+}): ReadonlyArray<T> {
+  const { checkout } = input;
+  return input.threads
+    .filter(
+      (thread) =>
+        thread.id !== input.threadId &&
+        thread.archivedAt === null &&
+        thread.projectId === checkout.projectId &&
+        thread.branch === checkout.branch &&
+        thread.worktreePath === checkout.worktreePath &&
+        reviewThreadMode(thread.title, { kind: "local" }) !== null,
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, REVIEW_SOURCE_CANDIDATE_LIMIT);
 }
 
 /**
@@ -173,19 +232,19 @@ export function reviewTurnInFlight(
 }
 
 /**
- * A review of this pull request still under way, the newest if there are several: a linked thread
- * titled as its review whose turn is running and which has not submitted findings yet. Nothing
- * else marks a review thread, so a renamed one reads as an ordinary thread.
+ * A review of this pull request, or of local changes, still under way, the newest if there are
+ * several: a thread titled as such a review whose turn is running and which has not submitted
+ * findings yet. Nothing else marks a review thread, so a renamed one reads as an ordinary thread.
  */
-export function selectRunningPullRequestReview<
+export function selectRunningReview<
   T extends ThreadFindings & { readonly createdAt: string; readonly running: boolean },
 >(input: {
-  readonly number: number;
+  readonly target: ReviewThreadTarget;
   readonly threads: ReadonlyArray<T>;
 }): { readonly thread: T; readonly mode: AgentReviewMode } | null {
   let newest: { readonly thread: T; readonly mode: AgentReviewMode } | null = null;
   for (const thread of input.threads) {
-    const mode = reviewThreadMode(thread.title, input.number);
+    const mode = reviewThreadMode(thread.title, input.target);
     if (mode === null || !thread.running) continue;
     if (latestReviewFindingsActivity(thread.activities) !== undefined) continue;
     if (newest === null || thread.createdAt > newest.thread.createdAt) newest = { thread, mode };

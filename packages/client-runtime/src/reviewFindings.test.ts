@@ -11,6 +11,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   groupReviewFindingsBySeverity,
+  localReviewSourceCandidates,
   openReviewFindingCount,
   reviewFindingEntries,
   reviewFixCandidates,
@@ -20,7 +21,7 @@ import {
   reviewTurnInFlight,
   selectPullRequestReviewFindings,
   selectReviewFindingsSource,
-  selectRunningPullRequestReview,
+  selectRunningReview,
 } from "./reviewFindings.ts";
 
 const prTarget = (number: number): ReviewFindingsTarget => ({
@@ -117,6 +118,23 @@ describe("selectReviewFindingsSource", () => {
     });
   });
 
+  it("shows the newest review of local changes for a thread without a pull request", () => {
+    const source = selectReviewFindingsSource({
+      thread: thread("work", []),
+      pullRequests: [],
+      linkedThreads: [
+        thread("old-local", [
+          findingsActivity("old", "2026-08-01T00:00:00.000Z", { kind: "local" }),
+        ]),
+        thread("new-local", [
+          findingsActivity("new", "2026-08-03T00:00:00.000Z", { kind: "local" }),
+        ]),
+        thread("pr-review", [findingsActivity("pr", "2026-08-05T00:00:00.000Z")]),
+      ],
+    });
+    expect(source).toMatchObject({ threadId: "new-local", activityId: "new" });
+  });
+
   it("shows nothing for a payload that does not decode", () => {
     const broken = { ...findingsActivity("broken", "2026-08-01T00:00:00.000Z"), payload: {} };
     expect(
@@ -163,7 +181,7 @@ describe("selectPullRequestReviewFindings", () => {
   });
 });
 
-describe("selectRunningPullRequestReview", () => {
+describe("selectRunningReview", () => {
   const candidate = (
     id: string,
     title: string,
@@ -173,8 +191,8 @@ describe("selectRunningPullRequestReview", () => {
   ) => ({ ...thread(id, activities), title, running, createdAt });
 
   it("finds the newest review thread of the pull request still working on its findings", () => {
-    const running = selectRunningPullRequestReview({
-      number: 7,
+    const running = selectRunningReview({
+      target: { kind: "pull-request", number: 7 },
       threads: [
         candidate("quick", "Review: #7 Fix the cache", true),
         candidate("deep", "Deep review: #7 Fix the cache", true, [], "2026-08-02T00:00:00.000Z"),
@@ -225,11 +243,30 @@ describe("selectRunningPullRequestReview", () => {
     expect(reviewTurnInFlight({ session: session("error"), latestTurn: null })).toBe(false);
   });
 
+  it("finds the newest review of local changes still working on its findings", () => {
+    const running = selectRunningReview({
+      target: { kind: "local" },
+      threads: [
+        candidate("quick", "Review: local changes on main", true),
+        candidate("pr", "Deep review: #7 Fix", true, [], "2026-08-03T00:00:00.000Z"),
+        candidate("idle", "Deep review: local changes", false, [], "2026-08-03T00:00:00.000Z"),
+      ],
+    });
+    expect(running?.thread.id).toBe("quick");
+    expect(running?.mode).toBe("quick");
+  });
+
   it("reads each mode from the title the server gives a review", () => {
-    expect(reviewThreadMode("Review: #7 Fix", 7)).toBe("quick");
-    expect(reviewThreadMode("Security audit: #7 Fix", 7)).toBe("security");
-    expect(reviewThreadMode("Review: #7", 7)).toBeNull();
-    expect(reviewThreadMode("Code review: #7 Fix", 7)).toBeNull();
+    const pr7 = { kind: "pull-request", number: 7 } as const;
+    const local = { kind: "local" } as const;
+    expect(reviewThreadMode("Review: #7 Fix", pr7)).toBe("quick");
+    expect(reviewThreadMode("Security audit: #7 Fix", pr7)).toBe("security");
+    expect(reviewThreadMode("Review: #7", pr7)).toBeNull();
+    expect(reviewThreadMode("Code review: #7 Fix", pr7)).toBeNull();
+    expect(reviewThreadMode("Review: local changes", local)).toBe("quick");
+    expect(reviewThreadMode("Deep review: local changes on feature/x", local)).toBe("deep");
+    expect(reviewThreadMode("Review: local changes to the cache", local)).toBeNull();
+    expect(reviewThreadMode("Review: #7 Fix", local)).toBeNull();
   });
 });
 
@@ -339,6 +376,41 @@ describe("reviewSourceCandidates", () => {
         threads: [shell("a")],
       }),
     ).toEqual([]);
+  });
+});
+
+describe("localReviewSourceCandidates", () => {
+  const checkout = {
+    projectId: ProjectId.make("project"),
+    branch: "feature/x",
+    worktreePath: "/work/x",
+  };
+  const local = (id: string, title: string, overrides: Record<string, unknown> = {}) => ({
+    id: ThreadId.make(id),
+    title,
+    ...checkout,
+    archivedAt: null,
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    ...overrides,
+  });
+
+  it("reads the other unarchived reviews of local changes on the same checkout, newest first", () => {
+    const candidates = localReviewSourceCandidates({
+      threadId: ThreadId.make("work"),
+      checkout,
+      threads: [
+        local("work", "Review: local changes on feature/x"),
+        local("older", "Review: local changes on feature/x"),
+        local("newer", "Deep review: local changes on feature/x", {
+          updatedAt: "2026-08-03T00:00:00.000Z",
+        }),
+        // Ordinary threads on the checkout are not read, nor reviews of another checkout.
+        local("chat", "Fix the cache"),
+        local("elsewhere", "Review: local changes on main", { worktreePath: null, branch: "main" }),
+        local("archived", "Review: local changes", { archivedAt: "2026-08-05T00:00:00.000Z" }),
+      ],
+    });
+    expect(candidates.map((candidate) => candidate.id)).toEqual(["newer", "older"]);
   });
 });
 

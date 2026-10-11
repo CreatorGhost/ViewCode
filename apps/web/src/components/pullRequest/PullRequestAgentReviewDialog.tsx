@@ -8,8 +8,11 @@ import {
   type AgentReviewMode,
   type EnvironmentId,
   type ModelSelection,
+  type ProjectId,
   type PullRequestRef,
   type PullRequestStartReviewResult,
+  type ReviewBasedOnInput,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useNavigate } from "@tanstack/react-router";
@@ -27,6 +30,7 @@ import {
 import { useProject } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { pullRequestEnvironment } from "../../state/pullRequests";
+import { reviewEnvironment } from "../../state/review";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
@@ -46,14 +50,26 @@ import { Radio, RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
 
 /**
+ * What an agent review reads: a pull request, or the local changes of a thread's checkout
+ * (servers advertising `localAgentReview`).
+ */
+export type AgentReviewRequest =
+  | { readonly kind: "pull-request"; readonly reference: PullRequestRef }
+  | { readonly kind: "local"; readonly projectId: ProjectId; readonly sourceThreadId: ThreadId };
+
+/**
  * The choices an agent review starts from: how thorough, with which model (the project's default
  * for new threads until the reader picks another), and what to look at. `start` reports a
- * failure itself and resolves to the new review thread, or null.
+ * failure itself and resolves to the new review thread, or null; given `basedOn`, it re-reviews
+ * only what changed since those findings.
  */
-export function useAgentReviewForm(environmentId: EnvironmentId, reference: PullRequestRef) {
+export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentReviewRequest) {
   const startReview = useAtomCommand(pullRequestEnvironment.startReview, { reportFailure: false });
+  const startLocalReview = useAtomCommand(reviewEnvironment.startLocal, { reportFailure: false });
   const settings = useEnvironmentSettings(environmentId);
-  const project = useProject(scopeProjectRef(environmentId, reference.projectId));
+  const projectId =
+    request.kind === "pull-request" ? request.reference.projectId : request.projectId;
+  const project = useProject(scopeProjectRef(environmentId, projectId));
   const { environments } = useEnvironments();
   const providers =
     environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
@@ -70,7 +86,7 @@ export function useAgentReviewForm(environmentId: EnvironmentId, reference: Pull
     picked ??
     resolveDefaultProviderModelSelection(
       providers,
-      resolveProjectSettings(settings, reference.projectId, project).settings.defaultModelSelection,
+      resolveProjectSettings(settings, projectId, project).settings.defaultModelSelection,
     );
   const modelOptions = useMemo(
     () =>
@@ -81,19 +97,29 @@ export function useAgentReviewForm(environmentId: EnvironmentId, reference: Pull
   const [focus, setFocus] = useState("");
   const [pending, setPending] = useState(false);
 
-  const start = async (): Promise<PullRequestStartReviewResult | null> => {
+  const start = async (
+    basedOn?: ReviewBasedOnInput,
+  ): Promise<PullRequestStartReviewResult | null> => {
     if (pending) return null;
     setPending(true);
     const trimmedFocus = focus.trim();
-    const result = await startReview({
-      environmentId,
-      input: {
-        ...reference,
-        mode,
-        ...(selection ? { modelSelection: selection } : {}),
-        ...(trimmedFocus ? { focus: trimmedFocus } : {}),
-      },
-    });
+    const choices = {
+      mode,
+      ...(selection ? { modelSelection: selection } : {}),
+      ...(trimmedFocus ? { focus: trimmedFocus } : {}),
+      ...(basedOn ? { incremental: true, basedOn } : {}),
+    };
+    const result =
+      request.kind === "pull-request"
+        ? await startReview({ environmentId, input: { ...request.reference, ...choices } })
+        : await startLocalReview({
+            environmentId,
+            input: {
+              projectId: request.projectId,
+              sourceThreadId: request.sourceThreadId,
+              ...choices,
+            },
+          });
     setPending(false);
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
@@ -237,7 +263,7 @@ export function PullRequestAgentReviewDialog({
   onStarted: (started: PullRequestStartReviewResult) => void;
   onClose: () => void;
 }) {
-  const form = useAgentReviewForm(environmentId, reference);
+  const form = useAgentReviewForm(environmentId, { kind: "pull-request", reference });
 
   const start = async () => {
     const started = await form.start();

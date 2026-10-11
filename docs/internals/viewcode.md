@@ -522,10 +522,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   shells carry no activities, so a thread without findings of its own, or the pull request detail,
   finds a linked review by subscribing to the activities of up to five threads linked to the same
   pull request, and only while that panel or detail is open. A review still under way is
-  recognised by the title the server gives its thread (`pullRequestReviewTitle`, read back by
-  `reviewThreadMode`); change one and change the other. Starting a review from the pull request
-  detail (or the Android pull request screen) stays there. From a thread working on the pull
-  request, Fix with agent writes an editable request into that thread's composer; it never sends.
+  recognised by the title the server gives its thread (`pullRequestReviewTitle` and
+  `localReviewTitle`, read back by `reviewThreadMode`); change one and change the other. A local
+  review has no link, so a thread without a pull request finds one only by that title on the same
+  project, branch and worktree (`localReviewSourceCandidates`): a renamed local review drops out of
+  the panel of the thread whose changes it read, though its own panel still shows it. Starting a
+  review from the pull request detail (or the Android pull request screen) stays there. From a
+  thread working on the pull request, Fix with agent writes an editable request into that thread's
+  composer; it never sends.
 - Fix from the review thread itself goes to another session: an existing one through the client's
   own queue for that thread (web's composer queue, in memory, sends now, at the next tool boundary,
   or at turn end for providers that cannot steer; mobile's thread outbox), because the server has
