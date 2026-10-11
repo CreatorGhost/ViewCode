@@ -184,6 +184,12 @@ export const RECONNECT_BASE_MS = 1_000;
 export const RECONNECT_MAX_MS = 30_000;
 /** A connection that lasted at least this long earns a fresh backoff. */
 export const STABLE_CONNECTION_MS = 30_000;
+/**
+ * How long one dial may take, handshake and failure check included. A
+ * brand-new address can accept the connection and never answer the upgrade;
+ * undici would wait minutes for it, leaving the status on "connecting".
+ */
+export const DIAL_TIMEOUT_MS = 30_000;
 
 /**
  * Delay before reconnect attempt number `attempt` (0 is the first retry):
