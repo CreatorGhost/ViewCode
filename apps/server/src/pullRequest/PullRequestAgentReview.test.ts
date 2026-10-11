@@ -68,15 +68,21 @@ const makeHarness = (options: {
   readonly summary?: Effect.Effect<PullRequestSummary, PullRequestService.PullRequestError>;
   readonly rejectLink?: boolean;
   readonly detail?: Effect.Effect<PullRequestDetail, PullRequestService.PullRequestError>;
+  readonly reviewStyles?: Record<string, string>;
 }) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+    const detailReads = yield* Ref.make(0);
     const dependencies = Layer.mergeAll(
       Layer.mock(PullRequestService.PullRequestService)({
         summary: () => options.summary ?? Effect.succeed(summary),
         detail: () =>
-          options.detail ??
-          Effect.fail(new PullRequestUnavailableError({ reason: "provider-unsupported" })),
+          Ref.update(detailReads, (count) => count + 1).pipe(
+            Effect.andThen(
+              options.detail ??
+                Effect.fail(new PullRequestUnavailableError({ reason: "provider-unsupported" })),
+            ),
+          ),
       }),
       Layer.mock(ProjectionSnapshotQuery)({
         getProjectShellById: (projectId) =>
@@ -99,6 +105,7 @@ const makeHarness = (options: {
       ServerSettings.layerTest({
         defaultModelSelection: options.defaultModel === undefined ? null : options.defaultModel,
         defaultRuntimeMode: "approval-required",
+        pullRequestReviewStyles: options.reviewStyles ?? {},
       }),
     ).pipe(
       Layer.provideMerge(
@@ -111,7 +118,7 @@ const makeHarness = (options: {
       reviews: PullRequestAgentReview.PullRequestAgentReview,
       config: ServerConfig.ServerConfig,
     }).pipe(Effect.provide(PullRequestAgentReview.layer.pipe(Layer.provideMerge(dependencies))));
-    return { reviews, commands, stateDir: config.stateDir };
+    return { reviews, commands, detailReads, stateDir: config.stateDir };
   });
 
 describe("PullRequestAgentReview", () => {
@@ -194,6 +201,54 @@ describe("PullRequestAgentReview", () => {
       expect(turn?.type === "thread.turn.start" ? turn.message.text : "").toContain(
         'When you call submit_review_findings, pass mode "comment".',
       );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("asks for review comments in the user's style on somebody else's pull request", () =>
+    Effect.gen(function* () {
+      const detail = (author: string) =>
+        Effect.succeed({
+          author: { login: author, name: null, avatarUrl: null },
+          viewer: "Bilal",
+        } as PullRequestDetail);
+      const reviewStyles = { "github.com/bilal": "Lowercase, no pleasantries, ask questions." };
+      const lastMessage = (commands: ReadonlyArray<OrchestrationCommand>) => {
+        const turn = commands.at(-1);
+        return turn?.type === "thread.turn.start" ? turn.message.text : "";
+      };
+
+      const theirs = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        detail: detail("octocat"),
+        reviewStyles,
+      });
+      yield* theirs.reviews.start({ reference: REFERENCE, linkSource: "manual" });
+      const text = lastMessage(yield* Ref.get(theirs.commands));
+      expect(text).toContain("as my review comments");
+      expect(text).toContain("Write them in my review style:\n\nLowercase, no pleasantries");
+      expect(text).not.toContain("pass mode");
+
+      const mine = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        detail: detail("bilal"),
+        reviewStyles,
+      });
+      yield* mine.reviews.start({ reference: REFERENCE, linkSource: "manual" });
+      expect(lastMessage(yield* Ref.get(mine.commands))).not.toContain("review comments");
+
+      // Fixing was asked for: whose pull request it is does not matter, and is not read.
+      const fixing = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        detail: detail("octocat"),
+        reviewStyles,
+      });
+      yield* fixing.reviews.start({
+        reference: REFERENCE,
+        findingsMode: "fix",
+        linkSource: "manual",
+      });
+      expect(yield* Ref.get(fixing.detailReads)).toBe(0);
+      expect(lastMessage(yield* Ref.get(fixing.commands))).not.toContain("review comments");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

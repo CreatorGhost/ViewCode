@@ -79,7 +79,14 @@ under \`needsChecking\` (a security audit's confirmed findings and those that ne
 each with the severity, confidence, path, lines and suggested fix the report gives it. The reader
 sends findings from it to a session that fixes them, so each \`detail\` must stand on its own. The
 written report stays the reader's version; the tool call does not replace it. If you review again
-in this thread, call the tool again with the full new set. Without the tool, the report is enough.`;
+in this thread, call the tool again with the full new set. Without the tool, the report is enough.
+
+When the first message says your findings will be posted to the pull request as the user's review
+comments, each \`detail\` is posted as it stands: on its line, or in the review's text when it has
+no line in the diff, with \`suggestedFix\` below it as a code block. Write it to the author, as the
+comment itself: what is wrong and why it matters, short and direct, without repeating the title or
+the location. Cite a repository rule in it when one applies. Follow the review style the first
+message gives, if any; the written report keeps its usual form.`;
 
 const QUICK = `## Quick review
 

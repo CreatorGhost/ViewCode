@@ -488,7 +488,10 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   decided by the server when they are recorded: comment when the pull request's author is not the
   account it is read as (`PullRequestAgentReview.authorship`), fix when either is unknown, since
   fixing posts nothing. A mode chosen at review start reaches the tool only as a line in the first
-  message; nothing else carries it from start to record.
+  message; nothing else carries it from start to record. When a review starts as a comment review,
+  that message also asks for each `detail` written as the comment itself, in the reading account's
+  style from server settings (`pullRequestReviewStyles`, keyed by `reviewStyleKey`: host and login),
+  since the reviewer runs on the server whichever client started it.
 - Fix to an existing session goes through the web composer's queue (in memory; it sends now, at
   the next tool boundary, or at turn end for providers that cannot steer), because the server has
   no queue for user turns and inventing one would fork that behaviour. Only a new session is a

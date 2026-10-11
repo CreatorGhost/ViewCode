@@ -14,6 +14,7 @@ import {
 } from "@t3tools/contracts";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { reviewStyleKey } from "@t3tools/shared/reviewFindings";
 import { normalizeThreadPullRequestKey } from "@t3tools/shared/threadPullRequests";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -177,6 +178,8 @@ export function buildPullRequestReviewPrompt(input: {
   readonly focus?: string | undefined;
   /** Only a mode the user chose; otherwise the server decides when the findings arrive. */
   readonly findingsMode?: ReviewFindingsMode | undefined;
+  /** Present when the findings will be posted as review comments, with the user's style. */
+  readonly comments?: { readonly style: string | null } | undefined;
 }): string {
   const { pr } = input;
   const lines = [
@@ -194,6 +197,15 @@ export function buildPullRequestReviewPrompt(input: {
       `When you call ${SUBMIT_REVIEW_FINDINGS_TOOL}, pass mode "${input.findingsMode}".`,
     );
   }
+  if (input.comments !== undefined) {
+    lines.push(
+      "",
+      "I will post your findings to this pull request as my review comments, so write each finding's detail as the comment itself (see the playbook's Report section).",
+    );
+    if (input.comments.style !== null) {
+      lines.push("", "Write them in my review style:", "", input.comments.style);
+    }
+  }
   return lines.join("\n");
 }
 
@@ -207,6 +219,20 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
   const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+
+  // The detail names both, and is usually cached from the page the review started on.
+  const readAuthorship = (reference: PullRequestRef) =>
+    pullRequests.detail(reference).pipe(
+      Effect.map((detail): PullRequestAuthorship => ({
+        author: detail.author?.login ?? null,
+        viewer: detail.viewer ?? null,
+      })),
+      Effect.catch((error) =>
+        Effect.logWarning("Could not read who opened the reviewed pull request", {
+          detail: error.message,
+        }).pipe(Effect.as<PullRequestAuthorship>({ author: null, viewer: null })),
+      ),
+    );
 
   const start = Effect.fn("PullRequestAgentReview.start")(function* (
     input: PullRequestAgentReviewInput,
@@ -256,6 +282,18 @@ const make = Effect.gen(function* () {
       Effect.mapError(failure("playbook")),
     );
 
+    // Somebody else's pull request gets comments written the way this account writes them.
+    const authorship = input.findingsMode === "fix" ? null : yield* readAuthorship(reference);
+    const viewer = authorship?.viewer ?? null;
+    const style =
+      viewer === null
+        ? ""
+        : (settings.pullRequestReviewStyles[reviewStyleKey(key.host, viewer)] ?? "");
+    const comments =
+      authorship !== null && (input.findingsMode ?? reviewFindingsModeFor(authorship)) === "comment"
+        ? { style: style.length > 0 ? style : null }
+        : undefined;
+
     const threadId = ThreadId.make(yield* uuid);
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     const title = pullRequestReviewTitle(mode, summary);
@@ -300,6 +338,7 @@ const make = Effect.gen(function* () {
             pr: summary,
             focus: input.focus,
             findingsMode: input.findingsMode,
+            comments,
           }),
           attachments: [],
         },
@@ -312,21 +351,7 @@ const make = Effect.gen(function* () {
     return { threadId, title };
   });
 
-  // The detail names both, and is usually cached from the page the review started on.
-  const authorship = (reference: PullRequestRef) =>
-    pullRequests.detail(reference).pipe(
-      Effect.map((detail): PullRequestAuthorship => ({
-        author: detail.author?.login ?? null,
-        viewer: detail.viewer ?? null,
-      })),
-      Effect.catch((error) =>
-        Effect.logWarning("Could not read who opened the reviewed pull request", {
-          detail: error.message,
-        }).pipe(Effect.as<PullRequestAuthorship>({ author: null, viewer: null })),
-      ),
-    );
-
-  return PullRequestAgentReview.of({ start, authorship });
+  return PullRequestAgentReview.of({ start, authorship: readAuthorship });
 });
 
 export const layer = Layer.effect(PullRequestAgentReview, make);

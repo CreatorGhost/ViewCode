@@ -49,6 +49,11 @@ export function readReviewFindings(
   return Option.getOrUndefined(decodePayload(activity.payload));
 }
 
+/** One account's key in `pullRequestReviewStyles`: its host and login, as hosts compare them. */
+export function reviewStyleKey(host: string, login: string): string {
+  return `${host.toLowerCase()}/${login.toLowerCase()}`;
+}
+
 /** What a review's findings are for; findings recorded before there was a choice are fixes. */
 export function reviewFindingsMode(
   payload: Pick<ReviewFindingsActivityPayload, "mode">,
