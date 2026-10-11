@@ -223,6 +223,10 @@
       "types": "./src/htmlRender.ts",
       "import": "./src/htmlRender.ts"
     },
+    "./reviewFindings": {
+      "types": "./src/reviewFindings.ts",
+      "import": "./src/reviewFindings.ts"
+    },
     "./assistantCitations": {
       "types": "./src/assistantCitations.ts",
       "import": "./src/assistantCitations.ts"

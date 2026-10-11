@@ -501,6 +501,35 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
+  it("shows only the latest review findings, so a re-review replaces the earlier set", () => {
+    const findings = (verdict: string) => ({
+      verdict,
+      mergeConfidence: 3,
+      reviewEffort: 2,
+      findings: [],
+      needsChecking: [],
+      target: { kind: "local" },
+    });
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "first-review",
+        kind: "viewcode.review.findings",
+        summary: "Review: request changes, 0 findings",
+        payload: findings("request-changes"),
+      }),
+      makeActivity({
+        id: "re-review",
+        kind: "viewcode.review.findings",
+        summary: "Review: approve, 0 findings",
+        payload: findings("approve"),
+        sequence: 1,
+      }),
+    ]);
+    expect(entries.map((entry) => [entry.id, entry.reviewFindings?.verdict])).toEqual([
+      ["re-review", "approve"],
+    ]);
+  });
+
   it("omits internal turn acceptance receipts while keeping turn failures", () => {
     const entries = deriveWorkLogEntries([
       makeActivity({

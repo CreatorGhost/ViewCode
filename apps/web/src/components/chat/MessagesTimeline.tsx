@@ -154,6 +154,7 @@ import {
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ShellCommandBlock } from "./ShellCommandBlock";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
+import { ReviewFindingsCard } from "./ReviewFindingsCard";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
@@ -1735,7 +1736,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "activity-group" ||
                   row.kind === "thinking" ||
                   row.kind === "worktree-setup" ||
-                  row.kind === "html-render"
+                  row.kind === "html-render" ||
+                  row.kind === "review-findings"
                 ? "pb-(--chat-row-gap)"
                 : "pb-(--chat-turn-gap)",
         (row.kind === "message" && row.message.role === "assistant") ||
@@ -1777,6 +1779,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
+      {row.kind === "review-findings" ? <ReviewFindingsTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "thinking" ? <ThinkingTimelineRow /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
@@ -2689,6 +2692,20 @@ function HtmlRenderTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "htm
       />
     </div>
   );
+}
+
+function ReviewFindingsTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "review-findings" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const context = useMemo(
+    () => ({ markdownCwd: ctx.markdownCwd, threadRef: ctx.threadRef, skills: ctx.skills }),
+    [ctx.markdownCwd, ctx.threadRef, ctx.skills],
+  );
+  // A re-review's card starts fresh rather than keeping the previous one's expanded rows.
+  return <ReviewFindingsCard key={row.id} findings={row.reviewFindings} context={context} />;
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {

@@ -35,6 +35,7 @@ import type { QueuedComposerMessage } from "../../queuedMessageStore";
 import {
   type MessageId,
   type OrchestrationLatestTurn,
+  type ReviewFindingsActivityPayload,
   type TurnId,
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
@@ -80,7 +81,8 @@ function isStandaloneTimelineWork(entry: WorkLogEntry): boolean {
   return (
     isTimelineDividerActivityKind(entry.sourceActivityKind) ||
     entry.agentMessageSent !== undefined ||
-    entry.htmlRender !== undefined
+    entry.htmlRender !== undefined ||
+    entry.reviewFindings !== undefined
   );
 }
 
@@ -492,6 +494,13 @@ export type MessagesTimelineRow =
       htmlRender: HtmlRenderReference;
     }
   | {
+      /** The findings a reviewer submitted; `id` is the activity's. */
+      kind: "review-findings";
+      id: string;
+      createdAt: string;
+      reviewFindings: ReviewFindingsActivityPayload;
+    }
+  | {
       kind: "message";
       id: string;
       createdAt: string;
@@ -824,7 +833,8 @@ function deriveTurnFolds(input: {
         candidateIndex > terminalEntryIndex &&
         !(candidate.kind === "message" && candidate.message.role === "reasoning") &&
         !(candidate.kind === "work" && candidate.entry.agentMessageSent !== undefined) &&
-        !(candidate.kind === "work" && candidate.entry.htmlRender !== undefined),
+        !(candidate.kind === "work" && candidate.entry.htmlRender !== undefined) &&
+        !(candidate.kind === "work" && candidate.entry.reviewFindings !== undefined),
     ).length;
     for (const [index, entry] of group.entries.entries()) {
       if (entry.id === group.terminalEntry?.id) {
@@ -847,14 +857,15 @@ function deriveTurnFolds(input: {
       ) {
         continue;
       }
-      // User input, subagent batches, agent-to-agent messages and published
-      // pages stay visible after their turn settles.
+      // User input, subagent batches, agent-to-agent messages, published
+      // pages and review findings stay visible after their turn settles.
       if (
         entry.kind === "work" &&
         (entry.entry.questionAnswer !== undefined ||
           entry.entry.agentSpawn !== undefined ||
           entry.entry.agentMessageSent !== undefined ||
-          entry.entry.htmlRender !== undefined)
+          entry.entry.htmlRender !== undefined ||
+          entry.entry.reviewFindings !== undefined)
       ) {
         continue;
       }
@@ -1373,6 +1384,16 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "work" && timelineEntry.entry.reviewFindings !== undefined) {
+      nextRows.push({
+        kind: "review-findings",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        reviewFindings: timelineEntry.entry.reviewFindings,
+      });
+      continue;
+    }
+
     if (
       timelineEntry.kind === "work" &&
       isTimelineDividerActivityKind(timelineEntry.entry.sourceActivityKind)
@@ -1856,6 +1877,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       const bh = b as typeof a;
       return a.createdAt === bh.createdAt && htmlRenderReferencesEqual(a.htmlRender, bh.htmlRender);
     }
+
+    case "review-findings":
+      return a.reviewFindings === (b as typeof a).reviewFindings;
 
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;

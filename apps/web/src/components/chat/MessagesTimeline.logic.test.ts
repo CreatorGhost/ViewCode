@@ -1579,6 +1579,48 @@ describe("deriveMessagesTimelineRows", () => {
       });
     });
 
+    it("keeps review findings as their own row under the report when the turn folds", () => {
+      const reviewFindings = {
+        verdict: "request-changes",
+        mergeConfidence: 2,
+        reviewEffort: 3,
+        findings: [],
+        needsChecking: [],
+        target: { kind: "local" },
+      } as const;
+      const rows = derive(
+        deriveTimelineEntries(
+          [assistant("assistant-report", 3)],
+          [],
+          [
+            work("read-1", 1, {
+              command: "gh pr diff 7",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            }),
+            work("read-2", 2, {
+              command: "cat a.ts",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            }),
+            work("findings-entry", 4, {
+              tone: "info",
+              label: "Review: request changes, 0 findings",
+              sourceActivityKind: "viewcode.review.findings",
+              reviewFindings,
+            }),
+          ],
+        ),
+      );
+
+      expect(rows.map((row) => row.id)).toEqual([
+        "turn-fold:turn-1",
+        "assistant-report",
+        "findings-entry",
+      ]);
+      expect(rows.at(-1)).toMatchObject({ kind: "review-findings", reviewFindings });
+    });
+
     it("renders a delivered agent message as an incoming card, not a user bubble", () => {
       const text = formatAgentMessage({
         messageId: "m-2",
