@@ -1,3 +1,4 @@
+import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
@@ -136,7 +137,11 @@ function ThreadNavigationSidebarPane(
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
   const projects = useProjects();
-  const threads = useThreadShells();
+  const threadShells = useThreadShells();
+  const threads = useMemo(
+    () => threadShells.filter((thread) => !isSidechat(thread)),
+    [threadShells],
+  );
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const searchInputRef = useRef<TextInputInstance>(null);

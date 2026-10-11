@@ -50,6 +50,7 @@ import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
 import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
 import { PullRequestRouteScreen } from "./features/pullRequests/PullRequestRouteScreen";
+import { SideChatSheet } from "./features/sidechat/SideChatSheet";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
@@ -470,6 +471,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "GitCommit",
   "GitConfirm",
   "GitOverview",
+  "SideChat",
   "NewTaskSheet",
   "PullRequest",
   "SettingsLegal",
@@ -717,6 +719,17 @@ const RootStackConfig = createNativeStackNavigator({
               sheetAllowedDetents: [1],
               sheetGrabberVisible: true,
             }),
+      },
+    }),
+    SideChat: createNativeStackScreen({
+      screen: SideChatSheet,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        headerShown: false,
+        // One tall detent: sheets lay content out at their largest detent, so a
+        // shorter first stop would hide the composer pinned to the bottom.
+        sheetAllowedDetents: [0.92],
+        sheetGrabberVisible: true,
       },
     }),
     GitOverview: createNativeStackScreen({

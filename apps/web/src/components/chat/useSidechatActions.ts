@@ -12,7 +12,7 @@ import { useSidechatDockStore } from "../../sidechatDockStore";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { SIDECHAT_TITLE, sidechatTitleFromQuestion } from "./sidechat.logic";
+import { buildSidechatCreateInput } from "@t3tools/client-runtime/state/sidechat";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 
 function reportFailure(title: string, failure: unknown) {
@@ -51,18 +51,7 @@ export function useSidechatActions() {
       const threadId = newThreadId();
       const created = await createThread({
         environmentId: parent.environmentId,
-        input: {
-          threadId,
-          projectId: parent.projectId,
-          title: sidechatTitleFromQuestion(question) || SIDECHAT_TITLE,
-          modelSelection,
-          runtimeMode: parent.runtimeMode,
-          interactionMode: "default",
-          branch: parent.branch,
-          worktreePath: parent.worktreePath,
-          parentThreadId: parent.id,
-          kind: "sidechat",
-        },
+        input: buildSidechatCreateInput({ parent, threadId, question, modelSelection }),
       });
       if (created._tag === "Failure") {
         if (!isAtomCommandInterrupted(created)) {

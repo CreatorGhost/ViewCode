@@ -338,6 +338,10 @@
     "./device/duo-control": {
       "types": "./src/device/duoControl.ts",
       "default": "./src/device/duoControl.ts"
+    },
+    "./state/sidechat": {
+      "types": "./src/state/sidechat.ts",
+      "default": "./src/state/sidechat.ts"
     }
   },
   "scripts": {

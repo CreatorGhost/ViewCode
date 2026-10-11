@@ -9,7 +9,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import type { SidechatPreference } from "./components/chat/sidechat.logic";
+import type { SidechatPreference } from "@t3tools/client-runtime/state/sidechat";
 import { resolveStorage } from "./lib/storage";
 
 export const SIDECHAT_DOCK_MIN_WIDTH_PX = 300;

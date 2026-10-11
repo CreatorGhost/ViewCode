@@ -135,6 +135,13 @@ function ThreadHeader(
         onPress: () => onOpenTerminal(null),
       });
     }
+    if (props.onOpenSideChat) {
+      actions.push({
+        accessibilityLabel: "Open side chat",
+        icon: "text.bubble",
+        onPress: props.onOpenSideChat,
+      });
+    }
     actions.push({
       accessibilityLabel: "Open git controls",
       icon: "point.topleft.down.curvedto.point.bottomright.up",
@@ -147,6 +154,7 @@ function ThreadHeader(
     props.onOpenFilesInspector,
     onOpenTerminal,
     props.onOpenGitInspector,
+    props.onOpenSideChat,
     toggleAuxiliaryPane,
     props.onReturnToThread,
     props.hasThreadCwd,
@@ -160,7 +168,7 @@ function ThreadHeader(
         subtitle={props.subtitle}
         sidebar={native.sidebar}
         options={native.options}
-        optionsVersion={props.gitControls.projectScripts}
+        optionsVersion={[props.gitControls.projectScripts, Boolean(props.onOpenSideChat)]}
         trailing={
           props.fileInspectorSupported && props.hasThreadCwd ? (
             <ScreenHeaderButton
@@ -1096,6 +1104,15 @@ function ThreadRouteContent(
         onOpenGitInspector={handleOpenGitInspector}
         onOpenFilesInspector={handleOpenFilesInspector}
         onReturnToThread={props.onReturnToThread}
+        onOpenSideChat={
+          selectedThread.kind === "sidechat"
+            ? undefined
+            : () =>
+                navigation.navigate("SideChat", {
+                  environmentId: String(selectedThread.environmentId),
+                  parentThreadId: String(selectedThread.id),
+                })
+        }
       />
 
       {renderThreadRouteBody()}

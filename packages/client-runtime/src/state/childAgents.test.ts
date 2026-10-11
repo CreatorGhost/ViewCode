@@ -64,6 +64,16 @@ function shell(
 const root = { environmentId: env, threadId: ThreadId.make("root") };
 
 describe("collectChildAgents", () => {
+  it("excludes side chats and their descendants from the agent strip", () => {
+    const threads = [
+      shell("root", null),
+      { ...shell("question", "root"), kind: "sidechat" as const },
+      shell("question-child", "question"),
+      shell("worker", "root"),
+    ];
+    expect(collectChildAgents(threads, root).map(({ thread }) => thread.id)).toEqual(["worker"]);
+  });
+
   it("returns nothing when the thread has no children", () => {
     expect(collectChildAgents([shell("root", null), shell("other", null)], root)).toEqual([]);
   });
