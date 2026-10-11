@@ -469,6 +469,19 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   read), its host fingerprint gating, paging long review threads, and edited-comment wakes. A
   pull request with nothing in flight and an unmoved sync snapshot is re-read every 10 minutes.
 
+### Agent reviews (`pullRequests.startReview`, `review_pull_request`)
+
+- One service method, `PullRequestAgentReview.start`, behind the WebSocket RPC, the MCP tool and
+  both clients: it dispatches `thread.create`, `thread.pull-request.link` and `thread.turn.start`
+  itself, so the review thread is an ordinary linked thread on the user's default permissions for
+  new threads. Clients pick the model (they own the "Automatic" default); the MCP tool falls back
+  to the calling thread's model. Gated by the `pullRequestAgentReview` capability.
+- The method lives in a playbook per mode (`apps/server/src/review/ReviewPlaybook.ts`); the first
+  message is short and names the mode, the pull request and the playbook's path. The text ships in
+  the bundle and is written to `<stateDir>/review-playbooks/` on use, not read from a file beside
+  the code: the single executable has no sibling files, and the desktop bundle can sit inside an
+  asar the agent's shell cannot read.
+
 ### Side chats
 
 - A side chat is an ordinary thread with `parentThreadId` plus the optional

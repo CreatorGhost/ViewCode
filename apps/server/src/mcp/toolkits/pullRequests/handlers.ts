@@ -21,6 +21,7 @@ import * as Option from "effect/Option";
 
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
   type ListThreadPullRequestsResult,
@@ -31,6 +32,7 @@ import {
   PullRequestUnlinkFailedError,
   PullRequestListFailedError,
   PullRequestNotWatchableError,
+  PullRequestReviewFailedError,
   type PullRequestTargetInput,
   PullRequestWatchFailedError,
   PullRequestThreadNotFoundError,
@@ -150,6 +152,7 @@ const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const crypto = yield* Crypto.Crypto;
+  const reviews = yield* PullRequestAgentReview.PullRequestAgentReview;
 
   const commandId = (tag: string, threadId: ThreadId) =>
     crypto.randomUUIDv4.pipe(
@@ -162,7 +165,8 @@ const make = Effect.gen(function* () {
       | typeof PullRequestLinkFailedError
       | typeof PullRequestUnlinkFailedError
       | typeof PullRequestListFailedError
-      | typeof PullRequestWatchFailedError,
+      | typeof PullRequestWatchFailedError
+      | typeof PullRequestReviewFailedError,
   ) {
     const scope = yield* McpInvocationContext.requireMcpCapability("pull-requests");
     const thread = yield* snapshots
@@ -179,7 +183,8 @@ const make = Effect.gen(function* () {
     Failure:
       | typeof PullRequestLinkFailedError
       | typeof PullRequestUnlinkFailedError
-      | typeof PullRequestWatchFailedError,
+      | typeof PullRequestWatchFailedError
+      | typeof PullRequestReviewFailedError,
   ) =>
     snapshots.getProjectShellById(thread.projectId).pipe(
       Effect.map(Option.getOrUndefined),
@@ -305,6 +310,26 @@ const make = Effect.gen(function* () {
       requireThread(PullRequestListFailedError).pipe(Effect.map(listThreadPullRequests)),
     watch_pull_request: (input) => setWatching(input, true),
     unwatch_pull_request: (input) => setWatching(input, false),
+    review_pull_request: ({ mode, focus, ...targetInput }) =>
+      Effect.gen(function* () {
+        const thread = yield* requireThread(PullRequestReviewFailedError);
+        const project = yield* projectOf(thread, PullRequestReviewFailedError);
+        const target = yield* resolveTarget(targetInput, project);
+        const started = yield* reviews.start({
+          reference: {
+            projectId: thread.projectId,
+            host: target.host,
+            repository: target.repository,
+            number: target.number,
+          },
+          mode,
+          focus,
+          // A user who never set a default model gets a reviewer like the agent that asked.
+          fallbackModelSelection: thread.modelSelection,
+          linkSource: "agent",
+        });
+        return { ...target, threadId: started.threadId, title: started.title };
+      }),
   });
 });
 

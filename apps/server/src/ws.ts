@@ -80,6 +80,7 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
+  PullRequestOperationError,
   WS_METHODS,
   WsRpcGroup,
   WORKTREE_SETUP_ACTIVITY_KIND,
@@ -190,6 +191,7 @@ import * as ViewCodeRelaySetup from "./relay/ViewCodeRelaySetup.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
+import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -706,6 +708,7 @@ const makeWsRpcLayer = (
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
+      const pullRequestAgentReview = yield* PullRequestAgentReview.PullRequestAgentReview;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
@@ -3195,6 +3198,31 @@ const makeWsRpcLayer = (
                   : listLinkedPullRequestThreads(key).pipe(
                       Effect.provideService(SqlClient.SqlClient, sql),
                     ),
+              ),
+            ),
+            { "rpc.aggregate": "pull-requests" },
+          ),
+        [WS_METHODS.pullRequestsStartReview]: ({ mode, modelSelection, focus, ...reference }) =>
+          observeRpcEffect(
+            WS_METHODS.pullRequestsStartReview,
+            withPullRequestViewer(
+              reference,
+              pullRequestAgentReview.start({
+                reference,
+                mode,
+                modelSelection,
+                focus,
+                linkSource: "manual",
+              }),
+            ).pipe(
+              Effect.catchTag("PullRequestAgentReviewError", (error) =>
+                Effect.fail(
+                  new PullRequestOperationError({
+                    operation: "startReview",
+                    detail: error.message,
+                    cause: error,
+                  }),
+                ),
               ),
             ),
             { "rpc.aggregate": "pull-requests" },

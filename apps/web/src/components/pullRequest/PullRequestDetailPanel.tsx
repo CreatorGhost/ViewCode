@@ -37,6 +37,7 @@ import {
   PanelRightIcon,
   PlayIcon,
   RotateCcwIcon,
+  ScanSearchIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import {
@@ -89,6 +90,7 @@ import {
 import { useAtomCommand } from "~/state/use-atom-command";
 import { PullRequestStackMenu } from "./PullRequestStackMenu";
 import { PullRequestThreadLinks } from "./PullRequestThreadLinks";
+import { PullRequestAgentReviewDialog } from "./PullRequestAgentReviewDialog";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
@@ -507,6 +509,7 @@ export function PullRequestDetailPanel({
       ? listEntry
       : null;
   const [threadPickerOpen, setThreadPickerOpen] = useState(false);
+  const [agentReviewOpen, setAgentReviewOpen] = useState(false);
   const [tab, setTab] = useState<DetailTab>("summary");
   const [timelineOrder, setTimelineOrder] = useState<"newest" | "oldest">("newest");
   const [codeCommitScope, setCodeCommitScope] = useState<{
@@ -950,6 +953,9 @@ export function PullRequestDetailPanel({
   const acting =
     pickableEnvironments.find((entry) => entry.environmentId === chosenEnvironmentId) ?? null;
   const actingEnvironmentId = acting?.environmentId ?? environmentId;
+  const canStartAgentReview =
+    environmentConfigs.get(actingEnvironmentId)?.environment.capabilities.pullRequestAgentReview ===
+    true;
   const checkoutRoot =
     acting?.workspaceRoot ?? detail?.workspaceRoot ?? project?.workspaceRoot ?? null;
   const prepareThread = usePreparePullRequestThreadAction({
@@ -1654,6 +1660,14 @@ export function PullRequestDetailPanel({
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
+      {agentReviewOpen && detail ? (
+        <PullRequestAgentReviewDialog
+          environmentId={actingEnvironmentId}
+          reference={{ ...reference, projectId: acting?.projectId ?? reference.projectId }}
+          number={detail.number}
+          onClose={() => setAgentReviewOpen(false)}
+        />
+      ) : null}
       {threadPickerOpen && detail ? (
         <PullRequestThreadLinks
           key={`${environmentId}:${detail.url}`}
@@ -2056,6 +2070,17 @@ export function PullRequestDetailPanel({
                       </span>
                     </span>
                   </MenuItem>
+                  {canStartAgentReview ? (
+                    <MenuItem onClick={() => setAgentReviewOpen(true)}>
+                      <ScanSearchIcon className="mt-1 size-3.5 shrink-0 self-start" />
+                      <span className="flex min-w-0 flex-col">
+                        <span>Review with agent...</span>
+                        <span className="text-xs text-muted-foreground">
+                          Starts a review in a new thread you can keep talking to.
+                        </span>
+                      </span>
+                    </MenuItem>
+                  ) : null}
                   <MenuItem disabled={handoff !== null} onClick={startFixFindings}>
                     <HammerIcon className="size-3.5" />
                     {handoff === "findings" ? "Preparing..." : handoffLabels.fixFindings}

@@ -24,6 +24,7 @@ import {
 } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
 import { listThreadPullRequests, PullRequestsToolkitHandlersLive } from "./handlers.ts";
 import { PullRequestLinkFailedError, PullRequestsToolkit } from "./tools.ts";
 
@@ -139,6 +140,9 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
   options: HarnessOptions = {},
 ) {
   const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+  const reviews = yield* Ref.make<
+    ReadonlyArray<PullRequestAgentReview.PullRequestAgentReviewInput>
+  >([]);
   const thread = options.thread === undefined ? makeThread([]) : options.thread;
   const project = options.project === undefined ? makeProject() : options.project;
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
@@ -161,6 +165,12 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       latestSequence: Effect.succeed(0),
     }),
     Layer.succeed(Crypto.Crypto, testCrypto),
+    Layer.mock(PullRequestAgentReview.PullRequestAgentReview)({
+      start: (input) =>
+        Ref.update(reviews, (all) => [...all, input]).pipe(
+          Effect.as({ threadId: ThreadId.make("review-thread"), title: "Review: #7 Fix" }),
+        ),
+    }),
   );
   const toolkit = yield* PullRequestsToolkit.pipe(
     Effect.provide(PullRequestsToolkitHandlersLive.pipe(Layer.provide(dependencies))),
@@ -180,10 +190,42 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
       Effect.provide(dependencies),
     );
-  return { commands, call };
+  return { commands, reviews, call };
 });
 
 describe("pull request toolkit handlers", () => {
+  it.effect("starts a review on the thread's project, falling back to the thread's model", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const result = yield* harness.call("review_pull_request", {
+        repository: "T3Tools/T3Code",
+        number: 7,
+        mode: "deep",
+        focus: "migrations",
+      });
+      expect(result).toMatchObject({
+        host: "github.com",
+        repository: "t3tools/t3code",
+        number: 7,
+        threadId: "review-thread",
+      });
+      expect(yield* Ref.get(harness.reviews)).toMatchObject([
+        {
+          reference: {
+            projectId: PROJECT_ID,
+            host: "github.com",
+            repository: "t3tools/t3code",
+            number: 7,
+          },
+          mode: "deep",
+          focus: "migrations",
+          fallbackModelSelection: { instanceId: "codex", model: "gpt-5" },
+          linkSource: "agent",
+        },
+      ]);
+    }),
+  );
+
   it.effect("refuses a credential without the pull-requests capability", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

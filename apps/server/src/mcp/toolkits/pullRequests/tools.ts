@@ -1,6 +1,9 @@
 import {
+  AgentReviewMode,
   McpCapabilityUnavailableError,
   PositiveInt,
+  PullRequestOperationError,
+  PullRequestUnavailableError,
   PullRequestState,
   ThreadPullRequestLinkSource,
   TrimmedNonEmptyString,
@@ -10,6 +13,7 @@ import * as Tool from "effect/unstable/ai/Tool";
 import * as Toolkit from "effect/unstable/ai/Toolkit";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
@@ -17,6 +21,7 @@ const dependencies = [
   McpInvocationContext.McpInvocationContext,
   OrchestrationEngine.OrchestrationEngineService,
   ProjectionSnapshotQuery.ProjectionSnapshotQuery,
+  PullRequestAgentReview.PullRequestAgentReview,
 ];
 
 const REGISTER_EVERY_PR =
@@ -135,6 +140,15 @@ export class PullRequestListFailedError extends Schema.TaggedError<PullRequestLi
   }
 }
 
+export class PullRequestReviewFailedError extends Schema.TaggedError<PullRequestReviewFailedError>()(
+  "PullRequestReviewFailedError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not start the review.";
+  }
+}
+
 export const PullRequestToolError = Schema.Union([
   McpCapabilityUnavailableError,
   PullRequestUrlInvalidError,
@@ -146,6 +160,11 @@ export const PullRequestToolError = Schema.Union([
   PullRequestListFailedError,
   PullRequestWatchFailedError,
   PullRequestNotWatchableError,
+  PullRequestReviewFailedError,
+  // The review service's own failures say what to change (pick a model, sign in to the host).
+  PullRequestAgentReview.PullRequestAgentReviewError,
+  PullRequestUnavailableError,
+  PullRequestOperationError,
 ]);
 export type PullRequestToolError = typeof PullRequestToolError.Type;
 
@@ -217,6 +236,29 @@ export const ListThreadPullRequestsResult = Schema.Struct({
 });
 export type ListThreadPullRequestsResult = typeof ListThreadPullRequestsResult.Type;
 
+export const ReviewPullRequestInput = Schema.Struct({
+  ...PullRequestTargetInput.fields,
+  mode: Schema.optional(
+    AgentReviewMode.annotate({
+      description:
+        "quick (default): one agent, one pass. deep: several agents review through different lenses and try to disprove each other's findings. security: a security audit of the change and the code it reaches. deep and security use more of the user's plan.",
+    }),
+  ),
+  focus: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(500)).annotate({
+      description: 'What the reviewer should look at most closely, for example "error handling".',
+    }),
+  ),
+});
+export type ReviewPullRequestInput = typeof ReviewPullRequestInput.Type;
+
+export const ReviewPullRequestResult = Schema.Struct({
+  ...PullRequestIdentity,
+  threadId: Schema.String.annotate({ description: "The new review thread." }),
+  title: Schema.String,
+});
+export type ReviewPullRequestResult = typeof ReviewPullRequestResult.Type;
+
 const LinkPullRequestTool = Tool.make("link_pull_request", {
   description: `${REGISTER_EVERY_PR} Links a pull request to this thread so ViewCode tracks it, shows its status beside the thread, and settles the thread when it merges. Pass the URL, or repository plus number. Linking an already-linked pull request succeeds with alreadyLinked=true.`,
   parameters: PullRequestTargetInput,
@@ -284,10 +326,25 @@ const UnwatchPullRequestTool = Tool.make("unwatch_pull_request", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const ReviewPullRequestTool = Tool.make("review_pull_request", {
+  description:
+    "Start an agent review of a pull request in a new ViewCode thread on this thread's project, linked to the pull request, for the user to read and continue. The reviewer follows ViewCode's review playbook for the chosen mode, changes no files and posts nothing to the host. It runs with the user's default model for new threads in the project, or this thread's model when none is set. The call returns once the review has started; it does not wait for or return the findings. Pass the URL, or repository plus number.",
+  parameters: ReviewPullRequestInput,
+  success: ReviewPullRequestResult,
+  failure: PullRequestToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Start a pull request review")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
 export const PullRequestsToolkit = Toolkit.make(
   LinkPullRequestTool,
   UnlinkPullRequestTool,
   ListThreadPullRequestsTool,
   WatchPullRequestTool,
   UnwatchPullRequestTool,
+  ReviewPullRequestTool,
 );

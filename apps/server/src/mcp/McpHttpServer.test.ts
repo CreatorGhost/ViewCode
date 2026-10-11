@@ -15,6 +15,7 @@ import { HttpBody, HttpClient, HttpRouter, HttpServerResponse } from "effect/uns
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerConfig from "../config.ts";
+import * as PullRequestAgentReview from "../pullRequest/PullRequestAgentReview.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
@@ -58,6 +59,7 @@ const PullRequestsTestLayer = McpHttpServer.PullRequestsToolkitRegistrationLive.
         getThreadShellById: () => Effect.succeedNone,
       }),
       Layer.mock(OrchestrationEngineService)({}),
+      Layer.mock(PullRequestAgentReview.PullRequestAgentReview)({}),
       NodeServices.layer,
     ),
   ),
@@ -443,6 +445,7 @@ it.effect(
           "link_pull_request",
           "unlink_pull_request",
           "list_thread_pull_requests",
+          "review_pull_request",
         ]),
       );
       const linkTool = server.tools.find(({ tool }) => tool.name === "link_pull_request");

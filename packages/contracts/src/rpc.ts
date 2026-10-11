@@ -111,6 +111,8 @@ import {
   OrchestrationGetTurnDiffInput,
   OrchestrationRpcSchemas,
   OrchestrationGetWorkflowScriptError,
+  PullRequestStartReviewInput,
+  PullRequestStartReviewResult,
 } from "./orchestration.ts";
 import {
   ProviderUploadFeedbackError,
@@ -458,6 +460,7 @@ export const WS_METHODS = {
   pullRequestsRoutingIdentity: "pullRequests.routingIdentity",
   pullRequestsStack: "pullRequests.stack",
   pullRequestsLinkedThreads: "pullRequests.linkedThreads",
+  pullRequestsStartReview: "pullRequests.startReview",
   pullRequestsDetail: "pullRequests.detail",
   pullRequestsPreview: "pullRequests.preview",
   pullRequestsActivity: "pullRequests.activity",
@@ -903,6 +906,13 @@ const WsPullRequestsStackRpc = Rpc.make(WS_METHODS.pullRequestsStack, {
 const WsPullRequestsLinkedThreadsRpc = Rpc.make(WS_METHODS.pullRequestsLinkedThreads, {
   payload: PullRequestRef,
   success: PullRequestLinkedThreadsResult,
+  error: PullRequestRpcError,
+});
+
+/** Only send to environments advertising `pullRequestAgentReview`. */
+const WsPullRequestsStartReviewRpc = Rpc.make(WS_METHODS.pullRequestsStartReview, {
+  payload: PullRequestStartReviewInput,
+  success: PullRequestStartReviewResult,
   error: PullRequestRpcError,
 });
 
@@ -1737,6 +1747,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPullRequestsRoutingIdentityRpc,
   WsPullRequestsStackRpc,
   WsPullRequestsLinkedThreadsRpc,
+  WsPullRequestsStartReviewRpc,
   WsPullRequestsDetailRpc,
   WsPullRequestsPreviewRpc,
   WsPullRequestsActivityRpc,

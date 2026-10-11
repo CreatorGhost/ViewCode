@@ -28,6 +28,7 @@ import {
   PullRequestActor,
   PullRequestChecksState,
   PullRequestMergeability,
+  PullRequestRef,
   PullRequestReviewDecision,
   PullRequestState,
 } from "./pullRequest.ts";
@@ -1383,6 +1384,57 @@ const ThreadPullRequestWatchCommand = Schema.Struct({
     Schema.Struct({ url: TrimmedNonEmptyString, source: ThreadPullRequestLinkSource }),
   ),
 });
+
+/**
+ * Starts an agent review of a pull request: a new thread on the reference's project, linked to
+ * the pull request, whose first message asks for the review. Lives here rather than beside
+ * `PullRequestRef` because it carries a model selection.
+ */
+/** How thorough an agent review is: one pass, several agents, or a security audit. */
+export const AgentReviewMode = Schema.Literals(["quick", "deep", "security"]);
+export type AgentReviewMode = typeof AgentReviewMode.Type;
+
+/** How each client offers the modes, in this order; the first is the default. */
+export const AGENT_REVIEW_MODES: ReadonlyArray<{
+  readonly mode: AgentReviewMode;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  {
+    mode: "quick",
+    label: "Quick review",
+    description: "One agent reads the change in a single pass.",
+  },
+  {
+    mode: "deep",
+    label: "Deep review",
+    description:
+      "Several agents review through different lenses and try to disprove each other's findings. Uses more of your plan.",
+  },
+  {
+    mode: "security",
+    label: "Security audit",
+    description:
+      "Several agents hunt for vulnerabilities in the change and the code it reaches. Uses more of your plan.",
+  },
+];
+
+export const PullRequestStartReviewInput = Schema.Struct({
+  ...PullRequestRef.fields,
+  /** Absent: a quick review. */
+  mode: Schema.optional(AgentReviewMode),
+  /** Absent: the project's default model for new threads. */
+  modelSelection: Schema.optional(ModelSelection),
+  /** What to look at most closely, for example "security"; appended to the review request. */
+  focus: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))),
+});
+export type PullRequestStartReviewInput = typeof PullRequestStartReviewInput.Type;
+
+export const PullRequestStartReviewResult = Schema.Struct({
+  threadId: ThreadId,
+  title: TrimmedNonEmptyString,
+});
+export type PullRequestStartReviewResult = typeof PullRequestStartReviewResult.Type;
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
   type: Schema.Literal("thread.runtime-mode.set"),

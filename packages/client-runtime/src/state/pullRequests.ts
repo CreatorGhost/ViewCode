@@ -210,6 +210,15 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       refreshIntervalMs: 10_000,
       refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
     }),
+    /**
+     * An agent review in a new thread on the environment that holds the project. Not routed to
+     * another environment: the thread has to land where the reader chose. Only for environments
+     * advertising `pullRequestAgentReview`.
+     */
+    startReview: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:pull-requests:start-review",
+      tag: WS_METHODS.pullRequestsStartReview,
+    }),
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:pull-requests:list",
       tag: WS_METHODS.pullRequestsList,

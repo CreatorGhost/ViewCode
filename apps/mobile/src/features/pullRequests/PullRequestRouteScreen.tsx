@@ -1,16 +1,21 @@
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  AGENT_REVIEW_MODES,
+  type AgentReviewMode,
+  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ProjectId,
   type PullRequestDetail,
   type PullRequestMergeMethod,
   type PullRequestRef,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { Image } from "expo-image";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
@@ -28,12 +33,19 @@ import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { cn } from "../../lib/cn";
+import {
+  buildModelOptions,
+  resolveDefaultableModelSelection,
+  resolveNewTaskModelSelection,
+} from "../../lib/modelOptions";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { relativeTime } from "../../lib/time";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
+import { useEnvironmentServerConfig, useProject } from "../../state/entities";
 import { pullRequestEnvironment } from "../../state/pullRequests";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useStickyComposerModelSelection } from "../../state/use-composer-drafts";
 import { MarkdownText } from "../files/FileMarkdownPreview";
 import { HomePillIconButton, HomePillSurface } from "../home/HomePillButton";
 import {
@@ -228,6 +240,80 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
     );
   }, [detail, environmentId, mergeMethod, reference, refreshFromHost, runAction]);
 
+  // An agent review starts on the model a new task in this project would: the project's default,
+  // then the last model picked, then the provider's default.
+  const serverConfig = useEnvironmentServerConfig(environmentId);
+  const project = useProject(scopeProjectRef(environmentId, reference.projectId));
+  const stickyModelSelection = useStickyComposerModelSelection();
+  const startReview = useAtomCommand(pullRequestEnvironment.startReview, { reportFailure: false });
+  const [startingReview, setStartingReview] = useState(false);
+  const canStartReview = serverConfig?.environment.capabilities.pullRequestAgentReview === true;
+  const reviewModelSelection = useMemo(() => {
+    const projectDefault = resolveDefaultableModelSelection(
+      serverConfig,
+      resolveProjectSettings(
+        serverConfig?.settings ?? DEFAULT_SERVER_SETTINGS,
+        reference.projectId,
+        project,
+      ).settings.defaultModelSelection,
+    );
+    const sticky = resolveDefaultableModelSelection(serverConfig, stickyModelSelection);
+    return resolveNewTaskModelSelection({
+      draftSelection: null,
+      projectDefaultSelection: projectDefault,
+      stickySelection: sticky,
+      modelOptions: buildModelOptions(serverConfig, projectDefault ?? sticky),
+    });
+  }, [project, reference.projectId, serverConfig, stickyModelSelection]);
+  const reviewActions = useMemo<MenuAction[]>(
+    () =>
+      AGENT_REVIEW_MODES.map((entry) => ({
+        id: `review:${entry.mode}`,
+        title: entry.label,
+        subtitle: entry.description,
+      })),
+    [],
+  );
+  const startAgentReview = useCallback(
+    (mode: AgentReviewMode) => {
+      if (startingReview) return;
+      setStartingReview(true);
+      void startReview({
+        environmentId,
+        input: {
+          ...reference,
+          mode,
+          ...(reviewModelSelection ? { modelSelection: reviewModelSelection } : {}),
+        },
+      })
+        .then((result) => {
+          if (result._tag === "Failure") {
+            if (isAtomCommandInterrupted(result)) return;
+            const error = squashAtomCommandFailure(result);
+            Alert.alert(
+              "Could not start the review",
+              error instanceof Error ? error.message : "The review could not be started.",
+            );
+            return;
+          }
+          navigation.navigate("Thread", {
+            environmentId: params.environmentId,
+            threadId: result.value.threadId,
+          });
+        })
+        .finally(() => setStartingReview(false));
+    },
+    [
+      environmentId,
+      navigation,
+      params.environmentId,
+      reference,
+      reviewModelSelection,
+      startReview,
+      startingReview,
+    ],
+  );
+
   const methodActions = useMemo<MenuAction[]>(
     () =>
       mergeMethods.map((method) => ({
@@ -263,6 +349,26 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
         <Text className="flex-1 text-center text-lg font-t3-bold text-foreground" numberOfLines={1}>
           PR #{number}
         </Text>
+        {canStartReview && detail !== null ? (
+          <AndroidAnchoredMenu
+            title="Review with agent"
+            actions={reviewActions}
+            onPressAction={({ nativeEvent }) => {
+              const next = AGENT_REVIEW_MODES.find(
+                (entry) => `review:${entry.mode}` === nativeEvent.event,
+              );
+              if (next) startAgentReview(next.mode);
+            }}
+          >
+            {(open) => (
+              <HomePillIconButton
+                accessibilityLabel="Review with agent"
+                icon="checkmark.circle"
+                onPress={open}
+              />
+            )}
+          </AndroidAnchoredMenu>
+        ) : null}
         <HomePillIconButton
           accessibilityLabel="Open on the host"
           icon="arrow.up.right"

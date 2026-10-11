@@ -155,6 +155,17 @@ PR creation from Git actions continue to use the project's environment.
 For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
 declined pull request.
 
+### Review with an agent
+
+Choose **Review with agent...** in a pull request's actions menu to have an agent review it. Pick
+**Quick review** (one pass), **Deep review** (several agents that check each other's findings), or
+**Security audit**, then the model and, optionally, what to focus on. Deep reviews and security
+audits run several agents and use more of your plan. The review opens in a new thread in the
+project, linked to the pull request, so you can keep asking the agent about it. It runs with your
+default permissions for new threads, reads the change without touching your checkout, and posts
+nothing to the host unless you ask. On Android the review button is in the pull request screen's
+header and uses your default model. Agents can start a review with the `review_pull_request` tool.
+
 ### Mark files as viewed
 
 Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a
