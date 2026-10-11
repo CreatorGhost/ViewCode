@@ -4,6 +4,8 @@ import type { MenuAction } from "@react-native-menu/menu";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   openReviewFindingCount,
+  reviewFindingEntries,
+  reviewFindingMarksByKey,
   selectLatestReview,
   selectPullRequestReviewFindings,
 } from "@t3tools/client-runtime/review-findings";
@@ -20,7 +22,7 @@ import {
   type PullRequestDetail,
   type PullRequestMergeMethod,
   type PullRequestRef,
-  type ThreadId,
+  ThreadId,
   type ThreadPullRequestKey,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -314,6 +316,8 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
           ...reference,
           mode,
           ...(reviewModelSelection ? { modelSelection: reviewModelSelection } : {}),
+          // Opened from a chat, the reviewer runs as that chat's agent, as it does from web.
+          ...(params.threadId ? { sourceThreadId: ThreadId.make(params.threadId) } : {}),
         },
       })
         .then((result) => {
@@ -332,7 +336,7 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
         })
         .finally(() => setStartingReview(false));
     },
-    [environmentId, reference, reviewModelSelection, startReview, startingReview],
+    [environmentId, params.threadId, reference, reviewModelSelection, startReview, startingReview],
   );
 
   // Agent reviews of this pull request: the newest findings any linked thread submitted, and a
@@ -380,12 +384,16 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
     [reviewSource, reviewSourceActivities],
   );
   const reviewDismissed = useDismissedReviewFindings(
-    reviewFindingsCardKey(environmentId, reviewSource?.activityId ?? ""),
+    reviewFindingsCardKey(environmentId, reviewSource?.threadId ?? ""),
   );
   const openFindingCount =
     reviewSource === null
       ? 0
-      : openReviewFindingCount(reviewSource.findings, reviewDismissed, reviewPosted);
+      : openReviewFindingCount(
+          reviewSource.findings,
+          reviewFindingMarksByKey(reviewFindingEntries(reviewSource.findings), reviewDismissed),
+          reviewPosted,
+        );
   const runningReviewLabel =
     runningReview === null
       ? null
@@ -616,18 +624,19 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
               <InfoRow icon="clock" label="Reviewing">
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityHint="Opens the review's chat."
+                  accessibilityHint="Opens the review's findings as they arrive."
                   hitSlop={6}
                   onPress={() =>
-                    navigation.navigate("Thread", {
+                    navigation.navigate("ThreadReviewFindings", {
                       environmentId: params.environmentId,
                       threadId: runningReview.threadId,
+                      fromThreadId: params.threadId,
                     })
                   }
                   className="flex-row items-center gap-1.5 active:opacity-70"
                 >
                   <Text className="shrink text-[15px] text-foreground" numberOfLines={1}>
-                    {runningReviewLabel} under way · Open chat
+                    {runningReviewLabel} under way
                   </Text>
                   <SymbolView
                     name="chevron.right"

@@ -4,6 +4,8 @@ import {
   reviewFindingEntries,
   type ReviewFindingEntry,
   type ReviewFindingsSource,
+  reviewStartedRecord,
+  type ReviewStartedRecord,
 } from "@t3tools/client-runtime/review-findings";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ReviewFindingRating, ScopedThreadRef } from "@t3tools/contracts";
@@ -32,6 +34,8 @@ export interface ReviewThreadFindings {
   readonly ratings: ReadonlyMap<string, ReviewFindingRating>;
   /** The thread has not loaded yet, so no findings may only mean not yet. */
   readonly loading: boolean;
+  /** How the thread's review was asked for; null for a thread that is no review. */
+  readonly started: ReviewStartedRecord | null;
 }
 
 /**
@@ -68,5 +72,6 @@ export function useReviewThreadFindings(ref: ScopedThreadRef): ReviewThreadFindi
     posted,
     ratings,
     loading: source === null && status === "synchronizing",
+    started: reviewStartedRecord(activities),
   };
 }
