@@ -194,6 +194,8 @@ function ReviewFindingsViewContent({
   );
   const openEntries = entries.filter((entry) => !dismissed[entry.key]);
   const currentIndex = currentKey === null ? -1 : order.indexOf(currentKey);
+  // Before the reader steps, the counter stands on the first issue, which is already at the top.
+  const shownIndex = Math.max(currentIndex, 0);
   const currentPlacement = placed.find((entry) => entry.entry.key === currentKey) ?? null;
 
   const toggleExpanded = useCallback(
@@ -539,12 +541,12 @@ function ReviewFindingsViewContent({
             variant="ghost"
             aria-label="Previous issue"
             disabled={order.length === 0}
-            onClick={() => goTo(currentIndex <= 0 ? order.length - 1 : currentIndex - 1)}
+            onClick={() => goTo(shownIndex === 0 ? order.length - 1 : shownIndex - 1)}
           >
             <ChevronLeftIcon aria-hidden />
           </Button>
           <span className="text-muted-foreground text-xs tabular-nums">
-            Issue {currentIndex < 0 ? "-" : currentIndex + 1}/{order.length}
+            Issue {order.length === 0 ? 0 : shownIndex + 1}/{order.length}
           </span>
           <Button
             type="button"
@@ -552,7 +554,7 @@ function ReviewFindingsViewContent({
             variant="ghost"
             aria-label="Next issue"
             disabled={order.length === 0}
-            onClick={() => goTo(currentIndex < 0 ? 0 : (currentIndex + 1) % order.length)}
+            onClick={() => goTo((shownIndex + 1) % order.length)}
           >
             <ChevronRightIcon aria-hidden />
           </Button>
