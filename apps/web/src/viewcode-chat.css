@@ -266,11 +266,11 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-she
   --vc-composer-surface: color-mix(in srgb, var(--background) 97%, white);
   --chat-composer-glass-surface: var(--vc-composer-surface);
 }
-/* Dark: a solid, deep near-black well (after Synara), keeping a trace of the
-   theme so it still belongs to it. Solid because a see-through well over the
-   sheet reads as the sheet again. */
+/* Dark: a solid, neutral near-black well (after Synara), the same in every
+   ViewCode theme so the live ring's neon reads against true black. Solid
+   because a see-through well over the sheet reads as the sheet again. */
 html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
-  --vc-composer-surface: color-mix(in srgb, var(--background) 30%, #0b0b0c);
+  --vc-composer-surface: #0b0b0c;
   /* Restated here: viewcode-theme.css sets the same variable at equal weight
      and loads later, so the light-mode rule above never reaches it. */
   --chat-composer-glass-surface: var(--vc-composer-surface);
@@ -309,22 +309,28 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 /* Agent live: a light circles the composer's edge while a turn runs, in the
    theme accent (teal in ViewCode Teal), over a soft static glow. Maintainer-
    approved exception to "no continuous animations": the sweep is a square
-   rotated with `transform` and clipped to a 1.5px ring by a static mask, so it
+   rotated with `transform` under a static cover that leaves a 2px band, so it
    runs on the compositor with no repaint, only while a turn runs, and stops
    under reduced motion. Animate nothing else here. */
 [data-composer-live-ring] {
   --vc-live-ring: var(--app-theme-accent, var(--ring));
   position: absolute;
   inset: 0;
-  z-index: 21;
-  padding: 1.5px;
+  /* Behind the composer's content but above its surface. */
+  z-index: -1;
   overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 22px -6px color-mix(in srgb, var(--vc-live-ring) 55%, transparent);
-  mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
+}
+/* Covers the sweep inside a 2px band. A rounded cover rather than a mask: a
+   content-box mask has square corners, which pinch the ring at the corners. */
+[data-composer-live-ring]::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  /* The composer's 22px radius, less the band. */
+  border-radius: 20px;
+  background-color: var(--chat-composer-glass-surface, var(--background));
 }
 [data-composer-live-ring] > span {
   position: absolute;
@@ -336,15 +342,24 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   background: conic-gradient(
     from 0deg,
     transparent 0deg,
-    color-mix(in srgb, var(--vc-live-ring) 25%, transparent) 200deg,
-    var(--vc-live-ring) 320deg,
-    color-mix(in srgb, white 70%, var(--vc-live-ring)) 350deg,
+    color-mix(in srgb, var(--vc-live-ring) 30%, transparent) 180deg,
+    color-mix(in srgb, white 25%, var(--vc-live-ring)) 300deg,
+    color-mix(in srgb, white 75%, var(--vc-live-ring)) 336deg,
+    color-mix(in srgb, var(--vc-live-ring) 40%, transparent) 352deg,
     transparent 360deg
   );
   animation-name: viewcode-live-ring;
   animation-duration: 3.2s;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
+}
+/* The neon glow sits on the composer, not the ring: the ring's mask clips
+   anything drawn outside it. Static. */
+[data-chat-composer-main-surface]:has(> [data-composer-live-ring]) {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--app-theme-accent, var(--ring)) 35%, transparent),
+    0 0 18px -2px color-mix(in srgb, var(--app-theme-accent, var(--ring)) 45%, transparent),
+    0 0 48px -8px color-mix(in srgb, var(--app-theme-accent, var(--ring)) 35%, transparent);
 }
 @keyframes viewcode-live-ring {
   to {
