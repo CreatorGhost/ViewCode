@@ -1,6 +1,7 @@
 /**
  * Which repository a `gh` invocation is about, so a machine signed in to several GitHub accounts
- * on one host can run it as an account that can see that repository. Pure: reads argv and stdin.
+ * on one host can run it as an account that can see that repository. Pure: reads routing context,
+ * argv and stdin.
  */
 export interface GitHubCommandTarget {
   readonly host: string;
@@ -75,6 +76,8 @@ function parseStdin(stdin: string | undefined): {
 export function gitHubCommandTarget(input: {
   readonly args: ReadonlyArray<string>;
   readonly stdin?: string | undefined;
+  /** Repository context for requests addressed only by opaque node IDs. */
+  readonly repository?: string | undefined;
   /** The host gh would use when the command names none. */
   readonly defaultHost: string;
 }): GitHubCommandTarget | null {
@@ -99,6 +102,7 @@ export function gitHubCommandTarget(input: {
       }
     } else if (parts.length === 3) hosts.push(parts[0]!);
   };
+  addRepository(input.repository);
   if (command === "repo" && action === "view" && args[2] !== undefined && !args[2].startsWith("-"))
     addRepository(args[2]);
   for (let index = 1; index < args.length; index++) {
@@ -129,7 +133,8 @@ export function gitHubCommandTarget(input: {
     }
   }
   const body = parseStdin(input.stdin);
-  owners.push(...body.owners);
+  // Explicit context wins over repository mentions in user-authored mutation bodies.
+  if (input.repository === undefined) owners.push(...body.owners);
   query ??= body.query;
 
   const distinctOwners = new Set(owners.map((owner) => owner.toLowerCase()));

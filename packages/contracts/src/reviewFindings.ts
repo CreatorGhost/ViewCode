@@ -457,6 +457,7 @@ export class ReviewFixThreadError extends Schema.TaggedError<ReviewFixThreadErro
       "project",
       "settings",
       "checkout",
+      "checkout-busy",
       "create-thread",
       "link",
       "start-turn",
@@ -478,6 +479,8 @@ export class ReviewFixThreadError extends Schema.TaggedError<ReviewFixThreadErro
         return this.detail
           ? `Could not check out the pull request: ${this.detail}`
           : "Could not check out the pull request.";
+      case "checkout-busy":
+        return "Another session is working in this pull request's checkout. Stop or finish it before starting a new fix session.";
       case "create-thread":
         return "Could not create the session.";
       case "link":

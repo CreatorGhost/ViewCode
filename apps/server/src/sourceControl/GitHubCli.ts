@@ -305,6 +305,8 @@ export interface GitHubRepositoryCloneUrls {
 interface GitHubCliCommand {
   readonly cwd: string;
   readonly args: ReadonlyArray<string>;
+  /** Account routing context for requests that name only node IDs. Never sent to gh. */
+  readonly repository?: string;
   readonly timeoutMs?: number;
   /** Piped to the child's stdin, for payloads that must never appear in argv. */
   readonly stdin?: string;
@@ -730,6 +732,7 @@ export const make = Effect.gen(function* () {
       : gitHubCommandTarget({
           args: input.args,
           stdin: input.stdin,
+          repository: input.repository,
           defaultHost:
             input.rateLimitHost ??
             input.env?.GH_HOST ??

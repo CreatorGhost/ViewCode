@@ -1305,6 +1305,7 @@ export const make = Effect.gen(function* () {
   const graphql = (input: {
     readonly cwd: string;
     readonly host: string;
+    readonly repository: string;
     readonly query: string;
     readonly variables: Readonly<Record<string, string>>;
   }) =>
@@ -1312,6 +1313,7 @@ export const make = Effect.gen(function* () {
       .execute({
         cwd: input.cwd,
         args: ["api", "graphql", "--hostname", input.host, "--input", "-"],
+        repository: input.repository,
         stdin: encodeGraphQlRequestJson({ query: input.query, variables: input.variables }),
       })
       .pipe(Effect.asVoid);
@@ -2555,6 +2557,7 @@ export const make = Effect.gen(function* () {
             graphql({
               cwd: input.cwd,
               host: input.host,
+              repository: input.repository,
               query: REVERT_PULL_REQUEST_GRAPHQL_MUTATION,
               variables: { pullRequestId },
             }),
@@ -2712,6 +2715,7 @@ export const make = Effect.gen(function* () {
       graphql({
         cwd: input.cwd,
         host: input.host,
+        repository: input.repository,
         query: REVIEW_THREAD_REPLY_GRAPHQL_MUTATION,
         variables: { threadId: input.threadId, body: input.body },
       }),
@@ -2759,6 +2763,7 @@ export const make = Effect.gen(function* () {
           graphql({
             cwd: input.cwd,
             host: input.host,
+            repository: input.repository,
             query: mutation.query,
             variables: { pullRequestId, ...mutation.variables },
           }),
@@ -2770,6 +2775,7 @@ export const make = Effect.gen(function* () {
       graphql({
         cwd: input.cwd,
         host: input.host,
+        repository: input.repository,
         query: input.resolved
           ? RESOLVE_REVIEW_THREAD_GRAPHQL_MUTATION
           : UNRESOLVE_REVIEW_THREAD_GRAPHQL_MUTATION,
@@ -2803,6 +2809,7 @@ export const make = Effect.gen(function* () {
           graphql({
             cwd: input.cwd,
             host: input.host,
+            repository: input.repository,
             query: input.reacted ? ADD_REACTION_GRAPHQL_MUTATION : REMOVE_REACTION_GRAPHQL_MUTATION,
             variables: { subjectId, content: gitHubReactionContent(input.content) },
           }),
@@ -2816,6 +2823,7 @@ export const make = Effect.gen(function* () {
           graphql({
             cwd: input.cwd,
             host: input.host,
+            repository: input.repository,
             query: UPDATE_PULL_REQUEST_GRAPHQL_MUTATION,
             // A field the caller did not name is left out of the request entirely, so GitHub
             // keeps the words that are there rather than being asked for an empty one.
@@ -2852,6 +2860,7 @@ export const make = Effect.gen(function* () {
           graphql({
             cwd: input.cwd,
             host: input.host,
+            repository: input.repository,
             query:
               input.kind === "issue-comment"
                 ? UPDATE_ISSUE_COMMENT_GRAPHQL_MUTATION
