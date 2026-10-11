@@ -446,13 +446,13 @@ describe("refineUnknownRemote", () => {
     );
   });
 
-  it("matches the host when the remote carries a port", () => {
+  it("matches the host when the remote carries an SSH port, which stays out of the web URL", () => {
     assert.deepStrictEqual(
       refine(
         "ssh://git@Git.Corp.Example:2222/team/app.git",
         ghAuthStatus([{ host: "git.corp.example", state: "success" }]),
       ),
-      { kind: "github", name: "GitHub Self-Hosted", baseUrl: "https://git.corp.example:2222" },
+      { kind: "github", name: "GitHub Self-Hosted", baseUrl: "https://git.corp.example" },
     );
   });
 
