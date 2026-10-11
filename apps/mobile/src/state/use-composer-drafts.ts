@@ -689,9 +689,16 @@ let legacyRestore: Promise<void> | null = null;
 // One restore at a time: a second caller would see the first one's
 // not-yet-durable enqueues as already queued and clear the archive early.
 function restoreLegacyArchives(): Promise<void> {
-  legacyRestore ??= restoreLegacyArchivesOnce().finally(() => {
-    legacyRestore = null;
-  });
+  legacyRestore ??= restoreLegacyArchivesOnce()
+    .catch((cause) => {
+      // Retry from the durable archive on the next load or composer persist.
+      // The restore's own flush still waits only for hydration.
+      loadPromise = null;
+      throw cause;
+    })
+    .finally(() => {
+      legacyRestore = null;
+    });
   return legacyRestore;
 }
 

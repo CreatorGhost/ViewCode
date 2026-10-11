@@ -302,6 +302,65 @@ describe("mobile composer drafts", () => {
     expect(enqueue).toHaveBeenCalledTimes(1);
   });
 
+  it("retries legacy restoration after a retirement write fails and ordinary draft persistence recovers", async () => {
+    vi.useFakeTimers();
+    const messages = [1, 2].map((index) => ({
+      environmentId: EnvironmentId.make("environment-1"),
+      threadId: ThreadId.make("thread-1"),
+      messageId: MessageId.make(`legacy-message-${index}`),
+      commandId: CommandId.make(`legacy-command-${index}`),
+      text: `Archived message ${index}`,
+      attachments: [],
+      createdAt: "2026-08-24T12:00:00.000Z",
+    }));
+    composerDraftFileMocks.setDocument({
+      schemaVersion: 1,
+      drafts: {},
+      signedOutDrafts: {
+        acct: { drafts: {}, queuedMessages: messages.map(encodeQueuedThreadMessage) },
+      },
+    });
+    const outboxLoad = vi.spyOn(threadOutboxManager, "load").mockResolvedValue(true);
+    onTestFinished(() => outboxLoad.mockRestore());
+    const enqueue = vi.spyOn(threadOutboxManager, "enqueue").mockImplementation(async (message) => {
+      const current = appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom);
+      appAtomRegistry.set(threadOutboxManager.queuedMessagesByThreadKeyAtom, {
+        ...current,
+        "environment-1:thread-1": [...(current["environment-1:thread-1"] ?? []), message],
+      });
+    });
+    onTestFinished(() => enqueue.mockRestore());
+
+    composerDraftFileMocks.setWriteError(new Error("storage temporarily unavailable"));
+    await waitForComposerDraftsLoaded();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(
+      decodePersistedComposerState(
+        JSON.parse(composerDraftFileMocks.getDocument()),
+      ).legacyArchives.flatMap((archive) => archive.queuedMessages),
+    ).toEqual(messages);
+
+    composerDraftFileMocks.setWriteError(null);
+    setComposerDraftText("environment-1:thread-1", "New draft");
+    await vi.runAllTimersAsync();
+
+    expect(enqueue.mock.calls.map(([message]) => message.messageId)).toEqual(
+      messages.map((message) => message.messageId),
+    );
+    expect(appAtomRegistry.get(threadOutboxManager.queuedMessagesByThreadKeyAtom)).toEqual({
+      "environment-1:thread-1": messages,
+    });
+    expect(
+      decodePersistedComposerState(JSON.parse(composerDraftFileMocks.getDocument())).legacyArchives,
+    ).toEqual([]);
+
+    // Retired messages stay retired even after removal and a fresh hydration.
+    appAtomRegistry.set(threadOutboxManager.queuedMessagesByThreadKeyAtom, {});
+    resetComposerDraftsLoadState();
+    await waitForComposerDraftsLoaded();
+    expect(enqueue).toHaveBeenCalledTimes(2);
+  });
+
   it("restores visible file chips from legacy drafts", async () => {
     const file = {
       type: "file" as const,
