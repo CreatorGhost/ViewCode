@@ -1,6 +1,10 @@
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { ReviewFindingKey } from "@t3tools/client-runtime/review-findings";
+import {
+  type ReviewFindingKey,
+  reviewFindingMarksByKey,
+  reviewFixAllInitiallyTicked,
+} from "@t3tools/client-runtime/review-findings";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   REVIEW_FINDING_SEVERITY_LABELS,
@@ -16,6 +20,7 @@ import { AppText as Text } from "../../../components/AppText";
 import { MaterialScreenContent } from "../../../components/MaterialScreenContent";
 import { cn } from "../../../lib/cn";
 import { NativeStackScreenOptions } from "../../../native/StackHeader";
+import { reviewFindingsCardKey, useSentReviewFindings } from "../../../state/review-findings";
 import { SheetActionButton } from "../../threads/git/gitSheetComponents";
 import { REVIEW_SEVERITY_PRESENTATION } from "./ReviewFindingRow";
 import { useReviewFix } from "./useReviewFix";
@@ -32,9 +37,10 @@ type ReviewFixSheetProps = StaticScreenProps<{
 }>;
 
 /**
- * Fix all, for more than one finding: the issues that go to the review's chat as one message,
- * all ticked so the reader can leave some out first. It lists issues only, never chats: where
- * they go is the review's own chat (`useReviewFix`).
+ * Fix all, for more than one finding: the issues that go to the review's chat as one message, the
+ * fixes not sent yet ticked (`reviewFixAllInitiallyTicked`) so the reader can change the selection
+ * first. It lists issues only, never chats: where they go is the review's own chat
+ * (`useReviewFix`).
  */
 export function ReviewFixSheet({ route }: ReviewFixSheetProps) {
   const navigation = useNavigation();
@@ -47,10 +53,18 @@ export function ReviewFixSheet({ route }: ReviewFixSheetProps) {
     [environmentId, reviewThreadId],
   );
   const { source, entries } = useReviewThreadFindings(reviewRef);
-  const keys = route.params.keys.split(",");
-  const offered = entries.filter((entry) => keys.includes(entry.key));
-  const [left, setLeft] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
-  const selection = offered.filter((entry) => !left.has(entry.key));
+  // In the findings screen's order, which is the order the keys come in.
+  const offered = route.params.keys
+    .split(",")
+    .flatMap((key) => entries.find((entry) => entry.key === key) ?? []);
+  const sent = useSentReviewFindings(reviewFindingsCardKey(environmentId, reviewThreadId));
+  const sentByKey = useMemo(() => reviewFindingMarksByKey(entries, sent), [entries, sent]);
+  // Fixes not sent yet start ticked; questions, unsettled and sent findings are the reader's to
+  // tick. What the reader toggles is kept apart, so findings arriving late start right too.
+  const [toggled, setToggled] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
+  const isTicked = (entry: (typeof offered)[number]) =>
+    reviewFixAllInitiallyTicked(entry, sentByKey) !== toggled.has(entry.key);
+  const selection = offered.filter(isTicked);
   const { chat, fix } = useReviewFix({
     environmentId,
     reviewThreadId,
@@ -70,7 +84,7 @@ export function ReviewFixSheet({ route }: ReviewFixSheetProps) {
   };
 
   const count = selection.length;
-  const title = `Fix ${offered.length} issues`;
+  const title = `Fix ${count} ${count === 1 ? "issue" : "issues"}`;
   const destination = chat?.kind === "thread" ? chat.title : "a new chat";
   const sendLabel =
     chat?.kind === "new"
@@ -109,7 +123,7 @@ export function ReviewFixSheet({ route }: ReviewFixSheetProps) {
           </View>
           <View className="overflow-hidden rounded-[20px] bg-card">
             {offered.map((entry, index) => {
-              const ticked = !left.has(entry.key);
+              const ticked = isTicked(entry);
               const severity = REVIEW_SEVERITY_PRESENTATION[entry.finding.severity];
               return (
                 <View key={entry.key}>
@@ -118,7 +132,7 @@ export function ReviewFixSheet({ route }: ReviewFixSheetProps) {
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: ticked }}
                     onPress={() =>
-                      setLeft((current) => {
+                      setToggled((current) => {
                         const next = new Set(current);
                         if (!next.delete(entry.key)) next.add(entry.key);
                         return next;
@@ -148,6 +162,7 @@ export function ReviewFixSheet({ route }: ReviewFixSheetProps) {
                           {reviewFindingLocation(entry.finding)}
                         </Text>
                         {entry.needsChecking ? " · needs checking" : ""}
+                        {sentByKey[entry.key] !== undefined ? " · Already sent" : ""}
                       </Text>
                     </View>
                   </Pressable>

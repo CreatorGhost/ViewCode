@@ -8,6 +8,8 @@ import {
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   groupReviewFindingsBySeverity,
+  reviewFindingsInFileOrder,
+  reviewIssueOrder,
   type ReviewFindingEntry,
   reviewFindingIdentity,
   reviewFindingMarksByKey,
@@ -173,14 +175,22 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
   // By identity too, so a finding stays open when the next set arrives; null until findings show.
   const [expanded, setExpanded] = useState<ReadonlySet<string> | null>(null);
 
+  // Most severe first, each severity in file order, as web lists issues; Fix all follows it too.
+  const ordered = useMemo(() => {
+    const byKey = new Map(entries.map((entry) => [entry.key, entry] as const));
+    return reviewIssueOrder(
+      [],
+      reviewFindingsInFileOrder(entries).map((entry) => ({ entry })),
+    ).flatMap((key) => byKey.get(key) ?? []);
+  }, [entries]);
   const dismissedCount = entries.filter((entry) => dismissed[entry.key]).length;
-  const openEntries = entries.filter((entry) => !dismissed[entry.key]);
+  const openEntries = ordered.filter((entry) => !dismissed[entry.key]);
   const groups = useMemo(
     () =>
       groupReviewFindingsBySeverity(
-        showDismissed ? entries : entries.filter((entry) => !dismissed[entry.key]),
+        showDismissed ? ordered : ordered.filter((entry) => !dismissed[entry.key]),
       ),
-    [dismissed, entries, showDismissed],
+    [dismissed, ordered, showDismissed],
   );
   // The first open finding opens by itself when findings first show, as web goes to it.
   const firstOpen = groups[0]?.entries[0] ?? null;
@@ -489,8 +499,8 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
                   {stillReviewing
                     ? `Still reviewing — ${issueCount} so far`
                     : openEntries.length === 0
-                      ? "No issues found"
-                      : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"} found`}
+                      ? "No issues"
+                      : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"}`}
                 </Text>
                 {dismissedCount > 0 ? (
                   <Pressable
