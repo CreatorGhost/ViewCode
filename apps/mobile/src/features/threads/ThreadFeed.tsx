@@ -17,6 +17,7 @@ import {
 } from "./agentChatter";
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import type {
   ChatAttachment,
@@ -298,6 +299,8 @@ export interface ThreadFeedProps {
    * screen supplies it so the chip clears the floating scroll/status controls.
    */
   readonly lastMessageChipBottomInset?: number;
+  /** Whether the chip rides the keyboard; the screen passes the composer's own flag. */
+  readonly lastMessageChipFollowsKeyboard?: boolean;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
   readonly onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   /** Non-null when older turns exist beyond the loaded window. */
@@ -3231,24 +3234,38 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           />
         </View>
         {showLastMessageChip ? (
-          <Animated.View
+          // The composer lives in a KeyboardStickyView, so the chip needs the
+          // same translation or the keyboard covers it.
+          <KeyboardStickyView
+            enabled={props.lastMessageChipFollowsKeyboard ?? false}
             pointerEvents="box-none"
-            className="absolute inset-x-0 z-10 items-center"
-            style={{ bottom: props.lastMessageChipBottomInset ?? bottomContentInset }}
-            entering={LAST_MESSAGE_CHIP_ENTERING}
-            exiting={LAST_MESSAGE_CHIP_EXITING}
+            style={StyleSheet.absoluteFill}
+            offset={{ closed: 0, opened: 0 }}
           >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Your last message"
-              accessibilityHint="Scrolls up to the last message you sent."
-              onPress={onJumpToLastUserMessage}
-              className="h-8 flex-row items-center gap-1.5 rounded-full border border-border bg-glass-fallback px-3 shadow-md shadow-black/10 active:opacity-70"
+            <Animated.View
+              pointerEvents="box-none"
+              className="absolute inset-x-0 z-10 items-center"
+              style={{ bottom: props.lastMessageChipBottomInset ?? bottomContentInset }}
+              entering={LAST_MESSAGE_CHIP_ENTERING}
+              exiting={LAST_MESSAGE_CHIP_EXITING}
             >
-              <SymbolView name="arrow.up" size={12} tintColor={iconSubtleColor} type="monochrome" />
-              <Text className="text-xs font-t3-medium text-foreground">Your last message</Text>
-            </Pressable>
-          </Animated.View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Your last message"
+                accessibilityHint="Scrolls up to the last message you sent."
+                onPress={onJumpToLastUserMessage}
+                className="h-8 flex-row items-center gap-1.5 rounded-full border border-border bg-glass-fallback px-3 shadow-md shadow-black/10 active:opacity-70"
+              >
+                <SymbolView
+                  name="arrow.up"
+                  size={12}
+                  tintColor={iconSubtleColor}
+                  type="monochrome"
+                />
+                <Text className="text-xs font-t3-medium text-foreground">Your last message</Text>
+              </Pressable>
+            </Animated.View>
+          </KeyboardStickyView>
         ) : null}
         {presentedFeed.length === 0 &&
         !props.worktreeSetup &&

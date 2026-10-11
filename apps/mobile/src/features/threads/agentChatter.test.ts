@@ -1,4 +1,4 @@
-import { MessageId } from "@t3tools/contracts";
+import { ApprovalRequestId, MessageId } from "@t3tools/contracts";
 import { formatAgentMessage } from "@t3tools/shared/agentMessages";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -73,6 +73,40 @@ const work = (id: string): ThreadFeedEntry => ({
   hasFailure: false,
   live: false,
   shimmer: false,
+});
+
+const questionAnswer = (id: string): ThreadFeedEntry => ({
+  type: "activity-group",
+  id,
+  createdAt: CREATED_AT,
+  turnId: null,
+  activities: [
+    {
+      id: `activity-${id}`,
+      createdAt: CREATED_AT,
+      turnId: null,
+      summary: "Answered questions",
+      detail: null,
+      canExpand: true,
+      getFullDetail: () => null,
+      getCopyText: () => "",
+      icon: "message",
+      toolLike: false,
+      status: null,
+      workEntry: {
+        id: `activity-${id}`,
+        createdAt: CREATED_AT,
+        turnId: null,
+        label: "Answered questions",
+        tone: "info",
+        questionAnswer: {
+          requestId: ApprovalRequestId.make(`request-${id}`),
+          answers: {},
+          attachmentsByQuestionId: {},
+        },
+      },
+    },
+  ],
 });
 
 const thinking: ThreadFeedEntry = {
@@ -180,6 +214,14 @@ describe("groupAgentChatter", () => {
       settled,
     );
     expect(ids(result)).toEqual(["agent-chatter:a1", "w1", "lead"]);
+  });
+
+  it("keeps the user's question-and-answer history out of the fold", () => {
+    const result = groupAgentChatter(
+      [outgoing("a1"), incoming("a2"), questionAnswer("qa"), outgoing("b1"), incoming("b2")],
+      settled,
+    );
+    expect(ids(result)).toEqual(["agent-chatter:a1", "qa", "agent-chatter:b1"]);
   });
 
   it("does not let a spawn row or a user message bridge a run", () => {

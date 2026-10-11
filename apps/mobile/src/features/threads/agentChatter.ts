@@ -1,6 +1,10 @@
 import { parseAgentMessage, type AgentMessageEnvelope } from "@t3tools/shared/agentMessages";
 
-import { isContextCompactionActivityGroup, type ThreadFeedEntry } from "../../lib/threadActivity";
+import {
+  isContextCompactionActivityGroup,
+  isUserInputActivityGroup,
+  type ThreadFeedEntry,
+} from "../../lib/threadActivity";
 
 /** The collapsible header a run of back-to-back agent messages folds into. */
 export interface AgentChatterHeaderEntry {
@@ -54,7 +58,9 @@ function isWorkEntry(entry: ThreadFeedEntry): boolean {
     case "work-toggle":
       return true;
     case "activity-group":
-      return !isContextCompactionActivityGroup(entry);
+      // Question-and-answer groups carry the user's own replies, which
+      // deriveThreadFeedPresentation keeps outside work folds; they end a run.
+      return !isContextCompactionActivityGroup(entry) && !isUserInputActivityGroup(entry);
     case "message":
       return entry.message.role === "reasoning";
     default:
