@@ -170,8 +170,9 @@ stay on the pull request, whose **Review** tab says the review is under way and 
 when it is done. With no review yet, you can start one from that tab too. It runs with your
 default permissions for new threads, reads the change without touching your checkout, and posts
 nothing to the host unless you ask. On Android the review button is in the pull request screen's
-header, uses your default model and opens the review thread. Agents can start a review with the
-`review_pull_request` tool.
+header and uses your default model. Agents can start a review with the `review_pull_request` tool,
+and review a thread's own uncommitted changes (or its branch, when there are none) with
+`review_local_changes`; that review runs on the thread's branch and worktree and changes nothing.
 
 The findings also show under **Review** at the top of the chat (on web and desktop), in the review
 thread or in any thread linked to the same pull request. Both show the change with each finding

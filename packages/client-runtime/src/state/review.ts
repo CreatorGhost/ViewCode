@@ -52,6 +52,14 @@ export function createReviewEnvironmentAtoms<R, E>(
           }),
         ),
     }),
+    /**
+     * An agent review of a thread's checkout (or the project's workspace) in a new thread on the
+     * same checkout. Only for environments advertising `localAgentReview`.
+     */
+    startLocal: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:start-local",
+      tag: WS_METHODS.reviewStartLocal,
+    }),
     /** A new session that fixes review findings, on the environment that holds the review. */
     startFixThread: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:start-fix-thread",

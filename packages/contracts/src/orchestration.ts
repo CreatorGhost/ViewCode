@@ -1436,6 +1436,23 @@ export const PullRequestStartReviewInput = Schema.Struct({
 });
 export type PullRequestStartReviewInput = typeof PullRequestStartReviewInput.Type;
 
+/**
+ * Starts an agent review of a checkout's own changes (uncommitted, or the branch when there are
+ * none) in a new thread on the source thread's branch and worktree, or on the project's workspace
+ * without one. Only send to environments advertising `localAgentReview`.
+ */
+export const ReviewStartLocalInput = Schema.Struct({
+  projectId: ProjectId,
+  /** The thread whose checkout to review. Absent: the project's workspace. */
+  sourceThreadId: Schema.optional(ThreadId),
+  /** Absent: a quick review. */
+  mode: Schema.optional(AgentReviewMode),
+  /** Absent: the project's default model for new threads. */
+  modelSelection: Schema.optional(ModelSelection),
+  focus: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(500))),
+});
+export type ReviewStartLocalInput = typeof ReviewStartLocalInput.Type;
+
 export const PullRequestStartReviewResult = Schema.Struct({
   threadId: ThreadId,
   title: TrimmedNonEmptyString,

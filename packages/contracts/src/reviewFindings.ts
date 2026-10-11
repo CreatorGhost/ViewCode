@@ -258,6 +258,16 @@ export class ReviewPostFindingsError extends Schema.TaggedError<ReviewPostFindin
   }
 }
 
+/** Why a review could not be started, in words the reader can act on. */
+export class ReviewStartError extends Schema.TaggedError<ReviewStartError>()("ReviewStartError", {
+  detail: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
 export class ReviewFixThreadError extends Schema.TaggedError<ReviewFixThreadError>()(
   "ReviewFixThreadError",
   {

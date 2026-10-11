@@ -341,6 +341,18 @@ export const ReviewPullRequestInput = Schema.Struct({
 });
 export type ReviewPullRequestInput = typeof ReviewPullRequestInput.Type;
 
+export const ReviewLocalChangesInput = Schema.Struct({
+  mode: ReviewPullRequestInput.fields.mode,
+  focus: ReviewPullRequestInput.fields.focus,
+});
+export type ReviewLocalChangesInput = typeof ReviewLocalChangesInput.Type;
+
+export const ReviewLocalChangesResult = Schema.Struct({
+  threadId: Schema.String.annotate({ description: "The new review thread." }),
+  title: Schema.String,
+});
+export type ReviewLocalChangesResult = typeof ReviewLocalChangesResult.Type;
+
 export const ReviewPullRequestResult = Schema.Struct({
   ...PullRequestIdentity,
   threadId: Schema.String.annotate({ description: "The new review thread." }),
@@ -504,6 +516,20 @@ const ReviewPullRequestTool = Tool.make("review_pull_request", {
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
+const ReviewLocalChangesTool = Tool.make("review_local_changes", {
+  description:
+    "Start an agent review of this thread's local changes in a new ViewCode thread on the same branch and checkout, for the user to read and continue: the uncommitted changes, or the branch against its base when there are none. The reviewer follows ViewCode's review playbook for the chosen mode and changes no files. It runs with the user's default model for new threads in the project, or this thread's model when none is set. The call returns once the review has started; it does not wait for or return the findings.",
+  parameters: ReviewLocalChangesInput,
+  success: ReviewLocalChangesResult,
+  failure: PullRequestToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Start a review of local changes")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
 const SubmitReviewFindingsTool = Tool.make(SUBMIT_REVIEW_FINDINGS_TOOL, {
   description:
     "Hand ViewCode the findings of the review you just reported, after writing the report. ViewCode shows them to the user, who sends them to a coding session to fix or, on somebody else's pull request, posts them as review comments. Pass every reported finding under findings and the ones you could not settle under needsChecking, with the severities, confidences, paths and lines from your report; detail says what is wrong, why it matters and how it is reached; suggestedFix is code that applies as it stands. Calling it again replaces the findings recorded for this thread, so a re-review submits its full set.",
@@ -540,6 +566,7 @@ export const PullRequestsToolkit = Toolkit.make(
   WatchPullRequestTool,
   UnwatchPullRequestTool,
   ReviewPullRequestTool,
+  ReviewLocalChangesTool,
   SubmitReviewFindingsTool,
   PostReviewFindingsTool,
 );

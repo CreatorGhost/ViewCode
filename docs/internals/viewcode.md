@@ -476,6 +476,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   itself, so the review thread is an ordinary linked thread on the user's default permissions for
   new threads. Clients pick the model (they own the "Automatic" default); the MCP tool falls back
   to the calling thread's model. Gated by the `pullRequestAgentReview` capability.
+- A review of local changes (`PullRequestAgentReview.startLocal`, `review.startLocal`,
+  `review_local_changes`, capability `localAgentReview`) is the same launch without a link: the
+  review thread gets the source thread's branch and worktree (the project's workspace without
+  one), because the reviewer reads the checkout rather than a host, and is only told not to change
+  it. What to diff (uncommitted changes, else the branch against its base) is decided by the
+  reviewer from the checkout, not by the server at start.
 - The method lives in a playbook per mode (`apps/server/src/review/ReviewPlaybook.ts`); the first
   message is short and names the mode, the pull request and the playbook's path. The text ships in
   the bundle and is written to `<stateDir>/review-playbooks/` on use, not read from a file beside

@@ -81,6 +81,7 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   PullRequestOperationError,
+  ReviewStartError,
   WS_METHODS,
   WsRpcGroup,
   WORKTREE_SETUP_ACTIVITY_KIND,
@@ -3955,6 +3956,24 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.reviewGetDiffFileContents,
             review.getDiffFileContents(input),
+            { "rpc.aggregate": "review" },
+          ),
+        [WS_METHODS.reviewStartLocal]: ({
+          mode,
+          modelSelection,
+          focus,
+          projectId,
+          sourceThreadId,
+        }) =>
+          observeRpcEffect(
+            WS_METHODS.reviewStartLocal,
+            pullRequestAgentReview
+              .startLocal({ projectId, sourceThreadId, mode, modelSelection, focus })
+              .pipe(
+                Effect.mapError(
+                  (error) => new ReviewStartError({ detail: error.message, cause: error }),
+                ),
+              ),
             { "rpc.aggregate": "review" },
           ),
         [WS_METHODS.reviewStartFixThread]: (input) =>

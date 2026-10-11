@@ -587,6 +587,17 @@ const make = Effect.gen(function* () {
           headMoved: result.headMoved ?? false,
         };
       }),
+    review_local_changes: ({ mode, focus }) =>
+      Effect.gen(function* () {
+        const thread = yield* requireThread(PullRequestReviewFailedError);
+        return yield* reviews.startLocal({
+          projectId: thread.projectId,
+          sourceThreadId: thread.id,
+          mode,
+          focus,
+          fallbackModelSelection: thread.modelSelection,
+        });
+      }),
     review_pull_request: ({ mode, focus, findingsMode, ...targetInput }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(PullRequestReviewFailedError);

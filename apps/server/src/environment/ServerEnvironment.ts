@@ -242,6 +242,7 @@ export const make = Effect.gen(function* () {
       threadPullRequestWatch: true,
       pullRequestStackActions: true,
       pullRequestAgentReview: true,
+      localAgentReview: true,
       learnedReviewStyle: true,
       threadPullRequestLinking: true,
       environmentIcon: true,

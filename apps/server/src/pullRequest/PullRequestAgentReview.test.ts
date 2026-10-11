@@ -2,9 +2,11 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProjectId,
   ProviderInstanceId,
+  ThreadId,
   PullRequestUnavailableError,
   type OrchestrationCommand,
   type OrchestrationProjectShell,
+  type OrchestrationThreadShell,
   type PullRequestDetail,
   type PullRequestSummary,
 } from "@t3tools/contracts";
@@ -63,6 +65,21 @@ const summary: PullRequestSummary = {
   updatedAt: "2026-08-20T00:00:00.000Z",
 };
 
+const SOURCE_THREADS: Record<string, OrchestrationThreadShell> = {
+  "source-thread": {
+    id: ThreadId.make("source-thread"),
+    projectId: PROJECT_ID,
+    branch: "feature/cache",
+    worktreePath: "/worktrees/project/cache",
+  } as OrchestrationThreadShell,
+  "elsewhere-thread": {
+    id: ThreadId.make("elsewhere-thread"),
+    projectId: ProjectId.make("project-2"),
+    branch: "main",
+    worktreePath: null,
+  } as OrchestrationThreadShell,
+};
+
 const makeHarness = (options: {
   readonly defaultModel?: typeof PROJECT_MODEL | null;
   readonly summary?: Effect.Effect<PullRequestSummary, PullRequestService.PullRequestError>;
@@ -87,6 +104,8 @@ const makeHarness = (options: {
       Layer.mock(ProjectionSnapshotQuery)({
         getProjectShellById: (projectId) =>
           Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
+        getThreadShellById: (threadId) =>
+          Effect.succeed(Option.fromNullishOr(SOURCE_THREADS[threadId])),
       }),
       Layer.mock(OrchestrationEngineService)({
         readEvents: () => Stream.empty,
@@ -343,6 +362,75 @@ describe("PullRequestAgentReview", () => {
       expect((yield* Ref.get(harness.commands)).map((command) => command.type)).toEqual([
         "thread.create",
       ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("PullRequestAgentReview.startLocal", () => {
+  const turnText = (commands: ReadonlyArray<OrchestrationCommand>) => {
+    const turn = commands.at(-1);
+    return turn?.type === "thread.turn.start" ? turn.message.text : "";
+  };
+
+  it.effect("reviews a thread's checkout in a new thread on the same branch and worktree", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      const result = yield* harness.reviews.startLocal({
+        projectId: PROJECT_ID,
+        sourceThreadId: ThreadId.make("source-thread"),
+        mode: "deep",
+        focus: "error handling",
+      });
+      expect(result.title).toBe("Deep review: local changes on feature/cache");
+      const commands = yield* Ref.get(harness.commands);
+      expect(commands.map((command) => command.type)).toEqual([
+        "thread.create",
+        "thread.activity.append",
+        "thread.turn.start",
+      ]);
+      expect(commands[0]).toMatchObject({
+        threadId: result.threadId,
+        projectId: PROJECT_ID,
+        branch: "feature/cache",
+        worktreePath: "/worktrees/project/cache",
+        runtimeMode: "approval-required",
+        modelSelection: PROJECT_MODEL,
+      });
+      expect(commands[1]).toMatchObject({
+        activity: { kind: "viewcode.review.started", turnId: null },
+      });
+      const text = turnText(commands);
+      expect(text).toContain("Deep review of the local changes in /worktrees/project/cache");
+      expect(text).toContain("git diff HEAD");
+      expect(text).toContain("`git diff <base>...HEAD`");
+      expect(text).toContain(`${harness.stateDir}/review-playbooks/deep-review.md`);
+      expect(text).toContain("Focus on: error handling");
+      expect(text).toContain('pass target "local"');
+      expect(text).toContain("Do not change my working tree");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("reviews the project's workspace without a source thread", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      const result = yield* harness.reviews.startLocal({ projectId: PROJECT_ID });
+      expect(result.title).toBe("Review: local changes");
+      const commands = yield* Ref.get(harness.commands);
+      expect(commands[0]).toMatchObject({ branch: null, worktreePath: null });
+      expect(turnText(commands)).toContain("local changes in /workspace/project.");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("refuses a thread of another project and creates nothing", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      for (const sourceThreadId of ["elsewhere-thread", "missing-thread"]) {
+        const error = yield* harness.reviews
+          .startLocal({ projectId: PROJECT_ID, sourceThreadId: ThreadId.make(sourceThreadId) })
+          .pipe(Effect.flip);
+        expect(error).toMatchObject({ stage: "source-thread" });
+      }
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

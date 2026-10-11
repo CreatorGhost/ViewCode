@@ -167,6 +167,9 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
   >([]);
   const authorshipReads = yield* Ref.make<ReadonlyArray<PullRequestRef>>([]);
   const posts = yield* Ref.make<ReadonlyArray<ReviewPostFindingsInput>>([]);
+  const localReviews = yield* Ref.make<ReadonlyArray<PullRequestAgentReview.LocalAgentReviewInput>>(
+    [],
+  );
   const originReads = yield* Ref.make<ReadonlyArray<string>>([]);
   const thread = options.thread === undefined ? makeThread([]) : options.thread;
   const project = options.project === undefined ? makeProject() : options.project;
@@ -218,6 +221,10 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
         Ref.update(reviews, (all) => [...all, input]).pipe(
           Effect.as({ threadId: ThreadId.make("review-thread"), title: "Review: #7 Fix" }),
         ),
+      startLocal: (input) =>
+        Ref.update(localReviews, (all) => [...all, input]).pipe(
+          Effect.as({ threadId: ThreadId.make("local-review"), title: "Review: local changes" }),
+        ),
       authorship: (reference) =>
         Ref.update(authorshipReads, (all) => [...all, reference]).pipe(
           Effect.as(options.authorship ?? { author: "octocat", viewer: "octocat" }),
@@ -261,7 +268,7 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
       Effect.provide(dependencies),
     );
-  return { commands, reviews, authorshipReads, posts, originReads, call };
+  return { commands, reviews, localReviews, authorshipReads, posts, originReads, call };
 });
 
 describe("pull request toolkit handlers", () => {
@@ -294,6 +301,23 @@ describe("pull request toolkit handlers", () => {
           findingsMode: "fix",
           fallbackModelSelection: { instanceId: "codex", model: "gpt-5" },
           linkSource: "agent",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("starts a review of the calling thread's own changes", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const result = yield* harness.call("review_local_changes", { mode: "security" });
+      expect(result).toEqual({ threadId: "local-review", title: "Review: local changes" });
+      expect(yield* Ref.get(harness.localReviews)).toEqual([
+        {
+          projectId: PROJECT_ID,
+          sourceThreadId: THREAD_ID,
+          mode: "security",
+          focus: undefined,
+          fallbackModelSelection: { instanceId: "codex", model: "gpt-5" },
         },
       ]);
     }),

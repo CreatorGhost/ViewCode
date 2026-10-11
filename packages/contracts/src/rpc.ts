@@ -107,6 +107,7 @@ import {
   ReviewPostFindingsResult,
   ReviewStartFixThreadInput,
   ReviewStartFixThreadResult,
+  ReviewStartError,
 } from "./reviewFindings.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
@@ -124,6 +125,7 @@ import {
   OrchestrationGetWorkflowScriptError,
   PullRequestStartReviewInput,
   PullRequestStartReviewResult,
+  ReviewStartLocalInput,
 } from "./orchestration.ts";
 import {
   ProviderUploadFeedbackError,
@@ -397,6 +399,7 @@ export const WS_METHODS = {
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
   reviewStartFixThread: "review.startFixThread",
+  reviewStartLocal: "review.startLocal",
   reviewPostFindings: "review.postFindings",
   reviewGetLearnedStyle: "review.getLearnedStyle",
   reviewLearnStyle: "review.learnStyle",
@@ -1431,6 +1434,13 @@ const WsReviewStartFixThreadRpc = Rpc.make(WS_METHODS.reviewStartFixThread, {
   error: Schema.Union([ReviewFixThreadError, EnvironmentAuthorizationError]),
 });
 
+/** Only send to environments advertising `localAgentReview`. */
+const WsReviewStartLocalRpc = Rpc.make(WS_METHODS.reviewStartLocal, {
+  payload: ReviewStartLocalInput,
+  success: PullRequestStartReviewResult,
+  error: Schema.Union([ReviewStartError, EnvironmentAuthorizationError]),
+});
+
 /** Like starting a fix, only reaches servers that record review findings. */
 const WsReviewPostFindingsRpc = Rpc.make(WS_METHODS.reviewPostFindings, {
   payload: ReviewPostFindingsInput,
@@ -1875,6 +1885,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
   WsReviewStartFixThreadRpc,
+  WsReviewStartLocalRpc,
   WsReviewPostFindingsRpc,
   WsReviewGetLearnedStyleRpc,
   WsReviewLearnStyleRpc,

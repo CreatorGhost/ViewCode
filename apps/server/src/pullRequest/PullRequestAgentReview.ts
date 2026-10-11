@@ -8,7 +8,10 @@ import {
   ThreadId,
   type AgentReviewMode,
   type ModelSelection,
+  type OrchestrationCommand,
+  type ProjectId,
   type PullRequestRef,
+  type RuntimeMode,
   type PullRequestStartReviewResult,
   type PullRequestSummary,
   type ReviewFindingsMode,
@@ -48,6 +51,7 @@ export class PullRequestAgentReviewError extends Schema.TaggedError<PullRequestA
   {
     stage: Schema.Literals([
       "project",
+      "source-thread",
       "settings",
       "model",
       "link-key",
@@ -64,7 +68,9 @@ export class PullRequestAgentReviewError extends Schema.TaggedError<PullRequestA
   override get message(): string {
     switch (this.stage) {
       case "project":
-        return "The pull request's project was not found.";
+        return "The review's project was not found.";
+      case "source-thread":
+        return "The thread whose changes were to be reviewed was not found in this project.";
       case "settings":
         return "Could not read the default settings for new threads.";
       case "model":
@@ -99,6 +105,21 @@ export interface PullRequestAgentReviewInput {
   readonly linkSource: ThreadPullRequestLinkSource;
 }
 
+/**
+ * A review of a checkout's own changes: the source thread's branch and worktree, or the project's
+ * workspace when there is no thread. The review thread runs there and changes nothing.
+ */
+export interface LocalAgentReviewInput {
+  readonly projectId: ProjectId;
+  readonly sourceThreadId?: ThreadId | undefined;
+  /** Absent: a quick review. */
+  readonly mode?: AgentReviewMode | undefined;
+  /** Absent: the project's default model for new threads, then `fallbackModelSelection`. */
+  readonly modelSelection?: ModelSelection | undefined;
+  readonly fallbackModelSelection?: ModelSelection | undefined;
+  readonly focus?: string | undefined;
+}
+
 /** Who opened a pull request and who it is read as; null where the host could not say. */
 export interface PullRequestAuthorship {
   readonly author: string | null;
@@ -130,6 +151,10 @@ export class PullRequestAgentReview extends Context.Service<
       PullRequestStartReviewResult,
       PullRequestService.PullRequestError | PullRequestAgentReviewError
     >;
+    /** Starts an agent review of uncommitted changes, or of the branch when there are none. */
+    readonly startLocal: (
+      input: LocalAgentReviewInput,
+    ) => Effect.Effect<PullRequestStartReviewResult, PullRequestAgentReviewError>;
     /** Never fails: a host that cannot say leaves both names null. */
     readonly authorship: (reference: PullRequestRef) => Effect.Effect<PullRequestAuthorship>;
   }
@@ -235,6 +260,34 @@ export function buildPullRequestReviewPrompt(input: {
   return lines.join("\n");
 }
 
+export function localReviewTitle(mode: AgentReviewMode, branch: string | null): string {
+  return `${TITLE_PREFIXES[mode]}: local changes${branch === null ? "" : ` on ${branch}`}`;
+}
+
+/**
+ * The first message of a review of local changes: the mode, where the checkout is, what to diff
+ * and where the playbook is.
+ */
+export function buildLocalReviewPrompt(input: {
+  readonly mode: AgentReviewMode;
+  readonly playbookPath: string;
+  readonly cwd: string;
+  readonly branch: string | null;
+  readonly focus?: string | undefined;
+}): string {
+  const lines = [
+    `${reviewModeLabel(input.mode)} of the local changes in ${input.cwd}${input.branch === null ? "" : ` on branch ${input.branch}`}.`,
+    "",
+    "Review the uncommitted changes there: `git status`, `git diff HEAD` and the untracked files (`git ls-files --others --exclude-standard`). If there are none, review the branch against the branch it was made from instead (`git diff <base>...HEAD`, with <base> the remote's default branch), and say which of the two you reviewed.",
+    "",
+    `Read the review playbook at ${input.playbookPath} and follow it for these changes. Do not change my working tree, index or branch, and post nothing to the host.`,
+  ];
+  const focus = input.focus?.trim();
+  if (focus) lines.push("", `Focus on: ${focus}`);
+  lines.push("", `When you call ${SUBMIT_REVIEW_FINDINGS_TOOL}, pass target "local".`);
+  return lines.join("\n");
+}
+
 const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
@@ -297,41 +350,183 @@ const make = Effect.gen(function* () {
       });
     });
 
-  const start = Effect.fn("PullRequestAgentReview.start")(function* (
-    input: PullRequestAgentReviewInput,
-  ) {
-    const { reference } = input;
-    const mode = input.mode ?? "quick";
+  /**
+   * Creates the review thread, records what the review started on and sends the first message.
+   * A pull request review is linked to the pull request in between.
+   */
+  const launch = Effect.fn("PullRequestAgentReview.launch")(function* (input: {
+    readonly projectId: ProjectId;
+    readonly title: string;
+    readonly modelSelection: ModelSelection;
+    readonly runtimeMode: RuntimeMode;
+    readonly branch: string | null;
+    readonly worktreePath: string | null;
+    readonly link?: Omit<
+      Extract<OrchestrationCommand, { type: "thread.pull-request.link" }>,
+      "type" | "commandId" | "threadId"
+    >;
+    readonly started: ReviewStartedActivityPayload;
+    readonly text: string;
+  }) {
     const failure =
       (stage: PullRequestAgentReviewError["stage"]) =>
       (cause: unknown): PullRequestAgentReviewError =>
-        new PullRequestAgentReviewError({ stage, projectId: reference.projectId, cause });
+        new PullRequestAgentReviewError({ stage, projectId: input.projectId, cause });
+    const threadId = ThreadId.make(yield* uuid);
+    const createdAt = DateTime.formatIso(yield* DateTime.now);
+    const { modelSelection, runtimeMode } = input;
+    yield* engine
+      .dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`server:pr-review:${threadId}`),
+        threadId,
+        projectId: input.projectId,
+        title: input.title,
+        modelSelection,
+        runtimeMode,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: input.branch,
+        worktreePath: input.worktreePath,
+        createdAt,
+      })
+      .pipe(Effect.mapError(failure("create-thread")));
+    if (input.link !== undefined) {
+      yield* engine
+        .dispatch({
+          type: "thread.pull-request.link",
+          commandId: CommandId.make(`server:pr-review-link:${threadId}`),
+          threadId,
+          ...input.link,
+        })
+        .pipe(Effect.mapError(failure("link")));
+    }
+    yield* recordReviewStarted(threadId, input.started, createdAt).pipe(
+      Effect.mapError(failure("record-start")),
+    );
+    yield* engine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make(`server:pr-review-turn:${threadId}`),
+        threadId,
+        message: {
+          messageId: MessageId.make(yield* uuid),
+          role: "user",
+          text: input.text,
+          attachments: [],
+        },
+        modelSelection,
+        runtimeMode,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt,
+      })
+      .pipe(Effect.mapError(failure("start-turn")));
+    return { threadId, title: input.title };
+  });
 
+  /** The project, its defaults for new threads and the model to review with. */
+  const resolveDefaults = Effect.fn("PullRequestAgentReview.resolveDefaults")(function* (input: {
+    readonly projectId: ProjectId;
+    readonly modelSelection?: ModelSelection | undefined;
+    readonly fallbackModelSelection?: ModelSelection | undefined;
+  }) {
+    const failure =
+      (stage: PullRequestAgentReviewError["stage"]) =>
+      (cause: unknown): PullRequestAgentReviewError =>
+        new PullRequestAgentReviewError({ stage, projectId: input.projectId, cause });
     const project = yield* snapshots
-      .getProjectShellById(reference.projectId)
+      .getProjectShellById(input.projectId)
       .pipe(Effect.mapError(failure("project")));
     if (Option.isNone(project)) {
       return yield* new PullRequestAgentReviewError({
         stage: "project",
-        projectId: reference.projectId,
+        projectId: input.projectId,
       });
     }
     const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(failure("settings")));
-    const defaults = resolveProjectSettings(settings, reference.projectId, project.value).settings;
+    const defaults = resolveProjectSettings(settings, input.projectId, project.value).settings;
     const modelSelection =
       input.modelSelection ?? defaults.defaultModelSelection ?? input.fallbackModelSelection;
     if (modelSelection === undefined) {
       return yield* new PullRequestAgentReviewError({
         stage: "model",
-        projectId: reference.projectId,
+        projectId: input.projectId,
       });
     }
+    return { project: project.value, settings, defaults, modelSelection };
+  });
+
+  const writePlaybook = (projectId: ProjectId, mode: AgentReviewMode) =>
+    ensureReviewPlaybook({ stateDir: config.stateDir, mode }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.mapError(
+        (cause) => new PullRequestAgentReviewError({ stage: "playbook", projectId, cause }),
+      ),
+    );
+
+  const startLocal = Effect.fn("PullRequestAgentReview.startLocal")(function* (
+    input: LocalAgentReviewInput,
+  ) {
+    const mode = input.mode ?? "quick";
+    const { project, defaults, modelSelection } = yield* resolveDefaults(input);
+    let branch: string | null = null;
+    let worktreePath: string | null = null;
+    if (input.sourceThreadId !== undefined) {
+      const source = yield* snapshots.getThreadShellById(input.sourceThreadId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new PullRequestAgentReviewError({
+              stage: "source-thread",
+              projectId: input.projectId,
+              cause,
+            }),
+        ),
+      );
+      if (Option.isNone(source) || source.value.projectId !== input.projectId) {
+        return yield* new PullRequestAgentReviewError({
+          stage: "source-thread",
+          projectId: input.projectId,
+        });
+      }
+      branch = source.value.branch;
+      worktreePath = source.value.worktreePath;
+    }
+    const playbookPath = yield* writePlaybook(input.projectId, mode);
+    // The same checkout as the thread whose changes these are; the reviewer only reads it.
+    return yield* launch({
+      projectId: input.projectId,
+      title: localReviewTitle(mode, branch),
+      modelSelection,
+      runtimeMode: defaults.defaultRuntimeMode,
+      branch,
+      worktreePath,
+      started: {},
+      text: buildLocalReviewPrompt({
+        mode,
+        playbookPath,
+        cwd: worktreePath ?? project.workspaceRoot,
+        branch,
+        focus: input.focus,
+      }),
+    });
+  });
+
+  const start = Effect.fn("PullRequestAgentReview.start")(function* (
+    input: PullRequestAgentReviewInput,
+  ) {
+    const { reference } = input;
+    const mode = input.mode ?? "quick";
+    const { project, settings, defaults, modelSelection } = yield* resolveDefaults({
+      projectId: reference.projectId,
+      modelSelection: input.modelSelection,
+      fallbackModelSelection: input.fallbackModelSelection,
+    });
 
     const summary = yield* pullRequests.summary(reference);
     // The key the detail view looks linked threads up by, so the review shows up there.
     const parsedUrl = parseChangeRequestUrl(summary.url);
     const key =
-      pullRequestSyncKey(reference, project.value.repositoryIdentity) ??
+      pullRequestSyncKey(reference, project.repositoryIdentity) ??
       (parsedUrl === null ? null : normalizeThreadPullRequestKey(parsedUrl));
     if (key === null) {
       return yield* new PullRequestAgentReviewError({
@@ -339,11 +534,7 @@ const make = Effect.gen(function* () {
         projectId: reference.projectId,
       });
     }
-    const playbookPath = yield* ensureReviewPlaybook({ stateDir: config.stateDir, mode }).pipe(
-      Effect.provideService(FileSystem.FileSystem, fileSystem),
-      Effect.provideService(Path.Path, path),
-      Effect.mapError(failure("playbook")),
-    );
+    const playbookPath = yield* writePlaybook(reference.projectId, mode);
 
     const detail = yield* readDetail(reference);
     // Somebody else's pull request gets comments written the way this account writes them.
@@ -370,71 +561,29 @@ const make = Effect.gen(function* () {
       ? { style: style.length > 0 ? style : null, samplesPath }
       : undefined;
 
-    const threadId = ThreadId.make(yield* uuid);
-    const createdAt = DateTime.formatIso(yield* DateTime.now);
-    const title = pullRequestReviewTitle(mode, summary);
-    const runtimeMode = defaults.defaultRuntimeMode;
-    yield* engine
-      .dispatch({
-        type: "thread.create",
-        commandId: CommandId.make(`server:pr-review:${threadId}`),
-        threadId,
-        projectId: reference.projectId,
-        title,
-        modelSelection,
-        runtimeMode,
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        // The review reads the change from the host; nothing needs a checkout of its own.
-        branch: null,
-        worktreePath: null,
-        createdAt,
-      })
-      .pipe(Effect.mapError(failure("create-thread")));
-    yield* engine
-      .dispatch({
-        type: "thread.pull-request.link",
-        commandId: CommandId.make(`server:pr-review-link:${threadId}`),
-        threadId,
-        ...key,
-        url: summary.url,
-        source: input.linkSource,
-      })
-      .pipe(Effect.mapError(failure("link")));
-    const started: ReviewStartedActivityPayload = {
-      ...(detail.headSha === undefined ? {} : { headSha: detail.headSha }),
-    };
-    yield* recordReviewStarted(threadId, started, createdAt).pipe(
-      Effect.mapError(failure("record-start")),
-    );
-    yield* engine
-      .dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make(`server:pr-review-turn:${threadId}`),
-        threadId,
-        message: {
-          messageId: MessageId.make(yield* uuid),
-          role: "user",
-          text: buildPullRequestReviewPrompt({
-            mode,
-            playbookPath,
-            pr: summary,
-            focus: input.focus,
-            headSha: detail.headSha,
-            findingsMode: input.findingsMode,
-            comments,
-          }),
-          attachments: [],
-        },
-        modelSelection,
-        runtimeMode,
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        createdAt,
-      })
-      .pipe(Effect.mapError(failure("start-turn")));
-    return { threadId, title };
+    return yield* launch({
+      projectId: reference.projectId,
+      title: pullRequestReviewTitle(mode, summary),
+      modelSelection,
+      runtimeMode: defaults.defaultRuntimeMode,
+      // The review reads the change from the host; nothing needs a checkout of its own.
+      branch: null,
+      worktreePath: null,
+      link: { ...key, url: summary.url, source: input.linkSource },
+      started: detail.headSha === undefined ? {} : { headSha: detail.headSha },
+      text: buildPullRequestReviewPrompt({
+        mode,
+        playbookPath,
+        pr: summary,
+        focus: input.focus,
+        headSha: detail.headSha,
+        findingsMode: input.findingsMode,
+        comments,
+      }),
+    });
   });
 
-  return PullRequestAgentReview.of({ start, authorship: readAuthorship });
+  return PullRequestAgentReview.of({ start, startLocal, authorship: readAuthorship });
 });
 
 export const layer = Layer.effect(PullRequestAgentReview, make);
