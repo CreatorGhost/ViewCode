@@ -3,6 +3,8 @@ import {
   REVIEW_FINDINGS_ACTIVITY_KIND,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
+  type PullRequestRef,
+  type ReviewBasedOnInput,
   type ReviewFinding,
   type ReviewFindingSeverity,
   type ReviewFindingsActivityPayload,
@@ -250,6 +252,57 @@ export function selectRunningReview<
     if (newest === null || thread.createdAt > newest.thread.createdAt) newest = { thread, mode };
   }
   return newest;
+}
+
+/** What a re-review of a set of findings starts from (see `reviewRereviewBasis`). */
+export interface ReviewRereviewBasis {
+  readonly basedOn: ReviewBasedOnInput;
+  /**
+   * The earlier review named the commit it read, so the server can review only what was pushed
+   * since. Without one (a local review, or a host that did not say) a re-review reads the whole
+   * change again, still checking the earlier findings.
+   */
+  readonly onlyChanges: boolean;
+}
+
+/**
+ * Whether a new review from `request` can re-review these findings: it reads the same pull
+ * request, or local changes again. The server refuses findings about anything else.
+ */
+export function reviewRereviewBasis(
+  source: Pick<ReviewFindingsSource, "threadId" | "activityId" | "findings">,
+  request:
+    | {
+        readonly kind: "pull-request";
+        readonly reference: Pick<PullRequestRef, "host" | "repository" | "number">;
+      }
+    | { readonly kind: "local" },
+): ReviewRereviewBasis | null {
+  const { target } = source.findings;
+  const sameTarget =
+    request.kind === "local"
+      ? target.kind === "local"
+      : target.kind === "pull-request" &&
+        threadPullRequestKeysEqual(
+          // A reference without a host means the project's own host, which reviewed it.
+          { ...request.reference, host: request.reference.host ?? target.host },
+          target,
+        );
+  if (!sameTarget) return null;
+  return {
+    basedOn: { threadId: source.threadId, activityId: source.activityId },
+    onlyChanges: source.findings.headSha !== undefined,
+  };
+}
+
+/** "Re-review · 2 fixed · 1 still open" for findings of a re-review; null for a first review. */
+export function reviewRereviewSummary(
+  findings: Pick<ReviewFindingsActivityPayload, "incremental" | "previous">,
+): string | null {
+  if (findings.previous !== undefined) {
+    return `Re-review · ${findings.previous.fixed} fixed · ${findings.previous.stillOpen} still open`;
+  }
+  return findings.incremental === true ? "Re-review" : null;
 }
 
 /** A finding's place in the payload: which list, and its index there. */

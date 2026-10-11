@@ -16,6 +16,8 @@ import {
   reviewFindingEntries,
   reviewFixCandidates,
   reviewPostOverallComment,
+  reviewRereviewBasis,
+  reviewRereviewSummary,
   reviewSourceCandidates,
   reviewThreadMode,
   reviewTurnInFlight,
@@ -525,5 +527,63 @@ describe("reviewFixCandidates", () => {
     expect(
       reviewFixCandidates({ reviewThread: review, target: PR_TARGET, threads: [review] }),
     ).toEqual({ candidates: [], preselectedId: null });
+  });
+});
+
+describe("reviewRereviewBasis", () => {
+  const source = (target: ReviewFindingsTarget, headSha?: string) => {
+    const activity = findingsActivity("found", "2026-08-01T00:00:00.000Z", target);
+    return selectReviewFindingsSource({
+      thread: thread("review", [
+        { ...activity, payload: { ...activity.payload, ...(headSha ? { headSha } : {}) } },
+      ]),
+      pullRequests: [],
+      linkedThreads: [],
+    })!;
+  };
+
+  it("re-reviews only what changed when the review named its commit", () => {
+    expect(
+      reviewRereviewBasis(source(prTarget(7), "abc1234"), {
+        kind: "pull-request",
+        reference: PR_7,
+      }),
+    ).toEqual({
+      basedOn: { threadId: ThreadId.make("review"), activityId: EventId.make("found") },
+      onlyChanges: true,
+    });
+  });
+
+  it("re-reviews the whole change when no commit is known, as for local changes", () => {
+    expect(reviewRereviewBasis(source({ kind: "local" }), { kind: "local" })?.onlyChanges).toBe(
+      false,
+    );
+    expect(
+      reviewRereviewBasis(source(prTarget(7)), {
+        kind: "pull-request",
+        // The project's own host, when the reference names none.
+        reference: { repository: "t3tools/t3code", number: 7 },
+      })?.onlyChanges,
+    ).toBe(false);
+  });
+
+  it("offers nothing for a review of something else", () => {
+    expect(
+      reviewRereviewBasis(source(prTarget(8), "abc1234"), {
+        kind: "pull-request",
+        reference: PR_7,
+      }),
+    ).toBeNull();
+    expect(reviewRereviewBasis(source(prTarget(7)), { kind: "local" })).toBeNull();
+  });
+});
+
+describe("reviewRereviewSummary", () => {
+  it("says how the earlier findings fared on a re-review", () => {
+    expect(reviewRereviewSummary({ incremental: true, previous: { fixed: 2, stillOpen: 1 } })).toBe(
+      "Re-review · 2 fixed · 1 still open",
+    );
+    expect(reviewRereviewSummary({ incremental: true })).toBe("Re-review");
+    expect(reviewRereviewSummary({})).toBeNull();
   });
 });

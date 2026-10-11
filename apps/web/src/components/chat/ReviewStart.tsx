@@ -3,6 +3,7 @@ import {
   type EnvironmentId,
   type PullRequestStartReviewResult,
 } from "@t3tools/contracts";
+import type { ReviewRereviewBasis } from "@t3tools/client-runtime/review-findings";
 import { Link } from "@tanstack/react-router";
 import { ChevronDownIcon, ScanSearchIcon } from "lucide-react";
 import { useState } from "react";
@@ -15,6 +16,7 @@ import {
 } from "../pullRequest/PullRequestAgentReviewDialog";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Radio, RadioGroup } from "../ui/radio-group";
 import type { RunningReview } from "./useReviewFindingsSource";
 
 export interface ReviewStartTarget {
@@ -23,19 +25,65 @@ export interface ReviewStartTarget {
   readonly onStarted: (started: PullRequestStartReviewResult) => void;
 }
 
-/** Mode, model and focus for a new agent review, and the button that starts it. */
-export function ReviewStartForm({ target }: { target: ReviewStartTarget }) {
+/**
+ * Mode, model and focus for a new agent review, and the button that starts it. With findings to
+ * start from, it can re-review them instead: only what changed since, where the earlier review
+ * named its commit, with every earlier finding checked again.
+ */
+export function ReviewStartForm({
+  target,
+  rereview = null,
+}: {
+  target: ReviewStartTarget;
+  rereview?: ReviewRereviewBasis | null;
+}) {
   const form = useAgentReviewForm(target.environmentId, target.request);
+  const [scope, setScope] = useState<"rereview" | "full">(() =>
+    rereview?.onlyChanges === true ? "rereview" : "full",
+  );
   return (
     <form
       className="flex w-full flex-col gap-3 text-left"
       onSubmit={(event) => {
         event.preventDefault();
-        void form.start().then((started) => {
+        const basedOn = rereview !== null && scope === "rereview" ? rereview.basedOn : undefined;
+        void form.start(basedOn).then((started) => {
           if (started !== null) target.onStarted(started);
         });
       }}
     >
+      {rereview !== null ? (
+        <RadioGroup
+          aria-label="What to review"
+          value={scope}
+          onValueChange={(value) => setScope(value === "rereview" ? "rereview" : "full")}
+        >
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
+            <Radio value="rereview" className="mt-0.5" />
+            <span className="flex min-w-0 flex-col">
+              <span className="font-medium">
+                {rereview.onlyChanges
+                  ? "Only what changed since this review"
+                  : "Check this review's findings again"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {rereview.onlyChanges
+                  ? "Reads the commits pushed since, and says which of these findings were fixed."
+                  : "Reads the whole change again, and says which of these findings were fixed."}
+              </span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
+            <Radio value="full" className="mt-0.5" />
+            <span className="flex min-w-0 flex-col">
+              <span className="font-medium">Full review</span>
+              <span className="text-xs text-muted-foreground">
+                A fresh review of the whole change.
+              </span>
+            </span>
+          </label>
+        </RadioGroup>
+      ) : null}
       <AgentReviewFields form={form} />
       <Button type="submit" size="sm" disabled={!form.canStart}>
         {form.pending ? "Starting..." : "Start review"}
@@ -44,8 +92,14 @@ export function ReviewStartForm({ target }: { target: ReviewStartTarget }) {
   );
 }
 
-/** The Review toolbar's "Find issues": a new review, from a dropdown. */
-export function FindIssuesButton({ target }: { target: ReviewStartTarget }) {
+/** The Review toolbar's "Find issues": a new review or a re-review, from a dropdown. */
+export function FindIssuesButton({
+  target,
+  rereview,
+}: {
+  target: ReviewStartTarget;
+  rereview: ReviewRereviewBasis | null;
+}) {
   const [open, setOpen] = useState(false);
   const closingTarget: ReviewStartTarget = {
     ...target,
@@ -62,7 +116,7 @@ export function FindIssuesButton({ target }: { target: ReviewStartTarget }) {
         <ChevronDownIcon aria-hidden />
       </PopoverTrigger>
       <PopoverPopup align="end" width="lg">
-        {open ? <ReviewStartForm target={closingTarget} /> : null}
+        {open ? <ReviewStartForm target={closingTarget} rereview={rereview} /> : null}
       </PopoverPopup>
     </Popover>
   );

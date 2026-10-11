@@ -6,6 +6,8 @@ import {
   type ReviewFindingEntry,
   type ReviewFindingKey,
   type ReviewFindingsSource,
+  reviewRereviewBasis,
+  reviewRereviewSummary,
 } from "@t3tools/client-runtime/review-findings";
 import {
   isAtomCommandInterrupted,
@@ -38,6 +40,7 @@ import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { fnv1a32, resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
+import { useServerConfigs } from "../../state/entities";
 import { reviewEnvironment } from "../../state/review";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -98,7 +101,7 @@ interface ReviewFindingsViewProps {
   readonly posted: ReadonlyMap<string, PostedReviewFinding>;
   /** Fix with agent writes into the chat beside the view; without one it picks a session. */
   readonly onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
-  /** Where a new review of the pull request starts, when one can. */
+  /** Where a new review of the same change starts, when one can. */
   readonly startReview: ReviewStartTarget | null;
 }
 
@@ -155,6 +158,15 @@ function ReviewFindingsViewContent({
   const generalRef = useRef<HTMLDivElement | null>(null);
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
+  const capabilities = useServerConfigs().get(environmentId)?.environment.capabilities;
+  const rereview = useMemo(
+    () =>
+      startReview !== null && capabilities?.incrementalAgentReview === true
+        ? reviewRereviewBasis(source, startReview.request)
+        : null,
+    [capabilities?.incrementalAgentReview, source, startReview],
+  );
+  const rereviewSummary = reviewRereviewSummary(findings);
 
   const diff = useReviewDiff({
     environmentId,
@@ -509,6 +521,9 @@ function ReviewFindingsViewContent({
             ? "No issues found"
             : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"} found`}
         </span>
+        {rereviewSummary !== null ? (
+          <span className="text-muted-foreground text-xs">· {rereviewSummary}</span>
+        ) : null}
         {dismissedCount > 0 ? (
           <Button
             type="button"
@@ -545,7 +560,7 @@ function ReviewFindingsViewContent({
             <ChevronRightIcon aria-hidden />
           </Button>
         </span>
-        {startReview ? <FindIssuesButton target={startReview} /> : null}
+        {startReview ? <FindIssuesButton target={startReview} rereview={rereview} /> : null}
         <Button type="button" size="xs" disabled={primaryDisabled} onClick={primary.run}>
           {commentMode ? <MessageSquarePlusIcon aria-hidden /> : <WrenchIcon aria-hidden />}
           {primary.label}
