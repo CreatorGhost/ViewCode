@@ -70,26 +70,30 @@ export function HomePillToolbar(props: {
       className="min-w-0 flex-1"
       style={{ paddingHorizontal: 14 * scale, gap: 8 * scale }}
     >
-      <WorkspaceConnectionTitle
-        onPress={props.onOpenEnvironments}
-        brand={
-          <View className="min-w-0 flex-row items-center" style={{ gap: 8 * scale }}>
-            <View className="size-2 rounded-full bg-adaptive-emerald-600-400" />
-            <Text
-              className="shrink font-t3-bold text-foreground"
-              style={{ fontSize: 16 * scale }}
-              numberOfLines={1}
-            >
-              {props.environmentLabel}
-            </Text>
-            <SymbolView
-              name="chevron.down"
-              size={Math.round(15 * scale)}
-              tintColorClassName="accent-foreground-muted"
-              type="monochrome"
-            />
-          </View>
-        }
+      {/* No onPress: a pressable status would swallow the tap and hide the
+          environment menu whenever any one environment is unreachable. The
+          chevron stays outside the swap so the pill still reads as a menu. */}
+      <View className="min-w-0 shrink">
+        <WorkspaceConnectionTitle
+          brand={
+            <View className="min-w-0 flex-row items-center" style={{ gap: 8 * scale }}>
+              <View className="size-2 rounded-full bg-adaptive-emerald-600-400" />
+              <Text
+                className="shrink font-t3-bold text-foreground"
+                style={{ fontSize: 16 * scale }}
+                numberOfLines={1}
+              >
+                {props.environmentLabel}
+              </Text>
+            </View>
+          }
+        />
+      </View>
+      <SymbolView
+        name="chevron.down"
+        size={Math.round(15 * scale)}
+        tintColorClassName="accent-foreground-muted"
+        type="monochrome"
       />
     </HomePillSurface>
   );
