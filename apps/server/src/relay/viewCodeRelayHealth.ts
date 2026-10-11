@@ -180,6 +180,30 @@ export function toViewCodeRelayState(
   };
 }
 
+const TRYING_STATUSES: ReadonlySet<ViewCodeRelayStatus> = new Set([
+  "connecting",
+  "reconnecting",
+  "blocked",
+]);
+
+/**
+ * Carries `tryingSince` across one run of attempts: it starts when the relay
+ * is first sought (a new config, a drop), stays while attempts keep failing,
+ * and goes once connected, off or refused.
+ */
+export function stampTryingSince(
+  previous: ViewCodeRelayState,
+  next: ViewCodeRelayState,
+  nowMs: number,
+): ViewCodeRelayState {
+  if (!TRYING_STATUSES.has(next.status)) return next;
+  const since =
+    TRYING_STATUSES.has(previous.status) && previous.tryingSince !== undefined
+      ? previous.tryingSince
+      : nowMs;
+  return { ...next, tryingSince: since };
+}
+
 export const RECONNECT_BASE_MS = 1_000;
 export const RECONNECT_MAX_MS = 30_000;
 /** A connection that lasted at least this long earns a fresh backoff. */

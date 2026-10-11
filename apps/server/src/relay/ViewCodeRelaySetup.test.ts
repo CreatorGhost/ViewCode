@@ -818,6 +818,49 @@ describe("ViewCodeRelaySetup", () => {
     }),
   );
 
+  it.effect("says when each step began: a new message keeps it, a new step restarts it", () =>
+    Effect.gen(function* () {
+      const wrangler = yield* makeFakeWrangler({
+        whoami: [{ exitCode: 0, output: "You are logged in." }],
+        deploy: [DEPLOYED],
+      });
+      const session: WranglerSession = {
+        ...wrangler.session,
+        run: (args, options) =>
+          args[0] === "deploy"
+            ? Effect.sleep(Duration.seconds(30)).pipe(
+                Effect.andThen(wrangler.session.run(args, options)),
+              )
+            : wrangler.session.run(args, options),
+      };
+      const setup = yield* makeSetup({
+        prepare: () => Effect.succeed(session),
+        store: makeMemoryStore({}).store,
+        probe: makeProbe([rejected, reset, ok]).probe,
+      });
+      yield* setup.start({ mode: "new" });
+      const deploying = yield* awaitState(setup.changes, (state) => state.step === "deploying");
+      const deployStartedAt = deploying.stepStartedAt!;
+
+      yield* TestClock.adjust(Duration.seconds(30));
+      const firstWait = yield* awaitState(
+        setup.changes,
+        (state) => state.problem === "credential-rejected",
+      );
+      expect(firstWait).toMatchObject({
+        step: "verifying",
+        stepStartedAt: deployStartedAt + 30_000,
+      });
+
+      yield* TestClock.adjust(Duration.seconds(5));
+      const secondWait = yield* awaitState(
+        setup.changes,
+        (state) => state.problem === "network-refused",
+      );
+      expect(secondWait.stepStartedAt).toBe(deployStartedAt + 30_000);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("stops a Cloudflare tool that never finishes and says so", () =>
     Effect.gen(function* () {
       const wrangler = yield* makeFakeWrangler({

@@ -713,7 +713,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   transcoding, so a forwarded compressed body is mislabelled (`relayForwarder.ts`).
 - A new relay address can be reset for up to an hour while a firewall categorises it,
   then work unchanged, so a reset is never terminal for the connector: it keeps retrying
-  and only the wording escalates (`viewCodeRelayHealth.ts`).
+  and only the wording escalates (`viewCodeRelayHealth.ts`). Each dial has its own
+  deadline: undici waits minutes on an upgrade nobody answers, and the QR shows only
+  while connected. Nothing in the dialog spins without end: setup steps and the
+  connection carry their start time, every wrangler run is bounded, and past a couple
+  of minutes the dialog explains instead of spinning.
 - ViewCode's desktop identity must never match T3 Code's: profile folder
   `viewcode`, app id `dev.viewcode.app`, WM class `viewcode`. Sharing T3's
   profile shared its IndexedDB lock and cached projects, which stalls first run

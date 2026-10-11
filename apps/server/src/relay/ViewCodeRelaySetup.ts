@@ -46,6 +46,7 @@ import {
 } from "@t3tools/shared/viewcodeRelaySetup";
 import * as Undici from "@effect/platform-node/Undici";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -242,8 +243,22 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
     const publish = (next: ViewCodeRelaySetupState) => SubscriptionRef.set(state, next);
     const withDetails = (next: ViewCodeRelaySetupState): ViewCodeRelaySetupState =>
       details === "" ? next : { ...next, details };
+    /** A new step restarts `stepStartedAt`; a new message for the same step keeps it. */
     const setStep = (step: ViewCodeRelaySetupStep, extra: Partial<ViewCodeRelaySetupState> = {}) =>
-      publish(withDetails({ status: "running", step, message: STEP_MESSAGE[step], ...extra }));
+      Effect.flatMap(Clock.currentTimeMillis, (now) =>
+        SubscriptionRef.update(state, (current) =>
+          withDetails({
+            status: "running",
+            step,
+            stepStartedAt:
+              current.status === "running" && current.step === step
+                ? (current.stepStartedAt ?? now)
+                : now,
+            message: STEP_MESSAGE[step],
+            ...extra,
+          }),
+        ),
+      );
     const showToolProgress = (message: string) => setStep("checking-tools", { message });
     const redact = (text: string) => redactSecrets(stripAnsi(text), secrets);
     const appendDetails = (text: string) => {
@@ -572,8 +587,11 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
       operation: Effect.Effect<void, RelaySetupFailure>,
     ) =>
       Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
         const claimed = yield* SubscriptionRef.modify(state, (current) =>
-          current.status === "running" ? [false, current] : [true, first],
+          current.status === "running"
+            ? [false, current]
+            : [true, { ...first, stepStartedAt: now }],
         );
         if (!claimed) {
           return yield* new ViewCodeRelaySetupError({

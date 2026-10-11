@@ -12,7 +12,7 @@ import {
   GlobeIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useUpdatePrimarySettings } from "../../hooks/useSettings";
@@ -30,30 +30,64 @@ import { Spinner } from "../ui/spinner";
 import {
   CLOUDFLARE_SIGN_UP_URL,
   CLOUDFLARE_WORKERS_URL,
+  describeSlowSetupStep,
+  formatMinutes,
+  minutesSince,
   NODE_DOWNLOAD_URL,
   QUICK_CONNECT_TRAFFIC_NOTE,
+  RELAY_CONNECT_PATIENCE_MINUTES,
+  type QuickConnectView,
   resolveQuickConnectView,
   resolveSetupChecklist,
 } from "./connectPhone.logic";
 
-function usePrimaryAccessSnapshot() {
+function usePrimaryAccess() {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const access = useEnvironmentQuery(
     primaryEnvironmentId !== null
       ? authEnvironment.accessChanges({ environmentId: primaryEnvironmentId, input: null })
       : null,
   );
-  return access.data?.type === "snapshot" ? access.data.payload : null;
+  return {
+    snapshot: access.data?.type === "snapshot" ? access.data.payload : null,
+    error: access.error,
+    refresh: access.refresh,
+  };
 }
 
 /** The relay connection's state, pushed by the server on the access stream; null until it arrives. */
 export function useViewCodeRelayState(): ViewCodeRelayState | null {
-  return usePrimaryAccessSnapshot()?.viewcodeRelay ?? null;
+  return usePrimaryAccess().snapshot?.viewcodeRelay ?? null;
 }
 
 /** Setup progress, on the same stream; null for sessions that may not run setup. */
 export function useViewCodeRelaySetupState(): ViewCodeRelaySetupState | null {
-  return usePrimaryAccessSnapshot()?.viewcodeRelaySetup ?? null;
+  return usePrimaryAccess().snapshot?.viewcodeRelaySetup ?? null;
+}
+
+/**
+ * Whole minutes since `sinceMs`. Re-renders once per minute, never per
+ * second, so a long step shows its age without repainting continuously.
+ */
+function useMinutesSince(sinceMs: number | undefined): number {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const minutes = minutesSince(sinceMs, nowMs);
+  useEffect(() => {
+    if (sinceMs === undefined) return;
+    const nextMinuteAt = sinceMs + (minutes + 1) * 60_000;
+    const timer = window.setTimeout(
+      () => setNowMs(Date.now()),
+      Math.max(1_000, nextMinuteAt - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [sinceMs, minutes]);
+  return minutes;
+}
+
+/** " · 3 min" after a running label, once a minute has passed. */
+function Elapsed({ minutes }: { readonly minutes: number }) {
+  const label = formatMinutes(minutes);
+  return label === null ? null : <span className="text-muted-foreground"> · {label}</span>;
 }
 
 /** Opens a link in the person's browser (the desktop shell, or a new tab). */
@@ -202,12 +236,17 @@ function SetupProgress({
   readonly actions: SetupActions;
 }) {
   const removing = setup.step === "removing";
+  const minutes = useMinutesSince(setup.stepStartedAt);
+  const slowNote = describeSlowSetupStep(setup.step, minutes);
   return (
     <div className="space-y-3">
       {removing ? (
         <p role="status" className="flex items-center gap-2 text-sm">
           <Spinner size="sm" />
-          {setup.message ?? "Removing Quick connect…"}
+          <span>
+            {setup.message ?? "Removing Quick connect…"}
+            <Elapsed minutes={minutes} />
+          </span>
         </p>
       ) : (
         <ol className="space-y-2">
@@ -223,6 +262,7 @@ function SetupProgress({
                 )}
                 <span className={row.state === "pending" ? "text-muted-foreground" : undefined}>
                   {row.label}
+                  {row.state === "current" ? <Elapsed minutes={minutes} /> : null}
                 </span>
               </div>
               {row.note === undefined ? null : (
@@ -230,6 +270,9 @@ function SetupProgress({
                   {row.note}
                 </p>
               )}
+              {row.state === "current" && slowNote !== null ? (
+                <p className="mt-1 pl-6 text-muted-foreground">{slowNote}</p>
+              ) : null}
             </li>
           ))}
         </ol>
@@ -379,6 +422,62 @@ function RelayMenu({
 }
 
 /**
+ * The relay is being sought. A spinner for the first minutes, then a plain
+ * explanation instead: the connector keeps trying on its own, and a spinner
+ * that never ends says nothing. "Check again" runs setup's check, which
+ * reports what the network does and ends as soon as the connection is up.
+ */
+function RelayConnecting({
+  view,
+  tryingSince,
+  note,
+  actions,
+}: {
+  readonly view: Extract<QuickConnectView, { kind: "connecting" | "reconnecting" }>;
+  readonly tryingSince: number | undefined;
+  readonly note: ReactNode;
+  readonly actions: SetupActions;
+}) {
+  const minutes = useMinutesSince(tryingSince);
+  const reason = view.kind === "reconnecting" && view.reason ? view.reason : null;
+  const reasonLine =
+    reason === null ? null : <p className="text-xs text-muted-foreground">{reason}</p>;
+  if (minutes < RELAY_CONNECT_PATIENCE_MINUTES) {
+    return (
+      <>
+        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner size="sm" />
+          <span>
+            {view.kind === "connecting"
+              ? "Connecting to your relay…"
+              : "Reconnecting to your relay…"}
+            <Elapsed minutes={minutes} />
+          </span>
+        </p>
+        {note ?? reasonLine}
+      </>
+    );
+  }
+  return (
+    <>
+      <Alert variant="warning">
+        <TriangleAlertIcon />
+        <AlertDescription>
+          No connection to your relay yet ({formatMinutes(minutes)}). ViewCode keeps trying on its
+          own.
+        </AlertDescription>
+      </Alert>
+      {note ?? reasonLine}
+      <div>
+        <Button variant="outline" size="sm" onClick={() => actions.start({ mode: "reuse" })}>
+          Check again
+        </Button>
+      </div>
+    </>
+  );
+}
+
+/**
  * The Quick connect tab: this computer dials out to the person's own
  * Cloudflare relay, so a phone can reach it where tunnels are blocked. Setup
  * runs on the server (sign in, deploy, secret, verify); the connection's
@@ -390,8 +489,9 @@ export function QuickConnectPhone({
   /** The pairing QR for the relay's address; shown only while the relay connection is up. */
   readonly renderQr: (baseUrl: string, host: string) => ReactNode;
 }) {
-  const relay = useViewCodeRelayState();
-  const setup = useViewCodeRelaySetupState();
+  const access = usePrimaryAccess();
+  const relay = access.snapshot?.viewcodeRelay ?? null;
+  const setup = access.snapshot?.viewcodeRelaySetup ?? null;
   const updateSettings = useUpdatePrimarySettings();
   const actions = useRelaySetupActions();
   const view = resolveQuickConnectView(relay);
@@ -478,7 +578,19 @@ export function QuickConnectPhone({
 
   return (
     <div className="space-y-3">
-      {view.kind === "loading" ? (
+      {view.kind === "loading" && access.error !== null ? (
+        <>
+          <Alert variant="error">
+            <TriangleAlertIcon />
+            <AlertDescription>Could not load Quick connect. {access.error}</AlertDescription>
+          </Alert>
+          <div>
+            <Button variant="outline" size="sm" onClick={access.refresh}>
+              Try again
+            </Button>
+          </div>
+        </>
+      ) : view.kind === "loading" ? (
         <div className="flex justify-center py-8">
           <Spinner />
         </div>
@@ -520,16 +632,12 @@ export function QuickConnectPhone({
       {view.kind === "connecting" || view.kind === "reconnecting" ? (
         <>
           {header(true)}
-          <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner size="sm" />
-            {view.kind === "connecting"
-              ? "Connecting to your relay…"
-              : "Reconnecting to your relay…"}
-          </p>
-          {setupNote ??
-            (view.kind === "reconnecting" && view.reason ? (
-              <p className="text-xs text-muted-foreground">{view.reason}</p>
-            ) : null)}
+          <RelayConnecting
+            view={view}
+            tryingSince={relay?.tryingSince}
+            note={setupNote}
+            actions={actions}
+          />
           {setup?.problem === "credential-rejected" ? (
             <div>
               <Button onClick={() => actions.start({ mode: "redeploy", rotateSecret: true })}>

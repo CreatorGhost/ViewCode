@@ -53,6 +53,7 @@ import {
   type RelayHealth,
   type RelayHealthEvent,
   STABLE_CONNECTION_MS,
+  stampTryingSince,
   toViewCodeRelayState,
 } from "./viewCodeRelayHealth.ts";
 
@@ -166,15 +167,18 @@ export const makeRelayStateHolder = Effect.gen(function* () {
     toViewCodeRelayState(initialRelayHealth, { configured: false, origin: undefined }),
   );
   const publish = Effect.gen(function* () {
-    const next = toViewCodeRelayState(yield* Ref.get(health), yield* Ref.get(configRef));
-    yield* SubscriptionRef.update(state, (current) =>
-      current.status === next.status &&
-      current.configured === next.configured &&
-      current.reason === next.reason &&
-      current.httpBaseUrl === next.httpBaseUrl
+    const derived = toViewCodeRelayState(yield* Ref.get(health), yield* Ref.get(configRef));
+    const now = yield* Clock.currentTimeMillis;
+    yield* SubscriptionRef.update(state, (current) => {
+      const next = stampTryingSince(current, derived, now);
+      return current.status === next.status &&
+        current.configured === next.configured &&
+        current.reason === next.reason &&
+        current.httpBaseUrl === next.httpBaseUrl &&
+        current.tryingSince === next.tryingSince
         ? current
-        : next,
-    );
+        : next;
+    });
   });
   const holder: RelayStateHolder = {
     state,
