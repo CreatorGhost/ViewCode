@@ -14,7 +14,7 @@ const EMPTY: ReadonlyMap<string, AgentControlState> = new Map();
  * Paused agents and queued agent messages by thread id. Empty until the
  * server answers, and on servers without agent control (the stream fails).
  */
-const environmentAgentControlAtom = Atom.family((environmentId: EnvironmentId) =>
+export const environmentAgentControlAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get): ReadonlyMap<string, AgentControlState> => {
     const result = get(agentControlEnvironment.control({ environmentId, input: {} }));
     return Option.match(AsyncResult.value(result), {

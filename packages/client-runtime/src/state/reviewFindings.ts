@@ -87,6 +87,10 @@ export function createLinkedReviewThreadsAtomFamily(input: {
   readonly activitiesAtom: (
     ref: ScopedThreadRef,
   ) => Atom.Atom<ReadonlyArray<OrchestrationThreadActivity>>;
+  /** Agent messages queued per thread (`agents.control`); without it none count as queued. */
+  readonly agentControlAtom?: (
+    environmentId: EnvironmentId,
+  ) => Atom.Atom<ReadonlyMap<string, { readonly queued: number }>>;
   readonly label: string;
 }): (key: LinkedReviewsKey | null) => Atom.Atom<ReadonlyArray<LinkedReviewThread>> {
   const emptyAtom = Atom.make(NO_LINKED).pipe(Atom.withLabel(`${input.label}:empty`));
@@ -103,6 +107,9 @@ export function createLinkedReviewThreadsAtomFamily(input: {
       const threads = get(input.threadShellsAtom).filter(
         (shell) => shell.environmentId === environmentId,
       );
+      const control =
+        input.agentControlAtom === undefined ? null : get(input.agentControlAtom(environmentId));
+      const queued = (threadId: ThreadId) => control?.get(threadId)?.queued ?? 0;
       const candidates =
         asking === null
           ? reviewSourceCandidates({ threadId: null, pullRequests: keys, threads })
@@ -122,7 +129,7 @@ export function createLinkedReviewThreadsAtomFamily(input: {
             title: shell.title,
             createdAt: shell.createdAt,
             modelSelection: shell.modelSelection,
-            run: reviewRunState(shell, agents),
+            run: reviewRunState(shell, agents, queued),
             child: asking !== null && shell.parentThreadId === asking,
             activities,
           };

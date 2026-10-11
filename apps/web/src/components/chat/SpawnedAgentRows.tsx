@@ -18,6 +18,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
 import { useServerConfigs, useThreadShell, useThreadShells } from "../../state/entities";
 import { useRightPanelStore } from "../../rightPanelStore";
+import { useAgentControl } from "../../state/agentControl";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { cn } from "~/lib/utils";
 import type { AgentMessageRenderContext } from "./AgentMessageCard";
@@ -241,14 +242,16 @@ function ReviewAgentRow(props: {
   const { sent, context, expanded, onToggle } = props;
   const { ref, shell, provider, modelLabel, status: rowStatus } = useSpawnedAgent(sent, context);
   const threads = useThreadShells();
+  const control = useAgentControl(context.environmentId);
   const running = useMemo(() => {
     if (shell === null) return false;
     const agents = collectChildAgents(threads, {
       environmentId: context.environmentId,
       threadId: shell.id,
     }).map((agent) => agent.thread);
-    return reviewRunState(shell, agents).kind === "running";
-  }, [context.environmentId, shell, threads]);
+    const queued = (threadId: string) => control.get(threadId)?.queued ?? 0;
+    return reviewRunState(shell, agents, queued).kind === "running";
+  }, [context.environmentId, control, shell, threads]);
   // The reviewer waits between turns for its agents' answers; it is still reviewing then.
   const status: SpawnedAgentRowStatus | null = running ? "running" : rowStatus;
   const mode = AGENT_REVIEW_MODES.find((entry) => entry.mode === sent.review)?.label ?? "Review";
@@ -293,9 +296,7 @@ function ReviewAgentRow(props: {
             </span>
           ) : null}
         </span>
-        {range ? (
-          <AgentElapsed startMs={range.startMs} endMs={range.endMs} live={running} />
-        ) : null}
+        {range ? <AgentElapsed startMs={range.startMs} endMs={range.endMs} live={running} /> : null}
         {threadRef ? (
           <Button
             type="button"

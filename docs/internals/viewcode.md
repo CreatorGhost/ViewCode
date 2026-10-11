@@ -553,11 +553,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   record also carries the mode, focus and scope, which is what Try again repeats. A shell field or a
   new `ThreadKind` would have been cheaper to read, but older clients fail to decode an unknown
   literal. Where the latest review stands is `reviewRunState` + `reviewProgress`: running while the
-  reviewer or any agent under it is in flight, or one of those agents finished after the
-  reviewer's last turn (a lead ends its turn after spawning and is woken by each answer, so an
-  idle lead is not a finished review); otherwise failed (the turn or session errored, with
-  `lastError`) or ended, unless its final findings are in. Without that, a deep review read as
-  ended between its lenses, and a review that died showed "Reviewing…" forever.
+  reviewer or any agent under it is in flight or has agent messages queued (`agents.control`; a
+  lead ends its turn after spawning and is woken by each answer, so an idle lead is not a
+  finished review); once the whole tree is idle with nothing queued, failed (the turn or session
+  errored, with `lastError`) or ended, unless its final findings are in. An agent that finished
+  without answering therefore ends the review rather than leaving it running. The answer's hop
+  from a finished agent to its idle lead is not queued, so the bar can read "ended" for that
+  instant.
 - Fix with agent never picks a session: it writes the request into a chat's composer, unsent. The
   panel beside a chat uses that chat. Seen from the reviewer itself, or from the pull request page
   (`resolveReviewFixChat`), it is the chat the review was started from (its parent), else the chat

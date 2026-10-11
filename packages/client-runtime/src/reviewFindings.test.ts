@@ -235,33 +235,42 @@ describe("reviewRunState", () => {
     expect(reviewTurnInFlight({ session: session("error"), latestTurn: null })).toBe(false);
   });
 
-  it("keeps a reviewer waiting on its agents running, until their answers are in", () => {
-    const lead = { session: session("ready"), latestTurn: turn("completed", "T10") };
-    expect(reviewRunState(lead, [{ session: session("running"), latestTurn: null }])).toEqual({
-      kind: "running",
+  it("keeps a reviewer waiting on its agents running, until the whole tree is idle", () => {
+    const id = (value: string) => ThreadId.make(value);
+    const lead = {
+      id: id("lead"),
+      session: session("ready"),
+      latestTurn: turn("completed", "T10"),
+    };
+    const lens = (state: "running" | "completed", completedAt: string | null = null) => ({
+      id: id("lens"),
+      session: session(state === "running" ? "running" : "ready"),
+      latestTurn: turn(state, completedAt),
     });
-    // An agent that finished after the lead's last turn has an answer on its way to it.
+    expect(reviewRunState(lead, [lens("running")])).toEqual({ kind: "running" });
+    // An answer queued for a busy or paused reviewer is still work to do.
     expect(
-      reviewRunState(lead, [{ session: session("ready"), latestTurn: turn("completed", "T11") }]),
+      reviewRunState(lead, [lens("completed", "T11")], (thread) => (thread === "lead" ? 1 : 0)),
     ).toEqual({ kind: "running" });
-    expect(
-      reviewRunState(lead, [{ session: session("ready"), latestTurn: turn("completed", "T09") }]),
-    ).toEqual({ kind: "ended" });
+    // A lens that finished after the reviewer's last turn and sent nothing back does not keep the
+    // review running forever.
+    expect(reviewRunState(lead, [lens("completed", "T11")])).toEqual({ kind: "ended" });
   });
 
   it("says a review failed with the provider's error, and ended otherwise", () => {
+    const id = ThreadId.make("review");
     expect(
       reviewRunState(
-        { session: session("error", "Quota exceeded"), latestTurn: turn("error", "T10") },
+        { id, session: session("error", "Quota exceeded"), latestTurn: turn("error", "T10") },
         [],
       ),
     ).toEqual({ kind: "failed", error: "Quota exceeded" });
-    expect(reviewRunState({ session: session("ready"), latestTurn: turn("error") }, [])).toEqual({
-      kind: "failed",
-      error: null,
-    });
     expect(
-      reviewRunState({ session: session("interrupted"), latestTurn: turn("interrupted") }, []),
+      reviewRunState({ id, session: session("ready"), latestTurn: turn("error") }, []),
+    ).toEqual({ kind: "failed", error: null });
+    // Stopped by the reader.
+    expect(
+      reviewRunState({ id, session: session("interrupted"), latestTurn: turn("interrupted") }, []),
     ).toEqual({ kind: "ended" });
   });
 });
@@ -315,12 +324,9 @@ describe("selectLatestReview", () => {
   it("finds the newest review by its start record, whatever its thread is called", () => {
     const latest = selectLatestReview([
       candidate("quick", [started({ mode: "quick" })], "2026-08-01T00:00:00.000Z"),
-      candidate(
-        "deep",
-        [started({ mode: "deep", focus: "retries" })],
-        "2026-08-02T00:00:00.000Z",
-        { kind: "ended" },
-      ),
+      candidate("deep", [started({ mode: "deep", focus: "retries" })], "2026-08-02T00:00:00.000Z", {
+        kind: "ended",
+      }),
       // Not a review: no start record, however it is titled.
       { ...candidate("chat", [], "2026-08-03T00:00:00.000Z"), title: "Deep review: #7 Fix" },
     ]);
@@ -338,10 +344,7 @@ describe("selectLatestReview", () => {
       selectLatestReview([
         candidate(
           "deep",
-          [
-            started({ mode: "deep" }),
-            { ...partial, payload: { ...partial.payload, complete } },
-          ],
+          [started({ mode: "deep" }), { ...partial, payload: { ...partial.payload, complete } }],
           "2026-08-02T00:00:00.000Z",
         ),
       ])?.progress;
@@ -480,7 +483,11 @@ describe("threadReviewCandidates", () => {
         shell("linked", { updatedAt: "2026-08-05T00:00:00.000Z" }),
         shell("work", { pullRequests: [link(7)] }),
         shell("review", { parentThreadId: work, pullRequests: [link(7)] }),
-        shell("agent", { parentThreadId: work, pullRequests: [], updatedAt: "2026-08-02T00:00:00.000Z" }),
+        shell("agent", {
+          parentThreadId: work,
+          pullRequests: [],
+          updatedAt: "2026-08-02T00:00:00.000Z",
+        }),
         // A side chat is no agent of its parent, and an archived child is not read.
         shell("side", { parentThreadId: work, kind: "sidechat", pullRequests: [] }),
         shell("gone", {

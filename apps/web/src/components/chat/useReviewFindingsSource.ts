@@ -33,6 +33,7 @@ import {
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import { useMemo } from "react";
 
+import { environmentAgentControlAtom } from "../../state/agentControl";
 import { useThreadShell } from "../../state/entities";
 import { environmentThreadDetails, environmentThreadShells } from "../../state/threads";
 import { reviewFindingsCardKey, useReviewFixSentStore } from "./reviewFixSentStore";
@@ -44,6 +45,7 @@ const NO_RATINGS: ReadonlyMap<string, ReviewFindingRating> = new Map();
 const linkedReviewThreadsAtom = createLinkedReviewThreadsAtomFamily({
   threadShellsAtom: environmentThreadShells.threadShellsAtom,
   activitiesAtom: environmentThreadDetails.activitiesAtom,
+  agentControlAtom: environmentAgentControlAtom,
   label: "web-linked-reviews",
 });
 

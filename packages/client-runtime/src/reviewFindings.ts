@@ -262,19 +262,20 @@ function agentTurnInFlight(thread: RunShell): boolean {
 
 /**
  * Whether a review is still at work. A reviewer that started agents (a deep review, a security
- * audit) ends its turn and is woken by each agent's answer, so it runs while any of its agents
- * does, or finished after its own last turn: that answer is on its way. Otherwise it failed, with
- * the provider's error, or ended.
+ * audit) ends its turn and is woken by each agent's answer, so it runs while it or any of its
+ * agents is in flight, or has agent messages queued (an answer waiting for a busy or paused
+ * reviewer). Once the whole tree is idle or stopped with nothing queued it failed, with the
+ * provider's error, or ended: an agent that finished without answering does not keep it running.
+ * `queued` is how many agent messages wait for a thread (zero where the client cannot tell).
  */
-export function reviewRunState(review: RunShell, agents: ReadonlyArray<RunShell>): ReviewRunState {
-  if (reviewTurnInFlight(review)) return RUNNING;
-  const reviewEnded = review.latestTurn?.completedAt ?? "";
+export function reviewRunState(
+  review: RunShell & { readonly id: ThreadId },
+  agents: ReadonlyArray<RunShell & { readonly id: ThreadId }>,
+  queued: (threadId: ThreadId) => number = () => 0,
+): ReviewRunState {
+  if (reviewTurnInFlight(review) || queued(review.id) > 0) return RUNNING;
   for (const agent of agents) {
-    if (agentTurnInFlight(agent)) return RUNNING;
-    const agentEnded = agent.latestTurn?.completedAt;
-    if (agent.latestTurn?.state === "completed" && agentEnded && agentEnded > reviewEnded) {
-      return RUNNING;
-    }
+    if (agentTurnInFlight(agent) || queued(agent.id) > 0) return RUNNING;
   }
   if (review.latestTurn?.state === "error" || review.session?.status === "error") {
     return { kind: "failed", error: review.session?.lastError ?? null };
