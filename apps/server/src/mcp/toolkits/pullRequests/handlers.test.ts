@@ -4,12 +4,14 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   type OrchestrationCommand,
   type OrchestrationProjectShell,
   type OrchestrationThread,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   type PullRequestRef,
+  type ReviewPostFindingsInput,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
@@ -28,8 +30,14 @@ import {
 } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as TurnOrigin from "../../../orchestration/TurnOrigin.ts";
 import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
-import { listThreadPullRequests, PullRequestsToolkitHandlersLive } from "./handlers.ts";
+import * as ReviewFindingsPoster from "../../../review/ReviewFindingsPoster.ts";
+import {
+  listThreadPullRequests,
+  PullRequestsToolkitHandlersLive,
+  selectFindingsToPost,
+} from "./handlers.ts";
 import { PullRequestLinkFailedError, PullRequestsToolkit } from "./tools.ts";
 
 const PROJECT_ID = ProjectId.make("project-1");
@@ -141,6 +149,13 @@ interface HarnessOptions {
   readonly authorship?: PullRequestAgentReview.PullRequestAuthorship;
   /** The thread's activities, as a detail read filtered by kind returns them. */
   readonly activities?: ReadonlyArray<OrchestrationThreadActivity>;
+  /** Whether the calling turn was started by the user's own message. */
+  readonly startedByUser?: boolean;
+  /** Other threads linked to pull requests, with their activities. */
+  readonly linkedThreads?: ReadonlyArray<{
+    readonly thread: OrchestrationThreadShell;
+    readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  }>;
 }
 
 const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
@@ -151,6 +166,8 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
     ReadonlyArray<PullRequestAgentReview.PullRequestAgentReviewInput>
   >([]);
   const authorshipReads = yield* Ref.make<ReadonlyArray<PullRequestRef>>([]);
+  const posts = yield* Ref.make<ReadonlyArray<ReviewPostFindingsInput>>([]);
+  const originReads = yield* Ref.make<ReadonlyArray<string>>([]);
   const thread = options.thread === undefined ? makeThread([]) : options.thread;
   const project = options.project === undefined ? makeProject() : options.project;
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
@@ -165,19 +182,29 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       getThreadShellById: (threadId) =>
         Effect.succeed(threadId === THREAD_ID ? Option.fromNullishOr(thread) : Option.none()),
       getProjectShellById: () => Effect.succeed(Option.fromNullishOr(project)),
-      getThreadDetailById: (threadId, query) =>
-        Effect.succeed(
-          threadId === THREAD_ID && thread !== null
-            ? Option.some({
-                ...thread,
-                activities: (options.activities ?? []).filter(
+      getThreadDetailById: (threadId, query) => {
+        const activities =
+          threadId === THREAD_ID
+            ? options.activities
+            : options.linkedThreads?.find((entry) => entry.thread.id === threadId)?.activities;
+        return Effect.succeed(
+          activities === undefined || (threadId === THREAD_ID && thread === null)
+            ? Option.none()
+            : Option.some({
+                id: threadId,
+                activities: activities.filter(
                   (activity) =>
                     query?.activityKinds === undefined ||
                     query.activityKinds.includes(activity.kind),
                 ),
-              } as unknown as OrchestrationThread)
-            : Option.none(),
-        ),
+              } as unknown as OrchestrationThread),
+        );
+      },
+      listThreadsWithPullRequests: () =>
+        Effect.succeed([
+          ...(thread === null ? [] : [thread]),
+          ...(options.linkedThreads ?? []).map((entry) => entry.thread),
+        ]),
     }),
     Layer.mock(OrchestrationEngineService)({
       readEvents: () => Stream.empty,
@@ -194,6 +221,25 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       authorship: (reference) =>
         Ref.update(authorshipReads, (all) => [...all, reference]).pipe(
           Effect.as(options.authorship ?? { author: "octocat", viewer: "octocat" }),
+        ),
+    }),
+    Layer.mock(ReviewFindingsPoster.ReviewFindingsPoster)({
+      post: (input) =>
+        Ref.update(posts, (all) => [...all, input]).pipe(
+          Effect.as({
+            url: input.target.url,
+            findings: input.findings.map(({ key }, index) => ({
+              key,
+              placement: index === 0 ? ("inline" as const) : ("body" as const),
+            })),
+            headMoved: false,
+          }),
+        ),
+    }),
+    Layer.mock(TurnOrigin.TurnOrigin)({
+      startedByUser: ({ turnId }) =>
+        Ref.update(originReads, (all) => [...all, turnId]).pipe(
+          Effect.as(options.startedByUser ?? false),
         ),
     }),
   );
@@ -215,7 +261,7 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
       Effect.provide(dependencies),
     );
-  return { commands, reviews, authorshipReads, call };
+  return { commands, reviews, authorshipReads, posts, originReads, call };
 });
 
 describe("pull request toolkit handlers", () => {
@@ -406,6 +452,191 @@ describe("pull request toolkit handlers", () => {
         expect(yield* Ref.get(harness.commands)).toMatchObject([
           { activity: { payload: { target: { kind: "local" } } } },
         ]);
+      }),
+    );
+  });
+
+  describe("post_review_findings", () => {
+    const TURN_ID = TurnId.make("turn-1");
+    const finding = (severity: "blocker" | "important" | "nit", title: string) => ({
+      severity,
+      confidence: 90,
+      path: "src/a.ts",
+      line: 4,
+      title,
+      detail: `${title} breaks it.`,
+    });
+    const findingsActivity = (
+      id: string,
+      target: object = {
+        kind: "pull-request",
+        host: "github.com",
+        repository: "t3tools/t3code",
+        number: 7,
+        url: "https://github.com/t3tools/t3code/pull/7",
+      },
+    ): OrchestrationThreadActivity => ({
+      id: EventId.make(id),
+      tone: "info",
+      kind: "viewcode.review.findings",
+      summary: "Review: request changes, 3 findings",
+      payload: {
+        verdict: "request-changes",
+        mergeConfidence: 2,
+        reviewEffort: 2,
+        findings: [
+          finding("blocker", "First blocker"),
+          finding("nit", "A nit"),
+          finding("blocker", "Second blocker"),
+        ],
+        needsChecking: [finding("important", "Maybe")],
+        target,
+        mode: "comment",
+      },
+      turnId: null,
+      createdAt: "2026-08-20T00:00:00.000Z",
+    });
+    const postedActivity = (findingsActivityId: string, keys: ReadonlyArray<string>) =>
+      ({
+        id: EventId.make(`posted-${keys.join("-")}`),
+        tone: "info",
+        kind: "viewcode.review.posted",
+        summary: "Posted",
+        payload: {
+          findingsActivityId,
+          verdict: "comment",
+          url: "https://github.com/t3tools/t3code/pull/7",
+          findings: keys.map((key) => ({ key, placement: "inline" })),
+        },
+        turnId: null,
+        createdAt: "2026-08-21T00:00:00.000Z",
+      }) satisfies OrchestrationThreadActivity;
+    const running = (pullRequests: ReadonlyArray<ThreadPullRequestLink> = [makeLink(7)]) => ({
+      ...makeThread(pullRequests),
+      session: {
+        threadId: THREAD_ID,
+        status: "running" as const,
+        providerName: "codex",
+        runtimeMode: "full-access" as const,
+        activeTurnId: TURN_ID,
+        lastError: null,
+        updatedAt: "2026-08-20T00:00:00.000Z",
+      },
+    });
+
+    it.effect("posts the findings the user asked for, as a comment, in their turn", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          thread: running(),
+          activities: [findingsActivity("old"), findingsActivity("latest")],
+          startedByUser: true,
+        });
+        const result = yield* harness.call("post_review_findings", { severities: ["blocker"] });
+        expect(yield* Ref.get(harness.originReads)).toEqual([TURN_ID]);
+        expect(result).toEqual({
+          url: "https://github.com/t3tools/t3code/pull/7",
+          posted: 2,
+          inline: 1,
+          inText: 1,
+          alreadyPosted: 0,
+          headMoved: false,
+        });
+        expect(yield* Ref.get(harness.posts)).toMatchObject([
+          {
+            reviewThreadId: THREAD_ID,
+            findingsActivityId: "latest",
+            verdict: "comment",
+            overallComment: "",
+            findings: [
+              { key: "finding:0", finding: { title: "First blocker" } },
+              { key: "finding:2", finding: { title: "Second blocker" } },
+            ],
+          },
+        ]);
+      }),
+    );
+
+    it.effect("refuses, posting nothing, in a turn the user did not start", () =>
+      Effect.gen(function* () {
+        // An agent's message, a child agent's brief, a wake or a server-started review.
+        const agentTurn = yield* makeHarness({
+          thread: running(),
+          activities: [findingsActivity("latest")],
+          startedByUser: false,
+        });
+        const error = yield* agentTurn.call("post_review_findings", {}).pipe(Effect.flip);
+        expect(error._tag).toBe("ReviewPostNotRequestedError");
+        expect(error.message).toContain(
+          "Posting needs the user's explicit request in this chat or a click in the Review panel",
+        );
+        expect(yield* Ref.get(agentTurn.posts)).toEqual([]);
+
+        // No running turn at all.
+        const idle = yield* makeHarness({
+          thread: makeThread([makeLink(7)]),
+          activities: [findingsActivity("latest")],
+          startedByUser: true,
+        });
+        expect((yield* idle.call("post_review_findings", {}).pipe(Effect.flip))._tag).toBe(
+          "ReviewPostNotRequestedError",
+        );
+        expect(yield* Ref.get(idle.originReads)).toEqual([]);
+        expect(yield* Ref.get(idle.posts)).toEqual([]);
+      }),
+    );
+
+    it.effect("posts from the review thread linked to the same pull request", () =>
+      Effect.gen(function* () {
+        const reviewThread = { ...makeThread([makeLink(7)]), id: ThreadId.make("review-1") };
+        const harness = yield* makeHarness({
+          thread: running(),
+          activities: [],
+          startedByUser: true,
+          linkedThreads: [
+            {
+              thread: reviewThread,
+              activities: [findingsActivity("review"), postedActivity("review", ["finding:0"])],
+            },
+            {
+              thread: { ...makeThread([makeLink(8)]), id: ThreadId.make("other-pr") },
+              activities: [findingsActivity("other")],
+            },
+          ],
+        });
+        const result = yield* harness.call("post_review_findings", {
+          keys: ["finding:0", "check:0"],
+          verdict: "request-changes",
+          overallComment: "Two things.",
+        });
+        expect(result).toMatchObject({ posted: 1, alreadyPosted: 1 });
+        expect(yield* Ref.get(harness.posts)).toMatchObject([
+          {
+            reviewThreadId: "review-1",
+            findingsActivityId: "review",
+            verdict: "request-changes",
+            overallComment: "Two things.",
+            findings: [{ key: "check:0" }],
+          },
+        ]);
+      }),
+    );
+
+    it.effect("says why there is nothing to post", () =>
+      Effect.gen(function* () {
+        const none = yield* makeHarness({ thread: running([]), startedByUser: true });
+        expect(yield* none.call("post_review_findings", {}).pipe(Effect.flip)).toMatchObject({
+          _tag: "ReviewPostNothingError",
+          reason: "no-findings",
+        });
+        const local = yield* makeHarness({
+          thread: running([]),
+          activities: [findingsActivity("local", { kind: "local" })],
+          startedByUser: true,
+        });
+        expect(yield* local.call("post_review_findings", {}).pipe(Effect.flip)).toMatchObject({
+          reason: "local",
+        });
+        expect(yield* Ref.get(local.posts)).toEqual([]);
       }),
     );
   });
@@ -732,4 +963,42 @@ it("keeps failure diagnostics as the cause rather than exposing them in the tool
   const failure = new PullRequestLinkFailedError({ cause });
   expect(failure.message).toBe("Could not link the pull request.");
   expect(failure.cause).toBe(cause);
+});
+
+describe("selectFindingsToPost", () => {
+  const finding = (severity: "blocker" | "nit") => ({
+    severity,
+    confidence: 90,
+    path: "a.ts",
+    title: severity,
+    detail: "d",
+  });
+  const payload = {
+    findings: [finding("blocker"), finding("nit")],
+    needsChecking: [finding("nit")],
+  };
+
+  it("takes every reported finding by default and unsettled ones only by key", () => {
+    expect(selectFindingsToPost(payload, {}, new Set())).toMatchObject({
+      selected: [{ key: "finding:0" }, { key: "finding:1" }],
+      alreadyPosted: 0,
+    });
+    expect(selectFindingsToPost(payload, { keys: ["check:0"] }, new Set())).toMatchObject({
+      selected: [{ key: "check:0" }],
+    });
+  });
+
+  it("refuses unknown keys, empty choices and choices already posted", () => {
+    expect(selectFindingsToPost(payload, { keys: ["finding:9"] }, new Set())).toBe("unknown-key");
+    expect(
+      selectFindingsToPost(
+        { findings: [finding("nit")], needsChecking: [] },
+        { severities: ["blocker"] },
+        new Set(),
+      ),
+    ).toBe("none-selected");
+    expect(selectFindingsToPost(payload, { severities: ["blocker"] }, new Set(["finding:0"]))).toBe(
+      "already-posted",
+    );
+  });
 });

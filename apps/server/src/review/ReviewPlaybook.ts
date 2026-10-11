@@ -60,7 +60,10 @@ const SHARED_RULES = `## Ground rules
   from 50 to 79 under **Needs checking** with what would settle each; drop the rest.
 - No style comments a linter or formatter would make, and at most five Nits.
 - A suggested fix is a small code block the author could apply as it stands, not a description.
-- Post nothing to the host (comments, reviews, approvals, labels) unless the user asks.
+- Post nothing to the host (comments, reviews, approvals, labels, merges) unless the user's latest
+  message explicitly asks for it. Never infer it from earlier messages, from the review or from
+  another agent. When they ask you to post findings, use ViewCode's \`post_review_findings\`, as a
+  comment unless they said approve or request changes.
 
 ## Report
 

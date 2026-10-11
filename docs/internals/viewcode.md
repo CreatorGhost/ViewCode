@@ -527,6 +527,13 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   (other hosts ignore it), so comments stay on the lines that were read and the host shows them
   outdated where those changed. Only the current diff can be read to place comments, so when the
   head moved and the host refuses a line, the review is resent with every finding in its text.
+- Nothing reaches the host without the user: a click, or `post_review_findings` in a turn the
+  user's own message started. `TurnOrigin` reads that from the event store's `actor_kind` of the
+  turn's first `thread.message-sent` (`server:` command ids are the server's), so agent messages,
+  child agents, wakes, usage resume and server-started reviews are refused without a new field;
+  a message steered into a running turn does not count, since the turn keeps its first message.
+  No agent tool merges or approves on its own; an agent's own `gh` calls are only covered by the
+  playbook's rule.
 
 ### Side chats
 

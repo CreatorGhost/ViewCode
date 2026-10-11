@@ -46,6 +46,7 @@ import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
+import * as TurnOrigin from "./orchestration/TurnOrigin.ts";
 import * as LearnedReviewStyles from "./review/LearnedReviewStyles.ts";
 import * as ReviewFindingsPoster from "./review/ReviewFindingsPoster.ts";
 import * as ReviewFixThread from "./review/ReviewFixThread.ts";
@@ -312,7 +313,9 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(AgentMessaging.layer),
   Layer.provideMerge(PullRequestAgentReview.layer),
   Layer.provideMerge(ReviewFixThread.layer),
-  Layer.provideMerge(Layer.mergeAll(ReviewFindingsPoster.layer, LearnedReviewStyles.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(ReviewFindingsPoster.layer, LearnedReviewStyles.layer, TurnOrigin.layer),
+  ),
   Layer.provideMerge(PullRequestSyncReactor.layer),
   Layer.provideMerge(ThreadPullRequestReactor.layer),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
