@@ -22,8 +22,8 @@ function findingLocation(entry: ReviewFindingEntry): string {
 }
 
 /**
- * Fix all, for more than one finding: the findings that will go to `chatTitle`, all ticked, so the
- * reader can leave some out before the request is written into that chat's composer.
+ * Fix all, for more than one finding: the issues that will be sent to `chatTitle` as one message,
+ * all ticked, so the reader can leave some out first. It lists issues only, never chats.
  */
 export function ReviewFixAllDialog({
   entries,
@@ -50,11 +50,10 @@ export function ReviewFixAllDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Fix {entries.length} findings</DialogTitle>
+            <DialogTitle>Fix {entries.length} issues</DialogTitle>
             <DialogDescription>
-              The request goes into {chatTitle === null ? "the chat's" : `${chatTitle}'s`} composer
-              for you to read and send. The agent checks each finding first and says which it
-              fixed and which it skipped.
+              They go to {chatTitle ?? "the chat this review belongs to"} as one message. The agent
+              checks each issue first and says which it fixed and which it skipped.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -96,7 +95,7 @@ export function ReviewFixAllDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={selection.length === 0}>
-              Send {selection.length} {selection.length === 1 ? "finding" : "findings"}
+              Send {selection.length} {selection.length === 1 ? "issue" : "issues"}
             </Button>
           </DialogFooter>
         </form>

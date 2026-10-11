@@ -894,7 +894,7 @@ function ReviewFindingsViewContent({
         <ReviewFixAllDialog
           entries={fixing}
           chatTitle={
-            !fixInReviewThread && onFixInChat !== undefined ? (panelThread?.title ?? null) : null
+            !fixInReviewThread && onFixInChat === undefined ? (panelThread?.title ?? null) : null
           }
           onSend={(selection) => {
             setFixing(null);

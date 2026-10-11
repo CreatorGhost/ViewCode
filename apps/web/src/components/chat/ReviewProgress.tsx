@@ -8,11 +8,12 @@ import {
 } from "@t3tools/client-runtime/state/child-agents";
 import { AGENT_REVIEW_MODES, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
-import { useServerConfigs, useThreadShells } from "../../state/entities";
+import { readThreadShells, useServerConfigs, useThreadShells } from "../../state/entities";
+import { useAgentControlActions } from "../agents/useAgentControlActions";
 import { environmentThreadDetails } from "../../state/threads";
 import { Button } from "../ui/button";
 import { reviewWorkLine } from "./reviewProgress.logic";
@@ -31,9 +32,9 @@ export function useReviewLabel(environmentId: EnvironmentId, review: LatestRevie
 
 /**
  * Where the latest review stands, above whatever the panel shows: while it runs, how long, its
- * current step and the agents it started; once it stopped without its final findings, why, with
- * Try again for a failure. Nothing for a review that is done. "View agent" opens the reviewer's
- * own chat, only when clicked.
+ * current step and the agents it started, with Stop; once it stopped without its final findings,
+ * why, with Try again. Nothing for a review that is done. "View agent" opens the reviewer's own
+ * chat, only when clicked.
  */
 export function ReviewStatusBar({
   environmentId,
@@ -53,6 +54,21 @@ export function ReviewStatusBar({
   const label = useReviewLabel(environmentId, review);
   const nowMinute = useNowMinute();
   const navigate = useNavigate();
+  const actions = useAgentControlActions();
+  const [stopping, setStopping] = useState(false);
+  // Stops the reviewer and the agents it started, and nothing else: the chat it belongs to is in
+  // the same agent tree, so this never stops the tree as a whole.
+  const stopReview = async () => {
+    setStopping(true);
+    const agents = collectChildAgents(readThreadShells(), {
+      environmentId,
+      threadId: review.threadId,
+    }).filter((agent) => agent.running);
+    for (const threadId of [review.threadId, ...agents.map((agent) => agent.thread.id)]) {
+      await actions.stop(scopeThreadRef(environmentId, threadId), "thread");
+    }
+    setStopping(false);
+  };
   if (progress.kind === "done") return null;
   // The clock's minute is UTC ("YYYY-MM-DDTHH:MM"); it re-renders the bar once a minute.
   const text = reviewStatusText({
@@ -101,7 +117,17 @@ export function ReviewStatusBar({
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {viewAgent}
-          {progress.kind === "failed" && onRetry !== null ? (
+          {progress.kind === "running" ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              disabled={stopping}
+              onClick={() => void stopReview()}
+            >
+              {stopping ? "Stopping..." : "Stop"}
+            </Button>
+          ) : onRetry !== null ? (
             <Button type="button" size="xs" variant="outline" disabled={retrying} onClick={onRetry}>
               {retrying ? "Starting..." : "Try again"}
             </Button>
