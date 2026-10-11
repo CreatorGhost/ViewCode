@@ -12,10 +12,14 @@ import {
 
 import {
   buildReviewFixMessage,
+  buildReviewFromFindings,
   fencedCode,
   readReviewFindings,
+  reviewCommentableLines,
+  reviewFindingCommentBody,
   reviewFindingLocation,
   reviewFindingsMode,
+  reviewSubmitVerdictFor,
 } from "./reviewFindings.ts";
 
 describe("reviewFindingLocation", () => {
@@ -150,5 +154,127 @@ describe("readReviewFindings", () => {
       payload: { ...payload, mode: "comment" },
     });
     expect(comments && reviewFindingsMode(comments)).toBe("comment");
+  });
+});
+
+describe("reviewSubmitVerdictFor", () => {
+  it("requests changes or approves where the reviewer did, and comments otherwise", () => {
+    expect(reviewSubmitVerdictFor("request-changes")).toBe("request-changes");
+    expect(reviewSubmitVerdictFor("approve")).toBe("approve");
+    expect(reviewSubmitVerdictFor("approve-with-nits")).toBe("comment");
+  });
+});
+
+const PATCH = [
+  "diff --git a/src/run.ts b/src/run.ts",
+  "index 1111111..2222222 100644",
+  "--- a/src/run.ts",
+  "+++ b/src/run.ts",
+  "@@ -10,4 +10,4 @@ export function run() {",
+  "   const a = 1;",
+  "-  exec(branch);",
+  "--- a removed line that looks like a header",
+  "+  execFile('git', [branch]);",
+  "+  log(a);",
+  "   return a;",
+  "diff --git a/old/name.ts b/new/name.ts",
+  "similarity index 90%",
+  "rename from old/name.ts",
+  "rename to new/name.ts",
+  "--- a/old/name.ts",
+  "+++ b/new/name.ts",
+  "@@ -1 +1 @@",
+  "-export const x = 1;",
+  "+export const x = 2;",
+  "diff --git a/gone.ts b/gone.ts",
+  "deleted file mode 100644",
+  "--- a/gone.ts",
+  "+++ /dev/null",
+  "@@ -1,2 +0,0 @@",
+  "-one",
+  "-two",
+  "",
+].join("\n");
+
+describe("reviewCommentableLines", () => {
+  it("knows the added and unchanged lines of the head, by the hunks' own counts", () => {
+    const lines = reviewCommentableLines(PATCH);
+    expect([...lines.keys()]).toEqual(["src/run.ts", "new/name.ts"]);
+    const run = lines.get("src/run.ts")!;
+    expect(run.oldPath).toBeUndefined();
+    expect([...run.lines.entries()]).toEqual([
+      [10, { kind: "context", oldLine: 10, newLine: 10, side: "right" }],
+      [11, { kind: "added", newLine: 11 }],
+      [12, { kind: "added", newLine: 12 }],
+      [13, { kind: "context", oldLine: 13, newLine: 13, side: "right" }],
+    ]);
+    expect(lines.get("new/name.ts")).toEqual({
+      oldPath: "old/name.ts",
+      lines: new Map([[1, { kind: "added", newLine: 1 }]]),
+    });
+  });
+});
+
+describe("buildReviewFromFindings", () => {
+  const base = { severity: "important", confidence: 92, title: "Shell injection" } as const;
+  const onLine = {
+    ...base,
+    path: "src/run.ts",
+    line: 11,
+    detail: "This still reaches a shell.",
+    suggestedFix: "execFile('git', [branch]);",
+  };
+  const offDiff = { ...base, path: "src/run.ts", line: 40, detail: "Same problem here." };
+  const noLine = { ...base, path: "README.md", detail: "The docs still say exec." };
+  const renamed = { ...base, path: "new/name.ts", line: 1, detail: "Why 2?" };
+
+  it("puts a finding on its line when the diff shows it, and the rest in the review's text", () => {
+    const review = buildReviewFromFindings({
+      overallComment: "  Thanks, a few things.  ",
+      findings: [
+        { key: "finding:0", finding: onLine },
+        { key: "finding:1", finding: offDiff },
+        { key: "finding:2", finding: noLine },
+        { key: "finding:3", finding: renamed },
+      ],
+      commentable: reviewCommentableLines(PATCH),
+    });
+    expect(review.placements).toEqual([
+      { key: "finding:0", placement: "inline" },
+      { key: "finding:1", placement: "body" },
+      { key: "finding:2", placement: "body" },
+      { key: "finding:3", placement: "inline" },
+    ]);
+    expect(review.comments).toEqual([
+      {
+        path: "src/run.ts",
+        position: { kind: "added", newLine: 11 },
+        body: "This still reaches a shell.\n\n```ts\nexecFile('git', [branch]);\n```",
+      },
+      {
+        path: "new/name.ts",
+        oldPath: "old/name.ts",
+        position: { kind: "added", newLine: 1 },
+        body: "Why 2?",
+      },
+    ]);
+    expect(review.body).toBe(
+      [
+        "Thanks, a few things.",
+        "**Shell injection** (`src/run.ts:40`)\n\nSame problem here.",
+        "**Shell injection** (`README.md`)\n\nThe docs still say exec.",
+      ].join("\n\n"),
+    );
+  });
+
+  it("puts every finding in the text when the diff is unknown", () => {
+    const review = buildReviewFromFindings({
+      overallComment: "",
+      findings: [{ key: "finding:0", finding: onLine }],
+      commentable: null,
+    });
+    expect(review.comments).toEqual([]);
+    expect(review.placements).toEqual([{ key: "finding:0", placement: "body" }]);
+    expect(review.body).toBe(reviewFindingCommentBody(onLine, "body"));
   });
 });
