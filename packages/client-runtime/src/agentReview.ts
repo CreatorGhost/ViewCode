@@ -43,6 +43,18 @@ export interface AgentReviewChoices {
   readonly scope?: LocalReviewScope | null | undefined;
 }
 
+/**
+ * Whether the start form offers "What to review": only for local changes, and only on servers
+ * that read the choice (`localAgentReviewScope`). Elsewhere it is hidden rather than sent and
+ * ignored, which would review something other than what the reader picked.
+ */
+export function canChooseLocalReviewScope(
+  request: Pick<AgentReviewRequest, "kind">,
+  capabilities: { readonly localAgentReviewScope?: boolean | undefined } | undefined,
+): boolean {
+  return request.kind === "local" && capabilities?.localAgentReviewScope === true;
+}
+
 export type AgentReviewStart =
   | { readonly method: "pullRequests.startReview"; readonly input: PullRequestStartReviewInput }
   | { readonly method: "review.startLocal"; readonly input: ReviewStartLocalInput };

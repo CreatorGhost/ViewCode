@@ -2,6 +2,7 @@ import {
   type AgentReviewChoices,
   type AgentReviewRequest,
   buildAgentReviewStart,
+  canChooseLocalReviewScope,
   localReviewScopeReady,
 } from "@t3tools/client-runtime/agent-review";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -73,9 +74,9 @@ export function useStartAgentReview(
   const startLocalReview = useAtomCommand(reviewEnvironment.startLocal, { reportFailure: false });
   const [pending, setPending] = useState(false);
   const configs = useServerConfigs();
-  const canScope =
-    environmentId !== null &&
-    configs.get(environmentId)?.environment.capabilities.localAgentReviewScope === true;
+  const capabilities =
+    environmentId === null ? undefined : configs.get(environmentId)?.environment.capabilities;
+  const canScope = request !== null && canChooseLocalReviewScope(request, capabilities);
   const start = async (choices: AgentReviewChoices): Promise<StartedAgentReview | null> => {
     if (pending || environmentId === null || request === null) return null;
     setPending(true);
@@ -141,7 +142,7 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
   // What of the local changes to read; null leaves it to the reviewer (uncommitted, else branch).
   const [scope, setScope] = useState<LocalReviewScope | null>(null);
   const { pending } = starter;
-  const canScope = request.kind === "local" && starter.canScope;
+  const { canScope } = starter;
   const scopeReady = !canScope || localReviewScopeReady(scope);
   // The checkout a local review reads, whose commits and base the scope choices offer.
   const sourceThread = useThreadShell(

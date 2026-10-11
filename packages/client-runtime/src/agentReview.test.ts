@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   buildAgentReviewStart,
+  canChooseLocalReviewScope,
   filterReviewCommits,
   formatReviewElapsed,
   localReviewScopeLabel,
@@ -62,6 +63,20 @@ describe("buildAgentReviewStart", () => {
     expect(buildAgentReviewStart(request, choices, { canScope: false }).input).not.toHaveProperty(
       "scope",
     );
+  });
+});
+
+describe("canChooseLocalReviewScope", () => {
+  it("offers what to review only for local changes on a server that reads it", () => {
+    const local = { kind: "local" } as const;
+    expect(canChooseLocalReviewScope(local, { localAgentReviewScope: true })).toBe(true);
+    // An older server would ignore the choice and review something else: hide it.
+    expect(canChooseLocalReviewScope(local, {})).toBe(false);
+    expect(canChooseLocalReviewScope(local, undefined)).toBe(false);
+    // A pull request review reads the pull request.
+    expect(
+      canChooseLocalReviewScope({ kind: "pull-request" }, { localAgentReviewScope: true }),
+    ).toBe(false);
   });
 });
 
