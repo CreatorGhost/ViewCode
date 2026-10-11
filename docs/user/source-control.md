@@ -24,8 +24,12 @@ If you work for several organizations with separate GitHub accounts, sign in to 
 `gh auth login`. T3 Code starts with the active account (`gh auth status`) and, for a repository
 that account can't see, uses whichever of your other signed-in accounts can, without switching the
 active account in your terminals. Pull requests show which account each project is read with. A
-newly granted access or a sign-out is picked up within about ten minutes. `git push` still uses your
-Git credentials, so give each organization's remotes credentials or an SSH key that can push.
+newly granted access or a sign-out is picked up within about ten minutes.
+
+`git push` and clone don't follow this: they use Git's own credentials, and the helper
+`gh auth setup-git` installs always pushes as the active account. Give each organization's remotes a
+credential its account can push with, such as an SSH key per account chosen by a host alias
+(`git@github-acme:acme/app.git` with a `Host github-acme` entry in `~/.ssh/config`).
 
 ### Forgejo and Gitea
 
