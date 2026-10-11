@@ -85,6 +85,11 @@ function SideChatContent({ route }: SideChatSheetProps) {
     resolveActiveSidechat(sidechats, preferred),
     createdThreadId,
   );
+  // Pin the side chat the sheet opened on: following "newest" live would move an
+  // unsent draft to whichever side chat another device touched last.
+  if (preferred === null && active !== null) {
+    setPreferred(active.id);
+  }
   const awaitingCreatedShell = createdThreadId !== null && active === null;
   if (createdThreadId !== null && active?.id === createdThreadId) {
     setCreatedThreadId(null);
