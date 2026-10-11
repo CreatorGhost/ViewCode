@@ -20,7 +20,8 @@ export const reviewModeLabel = (mode: AgentReviewMode): string =>
   AGENT_REVIEW_MODES.find((entry) => entry.mode === mode)?.label ?? mode;
 
 const CREDIT = `<!-- ViewCode review playbook. Adapted ideas, not files, from
-SpillwaveSolutions/pr-reviewer-skill (MIT) and cloudflare/security-audit-skill (MIT). -->`;
+SpillwaveSolutions/pr-reviewer-skill (MIT) and cloudflare/security-audit-skill (MIT), and from how
+CodeRabbit, Greptile, Qodo PR-Agent and Claude Code's /code-review describe their reviews. -->`;
 
 const SHARED_RULES = `## Ground rules
 
@@ -31,6 +32,15 @@ const SHARED_RULES = `## Ground rules
   \`git diff <base>...refs/viewcode/review/<n>\`. Delete any temporary ref when you are done.
 - Collect before judging: the description, the linked issue, existing review comments, CI status
   and the full diff. Do not repeat what a reviewer already said; build on it or disagree with it.
+- Follow the repository's own rules: read \`AGENTS.md\`, \`CLAUDE.md\` and \`CONTRIBUTING.md\` at the
+  root and in the directories the change touches, and \`.viewcode/review.md\` if it exists (the
+  team's review instructions). A finding that breaks one of these rules quotes the rule.
+- Judge the change, not the codebase. A problem that was already there is reported only when the
+  change makes it worse or newly reachable, and is labelled **pre-existing**.
+- Skip noise: lockfiles, generated, vendored or minified code and snapshots get a glance for
+  surprises, not a review. When the change is too large to read in full, review the riskiest files
+  first (auth, data, money, concurrency, public APIs, migrations) and say which files you only
+  skimmed.
 - Read the surrounding code for every hunk you comment on. A finding needs a concrete path from a
   real caller or input to the failure. "This could be a problem" without that path is a question.
 - Severity is likelihood times impact:
@@ -39,15 +49,26 @@ const SHARED_RULES = `## Ground rules
   - **Nit**: style, naming, small clean-ups, and defence-in-depth gaps another layer already
     blocks.
   - **Question**: something you could not settle from the code; say what would settle it.
+- Score your confidence in every finding from 0 to 100: 100 is proven from the code, 75 very
+  likely, 50 plausible but unverified, 25 a hunch. Report only findings at 80 or above; list those
+  from 50 to 79 under **Needs checking** with what would settle each; drop the rest.
+- No style comments a linter or formatter would make, and at most five Nits.
+- A suggested fix is a small code block the author could apply as it stands, not a description.
 - Post nothing to the host (comments, reviews, approvals, labels) unless the user asks.
 
 ## Report
 
-1. A one-line verdict: approve, approve with nits, or request changes.
-2. Findings, most severe first, each as
-   \`path:line — problem — why it matters — suggested fix\`, grouped under their severity.
-3. **Checked and fine**: one line per area you covered and found no problem in, so the reader
-   knows what the review did and did not look at.`;
+1. **Verdict**: approve, approve with nits, or request changes, then **Merge confidence** 0–5
+   (5: safe to merge as is; 0: will break something) and **Review effort** 1–5 (how long a
+   careful human review takes), each with a one-line reason.
+2. **Walkthrough**: what the change does in two or three sentences, then a table of the changes
+   grouped by area (area, files, what changed). Add a mermaid diagram only when the change alters a
+   flow across three or more components; the reader's app renders it.
+3. **Findings**, most severe first and grouped under their severity, each as
+   \`path:line — problem — why it matters — confidence\`, followed by the suggested fix.
+4. **Needs checking**, when there is anything there.
+5. **Checked and fine**: one line per area you covered and found no problem in, and the files you
+   only skimmed, so the reader knows what the review did and did not look at.`;
 
 const QUICK = `## Quick review
 
@@ -77,12 +98,20 @@ A lead agent (you) and child agents. This uses several agents and more of the us
    - performance and resource use
    - tests and behaviour coverage
    - API and contract changes, and consistency across every caller and surface
+   - the repository's rules (the files named in the ground rules), quoting each rule broken
+   - history: \`git blame\` and \`git log\` on the changed lines and earlier review comments on
+     these files, to tell a deliberate behaviour from an accident
    If you cannot spawn agents, run the lenses yourself as separate passes, one after another.
-3. **Adversarial verification.** Hand every candidate finding to a fresh agent (or a fresh pass)
+3. **Run the project's checks** when the pull request's head is in this repository (never for a
+   fork or an outside contributor's branch, whose code you must not run): add a temporary git
+   worktree outside the user's checkout at the fetched head, run the lint, typecheck and tests the
+   project documents for the packages the change touches, read the failures as evidence, then
+   remove the worktree. Never run them in the user's checkout.
+4. **Adversarial verification.** Hand every candidate finding to a fresh agent (or a fresh pass)
    whose only job is to disprove it from the code. Report only findings that survive. Put the ones
    nobody could settle under **Needs checking**, with what would settle each. Drop disproved ones;
    you may list them under **Rejected**, one line each.
-4. **Consolidate.** Merge duplicates across lenses, keep the strongest evidence, and write the
+5. **Consolidate.** Merge duplicates across lenses, keep the strongest evidence, and write the
    report.`;
 
 const SECURITY = `## Security audit
