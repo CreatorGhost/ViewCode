@@ -33,9 +33,10 @@ export function SettingsLegalDocumentCloseHeaderButton() {
 export function SettingsLegalDocumentExternalHeaderButton({
   externalUrl = LEGAL_URL,
 }: {
-  readonly externalUrl?: string;
+  readonly externalUrl?: string | null;
 }) {
-  const safeExternalUrl = isLegalDocumentUrl(externalUrl) ? externalUrl : LEGAL_URL;
+  const safeExternalUrl = externalUrl && isLegalDocumentUrl(externalUrl) ? externalUrl : LEGAL_URL;
+  if (!safeExternalUrl) return null;
 
   return (
     <Pressable
@@ -58,7 +59,7 @@ export function SettingsLegalDocumentExternalHeaderButton({
 
 interface SettingsLegalDocumentRouteScreenProps {
   readonly documentName: string;
-  readonly documentUrl: string;
+  readonly documentUrl: string | null;
 }
 
 export function SettingsLegalDocumentRouteScreen({
@@ -84,6 +85,15 @@ export function SettingsLegalDocumentRouteScreen({
   const openExternalUrl = useCallback((url: string) => {
     void Linking.openURL(url).catch(() => undefined);
   }, []);
+  if (!documentUrl) {
+    return (
+      <View className="flex-1 items-center justify-center bg-sheet px-8">
+        <Text className="text-center text-sm text-foreground-muted">
+          Legal documents are not available yet.
+        </Text>
+      </View>
+    );
+  }
   if (loadError) {
     return (
       <View className="flex-1 items-center justify-center gap-4 bg-sheet px-8">
