@@ -6,8 +6,9 @@
  * (`bundledNpm.ts`), so the desktop needs no Node.js install; anywhere else a
  * missing Node is a message. Every run trusts the OS certificate store
  * (`--use-system-ca`) so a TLS-inspecting corporate proxy does not break
- * wrangler, and gets a staged copy of the Worker to deploy. The child is
- * killed through its captured handle when the run is interrupted.
+ * wrangler, and gets a staged copy of the Worker to deploy. The child (on
+ * Windows its whole tree) is killed through its captured handle when the run
+ * is interrupted.
  */
 import * as NodeChildProcess from "node:child_process";
 
@@ -189,6 +190,24 @@ export function wranglerEnvironment(input: {
   };
 }
 
+/**
+ * Stops a run that was interrupted (Cancel, a timeout, the server stopping).
+ * On Windows `npx` runs under cmd.exe, and killing cmd.exe alone leaves npx and
+ * wrangler running, so the whole tree goes.
+ */
+const stopChild = (child: NodeChildProcess.ChildProcess, platform: NodeJS.Platform): void => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (platform !== "win32" || child.pid === undefined) {
+    child.kill();
+    return;
+  }
+  const killer = NodeChildProcess.spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  killer.once("error", () => child.kill());
+};
+
 const spawnAndCollect = (input: {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
@@ -198,6 +217,7 @@ const spawnAndCollect = (input: {
   readonly onOutput?: ((text: string) => void) | undefined;
 }): Effect.Effect<WranglerResult> =>
   Effect.gen(function* () {
+    const platform = yield* HostProcessPlatform;
     const spawn = yield* resolveSpawnCommand(input.command, input.args, { env: input.env });
     return yield* Effect.callback<WranglerResult>((resume) => {
       let output = "";
@@ -227,10 +247,7 @@ const spawnAndCollect = (input: {
         resume(Effect.succeed({ exitCode: 127, output: `${output}${String(cause)}` })),
       );
       child.once("close", (code) => resume(Effect.succeed({ exitCode: code ?? 1, output })));
-      // Interrupted (Cancel, or the server stopping): end the child we spawned.
-      return Effect.sync(() => {
-        if (child.exitCode === null && child.signalCode === null) child.kill();
-      });
+      return Effect.sync(() => stopChild(child, platform));
     });
   }).pipe(Effect.orElseSucceed(() => ({ exitCode: 127, output: "" })));
 
