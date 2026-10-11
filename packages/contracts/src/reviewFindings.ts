@@ -5,6 +5,7 @@ import {
   IsoDateTime,
   NonNegativeInt,
   PositiveInt,
+  ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
@@ -265,6 +266,59 @@ export const ReviewFindingsPostedActivityPayload = Schema.Struct({
   headMoved: Schema.optional(Schema.Boolean),
 });
 export type ReviewFindingsPostedActivityPayload = typeof ReviewFindingsPostedActivityPayload.Type;
+
+/**
+ * A reader's thumbs up or down on one finding, recorded on the review thread so every client shows
+ * it, and read back when later reviews of the project start: the reviewer is shown what was and was
+ * not wanted. The latest rating of a finding wins; null takes it back.
+ */
+export const REVIEW_FINDING_RATING_ACTIVITY_KIND = "viewcode.review.rating";
+
+export const ReviewFindingRating = Schema.Literals(["up", "down"]);
+export type ReviewFindingRating = typeof ReviewFindingRating.Type;
+
+export const ReviewRateFindingInput = Schema.Struct({
+  reviewThreadId: ThreadId,
+  findingsActivityId: EventId,
+  findingKey: ReviewFindingKey,
+  rating: Schema.NullOr(ReviewFindingRating),
+});
+export type ReviewRateFindingInput = typeof ReviewRateFindingInput.Type;
+
+/** The `REVIEW_FINDING_RATING_ACTIVITY_KIND` activity payload. */
+export const ReviewFindingRatingActivityPayload = Schema.Struct({
+  findingsActivityId: EventId,
+  key: ReviewFindingKey,
+  rating: Schema.NullOr(ReviewFindingRating),
+  /** Kept with the rating so later reviews of the project find it without reading the findings. */
+  projectId: ProjectId,
+  finding: Schema.Struct({
+    title: Schema.String,
+    severity: ReviewFindingSeverity,
+    path: Schema.String,
+    rule: Schema.optional(Schema.String),
+  }),
+});
+export type ReviewFindingRatingActivityPayload = typeof ReviewFindingRatingActivityPayload.Type;
+
+export class ReviewRateFindingError extends Schema.TaggedError<ReviewRateFindingError>()(
+  "ReviewRateFindingError",
+  {
+    stage: Schema.Literals(["review-thread", "finding", "record"]),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    switch (this.stage) {
+      case "review-thread":
+        return "The review thread was not found.";
+      case "finding":
+        return "That finding is not part of this review.";
+      case "record":
+        return "Could not save the rating.";
+    }
+  }
+}
 
 /**
  * A review is one request, so a failure applies to every finding it carried: none of them was

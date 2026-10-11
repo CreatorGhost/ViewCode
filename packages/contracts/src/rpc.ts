@@ -107,6 +107,8 @@ import {
   ReviewPostFindingsResult,
   ReviewStartFixThreadInput,
   ReviewStartFixThreadResult,
+  ReviewRateFindingError,
+  ReviewRateFindingInput,
   ReviewStartError,
 } from "./reviewFindings.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
@@ -401,6 +403,7 @@ export const WS_METHODS = {
   reviewStartFixThread: "review.startFixThread",
   reviewStartLocal: "review.startLocal",
   reviewPostFindings: "review.postFindings",
+  reviewRateFinding: "review.rateFinding",
   reviewGetLearnedStyle: "review.getLearnedStyle",
   reviewLearnStyle: "review.learnStyle",
   reviewForgetLearnedStyle: "review.forgetLearnedStyle",
@@ -1448,6 +1451,13 @@ const WsReviewPostFindingsRpc = Rpc.make(WS_METHODS.reviewPostFindings, {
   error: Schema.Union([ReviewPostFindingsError, EnvironmentAuthorizationError]),
 });
 
+/** Only send to environments advertising `reviewFindingRatings`. */
+const WsReviewRateFindingRpc = Rpc.make(WS_METHODS.reviewRateFinding, {
+  payload: ReviewRateFindingInput,
+  success: Schema.Void,
+  error: Schema.Union([ReviewRateFindingError, EnvironmentAuthorizationError]),
+});
+
 /** The learned-style methods only reach servers advertising `learnedReviewStyle`. */
 const WsReviewGetLearnedStyleRpc = Rpc.make(WS_METHODS.reviewGetLearnedStyle, {
   payload: LearnedReviewStyleAccount,
@@ -1886,6 +1896,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewGetDiffFileContentsRpc,
   WsReviewStartFixThreadRpc,
   WsReviewStartLocalRpc,
+  WsReviewRateFindingRpc,
   WsReviewPostFindingsRpc,
   WsReviewGetLearnedStyleRpc,
   WsReviewLearnStyleRpc,

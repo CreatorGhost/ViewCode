@@ -175,6 +175,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.reviewStartFixThread]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewStartLocal]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewPostFindings]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewRateFinding]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewGetLearnedStyle]: AuthOrchestrationReadScope,
   [WS_METHODS.reviewLearnStyle]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewForgetLearnedStyle]: AuthOrchestrationOperateScope,

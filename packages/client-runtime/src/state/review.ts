@@ -70,6 +70,11 @@ export function createReviewEnvironmentAtoms<R, E>(
       label: "environment-data:review:post-findings",
       tag: WS_METHODS.reviewPostFindings,
     }),
+    /** Rates one finding up or down, or takes it back; servers advertising `reviewFindingRatings`. */
+    rateFinding: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:rate-finding",
+      tag: WS_METHODS.reviewRateFinding,
+    }),
     /** What was learned of an account's review writing; servers advertising `learnedReviewStyle`. */
     learnedStyle: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:review:learned-style",

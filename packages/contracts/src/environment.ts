@@ -165,6 +165,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   localAgentReview: Schema.optionalKey(Schema.Boolean),
   /** Server understands `incremental` and `basedOn` when starting a review. */
   incrementalAgentReview: Schema.optionalKey(Schema.Boolean),
+  /** Server keeps findings' ratings (`review.rateFinding`) and shows them to later reviews. */
+  reviewFindingRatings: Schema.optionalKey(Schema.Boolean),
   /** Server learns an account's review style from its own reviews (`review.learnStyle`). */
   learnedReviewStyle: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on

@@ -90,6 +90,14 @@ sends findings from it to a session that fixes them, so each \`detail\` must sta
 written report stays the reader's version; the tool call does not replace it. If you review again
 in this thread, call the tool again with the full new set. Without the tool, the report is enough.
 
+## Rated findings
+
+When the first message names a file of rated findings, read it before reporting. It is JSON:
+\`ratedFindings\` holds the user's ratings of findings from earlier reviews in this project, each
+with \`rating\` (\`up\` or \`down\`), \`title\`, \`severity\`, \`path\` and \`rule\`. Findings like
+the ones rated down (👎) were not wanted here: report that kind only with stronger evidence, or
+not at all. Prefer the kinds rated up (👍).
+
 ## Re-review
 
 When the first message says this is a re-review, it names a JSON file of the previous review's

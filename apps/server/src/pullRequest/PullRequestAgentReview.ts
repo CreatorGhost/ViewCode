@@ -30,7 +30,6 @@ import {
   normalizeThreadPullRequestKey,
   threadPullRequestKeyOf,
 } from "@t3tools/shared/threadPullRequests";
-import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -45,6 +44,7 @@ import * as ServerConfig from "../config.ts";
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { findLearnedReviewStyleFile } from "../review/LearnedReviewStyles.ts";
+import * as ReviewFindingRatings from "../review/ReviewFindingRatings.ts";
 import {
   ensureReviewPlaybook,
   reviewModeLabel,
@@ -231,6 +231,15 @@ export function reReviewLines(reReview: ReReview): ReadonlyArray<string> {
   ];
 }
 
+function ratedFindingsLines(path: string | null | undefined): ReadonlyArray<string> {
+  return path === null || path === undefined
+    ? []
+    : [
+        "",
+        `How I rated findings of earlier reviews in this project is in ${path} (see the playbook).`,
+      ];
+}
+
 export function pullRequestReviewTitle(
   mode: AgentReviewMode,
   pr: Pick<PullRequestSummary, "number" | "title">,
@@ -255,6 +264,8 @@ export function buildPullRequestReviewPrompt(input: {
   /** Only a mode the user chose; otherwise the server decides when the findings arrive. */
   readonly findingsMode?: ReviewFindingsMode | undefined;
   readonly reReview?: ReReview | undefined;
+  /** The project's recently rated findings, when any were rated. */
+  readonly ratedFindingsPath?: string | null | undefined;
   /**
    * Present when the findings will be posted as review comments: the user's style, and the
    * file of their own past review comments learned for the account they will be posted as.
@@ -279,6 +290,7 @@ export function buildPullRequestReviewPrompt(input: {
   const focus = input.focus?.trim();
   if (focus) lines.push("", `Focus on: ${focus}`);
   if (input.reReview !== undefined) lines.push(...reReviewLines(input.reReview));
+  lines.push(...ratedFindingsLines(input.ratedFindingsPath));
   if (input.findingsMode !== undefined) {
     lines.push(
       "",
@@ -318,6 +330,7 @@ export function buildLocalReviewPrompt(input: {
   readonly branch: string | null;
   readonly focus?: string | undefined;
   readonly reReview?: ReReview | undefined;
+  readonly ratedFindingsPath?: string | null | undefined;
 }): string {
   const lines = [
     `${reviewModeLabel(input.mode)} of the local changes in ${input.cwd}${input.branch === null ? "" : ` on branch ${input.branch}`}.`,
@@ -329,6 +342,7 @@ export function buildLocalReviewPrompt(input: {
   const focus = input.focus?.trim();
   if (focus) lines.push("", `Focus on: ${focus}`);
   if (input.reReview !== undefined) lines.push(...reReviewLines(input.reReview));
+  lines.push(...ratedFindingsLines(input.ratedFindingsPath));
   lines.push("", `When you call ${SUBMIT_REVIEW_FINDINGS_TOOL}, pass target "local".`);
   return lines.join("\n");
 }
@@ -340,6 +354,7 @@ const PREVIOUS_FINDINGS_DIR = "review-previous";
 
 const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
+  const ratings = yield* ReviewFindingRatings.ReviewFindingRatings;
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -554,7 +569,7 @@ const make = Effect.gen(function* () {
     const dir = path.join(config.stateDir, PREVIOUS_FINDINGS_DIR);
     const target = path.join(dir, `${basedOn.activityId}.json`);
     // Two re-reviews of the same findings write the same text; a rename keeps either whole.
-    const temporary = `${target}.${process.pid}.${(yield* Clock.currentTimeMillis).toString(36)}.tmp`;
+    const temporary = `${target}.${yield* uuid}.tmp`;
     yield* Effect.gen(function* () {
       yield* fileSystem.makeDirectory(dir, { recursive: true });
       yield* fileSystem.writeFileString(temporary, content);
@@ -603,6 +618,7 @@ const make = Effect.gen(function* () {
             (payload) => payload.target.kind === "local",
           )
         : undefined;
+    const ratedFindingsPath = yield* ratings.writeRatedFindingsFile(input.projectId);
     // The same checkout as the thread whose changes these are; the reviewer only reads it.
     return yield* launch({
       projectId: input.projectId,
@@ -618,6 +634,7 @@ const make = Effect.gen(function* () {
         cwd: worktreePath ?? project.workspaceRoot,
         branch,
         focus: input.focus,
+        ratedFindingsPath,
         ...(previous === undefined ? {} : { reReview: { previousPath: previous.path } }),
       }),
     });
@@ -683,6 +700,7 @@ const make = Effect.gen(function* () {
     const comments = commenting
       ? { style: style.length > 0 ? style : null, samplesPath }
       : undefined;
+    const ratedFindingsPath = yield* ratings.writeRatedFindingsFile(reference.projectId);
 
     return yield* launch({
       projectId: reference.projectId,
@@ -705,6 +723,7 @@ const make = Effect.gen(function* () {
         headSha: detail.headSha,
         findingsMode: input.findingsMode,
         comments,
+        ratedFindingsPath,
         ...(previous === undefined
           ? {}
           : {

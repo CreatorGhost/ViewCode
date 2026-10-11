@@ -16,12 +16,78 @@ import {
   fencedCode,
   postedReviewFindings,
   readReviewFindings,
+  recentRatedReviewFindings,
   reviewCommentableLines,
+  reviewFindingRatings,
   reviewFindingCommentBody,
   reviewFindingLocation,
   reviewFindingsMode,
   reviewSubmitVerdictFor,
 } from "./reviewFindings.ts";
+
+const ratingActivity = (
+  findingsActivityId: string,
+  key: string,
+  rating: "up" | "down" | null,
+  projectId = "project-1",
+  title = `${findingsActivityId} ${key}`,
+) => ({
+  kind: "viewcode.review.rating",
+  payload: {
+    findingsActivityId,
+    key,
+    rating,
+    projectId,
+    finding: { title, severity: "nit", path: "src/a.ts" },
+    timelineBypass: true,
+  },
+});
+
+describe("reviewFindingRatings", () => {
+  it("keeps each finding's latest rating and forgets one taken back", () => {
+    const ratings = reviewFindingRatings(
+      [
+        ratingActivity("review", "finding:0", "up"),
+        ratingActivity("review", "finding:0", "down"),
+        ratingActivity("review", "finding:1", "up"),
+        ratingActivity("review", "finding:1", null),
+        ratingActivity("other", "finding:2", "up"),
+        { kind: "viewcode.review.rating", payload: { rating: "sideways" } },
+      ],
+      "review",
+    );
+    expect([...ratings]).toEqual([["finding:0", "down"]]);
+  });
+});
+
+describe("recentRatedReviewFindings", () => {
+  it("lists the project's findings by their latest rating, newest last and bounded", () => {
+    const rated = recentRatedReviewFindings(
+      [
+        ratingActivity("a", "finding:0", "down", "project-1", "Too picky"),
+        ratingActivity("a", "finding:1", "up", "project-1", "Real bug"),
+        ratingActivity("b", "finding:0", "up", "project-2", "Other project"),
+        ratingActivity("a", "finding:2", "up", "project-1", "Taken back"),
+        ratingActivity("a", "finding:2", null, "project-1", "Taken back"),
+        // Rated again: it moves to the end with its new rating.
+        ratingActivity("a", "finding:0", "up", "project-1", "Too picky"),
+      ],
+      "project-1",
+      30,
+    );
+    expect(rated.map((entry) => [entry.title, entry.rating])).toEqual([
+      ["Real bug", "up"],
+      ["Too picky", "up"],
+    ]);
+    expect(
+      recentRatedReviewFindings(
+        Array.from({ length: 40 }, (_, index) => ratingActivity("a", `finding:${index}`, "down")),
+        "project-1",
+        30,
+      ).map((entry) => entry.title)[0],
+    ).toBe("a finding:10");
+  });
+});
 
 describe("reviewFindingLocation", () => {
   it("cites a file, a line or a range", () => {

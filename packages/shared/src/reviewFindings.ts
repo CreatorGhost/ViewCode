@@ -1,6 +1,8 @@
 import {
+  REVIEW_FINDING_RATING_ACTIVITY_KIND,
   REVIEW_FINDINGS_ACTIVITY_KIND,
   REVIEW_FINDINGS_POSTED_ACTIVITY_KIND,
+  ReviewFindingRatingActivityPayload,
   ReviewFindingsActivityPayload,
   ReviewFindingsPostedActivityPayload,
   type OrchestrationThreadActivity,
@@ -9,6 +11,7 @@ import {
   type PullRequestReviewVerdict,
   type ReviewFinding,
   type ReviewFindingPlacement,
+  type ReviewFindingRating,
   type ReviewFindingToFix,
   type ReviewFindingsMode,
   type ReviewFindingsTarget,
@@ -100,6 +103,72 @@ export function postedReviewFindings(
     }
   }
   return posted;
+}
+
+const decodeRatingPayload = Schema.decodeUnknownOption(ReviewFindingRatingActivityPayload);
+
+/** One rating record, or undefined for another activity or a bad payload. */
+export function readReviewFindingRating(
+  activity: Pick<OrchestrationThreadActivity, "kind" | "payload">,
+): ReviewFindingRatingActivityPayload | undefined {
+  if (activity.kind !== REVIEW_FINDING_RATING_ACTIVITY_KIND) return undefined;
+  return Option.getOrUndefined(decodeRatingPayload(activity.payload));
+}
+
+/** How the findings of one findings activity are rated now, by key: the latest rating wins. */
+export function reviewFindingRatings(
+  activities: ReadonlyArray<Pick<OrchestrationThreadActivity, "kind" | "payload">>,
+  findingsActivityId: string,
+): ReadonlyMap<string, ReviewFindingRating> {
+  const ratings = new Map<string, ReviewFindingRating>();
+  for (const activity of activities) {
+    const payload = readReviewFindingRating(activity);
+    if (payload === undefined || payload.findingsActivityId !== findingsActivityId) continue;
+    if (payload.rating === null) ratings.delete(payload.key);
+    else ratings.set(payload.key, payload.rating);
+  }
+  return ratings;
+}
+
+export interface RatedReviewFinding {
+  readonly rating: ReviewFindingRating;
+  readonly title: string;
+  readonly severity: ReviewFindingRatingActivityPayload["finding"]["severity"];
+  readonly path: string;
+  readonly rule?: string;
+}
+
+/**
+ * The project's most recently rated findings, newest last, at most `limit`: each finding once, as
+ * last rated, and none whose rating was taken back. Activities are read oldest first.
+ */
+export function recentRatedReviewFindings(
+  activities: ReadonlyArray<Pick<OrchestrationThreadActivity, "kind" | "payload">>,
+  projectId: string,
+  limit: number,
+): ReadonlyArray<RatedReviewFinding> {
+  const latest = new Map<string, RatedReviewFinding | null>();
+  for (const activity of activities) {
+    const payload = readReviewFindingRating(activity);
+    if (payload === undefined || payload.projectId !== projectId) continue;
+    const id = `${payload.findingsActivityId}/${payload.key}`;
+    // Re-inserting moves the finding to the end, so the order is by its latest rating.
+    latest.delete(id);
+    latest.set(
+      id,
+      payload.rating === null
+        ? null
+        : {
+            rating: payload.rating,
+            title: payload.finding.title,
+            severity: payload.finding.severity,
+            path: payload.finding.path,
+            ...(payload.finding.rule === undefined ? {} : { rule: payload.finding.rule }),
+          },
+    );
+  }
+  const rated = [...latest.values()].filter((entry): entry is RatedReviewFinding => entry !== null);
+  return rated.slice(Math.max(0, rated.length - limit));
 }
 
 /**

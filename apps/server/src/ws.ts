@@ -194,6 +194,7 @@ import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
 import * as LearnedReviewStyles from "./review/LearnedReviewStyles.ts";
+import * as ReviewFindingRatings from "./review/ReviewFindingRatings.ts";
 import * as ReviewFindingsPoster from "./review/ReviewFindingsPoster.ts";
 import * as ReviewFixThread from "./review/ReviewFixThread.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
@@ -715,6 +716,7 @@ const makeWsRpcLayer = (
       const pullRequestAgentReview = yield* PullRequestAgentReview.PullRequestAgentReview;
       const reviewFixThread = yield* ReviewFixThread.ReviewFixThread;
       const reviewFindingsPoster = yield* ReviewFindingsPoster.ReviewFindingsPoster;
+      const reviewFindingRatings = yield* ReviewFindingRatings.ReviewFindingRatings;
       const learnedReviewStyles = yield* LearnedReviewStyles.LearnedReviewStyles;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
@@ -3980,6 +3982,10 @@ const makeWsRpcLayer = (
           }),
         [WS_METHODS.reviewPostFindings]: (input) =>
           observeRpcEffect(WS_METHODS.reviewPostFindings, reviewFindingsPoster.post(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewRateFinding]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewRateFinding, reviewFindingRatings.rate(input), {
             "rpc.aggregate": "review",
           }),
         [WS_METHODS.reviewGetLearnedStyle]: (input) =>

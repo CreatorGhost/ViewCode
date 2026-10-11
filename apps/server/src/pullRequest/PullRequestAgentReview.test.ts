@@ -26,6 +26,7 @@ import * as ServerConfig from "../config.ts";
 import { OrchestrationCommandInvariantError } from "../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ReviewFindingRatings from "../review/ReviewFindingRatings.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as PullRequestAgentReview from "./PullRequestAgentReview.ts";
 import * as PullRequestService from "./PullRequestService.ts";
@@ -134,6 +135,7 @@ const makeHarness = (options: {
   readonly reviewStyles?: Record<string, string>;
   /** Findings activities on the earlier review thread. */
   readonly earlierFindings?: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly ratedFindingsPath?: string;
 }) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
@@ -178,6 +180,9 @@ const makeHarness = (options: {
                 }),
               )
             : Ref.update(commands, (all) => [...all, command]).pipe(Effect.as({ sequence: 1 })),
+      }),
+      Layer.mock(ReviewFindingRatings.ReviewFindingRatings)({
+        writeRatedFindingsFile: () => Effect.succeed(options.ratedFindingsPath ?? null),
       }),
       ServerSettings.layerTest({
         defaultModelSelection: options.defaultModel === undefined ? null : options.defaultModel,
@@ -420,6 +425,37 @@ describe("PullRequestAgentReview", () => {
       expect((yield* Ref.get(harness.commands)).map((command) => command.type)).toEqual([
         "thread.create",
       ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("rated findings", () => {
+  it.effect("points every review of the project at the findings the user rated", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        ratedFindingsPath: "/state/review-ratings/project-1.json",
+      });
+      yield* harness.reviews.start({ reference: REFERENCE, linkSource: "manual" });
+      yield* harness.reviews.startLocal({ projectId: PROJECT_ID });
+      const texts = (yield* Ref.get(harness.commands)).flatMap((command) =>
+        command.type === "thread.turn.start" ? [command.message.text] : [],
+      );
+      expect(texts).toHaveLength(2);
+      for (const text of texts) {
+        expect(text).toContain(
+          "How I rated findings of earlier reviews in this project is in /state/review-ratings/project-1.json",
+        );
+      }
+      const playbook = yield* (yield* FileSystem.FileSystem).readFileString(
+        `${harness.stateDir}/review-playbooks/quick-review.md`,
+      );
+      expect(playbook).toContain("Findings like\nthe ones rated down");
+
+      const unrated = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      yield* unrated.reviews.start({ reference: REFERENCE, linkSource: "manual" });
+      const turn = (yield* Ref.get(unrated.commands)).at(-1);
+      expect(turn?.type === "thread.turn.start" ? turn.message.text : "").not.toContain("rated");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
