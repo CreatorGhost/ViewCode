@@ -1,8 +1,12 @@
 import {
+  REVIEW_HEAD_MOVED_NOTICE,
   type ReviewFindingEntry,
+  reviewHeadMoved,
   reviewPostOverallComment,
 } from "@t3tools/client-runtime/review-findings";
 import {
+  type EnvironmentId,
+  type PullRequestRef,
   type PullRequestReviewVerdict,
   REVIEW_POST_MAX_OVERALL_COMMENT_CHARS,
   type ReviewFindingPlacement,
@@ -13,9 +17,13 @@ import {
   reviewFindingLocation,
   reviewSubmitVerdictFor,
 } from "@t3tools/shared/reviewFindings";
+import { TriangleAlertIcon } from "lucide-react";
 import { useId, useState } from "react";
 
+import { pullRequestEnvironment } from "../../state/pullRequests";
+import { useEnvironmentQuery } from "../../state/query";
 import ChatMarkdown from "../ChatMarkdown";
+import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -43,9 +51,12 @@ function isSubmitVerdict(value: unknown): value is PullRequestReviewVerdict {
 /**
  * Posting findings to somebody else's pull request, which other people will read: always behind
  * this click, with the verdict the review is submitted as and its own words above the findings.
- * One finding shows exactly the comment that will be posted.
+ * One finding shows exactly the comment that will be posted. It warns when the pull request has
+ * moved past the commit the review read.
  */
 export function ReviewPostDialog({
+  pullRequest,
+  reviewedHeadSha,
   entries,
   verdict,
   placementOf,
@@ -53,6 +64,10 @@ export function ReviewPostDialog({
   onPost,
   onClose,
 }: {
+  /** Where the pull request's current head is read, to compare with `reviewedHeadSha`. */
+  pullRequest: { environmentId: EnvironmentId; reference: PullRequestRef } | null;
+  /** The commit the review read, which the comments are pinned to. */
+  reviewedHeadSha: string | undefined;
   entries: ReadonlyArray<ReviewFindingEntry>;
   /** The reviewer's verdict, which sets the defaults. */
   verdict: ReviewVerdict;
@@ -75,6 +90,15 @@ export function ReviewPostDialog({
   );
   const [pending, setPending] = useState(false);
   const only = entries.length === 1 ? entries[0] : undefined;
+  const detail = useEnvironmentQuery(
+    pullRequest === null || reviewedHeadSha === undefined
+      ? null
+      : pullRequestEnvironment.detail({
+          environmentId: pullRequest.environmentId,
+          input: pullRequest.reference,
+        }),
+  );
+  const headMoved = reviewHeadMoved(reviewedHeadSha, detail.data?.headSha);
 
   const post = async () => {
     if (pending) return;
@@ -110,6 +134,12 @@ export function ReviewPostDialog({
           </DialogHeader>
           <DialogPanel>
             <div className="flex flex-col gap-4">
+              {headMoved ? (
+                <Alert variant="warning">
+                  <TriangleAlertIcon />
+                  <AlertDescription>{REVIEW_HEAD_MOVED_NOTICE}</AlertDescription>
+                </Alert>
+              ) : null}
               <Label className="flex min-w-0 flex-col items-stretch" htmlFor={`${id}-verdict`}>
                 Submit as
                 <Select

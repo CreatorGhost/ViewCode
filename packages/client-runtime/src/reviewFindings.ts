@@ -299,6 +299,24 @@ export function reviewFindingRatingsEqual(
   return true;
 }
 
+/** What posting says when the pull request has commits its review did not read. */
+export const REVIEW_HEAD_MOVED_NOTICE =
+  "The pull request changed since this review; comments go on the reviewed commit and may show as outdated.";
+
+/**
+ * Whether the pull request's head is past the commit its review read, either named in full or
+ * abbreviated; false while either is unknown.
+ */
+export function reviewHeadMoved(
+  reviewedHeadSha: string | undefined,
+  currentHeadSha: string | undefined,
+): boolean {
+  if (reviewedHeadSha === undefined || currentHeadSha === undefined) return false;
+  const reviewed = reviewedHeadSha.toLowerCase();
+  const current = currentHeadSha.toLowerCase();
+  return !reviewed.startsWith(current) && !current.startsWith(reviewed);
+}
+
 /** What a re-review of a set of findings starts from (see `reviewRereviewBasis`). */
 export interface ReviewRereviewBasis {
   readonly basedOn: ReviewBasedOnInput;

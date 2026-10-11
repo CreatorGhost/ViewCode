@@ -6,6 +6,7 @@ import {
   type ReviewFindingEntry,
   type ReviewFindingKey,
   mergeReviewFindingRatings,
+  REVIEW_HEAD_MOVED_NOTICE,
   type ReviewFindingsSource,
   reviewFindingRatingsEqual,
   reviewRereviewBasis,
@@ -312,6 +313,7 @@ function ReviewFindingsViewContent({
     toastManager.add({
       type: "success",
       title: selection.length === 1 ? "Posted the finding" : `Posted ${selection.length} findings`,
+      ...(result.value.headMoved === true ? { description: REVIEW_HEAD_MOVED_NOTICE } : {}),
       actionProps: {
         children: "Open pull request",
         onClick: () => window.open(result.value.url, "_blank", "noopener,noreferrer"),
@@ -676,6 +678,20 @@ function ReviewFindingsViewContent({
       ) : null}
       {posting !== null ? (
         <ReviewPostDialog
+          pullRequest={
+            pullRequestTarget === null || projectId === null
+              ? null
+              : {
+                  environmentId,
+                  reference: {
+                    projectId,
+                    host: pullRequestTarget.host,
+                    repository: pullRequestTarget.repository,
+                    number: pullRequestTarget.number,
+                  },
+                }
+          }
+          reviewedHeadSha={findings.headSha}
           entries={posting}
           verdict={findings.verdict}
           // The server has the last word, from the pull request's own diff; this is the panel's.

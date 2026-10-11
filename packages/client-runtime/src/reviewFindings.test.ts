@@ -18,6 +18,7 @@ import {
   reviewFindingEntries,
   reviewFixCandidates,
   reviewFixUndo,
+  reviewHeadMoved,
   reviewPostOverallComment,
   reviewRereviewBasis,
   reviewRereviewSummary,
@@ -613,6 +614,16 @@ describe("finding ratings", () => {
     expect([...unsettledReviewFindingRatings(server, pending)]).toEqual([["finding:1", null]]);
     const unchanged = new Map([["finding:1", null]] as const);
     expect(unsettledReviewFindingRatings(server, unchanged)).toBe(unchanged);
+  });
+});
+
+describe("reviewHeadMoved", () => {
+  it("compares the reviewed commit with the current head, abbreviated or not", () => {
+    expect(reviewHeadMoved("abc1234", "def5678")).toBe(true);
+    expect(reviewHeadMoved("ABC1234", "abc1234f00d")).toBe(false);
+    expect(reviewHeadMoved("abc1234f00d", "abc1234")).toBe(false);
+    expect(reviewHeadMoved(undefined, "abc1234")).toBe(false);
+    expect(reviewHeadMoved("abc1234", undefined)).toBe(false);
   });
 });
 
