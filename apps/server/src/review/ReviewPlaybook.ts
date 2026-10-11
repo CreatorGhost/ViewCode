@@ -153,8 +153,10 @@ A lead agent (you) and child agents. This uses several agents and more of the us
 
 1. **Split.** Read the change and divide it into areas a reviewer can hold at once.
 2. **Lenses.** Spawn one child agent per lens with the agent tools you have (ViewCode's
-   \`viewcode_spawn_agent\`; \`viewcode_list_models\` lists the choices). Give each the change's
-   identifiers, the areas, these ground rules and its lens:
+   \`viewcode_spawn_agent\`; \`viewcode_list_models\` lists the choices). Name each
+   "Review: <lens>" in one or two words ("Review: tests", "Review: security"), which the user
+   sees in their chat. Give each the change's identifiers, the areas, these ground rules and its
+   lens:
    - correctness and edge cases
    - security
    - performance and resource use
@@ -195,8 +197,9 @@ is marked needs validation.
    - resource exhaustion (unbounded input, loops, retries, memory)
    - client side: XSS, \`postMessage\` origin checks, unsafe HTML
    - desktop and IPC surfaces exposed to web content or other processes
-   Use child agents for the classes (\`viewcode_spawn_agent\`) when you have them; otherwise work
-   through them yourself.
+   Use child agents for the classes (\`viewcode_spawn_agent\`, each named "Audit: <class>" in one
+   or two words, such as "Audit: injection") when you have them; otherwise work through them
+   yourself.
 3. **Adversarial validation**, as in a deep review: a fresh agent or pass tries to disprove each
    candidate. Each time an attack class or batch is validated, send everything confirmed or
    needing validation so far with \`complete: false\` (see Findings as you go).
