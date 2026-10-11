@@ -134,6 +134,7 @@ import {
   isExplicitRelativeProjectPath,
   isUnsupportedWindowsProjectPath,
   resolveProjectPathForDispatch,
+  restartBrowsePathAtTypedRoot,
 } from "../lib/projectPaths";
 import { onOpenCommandPalette } from "../commandPaletteBus";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -1121,20 +1122,11 @@ function OpenCommandPaletteDialog(props: {
           addProjectCloneFlow.repository?.nameWithOwner ?? addProjectCloneFlow.remoteUrl,
         )
       : "";
+  const browseQueryEnabled =
+    browseEnvironmentId !== null && !isRemoteProjectRepositoryStep && newProjectFlow === null;
   const browsePath = useMemo(
-    () =>
-      getFilesystemBrowsePath(
-        query,
-        browseEnvironmentPlatform,
-        browseEnvironmentId !== null && !isRemoteProjectRepositoryStep && newProjectFlow === null,
-      ),
-    [
-      browseEnvironmentId,
-      browseEnvironmentPlatform,
-      isRemoteProjectRepositoryStep,
-      newProjectFlow,
-      query,
-    ],
+    () => getFilesystemBrowsePath(query, browseEnvironmentPlatform, browseQueryEnabled),
+    [browseEnvironmentPlatform, browseQueryEnabled, query],
   );
   const isBrowsing = browsePath.isBrowsing;
   const browseDirectoryPath = browsePath.directoryPath;
@@ -1567,7 +1559,11 @@ function OpenCommandPaletteDialog(props: {
   function handleQueryChange(nextQuery: string): void {
     browseNavigation.invalidate();
     clearTypedHighlight();
-    setQuery(nextQuery);
+    setQuery(
+      browseQueryEnabled
+        ? restartBrowsePathAtTypedRoot(nextQuery, browseEnvironmentPlatform)
+        : nextQuery,
+    );
     if (nextQuery === "" && currentView?.initialQuery) {
       popView();
     }
