@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import { ReviewSurface } from "../chat/ReviewPanel";
 import { ReviewStartForm, type ReviewStartTarget } from "../chat/ReviewStart";
-import type { ReviewFixInChatRequest } from "../chat/ReviewFindingsView";
+import type { ReviewFixInChat } from "../chat/ReviewFindingsView";
 import type { ReviewDiffTarget } from "../chat/useReviewDiff";
 import type { PullRequestReview } from "../chat/useReviewFindingsSource";
 import {
@@ -47,7 +47,7 @@ export default function PullRequestReviewTab({
   /** The pull request's host, for reading its change before any findings name it. */
   host: string | null;
   onStarted: (started: StartedAgentReview) => void;
-  onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
+  onFixInChat: ReviewFixInChat | undefined;
 }) {
   const { source, posted, ratings } = review;
   const startReview = useMemo<ReviewStartTarget | null>(

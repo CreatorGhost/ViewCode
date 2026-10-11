@@ -21,7 +21,11 @@ import {
 } from "../ui/empty";
 import { announceReviewStarted } from "../pullRequest/PullRequestAgentReviewDialog";
 import { ReviewChangeView } from "./ReviewChangeView";
-import { ReviewFindingsView, type ReviewFixInChatRequest } from "./ReviewFindingsView";
+import {
+  ReviewFindingsView,
+  type ReviewFixInChat,
+  type ReviewFixInChatRequest,
+} from "./ReviewFindingsView";
 import { ReviewStatusBar } from "./ReviewProgress";
 import { ReviewStartForm, type ReviewStartTarget, useReviewRetry } from "./ReviewStart";
 import type { ReviewDiffTarget } from "./useReviewDiff";
@@ -57,7 +61,7 @@ export function ReviewSurface({
   /** What a new review reads, shown while one runs without findings yet. */
   change: ReviewDiffTarget | null;
   startReview: ReviewStartTarget | null;
-  onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
+  onFixInChat: ReviewFixInChat | undefined;
   empty: ReactNode;
 }) {
   const { retry, pending } = useReviewRetry(startReview, review);

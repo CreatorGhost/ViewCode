@@ -535,13 +535,15 @@ export function reviewPostOverallComment(
 type FixCandidateThread = Pick<
   OrchestrationThreadShell,
   "id" | "projectId" | "branch" | "worktreePath" | "pullRequests" | "archivedAt" | "updatedAt"
->;
+> &
+  Partial<Pick<OrchestrationThreadShell, "parentThreadId">>;
 
 /**
  * The sessions already working on what a review looked at, most recently active first: threads
  * linked to the reviewed pull request, or for a local review the threads on the review's own
- * checkout. The review thread is never one of them: reviewers do not fix. With exactly one, it is
- * the obvious choice and comes preselected.
+ * checkout. The review thread is never one of them: reviewers do not fix. Nor is any child agent
+ * or side chat, which belongs to its parent chat (a reviewer's own lens agents among them). With
+ * exactly one, it is the obvious choice and comes preselected.
  */
 export function reviewFixCandidates<T extends FixCandidateThread>(input: {
   readonly reviewThread: Pick<FixCandidateThread, "id" | "projectId" | "branch" | "worktreePath">;
@@ -552,6 +554,7 @@ export function reviewFixCandidates<T extends FixCandidateThread>(input: {
   const candidates = input.threads
     .filter((thread) => {
       if (thread.id === reviewThread.id || thread.archivedAt !== null) return false;
+      if (thread.parentThreadId != null) return false;
       if (target.kind === "pull-request") {
         return visibleThreadPullRequests(thread.pullRequests).some((link) =>
           threadPullRequestKeysEqual(link, target),

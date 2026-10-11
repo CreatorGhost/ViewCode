@@ -45,7 +45,7 @@ import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { fnv1a32, resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
-import { useServerConfigs } from "../../state/entities";
+import { useServerConfigs, useThreadShell } from "../../state/entities";
 import { reviewEnvironment } from "../../state/review";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -54,7 +54,12 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { type ReviewFindingAction, ReviewFindingCard } from "./ReviewFindingCard";
-import { ReviewFixDialog, type ReviewFixItem } from "./ReviewFixDialog";
+import { ReviewFixAllDialog } from "./ReviewFixAllDialog";
+import {
+  type ReviewFixRequest,
+  resolveReviewFixChat,
+  useSendReviewFixToChat,
+} from "./reviewFixChat";
 import { ReviewPostDialog } from "./ReviewPostDialog";
 import { FindIssuesButton, type ReviewStartTarget } from "./ReviewStart";
 import {
@@ -77,7 +82,16 @@ export const REVIEW_VERDICT_BADGES: Record<ReviewVerdict, "success" | "info" | "
 };
 
 /** A request for this thread's composer and the chip records its text refers to. */
-export type ReviewFixInChatRequest = ReturnType<typeof reviewFindingsFixPrompt>;
+export type ReviewFixInChatRequest = ReviewFixRequest;
+
+/**
+ * Writes a fix request into the composer of the chat that fixes, unsent. Resolves to that chat
+ * when it is not the one beside the view (the pull request page's choice), for marking the
+ * findings sent there.
+ */
+export type ReviewFixInChat = (
+  request: ReviewFixInChatRequest,
+) => void | Promise<ReviewFixDestination | null>;
 
 interface FindingAnnotationGroup {
   readonly findings: ReadonlyArray<PlacedReviewFinding>;
@@ -91,10 +105,6 @@ function targetLabel(target: ReviewFindingsTarget): string {
   return target.kind === "pull-request" ? `PR #${target.number}` : "Local changes";
 }
 
-function fixItem(entry: ReviewFindingEntry): ReviewFixItem {
-  return { key: entry.key, item: { finding: entry.finding, needsChecking: entry.needsChecking } };
-}
-
 interface ReviewFindingsViewProps {
   readonly environmentId: EnvironmentId;
   /** The thread the view sits beside; null on the pull request page, which is no thread. */
@@ -106,7 +116,7 @@ interface ReviewFindingsViewProps {
   /** How the findings are rated, from the review thread's records. */
   readonly ratings: ReadonlyMap<string, ReviewFindingRating>;
   /** Fix with agent writes into the chat beside the view; without one it picks a session. */
-  readonly onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
+  readonly onFixInChat: ReviewFixInChat | undefined;
   /** Where a new review of the same change starts, when one can. */
   readonly startReview: ReviewStartTarget | null;
   /** These are the findings so far of a review still at work; a later set replaces them. */
@@ -172,7 +182,7 @@ function ReviewFindingsViewContent({
   const [ticks, setTicks] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
   const [currentKey, setCurrentKey] = useState<ReviewFindingKey | null>(null);
   const [toggledFiles, setToggledFiles] = useState<ReadonlySet<string>>(() => new Set());
-  const [fixing, setFixing] = useState<ReadonlyArray<ReviewFixItem> | null>(null);
+  const [fixing, setFixing] = useState<ReadonlyArray<ReviewFindingEntry> | null>(null);
   // The view lives as long as its review, so a newer set of the same review (sent while it
   // works) keeps the scroll position but not choices made about the earlier set's findings,
   // whose keys now name other findings.
@@ -343,20 +353,52 @@ function ReviewFindingsViewContent({
     },
     [entries, setPosting],
   );
-  // Fixing happens in the chat beside the panel, as a request the reader sends themselves; the
-  // review thread itself does not fix (reviewers do not), so there it picks a session instead,
-  // as it does with no chat beside it.
+  // Fixing is a request in a chat's composer that the reader sends themselves, never another
+  // session picked here: the chat beside the panel, or seen from the reviewer itself (reviewers do
+  // not fix) the chat the review was started from (`resolveReviewFixChat`).
   const fixInReviewThread = source.threadId === threadRef?.threadId;
+  const panelThread = useThreadShell(threadRef);
+  const markSent = useReviewFixSentStore((state) => state.markSent);
+  const sendToChat = useSendReviewFixToChat();
   const fix = useCallback(
-    (selection: ReadonlyArray<ReviewFindingEntry>) => {
+    async (selection: ReadonlyArray<ReviewFindingEntry>) => {
       if (selection.length === 0) return;
-      if (fixInReviewThread || onFixInChat === undefined) {
-        setFixing(selection.map(fixItem));
+      const request = reviewFindingsFixPrompt({ activityId: source.activityId, entries: selection });
+      const keys = selection.map((entry) => entry.key);
+      if (!fixInReviewThread && onFixInChat !== undefined) {
+        const sent = await onFixInChat(request);
+        const destination =
+          sent ??
+          (threadRef !== null && panelThread !== null
+            ? { threadId: threadRef.threadId, title: panelThread.title }
+            : null);
+        if (destination !== null) markSent(cardKey, keys, destination);
         return;
       }
-      onFixInChat(reviewFindingsFixPrompt({ activityId: source.activityId, entries: selection }));
+      const chat = resolveReviewFixChat({
+        environmentId,
+        reviewThreadId: source.threadId,
+        projectId,
+        target: findings.target,
+      });
+      if (chat === null) return;
+      const destination = await sendToChat(chat, request);
+      if (destination !== null) markSent(cardKey, keys, destination);
     },
-    [fixInReviewThread, onFixInChat, source.activityId],
+    [
+      cardKey,
+      environmentId,
+      findings.target,
+      fixInReviewThread,
+      markSent,
+      onFixInChat,
+      panelThread,
+      projectId,
+      sendToChat,
+      source.activityId,
+      source.threadId,
+      threadRef,
+    ],
   );
   const cardAction = useMemo<ReviewFindingAction>(
     () =>
@@ -365,7 +407,7 @@ function ReviewFindingsViewContent({
         : {
             kind: "fix",
             label: "Fix with agent",
-            run: (key) => fix(entries.filter((candidate) => candidate.key === key)),
+            run: (key) => void fix(entries.filter((candidate) => candidate.key === key)),
           },
     [commentMode, entries, fix, startPost],
   );
@@ -565,7 +607,11 @@ function ReviewFindingsViewContent({
           label: `Post all (${unposted.length})`,
           run: () => startPost(unposted.map((entry) => entry.key)),
         }
-    : { label: "Fix all", run: () => fix(openEntries) };
+    : {
+        label: "Fix all",
+        // Several findings are listed first, so some can be left out; one goes straight away.
+        run: () => (openEntries.length > 1 ? setFixing(openEntries) : void fix(openEntries)),
+      };
   const primaryDisabled = commentMode
     ? (tickedKeys.length === 0 && unposted.length === 0) || busyKeys.size > 0
     : openEntries.length === 0;
@@ -686,12 +732,13 @@ function ReviewFindingsViewContent({
         ) : null}
       </div>
       {fixing !== null ? (
-        <ReviewFixDialog
-          reviewThreadRef={reviewThreadRef}
-          findingsActivityId={source.activityId}
-          cardKey={cardKey}
-          target={findings.target}
-          items={fixing}
+        <ReviewFixAllDialog
+          entries={fixing}
+          chatTitle={!fixInReviewThread && onFixInChat !== undefined ? (panelThread?.title ?? null) : null}
+          onSend={(selection) => {
+            setFixing(null);
+            void fix(selection);
+          }}
           onClose={() => setFixing(null)}
         />
       ) : null}

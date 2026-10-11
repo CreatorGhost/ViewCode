@@ -571,6 +571,12 @@ describe("reviewFixCandidates", () => {
           archivedAt: "2026-08-06T00:00:00.000Z",
         }),
         fixThread("dismissed", { pullRequests: [fixLink(7, "stack-dismissed")] }),
+        // A reviewer's lens agent works on the pull request too, but is no chat to fix in.
+        fixThread("lens", {
+          pullRequests: [fixLink(7)],
+          parentThreadId: ThreadId.make("review"),
+          updatedAt: "2026-08-07T00:00:00.000Z",
+        }),
       ],
     });
     expect(result.candidates.map((candidate) => candidate.id)).toEqual(["newer", "older"]);

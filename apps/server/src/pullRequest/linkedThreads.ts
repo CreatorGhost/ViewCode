@@ -37,6 +37,8 @@ export const listLinkedPullRequestThreads = Effect.fn("listLinkedPullRequestThre
         AND link.number = ${key.number}
         AND link.source != 'stack-dismissed'
         AND t.deleted_at IS NULL
+        -- Child agents and side chats belong to the chat they were started from.
+        AND t.parent_thread_id IS NULL
       ORDER BY t.updated_at DESC, t.thread_id ASC
     `;
     const threads = rows

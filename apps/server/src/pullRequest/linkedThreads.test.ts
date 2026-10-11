@@ -6,7 +6,7 @@ import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { listLinkedPullRequestThreads } from "./linkedThreads.ts";
 
 it.effect(
-  "finds active and archived threads for exactly one pull request, excluding deleted and dismissed links",
+  "finds active and archived threads for exactly one pull request, excluding deleted and dismissed links and child agents",
   () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -56,6 +56,8 @@ it.effect(
           source: "created",
         },
         { id: "deleted", host: "github.com", repository: "acme/web", number: 7, source: "manual" },
+        // A child agent (a reviewer's lens, say) works for its parent chat, which is listed.
+        { id: "lens", host: "github.com", repository: "acme/web", number: 7, source: "manual" },
         {
           id: "dismissed",
           host: "github.com",
@@ -102,6 +104,8 @@ it.effect(
           ${fixture.url ?? "https://github.com/acme/web/pull/7"}, ${fixture.source}, ${createdAt})
       `;
       }
+
+      yield* sql`UPDATE projection_threads SET parent_thread_id = 'active' WHERE thread_id = 'lens'`;
 
       expect(
         (yield* listLinkedPullRequestThreads({

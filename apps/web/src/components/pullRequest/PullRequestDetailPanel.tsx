@@ -1,3 +1,6 @@
+import type { ReviewFixInChatRequest } from "../chat/ReviewFindingsView";
+import { resolveReviewFixChat, useSendReviewFixToChat } from "../chat/reviewFixChat";
+import type { ReviewFixDestination } from "../chat/reviewFixSentStore";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
@@ -991,6 +994,7 @@ export function PullRequestDetailPanel({
       ? threadRef
       : null;
   const onReviewStarted = useReviewStartedHandler(reviewSourceChat, showReviewTab);
+  const sendReviewFixToChat = useSendReviewFixToChat();
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId: actingEnvironmentId,
     cwd: checkoutRoot,
@@ -1350,6 +1354,49 @@ export function PullRequestDetailPanel({
         : staleCheckoutToast,
     );
   };
+
+  /**
+   * Fix with agent from the Review tab: into the composer of the chat beside the panel; without
+   * one, of the chat the review was started from or the chat most recently working on this pull
+   * request; only with none of those a new chat on the pull request's checkout. Never sent, never a
+   * choice of sessions.
+   */
+  const fixReviewFindings = async (
+    request: ReviewFixInChatRequest,
+  ): Promise<ReviewFixDestination | null> => {
+    const task = { prompt: request.prompt, reviewComments: request.comments };
+    if (attachTarget !== null) {
+      writeTaskToComposer(attachTarget, task);
+      toastManager.add({
+        type: "success",
+        title: "Added to the composer",
+        description: "The fix request is in the composer — read it over, then send.",
+      });
+      return null;
+    }
+    const source = review.source;
+    const chat =
+      source === null
+        ? null
+        : resolveReviewFixChat({
+            environmentId: actingEnvironmentId,
+            reviewThreadId: source.threadId,
+            projectId: actingProjectId,
+            target: source.findings.target,
+          });
+    if (chat?.kind === "thread") return sendReviewFixToChat(chat, request);
+    await startHandoff("review-fix", task);
+    return null;
+  };
+  // One identity for the Review tab, whose findings view redraws every annotation when it changes.
+  const latestFixReviewFindings = useRef(fixReviewFindings);
+  useLayoutEffect(() => {
+    latestFixReviewFindings.current = fixReviewFindings;
+  });
+  const stableFixReviewFindings = useCallback(
+    (request: ReviewFixInChatRequest) => latestFixReviewFindings.current(request),
+    [],
+  );
 
   const askAboutPullRequest = () => {
     if (!detail) return;
@@ -2881,7 +2928,7 @@ export function PullRequestDetailPanel({
                     cwd={checkoutRoot ?? undefined}
                     host={reviewPullRequest?.host ?? null}
                     onStarted={onReviewStarted}
-                    onFixInChat={undefined}
+                    onFixInChat={stableFixReviewFindings}
                   />
                 </Suspense>
               </div>
