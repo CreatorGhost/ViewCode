@@ -12,6 +12,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   groupReviewFindingsBySeverity,
   localReviewSourceCandidates,
+  mergeReviewFindingRatings,
   openReviewFindingCount,
   reviewFindingEntries,
   reviewFixCandidates,
@@ -24,6 +25,7 @@ import {
   selectPullRequestReviewFindings,
   selectReviewFindingsSource,
   selectRunningReview,
+  unsettledReviewFindingRatings,
 } from "./reviewFindings.ts";
 
 const prTarget = (number: number): ReviewFindingsTarget => ({
@@ -575,6 +577,40 @@ describe("reviewRereviewBasis", () => {
       }),
     ).toBeNull();
     expect(reviewRereviewBasis(source(prTarget(7)), { kind: "local" })).toBeNull();
+  });
+});
+
+describe("finding ratings", () => {
+  const server = new Map([
+    ["finding:0", "up"],
+    ["finding:1", "down"],
+  ] as const);
+
+  it("shows the reader's clicks over the server's ratings, a null taking one back", () => {
+    const merged = mergeReviewFindingRatings(
+      server,
+      new Map([
+        ["finding:0", null],
+        ["check:0", "down"],
+      ] as const),
+    );
+    expect([...merged]).toEqual([
+      ["finding:1", "down"],
+      ["check:0", "down"],
+    ]);
+    expect(mergeReviewFindingRatings(server, new Map())).toBe(server);
+  });
+
+  it("keeps a click only until the server says the same, so later changes elsewhere show", () => {
+    const pending = new Map<string, "up" | "down" | null>([
+      ["finding:0", "up"],
+      ["finding:1", null],
+      ["check:0", null],
+    ]);
+    // The server recorded the thumbs up and has no rating for check:0; finding:1 is still down.
+    expect([...unsettledReviewFindingRatings(server, pending)]).toEqual([["finding:1", null]]);
+    const unchanged = new Map([["finding:1", null]] as const);
+    expect(unsettledReviewFindingRatings(server, unchanged)).toBe(unchanged);
   });
 });
 

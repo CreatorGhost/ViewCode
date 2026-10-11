@@ -43,7 +43,7 @@ export default function PullRequestReviewTab({
   cwd: string | undefined;
   onStarted: (started: PullRequestStartReviewResult) => void;
 }) {
-  const { source, posted, running } = review;
+  const { source, posted, ratings, running } = review;
   const startReview = useMemo<ReviewStartTarget | null>(
     () =>
       canStart ? { environmentId, request: { kind: "pull-request", reference }, onStarted } : null,
@@ -69,6 +69,7 @@ export default function PullRequestReviewTab({
             projectId={reference.projectId}
             cwd={cwd}
             posted={posted}
+            ratings={ratings}
             onFixInChat={undefined}
             startReview={startReview}
           />

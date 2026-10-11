@@ -1,5 +1,9 @@
 import type { ReviewFindingEntry, ReviewFindingKey } from "@t3tools/client-runtime/review-findings";
-import type { ReviewFindingSeverity, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  ReviewFindingRating,
+  ReviewFindingSeverity,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 import {
   fencedCode,
   type PostedReviewFinding,
@@ -24,7 +28,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
-import type { ReviewFindingRating, ReviewFixDestination } from "./reviewFixSentStore";
+import type { ReviewFixDestination } from "./reviewFixSentStore";
 
 export const REVIEW_SEVERITY_BADGES: Record<
   ReviewFindingSeverity,
@@ -72,7 +76,10 @@ export interface ReviewFindingCardProps {
   readonly onTick?: ((key: ReviewFindingKey, ticked: boolean) => void) | undefined;
   readonly onToggleExpanded: (key: ReviewFindingKey) => void;
   readonly onDismiss: (key: ReviewFindingKey, dismissed: boolean) => void;
-  readonly onRate: (key: ReviewFindingKey, rating: ReviewFindingRating) => void;
+  /** Rates the finding, or takes its rating back (null); absent where the server keeps none. */
+  readonly onRate:
+    | ((key: ReviewFindingKey, rating: ReviewFindingRating | null) => void)
+    | undefined;
   /** The finding's main action: fix it, or in reviewer mode post it. */
   readonly action: ReviewFindingAction;
   /** A post of this finding is under way. */
@@ -229,28 +236,30 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
                 Sent to {sentTo.title}
               </span>
             ) : null}
-            <span className="ml-auto flex shrink-0 items-center gap-0.5">
-              <Button
-                type="button"
-                size="icon-xs"
-                variant={rating === "up" ? "secondary" : "ghost-muted"}
-                aria-label="Helpful"
-                aria-pressed={rating === "up"}
-                onClick={() => onRate(key, "up")}
-              >
-                <ThumbsUpIcon aria-hidden />
-              </Button>
-              <Button
-                type="button"
-                size="icon-xs"
-                variant={rating === "down" ? "secondary" : "ghost-muted"}
-                aria-label="Not helpful"
-                aria-pressed={rating === "down"}
-                onClick={() => onRate(key, "down")}
-              >
-                <ThumbsDownIcon aria-hidden />
-              </Button>
-            </span>
+            {onRate ? (
+              <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant={rating === "up" ? "secondary" : "ghost-muted"}
+                  aria-label="Helpful"
+                  aria-pressed={rating === "up"}
+                  onClick={() => onRate(key, rating === "up" ? null : "up")}
+                >
+                  <ThumbsUpIcon aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant={rating === "down" ? "secondary" : "ghost-muted"}
+                  aria-label="Not helpful"
+                  aria-pressed={rating === "down"}
+                  onClick={() => onRate(key, rating === "down" ? null : "down")}
+                >
+                  <ThumbsDownIcon aria-hidden />
+                </Button>
+              </span>
+            ) : null}
           </div>
         </div>
       </div>

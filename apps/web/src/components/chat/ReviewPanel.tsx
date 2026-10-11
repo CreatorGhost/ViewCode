@@ -34,7 +34,8 @@ export function ReviewPanel({
   cwd: string | undefined;
   onFixInChat?: ((request: ReviewFixInChatRequest) => void) | undefined;
 }) {
-  const { source, posted, pullRequests, projectId, running } = useReviewFindingsSource(threadRef);
+  const { source, posted, ratings, pullRequests, projectId, running } =
+    useReviewFindingsSource(threadRef);
   const navigate = useNavigate();
   const { environmentId, threadId } = threadRef;
   const capabilities = useServerConfigs().get(environmentId)?.environment.capabilities;
@@ -154,6 +155,7 @@ export function ReviewPanel({
           projectId={projectId}
           cwd={cwd}
           posted={posted}
+          ratings={ratings}
           onFixInChat={onFixInChat}
           startReview={startReview}
         />

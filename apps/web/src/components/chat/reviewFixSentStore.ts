@@ -6,8 +6,6 @@ export interface ReviewFixDestination {
   readonly title: string;
 }
 
-export type ReviewFindingRating = "up" | "down";
-
 /** Which findings set a card's state belongs to. */
 export function reviewFindingsCardKey(environmentId: string, activityId: string): string {
   return `${environmentId}:${activityId}`;
@@ -20,16 +18,12 @@ interface ReviewFixSentState {
   readonly sentByCard: ByCard<ReviewFixDestination>;
   /** Findings the reader set aside. */
   readonly dismissedByCard: ByCard<true>;
-  /** The reader's verdict on a finding. Recorded only; nothing learns from it yet. */
-  readonly ratingByCard: ByCard<ReviewFindingRating>;
   readonly markSent: (
     cardKey: string,
     findingKeys: ReadonlyArray<string>,
     destination: ReviewFixDestination,
   ) => void;
   readonly setDismissed: (cardKey: string, findingKey: string, dismissed: boolean) => void;
-  /** Rating a finding the way it is already rated clears the rating. */
-  readonly rate: (cardKey: string, findingKey: string, rating: ReviewFindingRating) => void;
 }
 
 function withEntry<T>(
@@ -43,14 +37,13 @@ function withEntry<T>(
 }
 
 /**
- * What the reader did with each finding: where it was sent to be fixed, whether they dismissed or
- * rated it. In memory: the panel unmounts with its tab, which would lose its own state, while a
+ * What the reader did with each finding: where it was sent to be fixed, whether they dismissed
+ * it. Ratings are the server's, on the review thread. In memory: the panel unmounts with its tab, which would lose its own state, while a
  * reload forgetting it costs only the reminder.
  */
 export const useReviewFixSentStore = create<ReviewFixSentState>()((set) => ({
   sentByCard: {},
   dismissedByCard: {},
-  ratingByCard: {},
   markSent: (cardKey, findingKeys, destination) =>
     set((state) => {
       const card = { ...state.sentByCard[cardKey] };
@@ -64,15 +57,6 @@ export const useReviewFixSentStore = create<ReviewFixSentState>()((set) => ({
         cardKey,
         findingKey,
         dismissed ? true : undefined,
-      ),
-    })),
-  rate: (cardKey, findingKey, rating) =>
-    set((state) => ({
-      ratingByCard: withEntry(
-        state.ratingByCard,
-        cardKey,
-        findingKey,
-        state.ratingByCard[cardKey]?.[findingKey] === rating ? undefined : rating,
       ),
     })),
 }));

@@ -5,9 +5,12 @@ import {
   reviewFindingEntries,
   type ReviewFindingEntry,
   type ReviewFindingKey,
+  mergeReviewFindingRatings,
   type ReviewFindingsSource,
+  reviewFindingRatingsEqual,
   reviewRereviewBasis,
   reviewRereviewSummary,
+  unsettledReviewFindingRatings,
 } from "@t3tools/client-runtime/review-findings";
 import {
   isAtomCommandInterrupted,
@@ -17,6 +20,7 @@ import type {
   EnvironmentId,
   ProjectId,
   PullRequestReviewVerdict,
+  ReviewFindingRating,
   ReviewFindingsTarget,
   ReviewVerdict,
   ScopedThreadRef,
@@ -59,7 +63,6 @@ import {
   reviewFindingsFixPrompt,
 } from "./reviewPanel.logic";
 import {
-  type ReviewFindingRating,
   type ReviewFixDestination,
   reviewFindingsCardKey,
   useReviewFixSentStore,
@@ -81,7 +84,7 @@ interface FindingAnnotationGroup {
 
 const EMPTY_SENT: Readonly<Record<string, ReviewFixDestination>> = {};
 const EMPTY_DISMISSED: Readonly<Record<string, true>> = {};
-const EMPTY_RATINGS: Readonly<Record<string, ReviewFindingRating>> = {};
+const NO_PENDING_RATINGS: ReadonlyMap<string, ReviewFindingRating | null> = new Map();
 
 function targetLabel(target: ReviewFindingsTarget): string {
   return target.kind === "pull-request" ? `PR #${target.number}` : "Local changes";
@@ -99,6 +102,8 @@ interface ReviewFindingsViewProps {
   readonly projectId: ProjectId | null;
   readonly cwd: string | undefined;
   readonly posted: ReadonlyMap<string, PostedReviewFinding>;
+  /** How the findings are rated, from the review thread's records. */
+  readonly ratings: ReadonlyMap<string, ReviewFindingRating>;
   /** Fix with agent writes into the chat beside the view; without one it picks a session. */
   readonly onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
   /** Where a new review of the same change starts, when one can. */
@@ -124,7 +129,8 @@ export const ReviewFindingsView = memo(
     previous.startReview === next.startReview &&
     previous.source.activityId === next.source.activityId &&
     previous.source.threadTitle === next.source.threadTitle &&
-    postedReviewFindingsEqual(previous.posted, next.posted),
+    postedReviewFindingsEqual(previous.posted, next.posted) &&
+    reviewFindingRatingsEqual(previous.ratings, next.ratings),
 );
 
 function ReviewFindingsViewContent({
@@ -134,6 +140,7 @@ function ReviewFindingsViewContent({
   projectId,
   cwd,
   posted,
+  ratings: serverRatings,
   onFixInChat,
   startReview,
 }: ReviewFindingsViewProps) {
@@ -147,7 +154,14 @@ function ReviewFindingsViewContent({
   const dismissed = useReviewFixSentStore(
     (state) => state.dismissedByCard[cardKey] ?? EMPTY_DISMISSED,
   );
-  const ratings = useReviewFixSentStore((state) => state.ratingByCard[cardKey] ?? EMPTY_RATINGS);
+  // The reader's clicks until the server records them, so a thumb answers at once.
+  const [pendingRatings, setPendingRatings] = useState(NO_PENDING_RATINGS);
+  const unsettledRatings = unsettledReviewFindingRatings(serverRatings, pendingRatings);
+  if (unsettledRatings !== pendingRatings) setPendingRatings(unsettledRatings);
+  const ratings = useMemo(
+    () => mergeReviewFindingRatings(serverRatings, unsettledRatings),
+    [serverRatings, unsettledRatings],
+  );
   const [showDismissed, setShowDismissed] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
   const [ticks, setTicks] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
@@ -215,14 +229,42 @@ function ReviewFindingsViewContent({
     [],
   );
   const setDismissedFor = useReviewFixSentStore((state) => state.setDismissed);
-  const rateFor = useReviewFixSentStore((state) => state.rate);
   const dismiss = useCallback(
     (key: ReviewFindingKey, value: boolean) => setDismissedFor(cardKey, key, value),
     [cardKey, setDismissedFor],
   );
+  const rateFinding = useAtomCommand(reviewEnvironment.rateFinding, { reportFailure: false });
+  const canRate = capabilities?.reviewFindingRatings === true;
   const rate = useCallback(
-    (key: ReviewFindingKey, rating: ReviewFindingRating) => rateFor(cardKey, key, rating),
-    [cardKey, rateFor],
+    (key: ReviewFindingKey, rating: ReviewFindingRating | null) => {
+      setPendingRatings((current) => new Map(current).set(key, rating));
+      void rateFinding({
+        environmentId,
+        input: {
+          reviewThreadId: source.threadId,
+          findingsActivityId: source.activityId,
+          findingKey: key,
+          rating,
+        },
+      }).then((result) => {
+        if (result._tag !== "Failure") return;
+        // Back to what the server has, unless a later click already replaced this one.
+        setPendingRatings((current) => {
+          if (current.get(key) !== rating) return current;
+          const next = new Map(current);
+          next.delete(key);
+          return next;
+        });
+        if (isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Could not save the rating",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      });
+    },
+    [environmentId, rateFinding, source.activityId, source.threadId],
   );
 
   // Somebody else's pull request: findings are posted to it as review comments, not fixed.
@@ -380,7 +422,7 @@ function ReviewFindingsViewContent({
               expanded.has(key) ? "e" : "",
               dismissed[key] ? "d" : "",
               ticks.has(key) ? "t" : "",
-              ratings[key] ?? "",
+              ratings.get(key) ?? "",
               sent[key]?.title ?? "",
               busyKeys.has(key) ? "b" : "",
               posted.get(key)?.placement ?? "",
@@ -449,7 +491,7 @@ function ReviewFindingsViewContent({
       current={entry.key === currentKey}
       expanded={expanded.has(entry.key)}
       dismissed={dismissed[entry.key] === true}
-      rating={ratings[entry.key]}
+      rating={ratings.get(entry.key)}
       sentTo={sent[entry.key]}
       showLocation={showLocation}
       {...(commentMode && !posted.has(entry.key)
@@ -457,7 +499,7 @@ function ReviewFindingsViewContent({
         : {})}
       onToggleExpanded={toggleExpanded}
       onDismiss={dismiss}
-      onRate={rate}
+      onRate={canRate ? rate : undefined}
       action={cardAction}
       busy={busyKeys.has(entry.key)}
       posted={posted.get(entry.key)}

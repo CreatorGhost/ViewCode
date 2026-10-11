@@ -20,12 +20,17 @@ import type {
   ModelSelection,
   OrchestrationThreadActivity,
   ProjectId,
+  ReviewFindingRating,
   ScopedThreadRef,
   ThreadId,
   ThreadPullRequestKey,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { type PostedReviewFinding, postedReviewFindings } from "@t3tools/shared/reviewFindings";
+import {
+  type PostedReviewFinding,
+  postedReviewFindings,
+  reviewFindingRatings,
+} from "@t3tools/shared/reviewFindings";
 import {
   resolveThreadCurrentPullRequestLink,
   visibleThreadPullRequests,
@@ -38,6 +43,7 @@ import { reviewFindingsCardKey, useReviewFixSentStore } from "./reviewFixSentSto
 
 const NO_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = [];
 const NO_POSTED: ReadonlyMap<string, PostedReviewFinding> = new Map();
+const NO_RATINGS: ReadonlyMap<string, ReviewFindingRating> = new Map();
 
 const linkedReviewThreadsAtom = createLinkedReviewThreadsAtomFamily({
   threadShellsAtom: environmentThreadShells.threadShellsAtom,
@@ -49,16 +55,23 @@ function useLinkedReviewThreads(key: LinkedReviewsKey | null): ReadonlyArray<Lin
   return useAtomValue(linkedReviewThreadsAtom(key));
 }
 
-function usePostedFindings(
+/** Which findings of the source were posted, and how they are rated, from its thread's records. */
+function useFindingRecords(
   source: ReviewFindingsSource | null,
   sourceActivities: ReadonlyArray<OrchestrationThreadActivity>,
-): ReadonlyMap<string, PostedReviewFinding> {
+): {
+  readonly posted: ReadonlyMap<string, PostedReviewFinding>;
+  readonly ratings: ReadonlyMap<string, ReviewFindingRating>;
+} {
   const sourceActivityId = source?.activityId ?? null;
   return useMemo(
     () =>
       sourceActivityId === null
-        ? NO_POSTED
-        : postedReviewFindings(sourceActivities, sourceActivityId),
+        ? { posted: NO_POSTED, ratings: NO_RATINGS }
+        : {
+            posted: postedReviewFindings(sourceActivities, sourceActivityId),
+            ratings: reviewFindingRatings(sourceActivities, sourceActivityId),
+          },
     [sourceActivities, sourceActivityId],
   );
 }
@@ -102,6 +115,7 @@ function useRunningReview(
 export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
   readonly source: ReviewFindingsSource | null;
   readonly posted: ReadonlyMap<string, PostedReviewFinding>;
+  readonly ratings: ReadonlyMap<string, ReviewFindingRating>;
   readonly pullRequests: ReadonlyArray<ThreadPullRequestLink>;
   readonly projectId: ProjectId | null;
   readonly running: RunningReview | null;
@@ -148,7 +162,7 @@ export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
         ? activities
         : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
           NO_ACTIVITIES);
-  const posted = usePostedFindings(source, sourceActivities);
+  const { posted, ratings } = useFindingRecords(source, sourceActivities);
   const currentNumber = resolveThreadCurrentPullRequestLink(pullRequests)?.number;
   const runningTarget = useMemo<ReviewThreadTarget>(
     () =>
@@ -177,12 +191,13 @@ export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
     [activities, linkedThreads, selfRunning, shell],
   );
   const running = useRunningReview(runningTarget, runningCandidates);
-  return { source, posted, pullRequests, projectId: shell?.projectId ?? null, running };
+  return { source, posted, ratings, pullRequests, projectId: shell?.projectId ?? null, running };
 }
 
 export interface PullRequestReview {
   readonly source: ReviewFindingsSource | null;
   readonly posted: ReadonlyMap<string, PostedReviewFinding>;
+  readonly ratings: ReadonlyMap<string, ReviewFindingRating>;
   readonly running: RunningReview | null;
   /** How many of the findings are still to act on (`openReviewFindingCount`). */
   readonly openCount: number;
@@ -217,7 +232,7 @@ export function usePullRequestReviewFindings(
       ? NO_ACTIVITIES
       : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
         NO_ACTIVITIES);
-  const posted = usePostedFindings(source, sourceActivities);
+  const { posted, ratings } = useFindingRecords(source, sourceActivities);
   const dismissed = useReviewFixSentStore((state) =>
     source === null
       ? NO_DISMISSED
@@ -226,5 +241,5 @@ export function usePullRequestReviewFindings(
   );
   const openCount =
     source === null ? 0 : openReviewFindingCount(source.findings, dismissed, posted);
-  return { source, posted, running, openCount };
+  return { source, posted, ratings, running, openCount };
 }

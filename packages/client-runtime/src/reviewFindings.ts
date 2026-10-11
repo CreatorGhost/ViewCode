@@ -6,6 +6,7 @@ import {
   type PullRequestRef,
   type ReviewBasedOnInput,
   type ReviewFinding,
+  type ReviewFindingRating,
   type ReviewFindingSeverity,
   type ReviewFindingsActivityPayload,
   type ReviewFindingsTarget,
@@ -252,6 +253,46 @@ export function selectRunningReview<
     if (newest === null || thread.createdAt > newest.thread.createdAt) newest = { thread, mode };
   }
   return newest;
+}
+
+/**
+ * Ratings as the reader sees them: the server's, with the reader's own clicks on top until the
+ * server records them (null is a rating taken back).
+ */
+export function mergeReviewFindingRatings(
+  server: ReadonlyMap<string, ReviewFindingRating>,
+  optimistic: ReadonlyMap<string, ReviewFindingRating | null>,
+): ReadonlyMap<string, ReviewFindingRating> {
+  if (optimistic.size === 0) return server;
+  const merged = new Map(server);
+  for (const [key, rating] of optimistic) {
+    if (rating === null) merged.delete(key);
+    else merged.set(key, rating);
+  }
+  return merged;
+}
+
+/**
+ * The clicks the server has not recorded yet: those it now agrees with are dropped, so a later
+ * rating from another client shows. The same map when nothing settled.
+ */
+export function unsettledReviewFindingRatings(
+  server: ReadonlyMap<string, ReviewFindingRating>,
+  optimistic: ReadonlyMap<string, ReviewFindingRating | null>,
+): ReadonlyMap<string, ReviewFindingRating | null> {
+  const pending = [...optimistic].filter(([key, rating]) => (server.get(key) ?? null) !== rating);
+  return pending.length === optimistic.size ? optimistic : new Map(pending);
+}
+
+export function reviewFindingRatingsEqual(
+  left: ReadonlyMap<string, ReviewFindingRating>,
+  right: ReadonlyMap<string, ReviewFindingRating>,
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const [key, rating] of left) {
+    if (right.get(key) !== rating) return false;
+  }
+  return true;
 }
 
 /** What a re-review of a set of findings starts from (see `reviewRereviewBasis`). */
