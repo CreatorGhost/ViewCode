@@ -1,7 +1,3 @@
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useState } from "react";
 
@@ -18,6 +14,7 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { undoReviewFixes } from "./ReviewFixUndoDialog.logic";
 
 /** Asks the focused chat to offer undoing its review fixes (from the command palette). */
 export const REVIEW_FIX_UNDO_OPEN_EVENT = "viewcode:review-fix-undo-open";
@@ -41,23 +38,23 @@ export function ReviewFixUndoDialog({
   const undo = async () => {
     if (pending) return;
     setPending(true);
-    const result = await undoFixes({
-      environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId },
-    });
-    setPending(false);
-    if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Could not undo the review fixes",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-      }
-      return;
+    try {
+      const completed = await undoReviewFixes(threadRef, () =>
+        undoFixes({
+          environmentId: threadRef.environmentId,
+          input: { threadId: threadRef.threadId },
+        }),
+      );
+      if (completed) onClose();
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not undo the review fixes",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    } finally {
+      setPending(false);
     }
-    onClose();
   };
 
   return (
