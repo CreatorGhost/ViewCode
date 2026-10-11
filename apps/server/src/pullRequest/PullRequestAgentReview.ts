@@ -222,7 +222,7 @@ export function reReviewLines(reReview: ReReview): ReadonlyArray<string> {
       ? "Review the whole change again."
       : previousHeadSha === headSha
         ? `Nothing was pushed since that review read commit ${previousHeadSha}, so there is nothing new to review.`
-        : `That review read commit ${previousHeadSha}. Review only what changed since: \`git diff ${previousHeadSha}...${headSha}\` (fetch the head first), and the code those changes reach.`;
+        : `That review read commit ${previousHeadSha}. Review only what changed since: \`git diff ${previousHeadSha} ${headSha}\` (fetch the head first), and the code those changes reach.`;
   return [
     "",
     `This is a re-review. The previous review's findings are in ${reReview.previousPath} (see the playbook's Re-review section).`,

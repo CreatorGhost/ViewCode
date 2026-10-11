@@ -21,6 +21,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as ServerConfig from "../config.ts";
 import { OrchestrationCommandInvariantError } from "../orchestration/Errors.ts";
@@ -466,6 +467,66 @@ describe("re-reviews", () => {
     return turn?.type === "thread.turn.start" ? turn.message.text : "";
   };
 
+  it.effect("includes removed changes and excludes unchanged content after a force-push", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-re-review-diff-" });
+      const git = (...args: string[]) =>
+        spawner
+          .string(
+            ChildProcess.make(
+              "git",
+              [
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.test",
+                "-c",
+                "commit.gpgSign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                ...args,
+              ],
+              { cwd },
+            ),
+          )
+          .pipe(Effect.map((output) => output.trim()));
+
+      yield* git("init", "--quiet");
+      yield* fs.writeFileString(`${cwd}/guard.ts`, "export const guarded = false;\n");
+      yield* git("add", ".");
+      yield* git("commit", "--quiet", "-m", "base");
+      const base = yield* git("rev-parse", "HEAD");
+
+      yield* fs.writeFileString(`${cwd}/guard.ts`, "export const guarded = true;\n");
+      yield* fs.writeFileString(`${cwd}/unchanged.ts`, "export const feature = true;\n");
+      yield* git("add", ".");
+      yield* git("commit", "--quiet", "-m", "reviewed changes");
+      const previousHeadSha = yield* git("rev-parse", "HEAD");
+
+      yield* git("checkout", "--quiet", "-b", "rewritten", base);
+      yield* fs.writeFileString(`${cwd}/unchanged.ts`, "export const feature = true;\n");
+      yield* fs.writeFileString(`${cwd}/new.ts`, "export const added = true;\n");
+      yield* git("add", ".");
+      yield* git("commit", "--quiet", "-m", "rewritten changes without guard");
+      const headSha = yield* git("rev-parse", "HEAD");
+
+      const prompt = PullRequestAgentReview.reReviewLines({
+        previousPath: "/previous.json",
+        previousHeadSha,
+        headSha,
+      }).join("\n");
+      const diffArgs = prompt.match(/`git diff ([^`]+)`/)?.[1];
+      expect(diffArgs).toBeDefined();
+      const diff = yield* git("diff", ...(diffArgs ?? "").split(" "));
+      expect(diff).toContain("-export const guarded = true;");
+      expect(diff).toContain("+export const guarded = false;");
+      expect(diff).toContain("+export const added = true;");
+      expect(diff).not.toContain("unchanged.ts");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("reviews only what changed since the earlier review and hands over its findings", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
@@ -492,7 +553,7 @@ describe("re-reviews", () => {
       const previousPath = `${harness.stateDir}/review-previous/earlier.json`;
       const text = turnText(commands);
       expect(text).toContain(`previous review's findings are in ${previousPath}`);
-      expect(text).toContain("`git diff aaaaaaa...bbbbbbb`");
+      expect(text).toContain("`git diff aaaaaaa bbbbbbb`");
       expect(text).toContain("pass previous with how many were fixed");
 
       const fs = yield* FileSystem.FileSystem;
