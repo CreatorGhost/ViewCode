@@ -8,6 +8,7 @@ import {
   pullRequestEntryKey,
   pullRequestEnvironmentSetKey,
   groupPullRequestsByInvolvement,
+  groupPullRequestsByProject,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
   parsePullRequestQuery,
@@ -393,6 +394,71 @@ describe("pull request grouping", () => {
       VIEWERS,
     );
     expect(groups.map((group) => group.key)).toEqual(["authored"]);
+  });
+});
+
+describe("grouping by project folder", () => {
+  const labels = new Map([
+    ["env-1:project-1", "t3code"],
+    ["env-1:project-2", "marketing"],
+    ["env-2:project-1", "t3code on the laptop"],
+  ]);
+
+  it("orders folders by their newest row and keeps each folder's rows in the order given", () => {
+    const groups = groupPullRequestsByProject(
+      [
+        entry({
+          number: 1,
+          projectId: "project-1" as ProjectId,
+          updatedAt: "2026-08-01T00:00:00Z",
+        }),
+        entry({
+          number: 2,
+          projectId: "project-2" as ProjectId,
+          updatedAt: "2026-08-02T00:00:00Z",
+        }),
+        entry({
+          number: 3,
+          projectId: "project-1" as ProjectId,
+          updatedAt: "2026-08-03T00:00:00Z",
+        }),
+      ],
+      labels,
+    );
+    expect(
+      groups.map((group) => [group.label, group.dimension, group.entries.map((row) => row.number)]),
+    ).toEqual([
+      ["t3code", "project", [1, 3]],
+      ["marketing", "project", [2]],
+    ]);
+  });
+
+  it("keeps one project id on two servers apart", () => {
+    const groups = groupPullRequestsByProject(
+      [
+        entry({ number: 1, environmentId: "env-1" as EnvironmentId }),
+        entry({ number: 2, environmentId: "env-2" as EnvironmentId }),
+      ],
+      labels,
+    );
+    expect(groups.map((group) => [group.key, group.label])).toEqual([
+      ["env-1:project-1", "t3code"],
+      ["env-2:project-1", "t3code on the laptop"],
+    ]);
+  });
+
+  it("names a folder the labels do not know by its repository", () => {
+    const groups = groupPullRequestsByProject(
+      [entry({ number: 1, projectId: "project-9" as ProjectId, repository: "acme/widgets" })],
+      labels,
+    );
+    expect(groups.map((group) => group.label)).toEqual(["acme/widgets"]);
+  });
+
+  it("gives a single-project list a single group, so no header is needed", () => {
+    expect(
+      groupPullRequestsByProject([entry({ number: 1 }), entry({ number: 2 })], labels),
+    ).toHaveLength(1);
   });
 });
 
@@ -978,6 +1044,25 @@ describe("blocked-on-me ranking", () => {
     expect(sortPullRequestGroups(groups, "blocked", "needle", undefined, "authored")).toEqual(
       groups,
     );
+  });
+
+  it("ranks project groups by the involvement filter the reader chose", () => {
+    const rows = [
+      entry({ number: 1, updatedAt: "2026-08-02T00:00:00Z" }),
+      entry({ number: 2, checksState: "failing" }),
+      entry({ number: 3, state: "merged", updatedAt: "2026-08-03T00:00:00Z" }),
+    ];
+    // A project key can never collide with an involvement key, but the dimension decides anyway.
+    const groups = [
+      { key: "others", label: "others", entries: rows, dimension: "project" as const },
+    ];
+    const order = (involvement: "all" | "authored" | "reviewing") =>
+      sortPullRequestGroups(groups, "blocked", "", undefined, involvement)[0]!.entries.map(
+        (row) => row.number,
+      );
+    expect(order("authored")).toEqual([2, 1, 3]);
+    expect(order("reviewing")).toEqual([1, 2, 3]);
+    expect(order("all")).toEqual([1, 2, 3]);
   });
 });
 

@@ -43,9 +43,12 @@ export interface EnvironmentPullRequestError extends PullRequestListProjectError
 export type PullRequestGroupKey = "reviewRequested" | "authored" | "others";
 
 export interface PullRequestGroup<Entry extends PullRequestListEntry = PullRequestListEntry> {
-  readonly key: PullRequestGroupKey;
+  /** A `PullRequestGroupKey` for involvement groups; the project's scoped key for project groups. */
+  readonly key: string;
   readonly label: string;
   readonly entries: ReadonlyArray<Entry>;
+  /** Which dimension produced this group. Absent means involvement, the prior behaviour. */
+  readonly dimension?: "involvement" | "project";
 }
 
 export interface PullRequestAuthorFacet {
@@ -423,6 +426,47 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
   return (["authored", "reviewRequested", "others"] as const)
     .filter((key) => buckets[key].length > 0)
     .map((key) => ({ key, label: GROUP_LABELS[key], entries: buckets[key] }));
+}
+
+/** The key a project group and its label lookup share: a project id is only unique per server. */
+export const pullRequestProjectGroupKey = (entry: {
+  readonly environmentId: string;
+  readonly projectId: string;
+}): string => `${entry.environmentId}:${entry.projectId}`;
+
+/**
+ * One group per project folder, labelled as the sidebar names it, falling back to the row's
+ * repository for a project the labels do not know. Groups run by their most recently updated
+ * row; rows keep the order they came in, so a ranking or search order survives the grouping.
+ * A single group is the caller's cue to draw no header at all.
+ */
+export function groupPullRequestsByProject<Entry extends EnvironmentPullRequestEntry>(
+  entries: ReadonlyArray<Entry>,
+  projectLabels: ReadonlyMap<string, string>,
+): ReadonlyArray<PullRequestGroup<Entry>> {
+  const groups = new Map<string, { label: string; entries: Entry[]; newest: string }>();
+  for (const entry of entries) {
+    const key = pullRequestProjectGroupKey(entry);
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, {
+        label: projectLabels.get(key) ?? entry.repository,
+        entries: [entry],
+        newest: entry.updatedAt,
+      });
+      continue;
+    }
+    group.entries.push(entry);
+    if (entry.updatedAt.localeCompare(group.newest) > 0) group.newest = entry.updatedAt;
+  }
+  return [...groups]
+    .toSorted(([, left], [, right]) => right.newest.localeCompare(left.newest))
+    .map(([key, group]) => ({
+      key,
+      label: group.label,
+      entries: group.entries,
+      dimension: "project" as const,
+    }));
 }
 
 /**
@@ -1073,7 +1117,7 @@ export function rankPullRequestsBlockedOnReviewer<Entry extends PullRequestListE
   return rankByTierThenRecency(entries, (entry) => (entry.state === "open" ? 0 : 1));
 }
 
-/** Keeps authored work first while applying the selected ordering inside every involvement group. */
+/** Keeps the groups in their order while applying the selected ordering inside every group. */
 export function sortPullRequestGroups<Entry extends PullRequestListEntry>(
   groups: ReadonlyArray<PullRequestGroup<Entry>>,
   sort: PullRequestListSort,
@@ -1091,10 +1135,15 @@ export function sortPullRequestGroups<Entry extends PullRequestListEntry>(
   }
   if (sort === "blocked") {
     if (searchText.trim().length > 0) return groups;
-    const role = (key: PullRequestGroupKey) =>
-      key === "others" ? involvement : key === "authored" ? "authored" : "reviewing";
+    // A project group mixes involvements, so like Others it ranks by the filter the reader chose.
+    const role = (group: PullRequestGroup<Entry>) =>
+      group.dimension === "project" || group.key === "others"
+        ? involvement
+        : group.key === "authored"
+          ? "authored"
+          : "reviewing";
     return groups.map((group) => {
-      const groupRole = role(group.key);
+      const groupRole = role(group);
       if (groupRole === "all") return group;
       const rank =
         groupRole === "authored"
