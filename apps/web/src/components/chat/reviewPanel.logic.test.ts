@@ -8,9 +8,12 @@ import {
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { describe, expect, it } from "vite-plus/test";
 
+import { reviewCommentContextReference } from "../../lib/composerContextRecords";
+import { formatInlineContextReference } from "../../lib/composerContextReferences";
 import {
   placeReviewFindings,
   reviewFindingEntries,
+  reviewFindingsFixPrompt,
   reviewSourceCandidates,
   selectReviewFindingsSource,
 } from "./reviewPanel.logic";
@@ -226,5 +229,64 @@ describe("placeReviewFindings", () => {
       ["finding:1", "a", 13, 13],
       ["finding:0", "b", 2, 2],
     ]);
+  });
+});
+
+describe("reviewFindingsFixPrompt", () => {
+  const blocker = {
+    severity: "blocker" as const,
+    confidence: 90,
+    path: "apps/web/src/a.ts",
+    line: 12,
+    endLine: 14,
+    title: "Stale label",
+    detail: "The label keeps the old count.",
+    suggestedFix: "const label = String(count);\n",
+  };
+  const question = {
+    severity: "question" as const,
+    confidence: 50,
+    path: "README.md",
+    title: "Is this still true?",
+    detail: "The docs may be out of date.",
+  };
+
+  it("asks to verify one finding first, with its lines as a chip", () => {
+    const [entry] = reviewFindingEntries({ findings: [blocker], needsChecking: [] });
+    const { prompt, comments } = reviewFindingsFixPrompt({
+      activityId: "activity-1",
+      entries: [entry!],
+    });
+    expect(comments).toEqual([
+      expect.objectContaining({
+        id: "review-finding:activity-1:finding:0",
+        filePath: "apps/web/src/a.ts",
+        startIndex: 11,
+        endIndex: 13,
+        rangeLabel: "L12 to L14",
+        text: "",
+        diff: "",
+      }),
+    ]);
+    const chip = formatInlineContextReference(reviewCommentContextReference(comments[0]!));
+    expect(chip).toContain("a.ts L12 to L14");
+    expect(prompt).toBe(
+      [
+        `Verify this issue exists and fix it: ${chip}`,
+        "**Stale label**",
+        "The label keeps the old count.",
+        "Suggested fix:\n\n```ts\nconst label = String(count);\n```",
+      ].join("\n\n"),
+    );
+  });
+
+  it("numbers several findings in one request and says which nobody settled", () => {
+    const entries = reviewFindingEntries({ findings: [blocker], needsChecking: [question] });
+    const { prompt, comments } = reviewFindingsFixPrompt({ activityId: "activity-1", entries });
+    expect(comments.map((comment) => comment.rangeLabel)).toEqual(["L12 to L14", "file"]);
+    expect(prompt).toMatch(/^Verify each of these issues exists and fix the ones that do/);
+    expect(prompt).toContain("1. [a.ts L12 to L14]");
+    expect(prompt).toContain("2. [README.md file](t3-context://v1/review-comment/");
+    expect(prompt).toContain("The reviewer could not settle this one.");
   });
 });

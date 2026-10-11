@@ -170,9 +170,10 @@ When the review is done, choose **Review** at the top of the chat (on web and de
 review thread or in any thread linked to the same pull request. The side panel shows the change
 with each finding under the lines it is about; findings without a place in the diff are listed
 under **General**, and the arrows step from one finding to the next. **Fix with agent** (or **Fix
-all**) sends findings to a session already working on the pull request or to a new session on its
-branch in a worktree of its own; that session checks each finding against the code before fixing
-it and tells you which it skipped. **Dismiss** hides a finding until you show dismissed ones again.
+all**) writes a request to verify and fix the findings into this thread's message box, with their
+lines attached, for you to edit and send. In the review thread itself it instead sends them to a
+session already working on the pull request or to a new session on its branch in a worktree of its
+own. **Dismiss** hides a finding until you show dismissed ones again.
 
 ### Mark files as viewed
 

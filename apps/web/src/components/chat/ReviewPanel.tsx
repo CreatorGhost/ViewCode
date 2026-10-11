@@ -37,6 +37,7 @@ import {
   type ReviewFindingEntry,
   type ReviewFindingKey,
   type ReviewFindingsSource,
+  reviewFindingsFixPrompt,
 } from "./reviewPanel.logic";
 import {
   type ReviewFindingRating,
@@ -59,6 +60,9 @@ export interface ReviewPostRequest {
   readonly target: ReviewFindingsTarget;
   readonly findings: ReadonlyArray<ReviewFindingToFix>;
 }
+
+/** A request for this thread's composer and the chip records its text refers to. */
+export type ReviewFixInChatRequest = ReturnType<typeof reviewFindingsFixPrompt>;
 
 interface FindingAnnotationGroup {
   readonly findings: ReadonlyArray<PlacedReviewFinding>;
@@ -87,6 +91,7 @@ interface ReviewFindingsViewProps {
   readonly projectId: ProjectId | null;
   readonly cwd: string | undefined;
   readonly onPost: ((request: ReviewPostRequest) => void) | undefined;
+  readonly onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
 }
 
 // The source is recomputed whenever any thread changes; the view only cares when the set or
@@ -98,6 +103,7 @@ const ReviewFindingsView = memo(
     previous.projectId === next.projectId &&
     previous.cwd === next.cwd &&
     previous.onPost === next.onPost &&
+    previous.onFixInChat === next.onFixInChat &&
     previous.source.activityId === next.source.activityId &&
     previous.source.threadTitle === next.source.threadTitle,
 );
@@ -108,6 +114,7 @@ function ReviewFindingsViewContent({
   projectId,
   cwd,
   onPost,
+  onFixInChat,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
   const { environmentId } = threadRef;
@@ -202,18 +209,30 @@ function ReviewFindingsViewContent({
     },
     [entries, findings.target, onPost, reviewThreadRef, source.activityId],
   );
+  // Fixing happens in the chat beside the panel, as a request the reader sends themselves; the
+  // review thread itself does not fix (reviewers do not), so there it picks a session instead.
+  const fixInReviewThread = source.threadId === threadRef.threadId;
+  const fix = useCallback(
+    (selection: ReadonlyArray<ReviewFindingEntry>) => {
+      if (selection.length === 0) return;
+      if (fixInReviewThread || onFixInChat === undefined) {
+        setFixing(selection.map(fixItem));
+        return;
+      }
+      onFixInChat(reviewFindingsFixPrompt({ activityId: source.activityId, entries: selection }));
+    },
+    [fixInReviewThread, onFixInChat, source.activityId],
+  );
   const cardAction = useMemo(
     () =>
       onPost
         ? { label: "Post comment", run: (key: ReviewFindingKey) => post([key]) }
         : {
             label: "Fix with agent",
-            run: (key: ReviewFindingKey) => {
-              const entry = entries.find((candidate) => candidate.key === key);
-              if (entry) setFixing([fixItem(entry)]);
-            },
+            run: (key: ReviewFindingKey) =>
+              fix(entries.filter((candidate) => candidate.key === key)),
           },
-    [entries, onPost, post],
+    [entries, fix, onPost, post],
   );
 
   const filesWithFindings = useMemo(() => new Set(placed.map((entry) => entry.fileKey)), [placed]);
@@ -399,7 +418,7 @@ function ReviewFindingsViewContent({
       }
     : {
         label: "Fix all",
-        run: () => setFixing(openEntries.map(fixItem)),
+        run: () => fix(openEntries),
       };
 
   return (
@@ -525,17 +544,19 @@ function ReviewFindingsViewContent({
  * The Review surface of the right panel: the latest findings for this thread (its own, or those
  * of the newest review of its pull request) over the change they are about. `onPost` turns it
  * into reviewer mode, where findings are posted to the pull request instead of fixed; it is only
- * given where posting is available.
+ * given where posting is available. `onFixInChat` puts a fix request into this thread's composer.
  */
 export function ReviewPanel({
   threadRef,
   cwd,
   onPost,
+  onFixInChat,
 }: {
   threadRef: ScopedThreadRef;
   /** The thread's checkout: where a local review's change is read, and file links resolve. */
   cwd: string | undefined;
   onPost?: ((request: ReviewPostRequest) => void) | undefined;
+  onFixInChat?: ((request: ReviewFixInChatRequest) => void) | undefined;
 }) {
   const { source, projectId } = useReviewFindingsSource(threadRef);
   if (source === null) {
@@ -562,6 +583,7 @@ export function ReviewPanel({
       projectId={projectId}
       cwd={cwd}
       onPost={onPost}
+      onFixInChat={onFixInChat}
     />
   );
 }
