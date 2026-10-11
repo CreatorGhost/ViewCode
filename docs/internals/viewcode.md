@@ -487,12 +487,23 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   itself, so the review thread is an ordinary linked thread on the user's default permissions for
   new threads. Clients pick the model (they own the "Automatic" default); the MCP tool falls back
   to the calling thread's model. Gated by the `pullRequestAgentReview` capability.
+- A review asked for from a chat (`sourceThreadId`; the MCP tools always pass the caller) is that
+  chat's child agent (`parentThreadId`), and the chat gets the record a spawn leaves
+  (`viewcode.agent-message.sent`, `kind: "spawn"`, plus `review: <mode>`), so the transcript, the
+  agents bar, archive cascades and mobile treat it as one of the chat's agents with no new surface.
+  Nothing is routed back: the reviewer's answer is not a reply, the findings reach the chat through
+  its Review panel. Only the pull request page starts a top-level review. Older servers ignore
+  `sourceThreadId` and start a top-level one, which clients still find through the link.
 - A review of local changes (`PullRequestAgentReview.startLocal`, `review.startLocal`,
   `review_local_changes`, capability `localAgentReview`) is the same launch without a link: the
   review thread gets the source thread's branch and worktree (the project's workspace without
   one), because the reviewer reads the checkout rather than a host, and is only told not to change
-  it. What to diff (uncommitted changes, else the branch against its base) is decided by the
-  reviewer from the checkout, not by the server at start.
+  it. What to diff is `scope` (uncommitted, branch against a base, one commit; capability
+  `localAgentReviewScope`, since an older server would silently review the default); without one
+  the reviewer decides from the checkout (uncommitted changes, else the branch against its base).
+  `review.listCommits` (same project-root guard as the diff preview) gives clients the commits to
+  pick from and the base a branch review defaults to. Building a start request and the progress
+  wording are client-runtime's (`agentReview.ts`), so web and mobile send the same thing.
 - A re-review (`incremental` with `basedOn`, capability `incrementalAgentReview`) names the
   earlier findings by thread and activity, never by commit: the server reads that activity, refuses
   findings of another target, writes them to `<stateDir>/review-previous/<activityId>.json` for
@@ -509,6 +520,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Findings arrive twice on purpose: the written report for the reader, and `submit_review_findings`
   for the app, recorded as a `viewcode.review.findings` activity. Activities are append-only, so a
   re-review replaces the set only by coming later: clients render the latest one and skip the rest.
+  The playbooks ask for the findings verified so far with `complete: false` while the review works
+  (a deep review takes 10 to 20 minutes), then the final set; `complete` is on the payload and its
+  absence means final, which every set before it was.
 - Whether findings are fixes or review comments (`mode` on that payload; absent reads as fix) is
   decided by the server when they are recorded: comment when the pull request's author is not the
   account it is read as (`PullRequestAgentReview.authorship`), fix when either is unknown, since
@@ -525,36 +539,38 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   environment, never `gh auth switch`), and refused when GitHub answers as someone else, which a
   `GH_TOKEN` in the server's environment would cause.
 - Findings live in the web Review panel (a right-panel surface) and the pull request detail's Review
-  tab, both one view (`ReviewFindingsView`), not in the transcript. Mobile has a findings screen
+  tab, both one view (`ReviewSurface`), not in the transcript. Mobile has a findings screen
   (`features/review/findings/`) opened from the transcript's findings row and the Android pull
   request screen: a list by severity with no diff, since a phone has no room to read findings
   under their lines. Which set a thread or pull request shows, and the read of linked threads, are
   client-runtime's (`reviewFindings.ts`, `state/reviewFindings.ts`) so both clients agree. Thread
-  shells carry no activities, so a thread without findings of its own, or the pull request detail,
-  finds a linked review by subscribing to the activities of up to five threads linked to the same
-  pull request, and only while that panel or detail is open. A review still under way is
-  recognised by the title the server gives its thread (`pullRequestReviewTitle` and
-  `localReviewTitle`, read back by `reviewThreadMode`); change one and change the other. A local
-  review has no link, so a thread without a pull request finds one only by that title on the same
-  project, branch and worktree (`localReviewSourceCandidates`): a renamed local review drops out of
-  the panel of the thread whose changes it read, though its own panel still shows it. Starting a
-  review from the pull request detail (or the Android pull request screen) stays there. From a
-  thread working on the pull request, Fix with agent writes an editable request into that thread's
-  composer; it never sends.
-- Fix from the review thread itself goes to another session: an existing one through the client's
-  own queue for that thread (web's composer queue, in memory, sends now, at the next tool boundary,
-  or at turn end for providers that cannot steer; mobile's thread outbox), because the server has
-  no queue for user turns and inventing one would fork that behaviour. Only a new session is a
-  server method (`ReviewFixThread.start`, `review.startFixThread`), which checks the pull request
-  out into a worktree, reusing an existing checkout only when no non-archived session there is
-  running or has an active turn. Which findings were sent where or dismissed is client memory only.
-- Undoing fixes (`ReviewFixThread.undo`, `review.undoFixes`, capability `reviewFixUndo`) is the
-  chat's own `thread.checkpoint.revert`, to the turn count a hidden `viewcode.review.fix-started`
-  activity recorded before the session's first turn (always 0: only new sessions get one). It is
-  not recognised from the message text, and a fix sent through the composer to an existing session
-  cannot be undone this way, because a turn start has no field to mark it. The revert takes back
-  every turn since, and restores files only where the reactor allows it: a fix's unshared worktree.
-  A shared checkout fails with the chat's usual reason.
+  shells carry no activities, so a view subscribes to the activities of the thread itself, its
+  child agents and up to five threads linked to the same pull request (`threadReviewCandidates`;
+  the pull request page only the linked ones), and only while the panel or detail is open. A
+  child's review counts whatever it reviewed; a linked thread's only when it is about this pull
+  request.
+- A review thread is recognised by its `viewcode.review.started` record, never its title; the
+  record also carries the mode, focus and scope, which is what Try again repeats. A shell field or a
+  new `ThreadKind` would have been cheaper to read, but older clients fail to decode an unknown
+  literal. Where the latest review stands is `reviewRunState` + `reviewProgress`: running while the
+  reviewer or any agent under it is in flight, or one of those agents finished after the
+  reviewer's last turn (a lead ends its turn after spawning and is woken by each answer, so an
+  idle lead is not a finished review); otherwise failed (the turn or session errored, with
+  `lastError`) or ended, unless its final findings are in. Without that, a deep review read as
+  ended between its lenses, and a review that died showed "Reviewing…" forever.
+- Fix with agent never picks a session: it writes the request into a chat's composer, unsent. The
+  panel beside a chat uses that chat. Seen from the reviewer itself, or from the pull request page
+  (`resolveReviewFixChat`), it is the chat the review was started from (its parent), else the chat
+  most recently working on what was reviewed (`reviewFixCandidates`, which never offers child agents
+  or side chats: a reviewer's lenses are linked to the pull request too), else a new chat on the
+  reviewed checkout (the page's own handoff checks the pull request out first). Which findings were
+  sent where or dismissed is client memory only. `review.startFixThread` is no longer used by web;
+  mobile's fix sheet still starts sessions with it until its own pass.
+- Undoing a fix sent into a chat is the chat's own rewind (Edit from here), since it is an ordinary
+  turn there. `ReviewFixThread.undo` (`review.undoFixes`, capability `reviewFixUndo`) remains for
+  sessions `review.startFixThread` started: `thread.checkpoint.revert` to the turn count a hidden
+  `viewcode.review.fix-started` activity recorded before the session's first turn. It restores
+  files only where the reactor allows it (a fix's unshared worktree).
 - Ratings are not (`ReviewFindingRatings.rate`, `review.rateFinding`, capability
   `reviewFindingRatings`): each is a hidden `viewcode.review.rating` activity on the review thread,
   outside any turn, carrying the finding's title, severity, path and rule and the project, so every

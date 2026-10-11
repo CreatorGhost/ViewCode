@@ -164,48 +164,53 @@ declined pull request.
 Choose **Review with agent...** in a pull request's actions menu to have an agent review it. Pick
 **Quick review** (one pass), **Deep review** (several agents that check each other's findings), or
 **Security audit**, then the model and, optionally, what to focus on. Deep reviews and security
-audits run several agents and use more of your plan. The review runs in a new thread in the
-project, linked to the pull request, so you can keep asking the agent about it (**Open chat**); you
-stay on the pull request, whose **Review** tab says the review is under way and shows its findings
-when it is done. With no review yet, you can start one from that tab too. It runs with your
-default permissions for new threads, reads the change without touching your checkout, and posts
-nothing to the host unless you ask. On Android the review button is in the pull request screen's
-header and uses your default model; the screen stays open, says the review is under way, and links
-to its findings when it is done. Agents can start a review with the `review_pull_request` tool,
-and review a thread's own uncommitted changes (or its branch, when there are none) with
-`review_local_changes`; that review runs on the thread's branch and worktree and changes nothing.
+audits run several agents and use more of your plan; they can take 10 to 20 minutes. Started from
+a chat (its **Review** panel, or the pull request panel beside it), the reviewer is one of that
+chat's agents: you stay in the chat, which shows the review as one block with its time, its current
+step and the agents it started, and **Show findings** opens the panel. Started from the pull request
+page, it runs in a thread of its own linked to the pull request, and the page's **Review** tab shows
+it. It runs with your default permissions for new threads, reads the change without touching your
+checkout, and posts nothing to the host unless you ask. On Android the review button is in the pull
+request screen's header and uses your default model; the screen stays open, says the review is
+under way, and links to its findings. Agents can start a review with the `review_pull_request`
+tool, and review a thread's own changes with `review_local_changes`; either review runs as the
+asking agent's child and changes nothing.
 
-The findings also show under **Review** at the top of the chat (on web and desktop), in the review
-thread or in any thread linked to the same pull request. Both show the change with each finding
-under the lines it is about; findings without a place in the diff are listed under **General**, and
-the arrows step from one finding to the next. **Fix with agent** (or **Fix all**) writes a request
-to verify and fix the findings into this thread's message box, with their lines attached, for you to
-edit and send. On the pull request's **Review** tab and in the review thread itself it instead sends
-them to a session already working on the pull request or to a new session on its branch in a
-worktree of its own. **Dismiss** hides a finding until you show dismissed ones again. To review a
-thread's pull request from the panel, pick the mode, model and focus in its empty state, or under
-**Find issues** for a new review; the thread stays open and the findings arrive when it is done.
-In a thread with no pull request, the same form reviews the thread's own uncommitted changes (or
-its branch, when everything is committed), as does **Review my changes** in the command palette.
+The **Review** panel beside a chat (web and desktop) shows the change at once, while the review
+works, with how long it has run and what it is doing. Findings appear on the diff as the reviewer
+verifies them, marked **Still reviewing…** until its last set arrives. The issues are listed first;
+the panel goes to the first one, and a row or the arrows go to the next, with each finding under the
+lines it is about (findings without a place in the diff are listed under **General**). Files
+without findings stay folded; **Show all files** opens them. A review that fails says why, with
+**Try again** to start it again as it was asked; one that ends without findings says so. **Fix
+with agent** writes a request to verify and fix the finding into your chat's message box, with its
+lines attached, for you to edit and send. **Fix all** does the same for every open finding, letting
+you untick some first when there are several. Seen from the reviewer itself, or from the pull
+request page, the request goes to the chat the review was started from, else the chat working on
+the pull request, else a new chat on its branch; nothing is ever sent for you. **Dismiss** hides a
+finding until you show dismissed ones again. To review from the panel, pick the depth, model and
+focus in its empty state, or under **Find issues** for a new review. In a chat with no pull request
+it reviews the chat's own changes, as does **Review my changes** in the command palette: under
+**What to review**, **Auto** reads the uncommitted changes (or the branch when everything is
+committed), **Uncommitted** only those, **Branch** the branch against a base you can change, and
+**Commit** one commit picked from the latest ones or pasted.
 
-With findings showing, **Find issues** can re-review them: **Only what changed since this review**
-reads just what was pushed since and reports how many earlier findings were fixed and how many are
-still open. A review of local changes reads the whole change again but still reports them. Thumbs
-up and down rate a finding (click again to take the rating back); ratings follow you to every
-device, and later reviews of the project lean away from the kinds of findings you turned down.
+With findings showing, **Find issues** can re-review them: **Changes since** reads just what was
+pushed since and reports how many earlier findings were fixed and how many are still open. A
+review of local changes reads the whole change again but still reports them. Thumbs up and down
+rate a finding (click again to take the rating back); ratings follow you to every device, and
+later reviews of the project lean away from the kinds of findings you turned down.
 
-A new session started to fix a review's findings can be taken back: **Undo review fixes** on its
-first message, or in the command palette, reverts the session and its file changes to before the
-fixes after you confirm. That needs a worktree of the session's own, which a pull request fix has;
-a fix of local changes shares its checkout, so there the undo is refused and you can use **Edit
-from here** to rewind the conversation and keep the files.
+A fix is an ordinary message in your chat, so you take it back like any other: **Edit from here**
+on that message rewinds the conversation. Sessions started to fix findings by earlier versions can
+still be undone with **Undo review fixes** on their first message, or in the command palette.
 
 In the mobile app, a review thread shows a **Review findings** row where its findings arrive. Tap
 it for the verdict, merge confidence and review effort, and the findings grouped by severity; tap a
 finding for its detail and suggested fix. The phone shows no diff, so each finding names its file
 and line instead. **Fix with agent** (or **Fix all**) sends the findings to a session already
-working on the change or to a new session, as on web; opened from a thread's pull request, it
-writes the request into that thread's message box instead. For somebody else's pull request,
+working on the change or to a new session; opened from a thread's pull request, it writes the
+request into that thread's message box instead. For somebody else's pull request,
 **Post comment**, **Post all** and **Post selected** (tick the findings first) open a sheet where
 you choose what to submit the review as and write its overall comment before posting. **Dismiss**
 hides a finding until you show dismissed ones, and the thumbs tell later reviews of the project
