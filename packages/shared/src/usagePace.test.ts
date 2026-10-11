@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { railPlanLabel, usagePace } from "./usagePace.ts";
 
-const resetsAt = new Date(Date.UTC(2026, 0, 8)).toISOString();
+const resetsAt = "2026-01-08T00:00:00.000Z";
 const now = Date.UTC(2026, 0, 4);
 const base = { resetsAt, windowDurationMins: 7 * 24 * 60, now };
 
