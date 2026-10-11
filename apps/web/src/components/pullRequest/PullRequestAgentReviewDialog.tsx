@@ -56,6 +56,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
+import { readReviewStartPreference, writeReviewStartPreference } from "./reviewStartPreference";
 
 export type { AgentReviewChoices, AgentReviewRequest };
 
@@ -137,10 +138,12 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
       getCustomModelOptionsByInstance(settings, providers, selection?.instanceId, selection?.model),
     [providers, selection?.instanceId, selection?.model, settings],
   );
-  const [mode, setMode] = useState<AgentReviewMode>("quick");
+  // The form opens on the depth and "What to review" last started on this device.
+  const [remembered] = useState(readReviewStartPreference);
+  const [mode, setMode] = useState<AgentReviewMode>(remembered.mode);
   const [focus, setFocus] = useState("");
   // What of the local changes to read; null leaves it to the reviewer (uncommitted, else branch).
-  const [scope, setScope] = useState<LocalReviewScope | null>(null);
+  const [scope, setScope] = useState<LocalReviewScope | null>(remembered.scope);
   const { pending } = starter;
   const { canScope } = starter;
   const scopeReady = !canScope || localReviewScopeReady(scope);
@@ -152,14 +155,19 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
     request.kind === "local"
       ? (sourceThread?.worktreePath ?? project?.workspaceRoot ?? null)
       : null;
-  const start = (basedOn?: ReviewBasedOnInput) =>
-    starter.start({
+  const start = async (basedOn?: ReviewBasedOnInput) => {
+    const started = await starter.start({
       mode,
       modelSelection: selection,
       focus,
       basedOn,
       scope: canScope ? scope : null,
     });
+    if (started !== null) {
+      writeReviewStartPreference({ mode, scope: canScope ? scope : remembered.scope });
+    }
+    return started;
+  };
 
   return {
     /** Whether a review of local changes can be told what to read. */

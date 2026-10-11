@@ -12,6 +12,7 @@ import { reviewEnvironment } from "../../state/review";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { Command, CommandInput, CommandItem, CommandList } from "../ui/command";
 import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
 type ScopeKind = "auto" | LocalReviewScope["kind"];
@@ -70,15 +71,18 @@ export function ReviewScopeFields({
         <Toggle value="commit">Commit</Toggle>
       </ToggleGroup>
       {scope?.kind === "branch" ? (
-        <Input
-          aria-label="Base branch"
-          placeholder={detectedBase ?? "The remote's default branch"}
-          value={scope.base ?? ""}
-          onChange={(event) => {
-            const base = event.target.value.trim();
-            onScopeChange(base.length > 0 ? { kind: "branch", base } : { kind: "branch" });
-          }}
-        />
+        <Label className="flex min-w-0 flex-col items-stretch" htmlFor={`${id}-base`}>
+          Compare against
+          <Input
+            id={`${id}-base`}
+            placeholder={detectedBase ?? "The remote's default branch"}
+            value={scope.base ?? ""}
+            onChange={(event) => {
+              const base = event.target.value.trim();
+              onScopeChange(base.length > 0 ? { kind: "branch", base } : { kind: "branch" });
+            }}
+          />
+        </Label>
       ) : scope?.kind === "commit" ? (
         <ReviewCommitPicker
           commits={listed.data?.commits ?? []}

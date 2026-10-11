@@ -95,7 +95,7 @@ export default function PullRequestReviewTab({
             <EmptyTitle>No agent review yet</EmptyTitle>
             <EmptyDescription>
               {startReview !== null
-                ? `Have an agent review PR #${reference.number}; its findings appear here as it finds them.`
+                ? `Have an agent review PR #${reference.number}. Findings appear here as it finds them.`
                 : "Agent reviews are not available on this server."}
             </EmptyDescription>
           </EmptyHeader>

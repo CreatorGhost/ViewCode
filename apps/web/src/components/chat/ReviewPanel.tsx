@@ -221,10 +221,10 @@ export function ReviewPanel({
             <EmptyTitle>No review findings yet</EmptyTitle>
             <EmptyDescription>
               {startReview?.request.kind === "pull-request"
-                ? `Have an agent review PR #${startReview.request.reference.number}; its findings appear here as it finds them.`
+                ? `Have an agent review PR #${startReview.request.reference.number}. Findings appear here as it finds them.`
                 : startReview?.request.kind === "local"
-                  ? "Have an agent review this thread's uncommitted changes, or its branch when everything is committed; its findings appear here as it finds them."
-                  : "Link a pull request to this thread to have an agent review it here."}
+                  ? "Have an agent review this chat's changes. Findings appear here as it finds them."
+                  : "Link a pull request to this chat to have an agent review it here."}
             </EmptyDescription>
           </EmptyHeader>
           {startReview !== null ? (
