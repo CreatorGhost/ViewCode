@@ -749,13 +749,26 @@ describe("PullRequestAgentReview.startLocal", () => {
         { scope: { kind: "branch", base: "release/2.0" }, text: "`git diff release/2.0...HEAD`" },
         { scope: { kind: "commit", sha: "abc1234" }, text: "`git show abc1234`" },
       ] as const;
+      const titles = [];
       for (const { scope, text } of scopes) {
         yield* Ref.set(harness.commands, []);
-        yield* harness.reviews.startLocal({ projectId: PROJECT_ID, scope });
+        const started = yield* harness.reviews.startLocal({
+          projectId: PROJECT_ID,
+          mode: "deep",
+          scope,
+        });
+        titles.push(started.title);
         const commands = yield* Ref.get(harness.commands);
         expect(turnText(commands)).toContain(text);
         expect(commands[1]).toMatchObject({ activity: { payload: { scope } } });
       }
+      // The reviewer's title says what it reads.
+      expect(titles).toEqual([
+        "Deep review: uncommitted changes",
+        "Deep review: branch vs its base",
+        "Deep review: branch vs release/2.0",
+        "Deep review: commit abc1234",
+      ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

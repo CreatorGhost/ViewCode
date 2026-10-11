@@ -326,8 +326,27 @@ export function buildPullRequestReviewPrompt(input: {
   return lines.join("\n");
 }
 
-export function localReviewTitle(mode: AgentReviewMode, branch: string | null): string {
-  return `${TITLE_PREFIXES[mode]}: local changes${branch === null ? "" : ` on ${branch}`}`;
+/**
+ * The title of a review of local changes: what it reads when the reader chose ("Deep review:
+ * branch vs origin/main", "Review: commit 7523ce0", "Security audit: uncommitted changes"), else
+ * the checkout's local changes.
+ */
+export function localReviewTitle(
+  mode: AgentReviewMode,
+  branch: string | null,
+  scope?: LocalReviewScope | undefined,
+): string {
+  const prefix = TITLE_PREFIXES[mode];
+  switch (scope?.kind) {
+    case undefined:
+      return `${prefix}: local changes${branch === null ? "" : ` on ${branch}`}`;
+    case "uncommitted":
+      return `${prefix}: uncommitted changes`;
+    case "branch":
+      return `${prefix}: branch vs ${scope.base ?? "its base"}`;
+    case "commit":
+      return `${prefix}: commit ${scope.sha.slice(0, 7)}`;
+  }
 }
 
 /**
@@ -690,7 +709,7 @@ const make = Effect.gen(function* () {
       projectId: input.projectId,
       parentThreadId: source?.id ?? null,
       mode,
-      title: localReviewTitle(mode, branch),
+      title: localReviewTitle(mode, branch, input.scope),
       modelSelection,
       runtimeMode: defaults.defaultRuntimeMode,
       branch,
