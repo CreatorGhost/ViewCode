@@ -15,6 +15,7 @@ import {
   normalizeProjectPathForDispatch,
   isUnsupportedWindowsProjectPath,
   resolveProjectPathForDispatch,
+  restartBrowsePathAtTypedRoot,
 } from "./projectPaths";
 
 describe("projectPaths", () => {
@@ -113,5 +114,35 @@ describe("projectPaths", () => {
     expect(canNavigateUp("~/repo/")).toBe(true);
     expect(canNavigateUp("\\\\server\\share\\")).toBe(false);
     expect(canNavigateUp("\\\\server\\share\\repo\\")).toBe(true);
+  });
+
+  it("restarts a browse query at a home or absolute path typed after the prefill", () => {
+    expect(restartBrowsePathAtTypedRoot("~/~/payments-api/", "darwin")).toBe("~/payments-api/");
+    expect(restartBrowsePathAtTypedRoot("~//tmp/x", "linux")).toBe("/tmp/x");
+    expect(restartBrowsePathAtTypedRoot("/srv/code//tmp/x", "linux")).toBe("/tmp/x");
+    expect(restartBrowsePathAtTypedRoot("~/code/~/app", "linux")).toBe("~/app");
+    // Ordinary paths, a `~` inside a name and pasted URLs are left alone.
+    expect(restartBrowsePathAtTypedRoot("~/code/app/", "linux")).toBe("~/code/app/");
+    expect(restartBrowsePathAtTypedRoot("~/~notes/", "linux")).toBe("~/~notes/");
+    expect(restartBrowsePathAtTypedRoot("~/https://github.com/a/b", "linux")).toBe(
+      "~/https://github.com/a/b",
+    );
+    expect(restartBrowsePathAtTypedRoot("search // text", "linux")).toBe("search // text");
+    // A folder may be named `C:` off Windows.
+    expect(restartBrowsePathAtTypedRoot("~/C:/work", "linux")).toBe("~/C:/work");
+  });
+
+  it("restarts Windows browse queries at drive letters and backslash home paths", () => {
+    expect(restartBrowsePathAtTypedRoot("~/D:\\work\\", "win32")).toBe("D:\\work\\");
+    expect(restartBrowsePathAtTypedRoot("C:\\Users\\me\\D:\\work", "Windows")).toBe("D:\\work");
+    expect(restartBrowsePathAtTypedRoot("C:\\Users\\me\\~\\app", "win32")).toBe("~\\app");
+    expect(restartBrowsePathAtTypedRoot("\\\\server\\share\\app", "win32")).toBe(
+      "\\\\server\\share\\app",
+    );
+    expect(restartBrowsePathAtTypedRoot("C:\\Users\\me\\app\\", "win32")).toBe(
+      "C:\\Users\\me\\app\\",
+    );
+    expect(isFilesystemBrowseQuery("~\\code", "win32")).toBe(true);
+    expect(isFilesystemBrowseQuery("~\\code", "linux")).toBe(false);
   });
 });

@@ -17,6 +17,13 @@ import {
 export const DRAFT_COPY_FORMATS = ["rich", "slack", "whatsapp", "markdown", "plain"] as const;
 export type DraftCopyFormat = (typeof DRAFT_COPY_FORMATS)[number];
 export type MessageFormat = Exclude<DraftCopyFormat, "rich">;
+/** How a whole reply's copy button copies: Markdown is the reply's own source. */
+export const MESSAGE_COPY_FORMATS = [
+  "markdown",
+  "slack",
+  "whatsapp",
+  "plain",
+] as const satisfies ReadonlyArray<MessageFormat>;
 
 interface Dialect {
   readonly bold: string;

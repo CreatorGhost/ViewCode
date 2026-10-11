@@ -56,18 +56,21 @@ import {
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
+  ListChecksIcon,
   MessageSquareIcon,
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
   MessageSquareMoreIcon,
   RotateCcwIcon,
+  ScanSearchIcon,
   SettingsIcon,
   SmartphoneIcon,
   SquareIcon,
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  Undo2Icon,
   Columns2Icon,
   Volume2Icon,
 } from "lucide-react";
@@ -133,6 +136,7 @@ import {
   isExplicitRelativeProjectPath,
   isUnsupportedWindowsProjectPath,
   resolveProjectPathForDispatch,
+  restartBrowsePathAtTypedRoot,
 } from "../lib/projectPaths";
 import { onOpenCommandPalette } from "../commandPaletteBus";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -220,6 +224,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
+import { REVIEW_FIX_UNDO_OPEN_EVENT } from "./chat/ReviewFixUndoDialog";
+import { reviewFixUndo } from "@t3tools/client-runtime/review-findings";
 import { useSplitActions } from "../splitView/useSplitView";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -229,7 +235,7 @@ import {
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
-import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
+import { useOpenPullRequests } from "~/components/pullRequest/useOpenPullRequests";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -730,6 +736,7 @@ function OpenCommandPaletteDialog(props: {
   readonly clearOpenIntent: () => void;
 }) {
   const navigate = useNavigate();
+  const openPullRequests = useOpenPullRequests();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
@@ -1119,20 +1126,11 @@ function OpenCommandPaletteDialog(props: {
           addProjectCloneFlow.repository?.nameWithOwner ?? addProjectCloneFlow.remoteUrl,
         )
       : "";
+  const browseQueryEnabled =
+    browseEnvironmentId !== null && !isRemoteProjectRepositoryStep && newProjectFlow === null;
   const browsePath = useMemo(
-    () =>
-      getFilesystemBrowsePath(
-        query,
-        browseEnvironmentPlatform,
-        browseEnvironmentId !== null && !isRemoteProjectRepositoryStep && newProjectFlow === null,
-      ),
-    [
-      browseEnvironmentId,
-      browseEnvironmentPlatform,
-      isRemoteProjectRepositoryStep,
-      newProjectFlow,
-      query,
-    ],
+    () => getFilesystemBrowsePath(query, browseEnvironmentPlatform, browseQueryEnabled),
+    [browseEnvironmentPlatform, browseQueryEnabled, query],
   );
   const isBrowsing = browsePath.isBrowsing;
   const browseDirectoryPath = browsePath.directoryPath;
@@ -1565,7 +1563,11 @@ function OpenCommandPaletteDialog(props: {
   function handleQueryChange(nextQuery: string): void {
     browseNavigation.invalidate();
     clearTypedHighlight();
-    setQuery(nextQuery);
+    setQuery(
+      browseQueryEnabled
+        ? restartBrowsePathAtTypedRoot(nextQuery, browseEnvironmentPlatform)
+        : nextQuery,
+    );
     if (nextQuery === "" && currentView?.initialQuery) {
       popView();
     }
@@ -2075,6 +2077,53 @@ function OpenCommandPaletteDialog(props: {
     ),
   );
   if (activeThread !== null && activeThread.kind !== "sidechat") {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:open-review-panel",
+      searchTerms: ["review", "findings", "code review", "agent review"],
+      title: "Open review panel",
+      icon: <ListChecksIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore.getState().open(threadRef, "review");
+      },
+    });
+    // The Review panel offers a review of the thread's own checkout when no pull request is linked.
+    if (
+      activeThreadServerConfig?.environment.capabilities.localAgentReview === true &&
+      visibleThreadPullRequests(activeThread.pullRequests).length === 0
+    ) {
+      actionItems.push({
+        kind: "action",
+        value: "action:review-my-changes",
+        searchTerms: ["review", "local changes", "uncommitted", "find issues", "agent review"],
+        title: "Review my changes",
+        description: "Have an agent review this thread's uncommitted changes",
+        icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          useRightPanelStore.getState().open(threadRef, "review");
+        },
+      });
+    }
+  }
+  const activeReviewFixUndo =
+    activeThread !== null && activeThreadServerConfig?.environment.capabilities.reviewFixUndo
+      ? reviewFixUndo(activeThread)
+      : null;
+  if (activeReviewFixUndo !== null && activeReviewFixUndo.undoneTurns > 0) {
+    actionItems.push({
+      kind: "action",
+      value: "action:undo-review-fixes",
+      searchTerms: ["undo", "review fixes", "revert", "fix session", "findings"],
+      title: "Undo review fixes",
+      icon: <Undo2Icon className={ITEM_ICON_CLASS} />,
+      // The focused chat asks before reverting.
+      run: async () => {
+        window.dispatchEvent(new Event(REVIEW_FIX_UNDO_OPEN_EVENT));
+      },
+    });
+  }
+  if (activeThread !== null && activeThread.kind !== "sidechat") {
     const thread = activeThread;
     actionItems.push({
       kind: "action",
@@ -2380,7 +2429,7 @@ function OpenCommandPaletteDialog(props: {
       title: "Open pull requests",
       icon: <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />,
       run: async () => {
-        await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+        await openPullRequests();
       },
     });
   }

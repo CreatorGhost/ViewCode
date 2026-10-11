@@ -275,6 +275,10 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
   }, [threadId, feed]);
 }
 
+// Gap between the composer overlay and the "Your last message" chip when no
+// floating control occupies the slot above the composer.
+const LAST_MESSAGE_CHIP_REST_GAP = 8;
+
 const USER_INPUT_TOGGLE_TIMING = {
   duration: USER_INPUT_TOGGLE_DURATION_MS,
   easing: Easing.out(Easing.cubic),
@@ -325,6 +329,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   useEffect(() => {
     setKeyboardStateSuspect(false);
   }, [isKeyboardVisible, liveKeyboardHeight]);
+  // iOS emits a native animated height target on both will-show and will-hide,
+  // so stay subscribed for the full transition. Android retains its
+  // background/resume stale-state quarantine. Shared by the composer and the
+  // feed's "Your last message" chip so they move together.
+  const composerFollowsKeyboard =
+    Platform.OS === "ios" || (isKeyboardVisible && !keyboardStateSuspect);
   const handleOwnedInputFocusChange = useCallback((focused: boolean) => {
     if (focused) {
       setKeyboardStateSuspect(false);
@@ -959,6 +969,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               usesAutomaticContentInsets={props.usesAutomaticContentInsets}
               onHeaderMaterialVisibilityChange={props.onHeaderMaterialVisibilityChange}
               onEndFollowEnabledChange={setEndFollowEnabled}
+              lastMessageChipFollowsKeyboard={composerFollowsKeyboard}
+              lastMessageChipBottomInset={
+                estimatedOverlayHeight +
+                (showFloatingStatus || showScrollToEndButton
+                  ? FLOATING_WORKING_CONTROL_COVERAGE
+                  : LAST_MESSAGE_CHIP_REST_GAP)
+              }
               skills={selectedProviderSkills}
               onUseArtifactTemplate={handleUseArtifactTemplate}
               loadEarlier={props.loadEarlier ?? null}
@@ -972,10 +989,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
       {showContent ? (
         <KeyboardStickyView
-          // iOS emits a native animated height target on both will-show and
-          // will-hide, so stay subscribed for the full transition. Android
-          // retains its background/resume stale-state quarantine.
-          enabled={Platform.OS === "ios" || (isKeyboardVisible && !keyboardStateSuspect)}
+          enabled={composerFollowsKeyboard}
           pointerEvents="box-none"
           style={{ position: "absolute", bottom: 0, left: 0, right: 0, top: 0 }}
           offset={{ closed: 0, opened: 0 }}

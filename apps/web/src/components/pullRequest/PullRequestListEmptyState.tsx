@@ -74,6 +74,7 @@ export function PullRequestListEmptyState({
   canLoadMore,
   loadingMore,
   refreshing,
+  unavailableProjects,
   onClearQuery,
   onLoadMore,
   onRefresh,
@@ -93,6 +94,11 @@ export function PullRequestListEmptyState({
   loadingMore: boolean;
   /** A re-read of the hosts is already running, from here or from the header. */
   refreshing: boolean;
+  /**
+   * Project name to the host's reason it could not be read. An empty list alongside one of these
+   * is not "no pull requests", so the reasons are what the page shows instead.
+   */
+  unavailableProjects?: ReadonlyMap<string, string>;
   onClearQuery: () => void;
   onLoadMore: () => void;
   onRefresh: () => void;
@@ -158,17 +164,33 @@ export function PullRequestListEmptyState({
     );
   }
 
+  const unavailable = [...(unavailableProjects ?? [])];
   return (
     <Empty>
       <BranchMark joined={false} />
-      <EmptyHeader>
-        <EmptyTitle>{filtered ? "Nothing under these filters" : "No pull requests"}</EmptyTitle>
-        <EmptyDescription>
-          {filtered
-            ? "Widen the state, involvement or project filter to see more."
-            : "Pull requests from every project in this workspace appear here."}
-        </EmptyDescription>
-      </EmptyHeader>
+      {unavailable.length > 0 ? (
+        <EmptyHeader>
+          <EmptyTitle>Pull requests could not be read</EmptyTitle>
+          <EmptyDescription>
+            <ul className="space-y-1">
+              {unavailable.map(([project, reason]) => (
+                <li key={project}>
+                  <span className="font-medium text-foreground">{project}</span>: {reason}
+                </li>
+              ))}
+            </ul>
+          </EmptyDescription>
+        </EmptyHeader>
+      ) : (
+        <EmptyHeader>
+          <EmptyTitle>{filtered ? "Nothing under these filters" : "No pull requests"}</EmptyTitle>
+          <EmptyDescription>
+            {filtered
+              ? "Widen the state, involvement or project filter to see more."
+              : "Pull requests from every project in this workspace appear here."}
+          </EmptyDescription>
+        </EmptyHeader>
+      )}
       <div className="flex flex-wrap justify-center gap-2">
         {canLoadMore ? (
           <Button size="sm" variant="outline" disabled={loadingMore} onClick={onLoadMore}>

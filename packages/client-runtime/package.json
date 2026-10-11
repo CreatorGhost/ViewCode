@@ -207,6 +207,14 @@
       "types": "./src/state/relayDiscovery.ts",
       "default": "./src/state/relayDiscovery.ts"
     },
+    "./review-findings": {
+      "types": "./src/reviewFindings.ts",
+      "default": "./src/reviewFindings.ts"
+    },
+    "./state/review-findings": {
+      "types": "./src/state/reviewFindings.ts",
+      "default": "./src/state/reviewFindings.ts"
+    },
     "./state/review": {
       "types": "./src/state/review.ts",
       "default": "./src/state/review.ts"

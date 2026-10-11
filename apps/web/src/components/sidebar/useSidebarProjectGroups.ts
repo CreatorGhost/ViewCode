@@ -12,18 +12,18 @@ import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../../uiStateSto
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "../Sidebar.logic";
 
 /**
- * The sidebar's project folders, grouped across environments and in sidebar order. The app
- * rail's project switcher reads the same list so both offer the same projects in the same order.
+ * The sidebar's project folders with their names and members, not yet in sidebar order. For
+ * readers that only need a folder's name or members: the order follows thread activity, and
+ * subscribing to it would re-render them on every thread update.
  */
-export function useSidebarProjectGroups(): ReadonlyArray<SidebarProjectSnapshot> {
+export function useSidebarProjectSnapshots(): ReadonlyArray<SidebarProjectSnapshot> {
   const projects = useProjects();
-  const threads = useThreadShells();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const sortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
   const groupingSettings = useClientSettings(selectProjectGroupingSettings);
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const unsortedGroups = useMemo(() => {
+  return useMemo(() => {
     const labelById = new Map(
       environments.map((environment) => [environment.environmentId, environment.label] as const),
     );
@@ -45,6 +45,16 @@ export function useSidebarProjectGroups(): ReadonlyArray<SidebarProjectSnapshot>
       resolveEnvironmentLabel: (environmentId) => labelById.get(environmentId) ?? null,
     });
   }, [environments, groupingSettings, primaryEnvironmentId, projectOrder, projects, sortOrder]);
+}
+
+/**
+ * The sidebar's project folders, grouped across environments and in sidebar order. The app
+ * rail's project switcher reads the same list so both offer the same projects in the same order.
+ */
+export function useSidebarProjectGroups(): ReadonlyArray<SidebarProjectSnapshot> {
+  const unsortedGroups = useSidebarProjectSnapshots();
+  const threads = useThreadShells();
+  const sortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
   return useMemo(
     () => sortLogicalProjectsForSidebar(unsortedGroups, threads, sortOrder),
     [sortOrder, threads, unsortedGroups],

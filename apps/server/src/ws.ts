@@ -80,6 +80,8 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
+  PullRequestOperationError,
+  ReviewStartError,
   WS_METHODS,
   WsRpcGroup,
   WORKTREE_SETUP_ACTIVITY_KIND,
@@ -190,6 +192,11 @@ import * as ViewCodeRelaySetup from "./relay/ViewCodeRelaySetup.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
+import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
+import * as LearnedReviewStyles from "./review/LearnedReviewStyles.ts";
+import * as ReviewFindingRatings from "./review/ReviewFindingRatings.ts";
+import * as ReviewFindingsPoster from "./review/ReviewFindingsPoster.ts";
+import * as ReviewFixThread from "./review/ReviewFixThread.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -706,6 +713,11 @@ const makeWsRpcLayer = (
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
+      const pullRequestAgentReview = yield* PullRequestAgentReview.PullRequestAgentReview;
+      const reviewFixThread = yield* ReviewFixThread.ReviewFixThread;
+      const reviewFindingsPoster = yield* ReviewFindingsPoster.ReviewFindingsPoster;
+      const reviewFindingRatings = yield* ReviewFindingRatings.ReviewFindingRatings;
+      const learnedReviewStyles = yield* LearnedReviewStyles.LearnedReviewStyles;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
@@ -3199,6 +3211,42 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "pull-requests" },
           ),
+        [WS_METHODS.pullRequestsStartReview]: ({
+          mode,
+          modelSelection,
+          focus,
+          findingsMode,
+          incremental,
+          basedOn,
+          ...reference
+        }) =>
+          observeRpcEffect(
+            WS_METHODS.pullRequestsStartReview,
+            withPullRequestViewer(
+              reference,
+              pullRequestAgentReview.start({
+                reference,
+                mode,
+                modelSelection,
+                focus,
+                findingsMode,
+                incremental,
+                basedOn,
+                linkSource: "manual",
+              }),
+            ).pipe(
+              Effect.catchTag("PullRequestAgentReviewError", (error) =>
+                Effect.fail(
+                  new PullRequestOperationError({
+                    operation: "startReview",
+                    detail: error.message,
+                    cause: error,
+                  }),
+                ),
+              ),
+            ),
+            { "rpc.aggregate": "pull-requests" },
+          ),
         [WS_METHODS.pullRequestsDetail]: (input) =>
           observeRpcEffect(
             WS_METHODS.pullRequestsDetail,
@@ -3916,6 +3964,46 @@ const makeWsRpcLayer = (
             review.getDiffFileContents(input),
             { "rpc.aggregate": "review" },
           ),
+        [WS_METHODS.reviewStartLocal]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.reviewStartLocal,
+            pullRequestAgentReview
+              .startLocal(input)
+              .pipe(
+                Effect.mapError(
+                  (error) => new ReviewStartError({ detail: error.message, cause: error }),
+                ),
+              ),
+            { "rpc.aggregate": "review" },
+          ),
+        [WS_METHODS.reviewStartFixThread]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewStartFixThread, reviewFixThread.start(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewPostFindings]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewPostFindings, reviewFindingsPoster.post(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewUndoFixes]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewUndoFixes, reviewFixThread.undo(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewRateFinding]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewRateFinding, reviewFindingRatings.rate(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewGetLearnedStyle]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewGetLearnedStyle, learnedReviewStyles.status(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewLearnStyle]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewLearnStyle, learnedReviewStyles.learn(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewForgetLearnedStyle]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewForgetLearnedStyle, learnedReviewStyles.forget(input), {
+            "rpc.aggregate": "review",
+          }),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",

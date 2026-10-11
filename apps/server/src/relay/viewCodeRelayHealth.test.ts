@@ -1,3 +1,4 @@
+import type { ViewCodeRelayState, ViewCodeRelayStatus } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import * as NetAddress from "effect/unstable/net/NetAddress";
 
@@ -11,6 +12,7 @@ import {
   RELAY_REASON,
   resolveLocalTarget,
   type RelayHealth,
+  stampTryingSince,
 } from "./viewCodeRelayHealth.ts";
 
 describe("reconnectDelayMs", () => {
@@ -20,6 +22,32 @@ describe("reconnectDelayMs", () => {
     ]);
     expect(reconnectDelayMs(0, 0.999)).toBe(500);
     expect(reconnectDelayMs(5, 0.5)).toBe(22_500);
+  });
+});
+
+describe("stampTryingSince", () => {
+  const origin = "https://relay.example.workers.dev";
+  const at = (status: ViewCodeRelayStatus, tryingSince?: number): ViewCodeRelayState => ({
+    status,
+    configured: true,
+    httpBaseUrl: origin,
+    ...(tryingSince === undefined ? {} : { tryingSince }),
+  });
+
+  it("starts a run of attempts once and keeps it while they keep failing", () => {
+    const first = stampTryingSince(at("off"), at("connecting"), 1_000);
+    expect(first.tryingSince).toBe(1_000);
+    const later = stampTryingSince(first, at("reconnecting"), 61_000);
+    expect(later.tryingSince).toBe(1_000);
+    expect(stampTryingSince(later, at("blocked"), 90_000).tryingSince).toBe(1_000);
+  });
+
+  it("ends the run when connected, off or refused; a drop starts a new one", () => {
+    const trying = at("reconnecting", 1_000);
+    expect(stampTryingSince(trying, at("connected"), 5_000).tryingSince).toBeUndefined();
+    expect(stampTryingSince(trying, at("off"), 5_000).tryingSince).toBeUndefined();
+    expect(stampTryingSince(trying, at("auth-failed"), 5_000).tryingSince).toBeUndefined();
+    expect(stampTryingSince(at("connected"), at("reconnecting"), 9_000).tryingSince).toBe(9_000);
   });
 });
 

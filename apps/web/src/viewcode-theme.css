@@ -381,18 +381,21 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
  * ------------------------------------------------------------------------- */
 
 /* Glass works with every theme: the tint comes from the active theme's own
-   surface, so an upstream theme becomes a tinted glass window too. Values follow
-   Droppy's WindowBackdrop (scrim 0.26 dark / 0.18 light, tint 12 %); the chat
-   sheet adds only a little density so the wallpaper still reads through it.
-   `!important` on the few fills below because upstream themes paint these
-   surfaces with selectors of equal weight, and glass is an explicit choice. */
+   window and sheet colours, so every theme reads as itself on glass and an
+   upstream theme becomes a tinted glass window too. The tint has to carry most
+   of the colour: at Droppy's 12 % every theme washed out to the same grey, so
+   switching themes on desktop looked like it did nothing. The wallpaper still
+   shows through the remainder. `!important` on the few fills below because
+   upstream themes paint these surfaces with selectors of equal weight, and
+   glass is an explicit choice. */
 html[data-window-glass="true"] {
-  --vc-glass-surface: var(--app-theme-surface, var(--background));
+  --vc-glass-window-surface: var(--app-theme-chrome, var(--background));
+  --vc-glass-sheet-surface: var(--app-theme-canvas, var(--background));
   --vc-glass-edge: var(--vc-hairline, color-mix(in srgb, var(--foreground) 12%, transparent));
   --vc-glass-scrim: rgb(255 255 255 / 0.18);
-  --vc-glass-tint: color-mix(in srgb, var(--vc-glass-surface) 12%, transparent);
+  --vc-glass-tint: color-mix(in srgb, var(--vc-glass-window-surface) 62%, transparent);
   --vc-glass-sheet: rgb(255 255 255 / 0.28);
-  --vc-glass-sheet-tint: color-mix(in srgb, var(--vc-glass-surface) 14%, transparent);
+  --vc-glass-sheet-tint: color-mix(in srgb, var(--vc-glass-sheet-surface) 78%, transparent);
   /* Beats the inline colour useTheme and the boot script put on <html>. */
   background-color: transparent !important;
 }
@@ -400,7 +403,6 @@ html[data-window-glass="true"] {
 html.dark[data-window-glass="true"] {
   --vc-glass-scrim: rgb(0 0 0 / 0.26);
   --vc-glass-sheet: rgb(0 0 0 / 0.16);
-  --vc-glass-sheet-tint: color-mix(in srgb, var(--vc-glass-surface) 18%, transparent);
 }
 
 /* Window layers: scrim, then the theme tint. */
@@ -502,7 +504,8 @@ html[data-window-glass="true"] body {
 /*
  * App rail (components/rail/AppRail.tsx): a 3rem strip left of the thread sidebar. The
  * sidebar's fixed container is shifted right of it instead of editing ui/sidebar.tsx, and
- * collapsing slides the sidebar under the rail. Web only: macOS keeps the traffic-light
+ * collapsing slides the sidebar fully off screen, passing under the rail. Parking its edge
+ * behind the rail showed through on window glass, where the rail has no fill. Web only: macOS keeps the traffic-light
  * inset in --workspace-titlebar-content-left. Below THREAD_SIDEBAR_OVERLAY_BREAKPOINT
  * (threadSidebarWidth.ts) the thread sidebar is already an overlay sheet beside the rail.
  */
@@ -514,7 +517,7 @@ html[data-window-glass="true"] body {
     left: var(--app-rail-width) !important;
   }
   [data-app-rail-layout] [data-collapsible="offcanvas"] [data-slot="sidebar-container"] {
-    left: calc(var(--app-rail-width) - var(--sidebar-width)) !important;
+    left: calc(var(--sidebar-width) * -1) !important;
   }
   /* The toggle floats over the rail now, so content starts right after it. macOS keeps the
      traffic-light inset. */
@@ -618,14 +621,12 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   border-right-color: transparent;
 }
 
-/* Composer on window glass: a solid neutral surface, so the wallpaper's colour
-   never tints the input. Mixed from the theme surface, not the glass sheet. */
+/* Composer on window glass: the theme's own opaque sheet colour, so the
+   wallpaper's colour never tints the input and the composer still matches the
+   theme. */
 html[data-window-glass="true"] [data-slot="composer-shell"] {
-  --chat-composer-glass-surface: color-mix(in srgb, var(--foreground) 6%, rgb(24 24 24));
+  --chat-composer-glass-surface: var(--vc-glass-sheet-surface);
   --glass-opacity: 100%;
-}
-html[data-window-glass="true"]:not(.dark) [data-slot="composer-shell"] {
-  --chat-composer-glass-surface: color-mix(in srgb, var(--foreground) 4%, white);
 }
 
 /* Thread tab needing attention: the agent finished or waits on the user and the

@@ -134,10 +134,13 @@ describe("detectSourceControlProviderFromRemoteUrl", () => {
     expect(
       detectSourceControlProviderFromRemoteUrl("https://gitlab.example.com/group/repo.git")?.kind,
     ).toBe("gitlab");
+  });
+
+  it("leaves self-hosted Bitbucket unclaimed, since only Bitbucket Cloud is supported", () => {
     expect(
-      detectSourceControlProviderFromRemoteUrl("https://bitbucket.example.com/workspace/repo.git")
+      detectSourceControlProviderFromRemoteUrl("https://bitbucket.example.com/scm/proj/repo.git")
         ?.kind,
-    ).toBe("bitbucket");
+    ).toBe("unknown");
   });
 
   it("does not match provider names embedded in unrelated DNS labels", () => {

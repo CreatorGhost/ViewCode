@@ -293,6 +293,11 @@ export interface DesktopUpdateState {
   message: string | null;
   errorContext: "check" | "download" | "install" | null;
   canRetry: boolean;
+  /**
+   * True when this build can find updates but not install them (an ad-hoc
+   * signed macOS build). Downloading then opens the release page instead.
+   */
+  manualUpdate?: boolean;
 }
 
 export interface DesktopUpdateReleaseNote {
@@ -324,6 +329,8 @@ export const DesktopUpdateStateSchema = Schema.Struct({
   message: Schema.NullOr(Schema.String),
   errorContext: Schema.NullOr(Schema.Literals(["check", "download", "install"])),
   canRetry: Schema.Boolean,
+  // Optional so states reported by older desktop builds still decode.
+  manualUpdate: Schema.optionalKey(Schema.Boolean),
 });
 
 export interface DesktopUpdateActionResult {

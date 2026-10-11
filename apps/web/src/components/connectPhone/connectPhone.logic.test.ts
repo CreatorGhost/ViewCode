@@ -5,6 +5,9 @@ import {
   CONNECT_PHONE_CODE_TTL_SECONDS,
   describeLanReachability,
   describeQuickConnectStatus,
+  describeSlowSetupStep,
+  formatMinutes,
+  minutesSince,
   resolveSetupChecklist,
   formatPairingExpiry,
   LAN_BLOCKED_MESSAGE,
@@ -366,5 +369,31 @@ describe("resolveSetupChecklist", () => {
       state: "current",
       note: "Creating your free workers.dev address…",
     });
+  });
+});
+
+describe("minutesSince", () => {
+  it("counts whole minutes, and never below zero for another clock running ahead", () => {
+    expect(minutesSince(undefined, 600_000)).toBe(0);
+    expect(minutesSince(0, 59_999)).toBe(0);
+    expect(minutesSince(0, 60_000)).toBe(1);
+    expect(minutesSince(0, 185_000)).toBe(3);
+    expect(minutesSince(200_000, 100_000)).toBe(0);
+  });
+
+  it("labels only a minute or more", () => {
+    expect(formatMinutes(0)).toBeNull();
+    expect(formatMinutes(4)).toBe("4 min");
+  });
+});
+
+describe("describeSlowSetupStep", () => {
+  it("speaks up only for a tool step that has run past the patience window", () => {
+    expect(describeSlowSetupStep("deploying", 1)).toBeNull();
+    expect(describeSlowSetupStep("deploying", 2)).toContain("longer than usual");
+    expect(describeSlowSetupStep("checking-tools", 5)).toContain("longer than usual");
+    // Signing in waits on the person, and verifying explains its own waiting.
+    expect(describeSlowSetupStep("signing-in", 9)).toBeNull();
+    expect(describeSlowSetupStep("verifying", 9)).toBeNull();
   });
 });

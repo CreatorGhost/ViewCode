@@ -1,9 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
@@ -43,6 +45,8 @@ function makeRegistry(input: {
   readonly github?: Partial<GitHubCli.GitHubCli["Service"]>;
   readonly gitlab?: Partial<GitLabCli.GitLabCli["Service"]>;
   readonly resolve?: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"];
+  /** Runs at the start of the default repository detection. */
+  readonly beforeResolve?: Effect.Effect<void, VcsRepositoryDetectionError>;
 }) {
   const driver = {
     listRemotes: () =>
@@ -65,8 +69,8 @@ function makeRegistry(input: {
     resolve:
       input.resolve ??
       (() =>
-        Effect.succeed({
-          kind: "git",
+        Effect.as(input.beforeResolve ?? Effect.void, {
+          kind: "git" as const,
           repository: {
             kind: "git",
             rootPath: "/repo",
@@ -166,6 +170,42 @@ it.effect("retains VCS detection failures with structured cwd context", () =>
     assert.strictEqual(error.detail, "Failed to detect source control provider.");
     assert.strictEqual(error.cause, cause);
     assert.equal(error.message.includes(cause.message), false);
+  }),
+);
+
+it.effect("retries a failed detection after ten seconds and a success after a minute", () =>
+  Effect.gen(function* () {
+    let detections = 0;
+    let failing = true;
+    const cause = new VcsRepositoryDetectionError({
+      operation: "resolve",
+      cwd: "/repo",
+      detail: "raw VCS detection failure",
+    });
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@github.com:pingdotgg/t3code.git" }],
+      beforeResolve: Effect.suspend(() => {
+        detections += 1;
+        return failing ? Effect.fail(cause) : Effect.void;
+      }),
+    });
+
+    yield* Effect.flip(registry.resolve({ cwd: "/repo" }));
+    yield* TestClock.adjust(Duration.seconds(9));
+    yield* Effect.flip(registry.resolve({ cwd: "/repo" }));
+    assert.strictEqual(detections, 1);
+
+    failing = false;
+    yield* TestClock.adjust(Duration.seconds(1));
+    assert.strictEqual((yield* registry.resolve({ cwd: "/repo" })).kind, "github");
+    assert.strictEqual(detections, 2);
+
+    yield* TestClock.adjust(Duration.seconds(59));
+    yield* registry.resolve({ cwd: "/repo" });
+    assert.strictEqual(detections, 2);
+    yield* TestClock.adjust(Duration.seconds(1));
+    yield* registry.resolve({ cwd: "/repo" });
+    assert.strictEqual(detections, 3);
   }),
 );
 
@@ -301,6 +341,47 @@ it.effect("routes GitHub Enterprise remotes that gh is signed in to", () =>
   }),
 );
 
+it.effect("claims GitHub Enterprise remotes in every repository with one gh probe", () =>
+  Effect.gen(function* () {
+    let ghSpawns = 0;
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@git.corp.example:team/app.git" }],
+      process: {
+        run: (input) =>
+          input.command === "gh"
+            ? Effect.sync(() => {
+                ghSpawns += 1;
+              }).pipe(
+                Effect.as(
+                  processOutput(
+                    JSON.stringify({
+                      hosts: {
+                        "git.corp.example": [
+                          { state: "success", active: true, host: "git.corp.example", login: "u" },
+                        ],
+                      },
+                    }),
+                  ),
+                ),
+              )
+            : Effect.succeed(processOutput("")),
+      },
+    });
+
+    const handles = yield* Effect.forEach(
+      ["/repo/a", "/repo/b", "/repo/c"],
+      (cwd) => registry.resolveHandle({ cwd }),
+      { concurrency: "unbounded" },
+    );
+
+    assert.deepStrictEqual(
+      handles.map((handle) => handle.provider.kind),
+      ["github", "github", "github"],
+    );
+    assert.strictEqual(ghSpawns, 1);
+  }),
+);
+
 it.effect("names the host no provider could claim", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry({
@@ -317,6 +398,50 @@ it.effect("names the host no provider could claim", () =>
       error.detail,
       "Could not identify the hosting provider for git.corp.example. Sign in to it with gh, glab or tea.",
     );
+  }),
+);
+
+it.effect("says an Azure DevOps Server remote cannot be reached", () =>
+  Effect.gen(function* () {
+    for (const url of [
+      "https://tfs.corp.example/tfs/DefaultCollection/Project/_git/repo",
+      "ssh://tfs.corp.example:22/DefaultCollection/Project/_git/repo",
+    ]) {
+      const registry = yield* makeRegistry({ remotes: [{ name: "origin", url }] });
+
+      const provider = yield* registry.resolve({ cwd: "/repo" });
+      const error = yield* provider
+        .listChangeRequests({ cwd: "/repo", headSelector: "feature", state: "open" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(provider.kind, "unknown");
+      assert.strictEqual(
+        error.detail,
+        "tfs.corp.example looks like Azure DevOps Server, which the Azure CLI does not support. Only Azure DevOps Services (dev.azure.com) can be used.",
+      );
+    }
+  }),
+);
+
+it.effect("says a Bitbucket Data Center remote cannot be reached", () =>
+  Effect.gen(function* () {
+    for (const url of [
+      "https://git.corp.example/scm/PROJ/repo.git",
+      "https://git.corp.example/bitbucket/scm/PROJ/repo.git",
+    ]) {
+      const registry = yield* makeRegistry({ remotes: [{ name: "origin", url }] });
+
+      const provider = yield* registry.resolve({ cwd: "/repo" });
+      const error = yield* provider
+        .listChangeRequests({ cwd: "/repo", headSelector: "feature", state: "open" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(provider.kind, "unknown");
+      assert.strictEqual(
+        error.detail,
+        "git.corp.example looks like Bitbucket Data Center, which is not supported. Only Bitbucket Cloud (bitbucket.org) can be used.",
+      );
+    }
   }),
 );
 

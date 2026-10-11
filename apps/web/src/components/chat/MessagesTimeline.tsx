@@ -1,4 +1,5 @@
-import { ArrowUpIcon, ClockIcon } from "lucide-react";
+import { REVIEW_VERDICT_LABELS } from "@t3tools/shared/reviewFindings";
+import { ArrowUpIcon, ClockIcon, ListChecksIcon } from "lucide-react";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
@@ -136,6 +137,7 @@ import type {
   ComposerContextRecord,
   KnownComposerContextRecord,
 } from "@t3tools/contracts";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import type { QueuedComposerMessage } from "../../queuedMessageStore";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
@@ -154,6 +156,7 @@ import {
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ShellCommandBlock } from "./ShellCommandBlock";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
+import { REVIEW_VERDICT_BADGES } from "./ReviewFindingsView";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
@@ -168,7 +171,7 @@ import {
   rememberTimelinePosition,
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
-import { MessageCopyButton } from "./MessageCopyButton";
+import { MessageCopyButton, ReplyCopyButton } from "./MessageCopyButton";
 import { ReadAloudButton } from "./ReadAloudButton";
 import { readAloudMessageKey } from "~/lib/readAloud.logic";
 import { useReadAloudStore } from "~/lib/readAloudPlayer";
@@ -178,7 +181,6 @@ import { ForkSourceDivider } from "../agents/ForkSourceDivider";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { inferEntryKindFromPath } from "../../pierre-icons";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
-import { useAskInNewChat } from "./useAskInNewChat";
 import { useAskInSideChat } from "./useAskInSideChat";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import {
@@ -298,6 +300,7 @@ interface TimelineRowSharedState {
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
+  undoReviewFixes: UndoReviewFixesAction | null;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
   onRunShellCommand: ((command: string) => void) | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -450,6 +453,8 @@ interface MessagesTimelineProps {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   supportsConversationRollback: boolean;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
+  /** On a session started to fix review findings: undoing them, offered on the fix's message. */
+  undoReviewFixes?: UndoReviewFixesAction | null;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onRunShellCommand?: (command: string) => void;
   isRevertingCheckpoint: boolean;
@@ -522,6 +527,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenTurnDiff,
   supportsConversationRollback,
   onRevertToTurnCount,
+  undoReviewFixes = null,
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
   onRunShellCommand,
   isRevertingCheckpoint,
@@ -610,7 +616,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     });
   }, []);
   const citationThreadRef = useMemo(() => parseScopedThreadKey(routeThreadKey), [routeThreadKey]);
-  const askInNewChat = useAskInNewChat(citationThreadRef);
   const askInSideChat = useAskInSideChat(citationThreadRef);
   const openPullRequest = useOpenPrLink(citationThreadRef ?? undefined);
   const expandCitedTurn = useCallback((turnId: TurnId) => {
@@ -1184,6 +1189,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       activeThreadEnvironmentId,
       onRevertToTurnCount,
+      undoReviewFixes,
       onUseArtifactTemplate,
       onRunShellCommand,
       onImageExpand,
@@ -1221,6 +1227,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       activeThreadEnvironmentId,
       onRevertToTurnCount,
+      undoReviewFixes,
       onUseArtifactTemplate,
       onRunShellCommand,
       onImageExpand,
@@ -1318,7 +1325,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               viewport={timelineViewportElement}
               threadRef={citationThreadRef}
               onCite={onCiteAssistantText}
-              onAskInNewChat={askInNewChat}
               {...(askInSideChat ? { onAskInSideChat: askInSideChat } : {})}
             />
           ) : null}
@@ -1738,7 +1744,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "activity-group" ||
                   row.kind === "thinking" ||
                   row.kind === "worktree-setup" ||
-                  row.kind === "html-render"
+                  row.kind === "html-render" ||
+                  row.kind === "review-findings"
                 ? "pb-(--chat-row-gap)"
                 : "pb-(--chat-turn-gap)",
         (row.kind === "message" && row.message.role === "assistant") ||
@@ -1780,6 +1787,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
+      {row.kind === "review-findings" ? <ReviewFindingsTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "thinking" ? <ThinkingTimelineRow /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
@@ -2342,6 +2350,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             </TooltipPopup>
           </Tooltip>
           <div className="flex items-center gap-0.5">
+            {typeof revertTurnCount === "number" &&
+              revertTurnCount === ctx.undoReviewFixes?.turnCount && (
+                <UndoReviewFixesButton action={ctx.undoReviewFixes} />
+              )}
             {typeof revertTurnCount === "number" && (
               <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
             )}
@@ -2414,6 +2426,28 @@ export function resolvePreviewAnnotationImage(input: {
     ) ??
     input.previewImages[input.annotationRecordIds.indexOf(input.record.contextId)] ??
     null
+  );
+}
+
+/** Undoing what a review fix session changed, on the message that started the fix. */
+export interface UndoReviewFixesAction {
+  /** The checkpoint the undo returns to, which the fix's own message reverts to. */
+  readonly turnCount: number;
+  readonly onUndo: () => void;
+}
+
+function UndoReviewFixesButton({ action }: { action: UndoReviewFixesAction }) {
+  const activity = use(TimelineRowActivityCtx);
+  return (
+    <Button
+      type="button"
+      size="xs"
+      variant="ghost"
+      disabled={activity.isRevertingCheckpoint || activity.isWorking}
+      onClick={action.onUndo}
+    >
+      Undo review fixes
+    </Button>
   );
 }
 
@@ -2601,7 +2635,7 @@ function AssistantMessageMeta({
         "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
         alwaysVisible || readingAloud
           ? "opacity-100"
-          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
+          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100 has-[[data-popup-open]]:opacity-100",
         className,
       )}
     >
@@ -2649,7 +2683,16 @@ function AssistantReplyActions({
 
   return (
     <>
-      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <ReplyCopyButton
+        markdown={assistantCopyState.text ?? ""}
+        target={() => {
+          const viewport = ctx.listRef.current?.getScrollableNode();
+          if (!(viewport instanceof HTMLElement)) return null;
+          return viewport.querySelector(
+            `[data-assistant-citation-source="${CSS.escape(message.id)}"]`,
+          );
+        }}
+      />
       <ReadAloudButton
         messageKey={readAloudMessageKey(ctx.routeThreadKey, message.id)}
         markdown={assistantCopyState.text ?? ""}
@@ -2690,6 +2733,39 @@ function HtmlRenderTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "htm
         htmlRender={row.htmlRender}
         onOpen={ctx.onFileOpen}
       />
+    </div>
+  );
+}
+
+function ReviewFindingsTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "review-findings" }>;
+}) {
+  const { threadRef } = use(TimelineRowCtx);
+  const { verdict, findings, needsChecking } = row.reviewFindings;
+  const issues = findings.length + needsChecking.length;
+  // The findings themselves live in the Review panel; the transcript only says they arrived.
+  return (
+    <div className="mx-auto flex w-full max-w-chat min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+      <ListChecksIcon aria-hidden className="size-3.5 shrink-0" />
+      <span className="font-medium text-foreground">Review findings</span>
+      <Badge size="sm" variant={REVIEW_VERDICT_BADGES[verdict]}>
+        {REVIEW_VERDICT_LABELS[verdict]}
+      </Badge>
+      <span className="truncate">
+        {issues} {issues === 1 ? "issue" : "issues"}
+      </span>
+      {threadRef ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          onClick={() => useRightPanelStore.getState().open(threadRef, "review")}
+        >
+          Open in panel
+        </Button>
+      ) : null}
     </div>
   );
 }

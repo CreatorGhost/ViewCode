@@ -5,6 +5,7 @@ export const THREAD_LIST_V2_MONO_FONT = "Menlo";
 export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-5 py-2.5";
 export const THREAD_LIST_V2_ROW_DIVIDERS = true;
 export const THREAD_LIST_V2_PROVIDER_LEADS_TITLE = false;
+export const THREAD_LIST_V2_META_ICONS = false;
 
 export const selectedThreadRowColors = {
   foregroundClassName: "text-thread-selected-foreground",

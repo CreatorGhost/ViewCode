@@ -114,6 +114,31 @@ export function ChatAppearanceSettings() {
           />
         }
       />
+      <SettingsRow
+        {...searchableSetting("header-actions")}
+        description="Show project actions and the Commit, Push and PR buttons in the chat's top bar."
+        resetAction={
+          settings.headerActionsVisible !== DEFAULT_CLIENT_SETTINGS.headerActionsVisible ? (
+            <SettingResetButton
+              label="actions and Git in the top bar"
+              onClick={() =>
+                updateSettings({
+                  headerActionsVisible: DEFAULT_CLIENT_SETTINGS.headerActionsVisible,
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          <Switch
+            checked={settings.headerActionsVisible}
+            onCheckedChange={(checked) =>
+              updateSettings({ headerActionsVisible: Boolean(checked) })
+            }
+            aria-label="Actions and Git in the top bar"
+          />
+        }
+      />
     </SettingsSection>
   );
 }

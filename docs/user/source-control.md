@@ -20,6 +20,17 @@ gh auth login
 For GitHub Enterprise Server, also run `gh auth login --hostname <your-server>`. T3 Code uses that
 sign-in to recognize servers whose host name does not contain `github`.
 
+If you work for several organizations with separate GitHub accounts, sign in to each with
+`gh auth login`. T3 Code starts with the active account (`gh auth status`) and, for a repository
+that account can't see, uses whichever of your other signed-in accounts can, without switching the
+active account in your terminals. Pull requests show which account each project is read with. A
+newly granted access or a sign-out is picked up within about ten minutes.
+
+`git push` and clone don't follow this: they use Git's own credentials, and the helper
+`gh auth setup-git` installs always pushes as the active account. Give each organization's remotes a
+credential its account can push with, such as an SSH key per account chosen by a host alias
+(`git@github-acme:acme/app.git` with a `Host github-acme` entry in `~/.ssh/config`).
+
 ### Forgejo and Gitea
 
 Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or
@@ -53,6 +64,9 @@ to recognize servers whose host name does not contain `gitlab`.
 
 ### Bitbucket
 
+Only Bitbucket Cloud (`bitbucket.org`) is supported. Bitbucket Data Center and Bitbucket Server
+use a different API, so pull requests on those servers are not available.
+
 Open **Settings → Source Control**, expand **Bitbucket**, and choose how to sign in:
 
 - **Access token**: a token created for one repository, project, or workspace. It can only reach
@@ -84,6 +98,10 @@ Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), add the DevOp
 az extension add --name azure-devops
 az login
 ```
+
+Only Azure DevOps Services (`dev.azure.com` and `*.visualstudio.com`) is supported. The Azure CLI
+does not work with Azure DevOps Server (on-premises, formerly TFS), so pull requests on those
+servers are not available.
 
 ## Start, clone, or publish a project
 
@@ -140,6 +158,77 @@ PR creation from Git actions continue to use the project's environment.
 
 For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
 declined pull request.
+
+### Review with an agent
+
+Choose **Review with agent...** in a pull request's actions menu to have an agent review it. Pick
+**Quick review** (one pass), **Deep review** (several agents that check each other's findings), or
+**Security audit**, then the model and, optionally, what to focus on. Deep reviews and security
+audits run several agents and use more of your plan. The review runs in a new thread in the
+project, linked to the pull request, so you can keep asking the agent about it (**Open chat**); you
+stay on the pull request, whose **Review** tab says the review is under way and shows its findings
+when it is done. With no review yet, you can start one from that tab too. It runs with your
+default permissions for new threads, reads the change without touching your checkout, and posts
+nothing to the host unless you ask. On Android the review button is in the pull request screen's
+header and uses your default model; the screen stays open, says the review is under way, and links
+to its findings when it is done. Agents can start a review with the `review_pull_request` tool,
+and review a thread's own uncommitted changes (or its branch, when there are none) with
+`review_local_changes`; that review runs on the thread's branch and worktree and changes nothing.
+
+The findings also show under **Review** at the top of the chat (on web and desktop), in the review
+thread or in any thread linked to the same pull request. Both show the change with each finding
+under the lines it is about; findings without a place in the diff are listed under **General**, and
+the arrows step from one finding to the next. **Fix with agent** (or **Fix all**) writes a request
+to verify and fix the findings into this thread's message box, with their lines attached, for you to
+edit and send. On the pull request's **Review** tab and in the review thread itself it instead sends
+them to a session already working on the pull request or to a new session on its branch in a
+worktree of its own. **Dismiss** hides a finding until you show dismissed ones again. To review a
+thread's pull request from the panel, pick the mode, model and focus in its empty state, or under
+**Find issues** for a new review; the thread stays open and the findings arrive when it is done.
+In a thread with no pull request, the same form reviews the thread's own uncommitted changes (or
+its branch, when everything is committed), as does **Review my changes** in the command palette.
+
+With findings showing, **Find issues** can re-review them: **Only what changed since this review**
+reads just what was pushed since and reports how many earlier findings were fixed and how many are
+still open. A review of local changes reads the whole change again but still reports them. Thumbs
+up and down rate a finding (click again to take the rating back); ratings follow you to every
+device, and later reviews of the project lean away from the kinds of findings you turned down.
+
+A new session started to fix a review's findings can be taken back: **Undo review fixes** on its
+first message, or in the command palette, reverts the session and its file changes to before the
+fixes after you confirm. That needs a worktree of the session's own, which a pull request fix has;
+a fix of local changes shares its checkout, so there the undo is refused and you can use **Edit
+from here** to rewind the conversation and keep the files.
+
+In the mobile app, a review thread shows a **Review findings** row where its findings arrive. Tap
+it for the verdict, merge confidence and review effort, and the findings grouped by severity; tap a
+finding for its detail and suggested fix. The phone shows no diff, so each finding names its file
+and line instead. **Fix with agent** (or **Fix all**) sends the findings to a session already
+working on the change or to a new session, as on web; opened from a thread's pull request, it
+writes the request into that thread's message box instead. For somebody else's pull request,
+**Post comment**, **Post all** and **Post selected** (tick the findings first) open a sheet where
+you choose what to submit the review as and write its overall comment before posting. **Dismiss**
+hides a finding until you show dismissed ones, and the thumbs tell later reviews of the project
+which findings helped.
+
+For a review of somebody else's pull request the findings are review comments instead: **Post
+comment** posts one, and **Post all** or **Post selected** posts several as one review, each time
+after you choose what to submit it as and write its overall comment. Posted findings link to the
+pull request. On GitHub they are posted on the commit the agent reviewed, so if the pull request
+changed since, GitHub may show them as outdated; posting warns you when it has. You can also ask
+in the chat, for example "post the blockers": the agent posts only when your own latest message
+asks, never on its own or for another agent, and as a plain comment unless you say to approve or
+request changes. To have the agent write them the way you do, describe your style under **Your
+review style** in the GitHub entry of **Settings → Source control** (one per account; with several signed in, pick the account above it first).
+
+On GitHub you can also let it learn from your own reviews: **Learn from my reviews** in the same
+place reads up to 40 of your recent review comments and review texts from the past year, as that
+account, and the agent imitates how you write them (tone, length, how you mark nits and blockers,
+whether you ask or tell), not what they say. Empty, approval-only and bot-like comments are
+skipped, and only repositories the account can see count. The card shows how many it learned from
+and when, with a few examples; **Learn again** refreshes them and **Forget** deletes them. They stay
+on the server you are connected to and reach only the reviewing agent. Your written style wins
+where the two disagree. Other hosts do not offer this.
 
 ### Mark files as viewed
 

@@ -469,6 +469,110 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   read), its host fingerprint gating, paging long review threads, and edited-comment wakes. A
   pull request with nothing in flight and an unmoved sync snapshot is re-read every 10 minutes.
 
+### Agent reviews (`pullRequests.startReview`, `review_pull_request`)
+
+- One service method, `PullRequestAgentReview.start`, behind the WebSocket RPC, the MCP tool and
+  both clients: it dispatches `thread.create`, `thread.pull-request.link` and `thread.turn.start`
+  itself, so the review thread is an ordinary linked thread on the user's default permissions for
+  new threads. Clients pick the model (they own the "Automatic" default); the MCP tool falls back
+  to the calling thread's model. Gated by the `pullRequestAgentReview` capability.
+- A review of local changes (`PullRequestAgentReview.startLocal`, `review.startLocal`,
+  `review_local_changes`, capability `localAgentReview`) is the same launch without a link: the
+  review thread gets the source thread's branch and worktree (the project's workspace without
+  one), because the reviewer reads the checkout rather than a host, and is only told not to change
+  it. What to diff (uncommitted changes, else the branch against its base) is decided by the
+  reviewer from the checkout, not by the server at start.
+- A re-review (`incremental` with `basedOn`, capability `incrementalAgentReview`) names the
+  earlier findings by thread and activity, never by commit: the server reads that activity, refuses
+  findings of another target, writes them to `<stateDir>/review-previous/<activityId>.json` for
+  the reviewer and takes the earlier `headSha` from them, so the range `previous...current` is the
+  server's own record. Without both commits it is a full review that still checks the earlier
+  findings. The start records `incremental` and `basedOn` with the commit, and the findings carry
+  them plus the reviewer's `previous` counts; unfixed earlier findings are resubmitted by the
+  reviewer, so the latest activity stays the whole current set.
+- The method lives in a playbook per mode (`apps/server/src/review/ReviewPlaybook.ts`); the first
+  message is short and names the mode, the pull request and the playbook's path. The text ships in
+  the bundle and is written to `<stateDir>/review-playbooks/` on use, not read from a file beside
+  the code: the single executable has no sibling files, and the desktop bundle can sit inside an
+  asar the agent's shell cannot read.
+- Findings arrive twice on purpose: the written report for the reader, and `submit_review_findings`
+  for the app, recorded as a `viewcode.review.findings` activity. Activities are append-only, so a
+  re-review replaces the set only by coming later: clients render the latest one and skip the rest.
+- Whether findings are fixes or review comments (`mode` on that payload; absent reads as fix) is
+  decided by the server when they are recorded: comment when the pull request's author is not the
+  account it is read as (`PullRequestAgentReview.authorship`), fix when either is unknown, since
+  fixing posts nothing. A mode chosen at review start reaches the tool only as a line in the first
+  message; nothing else carries it from start to record. When a review starts as a comment review,
+  that message also asks for each `detail` written as the comment itself, in the reading account's
+  style from server settings (`pullRequestReviewStyles`, keyed by `reviewStyleKey`: host and login),
+  since the reviewer runs on the server whichever client started it.
+- A learned style (`LearnedReviewStyles`, GitHub only) is the account's own past review writing,
+  not a summary: the server makes no model call, so the samples are stored as they are in
+  `<stateDir>/review-style/<host>/<login>.json` and the comment-review message names the file for
+  the reviewer to read and imitate, which keeps the first message short. They are read as that
+  login with `GitHubCli.executeAsAccount` (another account's token only in the child's
+  environment, never `gh auth switch`), and refused when GitHub answers as someone else, which a
+  `GH_TOKEN` in the server's environment would cause.
+- Findings live in the web Review panel (a right-panel surface) and the pull request detail's Review
+  tab, both one view (`ReviewFindingsView`), not in the transcript. Mobile has a findings screen
+  (`features/review/findings/`) opened from the transcript's findings row and the Android pull
+  request screen: a list by severity with no diff, since a phone has no room to read findings
+  under their lines. Which set a thread or pull request shows, and the read of linked threads, are
+  client-runtime's (`reviewFindings.ts`, `state/reviewFindings.ts`) so both clients agree. Thread
+  shells carry no activities, so a thread without findings of its own, or the pull request detail,
+  finds a linked review by subscribing to the activities of up to five threads linked to the same
+  pull request, and only while that panel or detail is open. A review still under way is
+  recognised by the title the server gives its thread (`pullRequestReviewTitle` and
+  `localReviewTitle`, read back by `reviewThreadMode`); change one and change the other. A local
+  review has no link, so a thread without a pull request finds one only by that title on the same
+  project, branch and worktree (`localReviewSourceCandidates`): a renamed local review drops out of
+  the panel of the thread whose changes it read, though its own panel still shows it. Starting a
+  review from the pull request detail (or the Android pull request screen) stays there. From a
+  thread working on the pull request, Fix with agent writes an editable request into that thread's
+  composer; it never sends.
+- Fix from the review thread itself goes to another session: an existing one through the client's
+  own queue for that thread (web's composer queue, in memory, sends now, at the next tool boundary,
+  or at turn end for providers that cannot steer; mobile's thread outbox), because the server has
+  no queue for user turns and inventing one would fork that behaviour. Only a new session is a
+  server method (`ReviewFixThread.start`, `review.startFixThread`), which checks the pull request
+  out into a worktree of its own. Which findings were sent where or dismissed is client memory
+  only.
+- Undoing fixes (`ReviewFixThread.undo`, `review.undoFixes`, capability `reviewFixUndo`) is the
+  chat's own `thread.checkpoint.revert`, to the turn count a hidden `viewcode.review.fix-started`
+  activity recorded before the session's first turn (always 0: only new sessions get one). It is
+  not recognised from the message text, and a fix sent through the composer to an existing session
+  cannot be undone this way, because a turn start has no field to mark it. The revert takes back
+  every turn since, and restores files only where the reactor allows it: a pull request fix's own
+  worktree, not a local fix that shares the review's checkout, where it fails with the chat's
+  usual reason.
+- Ratings are not (`ReviewFindingRatings.rate`, `review.rateFinding`, capability
+  `reviewFindingRatings`): each is a hidden `viewcode.review.rating` activity on the review thread,
+  outside any turn, carrying the finding's title, severity, path and rule and the project, so every
+  client shows the same and a review start reads the project's last 30 rated findings with one
+  `listActivitiesByKind`, without reading findings. The start writes them to
+  `<stateDir>/review-ratings/<projectId>.json` and the first message names the file, like a learned
+  style; the playbook says what to do with them.
+- Posting findings (`ReviewFindingsPoster.post`, `review.postFindings`) is one
+  `PullRequestService.submitReview`, the pull request page's own path: a host refuses the whole
+  review over one comment on a line its diff does not show, so the server reads the diff first and
+  puts such findings in the review's text. Unlike a fix, a post is recorded on the review thread
+  (`viewcode.review.posted`), because posting twice is visible to other people.
+- A pull request review is pinned to a commit. The start reads the head from the detail, asks the
+  reviewer to review exactly that commit, and records it in a hidden `viewcode.review.started`
+  activity (outside any turn, `timelineBypass`), which `submit_review_findings` copies into the
+  findings as `headSha`. Reading the head when findings are recorded instead would name commits
+  pushed while the reviewer worked, which it never read. A post sends it as GitHub's `commit_id`
+  (other hosts ignore it), so comments stay on the lines that were read and the host shows them
+  outdated where those changed. Only the current diff can be read to place comments, so when the
+  head moved and the host refuses a line, the review is resent with every finding in its text.
+- Nothing reaches the host without the user: a click, or `post_review_findings` in a turn the
+  user's own message started. `TurnOrigin` reads that from the event store's `actor_kind` of the
+  turn's first `thread.message-sent` (`server:` command ids are the server's), so agent messages,
+  child agents, wakes, usage resume and server-started reviews are refused without a new field;
+  a message steered into a running turn does not count, since the turn keeps its first message.
+  No agent tool merges or approves on its own; an agent's own `gh` calls are only covered by the
+  playbook's rule.
+
 ### Side chats
 
 - A side chat is an ordinary thread with `parentThreadId` plus the optional
@@ -564,7 +668,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   (no phone sign-in). Modes come from `resolveConnectModes`: Same Wi-Fi and Quick
   connect always (Quick connect and Tailscale sit under one Anywhere tab, Quick
   connect first); Tailscale only when the desktop finds the `tailscale` CLI on disk
-  (a PATH search, never a spawn; `DesktopTailscalePhoneAccess.ts`), whose "Turn on"
+  (PATH, then fixed install paths such as the Mac app's bundled CLI, which never
+  joins PATH; never a spawn; `knownTailscaleExecutablePaths` in `packages/tailscale`
+  is shared with the spawns, which fall back the same way), whose "Turn on"
   reuses `setTailscaleServeEnabled`, and whose launch-time opt-in
   (`tailscaleAutoServe`) defaults off because managed laptops' security software
   kills tailscaled. The dialog does not offer upstream's hosted T3 Connect tunnel:
@@ -616,7 +722,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   transcoding, so a forwarded compressed body is mislabelled (`relayForwarder.ts`).
 - A new relay address can be reset for up to an hour while a firewall categorises it,
   then work unchanged, so a reset is never terminal for the connector: it keeps retrying
-  and only the wording escalates (`viewCodeRelayHealth.ts`).
+  and only the wording escalates (`viewCodeRelayHealth.ts`). Each dial has its own
+  deadline: undici waits minutes on an upgrade nobody answers, and the QR shows only
+  while connected. Nothing in the dialog spins without end: setup steps and the
+  connection carry their start time, every wrangler run is bounded, and past a couple
+  of minutes the dialog explains instead of spinning.
 - ViewCode's desktop identity must never match T3 Code's: profile folder
   `viewcode`, app id `dev.viewcode.app`, WM class `viewcode`. Sharing T3's
   profile shared its IndexedDB lock and cached projects, which stalls first run

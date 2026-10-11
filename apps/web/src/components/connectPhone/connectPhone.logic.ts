@@ -254,6 +254,42 @@ export function resolveSetupChecklist(
   });
 }
 
+/** Whole minutes from `sinceMs` to `nowMs`: 0 when unknown, or ahead of this clock. */
+export function minutesSince(sinceMs: number | undefined, nowMs: number): number {
+  if (sinceMs === undefined) return 0;
+  return Math.max(0, Math.floor((nowMs - sinceMs) / 60_000));
+}
+
+/** The elapsed-time label, "3 min"; null under a minute, where a count says nothing. */
+export function formatMinutes(minutes: number): string | null {
+  return minutes < 1 ? null : `${minutes} min`;
+}
+
+/** Steps that run Cloudflare's tool, which the server stops if it never finishes. */
+const TOOL_STEPS: ReadonlySet<ViewCodeRelaySetupStep> = new Set([
+  "checking-tools",
+  "deploying",
+  "storing-secret",
+]);
+export const SETUP_STEP_PATIENCE_MINUTES = 2;
+
+/** Said under a tool step that has run unusually long; null while it has not. */
+export function describeSlowSetupStep(
+  step: ViewCodeRelaySetupStep | undefined,
+  minutes: number,
+): string | null {
+  if (step === undefined || !TOOL_STEPS.has(step)) return null;
+  if (minutes < SETUP_STEP_PATIENCE_MINUTES) return null;
+  return "Taking longer than usual; the first time can take a few minutes. If it does not finish, setup stops and you can try again.";
+}
+
+/**
+ * How long the dialog shows "Connecting to your relay…" with a spinner. After
+ * that it explains instead: the connector keeps trying on its own, but a
+ * spinner that never ends tells the person nothing.
+ */
+export const RELAY_CONNECT_PATIENCE_MINUTES = 2;
+
 export const CLOUDFLARE_SIGN_UP_URL = "https://dash.cloudflare.com/sign-up";
 /** Workers & Pages of whichever account the person picks, where the workers.dev subdomain is chosen. */
 export const CLOUDFLARE_WORKERS_URL = "https://dash.cloudflare.com/?to=/:account/workers-and-pages";

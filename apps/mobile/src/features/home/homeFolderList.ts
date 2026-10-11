@@ -217,13 +217,18 @@ export interface HomeFolderEdge {
   readonly last: boolean;
 }
 
+/** A draft or queued task; inside a folder it draws its slice of the card. */
+export type HomeFolderPendingItem = ThreadListV2PendingListItem & {
+  readonly folderEdge?: HomeFolderEdge | null;
+};
+
 export type HomeFolderListItem =
   | HomeFolderHeaderItem
   | HomeFolderLeadItem
   | HomeFolderAgentsToggleItem
   | HomeFolderChildItem
   | HomeFolderSettledItem
-  | ThreadListV2PendingListItem
+  | HomeFolderPendingItem
   | ThreadListV2SnoozedShelfListItem;
 
 export interface HomeFolderList {
@@ -671,7 +676,7 @@ export function buildHomeFolderList(input: {
     items: items.map((rawItem, index) => {
       const folderEdge = folderEdgeAt.get(index) ?? null;
       const item =
-        rawItem.type === "v2-pending" || rawItem.type === "v2-snoozed-shelf" || folderEdge === null
+        rawItem.type === "v2-snoozed-shelf" || folderEdge === null
           ? rawItem
           : { ...rawItem, folderEdge };
       if (item.type !== "folder-lead" && item.type !== "v2-pending") return item;
@@ -704,9 +709,7 @@ export function homeFolderListItemsAreEqual(
   item: HomeFolderListItem,
 ): boolean {
   if (
-    item.type !== "v2-pending" &&
     item.type !== "v2-snoozed-shelf" &&
-    previous.type !== "v2-pending" &&
     previous.type !== "v2-snoozed-shelf" &&
     !folderEdgesAreEqual(previous.folderEdge, item.folderEdge)
   ) {

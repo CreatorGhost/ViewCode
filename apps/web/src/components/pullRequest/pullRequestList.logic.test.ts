@@ -6,8 +6,10 @@ import {
   findScopedProject,
   mergePullRequestLists,
   pullRequestEntryKey,
+  pullRequestEntryViewer,
   pullRequestEnvironmentSetKey,
   groupPullRequestsByInvolvement,
+  groupPullRequestsByProject,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
   parsePullRequestQuery,
@@ -39,6 +41,7 @@ import {
 } from "./pullRequestList.logic";
 import {
   pullRequestListPreferences,
+  pullRequestListPreferencesForFolder,
   readPullRequestListPreferences,
   writePullRequestListPreferences,
 } from "./pullRequestListPreferences";
@@ -393,6 +396,71 @@ describe("pull request grouping", () => {
       VIEWERS,
     );
     expect(groups.map((group) => group.key)).toEqual(["authored"]);
+  });
+});
+
+describe("grouping by project folder", () => {
+  const labels = new Map([
+    ["env-1:project-1", "t3code"],
+    ["env-1:project-2", "marketing"],
+    ["env-2:project-1", "t3code on the laptop"],
+  ]);
+
+  it("orders folders by their newest row and keeps each folder's rows in the order given", () => {
+    const groups = groupPullRequestsByProject(
+      [
+        entry({
+          number: 1,
+          projectId: "project-1" as ProjectId,
+          updatedAt: "2026-08-01T00:00:00Z",
+        }),
+        entry({
+          number: 2,
+          projectId: "project-2" as ProjectId,
+          updatedAt: "2026-08-02T00:00:00Z",
+        }),
+        entry({
+          number: 3,
+          projectId: "project-1" as ProjectId,
+          updatedAt: "2026-08-03T00:00:00Z",
+        }),
+      ],
+      labels,
+    );
+    expect(
+      groups.map((group) => [group.label, group.dimension, group.entries.map((row) => row.number)]),
+    ).toEqual([
+      ["t3code", "project", [1, 3]],
+      ["marketing", "project", [2]],
+    ]);
+  });
+
+  it("keeps one project id on two servers apart", () => {
+    const groups = groupPullRequestsByProject(
+      [
+        entry({ number: 1, environmentId: "env-1" as EnvironmentId }),
+        entry({ number: 2, environmentId: "env-2" as EnvironmentId }),
+      ],
+      labels,
+    );
+    expect(groups.map((group) => [group.key, group.label])).toEqual([
+      ["env-1:project-1", "t3code"],
+      ["env-2:project-1", "t3code on the laptop"],
+    ]);
+  });
+
+  it("names a folder the labels do not know by its repository", () => {
+    const groups = groupPullRequestsByProject(
+      [entry({ number: 1, projectId: "project-9" as ProjectId, repository: "acme/widgets" })],
+      labels,
+    );
+    expect(groups.map((group) => group.label)).toEqual(["acme/widgets"]);
+  });
+
+  it("gives a single-project list a single group, so no header is needed", () => {
+    expect(
+      groupPullRequestsByProject([entry({ number: 1 }), entry({ number: 2 })], labels),
+    ).toHaveLength(1);
   });
 });
 
@@ -979,6 +1047,25 @@ describe("blocked-on-me ranking", () => {
       groups,
     );
   });
+
+  it("ranks project groups by the involvement filter the reader chose", () => {
+    const rows = [
+      entry({ number: 1, updatedAt: "2026-08-02T00:00:00Z" }),
+      entry({ number: 2, checksState: "failing" }),
+      entry({ number: 3, state: "merged", updatedAt: "2026-08-03T00:00:00Z" }),
+    ];
+    // A project key can never collide with an involvement key, but the dimension decides anyway.
+    const groups = [
+      { key: "others", label: "others", entries: rows, dimension: "project" as const },
+    ];
+    const order = (involvement: "all" | "authored" | "reviewing") =>
+      sortPullRequestGroups(groups, "blocked", "", undefined, involvement)[0]!.entries.map(
+        (row) => row.number,
+      );
+    expect(order("authored")).toEqual([2, 1, 3]);
+    expect(order("reviewing")).toEqual([1, 2, 3]);
+    expect(order("all")).toEqual([1, 2, 3]);
+  });
 });
 
 describe("line counts that arrive after the rows", () => {
@@ -1251,6 +1338,45 @@ describe("remembered pull request list controls", () => {
   });
 });
 
+describe("opening the page on the sidebar's project folder", () => {
+  const local = "env-local" as EnvironmentId;
+  const remote = "env-remote" as EnvironmentId;
+  const folder = [
+    { environmentId: remote, projectId: "project-remote" as ProjectId },
+    { environmentId: local, projectId: "project-local" as ProjectId },
+  ];
+  const base = { involvement: "authored", state: "open", sort: "blocked" } as const;
+
+  it("scopes to the folder's member on this machine, keeping the other controls", () => {
+    expect(pullRequestListPreferencesForFolder(base, folder, local)).toEqual({
+      ...base,
+      projectId: "project-local",
+      environmentId: local,
+    });
+  });
+
+  it("keeps a member of the same folder that was already scoped", () => {
+    const scoped = { ...base, projectId: "project-remote" as ProjectId, environmentId: remote };
+    expect(pullRequestListPreferencesForFolder(scoped, folder, local)).toEqual(scoped);
+  });
+
+  it("replaces a remembered project from another folder", () => {
+    const elsewhere = { ...base, projectId: "project-other" as ProjectId, environmentId: local };
+    expect(pullRequestListPreferencesForFolder(elsewhere, folder, null)).toEqual({
+      ...base,
+      projectId: "project-remote",
+      environmentId: remote,
+    });
+  });
+
+  it("widens to every project under All, dropping the server only the project brought", () => {
+    const scoped = { ...base, projectId: "project-remote" as ProjectId, environmentId: remote };
+    expect(pullRequestListPreferencesForFolder(scoped, null, local)).toEqual(base);
+    const serverOnly = { ...base, environmentId: remote };
+    expect(pullRequestListPreferencesForFolder(serverOnly, null, local)).toEqual(serverOnly);
+  });
+});
+
 const ENV_1 = "env-1" as EnvironmentId;
 const ENV_2 = "env-2" as EnvironmentId;
 
@@ -1290,6 +1416,18 @@ describe("merging the environments' own listings", () => {
       [ENV_2, 2],
       [ENV_1, 1],
     ]);
+  });
+
+  it("keys each project's account by environment and project, like its folder group", () => {
+    const merged = mergePullRequestLists([
+      [ENV_1, answer({ accounts: { ["project-1" as ProjectId]: "work-login" } })],
+      [ENV_2, answer({ accounts: { ["project-1" as ProjectId]: "freelance-login" } })],
+      [ENV_2, answer()],
+    ]);
+    expect(merged?.accounts).toEqual({
+      [`${ENV_1}:project-1`]: "work-login",
+      [`${ENV_2}:project-1`]: "freelance-login",
+    });
   });
 
   it("tells two environments' copies of one pull request apart", () => {
@@ -1393,6 +1531,41 @@ describe('who "I" am, per server', () => {
         (row) => row.number,
       ),
     ).toEqual([1]);
+  });
+
+  it("counts a project read as another of the host's accounts as that account's own work", () => {
+    // Signed in as Bilal for personal work and as bilal-acme for the employer's repositories.
+    const byWork = { login: "bilal-acme", name: null, avatarUrl: null };
+    const merged = mergePullRequestLists([
+      [
+        ENV_1,
+        {
+          ...answer({ "github.com": "Bilal" }, [
+            entry({ number: 1, author: byBilal }),
+            entry({ number: 2, author: byWork, projectId: "acme" as ProjectId }),
+            entry({ number: 3, author: byBilal, projectId: "acme" as ProjectId }),
+          ]),
+          accounts: { ["acme" as ProjectId]: "bilal-acme" },
+        },
+      ],
+    ])!;
+
+    expect(
+      filterPullRequestsByInvolvement(
+        merged.entries,
+        merged.viewers,
+        "authored",
+        merged.accounts,
+      ).map((row) => row.number),
+    ).toEqual([1, 2]);
+    expect(
+      groupPullRequestsByInvolvement(merged.entries, merged.viewers, merged.accounts)
+        .find((group) => group.key === "authored")
+        ?.entries.map((row) => row.number),
+    ).toEqual([1, 2]);
+    expect(
+      merged.entries.map((row) => pullRequestEntryViewer(row, merged.viewers, merged.accounts)),
+    ).toEqual(["bilal", "bilal-acme", "bilal-acme"]);
   });
 
   it("still reads a single server's host-keyed viewers, which is what a snapshot carries", () => {

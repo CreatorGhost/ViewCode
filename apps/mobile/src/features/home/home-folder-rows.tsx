@@ -35,9 +35,22 @@ export function HomeFolderCardSlice(props: {
 }) {
   const edge = props.edge;
   if (!edge) return <>{props.children}</>;
-  // Android lists folders as flat sections under a label, without a card.
+  // Android: a borderless tonal card, so it is clear which folder a row belongs to.
   if (Platform.OS === "android") {
-    return <View className={cn(edge.first && "mt-3", edge.last && "mb-1")}>{props.children}</View>;
+    return (
+      <View
+        className={cn(
+          "mx-3 overflow-hidden bg-card",
+          edge.first && "mt-3 rounded-t-3xl pt-1",
+          edge.last && "mb-1 rounded-b-3xl pb-2",
+        )}
+        // Slices are laid out apart; sub-pixel rounding leaves a hairline of
+        // screen between them. Reaching 1dp up keeps the card one surface.
+        style={edge.first ? undefined : { marginTop: -1, paddingTop: 1 }}
+      >
+        {props.children}
+      </View>
+    );
   }
   return (
     <View

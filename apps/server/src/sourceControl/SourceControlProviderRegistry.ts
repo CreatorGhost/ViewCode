@@ -18,6 +18,7 @@ import * as GitLabSourceControlProvider from "./GitLabSourceControlProvider.ts";
 import * as ForgejoSourceControlProvider from "./ForgejoSourceControlProvider.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
+  makeSourceControlDiscoveryProbes,
   probeSourceControlProvider,
   refineUnknownRemoteProvider,
   type SourceControlProviderDiscoverySpec,
@@ -27,7 +28,10 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
 const PROVIDER_DETECTION_CACHE_CAPACITY = 2_048;
-const PROVIDER_DETECTION_CACHE_TTL = Duration.seconds(5);
+// Detection probes several CLIs, so it must outlive one pass; a failure is retried sooner,
+// but not immediately, or a slow probe that times out is re-run by every caller.
+const PROVIDER_DETECTION_CACHE_TTL = Duration.seconds(60);
+const PROVIDER_DETECTION_FAILURE_CACHE_TTL = Duration.seconds(10);
 
 export interface SourceControlProviderRegistration {
   readonly kind: SourceControlProviderKind;
@@ -64,6 +68,44 @@ export class SourceControlProviderRegistry extends Context.Service<
   }
 >()("t3/sourceControl/SourceControlProviderRegistry") {}
 
+/** The remote's path below the host, lowercased, for SCP-style and URL remotes alike. */
+function remotePathSegments(remoteUrl: string): ReadonlyArray<string> {
+  const trimmed = remoteUrl.trim();
+  let path = /^[^@/:]+@[^/:]+:(.+)$/u.exec(trimmed)?.[1];
+  if (path === undefined) {
+    try {
+      path = new URL(trimmed).pathname;
+    } catch {
+      return [];
+    }
+  }
+  return path
+    .toLowerCase()
+    .split("/")
+    .filter((segment) => segment.length > 0);
+}
+
+/**
+ * Self-hosted servers whose remote shape is recognisable but that no provider can reach: the
+ * Azure CLI refuses Azure DevOps Server outright, and the Bitbucket provider speaks only the
+ * Bitbucket Cloud API, which Data Center does not serve. Saying so keeps the user from signing
+ * in to a CLI that will never claim the host.
+ */
+function unreachableServerDetail(
+  context: SourceControlProvider.SourceControlProviderContext,
+): string | null {
+  const host = context.provider.name;
+  const segments = remotePathSegments(context.remoteUrl);
+  if (segments.at(-2) === "_git") {
+    return `${host} looks like Azure DevOps Server, which the Azure CLI does not support. Only Azure DevOps Services (dev.azure.com) can be used.`;
+  }
+  // Data Center's HTTP clone path is `/scm/{project}/{repo}`, under an optional context path.
+  if (segments.at(-3) === "scm") {
+    return `${host} looks like Bitbucket Data Center, which is not supported. Only Bitbucket Cloud (bitbucket.org) can be used.`;
+  }
+  return null;
+}
+
 /**
  * A remote no provider recognised or claimed lands here as `unknown`; naming its host and the
  * CLIs that can claim it tells the user what to do instead of reporting a missing registration.
@@ -73,9 +115,13 @@ function unsupportedProviderDetail(
   context: SourceControlProvider.SourceControlProviderContext | undefined,
 ): string {
   if (kind !== "unknown") return `No ${kind} source control provider is registered.`;
-  return context === undefined
-    ? "This repository has no remote on a recognised hosting provider."
-    : `Could not identify the hosting provider for ${context.provider.name}. Sign in to it with gh, glab or tea.`;
+  if (context === undefined) {
+    return "This repository has no remote on a recognised hosting provider.";
+  }
+  return (
+    unreachableServerDetail(context) ??
+    `Could not identify the hosting provider for ${context.provider.name}. Sign in to it with gh, glab or tea.`
+  );
 }
 
 function unsupportedProvider(
@@ -222,6 +268,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       SourceControlProvider.SourceControlProvider["Service"]
     >(registrations.map((registration) => [registration.kind, registration.provider]));
     const discoverySpecs = registrations.map((registration) => registration.discovery);
+    const probes = yield* makeSourceControlDiscoveryProbes(process);
 
     const get: SourceControlProviderRegistry["Service"]["get"] = (kind) =>
       Effect.succeed(providers.get(kind) ?? unsupportedProvider(kind));
@@ -256,7 +303,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
 
         return yield* refineUnknownRemoteProvider({
           specs: discoverySpecs,
-          process,
+          probes,
           cwd,
           context,
         });
@@ -269,7 +316,8 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       SourceControlProviderError
     >(detectProviderContext, {
       capacity: PROVIDER_DETECTION_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? PROVIDER_DETECTION_CACHE_TTL : Duration.zero),
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? PROVIDER_DETECTION_CACHE_TTL : PROVIDER_DETECTION_FAILURE_CACHE_TTL,
     });
 
     const resolveHandle: SourceControlProviderRegistry["Service"]["resolveHandle"] = (input) =>
@@ -277,7 +325,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
         ? Cache.get(providerContextCache, input.cwd)
         : refineUnknownRemoteProvider({
             specs: discoverySpecs,
-            process,
+            probes,
             cwd: input.cwd,
             context: input.context,
           })
@@ -303,15 +351,21 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       get,
       resolveHandle,
       resolve: (input) => resolveHandle(input).pipe(Effect.map((handle) => handle.provider)),
-      discover: Effect.forEach(
-        discoverySpecs,
-        (spec) =>
-          probeSourceControlProvider({
-            spec,
-            process,
-            cwd: config.cwd,
-          }),
-        { concurrency: "unbounded" },
+      // A rescan is the user saying something changed, such as a new sign-in.
+      discover: probes.reset.pipe(
+        Effect.andThen(Cache.invalidateAll(providerContextCache)),
+        Effect.andThen(
+          Effect.forEach(
+            discoverySpecs,
+            (spec) =>
+              probeSourceControlProvider({
+                spec,
+                process,
+                cwd: config.cwd,
+              }),
+            { concurrency: "unbounded" },
+          ),
+        ),
       ),
     });
   },

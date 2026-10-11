@@ -12,6 +12,7 @@ import { ThreadId, type EnvironmentId } from "@t3tools/contracts";
 import type { AgentMessageEnvelope, AgentMessageSentPayload } from "@t3tools/shared/agentMessages";
 import { useNavigation } from "@react-navigation/native";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import * as Haptics from "expo-haptics";
 import { Pressable, View, type ColorValue } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -21,40 +22,48 @@ import { cn } from "../../lib/cn";
 import { useThreadShell } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { resolveHomeAgentModelLabel } from "../home/homeFolderList";
-
-// Bodies past this clamp to a few lines with a tap to expand, like web.
-const LONG_BODY_CHARS = 240;
+import type { AgentChatterHeaderEntry } from "./agentChatter";
+import { ThreadDisclosureChevron } from "./thread-work-log";
 
 /**
- * An agent-to-agent message: "from <agent>" when another agent wrote to this
- * thread, "to <agent>" when this thread's agent wrote out. Mirrors web's
+ * An agent-to-agent message as one line: "to"/"from" icon, the agent's name
+ * (tap to open that agent), the body's first line and the send time. Tapping
+ * the rest of the row shows the full body below it. Mirrors web's
  * AgentMessageCard so a message never reads as something the user typed.
  */
-function AgentMessageCardFrame(props: {
-  readonly icon: "tray" | "paperplane" | "cpu";
-  readonly verb: string;
+function AgentMessageRow(props: {
+  readonly icon: "tray" | "paperplane";
+  readonly direction: "from" | "to";
   readonly name: string;
   readonly environmentId: EnvironmentId;
   readonly threadId: string;
+  /** Shown with the expanded body, where there is room for it. */
   readonly badge: ReactNode;
   readonly body: string;
   readonly iconColor: ColorValue;
-  /** Formatted send time, shown at the header's end like normal messages. */
+  /** Formatted send time, shown at the row's end like normal messages. */
   readonly timeLabel: string;
 }) {
   const navigation = useNavigation();
   const [expanded, setExpanded] = useState(false);
-  const long = props.body.length > LONG_BODY_CHARS;
   const name = props.name.trim() || "agent";
+  const body = props.body.trim();
+  const firstLine = useMemo(() => body.split("\n", 1)[0]!.trim(), [body]);
   return (
-    <View className="mb-4 rounded-lg border border-border bg-card px-3 py-2.5">
-      <View className="flex-row items-center gap-1.5">
+    <View className="mb-1">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityHint={expanded ? "Hides the full message." : "Shows the full message."}
+        onPress={() => setExpanded((value) => !value)}
+        className="min-h-8 flex-row items-center gap-1.5 py-1.5 active:opacity-70"
+      >
         <SymbolView name={props.icon} size={13} tintColor={props.iconColor} type="monochrome" />
-        <Text className="text-xs text-foreground-muted">{props.verb}</Text>
         <Pressable
           accessibilityRole="link"
+          accessibilityLabel={`${props.direction === "to" ? "To" : "From"} ${name}`}
           accessibilityHint="Opens that agent's thread."
-          className="min-w-0 shrink"
+          className="max-w-[45%] shrink-0"
           hitSlop={6}
           onPress={() =>
             navigation.navigate("Thread", {
@@ -63,41 +72,64 @@ function AgentMessageCardFrame(props: {
             })
           }
         >
-          <Text className="text-xs font-t3-medium text-foreground" numberOfLines={1}>
+          <Text className="text-sm font-t3-medium text-foreground" numberOfLines={1}>
             {name}
           </Text>
         </Pressable>
-        {props.badge}
-        {props.timeLabel ? (
-          <Text className="ml-auto shrink-0 pl-2 text-xs text-foreground-tertiary">
-            {props.timeLabel}
-          </Text>
-        ) : null}
-      </View>
-      {props.body.trim().length > 0 ? (
-        <Text
-          selectable
-          className="mt-1.5 text-sm text-foreground"
-          numberOfLines={long && !expanded ? 4 : undefined}
-        >
-          {props.body.trim()}
+        <Text className="min-w-0 flex-1 text-sm text-foreground-muted" numberOfLines={1}>
+          {firstLine}
         </Text>
-      ) : null}
-      {long ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ expanded }}
-          onPress={() => setExpanded((value) => !value)}
-          className="-mb-2.5 min-h-10 justify-center self-stretch active:opacity-70"
-        >
-          <Text className="text-xs font-t3-medium text-foreground-muted">
-            {expanded ? "Show less" : "Show more"}
-          </Text>
-        </Pressable>
+        {props.timeLabel ? (
+          <Text className="shrink-0 pl-1 text-xs text-foreground-tertiary">{props.timeLabel}</Text>
+        ) : null}
+      </Pressable>
+      {expanded ? (
+        <View className="gap-1.5 pb-1.5 pl-5">
+          {props.badge ? <View className="flex-row items-center">{props.badge}</View> : null}
+          {body.length > 0 ? (
+            <Text selectable className="text-sm text-foreground">
+              {body}
+            </Text>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
 }
+
+/** The one row a run of back-to-back agent messages folds into; tap to open or close it. */
+export const AgentChatterHeaderRow = memo(function AgentChatterHeaderRow(props: {
+  readonly entry: AgentChatterHeaderEntry;
+  readonly iconColor: ColorValue;
+  /** Receives the state the tap asks for. */
+  readonly onToggle: (groupId: string, expanded: boolean) => void;
+}) {
+  const { entry } = props;
+  const label = `${entry.live ? "Agents talking" : "Agents talked"} · ${entry.messageCount} messages`;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: entry.expanded }}
+      accessibilityLabel={label}
+      accessibilityHint={entry.expanded ? "Hides the messages." : "Shows the messages."}
+      hitSlop={4}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        props.onToggle(entry.groupId, !entry.expanded);
+      }}
+      className="mb-1 min-h-8 flex-row items-center gap-1.5 py-1.5 active:opacity-70"
+    >
+      <SymbolView name="cpu" size={13} tintColor={props.iconColor} type="monochrome" />
+      <Text className="text-sm text-foreground-muted">{label}</Text>
+      <ThreadDisclosureChevron
+        expanded={entry.expanded}
+        collapsedDirection="down"
+        size={11}
+        tintColor={props.iconColor}
+      />
+    </Pressable>
+  );
+});
 
 function Badge(props: { readonly label: string; readonly tone?: "warning" }) {
   return (
@@ -127,9 +159,9 @@ export const IncomingAgentMessageCard = memo(function IncomingAgentMessageCard(p
 }) {
   const { envelope } = props;
   return (
-    <AgentMessageCardFrame
+    <AgentMessageRow
       icon="tray"
-      verb="from"
+      direction="from"
       name={envelope.fromName}
       environmentId={props.environmentId}
       threadId={envelope.fromThreadId}
@@ -158,9 +190,9 @@ export const OutgoingAgentMessageCard = memo(function OutgoingAgentMessageCard(p
     return <SpawnedAgentRow sent={sent} environmentId={props.environmentId} />;
   }
   return (
-    <AgentMessageCardFrame
+    <AgentMessageRow
       icon="paperplane"
-      verb="to"
+      direction="to"
       name={sent.toName}
       environmentId={props.environmentId}
       threadId={sent.toThreadId}

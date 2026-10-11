@@ -52,6 +52,48 @@ export function createReviewEnvironmentAtoms<R, E>(
           }),
         ),
     }),
+    /**
+     * An agent review of a thread's checkout (or the project's workspace) in a new thread on the
+     * same checkout. Only for environments advertising `localAgentReview`.
+     */
+    startLocal: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:start-local",
+      tag: WS_METHODS.reviewStartLocal,
+    }),
+    /** A new session that fixes review findings, on the environment that holds the review. */
+    startFixThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:start-fix-thread",
+      tag: WS_METHODS.reviewStartFixThread,
+    }),
+    /** Reverts a fix session to before its fix; servers advertising `reviewFixUndo`. */
+    undoFixes: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:undo-fixes",
+      tag: WS_METHODS.reviewUndoFixes,
+    }),
+    /** Posts findings to the reviewed pull request as one review. */
+    postFindings: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:post-findings",
+      tag: WS_METHODS.reviewPostFindings,
+    }),
+    /** Rates one finding up or down, or takes it back; servers advertising `reviewFindingRatings`. */
+    rateFinding: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:rate-finding",
+      tag: WS_METHODS.reviewRateFinding,
+    }),
+    /** What was learned of an account's review writing; servers advertising `learnedReviewStyle`. */
+    learnedStyle: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:review:learned-style",
+      tag: WS_METHODS.reviewGetLearnedStyle,
+      staleTimeMs: 60_000,
+    }),
+    learnStyle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:learn-style",
+      tag: WS_METHODS.reviewLearnStyle,
+    }),
+    forgetLearnedStyle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:forget-learned-style",
+      tag: WS_METHODS.reviewForgetLearnedStyle,
+    }),
     diffFileContents: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:diff-file-contents",
       tag: WS_METHODS.reviewGetDiffFileContents,

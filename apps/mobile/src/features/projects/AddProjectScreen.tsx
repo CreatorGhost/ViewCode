@@ -38,6 +38,7 @@ import {
   ensureBrowseDirectoryPath,
   inferProjectTitleFromPath,
   isWindowsPlatform,
+  restartBrowsePathAtTypedRoot,
 } from "@t3tools/client-runtime/state/projects";
 import {
   CommandId,
@@ -300,7 +301,8 @@ function ProjectPathInput(props: {
 function useBrowsePathInput(environment: EnvironmentOption | null, pinnedDirectoryName = "") {
   const environmentId = environment?.environmentId ?? null;
   const environmentBaseDirectory = environment?.baseDirectory ?? null;
-  const clonePathCaseSensitive = !isWindowsPlatform(environment?.platform ?? "");
+  const environmentPlatform = environment?.platform ?? "";
+  const clonePathCaseSensitive = !isWindowsPlatform(environmentPlatform);
   const [pathInput, commitPathInput] = useState(() =>
     getCloneDestinationPath(
       getAddProjectInitialQuery(environmentBaseDirectory),
@@ -319,9 +321,9 @@ function useBrowsePathInput(environment: EnvironmentOption | null, pinnedDirecto
     (path: string) => {
       browseNavigation.invalidate();
       setIsBrowseNavigating(false);
-      commitPathInput(path);
+      commitPathInput(restartBrowsePathAtTypedRoot(path, environmentPlatform));
     },
-    [browseNavigation],
+    [browseNavigation, environmentPlatform],
   );
   const navigateToBrowsePath = useCallback(
     async (input: {

@@ -23,6 +23,13 @@ import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import {
+  carriesGitHubToken,
+  gitHubCommandTarget,
+  gitHubTokenEnv,
+  type GitHubCommandTarget,
+} from "./gitHubAccountRouting.ts";
+import { parseGitHubAuthStatus } from "./gitHubAuthStatus.ts";
 import * as GitHubGraphQlBudget from "./githubGraphQlBudget.ts";
 import * as SourceControlRateLimit from "./SourceControlRateLimit.ts";
 import {
@@ -33,6 +40,17 @@ import {
 } from "./gitHubPullRequests.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** How long a repository owner stays on the account that could read it. */
+const ACCOUNT_ROUTE_TTL_MS = 10 * 60_000;
+/** How long an owner no other account could read stays on the active one before asking again. */
+const NO_ACCOUNT_ROUTE_TTL_MS = 5 * 60_000;
+
+/** The account a repository owner's commands run as. A null login stays on the active account. */
+interface AccountRoute {
+  readonly login: string | null;
+  readonly token: Redacted.Redacted<string> | null;
+  readonly expiresAt: number;
+}
 
 /** Server-local credential scope; never put its value in RPC payloads or cache keys. */
 export const PinnedGitHubCredential = Context.Reference<{
@@ -284,20 +302,24 @@ export interface GitHubRepositoryCloneUrls {
   readonly sshUrl: string;
 }
 
+interface GitHubCliCommand {
+  readonly cwd: string;
+  readonly args: ReadonlyArray<string>;
+  readonly timeoutMs?: number;
+  /** Piped to the child's stdin, for payloads that must never appear in argv. */
+  readonly stdin?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly maxOutputBytes?: number;
+  readonly rateLimitHost?: string;
+  readonly allowReserve?: boolean;
+}
+
 export class GitHubCli extends Context.Service<
   GitHubCli,
   {
-    readonly execute: (input: {
-      readonly cwd: string;
-      readonly args: ReadonlyArray<string>;
-      readonly timeoutMs?: number;
-      /** Piped to the child's stdin, for payloads that must never appear in argv. */
-      readonly stdin?: string;
-      readonly env?: NodeJS.ProcessEnv;
-      readonly maxOutputBytes?: number;
-      readonly rateLimitHost?: string;
-      readonly allowReserve?: boolean;
-    }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
+    readonly execute: (
+      input: GitHubCliCommand,
+    ) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
 
     readonly listOpenPullRequests: (input: {
       readonly cwd: string;
@@ -355,6 +377,27 @@ export class GitHubCli extends Context.Service<
       readonly reference: string;
       readonly force?: boolean;
     }) => Effect.Effect<void, GitHubCliError>;
+
+    /**
+     * Runs one command as `login`, one of the accounts signed in to `host`, whichever account is
+     * active: the active one as it is, another by its token in the child's environment only.
+     * Fails with an authentication error when `login` is not signed in there.
+     */
+    readonly executeAsAccount: (
+      input: GitHubCliCommand & { readonly host: string; readonly login: string },
+    ) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
+
+    /**
+     * The gh login this repository's commands currently run as when it is not gh's active
+     * account, or null for the active account. Read from memory, except that a `cwd` in place of
+     * a repository reads that checkout's remotes, and only once some owner on the host is routed.
+     */
+    readonly accountFor: (
+      input: { readonly host: string } & (
+        | { readonly repository: string }
+        | { readonly cwd: string }
+      ),
+    ) => Effect.Effect<string | null>;
   }
 >()("t3/sourceControl/GitHubCli") {}
 
@@ -563,6 +606,229 @@ export const make = Effect.gen(function* () {
   const budget = yield* GitHubGraphQlBudget.GitHubGraphQlBudget;
   const limits = yield* SourceControlRateLimit.SourceControlRateLimit;
 
+  const git = (cwd: string, args: ReadonlyArray<string>) =>
+    process.run({
+      operation: "GitHubCli.baseRepository",
+      command: "git",
+      args,
+      cwd,
+      allowNonZeroExit: true,
+      timeoutMs: 5_000,
+    });
+
+  /** The repository gh reads in `cwd`, or null when gh could pick it another way. */
+  const resolveBaseRepository = (cwd: string, host: string) =>
+    globalThis.process.env.GH_REPO
+      ? Effect.succeed(null)
+      : Effect.all([
+          git(cwd, ["remote", "-v"]),
+          git(cwd, ["config", "--get-regexp", "^remote\\..*\\.gh-resolved$"]),
+        ]).pipe(
+          Effect.map(([remotes, resolved]) =>
+            remotes.exitCode === 0
+              ? selectGitHubBaseRepository({
+                  remotes: remotes.stdout,
+                  resolved: resolved.exitCode === 0 ? resolved.stdout : "",
+                  host,
+                })
+              : null,
+          ),
+          Effect.orElseSucceed(() => null),
+        );
+
+  /**
+   * gh runs every command as its active account for the host. A machine signed in to several
+   * accounts on one host (one per organisation) would otherwise see only the active account's
+   * repositories, so a read the active account cannot answer is retried as each other signed-in
+   * account, and the repository owner is remembered against the first that answers. Later
+   * commands for that owner, writes included, run as it straight away.
+   *
+   * The account is chosen per invocation by its token in the child's environment: `gh auth
+   * switch` would change every terminal on the machine. Tokens stay in memory and in the child's
+   * environment, never in argv, errors or logs.
+   */
+  const routes = new Map<string, AccountRoute>();
+  /** The accounts signed in to a host and able to authenticate, as `gh auth status` lists them. */
+  const signedInAccounts = yield* Cache.makeWith(
+    (host: string) =>
+      process
+        .run({
+          operation: "GitHubCli.accounts",
+          command: "gh",
+          args: ["auth", "status", "--json", "hosts"],
+          cwd: globalThis.process.cwd(),
+          // gh exits non-zero when any one account needs attention; the others are still listed.
+          allowNonZeroExit: true,
+        })
+        .pipe(
+          Effect.map((result) =>
+            parseGitHubAuthStatus(result.stdout).accounts.filter(
+              (account) => account.authenticated && account.host === host,
+            ),
+          ),
+          Effect.orElseSucceed(() => []),
+        ),
+    { capacity: 8, timeToLive: () => Duration.minutes(1) },
+  );
+  const accountTokens = yield* Cache.makeWith(
+    (key: string) => {
+      const [host, login] = key.split("\0") as [string, string];
+      return process
+        .run({
+          operation: "GitHubCli.accountToken",
+          command: "gh",
+          args: ["auth", "token", "--hostname", host, "--user", login],
+          cwd: globalThis.process.cwd(),
+          env: { GH_DEBUG: "" },
+        })
+        .pipe(
+          Effect.map((result) => result.stdout.trim()),
+          Effect.filterOrFail((token) => token.length > 0),
+          Effect.map(Redacted.make),
+          // Only the token's absence is kept; the lookup's own output never leaves here.
+          Effect.mapError(() => "unavailable" as const),
+        );
+    },
+    {
+      capacity: 16,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.minutes(1) : Duration.zero),
+    },
+  );
+
+  const liveRoute = (key: string, now: number): AccountRoute | undefined => {
+    const route = routes.get(key);
+    if (route === undefined || route.expiresAt > now) return route;
+    routes.delete(key);
+    return undefined;
+  };
+  const remember = (key: string, route: AccountRoute) => {
+    routes.delete(key);
+    if (routes.size >= 256) routes.delete(routes.keys().next().value!);
+    routes.set(key, route);
+  };
+  // Nothing is remembered on a machine with one account, so it never reads remotes for this.
+  const hostHasRoutes = (host: string) =>
+    [...routes.keys()].some((key) => key.startsWith(`${host}\0`));
+
+  /**
+   * Where a command's account is remembered: its host and repository owner, read from the
+   * checkout's remotes for a command that names none, else the checkout itself.
+   */
+  const routeKeyOf = (target: GitHubCommandTarget, cwd: string): Effect.Effect<string> =>
+    target.owner !== null
+      ? Effect.succeed(`${target.host}\0${target.owner}`)
+      : resolveBaseRepository(cwd, target.host).pipe(
+          Effect.map(
+            (repository) => `${target.host}\0${repository?.owner.toLowerCase() ?? `\0${cwd}`}`,
+          ),
+        );
+
+  const commandTarget = (input: GitHubCliCommand) =>
+    // A caller that chose a credential keeps it.
+    carriesGitHubToken(input.env)
+      ? null
+      : gitHubCommandTarget({
+          args: input.args,
+          stdin: input.stdin,
+          defaultHost:
+            input.rateLimitHost ??
+            input.env?.GH_HOST ??
+            globalThis.process.env.GH_HOST ??
+            "github.com",
+        });
+
+  const routeOf = (target: GitHubCommandTarget | null, cwd: string) =>
+    target === null || !hostHasRoutes(target.host)
+      ? Effect.succeed(undefined)
+      : Effect.flatMap(routeKeyOf(target, cwd), (key) =>
+          Effect.map(Clock.currentTimeMillis, (now) => liveRoute(key, now)),
+        );
+
+  const runGh = (input: GitHubCliCommand, env: NodeJS.ProcessEnv | undefined) =>
+    process
+      .run({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: input.args,
+        cwd: input.cwd,
+        timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+        ...(env !== undefined ? { env } : {}),
+        ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
+      })
+      .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error)));
+
+  const runAs = (input: GitHubCliCommand, host: string, token: Redacted.Redacted<string> | null) =>
+    runGh(
+      input,
+      token === null ? input.env : { ...input.env, ...gitHubTokenEnv(host, Redacted.value(token)) },
+    );
+
+  /**
+   * Runs a read that `triedLogin` (null: the active account) could not answer as each other
+   * account signed in to the host, the active one first, and remembers the first that answers.
+   * A machine with one account gets the original failure back.
+   */
+  const retryAsOtherAccounts = (
+    input: GitHubCliCommand,
+    target: GitHubCommandTarget,
+    triedLogin: string | null,
+    failure: GitHubCliError,
+  ) =>
+    Effect.gen(function* () {
+      const accounts = yield* Cache.get(signedInAccounts, target.host);
+      if (accounts.length < 2) return yield* failure;
+      const key = yield* routeKeyOf(target, input.cwd);
+      const candidates = accounts
+        .toSorted((left, right) => Number(right.active) - Number(left.active))
+        .filter((account) =>
+          triedLogin === null ? !account.active : account.account !== triedLogin,
+        );
+      for (const account of candidates) {
+        let token: Redacted.Redacted<string> | null = null;
+        if (!account.active) {
+          const found = yield* Effect.option(
+            Cache.get(accountTokens, `${target.host}\0${account.account}`),
+          );
+          if (Option.isNone(found)) continue;
+          token = found.value;
+        }
+        const exit = yield* Effect.exit(runAs(input, target.host, token));
+        if (Exit.isFailure(exit)) continue;
+        const now = yield* Clock.currentTimeMillis;
+        if (token === null) routes.delete(key);
+        else
+          remember(key, { login: account.account, token, expiresAt: now + ACCOUNT_ROUTE_TTL_MS });
+        return exit.value;
+      }
+      remember(key, {
+        login: null,
+        token: null,
+        expiresAt: (yield* Clock.currentTimeMillis) + NO_ACCOUNT_ROUTE_TTL_MS,
+      });
+      return yield* failure;
+    });
+
+  /** Runs a command as the account its repository is remembered against, finding one for a read. */
+  const executeRouted = (input: GitHubCliCommand) =>
+    Effect.gen(function* () {
+      const target = commandTarget(input);
+      if (target === null) return yield* runGh(input, input.env);
+      const route = yield* routeOf(target, input.cwd);
+      return yield* runAs(input, target.host, route?.token ?? null).pipe(
+        Effect.catchIf(
+          (error) =>
+            target.read &&
+            // An owner no other account could read is left alone until that answer expires.
+            route?.login !== null &&
+            (error._tag === "GitHubCliCommandError" ||
+              error._tag === "GitHubPullRequestNotFoundError" ||
+              error._tag === "GitHubCliAuthenticationError"),
+          (error) => retryAsOtherAccounts(input, target, route?.login ?? null, error),
+        ),
+      );
+    });
+
   const executeRaw: GitHubCli["Service"]["execute"] = Effect.fn("GitHubCli.executeRaw")(
     function* (input) {
       const credential = yield* PinnedGitHubCredential;
@@ -573,31 +839,17 @@ export const make = Effect.gen(function* () {
           cause: new Error("The GitHub command does not target the verified credential's host."),
         });
       }
-      const token = credential === null ? undefined : Redacted.value(credential.token);
-      const env =
-        credential === null
-          ? input.env
-          : {
-              ...input.env,
-              GH_HOST: credential.host,
-              GH_TOKEN: token,
-              GITHUB_TOKEN: token,
-              GH_ENTERPRISE_TOKEN: token,
-              GITHUB_ENTERPRISE_TOKEN: token,
-              GH_DEBUG: "",
-            };
-      return yield* process
-        .run({
-          operation: "GitHubCli.execute",
-          command: "gh",
-          args: input.args,
-          cwd: input.cwd,
-          timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-          ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
-          ...(env !== undefined ? { env } : {}),
-          ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
-        })
-        .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error)));
+      if (credential === null) return yield* executeRouted(input);
+      const token = Redacted.value(credential.token);
+      return yield* runGh(input, {
+        ...input.env,
+        GH_HOST: credential.host,
+        GH_TOKEN: token,
+        GITHUB_TOKEN: token,
+        GH_ENTERPRISE_TOKEN: token,
+        GITHUB_ENTERPRISE_TOKEN: token,
+        GH_DEBUG: "",
+      });
     },
   );
 
@@ -770,36 +1022,6 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  const git = (cwd: string, args: ReadonlyArray<string>) =>
-    process.run({
-      operation: "GitHubCli.baseRepository",
-      command: "git",
-      args,
-      cwd,
-      allowNonZeroExit: true,
-      timeoutMs: 5_000,
-    });
-
-  /** The repository gh reads in `cwd`, or null when gh could pick it another way. */
-  const resolveBaseRepository = (cwd: string, host: string) =>
-    globalThis.process.env.GH_REPO
-      ? Effect.succeed(null)
-      : Effect.all([
-          git(cwd, ["remote", "-v"]),
-          git(cwd, ["config", "--get-regexp", "^remote\\..*\\.gh-resolved$"]),
-        ]).pipe(
-          Effect.map(([remotes, resolved]) =>
-            remotes.exitCode === 0
-              ? selectGitHubBaseRepository({
-                  remotes: remotes.stdout,
-                  resolved: resolved.exitCode === 0 ? resolved.stdout : "",
-                  host,
-                })
-              : null,
-          ),
-          Effect.orElseSucceed(() => null),
-        );
-
   const headResolver = RequestResolver.makeGrouped<PullRequestsByHeadRead, string>({
     key: ({ request, context }) =>
       JSON.stringify([
@@ -908,8 +1130,41 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const executeAsAccount: GitHubCli["Service"]["executeAsAccount"] = Effect.fn(
+    "GitHubCli.executeAsAccount",
+  )(function* ({ host: anyHost, login, ...input }) {
+    const host = anyHost.toLowerCase();
+    const notSignedIn = new GitHubCliAuthenticationError({
+      command: "gh",
+      cwd: input.cwd,
+      cause: new Error("The account is not signed in to the GitHub CLI on this host."),
+    });
+    const account = (yield* Cache.get(signedInAccounts, host)).find(
+      (candidate) => candidate.account.toLowerCase() === login.toLowerCase(),
+    );
+    if (account === undefined) return yield* notSignedIn;
+    if (account.active) return yield* runGh(input, input.env);
+    const token = yield* Cache.get(accountTokens, `${host}\0${account.account}`).pipe(
+      Effect.mapError(() => notSignedIn),
+    );
+    return yield* runAs(input, host, token);
+  });
+
   return GitHubCli.of({
     execute,
+    executeAsAccount,
+    accountFor: (input) =>
+      Effect.map(
+        routeOf(
+          {
+            host: input.host.toLowerCase(),
+            owner: "repository" in input ? input.repository.split("/")[0]!.toLowerCase() : null,
+            read: true,
+          },
+          "cwd" in input ? input.cwd : globalThis.process.cwd(),
+        ),
+        (route) => route?.login ?? null,
+      ),
     listPullRequestsByHead,
     listOpenPullRequests: (input) =>
       execute({

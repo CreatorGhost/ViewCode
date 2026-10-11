@@ -48,7 +48,7 @@ import {
   filterPullRequestsByInvolvement,
   findScopedProject,
   collectPullRequestListFacets,
-  groupPullRequestsByInvolvement,
+  groupPullRequestsByProject,
   matchesPullRequestFilters,
   matchesPullRequestQuery,
   parsePullRequestQuery,
@@ -58,6 +58,7 @@ import {
   pullRequestDiffStatKey,
   pullRequestEntryKey,
   pullRequestEntryViewer,
+  pullRequestProjectGroupKey,
   rankPullRequestMatches,
   sortPullRequestGroups,
   pullRequestEnvironmentSetKey,
@@ -94,6 +95,8 @@ import {
 import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
 import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
+import { ProjectFavicon, type ProjectFaviconProject } from "../components/ProjectFavicon";
+import { useSidebarProjectSnapshots } from "../components/sidebar/useSidebarProjectGroups";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
 import {
   PullRequestFiltersMenu,
@@ -200,7 +203,8 @@ export interface PullRequestsSearch extends PullRequestListPreferences {
 
 /**
  * A group reads like the sidebar's shelves: its glyph, its name, how many, then a rule out
- * to the edge. The glyph is the one the involvement filter uses for the same idea.
+ * to the edge. An involvement group wears the glyph the involvement filter uses for the same
+ * idea; a project group wears the folder's own icon, as the rail draws it.
  */
 const GROUP_ICONS: Record<string, LucideIcon> = {
   authored: PenLineIcon,
@@ -210,14 +214,27 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
 
 function PullRequestGroupHeader({
   group,
+  project,
+  account,
 }: {
   group: { key: string; label: string; entries: ReadonlyArray<unknown> };
+  /** The folder a project group belongs to, when the workspace still holds it. */
+  project?: ProjectFaviconProject | undefined;
+  /** The host account the group was read as, such as "@login", where the listing names one. */
+  account?: string | undefined;
 }) {
   const Icon = GROUP_ICONS[group.key] ?? LayersIcon;
   return (
     <div className="flex items-center gap-2 px-3 pb-1 text-xs font-medium text-muted-foreground/70">
-      <Icon aria-hidden className="size-3.5 shrink-0" />
+      {project ? (
+        <ProjectFavicon project={project} className="size-3.5 shrink-0" />
+      ) : (
+        <Icon aria-hidden className="size-3.5 shrink-0" />
+      )}
       <h2 className="shrink-0">{group.label}</h2>
+      {account ? (
+        <span className="min-w-0 truncate font-normal text-muted-foreground/50">{account}</span>
+      ) : null}
       <span className="shrink-0 tabular-nums text-muted-foreground/50">{group.entries.length}</span>
       <Separator className="min-w-2 flex-1" />
     </div>
@@ -262,6 +279,7 @@ const PAGE_SIZE = 99;
 const MAX_PAGE_SIZE = 500;
 /** Stable empty map so the memos below do not see a new object on every render. */
 const EMPTY_VIEWERS: PullRequestListResult["viewers"] = {};
+const EMPTY_ACCOUNTS: Readonly<Record<string, string>> = {};
 /** Stable so a read that is not wanted right now does not re-key on every render. */
 const NO_LIST_TARGETS: ReadonlyArray<EnvironmentQueryTarget<PullRequestListInput>> = [];
 const EMPTY_PREVIEW_SESSIONS = {};
@@ -408,6 +426,30 @@ function PullRequestsRouteView() {
         environments.map((environment) => [environment.environmentId, environment.label] as const),
       ),
     [environments],
+  );
+  // The list groups by project folder, named and drawn as the sidebar and the rail show it.
+  const projectFolders = useSidebarProjectSnapshots();
+  const projectFolderByKey = useMemo(
+    () =>
+      new Map(
+        projectFolders.flatMap((folder) =>
+          folder.memberProjects.map(
+            (member) =>
+              [
+                pullRequestProjectGroupKey({
+                  environmentId: member.environmentId,
+                  projectId: member.id,
+                }),
+                folder,
+              ] as const,
+          ),
+        ),
+      ),
+    [projectFolders],
+  );
+  const projectLabels = useMemo(
+    () => new Map([...projectFolderByKey].map(([key, folder]) => [key, folder.displayName])),
+    [projectFolderByKey],
   );
   // The scope the URL asks for, once the environments have had their say about whether it exists.
   const scopedProjectId = useMemo(
@@ -1017,6 +1059,7 @@ function PullRequestsRouteView() {
               ...data,
               entries: accumulatedEntries,
               viewers: baselineQuery.data?.viewers ?? data.viewers,
+              accounts: baselineQuery.data?.accounts ?? data.accounts,
               providers: baselineQuery.data?.providers ?? data.providers,
             },
             ...(partitions === undefined ? {} : { partitions }),
@@ -1236,6 +1279,8 @@ function PullRequestsRouteView() {
 
   const viewers = baselineQuery.data?.viewers ?? listData?.viewers ?? EMPTY_VIEWERS;
   const listErrors = baselineQuery.data?.errors ?? listData?.errors ?? [];
+  // Snapshots saved before accounts existed have none.
+  const accounts = baselineQuery.data?.accounts ?? listData?.accounts ?? EMPTY_ACCOUNTS;
   const facets = useMemo(
     () =>
       collectPullRequestListFacets(
@@ -1261,7 +1306,12 @@ function PullRequestsRouteView() {
 
   const entries = useMemo(() => {
     const known = ordered?.key === filterKey ? ordered.entries : (listData?.entries ?? []);
-    const involvementEntries = filterPullRequestsByInvolvement(known, viewers, search.involvement);
+    const involvementEntries = filterPullRequestsByInvolvement(
+      known,
+      viewers,
+      search.involvement,
+      accounts,
+    );
     // The hosts search more than the row shows — a body, a review, a commit message — so once
     // their answer is in, narrowing it again here would throw away matches the reader asked for.
     // The local pass stands in for the answer that has not arrived yet, and for the hosts that
@@ -1272,7 +1322,11 @@ function PullRequestsRouteView() {
     // new filters has not arrived yet. Checks are absent here, because no row carries them.
     const narrowedEntries = hasLocalFilters
       ? involvementEntries.filter((entry) =>
-          matchesPullRequestFilters(entry, localFilters, pullRequestEntryViewer(entry, viewers)),
+          matchesPullRequestFilters(
+            entry,
+            localFilters,
+            pullRequestEntryViewer(entry, viewers, accounts),
+          ),
         )
       : involvementEntries;
     // Newest update first once nothing is typed, so a list merged from several hosts reads in
@@ -1290,6 +1344,7 @@ function PullRequestsRouteView() {
         matchesPullRequestQuery(entry, typedParsed.text),
     );
   }, [
+    accounts,
     filterKey,
     hasLocalFilters,
     localFilters,
@@ -1327,7 +1382,9 @@ function PullRequestsRouteView() {
    * them. Keyed by the rows being shown, so scrolling further asks only about what is new.
    */
   const groups = useMemo(() => {
-    if (search.involvement !== "all") return [{ key: "others" as const, label: "", entries }];
+    const byProject = (rows: ReadonlyArray<EnvironmentPullRequestEntry>) =>
+      groupPullRequestsByProject(rows, projectLabels);
+    if (search.involvement !== "all") return byProject(entries);
     // Until both partitions have answered, the snapshot's stand in — they are yesterday's
     // groups, but whole ones, where grouping the feed's first page locally loses every
     // authored row older than it. Once the live reads land they take over; with neither,
@@ -1343,7 +1400,11 @@ function PullRequestsRouteView() {
       rows === undefined || !hasLocalFilters
         ? rows
         : rows.filter((entry) =>
-            matchesPullRequestFilters(entry, localFilters, pullRequestEntryViewer(entry, viewers)),
+            matchesPullRequestFilters(
+              entry,
+              localFilters,
+              pullRequestEntryViewer(entry, viewers, accounts),
+            ),
           );
     const authored = narrow(
       partitionsWanted ? (authoredQuery.data?.entries ?? held?.authored) : undefined,
@@ -1351,11 +1412,20 @@ function PullRequestsRouteView() {
     const reviewing = narrow(
       partitionsWanted ? (reviewingQuery.data?.entries ?? held?.reviewing) : undefined,
     );
-    if (authored === undefined || reviewing === undefined) {
-      return groupPullRequestsByInvolvement(entries, viewers);
-    }
-    return partitionPullRequestsWithPriority(entries, authored, reviewing);
+    if (authored === undefined || reviewing === undefined) return byProject(entries);
+    // The partitions still decide which rows are on the page; the headers are the project
+    // folders now. With nothing typed a folder reads newest first, like the feed, rather than
+    // in the partitions' order; a search keeps the order it already has.
+    const partitioned = partitionPullRequestsWithPriority(entries, authored, reviewing).flatMap(
+      (group) => group.entries,
+    );
+    return byProject(
+      typedParsed.text.length === 0
+        ? partitioned.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        : partitioned,
+    );
   }, [
+    accounts,
     hasLocalFilters,
     localFilters,
     authoredQuery.data?.entries,
@@ -1363,9 +1433,11 @@ function PullRequestsRouteView() {
     environmentKey,
     loaded,
     partitionsWanted,
+    projectLabels,
     reviewingQuery.data?.entries,
     scopeKey,
     search.involvement,
+    typedParsed.text,
     viewers,
   ]);
 
@@ -1506,7 +1578,7 @@ function PullRequestsRouteView() {
   }, [statsQuery.stats]);
   const displayGroups = useMemo(() => {
     // The reader's pending answers go on here, after grouping: the authored and reviewing
-    // groups are read separately from the feed, and a row closed a moment ago has to leave
+    // rows are read separately from the feed, and a row closed a moment ago has to leave
     // whichever group it was in.
     const enriched = groups.map((group) => {
       const answered = applyPullRequestOverrides(
@@ -1527,13 +1599,13 @@ function PullRequestsRouteView() {
                   matchesPullRequestFilters(
                     entry,
                     localFilters,
-                    pullRequestEntryViewer(entry, viewers),
+                    pullRequestEntryViewer(entry, viewers, accounts),
                   ),
               )
             : answered,
       };
     });
-    // Searching keeps its relevance order and priority groups unless the reader explicitly asks
+    // Searching keeps its relevance order within each project unless the reader explicitly asks
     // for another sort. The readiness queue is the default browse order, not a way to bury a
     // closer text match.
     return sortPullRequestGroups(
@@ -1545,6 +1617,7 @@ function PullRequestsRouteView() {
       search.involvement,
     );
   }, [
+    accounts,
     groups,
     hasLocalFilters,
     localFilters,
@@ -1558,6 +1631,8 @@ function PullRequestsRouteView() {
   ]);
   /** What is actually on screen once the reader's pending answers are on the rows. */
   const shownCount = displayGroups.reduce((count, group) => count + group.entries.length, 0);
+  /** One project's rows need no header to say whose they are. */
+  const showGroupHeaders = displayGroups.filter((group) => group.entries.length > 0).length > 1;
   const heldPullRequestsBySurface = useMemo(
     () =>
       new Map(
@@ -1683,6 +1758,11 @@ function PullRequestsRouteView() {
       ),
     [listErrors],
   );
+  /** The same reasons by project name, for an empty list that would otherwise read as none. */
+  const unavailableProjectReasons = useMemo(
+    () => new Map(listErrors.map((error) => [error.projectTitle, error.message] as const)),
+    [listErrors],
+  );
 
   // Stable so the memoized rows can skip re-rendering when the list around them changes.
   const selectEntry = useCallback(
@@ -1766,6 +1846,7 @@ function PullRequestsRouteView() {
           hasProjects={!projectsKnown || projects.length > 0}
           refreshing={refreshing}
           onRefresh={() => void refreshFromHost()}
+          unavailableProjects={unavailableProjectReasons}
           query={typedQuery}
           filtered={
             menuFiltered ||
@@ -1784,7 +1865,15 @@ function PullRequestsRouteView() {
         <div className="space-y-3">
           {displayGroups.map((group) => (
             <div key={group.key} className="space-y-0.5">
-              {group.label ? <PullRequestGroupHeader group={group} /> : null}
+              {showGroupHeaders ? (
+                <PullRequestGroupHeader
+                  group={group}
+                  project={projectFolderByKey.get(group.key)}
+                  account={
+                    accounts[group.key] === undefined ? undefined : `@${accounts[group.key]}`
+                  }
+                />
+              ) : null}
               {group.entries.map((entry) => {
                 const entryKey = pullRequestEntryKey(entry);
                 return (
@@ -1793,7 +1882,8 @@ function PullRequestsRouteView() {
                     statsKey={entryKey}
                     statsRef={registerStatsRow}
                     entry={entry}
-                    showProjectTitle
+                    // The header names the project; without one the row has to.
+                    showProjectTitle={!showGroupHeaders}
                     showProvider={showProvider}
                     {...(capableEnvironments.length > 1 &&
                     environmentLabels.get(entry.environmentId) !== undefined

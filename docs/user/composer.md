@@ -73,9 +73,8 @@ Leaving reasoning level or service tier unset uses the provider's own configurat
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose
-**Quote in this chat**. **Ask in new chat** starts a new thread in the same project with the
-selection quoted in its composer. You can add a comment about the quote and write instructions
-around it.
+**Quote in this chat**. You can add a comment about the quote and write instructions around it.
+To ask about the selection without interrupting the thread, choose **Ask in side chat** instead.
 
 Select the quote in a draft or sent message to return to its source. If the source
 is unavailable or has changed, the saved quote remains readable.
@@ -166,8 +165,7 @@ transcription or cancellation; only the message text is sent when you submit.
 
 On Android, the composer's microphone uses your phone's speech recognition
 service (usually Google's), which transcribes while you speak. Confirm to insert
-the text, as on iPhone. The microphone on Home's **Start a new thread** bar opens
-a new task that is already listening once you pick its project.
+the text, as on iPhone.
 
 The microphone only appears when the phone has a speech recognition service
 enabled. Depending on that service and your language, audio may be sent to its
@@ -231,6 +229,8 @@ two horizontal lines, has its own copy button when you hover it. It copies just 
 its formatting for apps that keep it (Slack, email, Notion, Google Docs) and as clean plain text,
 without Markdown symbols, everywhere else. The arrow next to it copies for Slack, for WhatsApp,
 as Markdown or as plain text instead, and the button keeps your last choice on that device.
+A whole reply's copy button works the same way: it copies the reply as Markdown, and the arrow
+next to it copies it for Slack, for WhatsApp or as plain text.
 
 On mobile, tap a chip to inspect its content. File references open the current file; attached
 files show the copy that was attached to the message.

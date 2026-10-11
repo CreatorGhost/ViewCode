@@ -27,6 +27,7 @@ import { AssistantCitationCommentEditor } from "./AssistantCitationCommentEditor
 import { resolveAssistantCitationCommentDismissal } from "./assistantCitationCommentDismissal";
 import { observeAssistantCitationCommentSource } from "./AssistantCitationSource";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { selectionPreview } from "./selectionQuote";
 
 export function AssistantCitationChip({
   citation,
@@ -97,8 +98,7 @@ export function AssistantCitationChip({
         },
       }
     : undefined;
-  const preview = (citation.comment?.trim() || citation.text).replace(/\s+/g, " ");
-  const label = preview.length > 64 ? `${preview.slice(0, 64)}…` : preview;
+  const label = selectionPreview(citation.comment?.trim() || citation.text);
   const sourceLinkProps = {
     to: "/$environmentId/$threadId" as const,
     params: { environmentId: citation.environmentId, threadId: citation.threadId },

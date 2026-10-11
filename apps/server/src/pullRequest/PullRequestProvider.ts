@@ -340,6 +340,14 @@ export interface PullRequestProviderApi {
     readonly cwd: string;
     readonly host?: string;
   }) => Effect.Effect<string, PullRequestProviderError>;
+  /**
+   * The account a repository is read as when the host CLI picked one other than the viewer (one
+   * of several signed in to the host), else null.
+   */
+  readonly accountFor?: (input: {
+    readonly host: string;
+    readonly repository: string;
+  }) => Effect.Effect<string | null>;
 
   readonly listChangeRequests: (
     input: ProviderRepositoryRef & {
@@ -582,6 +590,9 @@ export interface PullRequestProviderApi {
    * Sends a whole review at once. Only called for a verdict the host declared in
    * `capabilities.review.verdicts`, and with line comments only where it declared
    * `inlineComment`.
+   *
+   * `commitId` is the commit the review read; a host that pins reviews to a commit (GitHub)
+   * anchors the comments there, and the others ignore it and review the head.
    */
   readonly submitReview: (
     input: ProviderRepositoryRef & {
@@ -589,6 +600,7 @@ export interface PullRequestProviderApi {
       readonly verdict: PullRequestReviewVerdict;
       readonly body: string;
       readonly comments: ReadonlyArray<PullRequestReviewCommentDraft>;
+      readonly commitId?: string;
     },
   ) => Effect.Effect<void, PullRequestProviderError>;
 

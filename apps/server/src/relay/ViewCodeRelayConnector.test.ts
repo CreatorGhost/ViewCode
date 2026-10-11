@@ -21,7 +21,7 @@ import {
   type RelayDial,
   type RelayLink,
 } from "./ViewCodeRelayConnector.ts";
-import { RELAY_REASON, type DialFailure } from "./viewCodeRelayHealth.ts";
+import { DIAL_TIMEOUT_MS, RELAY_REASON, type DialFailure } from "./viewCodeRelayHealth.ts";
 
 const config: RelayConnectionConfig = {
   origin: "https://relay.example.workers.dev",
@@ -83,8 +83,11 @@ const makeSignals = Effect.gen(function* () {
   };
 });
 
+/** A dial whose handshake never answers. */
+const hang = "hang" as const;
+
 /** Dial outcomes are scripted; every dial is reported so a test can wait for it. */
-const makeScriptedDial = (script: ReadonlyArray<DialFailure | FakeLink>) =>
+const makeScriptedDial = (script: ReadonlyArray<DialFailure | FakeLink | typeof hang>) =>
   Effect.gen(function* () {
     const dials = yield* Queue.unbounded<RelayConnectionConfig>();
     let index = 0;
@@ -93,6 +96,7 @@ const makeScriptedDial = (script: ReadonlyArray<DialFailure | FakeLink>) =>
         Effect.andThen(() => {
           const outcome = script[Math.min(index, script.length - 1)]!;
           index += 1;
+          if (outcome === hang) return Effect.never;
           return "kind" in outcome ? Effect.fail(outcome) : Effect.succeed(outcome.link);
         }),
       );
@@ -119,7 +123,7 @@ const network: DialFailure = { kind: "network", detail: "offline" };
 const untrusted: DialFailure = { kind: "tls-untrusted", detail: "SELF_SIGNED_CERT_IN_CHAIN" };
 
 describe("runRelayConnection", () => {
-  const setup = (script: ReadonlyArray<DialFailure | FakeLink>) =>
+  const setup = (script: ReadonlyArray<DialFailure | FakeLink | typeof hang>) =>
     Effect.gen(function* () {
       const holder = yield* makeRelayStateHolder;
       yield* holder.setConfig({ configured: true, origin: config.origin });
@@ -163,6 +167,21 @@ describe("runRelayConnection", () => {
       for (const delayMs of [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]) {
         yield* expectRedialAfter(delayMs, dials, dialCount);
       }
+      yield* Fiber.interrupt(fiber);
+    }).pipe(noJitter, Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("gives up on a handshake that never answers and dials again", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeLink;
+      const { holder, dials, dialCount, fiber } = yield* setup([hang, fake]);
+      yield* Queue.take(dials);
+      yield* settle;
+      expect((yield* SubscriptionRef.get(holder.state)).status).toBe("connecting");
+      yield* TestClock.adjust(Duration.millis(DIAL_TIMEOUT_MS));
+      expect((yield* waitForStatus(holder, "reconnecting"))?.reason).toBe(RELAY_REASON.network);
+      yield* expectRedialAfter(1_000, dials, dialCount);
+      yield* waitForStatus(holder, "connected");
       yield* Fiber.interrupt(fiber);
     }).pipe(noJitter, Effect.provide(TestClock.layer())),
   );

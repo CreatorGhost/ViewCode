@@ -31,12 +31,15 @@ import {
   readHtmlRenderReference,
   type HtmlRenderReference,
 } from "@t3tools/shared/htmlRender";
+import { latestReviewFindingsActivityId, readReviewFindings } from "@t3tools/shared/reviewFindings";
 import {
   isToolLifecycleItemType,
   type AssetResource,
   type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
   type OrchestrationProposedPlanId,
+  REVIEW_FINDINGS_ACTIVITY_KIND,
+  type ReviewFindingsActivityPayload,
   type ToolLifecycleItemType,
   type ThreadId,
   type TurnId,
@@ -107,6 +110,8 @@ export interface WorkLogEntry {
   agentMessageSent?: AgentMessageSentPayload;
   /** A page the agent published with `html_render`, shown inline. */
   htmlRender?: HtmlRenderReference;
+  /** ViewCode: the findings a reviewer submitted with `submit_review_findings`. */
+  reviewFindings?: ReviewFindingsActivityPayload;
   /** ViewCode: the thread a fork was taken from. */
   forkedFrom?: { threadId: string; title: string };
   /** ViewCode: models (and provider instances) on either side of a handoff. */
@@ -501,8 +506,13 @@ export function deriveWorkLogEntries(
       if (toolUseId) agentLaunchToolIds.add(toolUseId);
     }
   }
+  // A re-review's findings replace the earlier set.
+  const reviewFindingsId = latestReviewFindingsActivityId(ordered);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of foldUserInputActivities(ordered)) {
+    if (activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND && activity.id !== reviewFindingsId) {
+      continue;
+    }
     if (
       isWorktreeSetupActivity(activity.kind) &&
       (activity.tone !== "error" || activity.kind === "worktree-setup")
@@ -638,6 +648,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (activity.kind === HTML_RENDER_ACTIVITY_KIND) {
     const htmlRender = readHtmlRenderReference(payload);
     if (htmlRender) entry.htmlRender = htmlRender;
+  }
+  if (activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND) {
+    const findings = readReviewFindings(activity);
+    if (findings) entry.reviewFindings = findings;
   }
   if (activity.kind === "viewcode.thread.forked") {
     const threadId = asTrimmedString(payload?.sourceThreadId);

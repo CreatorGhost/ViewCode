@@ -43,9 +43,12 @@ export interface EnvironmentPullRequestError extends PullRequestListProjectError
 export type PullRequestGroupKey = "reviewRequested" | "authored" | "others";
 
 export interface PullRequestGroup<Entry extends PullRequestListEntry = PullRequestListEntry> {
-  readonly key: PullRequestGroupKey;
+  /** A `PullRequestGroupKey` for involvement groups; the project's scoped key for project groups. */
+  readonly key: string;
   readonly label: string;
   readonly entries: ReadonlyArray<Entry>;
+  /** Which dimension produced this group. Absent means involvement, the prior behaviour. */
+  readonly dimension?: "involvement" | "project";
 }
 
 export interface PullRequestAuthorFacet {
@@ -137,16 +140,29 @@ export function collectPullRequestListFacets(
 }
 
 /**
- * The signed-in login for the host a row came from, or null where none was given. Shared by
- * authorship matching here and by `author:me` resolution wherever a row's own viewer is needed.
+ * The account each project was read as, keyed `"<environmentId>:<projectId>"` as the merged
+ * listing writes it. Absent for a project read as its host's viewer on an older server.
+ */
+export type PullRequestAccounts = Readonly<Record<string, string>>;
+
+/**
+ * The signed-in login a row was read as, or null where none was given. Shared by authorship
+ * matching here and by `author:me` resolution wherever a row's own viewer is needed.
  */
 export function pullRequestEntryViewer(
   entry: ScopedEntry,
   viewers: PullRequestViewers,
+  accounts?: PullRequestAccounts,
 ): string | null {
-  // The environment's own answer first; a plain host key is what a single-environment listing
-  // still writes, and what the snapshot from one carries.
-  return normalize(viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
+  // The project's own account first: a machine signed in to several accounts on one host reads
+  // each organisation's repositories as the account that can see them, and that account is who
+  // "me" is there. Then the environment's host answer; a plain host key is what a
+  // single-environment listing still writes, and what the snapshot from one carries.
+  const account =
+    entry.environmentId === undefined
+      ? undefined
+      : accounts?.[`${entry.environmentId}:${entry.projectId}`];
+  return normalize(account ?? viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
 }
 
 /**
@@ -154,8 +170,12 @@ export function pullRequestEntryViewer(
  * GitHub, GitLab and a GitHub Enterprise install, and the account that owns one says nothing
  * about the others.
  */
-function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {
-  const viewer = pullRequestEntryViewer(entry, viewers);
+function isAuthoredByViewer(
+  entry: ScopedEntry,
+  viewers: PullRequestViewers,
+  accounts: PullRequestAccounts | undefined,
+): boolean {
+  const viewer = pullRequestEntryViewer(entry, viewers, accounts);
   return viewer !== null && normalize(entry.author?.login) === viewer;
 }
 
@@ -328,12 +348,14 @@ export function filterPullRequestsByInvolvement<Entry extends ScopedEntry>(
   entries: ReadonlyArray<Entry>,
   viewers: PullRequestViewers,
   involvement: PullRequestInvolvement,
+  accounts?: PullRequestAccounts,
 ): ReadonlyArray<Entry> {
+  // The server already judged review requests against the account each project was read as.
   if (involvement === "reviewing") {
     return entries.filter((entry) => entry.viewerReviewRequested);
   }
   if (involvement === "authored") {
-    return entries.filter((entry) => isAuthoredByViewer(entry, viewers));
+    return entries.filter((entry) => isAuthoredByViewer(entry, viewers, accounts));
   }
   return entries;
 }
@@ -405,6 +427,7 @@ export function matchesPullRequestFilters(
 export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
   entries: ReadonlyArray<Entry>,
   viewers: PullRequestViewers,
+  accounts?: PullRequestAccounts,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
   const buckets: Record<PullRequestGroupKey, Entry[]> = {
     reviewRequested: [],
@@ -412,7 +435,7 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
     others: [],
   };
   for (const entry of entries) {
-    if (isAuthoredByViewer(entry, viewers)) {
+    if (isAuthoredByViewer(entry, viewers, accounts)) {
       buckets.authored.push(entry);
     } else if (entry.viewerReviewRequested) {
       buckets.reviewRequested.push(entry);
@@ -423,6 +446,47 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
   return (["authored", "reviewRequested", "others"] as const)
     .filter((key) => buckets[key].length > 0)
     .map((key) => ({ key, label: GROUP_LABELS[key], entries: buckets[key] }));
+}
+
+/** The key a project group and its label lookup share: a project id is only unique per server. */
+export const pullRequestProjectGroupKey = (entry: {
+  readonly environmentId: string;
+  readonly projectId: string;
+}): string => `${entry.environmentId}:${entry.projectId}`;
+
+/**
+ * One group per project folder, labelled as the sidebar names it, falling back to the row's
+ * repository for a project the labels do not know. Groups run by their most recently updated
+ * row; rows keep the order they came in, so a ranking or search order survives the grouping.
+ * A single group is the caller's cue to draw no header at all.
+ */
+export function groupPullRequestsByProject<Entry extends EnvironmentPullRequestEntry>(
+  entries: ReadonlyArray<Entry>,
+  projectLabels: ReadonlyMap<string, string>,
+): ReadonlyArray<PullRequestGroup<Entry>> {
+  const groups = new Map<string, { label: string; entries: Entry[]; newest: string }>();
+  for (const entry of entries) {
+    const key = pullRequestProjectGroupKey(entry);
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, {
+        label: projectLabels.get(key) ?? entry.repository,
+        entries: [entry],
+        newest: entry.updatedAt,
+      });
+      continue;
+    }
+    group.entries.push(entry);
+    if (entry.updatedAt.localeCompare(group.newest) > 0) group.newest = entry.updatedAt;
+  }
+  return [...groups]
+    .toSorted(([, left], [, right]) => right.newest.localeCompare(left.newest))
+    .map(([key, group]) => ({
+      key,
+      label: group.label,
+      entries: group.entries,
+      dimension: "project" as const,
+    }));
 }
 
 /**
@@ -682,6 +746,11 @@ export const pullRequestDiffStatKey = (row: {
 export interface MergedPullRequestList {
   /** Keyed `"<environmentId> <host>"`, so one host's two accounts stay two accounts. */
   readonly viewers: PullRequestViewers;
+  /**
+   * The host account each project was read as, keyed `"<environmentId>:<projectId>"` like its
+   * group. Absent in snapshots saved before accounts existed.
+   */
+  readonly accounts?: PullRequestAccounts | undefined;
   readonly providers: PullRequestListResult["providers"];
   readonly entries: ReadonlyArray<EnvironmentPullRequestEntry>;
   readonly errors: ReadonlyArray<EnvironmentPullRequestError>;
@@ -705,6 +774,7 @@ export function mergePullRequestLists(
 ): MergedPullRequestList | null {
   if (answers.length === 0) return null;
   const viewers: Record<string, string> = {};
+  const accounts: Record<string, string> = {};
   const truncatedEnvironments: string[] = [];
   const providers = new Map<string, PullRequestListResult["providers"][number]>();
   const entries: EnvironmentPullRequestEntry[] = [];
@@ -714,6 +784,9 @@ export function mergePullRequestLists(
   for (const [environmentId, answer] of answers) {
     for (const [host, login] of Object.entries(answer.viewers)) {
       viewers[`${environmentId} ${host}`] = login;
+    }
+    for (const [projectId, login] of Object.entries(answer.accounts ?? {})) {
+      accounts[`${environmentId}:${projectId}`] = login;
     }
     for (const provider of answer.providers) {
       const held = providers.get(provider.host);
@@ -739,6 +812,7 @@ export function mergePullRequestLists(
   }
   return {
     viewers,
+    accounts,
     providers: [...providers.values()],
     entries: entries.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     errors,
@@ -806,6 +880,8 @@ const decodeSnapshot = Schema.decodeUnknownOption(
       // Per environment here, unlike the wire shape, which is per repository within one.
       nextCursors: Schema.Record(Schema.String, PullRequestListResult.fields.nextCursors),
       truncatedEnvironments: Schema.Array(Schema.String),
+      // Merged form, keyed by environment and project like the groups.
+      accounts: Schema.optional(Schema.Record(Schema.String, Schema.String)),
     }),
     // Optional so a snapshot written before the partitions existed still hydrates the feed.
     partitions: Schema.optional(
@@ -1073,7 +1149,7 @@ export function rankPullRequestsBlockedOnReviewer<Entry extends PullRequestListE
   return rankByTierThenRecency(entries, (entry) => (entry.state === "open" ? 0 : 1));
 }
 
-/** Keeps authored work first while applying the selected ordering inside every involvement group. */
+/** Keeps the groups in their order while applying the selected ordering inside every group. */
 export function sortPullRequestGroups<Entry extends PullRequestListEntry>(
   groups: ReadonlyArray<PullRequestGroup<Entry>>,
   sort: PullRequestListSort,
@@ -1091,10 +1167,15 @@ export function sortPullRequestGroups<Entry extends PullRequestListEntry>(
   }
   if (sort === "blocked") {
     if (searchText.trim().length > 0) return groups;
-    const role = (key: PullRequestGroupKey) =>
-      key === "others" ? involvement : key === "authored" ? "authored" : "reviewing";
+    // A project group mixes involvements, so like Others it ranks by the filter the reader chose.
+    const role = (group: PullRequestGroup<Entry>) =>
+      group.dimension === "project" || group.key === "others"
+        ? involvement
+        : group.key === "authored"
+          ? "authored"
+          : "reviewing";
     return groups.map((group) => {
-      const groupRole = role(group.key);
+      const groupRole = role(group);
       if (groupRole === "all") return group;
       const rank =
         groupRole === "authored"

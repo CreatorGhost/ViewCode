@@ -149,6 +149,54 @@ describe("DesktopUpdates", () => {
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
+  it.effect("sends ad-hoc signed macOS builds to the release page instead of Squirrel", () => {
+    const githubFeed = "provider: github\nowner: CreatorGhost\nrepo: ViewCode\n";
+    const configuredState = (options: {
+      readonly appPackageJson?: string;
+      readonly appUpdateYml?: string;
+    }) => {
+      const harness = makeHarness({ env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" }, ...options });
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          harness.emit("update-available", { version: "1.2.4" });
+          yield* flushCallbacks;
+          const download = yield* updates.download;
+          return { download, harness };
+        }),
+      ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+    };
+
+    return Effect.gen(function* () {
+      const adHoc = yield* configuredState({
+        appPackageJson: '{"t3codeMacSigning":"ad-hoc"}',
+        appUpdateYml: githubFeed,
+      });
+      assert.equal(adHoc.download.state.manualUpdate, true);
+      assert.equal(adHoc.download.state.status, "available");
+      assert.equal(adHoc.download.accepted, true);
+      assert.equal(adHoc.download.completed, false);
+      assert.deepEqual(adHoc.harness.openedUrls, [
+        "https://github.com/CreatorGhost/ViewCode/releases/tag/v1.2.4",
+      ]);
+      assert.equal(adHoc.harness.downloadCount(), 0);
+
+      const developerId = yield* configuredState({
+        appPackageJson: '{"t3codeMacSigning":"developer-id"}',
+        appUpdateYml: githubFeed,
+      });
+      assert.equal(developerId.download.state.manualUpdate, false);
+      assert.deepEqual(developerId.harness.openedUrls, []);
+      assert.equal(developerId.harness.downloadCount(), 1);
+
+      // Builds from before the signing marker keep installing automatically.
+      const unmarked = yield* configuredState({ appUpdateYml: githubFeed });
+      assert.equal(unmarked.download.state.manualUpdate, false);
+      assert.equal(unmarked.harness.downloadCount(), 1);
+    });
+  });
+
   it.effect("enables nightly full changelog release notes and broadcasts summaries", () => {
     const harness = makeHarness();
 

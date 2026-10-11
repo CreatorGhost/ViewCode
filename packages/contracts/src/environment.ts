@@ -159,6 +159,18 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server understands thread.pull-request.watch and wakes agents on pull request changes. */
   threadPullRequestWatch: Schema.optionalKey(Schema.Boolean),
   pullRequestStackActions: Schema.optionalKey(Schema.Boolean),
+  /** Server understands pullRequests.startReview: an agent review in a new, linked thread. */
+  pullRequestAgentReview: Schema.optionalKey(Schema.Boolean),
+  /** Server understands review.startLocal (and the review_local_changes agent tool). */
+  localAgentReview: Schema.optionalKey(Schema.Boolean),
+  /** Server understands `incremental` and `basedOn` when starting a review. */
+  incrementalAgentReview: Schema.optionalKey(Schema.Boolean),
+  /** Server keeps findings' ratings (`review.rateFinding`) and shows them to later reviews. */
+  reviewFindingRatings: Schema.optionalKey(Schema.Boolean),
+  /** Server records fix sessions and undoes them (`review.undoFixes`). */
+  reviewFixUndo: Schema.optionalKey(Schema.Boolean),
+  /** Server learns an account's review style from its own reviews (`review.learnStyle`). */
+  learnedReviewStyle: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows
       foreground runs, pre-update servers). */

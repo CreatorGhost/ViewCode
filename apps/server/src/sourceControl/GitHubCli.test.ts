@@ -14,6 +14,7 @@ import { VcsProcessExitError, VcsProcessSpawnError } from "@t3tools/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubCli from "./GitHubCli.ts";
+import { gitHubCommandTarget } from "./gitHubAccountRouting.ts";
 import * as GitHubGraphQlBudget from "./githubGraphQlBudget.ts";
 import * as SourceControlRateLimit from "./SourceControlRateLimit.ts";
 
@@ -37,13 +38,34 @@ const isBudgetReading = (input: VcsProcess.VcsProcessInput) =>
   input.args[1] === "graphql" &&
   input.args.at(-1)?.includes("rateLimit");
 
+const isAuthStatus = (input: VcsProcess.VcsProcessInput) =>
+  input.args[0] === "auth" && input.args[1] === "status";
+
+const authStatusOutput = (
+  accounts: ReadonlyArray<{ readonly login: string; readonly active: boolean }>,
+  host = "github.com",
+) =>
+  processOutput(
+    JSON.stringify({
+      hosts: {
+        [host]: accounts.map((account) => ({ state: "success", host, ...account })),
+      },
+    }),
+  );
+
 const mockRun = vi.fn<VcsProcess.VcsProcess["Service"]["run"]>();
 
-// Budget readings are answered here, so `mockRun` sees only the commands under test.
+// Budget readings and a one-account sign-in are answered here, so `mockRun` sees only the
+// commands under test.
 const layer = GitHubCli.layer.pipe(
   Layer.provide(
     Layer.mock(VcsProcess.VcsProcess)({
-      run: (input) => (isBudgetReading(input) ? Effect.succeed(quotaOutput()) : mockRun(input)),
+      run: (input) =>
+        isBudgetReading(input)
+          ? Effect.succeed(quotaOutput())
+          : isAuthStatus(input)
+            ? Effect.succeed(authStatusOutput([{ login: "octocat", active: true }]))
+            : mockRun(input),
     }),
   ),
 );
@@ -939,4 +961,224 @@ describe("GitHubCli.layer", () => {
       expect(mockRun).toHaveBeenCalledTimes(2);
     }).pipe(Effect.provide(layer)),
   );
+});
+
+describe("GitHubCli account routing", () => {
+  const TOKEN = "gho_freelance_secret";
+  const budgetLayers = Layer.merge(GitHubGraphQlBudget.layer, SourceControlRateLimit.layer);
+  const notVisible = (input: VcsProcess.VcsProcessInput) =>
+    new VcsProcessExitError({
+      operation: input.operation,
+      command: "gh",
+      cwd: input.cwd,
+      exitCode: 1,
+      failureKind: "command-failed",
+      detail: "Process exited with a non-zero status.",
+    });
+
+  /**
+   * A machine signed in to github.com as `main` (active) and possibly `freelance`, where
+   * `visible` says which accounts can see each owner's repositories.
+   */
+  const fakeGh = (options: {
+    readonly accounts: ReadonlyArray<string>;
+    readonly visible: Record<string, ReadonlyArray<string>>;
+  }) => {
+    const calls: Array<{ readonly args: ReadonlyArray<string>; readonly as: string }> = [];
+    const lookups: Array<ReadonlyArray<string>> = [];
+    const run: VcsProcess.VcsProcess["Service"]["run"] = (input) => {
+      if (isBudgetReading(input)) return Effect.succeed(quotaOutput());
+      if (input.command === "git") {
+        return Effect.succeed(
+          input.args[0] === "remote"
+            ? processOutput("origin\tgit@github.com:acme/web.git (fetch)\n")
+            : { ...processOutput(""), exitCode: ChildProcessSpawner.ExitCode(1) },
+        );
+      }
+      if (isAuthStatus(input)) {
+        lookups.push(input.args);
+        return Effect.succeed(
+          authStatusOutput(
+            options.accounts.map((login, index) => ({ login, active: index === 0 })),
+          ),
+        );
+      }
+      if (input.args[0] === "auth" && input.args[1] === "token") {
+        lookups.push(input.args);
+        return Effect.succeed(processOutput(`${TOKEN}\n`));
+      }
+      const as = input.env?.GH_TOKEN === TOKEN ? "freelance" : "main";
+      calls.push({ args: input.args, as });
+      const owner = gitHubCommandTarget({
+        args: input.args,
+        stdin: input.stdin,
+        defaultHost: "github.com",
+      })?.owner;
+      return (options.visible[owner ?? "acme"] ?? []).includes(as)
+        ? Effect.succeed(processOutput("[]"))
+        : Effect.fail(notVisible(input));
+    };
+    const ranAs = () => calls.splice(0).map((call) => call.as);
+    return { calls, lookups, run, ranAs };
+  };
+  const listAcme = (repository = "web") => ({
+    cwd: "/acme",
+    args: ["pr", "list", "--repo", `github.com/acme/${repository}`, "--json", "number"],
+  });
+
+  it.effect(
+    "reads a repository only another account can see as that account, and remembers it",
+    () =>
+      Effect.gen(function* () {
+        const fake = fakeGh({
+          accounts: ["main", "freelance"],
+          visible: { acme: ["freelance"], mine: ["main"] },
+        });
+        const gh = yield* GitHubCli.make.pipe(
+          Effect.provideService(VcsProcess.VcsProcess, { run: fake.run }),
+        );
+
+        yield* gh.execute(listAcme());
+        // The active account is asked first; the other only once it could not answer.
+        const args = fake.calls.map((call) => call.args);
+        assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+        assert.deepStrictEqual(fake.lookups.at(-1), [
+          "auth",
+          "token",
+          "--hostname",
+          "github.com",
+          "--user",
+          "freelance",
+        ]);
+        assert.strictEqual(
+          yield* gh.accountFor({ host: "github.com", repository: "acme/web" }),
+          "freelance",
+        );
+        // A checkout names its owner through its remotes, for a caller holding only the path.
+        assert.strictEqual(yield* gh.accountFor({ host: "github.com", cwd: "/acme" }), "freelance");
+
+        // The owner's other repositories, and the checkout's own commands, go straight to it.
+        yield* gh.execute(listAcme("api"));
+        yield* gh.execute({ cwd: "/acme", args: ["pr", "create", "--title", "x"] });
+        assert.deepStrictEqual(fake.ranAs(), ["freelance", "freelance"]);
+
+        // A repository the active account sees is untouched.
+        yield* gh.execute({
+          cwd: "/mine",
+          args: ["pr", "list", "--repo", "github.com/mine/app", "--json", "number"],
+        });
+        assert.deepStrictEqual(fake.ranAs(), ["main"]);
+        assert.isNull(yield* gh.accountFor({ host: "github.com", repository: "mine/app" }));
+
+        // The token travels only in the child's environment.
+        for (const command of [...args, ...fake.lookups]) {
+          assert.notInclude(command.join(" "), TOKEN);
+        }
+
+        // Remembered for a while, so newly granted access or a sign-out takes effect.
+        yield* TestClock.adjust("10 minutes");
+        yield* gh.execute(listAcme());
+        assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+      }).pipe(Effect.provide(budgetLayers)),
+  );
+
+  it.effect("does not retry writes as another account", () =>
+    Effect.gen(function* () {
+      const fake = fakeGh({ accounts: ["main", "freelance"], visible: { acme: ["freelance"] } });
+      const gh = yield* GitHubCli.make.pipe(
+        Effect.provideService(VcsProcess.VcsProcess, { run: fake.run }),
+      );
+      const error = yield* gh
+        .execute({ cwd: "/acme", args: ["pr", "merge", "1", "--repo", "github.com/acme/web"] })
+        .pipe(Effect.flip);
+      assert.strictEqual(error._tag, "GitHubCliCommandError");
+      assert.deepStrictEqual(fake.ranAs(), ["main"]);
+      assert.deepStrictEqual(fake.lookups, []);
+    }).pipe(Effect.provide(budgetLayers)),
+  );
+
+  it.effect("fails as before with one account", () =>
+    Effect.gen(function* () {
+      const fake = fakeGh({ accounts: ["main"], visible: {} });
+      const gh = yield* GitHubCli.make.pipe(
+        Effect.provideService(VcsProcess.VcsProcess, { run: fake.run }),
+      );
+      const error = yield* gh.execute(listAcme()).pipe(Effect.flip);
+      assert.strictEqual(error._tag, "GitHubCliCommandError");
+      assert.deepStrictEqual(fake.ranAs(), ["main"]);
+      assert.isFalse(fake.lookups.some((args) => args[1] === "token"));
+      assert.isNull(yield* gh.accountFor({ host: "github.com", repository: "acme/web" }));
+    }).pipe(Effect.provide(budgetLayers)),
+  );
+
+  it.effect("leaves an owner no account can see on the active account for a while", () =>
+    Effect.gen(function* () {
+      const fake = fakeGh({ accounts: ["main", "freelance"], visible: {} });
+      const gh = yield* GitHubCli.make.pipe(
+        Effect.provideService(VcsProcess.VcsProcess, { run: fake.run }),
+      );
+      yield* gh.execute(listAcme()).pipe(Effect.flip);
+      assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+      yield* gh.execute(listAcme()).pipe(Effect.flip);
+      assert.deepStrictEqual(fake.ranAs(), ["main"]);
+      yield* TestClock.adjust("5 minutes");
+      yield* gh.execute(listAcme()).pipe(Effect.flip);
+      assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+    }).pipe(Effect.provide(budgetLayers)),
+  );
+});
+
+describe("gitHubCommandTarget", () => {
+  const target = (args: ReadonlyArray<string>, stdin?: string) =>
+    gitHubCommandTarget({ args, stdin, defaultHost: "github.com" });
+
+  it("finds the owner however a command names its repository", () => {
+    assert.deepStrictEqual(target(["pr", "view", "1", "--repo", "ghe.corp/Acme/web"]), {
+      host: "ghe.corp",
+      owner: "acme",
+      read: true,
+    });
+    assert.deepStrictEqual(target(["api", "--hostname", "github.com", "repos/acme/web/pulls/1"]), {
+      host: "github.com",
+      owner: "acme",
+      read: true,
+    });
+    assert.deepStrictEqual(
+      target(
+        ["api", "graphql", "--hostname", "github.com", "--input", "-"],
+        JSON.stringify({ query: "query Q { x }", variables: { owner: "acme", name: "web" } }),
+      ),
+      { host: "github.com", owner: "acme", read: true },
+    );
+    assert.deepStrictEqual(target(["pr", "list", "--json", "number"]), {
+      host: "github.com",
+      owner: null,
+      read: true,
+    });
+  });
+
+  it("tells writes from reads", () => {
+    assert.isFalse(target(["pr", "merge", "1", "--repo", "acme/web"])?.read);
+    assert.isFalse(
+      target(["api", "--method", "POST", "--hostname", "github.com", "repos/acme/web/issues"])
+        ?.read,
+    );
+    assert.isFalse(
+      target(
+        ["api", "graphql", "--input", "-"],
+        JSON.stringify({ query: "mutation M { x }", variables: { owner: "acme" } }),
+      )?.read,
+    );
+  });
+
+  it("names no account for host-wide commands or several owners", () => {
+    assert.isNull(target(["api", "user", "--hostname", "github.com"]));
+    assert.isNull(target(["auth", "token", "--hostname", "github.com"]));
+    assert.isNull(
+      target(
+        ["api", "graphql", "--input", "-"],
+        JSON.stringify({ query: "query { x }", variables: { q: "repo:acme/web repo:mine/app" } }),
+      ),
+    );
+  });
 });

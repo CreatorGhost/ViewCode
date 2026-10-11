@@ -205,8 +205,10 @@ function isAzureDevOpsHost(host: string): boolean {
   );
 }
 
+// Only Bitbucket Cloud: the provider speaks the Cloud API, which Data Center does not serve, and
+// a Data Center `/scm/{project}/{repo}` path would be read as an unrelated Cloud repository.
 function isBitbucketHost(host: string): boolean {
-  return host === "bitbucket.org" || hasDnsLabel(host, "bitbucket");
+  return host === "bitbucket.org";
 }
 
 export function detectSourceControlProviderFromRemoteUrl(
@@ -259,7 +261,7 @@ export function detectSourceControlProviderFromRemoteUrl(
   if (isBitbucketHost(hostname)) {
     return {
       kind: "bitbucket",
-      name: hostname === "bitbucket.org" ? "Bitbucket" : "Bitbucket Self-Hosted",
+      name: "Bitbucket",
       baseUrl: toBaseUrl(host),
     };
   }

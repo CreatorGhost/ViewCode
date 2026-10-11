@@ -352,17 +352,26 @@ export const OpenInPicker = memo(function OpenInPicker({
   return (
     <Group chip aria-label="Open in editor">
       <Button
-        aria-label={compact ? "Open file in preferred editor" : undefined}
+        aria-label={
+          compact
+            ? primaryOption
+              ? `Open in ${primaryOption.label}`
+              : "Open in editor"
+            : undefined
+        }
+        title={primaryOption ? `Open in ${primaryOption.label}` : undefined}
         size="chip"
         variant="chip"
         disabled={!preferredEditor || !openInCwd || remote.mode === "remote-unavailable"}
         onClick={() => openInEditor(preferredEditor)}
       >
-        {primaryOption?.Icon && (
+        {primaryOption?.Icon ? (
           <primaryOption.Icon
             aria-hidden="true"
             className={cn("size-3.5", getOpenInIconClass(primaryOption.kind))}
           />
+        ) : (
+          <SquareArrowOutUpRightIcon aria-hidden="true" className="size-3.5" />
         )}
         <span
           className={

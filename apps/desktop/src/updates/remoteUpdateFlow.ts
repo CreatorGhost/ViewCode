@@ -64,6 +64,15 @@ export function nextRemoteDesktopUpdateStep(
     return { action: "wait" };
   }
   if (state.status === "available") {
+    // Downloading a manual update opens a browser on the desktop machine,
+    // which a remote run must not do.
+    if (state.manualUpdate) {
+      return {
+        action: "done",
+        outcome: "failed",
+        reason: `This desktop build cannot install updates itself. Download ${state.availableVersion ?? "the new version"} from GitHub on that computer.`,
+      };
+    }
     if (attempts.downloads >= MAX_REMOTE_UPDATE_DOWNLOADS) {
       return {
         action: "done",

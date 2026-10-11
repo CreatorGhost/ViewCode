@@ -230,6 +230,7 @@ import { SidebarProjectHoverCard } from "./sidebar/SidebarProjectHoverCard";
 import { threadStatusLabel } from "./sidebar/sidebarHoverCard.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { useSwitchProjectScope } from "./sidebar/useSwitchProjectScope";
 import { useSidebarProjectGroups } from "./sidebar/useSidebarProjectGroups";
 import { useUpdateProjectGroup } from "./sidebar/useUpdateProjectGroup";
 import { openProjectColorDialog } from "./ProjectColorPicker";
@@ -1980,6 +1981,7 @@ export default function Sidebar() {
   // sidebar (Settings) and app restarts keep it.
   const projectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
+  const switchProject = useSwitchProjectScope();
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
@@ -3655,7 +3657,12 @@ export default function Sidebar() {
                       return;
                     }
                     if (!item) return;
-                    setProjectScopeKey(item.value === "all" ? null : item.value);
+                    const group =
+                      item.value === "all"
+                        ? null
+                        : projectGroups.find((project) => project.projectKey === item.value);
+                    if (group === undefined) setProjectScopeKey(item.value);
+                    else switchProject(group);
                   }}
                 >
                   <ComboboxTrigger

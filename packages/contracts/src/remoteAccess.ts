@@ -114,6 +114,11 @@ export const ViewCodeRelayState = Schema.Struct({
   reason: Schema.optional(TrimmedNonEmptyString),
   /** The relay's https origin: what the phone's pairing QR points at. */
   httpBaseUrl: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * While connecting, reconnecting or blocked: when this run of attempts
+   * began (epoch ms, server clock), so a client can say how long it has been.
+   */
+  tryingSince: Schema.optional(Schema.Number),
 });
 export type ViewCodeRelayState = typeof ViewCodeRelayState.Type;
 
@@ -168,6 +173,8 @@ export type ViewCodeRelaySetupStatus = typeof ViewCodeRelaySetupStatus.Type;
 export const ViewCodeRelaySetupState = Schema.Struct({
   status: ViewCodeRelaySetupStatus,
   step: Schema.optional(ViewCodeRelaySetupStep),
+  /** While running: when `step` began (epoch ms, server clock), for the elapsed time. */
+  stepStartedAt: Schema.optional(Schema.Number),
   /** While signing in: the device-flow page and code wrangler printed. */
   signIn: Schema.optional(
     Schema.Struct({

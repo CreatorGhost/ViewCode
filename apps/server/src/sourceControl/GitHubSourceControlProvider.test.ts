@@ -262,6 +262,32 @@ it("accepts active authenticated GitHub accounts when another account fails", ()
   );
 });
 
+it("lists every account signed in to the host, the active one first", () => {
+  const account = (login: string, host: string, active = false, state = "success") => ({
+    state,
+    active,
+    host,
+    login,
+  });
+  const auth = GitHubSourceControlProvider.discovery.parseAuth(
+    processResult(
+      JSON.stringify({
+        hosts: {
+          "github.com": [
+            account("work-user", "github.com"),
+            account("active-user", "github.com", true),
+            account("stale-user", "github.com", false, "error"),
+          ],
+          "ghe.example.com": [account("enterprise-user", "ghe.example.com", true)],
+        },
+      }),
+    ),
+  );
+
+  // Another host's account and one that cannot authenticate have no settings to show here.
+  assert.deepStrictEqual(auth.accounts, ["active-user", "work-user"]);
+});
+
 it("parses GitHub auth JSON from stdout when stderr has warnings", () => {
   const auth = GitHubSourceControlProvider.discovery.parseAuth(
     processResult(
@@ -446,13 +472,13 @@ describe("refineUnknownRemote", () => {
     );
   });
 
-  it("matches the host when the remote carries a port", () => {
+  it("matches the host when the remote carries an SSH port, which stays out of the web URL", () => {
     assert.deepStrictEqual(
       refine(
         "ssh://git@Git.Corp.Example:2222/team/app.git",
         ghAuthStatus([{ host: "git.corp.example", state: "success" }]),
       ),
-      { kind: "github", name: "GitHub Self-Hosted", baseUrl: "https://git.corp.example:2222" },
+      { kind: "github", name: "GitHub Self-Hosted", baseUrl: "https://git.corp.example" },
     );
   });
 

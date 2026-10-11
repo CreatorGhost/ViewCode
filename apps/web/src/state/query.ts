@@ -17,7 +17,12 @@ export interface EnvironmentQueryView<A, E = unknown> {
   readonly refresh: () => void;
 }
 
-export function formatEnvironmentQueryError(cause: Cause.Cause<unknown>): string {
+/**
+ * The message to show for a failed read, or null when it was only cancelled: an interrupt is a
+ * read that stopped, not one that failed, and squashing it yields "All fibers interrupted".
+ */
+export function formatEnvironmentQueryError(cause: Cause.Cause<unknown>): string | null {
+  if (Cause.hasInterruptsOnly(cause)) return null;
   const error = Cause.squash(cause);
   return error instanceof Error && error.message.trim().length > 0
     ? error.message

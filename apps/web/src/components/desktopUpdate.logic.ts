@@ -2,7 +2,7 @@ import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/con
 
 export type DesktopUpdateButtonAction = "download" | "install" | "none";
 
-const DESKTOP_RELEASE_HISTORY_URL = "https://github.com/pingdotgg/t3code/releases";
+const DESKTOP_RELEASE_HISTORY_URL = "https://github.com/CreatorGhost/ViewCode/releases";
 const DESKTOP_RELEASE_TAG_URL = `${DESKTOP_RELEASE_HISTORY_URL}/tag`;
 
 /**
@@ -72,6 +72,10 @@ export function getArm64IntelBuildWarningDescription(state: DesktopUpdateState):
 
 export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string {
   if (state.status === "available") {
+    // The desktop app opens the release page for this download.
+    if (state.manualUpdate) {
+      return `Version ${state.availableVersion ?? "update"} is available. Download it from GitHub.`;
+    }
     return `Update ${state.availableVersion ?? "available"} ready to download`;
   }
   if (state.status === "downloading") {
