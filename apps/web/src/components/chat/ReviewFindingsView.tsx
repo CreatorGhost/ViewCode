@@ -667,6 +667,7 @@ function ReviewFindingsViewContent({
       {fixing !== null ? (
         <ReviewFixDialog
           reviewThreadRef={reviewThreadRef}
+          findingsActivityId={source.activityId}
           cardKey={cardKey}
           target={findings.target}
           items={fixing}

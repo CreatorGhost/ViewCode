@@ -2,6 +2,7 @@ import {
   EventId,
   ProjectId,
   REVIEW_FINDINGS_ACTIVITY_KIND,
+  REVIEW_FIX_STARTED_ACTIVITY_KIND,
   ThreadId,
   TurnId,
   type ReviewFindingsTarget,
@@ -16,6 +17,7 @@ import {
   openReviewFindingCount,
   reviewFindingEntries,
   reviewFixCandidates,
+  reviewFixUndo,
   reviewPostOverallComment,
   reviewRereviewBasis,
   reviewRereviewSummary,
@@ -621,5 +623,37 @@ describe("reviewRereviewSummary", () => {
     );
     expect(reviewRereviewSummary({ incremental: true })).toBe("Re-review");
     expect(reviewRereviewSummary({})).toBeNull();
+  });
+});
+
+describe("reviewFixUndo", () => {
+  const fixStarted = {
+    kind: REVIEW_FIX_STARTED_ACTIVITY_KIND,
+    payload: { reviewThreadId: "review", turnCountBefore: 0, timelineBypass: true },
+  };
+  const checkpoints = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({ checkpointTurnCount: index + 1 }));
+
+  it("takes back every turn since the fix started", () => {
+    expect(reviewFixUndo({ activities: [fixStarted], checkpoints: checkpoints(3) })).toEqual({
+      turnCount: 0,
+      undoneTurns: 3,
+    });
+    expect(reviewFixUndo({ activities: [fixStarted], checkpoints: [] })).toEqual({
+      turnCount: 0,
+      undoneTurns: 0,
+    });
+  });
+
+  it("offers nothing on a session not started to fix findings", () => {
+    expect(
+      reviewFixUndo({ activities: [{ kind: "tool.completed", payload: {} }], checkpoints: [] }),
+    ).toBeNull();
+    expect(
+      reviewFixUndo({
+        activities: [{ kind: REVIEW_FIX_STARTED_ACTIVITY_KIND, payload: {} }],
+        checkpoints: checkpoints(1),
+      }),
+    ).toBeNull();
   });
 });

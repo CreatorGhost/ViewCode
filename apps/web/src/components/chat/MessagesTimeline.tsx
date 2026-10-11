@@ -300,6 +300,7 @@ interface TimelineRowSharedState {
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
+  undoReviewFixes: UndoReviewFixesAction | null;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
   onRunShellCommand: ((command: string) => void) | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -452,6 +453,8 @@ interface MessagesTimelineProps {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   supportsConversationRollback: boolean;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
+  /** On a session started to fix review findings: undoing them, offered on the fix's message. */
+  undoReviewFixes?: UndoReviewFixesAction | null;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onRunShellCommand?: (command: string) => void;
   isRevertingCheckpoint: boolean;
@@ -524,6 +527,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenTurnDiff,
   supportsConversationRollback,
   onRevertToTurnCount,
+  undoReviewFixes = null,
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
   onRunShellCommand,
   isRevertingCheckpoint,
@@ -1185,6 +1189,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       activeThreadEnvironmentId,
       onRevertToTurnCount,
+      undoReviewFixes,
       onUseArtifactTemplate,
       onRunShellCommand,
       onImageExpand,
@@ -1222,6 +1227,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       activeThreadEnvironmentId,
       onRevertToTurnCount,
+      undoReviewFixes,
       onUseArtifactTemplate,
       onRunShellCommand,
       onImageExpand,
@@ -2344,6 +2350,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             </TooltipPopup>
           </Tooltip>
           <div className="flex items-center gap-0.5">
+            {typeof revertTurnCount === "number" &&
+              revertTurnCount === ctx.undoReviewFixes?.turnCount && (
+                <UndoReviewFixesButton action={ctx.undoReviewFixes} />
+              )}
             {typeof revertTurnCount === "number" && (
               <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
             )}
@@ -2416,6 +2426,28 @@ export function resolvePreviewAnnotationImage(input: {
     ) ??
     input.previewImages[input.annotationRecordIds.indexOf(input.record.contextId)] ??
     null
+  );
+}
+
+/** Undoing what a review fix session changed, on the message that started the fix. */
+export interface UndoReviewFixesAction {
+  /** The checkpoint the undo returns to, which the fix's own message reverts to. */
+  readonly turnCount: number;
+  readonly onUndo: () => void;
+}
+
+function UndoReviewFixesButton({ action }: { action: UndoReviewFixesAction }) {
+  const activity = use(TimelineRowActivityCtx);
+  return (
+    <Button
+      type="button"
+      size="xs"
+      variant="ghost"
+      disabled={activity.isRevertingCheckpoint || activity.isWorking}
+      onClick={action.onUndo}
+    >
+      Undo review fixes
+    </Button>
   );
 }
 

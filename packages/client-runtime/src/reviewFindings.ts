@@ -1,6 +1,8 @@
 import {
   type AgentReviewMode,
   REVIEW_FINDINGS_ACTIVITY_KIND,
+  REVIEW_FIX_STARTED_ACTIVITY_KIND,
+  ReviewFixStartedActivityPayload,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   type PullRequestRef,
@@ -13,6 +15,8 @@ import {
   type ThreadId,
   type ThreadPullRequestKey,
 } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import {
   type PostedReviewFinding,
   readReviewFindings,
@@ -456,4 +460,31 @@ export function reviewFixCandidates<T extends FixCandidateThread>(input: {
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   return { candidates, preselectedId: candidates.length === 1 ? candidates[0]!.id : null };
+}
+
+const decodeFixStarted = Schema.decodeUnknownOption(ReviewFixStartedActivityPayload);
+
+/**
+ * What undoing a review fix session takes back: the checkpoint before the fix, which the server
+ * recorded when it started the session, and how many turns lie past it. Null for a session not
+ * started to fix findings.
+ */
+export function reviewFixUndo(thread: {
+  readonly activities: ReadonlyArray<Pick<OrchestrationThreadActivity, "kind" | "payload">>;
+  readonly checkpoints: ReadonlyArray<{ readonly checkpointTurnCount: number }>;
+}): { readonly turnCount: number; readonly undoneTurns: number } | null {
+  const marker = thread.activities.findLast(
+    (activity) => activity.kind === REVIEW_FIX_STARTED_ACTIVITY_KIND,
+  );
+  const started =
+    marker === undefined ? undefined : Option.getOrUndefined(decodeFixStarted(marker.payload));
+  if (started === undefined) return null;
+  const current = thread.checkpoints.reduce(
+    (latest, checkpoint) => Math.max(latest, checkpoint.checkpointTurnCount),
+    0,
+  );
+  return {
+    turnCount: started.turnCountBefore,
+    undoneTurns: Math.max(0, current - started.turnCountBefore),
+  };
 }

@@ -221,6 +221,8 @@ import { RightPanelTabs } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
 import type { ReviewFixInChatRequest } from "./chat/ReviewFindingsView";
 import { ReviewPanel } from "./chat/ReviewPanel";
+import { REVIEW_FIX_UNDO_OPEN_EVENT, ReviewFixUndoDialog } from "./chat/ReviewFixUndoDialog";
+import { reviewFixUndo } from "@t3tools/client-runtime/review-findings";
 import { ActiveAgentsBar } from "./agents/ActiveAgentsBar";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
@@ -382,7 +384,7 @@ import { isTimelineScrollTarget } from "./chat/timelineScrollTarget";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
-import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { MessagesTimeline, type UndoReviewFixesAction } from "./chat/MessagesTimeline";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
@@ -2933,6 +2935,33 @@ export default function ChatView(props: ChatViewProps) {
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const latestCheckpointCompletedAt = activeThread?.checkpoints.at(-1)?.completedAt ?? null;
+  // A session the server started to fix review findings can be put back to before the fix.
+  const canUndoReviewFixes = serverConfig?.environment.capabilities.reviewFixUndo === true;
+  const activeCheckpoints = activeThread?.checkpoints;
+  const reviewFixUndoState = useMemo(
+    () =>
+      canUndoReviewFixes && activeCheckpoints !== undefined
+        ? reviewFixUndo({ activities: threadActivities, checkpoints: activeCheckpoints })
+        : null,
+    [activeCheckpoints, canUndoReviewFixes, threadActivities],
+  );
+  const [undoReviewFixesThreadKey, setUndoReviewFixesThreadKey] = useState<string | null>(null);
+  const openUndoReviewFixes = useCallback(
+    () => setUndoReviewFixesThreadKey(routeThreadKey),
+    [routeThreadKey, setUndoReviewFixesThreadKey],
+  );
+  const undoReviewFixes = useMemo<UndoReviewFixesAction | null>(
+    () =>
+      reviewFixUndoState !== null && reviewFixUndoState.undoneTurns > 0
+        ? { turnCount: reviewFixUndoState.turnCount, onUndo: openUndoReviewFixes }
+        : null,
+    [openUndoReviewFixes, reviewFixUndoState],
+  );
+  useEffect(() => {
+    if (!splitPaneFocused || undoReviewFixes === null) return;
+    window.addEventListener(REVIEW_FIX_UNDO_OPEN_EVENT, openUndoReviewFixes);
+    return () => window.removeEventListener(REVIEW_FIX_UNDO_OPEN_EVENT, openUndoReviewFixes);
+  }, [openUndoReviewFixes, splitPaneFocused, undoReviewFixes]);
   const workspaceMutationId = useMemo(() => {
     const activityId = latestWorkspaceMutationId(threadActivities);
     return activityId === null && latestCheckpointCompletedAt === null
@@ -10118,6 +10147,7 @@ export default function ChatView(props: ChatViewProps) {
                 onRevertToTurnCount={
                   paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertTimelineTurn
                 }
+                undoReviewFixes={paintOnlyDisplayedTimeline ? null : undoReviewFixes}
                 isRevertingCheckpoint={!paintOnlyDisplayedTimeline && isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
                 onFileOpen={paintOnlyDisplayedTimeline ? noopHeldAttachment : openFileAttachment}
@@ -10671,6 +10701,15 @@ export default function ChatView(props: ChatViewProps) {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
+      {undoReviewFixesThreadKey === routeThreadKey &&
+      activeThreadRef !== null &&
+      reviewFixUndoState !== null ? (
+        <ReviewFixUndoDialog
+          threadRef={activeThreadRef}
+          undoneTurns={reviewFixUndoState.undoneTurns}
+          onClose={() => setUndoReviewFixesThreadKey(null)}
+        />
+      ) : null}
       <LinkPullRequestDialogHost />
       {expandedImage && (
         <ExpandedImageDialog

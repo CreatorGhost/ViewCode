@@ -70,6 +70,7 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  Undo2Icon,
   Columns2Icon,
   Volume2Icon,
 } from "lucide-react";
@@ -223,6 +224,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
+import { REVIEW_FIX_UNDO_OPEN_EVENT } from "./chat/ReviewFixUndoDialog";
+import { reviewFixUndo } from "@t3tools/client-runtime/review-findings";
 import { useSplitActions } from "../splitView/useSplitView";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -2102,6 +2105,23 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
+  }
+  const activeReviewFixUndo =
+    activeThread !== null && activeThreadServerConfig?.environment.capabilities.reviewFixUndo
+      ? reviewFixUndo(activeThread)
+      : null;
+  if (activeReviewFixUndo !== null && activeReviewFixUndo.undoneTurns > 0) {
+    actionItems.push({
+      kind: "action",
+      value: "action:undo-review-fixes",
+      searchTerms: ["undo", "review fixes", "revert", "fix session", "findings"],
+      title: "Undo review fixes",
+      icon: <Undo2Icon className={ITEM_ICON_CLASS} />,
+      // The focused chat asks before reverting.
+      run: async () => {
+        window.dispatchEvent(new Event(REVIEW_FIX_UNDO_OPEN_EVENT));
+      },
+    });
   }
   if (activeThread !== null && activeThread.kind !== "sidechat") {
     const thread = activeThread;
