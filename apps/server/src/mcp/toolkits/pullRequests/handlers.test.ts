@@ -1,10 +1,13 @@
 import {
   EnvironmentId,
+  EventId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationProjectShell,
+  type OrchestrationThread,
+  type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   type PullRequestRef,
   type ThreadPullRequestLink,
@@ -136,6 +139,8 @@ interface HarnessOptions {
   readonly project?: OrchestrationProjectShell | null;
   readonly reject?: (command: OrchestrationCommand) => OrchestrationCommandInvariantError | null;
   readonly authorship?: PullRequestAgentReview.PullRequestAuthorship;
+  /** The thread's activities, as a detail read filtered by kind returns them. */
+  readonly activities?: ReadonlyArray<OrchestrationThreadActivity>;
 }
 
 const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
@@ -160,6 +165,19 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       getThreadShellById: (threadId) =>
         Effect.succeed(threadId === THREAD_ID ? Option.fromNullishOr(thread) : Option.none()),
       getProjectShellById: () => Effect.succeed(Option.fromNullishOr(project)),
+      getThreadDetailById: (threadId, query) =>
+        Effect.succeed(
+          threadId === THREAD_ID && thread !== null
+            ? Option.some({
+                ...thread,
+                activities: (options.activities ?? []).filter(
+                  (activity) =>
+                    query?.activityKinds === undefined ||
+                    query.activityKinds.includes(activity.kind),
+                ),
+              } as unknown as OrchestrationThread)
+            : Option.none(),
+        ),
     }),
     Layer.mock(OrchestrationEngineService)({
       readEvents: () => Stream.empty,
@@ -286,6 +304,32 @@ describe("pull request toolkit handlers", () => {
             },
           },
         ]);
+      }),
+    );
+
+    it.effect("pins pull request findings to the commit the review started on", () =>
+      Effect.gen(function* () {
+        const started = (headSha: string): OrchestrationThreadActivity => ({
+          id: EventId.make(`started-${headSha}`),
+          tone: "info",
+          kind: "viewcode.review.started",
+          summary: "Review started",
+          payload: { headSha, timelineBypass: true },
+          turnId: null,
+          createdAt: "2026-08-20T00:00:00.000Z",
+        });
+        const harness = yield* makeHarness({
+          thread: makeThread([makeLink(7)]),
+          activities: [started("aaaaaaa"), started("bbbbbbb")],
+        });
+        yield* harness.call("submit_review_findings", report);
+        yield* harness.call("submit_review_findings", { ...report, target: "local" });
+        const [pullRequest, local] = yield* Ref.get(harness.commands);
+        expect(pullRequest).toMatchObject({ activity: { payload: { headSha: "bbbbbbb" } } });
+        // A local review has no pull request commit to pin to.
+        expect(
+          local?.type === "thread.activity.append" ? local.activity.payload : {},
+        ).not.toHaveProperty("headSha");
       }),
     );
 

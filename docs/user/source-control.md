@@ -187,9 +187,10 @@ thread's pull request from the panel, pick the mode, model and focus in its empt
 For a review of somebody else's pull request the findings are review comments instead: **Post
 comment** posts one, and **Post all** or **Post selected** posts several as one review, each time
 after you choose what to submit it as and write its overall comment. Posted findings link to the
-pull request. To have the agent write them the way you do, describe your style under **Your review
-style** in the GitHub entry of **Settings → Source control** (one per account; with several signed
-in, pick the account above it first).
+pull request. On GitHub they are posted on the commit the agent reviewed, so if the pull request
+changed since, GitHub may show them as outdated. To have the agent write them the way you do,
+describe your style under **Your review style** in the GitHub entry of **Settings → Source
+control** (one per account; with several signed in, pick the account above it first).
 
 On GitHub you can also let it learn from your own reviews: **Learn from my reviews** in the same
 place reads up to 40 of your recent review comments and review texts from the past year, as that

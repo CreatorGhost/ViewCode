@@ -234,8 +234,12 @@ export class PullRequestService extends Context.Service<
     readonly updateComment: (
       input: PullRequestCommentUpdateInput,
     ) => Effect.Effect<void, PullRequestError>;
+    /**
+     * `commitId` pins the review to the commit that was read rather than the current head; only
+     * GitHub takes one, and other hosts review the head as before.
+     */
     readonly submitReview: (
-      input: PullRequestSubmitReviewInput,
+      input: PullRequestSubmitReviewInput & { readonly commitId?: string | undefined },
     ) => Effect.Effect<void, PullRequestError>;
     readonly replyToThread: (
       input: PullRequestThreadReplyInput,
@@ -2202,6 +2206,7 @@ export const make = Effect.gen(function* () {
                 verdict: input.verdict,
                 body: input.body,
                 comments: input.comments,
+                ...(input.commitId === undefined ? {} : { commitId: input.commitId }),
               })
               .pipe(Effect.mapError(toPullRequestError("submitReview")));
           }),

@@ -519,6 +519,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   review over one comment on a line its diff does not show, so the server reads the diff first and
   puts such findings in the review's text. Unlike a fix, a post is recorded on the review thread
   (`viewcode.review.posted`), because posting twice is visible to other people.
+- A pull request review is pinned to a commit. The start reads the head from the detail, asks the
+  reviewer to review exactly that commit, and records it in a hidden `viewcode.review.started`
+  activity (outside any turn, `timelineBypass`), which `submit_review_findings` copies into the
+  findings as `headSha`. Reading the head when findings are recorded instead would name commits
+  pushed while the reviewer worked, which it never read. A post sends it as GitHub's `commit_id`
+  (other hosts ignore it), so comments stay on the lines that were read and the host shows them
+  outdated where those changed. Only the current diff can be read to place comments, so when the
+  head moved and the host refuses a line, the review is resent with every finding in its text.
 
 ### Side chats
 

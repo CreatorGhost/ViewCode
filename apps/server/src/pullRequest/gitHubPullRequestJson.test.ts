@@ -1431,6 +1431,19 @@ describe("review submission payload", () => {
       JSON.parse(buildReviewSubmissionJson({ verdict: "approve", body: "", comments: [] })),
     ).toEqual({ event: "APPROVE", body: "", comments: [] });
   });
+
+  it("pins the review to the commit that was read", () => {
+    expect(
+      JSON.parse(
+        buildReviewSubmissionJson({
+          verdict: "comment",
+          body: "",
+          comments: [],
+          commitId: "0123abcd",
+        }),
+      ),
+    ).toEqual({ commit_id: "0123abcd", event: "COMMENT", body: "", comments: [] });
+  });
 });
 
 describe("decodePullRequestFilesJson", () => {

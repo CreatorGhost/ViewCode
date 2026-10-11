@@ -759,6 +759,7 @@ export class GitHubPullRequestCli extends Context.Service<
       readonly verdict: PullRequestReviewVerdict;
       readonly body: string;
       readonly comments: ReadonlyArray<PullRequestReviewCommentDraft>;
+      readonly commitId?: string;
     }) => Effect.Effect<void, GitHubPullRequestCliError>;
 
     readonly replyToReviewThread: (input: {
@@ -2701,6 +2702,7 @@ export const make = Effect.gen(function* () {
             verdict: input.verdict,
             body: input.body,
             comments: input.comments,
+            ...(input.commitId === undefined ? {} : { commitId: input.commitId }),
           }),
         })
         .pipe(Effect.asVoid);

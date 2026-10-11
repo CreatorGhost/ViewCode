@@ -33,6 +33,9 @@ const SHARED_RULES = `## Ground rules
   \`glab mr view\`, \`glab mr diff\`; \`az repos pr show\`), or fetch the head into a temporary ref
   (\`git fetch <remote> <head-ref>:refs/viewcode/review/<n>\`) and read
   \`git diff <base>...refs/viewcode/review/<n>\`. Delete any temporary ref when you are done.
+- When the first message names a head commit, review exactly that commit. \`gh pr diff\` shows
+  the newest head, so if \`gh pr view --json headRefOid\` names another commit, fetch the head
+  ref and read \`git diff <base>...<commit>\` instead. Your findings are pinned to that commit.
 - Collect before judging: the description, the linked issue, existing review comments, CI status
   and the full diff. Do not repeat what a reviewer already said; build on it or disagree with it.
 - Follow the repository's own rules: read \`AGENTS.md\`, \`CLAUDE.md\` and \`CONTRIBUTING.md\` at the

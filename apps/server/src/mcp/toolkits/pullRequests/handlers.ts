@@ -3,6 +3,8 @@ import {
   EventId,
   pullRequestHostOf,
   REVIEW_FINDINGS_ACTIVITY_KIND,
+  REVIEW_STARTED_ACTIVITY_KIND,
+  ReviewStartedActivityPayload,
   type OrchestrationProjectShell,
   type OrchestrationThreadShell,
   type ReviewFindingsActivityPayload,
@@ -24,6 +26,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -175,6 +178,8 @@ export function reviewFindingsTarget(
   return { kind: "pull-request", ...normalizeThreadPullRequestKey(link), url: link.url };
 }
 
+const decodeReviewStarted = Schema.decodeUnknownOption(ReviewStartedActivityPayload);
+
 const VERDICT_LABELS: Record<ReviewFindingsActivityPayload["verdict"], string> = {
   approve: "approve",
   "approve-with-nits": "approve with nits",
@@ -186,6 +191,18 @@ const make = Effect.gen(function* () {
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const crypto = yield* Crypto.Crypto;
   const reviews = yield* PullRequestAgentReview.PullRequestAgentReview;
+
+  /** What the server recorded when it started the review in this thread; empty when it did not. */
+  const reviewStart = (threadId: ThreadId) =>
+    snapshots.getThreadDetailById(threadId, { activityKinds: [REVIEW_STARTED_ACTIVITY_KIND] }).pipe(
+      Effect.map((thread): ReviewStartedActivityPayload => {
+        const latest = Option.getOrUndefined(thread)?.activities.at(-1);
+        return latest === undefined
+          ? {}
+          : Option.getOrElse(decodeReviewStarted(latest.payload), () => ({}));
+      }),
+      Effect.orElseSucceed((): ReviewStartedActivityPayload => ({})),
+    );
 
   const commandId = (tag: string, threadId: ThreadId) =>
     crypto.randomUUIDv4.pipe(
@@ -362,7 +379,17 @@ const make = Effect.gen(function* () {
                   number: target.number,
                 }),
               ));
-        const payload: ReviewFindingsActivityPayload = { ...report, target, mode };
+        const started = yield* reviewStart(thread.id);
+        const payload: ReviewFindingsActivityPayload = {
+          ...report,
+          target,
+          mode,
+          // The commit the start asked for; the reviewer was told to review it even if the pull
+          // request moved on, so posting pins its comments there.
+          ...(target.kind === "pull-request" && started.headSha !== undefined
+            ? { headSha: started.headSha }
+            : {}),
+        };
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const count = report.findings.length;
         // Clients show only the latest findings activity, which is how a re-review replaces the

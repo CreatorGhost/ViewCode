@@ -6,10 +6,11 @@ import {
   PullRequestUnavailableError,
   ThreadId,
   type OrchestrationCommand,
+  type OrchestrationThread,
   type OrchestrationThreadShell,
+  type PullRequestDetail,
   type PullRequestDiffInput,
   type PullRequestDiffResult,
-  type PullRequestSubmitReviewInput,
   type ReviewFinding,
   type ReviewPostFindingsInput,
 } from "@t3tools/contracts";
@@ -96,20 +97,56 @@ const input = (overrides: Partial<ReviewPostFindingsInput> = {}): ReviewPostFind
   ...overrides,
 });
 
+const findingsActivity = (headSha: string | undefined) => ({
+  id: FINDINGS_ACTIVITY_ID,
+  tone: "info" as const,
+  kind: "viewcode.review.findings",
+  summary: "Review: request changes, 1 finding",
+  payload: {
+    verdict: "request-changes",
+    mergeConfidence: 2,
+    reviewEffort: 2,
+    findings: [],
+    needsChecking: [],
+    target: TARGET,
+    mode: "comment",
+    ...(headSha === undefined ? {} : { headSha }),
+  },
+  turnId: null,
+  createdAt: "2026-09-01T00:00:00.000Z",
+});
+
 const makeHarness = (
   options: {
     readonly submitFails?: PullRequestService.PullRequestError;
+    /** Refuse any review that carries line comments, the way a host refuses an unknown line. */
+    readonly refuseLineComments?: boolean;
     readonly diffFails?: boolean;
+    /** The head the findings were recorded against. */
+    readonly reviewedHeadSha?: string;
+    /** The pull request's head now. */
+    readonly currentHeadSha?: string;
   } = {},
 ) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
-    const reviews = yield* Ref.make<ReadonlyArray<PullRequestSubmitReviewInput>>([]);
+    const reviews = yield* Ref.make<
+      ReadonlyArray<Parameters<PullRequestService.PullRequestService["Service"]["submitReview"]>[0]>
+    >([]);
     const diffs = yield* Ref.make<ReadonlyArray<PullRequestDiffInput>>([]);
     const dependencies = Layer.mergeAll(
       Layer.mock(ProjectionSnapshotQuery)({
         getThreadShellById: (threadId) =>
           Effect.succeed(threadId === REVIEW_THREAD_ID ? Option.some(reviewThread) : Option.none()),
+        getThreadDetailById: (threadId) =>
+          Effect.succeed(
+            threadId === REVIEW_THREAD_ID
+              ? Option.some({
+                  id: REVIEW_THREAD_ID,
+                  activities: [findingsActivity(options.reviewedHeadSha)],
+                } as unknown as OrchestrationThread)
+              : Option.none(),
+          ),
       }),
       Layer.mock(OrchestrationEngineService)({
         readEvents: () => Stream.empty,
@@ -120,6 +157,10 @@ const makeHarness = (
       }),
       Layer.mock(PullRequestService.PullRequestService)({
         withRoutingCredential: (_reference, operation) => operation,
+        detail: () =>
+          options.currentHeadSha === undefined
+            ? Effect.fail(new PullRequestUnavailableError({ reason: "provider-unsupported" }))
+            : Effect.succeed({ headSha: options.currentHeadSha } as PullRequestDetail),
         diff: (request) =>
           Ref.update(diffs, (all) => [...all, request]).pipe(
             Effect.andThen(
@@ -131,7 +172,16 @@ const makeHarness = (
         submitReview: (request) =>
           Ref.update(reviews, (all) => [...all, request]).pipe(
             Effect.andThen(
-              options.submitFails === undefined ? Effect.void : Effect.fail(options.submitFails),
+              options.submitFails !== undefined
+                ? Effect.fail(options.submitFails)
+                : options.refuseLineComments === true && request.comments.length > 0
+                  ? Effect.fail(
+                      new PullRequestOperationError({
+                        operation: "submitReview",
+                        detail: "Line could not be resolved",
+                      }),
+                    )
+                  : Effect.void,
             ),
           ),
       }),
@@ -156,6 +206,7 @@ describe("ReviewFindingsPoster", () => {
           { key: "finding:2", placement: "body" },
           { key: "check:0", placement: "body" },
         ],
+        headMoved: false,
       });
       expect((yield* Ref.get(harness.diffs)).map((request) => request.cursor)).toEqual([
         undefined,
@@ -195,6 +246,55 @@ describe("ReviewFindingsPoster", () => {
           },
         },
       ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("pins the review to the reviewed commit and says when the head moved since", () =>
+    Effect.gen(function* () {
+      const unmoved = yield* makeHarness({ reviewedHeadSha: "abc1234", currentHeadSha: "abc1234" });
+      expect((yield* unmoved.service.post(input())).headMoved).toBe(false);
+      expect((yield* Ref.get(unmoved.reviews))[0]?.commitId).toBe("abc1234");
+
+      const moved = yield* makeHarness({ reviewedHeadSha: "abc1234", currentHeadSha: "def5678" });
+      const result = yield* moved.service.post(input());
+      expect(result.headMoved).toBe(true);
+      const [review] = yield* Ref.get(moved.reviews);
+      // Still on the reviewed commit, inline where the diff shows the line.
+      expect(review?.commitId).toBe("abc1234");
+      expect(review?.comments).toHaveLength(2);
+      expect((yield* Ref.get(moved.commands))[0]).toMatchObject({
+        activity: { payload: { headSha: "abc1234", headMoved: true } },
+      });
+
+      // Findings recorded without a commit post against the head, as before.
+      const unpinned = yield* makeHarness({ currentHeadSha: "def5678" });
+      expect((yield* unpinned.service.post(input())).headMoved).toBe(false);
+      expect((yield* Ref.get(unpinned.reviews))[0]?.commitId).toBeUndefined();
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("moves every finding into the text when the moved head refuses a line", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        reviewedHeadSha: "abc1234",
+        currentHeadSha: "def5678",
+        refuseLineComments: true,
+      });
+      const result = yield* harness.service.post(input());
+      expect(result.findings.every((entry) => entry.placement === "body")).toBe(true);
+      const reviews = yield* Ref.get(harness.reviews);
+      expect(reviews.map((review) => review.comments.length)).toEqual([2, 0]);
+      expect(reviews[1]?.commitId).toBe("abc1234");
+
+      // An unmoved head is not retried: the refusal is reported.
+      const unmoved = yield* makeHarness({
+        reviewedHeadSha: "abc1234",
+        currentHeadSha: "abc1234",
+        refuseLineComments: true,
+      });
+      const error = yield* unmoved.service.post(input()).pipe(Effect.flip);
+      expect(error).toMatchObject({ stage: "submit" });
+      expect(yield* Ref.get(unmoved.reviews)).toHaveLength(1);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

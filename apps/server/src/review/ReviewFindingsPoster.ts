@@ -1,6 +1,7 @@
 import {
   CommandId,
   EventId,
+  REVIEW_FINDINGS_ACTIVITY_KIND,
   REVIEW_FINDINGS_POSTED_ACTIVITY_KIND,
   ReviewPostFindingsError,
   type PullRequestRef,
@@ -8,7 +9,12 @@ import {
   type ReviewPostFindingsInput,
   type ReviewPostFindingsResult,
 } from "@t3tools/contracts";
-import { buildReviewFromFindings, reviewCommentableLines } from "@t3tools/shared/reviewFindings";
+import {
+  type ReviewCommentableLines,
+  buildReviewFromFindings,
+  readReviewFindings,
+  reviewCommentableLines,
+} from "@t3tools/shared/reviewFindings";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -31,6 +37,12 @@ const DIFF_MAX_SLICES = 20;
  * finding on its line where the diff shows that line, the rest in the review's text under the
  * reader's overall comment. Once posted, the review thread records which findings went, so every
  * client sees them as posted.
+ *
+ * A review pinned to the commit it read is posted against that commit, so its comments sit on the
+ * lines the reviewer saw even after the pull request moved on (the host marks them outdated where
+ * a line changed since). Which lines take a comment is read from the current diff, the only one a
+ * host serves; when the head moved and the host refuses the review over a line, it is sent again
+ * with every finding in its text.
  */
 export class ReviewFindingsPoster extends Context.Service<
   ReviewFindingsPoster,
@@ -71,6 +83,26 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  // Read from the server's own record, not from the client, so a post cannot be pinned elsewhere.
+  const reviewedHeadSha = (input: ReviewPostFindingsInput) =>
+    snapshots
+      .getThreadDetailById(input.reviewThreadId, { activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND] })
+      .pipe(
+        Effect.map((thread) => {
+          const activity = Option.getOrUndefined(thread)?.activities.find(
+            (entry) => entry.id === input.findingsActivityId,
+          );
+          return activity === undefined ? undefined : readReviewFindings(activity)?.headSha;
+        }),
+        Effect.orElseSucceed(() => undefined),
+      );
+
+  const currentHeadSha = (reference: PullRequestRef) =>
+    pullRequests.detail(reference).pipe(
+      Effect.map((detail) => detail.headSha),
+      Effect.orElseSucceed(() => undefined),
+    );
+
   const post = Effect.fn("ReviewFindingsPoster.post")(function* (input: ReviewPostFindingsInput) {
     const thread = yield* snapshots
       .getThreadShellById(input.reviewThreadId)
@@ -91,34 +123,57 @@ const make = Effect.gen(function* () {
         : { expectedAccountId: input.expectedAccountId }),
     };
 
+    const headSha = yield* reviewedHeadSha(input);
+    const submitWith = (commentable: ReviewCommentableLines | null) =>
+      Effect.gen(function* () {
+        const review = buildReviewFromFindings({
+          overallComment: input.overallComment,
+          findings: input.findings,
+          commentable,
+        });
+        if (review.body.length > REVIEW_BODY_MAX_CHARS) {
+          return yield* new ReviewPostFindingsError({ stage: "too-long" });
+        }
+        yield* pullRequests.submitReview({
+          ...reference,
+          verdict: input.verdict,
+          body: review.body,
+          comments: review.comments,
+          commitId: headSha,
+        });
+        return review.placements;
+      });
     const submit = Effect.gen(function* () {
-      const review = buildReviewFromFindings({
-        overallComment: input.overallComment,
-        findings: input.findings,
-        commentable: yield* commentableLines(reference),
-      });
-      if (review.body.length > REVIEW_BODY_MAX_CHARS) {
-        return yield* new ReviewPostFindingsError({ stage: "too-long" });
-      }
-      yield* pullRequests.submitReview({
-        ...reference,
-        verdict: input.verdict,
-        body: review.body,
-        comments: review.comments,
-      });
-      return review.placements;
+      const current = headSha === undefined ? undefined : yield* currentHeadSha(reference);
+      const headMoved =
+        headSha !== undefined &&
+        current !== undefined &&
+        current.toLowerCase() !== headSha.toLowerCase();
+      const commentable = yield* commentableLines(reference);
+      const placements = yield* headMoved && commentable !== null
+        ? submitWith(commentable).pipe(
+            Effect.catchTag("PullRequestOperationError", (error) =>
+              Effect.logWarning("The host refused line comments on a review of an older commit", {
+                detail: error.detail,
+              }).pipe(Effect.andThen(submitWith(null))),
+            ),
+          )
+        : submitWith(commentable);
+      return { placements, headMoved };
     });
-    const findings = yield* pullRequests.withRoutingCredential(reference, submit).pipe(
-      Effect.mapError((error) =>
-        error._tag === "ReviewPostFindingsError"
-          ? error
-          : new ReviewPostFindingsError({
-              stage: "submit",
-              detail: error._tag === "PullRequestOperationError" ? error.detail : error.message,
-              cause: error,
-            }),
-      ),
-    );
+    const { placements: findings, headMoved } = yield* pullRequests
+      .withRoutingCredential(reference, submit)
+      .pipe(
+        Effect.mapError((error) =>
+          error._tag === "ReviewPostFindingsError"
+            ? error
+            : new ReviewPostFindingsError({
+                stage: "submit",
+                detail: error._tag === "PullRequestOperationError" ? error.detail : error.message,
+                cause: error,
+              }),
+        ),
+      );
 
     // The review is on the host by now: failing to note it must not report it as not posted.
     const payload: ReviewFindingsPostedActivityPayload = {
@@ -126,6 +181,7 @@ const make = Effect.gen(function* () {
       verdict: input.verdict,
       url: target.url,
       findings,
+      ...(headSha === undefined ? {} : { headSha, headMoved }),
     };
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     yield* engine
@@ -151,7 +207,7 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
-    return { url: target.url, findings };
+    return { url: target.url, findings, headMoved };
   });
 
   return ReviewFindingsPoster.of({ post });

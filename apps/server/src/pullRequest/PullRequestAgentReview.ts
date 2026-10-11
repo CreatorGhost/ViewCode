@@ -1,7 +1,10 @@
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  EventId,
   MessageId,
+  REVIEW_STARTED_ACTIVITY_KIND,
+  ReviewCommitSha,
   ThreadId,
   type AgentReviewMode,
   type ModelSelection,
@@ -9,6 +12,7 @@ import {
   type PullRequestStartReviewResult,
   type PullRequestSummary,
   type ReviewFindingsMode,
+  type ReviewStartedActivityPayload,
   type SourceControlProviderKind,
   type ThreadPullRequestLinkSource,
 } from "@t3tools/contracts";
@@ -50,6 +54,7 @@ export class PullRequestAgentReviewError extends Schema.TaggedError<PullRequestA
       "playbook",
       "create-thread",
       "link",
+      "record-start",
       "start-turn",
     ]),
     projectId: Schema.String,
@@ -72,6 +77,8 @@ export class PullRequestAgentReviewError extends Schema.TaggedError<PullRequestA
         return "Could not create the review thread.";
       case "link":
         return "The review thread was created, but the pull request could not be linked to it.";
+      case "record-start":
+        return "The review thread was created, but the review could not be recorded on it.";
       case "start-turn":
         return "The review thread was created, but the review could not be started.";
     }
@@ -177,6 +184,8 @@ export function buildPullRequestReviewPrompt(input: {
     "provider" | "repository" | "url" | "number" | "title" | "headBranch" | "baseBranch"
   >;
   readonly focus?: string | undefined;
+  /** The head commit to review, which the findings are pinned to; absent when the host did not say. */
+  readonly headSha?: string | undefined;
   /** Only a mode the user chose; otherwise the server decides when the findings arrive. */
   readonly findingsMode?: ReviewFindingsMode | undefined;
   /**
@@ -192,6 +201,11 @@ export function buildPullRequestReviewPrompt(input: {
     `${reviewModeLabel(input.mode)} of pull request #${pr.number}: ${pr.title}`,
     pr.url,
     `${HOST_LABELS[pr.provider]} ${pr.repository}, ${pr.headBranch} into ${pr.baseBranch} (head ref ${hostHeadRef(pr)}).`,
+    ...(input.headSha === undefined
+      ? []
+      : [
+          `Review head commit ${input.headSha}. If the pull request has moved past it, still review that commit: your findings are pinned to it.`,
+        ]),
     "",
     `Read the review playbook at ${input.playbookPath} and follow it for this pull request. Do not change my working tree, and post nothing to the host unless I ask.`,
   ];
@@ -232,19 +246,56 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
 
-  // The detail names both, and is usually cached from the page the review started on.
-  const readAuthorship = (reference: PullRequestRef) =>
+  // The detail names who opened it, who reads it and its head, and is usually cached from the
+  // page the review started on. A host that cannot say leaves each unknown.
+  const isCommitSha = Schema.is(ReviewCommitSha);
+  const readDetail = (reference: PullRequestRef) =>
     pullRequests.detail(reference).pipe(
-      Effect.map((detail): PullRequestAuthorship => ({
-        author: detail.author?.login ?? null,
-        viewer: detail.viewer ?? null,
+      Effect.map((detail) => ({
+        authorship: {
+          author: detail.author?.login ?? null,
+          viewer: detail.viewer ?? null,
+        } satisfies PullRequestAuthorship,
+        headSha:
+          detail.headSha !== undefined && isCommitSha(detail.headSha) ? detail.headSha : undefined,
       })),
       Effect.catch((error) =>
-        Effect.logWarning("Could not read who opened the reviewed pull request", {
+        Effect.logWarning("Could not read the reviewed pull request's detail", {
           detail: error.message,
-        }).pipe(Effect.as<PullRequestAuthorship>({ author: null, viewer: null })),
+        }).pipe(
+          Effect.as({
+            authorship: { author: null, viewer: null } as PullRequestAuthorship,
+            headSha: undefined,
+          }),
+        ),
       ),
     );
+  const readAuthorship = (reference: PullRequestRef) =>
+    readDetail(reference).pipe(Effect.map((detail) => detail.authorship));
+
+  // Outside any turn, so reverting the review's turns keeps what the review was started on.
+  const recordReviewStarted = (
+    threadId: ThreadId,
+    payload: ReviewStartedActivityPayload,
+    createdAt: string,
+  ) =>
+    Effect.gen(function* () {
+      yield* engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make(`server:review-started:${threadId}`),
+        threadId,
+        activity: {
+          id: EventId.make(yield* uuid),
+          tone: "info",
+          kind: REVIEW_STARTED_ACTIVITY_KIND,
+          summary: "Review started",
+          payload: { ...payload, timelineBypass: true },
+          turnId: null,
+          createdAt,
+        },
+        createdAt,
+      });
+    });
 
   const start = Effect.fn("PullRequestAgentReview.start")(function* (
     input: PullRequestAgentReviewInput,
@@ -294,8 +345,9 @@ const make = Effect.gen(function* () {
       Effect.mapError(failure("playbook")),
     );
 
+    const detail = yield* readDetail(reference);
     // Somebody else's pull request gets comments written the way this account writes them.
-    const authorship = input.findingsMode === "fix" ? null : yield* readAuthorship(reference);
+    const authorship = input.findingsMode === "fix" ? null : detail.authorship;
     const viewer = authorship?.viewer ?? null;
     const style =
       viewer === null
@@ -348,6 +400,12 @@ const make = Effect.gen(function* () {
         source: input.linkSource,
       })
       .pipe(Effect.mapError(failure("link")));
+    const started: ReviewStartedActivityPayload = {
+      ...(detail.headSha === undefined ? {} : { headSha: detail.headSha }),
+    };
+    yield* recordReviewStarted(threadId, started, createdAt).pipe(
+      Effect.mapError(failure("record-start")),
+    );
     yield* engine
       .dispatch({
         type: "thread.turn.start",
@@ -361,6 +419,7 @@ const make = Effect.gen(function* () {
             playbookPath,
             pr: summary,
             focus: input.focus,
+            headSha: detail.headSha,
             findingsMode: input.findingsMode,
             comments,
           }),

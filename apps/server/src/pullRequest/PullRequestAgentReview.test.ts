@@ -124,7 +124,10 @@ const makeHarness = (options: {
 describe("PullRequestAgentReview", () => {
   it.effect("creates a linked thread in the project and asks for the review by playbook", () =>
     Effect.gen(function* () {
-      const harness = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      const harness = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        detail: Effect.succeed({ headSha: "0a1b2c3d4e" } as PullRequestDetail),
+      });
       const result = yield* harness.reviews.start({
         reference: REFERENCE,
         mode: "security",
@@ -133,7 +136,7 @@ describe("PullRequestAgentReview", () => {
       });
       expect(result.title).toBe("Security audit: #42 Cache the probe");
 
-      const [create, link, turn] = yield* Ref.get(harness.commands);
+      const [create, link, started, turn] = yield* Ref.get(harness.commands);
       expect(create).toMatchObject({
         type: "thread.create",
         threadId: result.threadId,
@@ -154,6 +157,16 @@ describe("PullRequestAgentReview", () => {
         url: summary.url,
         source: "manual",
       });
+      // The commit under review is recorded outside any turn, for the findings to be pinned to.
+      expect(started).toMatchObject({
+        type: "thread.activity.append",
+        threadId: result.threadId,
+        activity: {
+          kind: "viewcode.review.started",
+          payload: { headSha: "0a1b2c3d4e", timelineBypass: true },
+          turnId: null,
+        },
+      });
       expect(turn?.type).toBe("thread.turn.start");
       const text = turn?.type === "thread.turn.start" ? turn.message.text : "";
       const playbookPath = `${harness.stateDir}/review-playbooks/security-audit.md`;
@@ -162,6 +175,7 @@ describe("PullRequestAgentReview", () => {
       expect(text).toContain("cache-probe into main");
       expect(text).toContain(playbookPath);
       expect(text).toContain("Focus on: token handling");
+      expect(text).toContain("Review head commit 0a1b2c3d4e.");
 
       // The path in the message is a real file holding that mode's method.
       const fs = yield* FileSystem.FileSystem;
@@ -181,7 +195,7 @@ describe("PullRequestAgentReview", () => {
         linkSource: "agent",
       });
       expect(result.title).toBe("Review: #42 Cache the probe");
-      const [create, , turn] = yield* Ref.get(harness.commands);
+      const [create, , , turn] = yield* Ref.get(harness.commands);
       expect(create).toMatchObject({ modelSelection: fallback });
       expect(turn?.type === "thread.turn.start" ? turn.message.text : "").toContain(
         `${harness.stateDir}/review-playbooks/quick-review.md`,
@@ -256,7 +270,7 @@ describe("PullRequestAgentReview", () => {
       yield* mine.reviews.start({ reference: REFERENCE, linkSource: "manual" });
       expect(lastMessage(yield* Ref.get(mine.commands))).not.toContain("review comments");
 
-      // Fixing was asked for: whose pull request it is does not matter, and is not read.
+      // Fixing was asked for: whose pull request it is does not matter.
       const fixing = yield* makeHarness({
         defaultModel: PROJECT_MODEL,
         detail: detail("octocat"),
@@ -267,7 +281,6 @@ describe("PullRequestAgentReview", () => {
         findingsMode: "fix",
         linkSource: "manual",
       });
-      expect(yield* Ref.get(fixing.detailReads)).toBe(0);
       expect(lastMessage(yield* Ref.get(fixing.commands))).not.toContain("review comments");
     }).pipe(Effect.provide(NodeServices.layer)),
   );

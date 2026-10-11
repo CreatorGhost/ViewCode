@@ -108,12 +108,21 @@ export type ReviewFindingsTarget = typeof ReviewFindingsTarget.Type;
 export const ReviewFindingsMode = Schema.Literals(["fix", "comment"]);
 export type ReviewFindingsMode = typeof ReviewFindingsMode.Type;
 
+/** A commit a review read, as the host names it. */
+export const ReviewCommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{7,64}$/i));
+export type ReviewCommitSha = typeof ReviewCommitSha.Type;
+
 /** The `REVIEW_FINDINGS_ACTIVITY_KIND` activity payload. */
 export const ReviewFindingsActivityPayload = Schema.Struct({
   ...ReviewFindingsReport.fields,
   target: ReviewFindingsTarget,
   /** Decided when the findings are recorded. Absent on findings from before it existed: "fix". */
   mode: Schema.optional(ReviewFindingsMode),
+  /**
+   * The pull request's head commit the reviewer was asked to review, which posted comments are
+   * pinned to. Absent for a local review, a host that did not say, and older findings.
+   */
+  headSha: Schema.optional(ReviewCommitSha),
 });
 export type ReviewFindingsActivityPayload = typeof ReviewFindingsActivityPayload.Type;
 
@@ -147,6 +156,17 @@ export const ReviewStartFixThreadResult = Schema.Struct({
   title: TrimmedNonEmptyString,
 });
 export type ReviewStartFixThreadResult = typeof ReviewStartFixThreadResult.Type;
+
+/**
+ * Recorded on a review thread by the server when the review starts, so what the start knew (the
+ * commit under review) reaches the findings recorded later. Hidden from the transcript.
+ */
+export const REVIEW_STARTED_ACTIVITY_KIND = "viewcode.review.started";
+
+export const ReviewStartedActivityPayload = Schema.Struct({
+  headSha: Schema.optional(ReviewCommitSha),
+});
+export type ReviewStartedActivityPayload = typeof ReviewStartedActivityPayload.Type;
 
 /**
  * Recorded on the review thread once findings are posted, so every client knows which were and
@@ -191,6 +211,11 @@ export const ReviewPostFindingsResult = Schema.Struct({
   /** The pull request the review is on. */
   url: Schema.String,
   findings: Schema.Array(ReviewPostedFinding),
+  /**
+   * The pull request has commits the review did not read. Its comments are still pinned to the
+   * reviewed commit, so the host may show them as outdated. Absent from older servers.
+   */
+  headMoved: Schema.optional(Schema.Boolean),
 });
 export type ReviewPostFindingsResult = typeof ReviewPostFindingsResult.Type;
 
@@ -200,6 +225,9 @@ export const ReviewFindingsPostedActivityPayload = Schema.Struct({
   verdict: PullRequestReviewVerdict,
   url: Schema.String,
   findings: Schema.Array(ReviewPostedFinding),
+  /** The commit the review was posted against, when the findings named one. */
+  headSha: Schema.optional(ReviewCommitSha),
+  headMoved: Schema.optional(Schema.Boolean),
 });
 export type ReviewFindingsPostedActivityPayload = typeof ReviewFindingsPostedActivityPayload.Type;
 
