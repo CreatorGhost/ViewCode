@@ -62,6 +62,20 @@ export function createReviewEnvironmentAtoms<R, E>(
       label: "environment-data:review:post-findings",
       tag: WS_METHODS.reviewPostFindings,
     }),
+    /** What was learned of an account's review writing; servers advertising `learnedReviewStyle`. */
+    learnedStyle: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:review:learned-style",
+      tag: WS_METHODS.reviewGetLearnedStyle,
+      staleTimeMs: 60_000,
+    }),
+    learnStyle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:learn-style",
+      tag: WS_METHODS.reviewLearnStyle,
+    }),
+    forgetLearnedStyle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:forget-learned-style",
+      tag: WS_METHODS.reviewForgetLearnedStyle,
+    }),
     diffFileContents: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:diff-file-contents",
       tag: WS_METHODS.reviewGetDiffFileContents,
