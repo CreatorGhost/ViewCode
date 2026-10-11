@@ -15,7 +15,9 @@ import {
   type ReviewPostFindingsInput,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -126,6 +128,7 @@ const makeHarness = (
     readonly reviewedHeadSha?: string;
     /** The pull request's head now. */
     readonly currentHeadSha?: string;
+    readonly beforeFirstSubmit?: Effect.Effect<void>;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -138,14 +141,25 @@ const makeHarness = (
       Layer.mock(ProjectionSnapshotQuery)({
         getThreadShellById: (threadId) =>
           Effect.succeed(threadId === REVIEW_THREAD_ID ? Option.some(reviewThread) : Option.none()),
-        getThreadDetailById: (threadId) =>
-          Effect.succeed(
-            threadId === REVIEW_THREAD_ID
-              ? Option.some({
-                  id: REVIEW_THREAD_ID,
-                  activities: [findingsActivity(options.reviewedHeadSha)],
-                } as unknown as OrchestrationThread)
-              : Option.none(),
+        getThreadDetailById: (threadId, query) =>
+          Ref.get(commands).pipe(
+            Effect.map((recorded) =>
+              threadId === REVIEW_THREAD_ID
+                ? Option.some({
+                    id: REVIEW_THREAD_ID,
+                    activities: [
+                      findingsActivity(options.reviewedHeadSha),
+                      ...recorded.flatMap((command) =>
+                        command.type === "thread.activity.append" ? [command.activity] : [],
+                      ),
+                    ].filter(
+                      (activity) =>
+                        query?.activityKinds === undefined ||
+                        query.activityKinds.includes(activity.kind),
+                    ),
+                  } as unknown as OrchestrationThread)
+                : Option.none(),
+            ),
           ),
       }),
       Layer.mock(OrchestrationEngineService)({
@@ -172,6 +186,16 @@ const makeHarness = (
         submitReview: (request) =>
           Ref.update(reviews, (all) => [...all, request]).pipe(
             Effect.andThen(
+              Effect.gen(function* () {
+                if (
+                  (yield* Ref.get(reviews)).length === 1 &&
+                  options.beforeFirstSubmit !== undefined
+                ) {
+                  yield* options.beforeFirstSubmit;
+                }
+              }),
+            ),
+            Effect.andThen(
               options.submitFails !== undefined
                 ? Effect.fail(options.submitFails)
                 : options.refuseLineComments === true && request.comments.length > 0
@@ -193,6 +217,56 @@ const makeHarness = (
   });
 
 describe("ReviewFindingsPoster", () => {
+  it.effect(
+    "filters posted keys from a stale selection and skips an entirely posted selection",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness();
+        const selection = input();
+        yield* harness.service.post(input({ findings: selection.findings.slice(0, 1) }));
+        const result = yield* harness.service.post(selection);
+        expect(result.findings.map((entry) => entry.key)).toEqual([
+          "finding:1",
+          "finding:2",
+          "check:0",
+        ]);
+        const reviews = yield* Ref.get(harness.reviews);
+        expect(reviews).toHaveLength(2);
+        expect(reviews[1]?.comments).toHaveLength(1);
+        expect(reviews[1]?.comments[0]?.path).toBe("src/b.ts");
+
+        const noOp = yield* harness.service.post(selection);
+        expect(noOp.findings).toEqual([]);
+        expect(yield* Ref.get(harness.reviews)).toHaveLength(2);
+        expect(yield* Ref.get(harness.diffs)).toHaveLength(4);
+        expect(yield* Ref.get(harness.commands)).toHaveLength(2);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "serializes overlapping submissions for the same findings set before reading posted keys",
+    () =>
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const harness = yield* makeHarness({
+          beforeFirstSubmit: Deferred.succeed(started, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+          ),
+        });
+        const first = yield* harness.service.post(input()).pipe(Effect.forkChild);
+        yield* Deferred.await(started);
+        const second = yield* harness.service
+          .post(input())
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Deferred.succeed(release, undefined);
+        expect((yield* Fiber.join(first)).findings).toHaveLength(4);
+        expect((yield* Fiber.join(second)).findings).toEqual([]);
+        expect(yield* Ref.get(harness.reviews)).toHaveLength(1);
+        expect(yield* Ref.get(harness.commands)).toHaveLength(1);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("posts one review with the findings on their lines and the rest in its text", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

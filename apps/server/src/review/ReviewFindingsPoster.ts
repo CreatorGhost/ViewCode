@@ -12,6 +12,7 @@ import {
 import {
   type ReviewCommentableLines,
   buildReviewFromFindings,
+  postedReviewFindings,
   readReviewFindings,
   reviewCommentableLines,
 } from "@t3tools/shared/reviewFindings";
@@ -21,6 +22,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Semaphore from "effect/Semaphore";
 
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -59,6 +61,29 @@ const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
   const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const postingGates = new Map<string, { readonly gate: Semaphore.Semaphore; pending: number }>();
+
+  const inPostingOrder = (
+    input: ReviewPostFindingsInput,
+    operation: Effect.Effect<ReviewPostFindingsResult, ReviewPostFindingsError>,
+  ) =>
+    Effect.suspend(() => {
+      const key = `${input.reviewThreadId.length}:${input.reviewThreadId}:${input.findingsActivityId}`;
+      const held = postingGates.get(key);
+      const entry = held ?? { gate: Semaphore.makeUnsafe(1), pending: 0 };
+      if (held === undefined) postingGates.set(key, entry);
+      entry.pending += 1;
+      return entry.gate
+        .withPermits(1)(operation)
+        .pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              entry.pending -= 1;
+              if (entry.pending === 0) postingGates.delete(key);
+            }),
+          ),
+        );
+    });
 
   // A diff that cannot be read leaves every finding in the text, which no host refuses.
   const commentableLines = (reference: PullRequestRef) =>
@@ -82,20 +107,6 @@ const make = Effect.gen(function* () {
         }).pipe(Effect.as(null)),
       ),
     );
-
-  // Read from the server's own record, not from the client, so a post cannot be pinned elsewhere.
-  const reviewedHeadSha = (input: ReviewPostFindingsInput) =>
-    snapshots
-      .getThreadDetailById(input.reviewThreadId, { activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND] })
-      .pipe(
-        Effect.map((thread) => {
-          const activity = Option.getOrUndefined(thread)?.activities.find(
-            (entry) => entry.id === input.findingsActivityId,
-          );
-          return activity === undefined ? undefined : readReviewFindings(activity)?.headSha;
-        }),
-        Effect.orElseSucceed(() => undefined),
-      );
 
   const currentHeadSha = (reference: PullRequestRef) =>
     pullRequests.detail(reference).pipe(
@@ -123,12 +134,30 @@ const make = Effect.gen(function* () {
         : { expectedAccountId: input.expectedAccountId }),
     };
 
-    const headSha = yield* reviewedHeadSha(input);
+    const detail = yield* snapshots
+      .getThreadDetailById(input.reviewThreadId, {
+        activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND, REVIEW_FINDINGS_POSTED_ACTIVITY_KIND],
+        allActivities: true,
+      })
+      .pipe(
+        Effect.mapError((cause) => new ReviewPostFindingsError({ stage: "review-thread", cause })),
+      );
+    if (Option.isNone(detail)) {
+      return yield* new ReviewPostFindingsError({ stage: "review-thread" });
+    }
+    const posted = postedReviewFindings(detail.value.activities, input.findingsActivityId);
+    const findingsToPost = input.findings.filter(({ key }) => !posted.has(key));
+    if (findingsToPost.length === 0) {
+      return { url: target.url, findings: [], headMoved: false };
+    }
+    // Read from the server's own record, not from the client, so a post cannot be pinned elsewhere.
+    const activity = detail.value.activities.find((entry) => entry.id === input.findingsActivityId);
+    const headSha = activity === undefined ? undefined : readReviewFindings(activity)?.headSha;
     const submitWith = (commentable: ReviewCommentableLines | null) =>
       Effect.gen(function* () {
         const review = buildReviewFromFindings({
           overallComment: input.overallComment,
-          findings: input.findings,
+          findings: findingsToPost,
           commentable,
         });
         if (review.body.length > REVIEW_BODY_MAX_CHARS) {
@@ -210,7 +239,8 @@ const make = Effect.gen(function* () {
     return { url: target.url, findings, headMoved };
   });
 
-  return ReviewFindingsPoster.of({ post });
+  // Keep the posted-key read, host submission and persisted receipt under the same gate.
+  return ReviewFindingsPoster.of({ post: (input) => inPostingOrder(input, post(input)) });
 });
 
 export const layer = Layer.effect(ReviewFindingsPoster, make);
