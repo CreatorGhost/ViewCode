@@ -1,8 +1,14 @@
-import type { PullRequestStartReviewResult, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ReviewFindingRating,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
+import type { ReviewFindingsSource } from "@t3tools/client-runtime/review-findings";
+import type { PostedReviewFinding } from "@t3tools/shared/reviewFindings";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
-import { Link, useNavigate } from "@tanstack/react-router";
 import { ListChecksIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo } from "react";
 
 import { useServerConfigs } from "../../state/entities";
 import {
@@ -13,15 +19,98 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "../ui/empty";
-import { toastManager } from "../ui/toast";
+import { announceReviewStarted } from "../pullRequest/PullRequestAgentReviewDialog";
+import { ReviewChangeView } from "./ReviewChangeView";
 import { ReviewFindingsView, type ReviewFixInChatRequest } from "./ReviewFindingsView";
-import { ReviewStartForm, type ReviewStartTarget, RunningReviewStatus } from "./ReviewStart";
-import { useReviewFindingsSource } from "./useReviewFindingsSource";
+import { ReviewStatusBar } from "./ReviewProgress";
+import { ReviewStartForm, type ReviewStartTarget, useReviewRetry } from "./ReviewStart";
+import type { ReviewDiffTarget } from "./useReviewDiff";
+import { type LatestReviewStatus, useReviewFindingsSource } from "./useReviewFindingsSource";
 
 /**
- * The Review surface of the right panel: the latest findings for this thread (its own, or those
- * of the newest review of its pull request, or of its checkout's local changes without one) over
- * the change they are about. Findings for fixing go to this thread's composer (`onFixInChat`);
+ * What a review view shows, in a thread's Review panel or on the pull request page: where the
+ * latest review stands, above its findings over the change they are about, or while it has sent
+ * none yet the change itself, or with no review at all `empty`.
+ */
+export function ReviewSurface({
+  environmentId,
+  threadRef,
+  source,
+  posted,
+  ratings,
+  review,
+  projectId,
+  cwd,
+  change,
+  startReview,
+  onFixInChat,
+  empty,
+}: {
+  environmentId: EnvironmentId;
+  threadRef: ScopedThreadRef | null;
+  source: ReviewFindingsSource | null;
+  posted: ReadonlyMap<string, PostedReviewFinding>;
+  ratings: ReadonlyMap<string, ReviewFindingRating>;
+  review: LatestReviewStatus | null;
+  projectId: ProjectId | null;
+  cwd: string | undefined;
+  /** What a new review reads, shown while one runs without findings yet. */
+  change: ReviewDiffTarget | null;
+  startReview: ReviewStartTarget | null;
+  onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
+  empty: ReactNode;
+}) {
+  const { retry, pending } = useReviewRetry(startReview, review);
+  const progress = review?.progress ?? null;
+  // The findings below are this review's own, sent while it still works.
+  const ownFindings = source !== null && review !== null && source.threadId === review.threadId;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {review !== null ? (
+        <ReviewStatusBar
+          environmentId={environmentId}
+          review={review}
+          newer={source !== null && !ownFindings}
+          onRetry={retry}
+          retrying={pending}
+        />
+      ) : null}
+      <div className="min-h-0 flex-1">
+        {source !== null ? (
+          // Keyed by review rather than by set, so findings arriving as the review goes on fill
+          // the same view instead of resetting where the reader is.
+          <ReviewFindingsView
+            key={source.threadId}
+            environmentId={environmentId}
+            threadRef={threadRef}
+            source={source}
+            projectId={projectId}
+            cwd={cwd}
+            posted={posted}
+            ratings={ratings}
+            onFixInChat={onFixInChat}
+            startReview={startReview}
+            stillReviewing={ownFindings && progress?.kind === "running"}
+          />
+        ) : progress?.kind === "running" && change !== null ? (
+          <ReviewChangeView
+            environmentId={environmentId}
+            target={change}
+            projectId={projectId}
+            cwd={cwd}
+          />
+        ) : (
+          <div className="h-full overflow-y-auto">{empty}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The Review surface of the right panel: the latest review of this thread (one started from it
+ * runs as its child agent; or the newest review of its pull request) and its findings over the
+ * change they are about. Findings for fixing go to this thread's composer (`onFixInChat`);
  * findings for somebody else's pull request are posted to it as review comments.
  */
 export function ReviewPanel({
@@ -34,44 +123,31 @@ export function ReviewPanel({
   cwd: string | undefined;
   onFixInChat?: ((request: ReviewFixInChatRequest) => void) | undefined;
 }) {
-  const { source, posted, ratings, pullRequests, projectId, running } =
+  const { source, posted, ratings, pullRequests, projectId, review } =
     useReviewFindingsSource(threadRef);
-  const navigate = useNavigate();
   const { environmentId, threadId } = threadRef;
   const capabilities = useServerConfigs().get(environmentId)?.environment.capabilities;
   const canReviewPullRequest = capabilities?.pullRequestAgentReview === true;
   const canReviewLocal = capabilities?.localAgentReview === true;
-  // A review started from here keeps this thread open; its findings arrive here once it
-  // submits them, since it is linked to the same pull request or works on the same checkout.
-  const [started, setStarted] = useState<PullRequestStartReviewResult | null>(null);
   const pullRequest = resolveThreadCurrentPullRequestLink(pullRequests);
   const host = pullRequest?.host;
   const repository = pullRequest?.repository;
   const number = pullRequest?.number;
+  // Started here, the reviewer is this thread's child agent: the reader stays in this chat,
+  // which shows the review among its agents while this panel shows the change and findings.
   const startReview = useMemo<ReviewStartTarget | null>(() => {
     if (projectId === null) return null;
-    const onStarted = (review: PullRequestStartReviewResult) => {
-      setStarted(review);
-      toastManager.add({
-        type: "success",
-        title: "Review started",
-        description: "Its findings appear in this panel when it is done.",
-        actionProps: {
-          children: "Open chat",
-          onClick: () => {
-            void navigate({
-              to: "/$environmentId/$threadId",
-              params: { environmentId, threadId: review.threadId },
-            });
-          },
-        },
-      });
-    };
+    const onStarted = (started: Parameters<ReviewStartTarget["onStarted"]>[0]) =>
+      announceReviewStarted(started, "chat");
     if (host !== undefined && repository !== undefined && number !== undefined) {
       return canReviewPullRequest
         ? {
             environmentId,
-            request: { kind: "pull-request", reference: { projectId, host, repository, number } },
+            request: {
+              kind: "pull-request",
+              reference: { projectId, host, repository, number },
+              sourceThreadId: threadId,
+            },
             onStarted,
           }
         : null;
@@ -88,78 +164,53 @@ export function ReviewPanel({
     canReviewPullRequest,
     environmentId,
     host,
-    navigate,
     number,
     projectId,
     repository,
     threadId,
   ]);
-  if (source === null && running !== null) {
-    return (
-      <RunningReviewStatus environmentId={environmentId} running={running} label="Reviewing…" />
-    );
-  }
-  if (source === null) {
-    return (
-      <Empty size="compact">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <ListChecksIcon />
-          </EmptyMedia>
-          <EmptyTitle>No review findings yet</EmptyTitle>
-          <EmptyDescription>
-            {started !== null ? (
-              <>
-                <Link
-                  to="/$environmentId/$threadId"
-                  params={{ environmentId, threadId: started.threadId }}
-                  className="text-foreground hover:underline"
-                >
-                  {started.title}
-                </Link>{" "}
-                is under way. Its findings appear here when it is done.
-              </>
-            ) : startReview?.request.kind === "pull-request" ? (
-              `Have an agent review PR #${startReview.request.reference.number}; its findings appear here.`
-            ) : startReview?.request.kind === "local" ? (
-              "Have an agent review this thread's uncommitted changes, or its branch when everything is committed; its findings appear here."
-            ) : (
-              "Link a pull request to this thread to have an agent review it here."
-            )}
-          </EmptyDescription>
-        </EmptyHeader>
-        {startReview !== null && started === null ? (
-          <EmptyContent>
-            <ReviewStartForm target={startReview} />
-          </EmptyContent>
-        ) : null}
-      </Empty>
-    );
-  }
+  const change = useMemo<ReviewDiffTarget | null>(
+    () =>
+      host !== undefined && repository !== undefined && number !== undefined
+        ? { kind: "pull-request", host, repository, number }
+        : { kind: "local" },
+    [host, number, repository],
+  );
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {running !== null ? (
-        <RunningReviewStatus
-          environmentId={environmentId}
-          running={running}
-          label="A new review is running:"
-        />
-      ) : null}
-      <div className="min-h-0 flex-1">
-        {/* A re-review starts fresh rather than keeping the previous set's view. */}
-        <ReviewFindingsView
-          key={`${source.threadId}:${source.activityId}`}
-          environmentId={environmentId}
-          threadRef={threadRef}
-          source={source}
-          projectId={projectId}
-          cwd={cwd}
-          posted={posted}
-          ratings={ratings}
-          onFixInChat={onFixInChat}
-          startReview={startReview}
-        />
-      </div>
-    </div>
+    <ReviewSurface
+      environmentId={environmentId}
+      threadRef={threadRef}
+      source={source}
+      posted={posted}
+      ratings={ratings}
+      review={review}
+      projectId={projectId}
+      cwd={cwd}
+      change={change}
+      startReview={startReview}
+      onFixInChat={onFixInChat}
+      empty={
+        <Empty size="compact">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <ListChecksIcon />
+            </EmptyMedia>
+            <EmptyTitle>No review findings yet</EmptyTitle>
+            <EmptyDescription>
+              {startReview?.request.kind === "pull-request"
+                ? `Have an agent review PR #${startReview.request.reference.number}; its findings appear here as it finds them.`
+                : startReview?.request.kind === "local"
+                  ? "Have an agent review this thread's uncommitted changes, or its branch when everything is committed; its findings appear here as it finds them."
+                  : "Link a pull request to this thread to have an agent review it here."}
+            </EmptyDescription>
+          </EmptyHeader>
+          {startReview !== null ? (
+            <EmptyContent>
+              <ReviewStartForm target={startReview} />
+            </EmptyContent>
+          ) : null}
+        </Empty>
+      }
+    />
   );
 }

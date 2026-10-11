@@ -2,7 +2,9 @@ import {
   type AgentReviewMode,
   REVIEW_FINDINGS_ACTIVITY_KIND,
   REVIEW_FIX_STARTED_ACTIVITY_KIND,
+  REVIEW_STARTED_ACTIVITY_KIND,
   ReviewFixStartedActivityPayload,
+  ReviewStartedActivityPayload,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   type PullRequestRef,
@@ -30,7 +32,7 @@ import {
 
 /**
  * What every client does with an agent review's findings before drawing them: which set a thread
- * or pull request shows, which review is still under way, the findings in order, and who can fix
+ * or pull request shows, where the latest review stands, the findings in order, and who can fix
  * them. Web draws them over the diff, mobile as a list.
  */
 
@@ -40,6 +42,8 @@ interface ThreadFindings {
   readonly id: ThreadId;
   readonly title: string;
   readonly activities: ReadonlyArray<FindingsActivity>;
+  /** A child agent of the thread asking, whose reviews count whatever they reviewed. */
+  readonly child?: boolean;
 }
 
 /** The findings a review view shows, and the review thread that submitted them. */
@@ -84,6 +88,31 @@ export function latestReviewFindingsSource(thread: ThreadFindings): ReviewFindin
   };
 }
 
+/** The newest findings among these threads that `accept` takes. */
+function newestFindings<T extends ThreadFindings>(
+  threads: ReadonlyArray<T>,
+  accept: (source: ReviewFindingsSource, thread: T) => boolean,
+): ReviewFindingsSource | null {
+  let newest: ReviewFindingsSource | null = null;
+  for (const thread of threads) {
+    const source = latestReviewFindingsSource(thread);
+    if (source === null || !accept(source, thread)) continue;
+    if (newest === null || source.createdAt > newest.createdAt) newest = source;
+  }
+  return newest;
+}
+
+function aboutPullRequests(
+  source: ReviewFindingsSource,
+  pullRequests: ReadonlyArray<ThreadPullRequestKey>,
+): boolean {
+  const { target } = source.findings;
+  return (
+    target.kind === "pull-request" &&
+    pullRequests.some((key) => threadPullRequestKeysEqual(key, target))
+  );
+}
+
 /**
  * The newest findings any of these threads submitted about one of these pull requests. A review
  * of something else, such as another layer of a stack, does not count.
@@ -92,35 +121,13 @@ export function selectPullRequestReviewFindings(input: {
   readonly pullRequests: ReadonlyArray<ThreadPullRequestKey>;
   readonly threads: ReadonlyArray<ThreadFindings>;
 }): ReviewFindingsSource | null {
-  let newest: ReviewFindingsSource | null = null;
-  for (const thread of input.threads) {
-    const source = latestReviewFindingsSource(thread);
-    if (source === null || source.findings.target.kind !== "pull-request") continue;
-    const target = source.findings.target;
-    if (!input.pullRequests.some((key) => threadPullRequestKeysEqual(key, target))) continue;
-    if (newest === null || source.createdAt > newest.createdAt) newest = source;
-  }
-  return newest;
-}
-
-/** The newest findings any of these threads submitted about local changes. */
-export function selectLocalReviewFindings(
-  threads: ReadonlyArray<ThreadFindings>,
-): ReviewFindingsSource | null {
-  let newest: ReviewFindingsSource | null = null;
-  for (const thread of threads) {
-    const source = latestReviewFindingsSource(thread);
-    if (source === null || source.findings.target.kind !== "local") continue;
-    if (newest === null || source.createdAt > newest.createdAt) newest = source;
-  }
-  return newest;
+  return newestFindings(input.threads, (source) => aboutPullRequests(source, input.pullRequests));
 }
 
 /**
  * Which findings a thread's review view shows: the thread's own latest set when it is itself a
- * review, otherwise the newest set a linked thread submitted about one of this thread's pull
- * requests (`selectPullRequestReviewFindings`), or without pull requests the newest review of its
- * checkout's local changes (`localReviewSourceCandidates`).
+ * review, otherwise the newest set one of its review child agents submitted, whatever it
+ * reviewed, or a linked thread submitted about one of this thread's pull requests.
  */
 export function selectReviewFindingsSource(input: {
   readonly thread: ThreadFindings;
@@ -130,9 +137,10 @@ export function selectReviewFindingsSource(input: {
   const others = input.linkedThreads.filter((thread) => thread.id !== input.thread.id);
   return (
     latestReviewFindingsSource(input.thread) ??
-    (input.pullRequests.length > 0
-      ? selectPullRequestReviewFindings({ pullRequests: input.pullRequests, threads: others })
-      : selectLocalReviewFindings(others))
+    newestFindings(
+      others,
+      (source, thread) => thread.child === true || aboutPullRequests(source, input.pullRequests),
+    )
   );
 }
 
@@ -165,64 +173,164 @@ export function reviewSourceCandidates<
     .slice(0, REVIEW_SOURCE_CANDIDATE_LIMIT);
 }
 
-// The titles the server gives a review thread (`pullRequestReviewTitle`, `localReviewTitle`),
-// by mode.
-const REVIEW_TITLE_PREFIXES: ReadonlyArray<readonly [prefix: string, mode: AgentReviewMode]> = [
-  ["Review", "quick"],
-  ["Deep review", "deep"],
-  ["Security audit", "security"],
-];
-
-/** What a review thread is about, as its title names it. */
-export type ReviewThreadTarget =
-  | { readonly kind: "pull-request"; readonly number: number }
-  | { readonly kind: "local" };
-
 /**
- * The kind of review a thread is of this pull request, or of local changes ("Review: local
- * changes", with " on <branch>" when it has one), read from its title; null for any other.
+ * The threads a thread's review view reads, most recently active first: the thread itself (it may
+ * be a review), its child agents (reviews started from it run as its children) and the threads
+ * linked to its pull requests (`reviewSourceCandidates`). Children come before linked threads, at
+ * most `REVIEW_SOURCE_CANDIDATE_LIMIT` besides the thread itself.
  */
-export function reviewThreadMode(
-  title: string,
-  target: ReviewThreadTarget,
-): AgentReviewMode | null {
-  const matches = (prefix: string) => {
-    if (target.kind === "pull-request") return title.startsWith(`${prefix}: #${target.number} `);
-    const head = `${prefix}: local changes`;
-    return title === head || title.startsWith(`${head} on `);
-  };
-  return REVIEW_TITLE_PREFIXES.find(([prefix]) => matches(prefix))?.[1] ?? null;
-}
-
-/**
- * The threads that may hold a review of a checkout's local changes, most recently active first:
- * the unarchived reviews of local changes on the same branch and worktree of the project, other
- * than the thread asking. Nothing links a local review to the thread it reviewed, so only threads
- * titled as one are read, which keeps ordinary threads on a shared checkout unsubscribed.
- */
-export function localReviewSourceCandidates<
+export function threadReviewCandidates<
   T extends Pick<
     OrchestrationThreadShell,
-    "id" | "title" | "projectId" | "branch" | "worktreePath" | "archivedAt" | "updatedAt"
+    "id" | "parentThreadId" | "kind" | "pullRequests" | "archivedAt" | "updatedAt"
   >,
 >(input: {
   readonly threadId: ThreadId;
-  readonly checkout: Pick<OrchestrationThreadShell, "projectId" | "branch" | "worktreePath">;
+  readonly pullRequests: ReadonlyArray<ThreadPullRequestKey>;
   readonly threads: ReadonlyArray<T>;
 }): ReadonlyArray<T> {
-  const { checkout } = input;
-  return input.threads
+  const self = input.threads.find((thread) => thread.id === input.threadId);
+  const children = input.threads
     .filter(
       (thread) =>
-        thread.id !== input.threadId &&
-        thread.archivedAt === null &&
-        thread.projectId === checkout.projectId &&
-        thread.branch === checkout.branch &&
-        thread.worktreePath === checkout.worktreePath &&
-        reviewThreadMode(thread.title, { kind: "local" }) !== null,
+        thread.parentThreadId === input.threadId &&
+        thread.kind !== "sidechat" &&
+        thread.archivedAt === null,
     )
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .slice(0, REVIEW_SOURCE_CANDIDATE_LIMIT);
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const linked = reviewSourceCandidates(input).filter((thread) => !children.includes(thread));
+  return [
+    ...(self === undefined ? [] : [self]),
+    ...[...children, ...linked].slice(0, REVIEW_SOURCE_CANDIDATE_LIMIT),
+  ];
+}
+
+const decodeStarted = Schema.decodeUnknownOption(ReviewStartedActivityPayload);
+
+/** What a review was started as, from the hidden record the server leaves on its thread. */
+export interface ReviewStartedRecord {
+  /** Absent from reviews started before it was recorded. */
+  readonly mode: AgentReviewMode | null;
+  readonly focus: string | null;
+}
+
+const startedRecords = new WeakMap<FindingsActivity, ReviewStartedRecord | null>();
+
+/**
+ * How the thread's latest review was started; null for a thread that is no review. The record is
+ * what tells a review thread apart, whatever it is titled.
+ */
+export function reviewStartedRecord(
+  activities: ReadonlyArray<FindingsActivity>,
+): ReviewStartedRecord | null {
+  const activity = activities.findLast((entry) => entry.kind === REVIEW_STARTED_ACTIVITY_KIND);
+  if (activity === undefined) return null;
+  let record = startedRecords.get(activity);
+  if (record === undefined) {
+    const payload = Option.getOrUndefined(decodeStarted(activity.payload));
+    record =
+      payload === undefined ? null : { mode: payload.mode ?? null, focus: payload.focus ?? null };
+    startedRecords.set(activity, record);
+  }
+  return record;
+}
+
+type RunShell = Pick<OrchestrationThreadShell, "session" | "latestTurn">;
+
+/** Where a review thread's work stands, from its own and its agents' turns. */
+export type ReviewRunState =
+  | { readonly kind: "running" }
+  | { readonly kind: "failed"; readonly error: string | null }
+  | { readonly kind: "ended" };
+
+const RUNNING: ReviewRunState = { kind: "running" };
+const ENDED: ReviewRunState = { kind: "ended" };
+
+function agentTurnInFlight(thread: RunShell): boolean {
+  const status = thread.session?.status;
+  return status === "starting" || status === "running" || thread.latestTurn?.state === "running";
+}
+
+/**
+ * Whether a review is still at work. A reviewer that started agents (a deep review, a security
+ * audit) ends its turn and is woken by each agent's answer, so it runs while any of its agents
+ * does, or finished after its own last turn: that answer is on its way. Otherwise it failed, with
+ * the provider's error, or ended.
+ */
+export function reviewRunState(
+  review: RunShell,
+  agents: ReadonlyArray<RunShell>,
+): ReviewRunState {
+  if (reviewTurnInFlight(review)) return RUNNING;
+  const reviewEnded = review.latestTurn?.completedAt ?? "";
+  for (const agent of agents) {
+    if (agentTurnInFlight(agent)) return RUNNING;
+    const agentEnded = agent.latestTurn?.completedAt;
+    if (agent.latestTurn?.state === "completed" && agentEnded && agentEnded > reviewEnded) {
+      return RUNNING;
+    }
+  }
+  if (review.latestTurn?.state === "error" || review.session?.status === "error") {
+    return { kind: "failed", error: review.session?.lastError ?? null };
+  }
+  return ENDED;
+}
+
+export function reviewRunStatesEqual(left: ReviewRunState, right: ReviewRunState): boolean {
+  return (
+    left.kind === right.kind &&
+    (left.kind !== "failed" || right.kind !== "failed" || left.error === right.error)
+  );
+}
+
+/**
+ * Where a review stands for its reader: done once it sent its final findings, otherwise running,
+ * failed or ended as its turns say, with or without findings sent so far (`complete: false`).
+ */
+export type ReviewProgress =
+  | { readonly kind: "done" }
+  | (ReviewRunState & { readonly partial: boolean });
+
+export function reviewProgress(input: {
+  readonly run: ReviewRunState;
+  readonly findings: Pick<ReviewFindingsActivityPayload, "complete"> | null;
+}): ReviewProgress {
+  if (input.findings !== null && input.findings.complete !== false) return { kind: "done" };
+  return { ...input.run, partial: input.findings !== null };
+}
+
+/** The latest review a view knows of, as `selectLatestReview` finds it. */
+export interface LatestReview<T> {
+  readonly thread: T;
+  readonly mode: AgentReviewMode;
+  readonly focus: string | null;
+  readonly progress: ReviewProgress;
+}
+
+/**
+ * The newest review among these threads (those with a start record), and where it stands. Old
+ * reviews that recorded no mode read as quick ones.
+ */
+export function selectLatestReview<
+  T extends ThreadFindings & { readonly createdAt: string; readonly run: ReviewRunState },
+>(threads: ReadonlyArray<T>): LatestReview<T> | null {
+  let newest: { readonly thread: T; readonly started: ReviewStartedRecord } | null = null;
+  for (const thread of threads) {
+    const started = reviewStartedRecord(thread.activities);
+    if (started === null) continue;
+    if (newest === null || thread.createdAt > newest.thread.createdAt) newest = { thread, started };
+  }
+  if (newest === null) return null;
+  const { thread, started } = newest;
+  return {
+    thread,
+    mode: started.mode ?? "quick",
+    focus: started.focus,
+    progress: reviewProgress({
+      run: thread.run,
+      findings: latestReviewFindingsSource(thread)?.findings ?? null,
+    }),
+  };
 }
 
 /**
@@ -236,27 +344,6 @@ export function reviewTurnInFlight(
   if (thread.session === null && thread.latestTurn === null) return true;
   const status = thread.session?.status;
   return status === "starting" || status === "running" || thread.latestTurn?.state === "running";
-}
-
-/**
- * A review of this pull request, or of local changes, still under way, the newest if there are
- * several: a thread titled as such a review whose turn is running and which has not submitted
- * findings yet. Nothing else marks a review thread, so a renamed one reads as an ordinary thread.
- */
-export function selectRunningReview<
-  T extends ThreadFindings & { readonly createdAt: string; readonly running: boolean },
->(input: {
-  readonly target: ReviewThreadTarget;
-  readonly threads: ReadonlyArray<T>;
-}): { readonly thread: T; readonly mode: AgentReviewMode } | null {
-  let newest: { readonly thread: T; readonly mode: AgentReviewMode } | null = null;
-  for (const thread of input.threads) {
-    const mode = reviewThreadMode(thread.title, input.target);
-    if (mode === null || !thread.running) continue;
-    if (latestReviewFindingsActivity(thread.activities) !== undefined) continue;
-    if (newest === null || thread.createdAt > newest.thread.createdAt) newest = { thread, mode };
-  }
-  return newest;
 }
 
 /**

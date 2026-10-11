@@ -3,7 +3,7 @@ import type {
   EnvironmentId,
   ProjectId,
   PullRequestRef,
-  ReviewFindingsTarget,
+  ReviewPullRequestTarget,
 } from "@t3tools/contracts";
 import { useMemo } from "react";
 
@@ -37,6 +37,11 @@ export interface ReviewDiff {
 
 const NO_FILES: ReadonlyArray<ReviewDiffFile> = [];
 
+/** What a review reads: a pull request, or the local changes of a checkout. */
+export type ReviewDiffTarget =
+  | Pick<ReviewPullRequestTarget, "kind" | "host" | "repository" | "number">
+  | { readonly kind: "local" };
+
 /**
  * The change a review looked at, as the diff viewer takes it: the pull request's diff as the
  * host has it now (its first page, as the pull request page loads it), or for a local review the
@@ -44,7 +49,7 @@ const NO_FILES: ReadonlyArray<ReviewDiffFile> = [];
  */
 export function useReviewDiff(input: {
   readonly environmentId: EnvironmentId;
-  readonly target: ReviewFindingsTarget;
+  readonly target: ReviewDiffTarget;
   readonly projectId: ProjectId | null;
   readonly cwd: string | null;
 }): ReviewDiff {

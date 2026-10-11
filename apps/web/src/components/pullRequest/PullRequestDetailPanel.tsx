@@ -985,7 +985,12 @@ export function PullRequestDetailPanel({
   }, [detailUrl]);
   const review = usePullRequestReviewFindings(actingEnvironmentId, reviewPullRequest);
   const showReviewTab = useCallback(() => setTab("review"), []);
-  const onReviewStarted = useReviewStartedHandler(actingEnvironmentId, showReviewTab);
+  // Beside a chat, a review started here is that chat's agent and shows in its Review panel.
+  const reviewSourceChat =
+    context === "thread" && threadRef !== null && threadRef.environmentId === actingEnvironmentId
+      ? threadRef
+      : null;
+  const onReviewStarted = useReviewStartedHandler(reviewSourceChat, showReviewTab);
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId: actingEnvironmentId,
     cwd: checkoutRoot,
@@ -1482,7 +1487,7 @@ export function PullRequestDetailPanel({
       ? detail === null || detail.capabilities.diff
       : item.value === "review"
         ? (detail === null || reviewPullRequest !== null) &&
-          (canStartAgentReview || review.source !== null || review.running !== null)
+          (canStartAgentReview || review.source !== null || review.review !== null)
         : true,
   );
   // The Code tab can be opened while the detail is still on its way, and the detail may then say
@@ -1698,6 +1703,7 @@ export function PullRequestDetailPanel({
         <PullRequestAgentReviewDialog
           environmentId={actingEnvironmentId}
           reference={reviewReference}
+          sourceThreadId={reviewSourceChat?.threadId}
           number={detail.number}
           onStarted={onReviewStarted}
           onClose={() => setAgentReviewOpen(false)}
@@ -2868,11 +2874,14 @@ export function PullRequestDetailPanel({
                   <PullRequestReviewTab
                     environmentId={actingEnvironmentId}
                     reference={reviewReference}
+                    sourceThreadId={reviewSourceChat?.threadId}
                     review={review}
                     canStart={canStartAgentReview}
                     threadRef={threadRef}
                     cwd={checkoutRoot ?? undefined}
+                    host={reviewPullRequest?.host ?? null}
                     onStarted={onReviewStarted}
+                    onFixInChat={undefined}
                   />
                 </Suspense>
               </div>

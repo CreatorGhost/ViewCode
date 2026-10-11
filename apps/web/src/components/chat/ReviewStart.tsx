@@ -1,28 +1,24 @@
-import {
-  AGENT_REVIEW_MODES,
-  type EnvironmentId,
-  type PullRequestStartReviewResult,
-} from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import type { ReviewRereviewBasis } from "@t3tools/client-runtime/review-findings";
-import { Link } from "@tanstack/react-router";
 import { ChevronDownIcon, ScanSearchIcon } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
-import { useServerConfigs } from "../../state/entities";
 import {
   AgentReviewFields,
   type AgentReviewRequest,
+  type StartedAgentReview,
   useAgentReviewForm,
+  useStartAgentReview,
 } from "../pullRequest/PullRequestAgentReviewDialog";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { Radio, RadioGroup } from "../ui/radio-group";
-import type { RunningReview } from "./useReviewFindingsSource";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import type { LatestReviewStatus } from "./useReviewFindingsSource";
 
 export interface ReviewStartTarget {
   readonly environmentId: EnvironmentId;
   readonly request: AgentReviewRequest;
-  readonly onStarted: (started: PullRequestStartReviewResult) => void;
+  readonly onStarted: (started: StartedAgentReview) => void;
 }
 
 /**
@@ -37,6 +33,7 @@ export function ReviewStartForm({
   target: ReviewStartTarget;
   rereview?: ReviewRereviewBasis | null;
 }) {
+  const id = useId();
   const form = useAgentReviewForm(target.environmentId, target.request);
   const [scope, setScope] = useState<"rereview" | "full">(() =>
     rereview?.onlyChanges === true ? "rereview" : "full",
@@ -53,36 +50,32 @@ export function ReviewStartForm({
       }}
     >
       {rereview !== null ? (
-        <RadioGroup
-          aria-label="What to review"
-          value={scope}
-          onValueChange={(value) => setScope(value === "rereview" ? "rereview" : "full")}
-        >
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
-            <Radio value="rereview" className="mt-0.5" />
-            <span className="flex min-w-0 flex-col">
-              <span className="font-medium">
-                {rereview.onlyChanges
-                  ? "Only what changed since this review"
-                  : "Check this review's findings again"}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {rereview.onlyChanges
-                  ? "Reads the commits pushed since, and says which of these findings were fixed."
-                  : "Reads the whole change again, and says which of these findings were fixed."}
-              </span>
-            </span>
-          </label>
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
-            <Radio value="full" className="mt-0.5" />
-            <span className="flex min-w-0 flex-col">
-              <span className="font-medium">Full review</span>
-              <span className="text-xs text-muted-foreground">
-                A fresh review of the whole change.
-              </span>
-            </span>
-          </label>
-        </RadioGroup>
+        <div className="flex flex-col gap-2">
+          <span id={`${id}-scope`} className="font-medium text-xs text-muted-foreground">
+            What to review
+          </span>
+          <ToggleGroup
+            aria-labelledby={`${id}-scope`}
+            className="w-full *:flex-1"
+            value={[scope]}
+            onValueChange={(next) => {
+              const value = next[0];
+              if (value === "rereview" || value === "full") setScope(value);
+            }}
+          >
+            <Toggle value="rereview">
+              {rereview.onlyChanges ? "Changes since" : "Check again"}
+            </Toggle>
+            <Toggle value="full">Full review</Toggle>
+          </ToggleGroup>
+          <span className="text-xs text-muted-foreground">
+            {scope === "full"
+              ? "A fresh review of the whole change."
+              : rereview.onlyChanges
+                ? "Reads the commits pushed since this review, and says which of its findings were fixed."
+                : "Reads the whole change again, and says which of this review's findings were fixed."}
+          </span>
+        </div>
       ) : null}
       <AgentReviewFields form={form} />
       <Button type="submit" size="sm" disabled={!form.canStart}>
@@ -122,37 +115,28 @@ export function FindIssuesButton({
   );
 }
 
-/** "Reviewing… Deep review · Opus 5.5", and the way to the review's chat. */
-export function RunningReviewStatus({
-  environmentId,
-  running,
-  label,
-}: {
-  environmentId: EnvironmentId;
-  running: RunningReview;
-  label: string;
-}) {
-  const { instanceId, model: slug } = running.modelSelection;
-  const provider = useServerConfigs()
-    .get(environmentId)
-    ?.providers.find((candidate) => candidate.instanceId === instanceId);
-  const model = provider?.models.find((entry) => entry.slug === slug);
-  const mode = AGENT_REVIEW_MODES.find((entry) => entry.mode === running.mode)?.label ?? "Review";
-  return (
-    <p
-      role="status"
-      className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs"
-    >
-      <span className="min-w-0 truncate">
-        {label} {mode} · {model?.shortName ?? model?.name ?? slug}
-      </span>
-      <Link
-        to="/$environmentId/$threadId"
-        params={{ environmentId, threadId: running.threadId }}
-        className="ml-auto shrink-0 text-foreground hover:underline"
-      >
-        Open chat
-      </Link>
-    </p>
-  );
+/**
+ * Starts the latest review again as it was asked for: the same mode, model and focus, on what
+ * `target` reviews (the same change, since the review is of this view's chat or pull request).
+ */
+export function useReviewRetry(
+  target: ReviewStartTarget | null,
+  review: LatestReviewStatus | null,
+): { readonly retry: (() => void) | null; readonly pending: boolean } {
+  const starter = useStartAgentReview(target?.environmentId ?? null, target?.request ?? null);
+  if (target === null || review === null) return { retry: null, pending: false };
+  return {
+    pending: starter.pending,
+    retry: () => {
+      void starter
+        .start({
+          mode: review.mode,
+          modelSelection: review.modelSelection,
+          focus: review.focus ?? "",
+        })
+        .then((started) => {
+          if (started !== null) target.onStarted(started);
+        });
+    },
+  };
 }

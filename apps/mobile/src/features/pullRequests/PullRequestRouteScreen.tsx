@@ -4,8 +4,8 @@ import type { MenuAction } from "@react-native-menu/menu";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   openReviewFindingCount,
+  selectLatestReview,
   selectPullRequestReviewFindings,
-  selectRunningReview,
 } from "@t3tools/client-runtime/review-findings";
 import {
   isAtomCommandInterrupted,
@@ -359,16 +359,15 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestR
     [linkedReviews, pullRequestKey],
   );
   const runningReview = useMemo(() => {
-    const running = selectRunningReview({
-      target: { kind: "pull-request", number },
-      threads: linkedReviews,
-    });
-    if (running !== null) return { threadId: running.thread.id, mode: running.mode };
+    const latest = selectLatestReview(linkedReviews);
+    if (latest?.progress.kind === "running") {
+      return { threadId: latest.thread.id, mode: latest.mode };
+    }
     return startedReview !== null &&
       !linkedReviews.some((thread) => thread.id === startedReview.threadId)
       ? startedReview
       : null;
-  }, [linkedReviews, number, startedReview]);
+  }, [linkedReviews, startedReview]);
   const reviewSourceActivities =
     reviewSource === null
       ? null

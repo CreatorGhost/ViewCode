@@ -3,6 +3,7 @@ import {
   ProjectId,
   REVIEW_FINDINGS_ACTIVITY_KIND,
   REVIEW_FIX_STARTED_ACTIVITY_KIND,
+  REVIEW_STARTED_ACTIVITY_KIND,
   ThreadId,
   TurnId,
   type ReviewFindingsTarget,
@@ -12,7 +13,6 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   groupReviewFindingsBySeverity,
-  localReviewSourceCandidates,
   mergeReviewFindingRatings,
   openReviewFindingCount,
   reviewFindingEntries,
@@ -22,12 +22,14 @@ import {
   reviewPostOverallComment,
   reviewRereviewBasis,
   reviewRereviewSummary,
+  reviewProgress,
+  reviewRunState,
   reviewSourceCandidates,
-  reviewThreadMode,
   reviewTurnInFlight,
+  selectLatestReview,
   selectPullRequestReviewFindings,
   selectReviewFindingsSource,
-  selectRunningReview,
+  threadReviewCandidates,
   unsettledReviewFindingRatings,
 } from "./reviewFindings.ts";
 
@@ -125,18 +127,25 @@ describe("selectReviewFindingsSource", () => {
     });
   });
 
-  it("shows the newest review of local changes for a thread without a pull request", () => {
+  it("shows the newest review a child agent of the thread made, whatever it reviewed", () => {
+    const child = (id: string, activities: ReadonlyArray<Activity>) => ({
+      ...thread(id, activities),
+      child: true,
+    });
     const source = selectReviewFindingsSource({
       thread: thread("work", []),
-      pullRequests: [],
+      pullRequests: [PR_7],
       linkedThreads: [
-        thread("old-local", [
+        child("old-local", [
           findingsActivity("old", "2026-08-01T00:00:00.000Z", { kind: "local" }),
         ]),
-        thread("new-local", [
+        child("new-local", [
           findingsActivity("new", "2026-08-03T00:00:00.000Z", { kind: "local" }),
         ]),
-        thread("pr-review", [findingsActivity("pr", "2026-08-05T00:00:00.000Z")]),
+        // A linked thread's review of another pull request still does not count.
+        thread("stack-review", [
+          findingsActivity("stack", "2026-08-05T00:00:00.000Z", prTarget(8)),
+        ]),
       ],
     });
     expect(source).toMatchObject({ threadId: "new-local", activityId: "new" });
@@ -188,56 +197,32 @@ describe("selectPullRequestReviewFindings", () => {
   });
 });
 
-describe("selectRunningReview", () => {
-  const candidate = (
-    id: string,
-    title: string,
-    running: boolean,
-    activities: ReadonlyArray<Activity> = [],
-    createdAt = "2026-08-01T00:00:00.000Z",
-  ) => ({ ...thread(id, activities), title, running, createdAt });
+const turn = (
+  state: "running" | "completed" | "error" | "interrupted",
+  completedAt: string | null = null,
+) => ({
+  turnId: TurnId.make("turn-1"),
+  state,
+  requestedAt: "2026-08-01T00:00:00.000Z",
+  startedAt: null,
+  completedAt,
+  assistantMessageId: null,
+});
+const session = (
+  status: "ready" | "running" | "error" | "interrupted",
+  lastError: string | null = null,
+) => ({
+  threadId: ThreadId.make("review"),
+  status,
+  providerName: null,
+  runtimeMode: "full-access" as const,
+  activeTurnId: null,
+  lastError,
+  updatedAt: "2026-08-01T00:00:00.000Z",
+});
 
-  it("finds the newest review thread of the pull request still working on its findings", () => {
-    const running = selectRunningReview({
-      target: { kind: "pull-request", number: 7 },
-      threads: [
-        candidate("quick", "Review: #7 Fix the cache", true),
-        candidate("deep", "Deep review: #7 Fix the cache", true, [], "2026-08-02T00:00:00.000Z"),
-        // Not reviews of this pull request, or not running, or already done.
-        candidate("work", "Fix the cache", true, [], "2026-08-03T00:00:00.000Z"),
-        candidate("layer", "Review: #70 Other", true, [], "2026-08-03T00:00:00.000Z"),
-        candidate("idle", "Security audit: #7 Fix", false, [], "2026-08-03T00:00:00.000Z"),
-        candidate(
-          "done",
-          "Security audit: #7 Fix",
-          true,
-          [findingsActivity("found", "2026-08-03T00:00:00.000Z")],
-          "2026-08-03T00:00:00.000Z",
-        ),
-      ],
-    });
-    expect(running?.thread.id).toBe("deep");
-    expect(running?.mode).toBe("deep");
-  });
-
+describe("reviewRunState", () => {
   it("counts a review as running from the moment its first turn is asked for", () => {
-    const turn = (state: "running" | "completed") => ({
-      turnId: TurnId.make("turn-1"),
-      state,
-      requestedAt: "2026-08-01T00:00:00.000Z",
-      startedAt: null,
-      completedAt: null,
-      assistantMessageId: null,
-    });
-    const session = (status: "ready" | "running" | "error") => ({
-      threadId: ThreadId.make("review"),
-      status,
-      providerName: null,
-      runtimeMode: "full-access" as const,
-      activeTurnId: null,
-      lastError: null,
-      updatedAt: "2026-08-01T00:00:00.000Z",
-    });
     // Not yet adopted by a session.
     expect(reviewTurnInFlight({ session: null, latestTurn: null })).toBe(true);
     expect(reviewTurnInFlight({ session: session("running"), latestTurn: null })).toBe(true);
@@ -250,30 +235,127 @@ describe("selectRunningReview", () => {
     expect(reviewTurnInFlight({ session: session("error"), latestTurn: null })).toBe(false);
   });
 
-  it("finds the newest review of local changes still working on its findings", () => {
-    const running = selectRunningReview({
-      target: { kind: "local" },
-      threads: [
-        candidate("quick", "Review: local changes on main", true),
-        candidate("pr", "Deep review: #7 Fix", true, [], "2026-08-03T00:00:00.000Z"),
-        candidate("idle", "Deep review: local changes", false, [], "2026-08-03T00:00:00.000Z"),
-      ],
+  it("keeps a reviewer waiting on its agents running, until their answers are in", () => {
+    const lead = { session: session("ready"), latestTurn: turn("completed", "T10") };
+    expect(reviewRunState(lead, [{ session: session("running"), latestTurn: null }])).toEqual({
+      kind: "running",
     });
-    expect(running?.thread.id).toBe("quick");
-    expect(running?.mode).toBe("quick");
+    // An agent that finished after the lead's last turn has an answer on its way to it.
+    expect(
+      reviewRunState(lead, [{ session: session("ready"), latestTurn: turn("completed", "T11") }]),
+    ).toEqual({ kind: "running" });
+    expect(
+      reviewRunState(lead, [{ session: session("ready"), latestTurn: turn("completed", "T09") }]),
+    ).toEqual({ kind: "ended" });
   });
 
-  it("reads each mode from the title the server gives a review", () => {
-    const pr7 = { kind: "pull-request", number: 7 } as const;
-    const local = { kind: "local" } as const;
-    expect(reviewThreadMode("Review: #7 Fix", pr7)).toBe("quick");
-    expect(reviewThreadMode("Security audit: #7 Fix", pr7)).toBe("security");
-    expect(reviewThreadMode("Review: #7", pr7)).toBeNull();
-    expect(reviewThreadMode("Code review: #7 Fix", pr7)).toBeNull();
-    expect(reviewThreadMode("Review: local changes", local)).toBe("quick");
-    expect(reviewThreadMode("Deep review: local changes on feature/x", local)).toBe("deep");
-    expect(reviewThreadMode("Review: local changes to the cache", local)).toBeNull();
-    expect(reviewThreadMode("Review: #7 Fix", local)).toBeNull();
+  it("says a review failed with the provider's error, and ended otherwise", () => {
+    expect(
+      reviewRunState(
+        { session: session("error", "Quota exceeded"), latestTurn: turn("error", "T10") },
+        [],
+      ),
+    ).toEqual({ kind: "failed", error: "Quota exceeded" });
+    expect(reviewRunState({ session: session("ready"), latestTurn: turn("error") }, [])).toEqual({
+      kind: "failed",
+      error: null,
+    });
+    expect(
+      reviewRunState({ session: session("interrupted"), latestTurn: turn("interrupted") }, []),
+    ).toEqual({ kind: "ended" });
+  });
+});
+
+describe("reviewProgress", () => {
+  const partial = { complete: false };
+  it("is done only once the final findings are in", () => {
+    expect(reviewProgress({ run: { kind: "running" }, findings: {} })).toEqual({ kind: "done" });
+    expect(reviewProgress({ run: { kind: "ended" }, findings: { complete: true } })).toEqual({
+      kind: "done",
+    });
+    expect(reviewProgress({ run: { kind: "running" }, findings: partial })).toEqual({
+      kind: "running",
+      partial: true,
+    });
+    expect(reviewProgress({ run: { kind: "running" }, findings: null })).toEqual({
+      kind: "running",
+      partial: false,
+    });
+  });
+
+  it("says a review stopped without its final findings, keeping those sent so far", () => {
+    expect(reviewProgress({ run: { kind: "ended" }, findings: null })).toEqual({
+      kind: "ended",
+      partial: false,
+    });
+    expect(reviewProgress({ run: { kind: "ended" }, findings: partial })).toEqual({
+      kind: "ended",
+      partial: true,
+    });
+    expect(
+      reviewProgress({ run: { kind: "failed", error: "Quota exceeded" }, findings: partial }),
+    ).toEqual({ kind: "failed", error: "Quota exceeded", partial: true });
+  });
+});
+
+describe("selectLatestReview", () => {
+  const started = (payload: object) => ({
+    id: EventId.make(`started-${JSON.stringify(payload)}`),
+    kind: REVIEW_STARTED_ACTIVITY_KIND,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    payload: { ...payload, timelineBypass: true },
+  });
+  const candidate = (
+    id: string,
+    activities: ReadonlyArray<Activity>,
+    createdAt: string,
+    run: { kind: "running" } | { kind: "ended" } = { kind: "running" },
+  ) => ({ ...thread(id, activities), createdAt, run });
+
+  it("finds the newest review by its start record, whatever its thread is called", () => {
+    const latest = selectLatestReview([
+      candidate("quick", [started({ mode: "quick" })], "2026-08-01T00:00:00.000Z"),
+      candidate(
+        "deep",
+        [started({ mode: "deep", focus: "retries" })],
+        "2026-08-02T00:00:00.000Z",
+        { kind: "ended" },
+      ),
+      // Not a review: no start record, however it is titled.
+      { ...candidate("chat", [], "2026-08-03T00:00:00.000Z"), title: "Deep review: #7 Fix" },
+    ]);
+    expect(latest).toMatchObject({
+      thread: { id: "deep" },
+      mode: "deep",
+      focus: "retries",
+      progress: { kind: "ended", partial: false },
+    });
+  });
+
+  it("reads a review's findings sent so far, and its final ones as done", () => {
+    const partial = findingsActivity("partial", "2026-08-02T00:00:00.000Z");
+    const latest = (complete: boolean | undefined) =>
+      selectLatestReview([
+        candidate(
+          "deep",
+          [
+            started({ mode: "deep" }),
+            { ...partial, payload: { ...partial.payload, complete } },
+          ],
+          "2026-08-02T00:00:00.000Z",
+        ),
+      ])?.progress;
+    expect(latest(false)).toEqual({ kind: "running", partial: true });
+    expect(latest(true)).toEqual({ kind: "done" });
+    // Findings from before the flag were always the final set.
+    expect(latest(undefined)).toEqual({ kind: "done" });
+  });
+
+  it("reads a review started before the mode was recorded as a quick one", () => {
+    expect(
+      selectLatestReview([candidate("old", [started({})], "2026-08-01T00:00:00.000Z")])?.mode,
+    ).toBe("quick");
+    expect(selectLatestReview([candidate("chat", [], "2026-08-01T00:00:00.000Z")])).toBeNull();
   });
 });
 
@@ -340,9 +422,11 @@ const link = (number: number, source: ThreadPullRequestLink["source"] = "manual"
 
 const shell = (
   id: string,
-  overrides: Partial<Parameters<typeof reviewSourceCandidates>[0]["threads"][number]> = {},
+  overrides: Partial<Parameters<typeof threadReviewCandidates>[0]["threads"][number]> = {},
 ) => ({
   id: ThreadId.make(id),
+  parentThreadId: null,
+  kind: null,
   pullRequests: [link(7)],
   archivedAt: null,
   updatedAt: "2026-08-01T00:00:00.000Z",
@@ -386,38 +470,32 @@ describe("reviewSourceCandidates", () => {
   });
 });
 
-describe("localReviewSourceCandidates", () => {
-  const checkout = {
-    projectId: ProjectId.make("project"),
-    branch: "feature/x",
-    worktreePath: "/work/x",
-  };
-  const local = (id: string, title: string, overrides: Record<string, unknown> = {}) => ({
-    id: ThreadId.make(id),
-    title,
-    ...checkout,
-    archivedAt: null,
-    updatedAt: "2026-08-01T00:00:00.000Z",
-    ...overrides,
-  });
-
-  it("reads the other unarchived reviews of local changes on the same checkout, newest first", () => {
-    const candidates = localReviewSourceCandidates({
-      threadId: ThreadId.make("work"),
-      checkout,
+describe("threadReviewCandidates", () => {
+  it("reads the thread itself, then its child agents, then the threads linked to its pull request", () => {
+    const work = ThreadId.make("work");
+    const candidates = threadReviewCandidates({
+      threadId: work,
+      pullRequests: [PR_7],
       threads: [
-        local("work", "Review: local changes on feature/x"),
-        local("older", "Review: local changes on feature/x"),
-        local("newer", "Deep review: local changes on feature/x", {
-          updatedAt: "2026-08-03T00:00:00.000Z",
+        shell("linked", { updatedAt: "2026-08-05T00:00:00.000Z" }),
+        shell("work", { pullRequests: [link(7)] }),
+        shell("review", { parentThreadId: work, pullRequests: [link(7)] }),
+        shell("agent", { parentThreadId: work, pullRequests: [], updatedAt: "2026-08-02T00:00:00.000Z" }),
+        // A side chat is no agent of its parent, and an archived child is not read.
+        shell("side", { parentThreadId: work, kind: "sidechat", pullRequests: [] }),
+        shell("gone", {
+          parentThreadId: work,
+          pullRequests: [],
+          archivedAt: "2026-08-05T00:00:00.000Z",
         }),
-        // Ordinary threads on the checkout are not read, nor reviews of another checkout.
-        local("chat", "Fix the cache"),
-        local("elsewhere", "Review: local changes on main", { worktreePath: null, branch: "main" }),
-        local("archived", "Review: local changes", { archivedAt: "2026-08-05T00:00:00.000Z" }),
       ],
     });
-    expect(candidates.map((candidate) => candidate.id)).toEqual(["newer", "older"]);
+    expect(candidates.map((candidate) => candidate.id)).toEqual([
+      "work",
+      "agent",
+      "review",
+      "linked",
+    ]);
   });
 });
 

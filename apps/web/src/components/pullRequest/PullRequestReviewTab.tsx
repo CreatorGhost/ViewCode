@@ -1,14 +1,11 @@
-import {
-  type EnvironmentId,
-  type PullRequestRef,
-  type PullRequestStartReviewResult,
-  type ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, PullRequestRef, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { ListChecksIcon } from "lucide-react";
 import { useMemo } from "react";
 
-import { ReviewFindingsView } from "../chat/ReviewFindingsView";
-import { ReviewStartForm, type ReviewStartTarget, RunningReviewStatus } from "../chat/ReviewStart";
+import { ReviewSurface } from "../chat/ReviewPanel";
+import { ReviewStartForm, type ReviewStartTarget } from "../chat/ReviewStart";
+import type { ReviewFixInChatRequest } from "../chat/ReviewFindingsView";
+import type { ReviewDiffTarget } from "../chat/useReviewDiff";
 import type { PullRequestReview } from "../chat/useReviewFindingsSource";
 import {
   Empty,
@@ -18,90 +15,97 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "../ui/empty";
+import type { StartedAgentReview } from "./PullRequestAgentReviewDialog";
 
 /**
  * The pull request page's Review tab: the latest agent review of this pull request, in the same
- * view a thread's Review panel uses, with a review still under way said above it. With no review
- * yet, a new one starts here. Fixing picks a session, since no chat sits beside the page. Loaded
- * on demand, like the Code tab, since it carries the diff viewer.
+ * view a thread's Review panel uses. With no review yet, a new one starts here. Fixing goes to
+ * the chat working on the pull request (`onFixInChat`). Loaded on demand, like the Code tab,
+ * since it carries the diff viewer.
  */
 export default function PullRequestReviewTab({
   environmentId,
   reference,
+  sourceThreadId,
   review,
   canStart,
   threadRef,
   cwd,
+  host,
   onStarted,
+  onFixInChat,
 }: {
   /** Where reviews run: the panel's acting server. */
   environmentId: EnvironmentId;
   reference: PullRequestRef;
+  /** The chat the detail sits beside, whose agent a review started here becomes. */
+  sourceThreadId: ThreadId | undefined;
   review: PullRequestReview;
   canStart: boolean;
   threadRef: ScopedThreadRef | null;
   cwd: string | undefined;
-  onStarted: (started: PullRequestStartReviewResult) => void;
+  /** The pull request's host, for reading its change before any findings name it. */
+  host: string | null;
+  onStarted: (started: StartedAgentReview) => void;
+  onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
 }) {
-  const { source, posted, ratings, running } = review;
+  const { source, posted, ratings } = review;
   const startReview = useMemo<ReviewStartTarget | null>(
     () =>
-      canStart ? { environmentId, request: { kind: "pull-request", reference }, onStarted } : null,
-    [canStart, environmentId, onStarted, reference],
+      canStart
+        ? {
+            environmentId,
+            request: { kind: "pull-request", reference, sourceThreadId },
+            onStarted,
+          }
+        : null,
+    [canStart, environmentId, onStarted, reference, sourceThreadId],
   );
-  if (source !== null) {
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        {running !== null ? (
-          <RunningReviewStatus
-            environmentId={environmentId}
-            running={running}
-            label="A new review is running:"
-          />
-        ) : null}
-        <div className="min-h-0 flex-1">
-          {/* A re-review starts fresh rather than keeping the previous set's view. */}
-          <ReviewFindingsView
-            key={`${source.threadId}:${source.activityId}`}
-            environmentId={environmentId}
-            threadRef={threadRef}
-            source={source}
-            projectId={reference.projectId}
-            cwd={cwd}
-            posted={posted}
-            ratings={ratings}
-            onFixInChat={undefined}
-            startReview={startReview}
-          />
-        </div>
-      </div>
-    );
-  }
-  if (running !== null) {
-    return (
-      <RunningReviewStatus environmentId={environmentId} running={running} label="Reviewing…" />
-    );
-  }
+  const change = useMemo<ReviewDiffTarget | null>(
+    () =>
+      host === null
+        ? null
+        : {
+            kind: "pull-request",
+            host,
+            repository: reference.repository,
+            number: reference.number,
+          },
+    [host, reference.number, reference.repository],
+  );
   return (
-    <div className="h-full overflow-y-auto">
-      <Empty size="compact">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <ListChecksIcon />
-          </EmptyMedia>
-          <EmptyTitle>No agent review yet</EmptyTitle>
-          <EmptyDescription>
-            {startReview !== null
-              ? `Have an agent review PR #${reference.number}; its findings appear here.`
-              : "Agent reviews are not available on this server."}
-          </EmptyDescription>
-        </EmptyHeader>
-        {startReview !== null ? (
-          <EmptyContent>
-            <ReviewStartForm target={startReview} />
-          </EmptyContent>
-        ) : null}
-      </Empty>
-    </div>
+    <ReviewSurface
+      environmentId={environmentId}
+      threadRef={threadRef}
+      source={source}
+      posted={posted}
+      ratings={ratings}
+      review={review.review}
+      projectId={reference.projectId}
+      cwd={cwd}
+      change={change}
+      startReview={startReview}
+      onFixInChat={onFixInChat}
+      empty={
+        <Empty size="compact">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <ListChecksIcon />
+            </EmptyMedia>
+            <EmptyTitle>No agent review yet</EmptyTitle>
+            <EmptyDescription>
+              {startReview !== null
+                ? `Have an agent review PR #${reference.number}; its findings appear here as it finds them.`
+                : "Agent reviews are not available on this server."}
+            </EmptyDescription>
+          </EmptyHeader>
+          {startReview !== null ? (
+            <EmptyContent>
+              <ReviewStartForm target={startReview} />
+            </EmptyContent>
+          ) : null}
+        </Empty>
+      }
+    />
   );
 }

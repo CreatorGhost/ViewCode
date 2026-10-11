@@ -109,6 +109,8 @@ interface ReviewFindingsViewProps {
   readonly onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
   /** Where a new review of the same change starts, when one can. */
   readonly startReview: ReviewStartTarget | null;
+  /** These are the findings so far of a review still at work; a later set replaces them. */
+  readonly stillReviewing: boolean;
 }
 
 /**
@@ -128,6 +130,7 @@ export const ReviewFindingsView = memo(
     previous.cwd === next.cwd &&
     previous.onFixInChat === next.onFixInChat &&
     previous.startReview === next.startReview &&
+    previous.stillReviewing === next.stillReviewing &&
     previous.source.activityId === next.source.activityId &&
     previous.source.threadTitle === next.source.threadTitle &&
     postedReviewFindingsEqual(previous.posted, next.posted) &&
@@ -144,6 +147,7 @@ function ReviewFindingsViewContent({
   ratings: serverRatings,
   onFixInChat,
   startReview,
+  stillReviewing,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
   const reviewThreadRef = useMemo(
@@ -169,6 +173,17 @@ function ReviewFindingsViewContent({
   const [currentKey, setCurrentKey] = useState<ReviewFindingKey | null>(null);
   const [toggledFiles, setToggledFiles] = useState<ReadonlySet<string>>(() => new Set());
   const [fixing, setFixing] = useState<ReadonlyArray<ReviewFixItem> | null>(null);
+  // The view lives as long as its review, so a newer set of the same review (sent while it
+  // works) keeps the scroll position but not choices made about the earlier set's findings,
+  // whose keys now name other findings.
+  const [shownActivityId, setShownActivityId] = useState(source.activityId);
+  if (shownActivityId !== source.activityId) {
+    setShownActivityId(source.activityId);
+    setExpanded(new Set());
+    setTicks(new Set());
+    setCurrentKey(null);
+    setPendingRatings(NO_PENDING_RATINGS);
+  }
   const [viewer, setViewer] = useState<CodeViewHandle<FindingAnnotationGroup> | null>(null);
   const generalRef = useRef<HTMLDivElement | null>(null);
   const { resolvedTheme } = useTheme();
@@ -559,7 +574,11 @@ function ReviewFindingsViewContent({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
-        <Badge variant="outline">Latest</Badge>
+        {stillReviewing ? (
+          <Badge variant="info">Still reviewing…</Badge>
+        ) : (
+          <Badge variant="outline">Latest</Badge>
+        )}
         <span className="text-muted-foreground text-xs">
           {openEntries.length === 0
             ? "No issues found"
