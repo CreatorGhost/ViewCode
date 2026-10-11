@@ -426,6 +426,10 @@ function toPairingCode(created: AuthPairingCredentialResult): PairingCode {
   };
 }
 
+const CREATE_CODE_TIMEOUT_MS = 30_000;
+const CREATE_CODE_TIMEOUT_MESSAGE =
+  "The server did not answer with a pairing code within 30 seconds. Make a new code to try again.";
+
 function revokeUnused(code: PairingCode | null): void {
   if (code === null || code.expiresAtMs <= Date.now()) return;
   // An unused one-time code should not outlive the dialog that showed it.
@@ -453,13 +457,22 @@ function usePairingCode(endpointId: string) {
 
   useEffect(() => {
     let cancelled = false;
+    let timedOut = false;
+    // The QR box spins while this runs, so it gets a deadline: past it the
+    // person sees an error with New code, and a late code is revoked.
+    const deadline = window.setTimeout(() => {
+      timedOut = true;
+      if (cancelled) return;
+      setResult({ request, code: null, error: CREATE_CODE_TIMEOUT_MESSAGE });
+    }, CREATE_CODE_TIMEOUT_MS);
     createServerPairingCredential({
       label: "Phone",
       ttlSeconds: CONNECT_PHONE_CODE_TTL_SECONDS,
     }).then(
       (created) => {
+        window.clearTimeout(deadline);
         const next = toPairingCode(created);
-        if (cancelled) {
+        if (cancelled || timedOut) {
           revokeUnused(next);
           return;
         }
@@ -469,7 +482,8 @@ function usePairingCode(endpointId: string) {
         setResult({ request, code: next, error: null });
       },
       (cause: unknown) => {
-        if (cancelled) return;
+        window.clearTimeout(deadline);
+        if (cancelled || timedOut) return;
         setResult({
           request,
           code: null,
@@ -479,6 +493,7 @@ function usePairingCode(endpointId: string) {
     );
     return () => {
       cancelled = true;
+      window.clearTimeout(deadline);
     };
   }, [request]);
 
