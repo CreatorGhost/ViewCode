@@ -575,6 +575,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.collapseFinishedTurns !== DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns
         ? ["Collapse finished turns"]
         : []),
+      ...(settings.headerActionsVisible !== DEFAULT_UNIFIED_SETTINGS.headerActionsVisible
+        ? ["Actions and Git in the top bar"]
+        : []),
       ...(settings.readAloudVoice !== DEFAULT_UNIFIED_SETTINGS.readAloudVoice
         ? ["Read aloud voice"]
         : []),
@@ -721,6 +724,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.chatDensity,
       settings.chatWidth,
       settings.collapseFinishedTurns,
+      settings.headerActionsVisible,
       settings.readAloudVoice,
       settings.readAloudRate,
       followSystem,
@@ -801,6 +805,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       chatDensity: DEFAULT_UNIFIED_SETTINGS.chatDensity,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       collapseFinishedTurns: DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns,
+      headerActionsVisible: DEFAULT_UNIFIED_SETTINGS.headerActionsVisible,
       readAloudVoice: DEFAULT_UNIFIED_SETTINGS.readAloudVoice,
       readAloudRate: DEFAULT_UNIFIED_SETTINGS.readAloudRate,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,

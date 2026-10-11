@@ -532,6 +532,8 @@ export const ClientSettingsSchema = Schema.Struct({
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAT_WIDTH))),
   // ViewCode: settled turns fold their work behind one summary row.
   collapseFinishedTurns: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // ViewCode: the chat top bar's project actions and Git buttons (off keeps it quiet).
+  headerActionsVisible: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // ViewCode: read aloud voice (null is the default natural voice) and speed.
   readAloudVoice: Schema.NullOr(ReadAloudVoice).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1880,6 +1882,7 @@ export const ClientSettingsPatch = Schema.Struct({
   chatDensity: Schema.optionalKey(ChatDensity),
   chatWidth: Schema.optionalKey(ChatWidth),
   collapseFinishedTurns: Schema.optionalKey(Schema.Boolean),
+  headerActionsVisible: Schema.optionalKey(Schema.Boolean),
   readAloudVoice: Schema.optionalKey(Schema.NullOr(ReadAloudVoice)),
   readAloudRate: Schema.optionalKey(ReadAloudRate),
 });
