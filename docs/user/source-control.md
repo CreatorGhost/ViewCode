@@ -188,8 +188,10 @@ thread's pull request from the panel, pick the mode, model and focus in its empt
 In the mobile app, a review thread shows a **Review findings** row where its findings arrive. Tap
 it for the verdict, merge confidence and review effort, and the findings grouped by severity; tap a
 finding for its detail and suggested fix. The phone shows no diff, so each finding names its file
-and line instead. **Dismiss** hides a finding until you show dismissed ones, and the thumbs tell
-later reviews of the project which findings helped.
+and line instead. **Fix with agent** (or **Fix all**) sends the findings to a session already
+working on the change or to a new session, as on web; opened from a thread's pull request, it
+writes the request into that thread's message box instead. **Dismiss** hides a finding until you
+show dismissed ones, and the thumbs tell later reviews of the project which findings helped.
 
 For a review of somebody else's pull request the findings are review comments instead: **Post
 comment** posts one, and **Post all** or **Post selected** posts several as one review, each time

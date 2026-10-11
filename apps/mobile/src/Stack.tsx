@@ -42,6 +42,7 @@ import {
 } from "./features/keyboard/HardwareKeyboardCommandProvider";
 import { ReviewCommentComposerSheet } from "./features/review/ReviewCommentComposerSheet";
 import { ReviewFindingsRouteScreen } from "./features/review/findings/ReviewFindingsRouteScreen";
+import { ReviewFixSheet } from "./features/review/findings/ReviewFixSheet";
 import { ReviewSheet } from "./features/review/ReviewSheet";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
 import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteScreen";
@@ -487,6 +488,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "SettingsSheet",
   "ThreadReviewComment",
   "ThreadReviewFindings",
+  "ThreadReviewFindingsFix",
   "ThreadDevicePreview",
   "ThreadSettingsSheet",
 ]);
@@ -671,6 +673,15 @@ const RootStackConfig = createNativeStackNavigator({
       screen: ReviewFindingsRouteScreen,
       linking: `${THREAD_LINKING_PREFIX}/review-findings`,
       options: SOLID_HEADER_OPTIONS,
+    }),
+    ThreadReviewFindingsFix: createNativeStackScreen({
+      screen: ReviewFixSheet,
+      linking: `${THREAD_LINKING_PREFIX}/review-findings/fix`,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.6, 0.92],
+        sheetGrabberVisible: true,
+      },
     }),
     ThreadFiles: createNativeStackScreen({
       screen: ThreadFilesTreeScreen,
