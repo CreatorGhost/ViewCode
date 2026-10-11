@@ -6,13 +6,19 @@ import type {
   SourceControlProviderKind,
   VcsError,
 } from "@t3tools/contracts";
+import { VcsProcessSpawnError } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
+import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Hash from "effect/Hash";
 import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
+import * as Predicate from "effect/Predicate";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 
 import type * as SourceControlProvider from "./SourceControlProvider.ts";
 import type * as VcsProcess from "../vcs/VcsProcess.ts";
@@ -65,6 +71,7 @@ export type SourceControlManagedCliDiscoverySpec = SourceControlDiscoverySpecBas
   readonly refineUnknownRemote: (input: {
     readonly cwd: string;
     readonly context: SourceControlProvider.SourceControlProviderContext;
+    readonly probes: SourceControlDiscoveryProbes;
   }) => Effect.Effect<SourceControlProviderInfo | null>;
 };
 
@@ -88,6 +95,7 @@ function probeTimeoutMs(spec: SourceControlCliDiscoverySpec): number {
 const GLOBAL_AUTH_PROBE_CAPACITY = 16;
 const GLOBAL_AUTH_PROBE_SUCCESS_TTL = Duration.seconds(60);
 const GLOBAL_AUTH_PROBE_FAILURE_TTL = Duration.seconds(10);
+const MISSING_EXECUTABLE_TTL = Duration.minutes(10);
 
 interface DiscoveryProbeResult {
   readonly kind: SourceControlProviderKind;
@@ -354,12 +362,75 @@ export interface SourceControlDiscoveryProbes {
     spec: SourceControlCliDiscoverySpec,
     cwd: string,
   ) => Effect.Effect<VcsProcess.VcsProcessOutput, VcsError>;
+  /**
+   * Runs `probe` unless `executable` recently failed to spawn because it is not installed. A
+   * skipped probe fails with that remembered spawn error, so callers handle it exactly as before
+   * without a process being started. Only ENOENT is remembered, for ten minutes: a timeout, a
+   * non-zero exit or a missing working directory is a real failure and surfaces every time.
+   */
+  readonly unlessMissing: <A, E, R>(
+    executable: string,
+    probe: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | VcsProcessSpawnError, R>;
   /** Forgets every remembered answer, for a rescan the user asked for. */
   readonly reset: Effect.Effect<void>;
 }
 
+/**
+ * The spawn error of an executable that is not on PATH, found on the error itself or on the
+ * `cause` a CLI wrapper kept. Node also reports a missing cwd as ENOENT, but the spawner checks
+ * the cwd first and reports that from the file system, so it never matches.
+ */
+const isVcsProcessSpawnError = Schema.is(VcsProcessSpawnError);
+
+function missingExecutableError(error: unknown): VcsProcessSpawnError | undefined {
+  const spawn = isVcsProcessSpawnError(error)
+    ? error
+    : Predicate.hasProperty(error, "cause") && isVcsProcessSpawnError(error.cause)
+      ? error.cause
+      : undefined;
+  return spawn !== undefined &&
+    spawn.cause instanceof PlatformError.PlatformError &&
+    spawn.cause.reason._tag === "NotFound" &&
+    spawn.cause.reason.module === "ChildProcess" &&
+    spawn.cause.reason.method === "spawn"
+    ? spawn
+    : undefined;
+}
+
+interface MissingExecutable {
+  readonly until: number;
+  readonly error: VcsProcessSpawnError;
+}
+
 export const makeSourceControlDiscoveryProbes = Effect.fn("makeSourceControlDiscoveryProbes")(
   function* (process: VcsProcess.VcsProcess["Service"]) {
+    const missing = yield* Ref.make<ReadonlyMap<string, MissingExecutable>>(new Map());
+
+    const unlessMissing = <A, E, R>(executable: string, probe: Effect.Effect<A, E, R>) =>
+      Effect.gen(function* () {
+        const known = (yield* Ref.get(missing)).get(executable);
+        if (known !== undefined && known.until > (yield* Clock.currentTimeMillis)) {
+          return yield* known.error;
+        }
+        return yield* probe.pipe(
+          Effect.tapError((cause) => {
+            const error = missingExecutableError(cause);
+            if (error === undefined) return Effect.void;
+            return Clock.currentTimeMillis.pipe(
+              Effect.flatMap((now) =>
+                Ref.update(missing, (current) =>
+                  new Map(current).set(executable, {
+                    until: now + Duration.toMillis(MISSING_EXECUTABLE_TTL),
+                    error,
+                  }),
+                ),
+              ),
+            );
+          }),
+        );
+      });
+
     const run = (spec: SourceControlCliDiscoverySpec, cwd: string) =>
       process.run({
         operation: "source-control.discovery.refine-unknown-remote",
@@ -383,10 +454,14 @@ export const makeSourceControlDiscoveryProbes = Effect.fn("makeSourceControlDisc
 
     return {
       refineUnknownRemote: (spec, cwd) =>
-        spec.authProbeIsGlobal === true
-          ? Cache.get(globalProbes, new GlobalAuthProbe(spec, cwd))
-          : run(spec, cwd),
-      reset: Cache.invalidateAll(globalProbes),
+        unlessMissing(
+          spec.executable,
+          spec.authProbeIsGlobal === true
+            ? Cache.get(globalProbes, new GlobalAuthProbe(spec, cwd))
+            : run(spec, cwd),
+        ),
+      unlessMissing,
+      reset: Effect.andThen(Cache.invalidateAll(globalProbes), Ref.set(missing, new Map())),
     } satisfies SourceControlDiscoveryProbes;
   },
 );
@@ -405,7 +480,7 @@ export const refineUnknownRemoteProvider = Effect.fn("refineUnknownRemoteProvide
 
     const providers = yield* Effect.forEach(input.specs, (spec) => {
       if (spec.type === "managed-cli") {
-        return spec.refineUnknownRemote({ cwd: input.cwd, context });
+        return spec.refineUnknownRemote({ cwd: input.cwd, context, probes: input.probes });
       }
       if (!isCliRemoteRefinementSpec(spec)) return Effect.succeed(null);
       return input.probes.refineUnknownRemote(spec, input.cwd).pipe(

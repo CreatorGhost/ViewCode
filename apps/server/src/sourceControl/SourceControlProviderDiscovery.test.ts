@@ -3,9 +3,15 @@ import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as PlatformError from "effect/PlatformError";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { type VcsError, VcsProcessTimeoutError } from "@t3tools/contracts";
+import {
+  type VcsError,
+  VcsProcessExitError,
+  VcsProcessSpawnError,
+  VcsProcessTimeoutError,
+} from "@t3tools/contracts";
 
 import type * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
@@ -144,5 +150,97 @@ it.effect("a reset makes the next caller probe again", () =>
     yield* probes.refineUnknownRemote(gh, "/repo/a");
 
     assert.strictEqual(spawns.length, 2);
+  }),
+);
+
+const spawnError = (input: VcsProcess.VcsProcessInput, module: "ChildProcess" | "FileSystem") =>
+  new VcsProcessSpawnError({
+    operation: input.operation,
+    command: input.command,
+    cwd: input.cwd,
+    cause: PlatformError.systemError({
+      _tag: "NotFound",
+      module,
+      method: module === "ChildProcess" ? "spawn" : "access",
+      pathOrDescriptor: module === "ChildProcess" ? input.command : input.cwd,
+    }),
+  });
+
+const glab = GitLabSourceControlProvider.discovery;
+
+it.effect("skips a CLI that is not installed for ten minutes", () =>
+  Effect.gen(function* () {
+    const { spawns, process } = recordingProcess((input) =>
+      Effect.fail(spawnError(input, "ChildProcess")),
+    );
+    const probes = yield* makeSourceControlDiscoveryProbes(process);
+
+    const first = yield* Effect.flip(probes.refineUnknownRemote(glab, "/repo/a"));
+    yield* TestClock.adjust(Duration.minutes(9));
+    const skipped = yield* Effect.flip(probes.refineUnknownRemote(glab, "/repo/b"));
+    assert.strictEqual(spawns.length, 1);
+    assert.strictEqual(skipped, first);
+
+    yield* TestClock.adjust(Duration.minutes(1));
+    yield* Effect.flip(probes.refineUnknownRemote(glab, "/repo/b"));
+    assert.strictEqual(spawns.length, 2);
+  }),
+);
+
+it.effect("keeps probing a CLI that times out, exits non-zero or lacks its cwd", () =>
+  Effect.gen(function* () {
+    const failures: ReadonlyArray<(input: VcsProcess.VcsProcessInput) => VcsError> = [
+      (input) =>
+        new VcsProcessTimeoutError({
+          operation: input.operation,
+          command: input.command,
+          cwd: input.cwd,
+          timeoutMs: 5_000,
+        }),
+      (input) =>
+        new VcsProcessExitError({
+          operation: input.operation,
+          command: input.command,
+          cwd: input.cwd,
+          exitCode: 1,
+          detail: "failed",
+        }),
+      (input) => spawnError(input, "FileSystem"),
+    ];
+    for (const failure of failures) {
+      const { spawns, process } = recordingProcess((input) => Effect.fail(failure(input)));
+      const probes = yield* makeSourceControlDiscoveryProbes(process);
+
+      yield* Effect.flip(probes.refineUnknownRemote(glab, "/repo/a"));
+      yield* Effect.flip(probes.refineUnknownRemote(glab, "/repo/a"));
+
+      assert.strictEqual(spawns.length, 2);
+    }
+  }),
+);
+
+it.effect("remembers a CLI missing behind a wrapper's error until a reset", () =>
+  Effect.gen(function* () {
+    let spawns = 0;
+    const probes = yield* makeSourceControlDiscoveryProbes(
+      recordingProcess(() => Effect.succeed(output)).process,
+    );
+    const listLogins = Effect.suspend(() => {
+      spawns += 1;
+      return Effect.fail({
+        cause: spawnError(
+          { operation: "listLogins", command: "tea", args: [], cwd: "/repo/a" },
+          "ChildProcess",
+        ),
+      });
+    });
+
+    yield* Effect.flip(probes.unlessMissing("tea", listLogins));
+    yield* Effect.flip(probes.unlessMissing("tea", listLogins));
+    assert.strictEqual(spawns, 1);
+
+    yield* probes.reset;
+    yield* Effect.flip(probes.unlessMissing("tea", listLogins));
+    assert.strictEqual(spawns, 2);
   }),
 );

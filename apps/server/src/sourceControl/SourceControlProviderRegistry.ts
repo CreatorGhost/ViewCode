@@ -28,7 +28,10 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
 const PROVIDER_DETECTION_CACHE_CAPACITY = 2_048;
-const PROVIDER_DETECTION_CACHE_TTL = Duration.seconds(5);
+// Detection probes several CLIs, so it must outlive one pass; a failure is retried sooner,
+// but not immediately, or a slow probe that times out is re-run by every caller.
+const PROVIDER_DETECTION_CACHE_TTL = Duration.seconds(60);
+const PROVIDER_DETECTION_FAILURE_CACHE_TTL = Duration.seconds(10);
 
 export interface SourceControlProviderRegistration {
   readonly kind: SourceControlProviderKind;
@@ -313,7 +316,8 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       SourceControlProviderError
     >(detectProviderContext, {
       capacity: PROVIDER_DETECTION_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? PROVIDER_DETECTION_CACHE_TTL : Duration.zero),
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? PROVIDER_DETECTION_CACHE_TTL : PROVIDER_DETECTION_FAILURE_CACHE_TTL,
     });
 
     const resolveHandle: SourceControlProviderRegistry["Service"]["resolveHandle"] = (input) =>
@@ -349,6 +353,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       resolve: (input) => resolveHandle(input).pipe(Effect.map((handle) => handle.provider)),
       // A rescan is the user saying something changed, such as a new sign-in.
       discover: probes.reset.pipe(
+        Effect.andThen(Cache.invalidateAll(providerContextCache)),
         Effect.andThen(
           Effect.forEach(
             discoverySpecs,

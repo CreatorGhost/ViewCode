@@ -1,9 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
@@ -43,6 +45,8 @@ function makeRegistry(input: {
   readonly github?: Partial<GitHubCli.GitHubCli["Service"]>;
   readonly gitlab?: Partial<GitLabCli.GitLabCli["Service"]>;
   readonly resolve?: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"];
+  /** Runs at the start of the default repository detection. */
+  readonly beforeResolve?: Effect.Effect<void, VcsRepositoryDetectionError>;
 }) {
   const driver = {
     listRemotes: () =>
@@ -65,8 +69,8 @@ function makeRegistry(input: {
     resolve:
       input.resolve ??
       (() =>
-        Effect.succeed({
-          kind: "git",
+        Effect.as(input.beforeResolve ?? Effect.void, {
+          kind: "git" as const,
           repository: {
             kind: "git",
             rootPath: "/repo",
@@ -166,6 +170,42 @@ it.effect("retains VCS detection failures with structured cwd context", () =>
     assert.strictEqual(error.detail, "Failed to detect source control provider.");
     assert.strictEqual(error.cause, cause);
     assert.equal(error.message.includes(cause.message), false);
+  }),
+);
+
+it.effect("retries a failed detection after ten seconds and a success after a minute", () =>
+  Effect.gen(function* () {
+    let detections = 0;
+    let failing = true;
+    const cause = new VcsRepositoryDetectionError({
+      operation: "resolve",
+      cwd: "/repo",
+      detail: "raw VCS detection failure",
+    });
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@github.com:pingdotgg/t3code.git" }],
+      beforeResolve: Effect.suspend(() => {
+        detections += 1;
+        return failing ? Effect.fail(cause) : Effect.void;
+      }),
+    });
+
+    yield* Effect.flip(registry.resolve({ cwd: "/repo" }));
+    yield* TestClock.adjust(Duration.seconds(9));
+    yield* Effect.flip(registry.resolve({ cwd: "/repo" }));
+    assert.strictEqual(detections, 1);
+
+    failing = false;
+    yield* TestClock.adjust(Duration.seconds(1));
+    assert.strictEqual((yield* registry.resolve({ cwd: "/repo" })).kind, "github");
+    assert.strictEqual(detections, 2);
+
+    yield* TestClock.adjust(Duration.seconds(59));
+    yield* registry.resolve({ cwd: "/repo" });
+    assert.strictEqual(detections, 2);
+    yield* TestClock.adjust(Duration.seconds(1));
+    yield* registry.resolve({ cwd: "/repo" });
+    assert.strictEqual(detections, 3);
   }),
 );
 

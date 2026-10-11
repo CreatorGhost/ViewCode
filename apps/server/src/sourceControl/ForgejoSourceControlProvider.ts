@@ -10,6 +10,7 @@ import {
   providerAuth,
   probeSourceControlProvider,
   type SourceControlCliDiscoverySpec,
+  type SourceControlDiscoveryProbes,
   type SourceControlManagedCliDiscoverySpec,
 } from "./SourceControlProviderDiscovery.ts";
 import { ForgejoPullRequestSchema, toForgejoChangeRequest } from "./forgejoPullRequests.ts";
@@ -140,15 +141,17 @@ export const makeDiscovery = Effect.gen(function* () {
       function* (input: {
         readonly cwd: string;
         readonly context: SourceControlProvider.SourceControlProviderContext;
+        readonly probes: SourceControlDiscoveryProbes;
       }) {
         const remote = ForgejoCli.parseForgejoRemote(input.context.remoteUrl);
         if (!remote) return null;
         for (const command of ["fj", "tea"] as const) {
-          const logins = yield* listLogins({
-            cwd: input.cwd,
-            command,
-            remoteUrl: input.context.remoteUrl,
-          }).pipe(Effect.orElseSucceed(() => []));
+          const logins = yield* input.probes
+            .unlessMissing(
+              command,
+              listLogins({ cwd: input.cwd, command, remoteUrl: input.context.remoteUrl }),
+            )
+            .pipe(Effect.orElseSucceed(() => []));
           const login = ForgejoCli.matchForgejoLogin(logins, remote, input.context.requestedHost);
           if (login) return { kind: "forgejo" as const, name: discovery.label, baseUrl: login.url };
         }
