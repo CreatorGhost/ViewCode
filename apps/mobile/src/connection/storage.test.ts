@@ -34,6 +34,36 @@ function makeStorage(initial: Readonly<Record<string, string>>) {
 }
 
 describe("mobile connection catalog storage", () => {
+  it.effect("drops saved relay targets from the current catalog and persists the result", () =>
+    Effect.gen(function* () {
+      const memory = makeStorage({
+        [CONNECTION_CATALOG_KEY]: JSON.stringify({
+          schemaVersion: 1,
+          targets: [
+            { _tag: "RelayConnectionTarget", environmentId: "relay-env", label: "Relay" },
+            {
+              _tag: "BearerConnectionTarget",
+              environmentId: "bearer-env",
+              label: "Mac",
+              connectionId: "bearer:bearer-env",
+            },
+          ],
+          profiles: [],
+          credentials: [],
+          remoteDpopTokens: [],
+        }),
+      });
+      const catalog = yield* make().pipe(
+        Effect.provideService(MobileSecureStorage, memory.storage),
+      );
+
+      expect((yield* catalog.read).targets.map((target) => target.environmentId)).toEqual([
+        "bearer-env",
+      ]);
+      expect(memory.values.get(CONNECTION_CATALOG_KEY)).not.toContain("RelayConnectionTarget");
+    }),
+  );
+
   it.effect("recovers from a corrupt current catalog", () =>
     Effect.gen(function* () {
       const memory = makeStorage({

@@ -2,7 +2,7 @@ import type { PushNotificationCategories, PushNotificationCategory } from "@t3to
 
 /**
  * Notifications sent by each connected computer through Expo's push service,
- * without T3 Connect. The phone keeps the switch and the categories; the
+ * with no account or hosted relay. The phone keeps the switch and the categories; the
  * computer only sends what the phone registered for. Pure so the rules can be
  * tested without React Native.
  */

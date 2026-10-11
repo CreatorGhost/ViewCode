@@ -67,10 +67,10 @@ import {
   getComposerDraftSnapshot,
   mergeComposerDraftContent,
   replaceComposerDraftAttachments,
-  removeDeliveredCloudQueuedMessage,
   undoComposerDraftMerge,
   updateComposerDraftSettings,
   waitForComposerDraftsLoaded,
+  waitForLegacyArchiveRestore,
 } from "./use-composer-drafts";
 import { useAtomCommand } from "./use-atom-command";
 import {
@@ -224,6 +224,9 @@ export async function prepareQueuedMessageAttachments(
     }
   | { readonly status: "abandoned" }
 > {
+  // Never send a restored legacy message before its archive retirement is on
+  // disk, or a restart would queue and send it a second time.
+  await waitForLegacyArchiveRestore();
   if (!(await confirmThreadOutboxMessageQueued(queuedMessage))) {
     return { status: "abandoned" };
   }
@@ -282,12 +285,6 @@ export async function completeQueuedMessageDelivery(
   deliveryRevision: number,
 ): Promise<"removed" | "edited" | "failed"> {
   try {
-    await removeDeliveredCloudQueuedMessage(queuedMessage).catch((error) => {
-      console.warn("[thread-outbox] could not update sign-out snapshot after delivery", {
-        messageId: queuedMessage.messageId,
-        error,
-      });
-    });
     // The editor may have taken the entry while startTurn was in flight; its
     // unsaved edits have not bumped the revision yet, so the CAS alone would
     // let removal win and the editor would lose them once it saves.
@@ -331,12 +328,6 @@ export async function removeAcknowledgedExistingThreadMessage(
   acknowledgedMessageIds: Set<MessageId>,
 ): Promise<boolean> {
   try {
-    await removeDeliveredCloudQueuedMessage(queuedMessage).catch((error) => {
-      console.warn("[thread-outbox] could not update sign-out snapshot after delivery", {
-        messageId: queuedMessage.messageId,
-        error,
-      });
-    });
     const removed = await removeThreadOutboxMessage(queuedMessage);
     if (removed) {
       acknowledgedMessageIds.delete(queuedMessage.messageId);

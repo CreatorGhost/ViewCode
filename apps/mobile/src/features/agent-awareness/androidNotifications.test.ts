@@ -66,10 +66,6 @@ describe("Android native notification capability", () => {
   it("uses the installed module and the build variant's deep-link scheme", async () => {
     const { configureAndroidAgentNotifications, clearAndroidAgentNotifications } =
       await import("./androidNotifications");
-    const { supportsAgentAwarenessPush } = await import("./capabilities");
-    // An iOS-only signing restriction must not disable Android notifications.
-    mocks.config.extra.iosPersonalTeamBuild = true;
-    expect(supportsAgentAwarenessPush()).toBe(true);
     configureAndroidAgentNotifications("device", "user", false);
     expect(mocks.native?.configure).toHaveBeenCalledWith("device", "user", "t3code-preview", false);
     clearAndroidAgentNotifications();
@@ -82,19 +78,10 @@ describe("Android native notification capability", () => {
       mocks.native = native;
       const { configureAndroidAgentNotifications, clearAndroidAgentNotifications } =
         await import("./androidNotifications");
-      const { supportsAgentAwarenessPush } = await import("./capabilities");
-      expect(supportsAgentAwarenessPush()).toBe(false);
+      const { supportsAndroidAgentNotifications } = await import("./androidNotifications");
+      expect(supportsAndroidAgentNotifications()).toBe(false);
       expect(() => configureAndroidAgentNotifications("device", "user", true)).not.toThrow();
       expect(() => clearAndroidAgentNotifications()).not.toThrow();
     },
   );
-
-  it("preserves the iOS personal-team restriction without loading Android code", async () => {
-    mocks.os = "ios";
-    const { supportsAgentAwarenessPush } = await import("./capabilities");
-    expect(supportsAgentAwarenessPush()).toBe(true);
-    mocks.config.extra.iosPersonalTeamBuild = true;
-    expect(supportsAgentAwarenessPush()).toBe(false);
-    expect(mocks.requireModule).not.toHaveBeenCalled();
-  });
 });

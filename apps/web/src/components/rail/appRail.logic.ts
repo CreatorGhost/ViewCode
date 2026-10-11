@@ -5,21 +5,15 @@ import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { planUsageWindow } from "../chat/composerUsageLimits.logic";
 import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 
-/** How much of a rail ring is left to spend, from comfortable to nearly out. */
-export type RailRingTone = "healthy" | "fair" | "low" | "critical";
+import {
+  railRingTone,
+  railRingTracks,
+  type RailRingTone,
+  type RailRingTrack,
+} from "@t3tools/shared/usagePace";
 
-export function railRingTone(remainingPercent: number): RailRingTone {
-  if (remainingPercent >= 50) return "healthy";
-  if (remainingPercent >= 25) return "fair";
-  if (remainingPercent >= 10) return "low";
-  return "critical";
-}
-
-export type RailRingTrack = {
-  window: ServerProviderUsageWindow;
-  remainingPercent: number;
-  tone: RailRingTone;
-};
+export { railRingTone, railRingTracks } from "@t3tools/shared/usagePace";
+export type { RailRingTone, RailRingTrack } from "@t3tools/shared/usagePace";
 
 export type RailUsageRing = {
   entry: ProviderInstanceEntry;
@@ -33,28 +27,6 @@ export type RailUsageRing = {
   /** What the ring draws, outermost first: weekly outside, the session window inside (as Synara does). Empty when idle. */
   tracks: ReadonlyArray<RailRingTrack>;
 };
-
-function track(window: ServerProviderUsageWindow): RailRingTrack {
-  const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent));
-  return { window, remainingPercent, tone: railRingTone(remainingPercent) };
-}
-
-/**
- * Weekly outside and the session window inside when the account reports both;
- * otherwise the one window it has. Named sublimits (`Fable`, `Opus`) stay in the card.
- */
-export function railRingTracks(
-  windows: ReadonlyArray<ServerProviderUsageWindow>,
-  fallback: ServerProviderUsageWindow,
-): ReadonlyArray<RailRingTrack> {
-  // Model-scoped weeklies (`seven_day_fable`) are sublimits, not the account's week.
-  const weekly =
-    windows.find((window) => window.kind === "weekly" && !window.id.startsWith("seven_day_")) ??
-    windows.find((window) => window.kind === "weekly");
-  const session = windows.find((window) => window.kind === "session");
-  const picked = [weekly, session].filter((window) => window !== undefined);
-  return (picked.length > 0 ? picked : [fallback]).map(track);
-}
 
 /** The window closest to exhaustion; the ring warns about whichever limit hits first. */
 export function mostConstrainedWindow(

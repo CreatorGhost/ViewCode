@@ -1,8 +1,6 @@
 import Constants from "expo-constants";
 import { makeRelayClientTracingLayer } from "@t3tools/shared/relayTracing";
 
-import { hasTracingPublicConfig, resolveCloudPublicConfig } from "../cloud/publicConfig";
-
 export interface TracingConfig {
   readonly tracesUrl: string;
   readonly tracesDataset: string;
@@ -14,13 +12,34 @@ export interface TracingResource {
   readonly appVariant: string;
 }
 
-export function resolveTracingConfig(): TracingConfig | null {
-  const config = resolveCloudPublicConfig();
-  if (!hasTracingPublicConfig(config)) {
+function trimNonEmpty(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeSecureUrl(value: unknown): string | null {
+  const raw = trimNonEmpty(value);
+  if (raw === null) {
     return null;
   }
-  const { tracesUrl, tracesDataset, tracesToken } = config.observability;
-  return { tracesUrl, tracesDataset, tracesToken };
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Traces export only when `extra.observability` carries a URL, dataset and token. */
+export function resolveTracingConfig(
+  extra: Record<string, unknown> | undefined = Constants.expoConfig?.extra,
+): TracingConfig | null {
+  const observability = extra?.observability as Record<string, unknown> | undefined;
+  const tracesUrl = normalizeSecureUrl(observability?.tracesUrl);
+  const tracesDataset = trimNonEmpty(observability?.tracesDataset);
+  const tracesToken = trimNonEmpty(observability?.tracesToken);
+  return tracesUrl && tracesDataset && tracesToken
+    ? { tracesUrl, tracesDataset, tracesToken }
+    : null;
 }
 
 export function makeTracingLayer(config: TracingConfig | null, resource: TracingResource) {
