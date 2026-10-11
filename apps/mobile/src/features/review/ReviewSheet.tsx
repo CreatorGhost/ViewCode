@@ -68,6 +68,7 @@ import { resolveReviewAvailability } from "./reviewAvailability";
 import { resolveSelectedReviewFileId } from "./reviewPaneSelection";
 import { buildReviewSectionMenu } from "./review-section-menu";
 import { reportShowcaseSceneRendered } from "../showcase/showcaseRenderSignal";
+import { AgentReviewBar } from "./agent/AgentReviewBar";
 
 function ReviewHeader(
   props: Parameters<typeof useReviewHeaderPresentation>[0] & {
@@ -460,6 +461,8 @@ function ReviewFileNavigator({
 type ReviewSheetProps = StaticScreenProps<{
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  /** A commit the commit sheet picked for the agent review bar to review. */
+  readonly reviewCommit?: string;
 }>;
 
 export function ReviewSheet(props: ReviewSheetProps) {
@@ -660,6 +663,10 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const handleRetryEnvironment = useCallback(() => {
     void retryEnvironment(environmentId);
   }, [environmentId, retryEnvironment]);
+  const takeReviewCommit = useCallback(
+    () => navigation.setParams({ reviewCommit: undefined }),
+    [navigation],
+  );
   const handleReturnToThread = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -750,6 +757,14 @@ export function ReviewSheet(props: ReviewSheetProps) {
 
       <MaterialScreenContent>
         <View className="flex-1 bg-sheet android:bg-sheet-solid">
+          <AgentReviewBar
+            environmentId={environmentId}
+            threadId={threadId}
+            sections={sectionMenu}
+            selectedSection={selectedSection}
+            commitToReview={props.route.params.reviewCommit ?? null}
+            onCommitTaken={takeReviewCommit}
+          />
           {showSectionToolbar && reviewSections.length > 0 ? (
             <ReviewScopePicker
               sections={sectionMenu}

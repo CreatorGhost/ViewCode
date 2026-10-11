@@ -5,10 +5,11 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import type {
-  ProviderInstanceId,
-  PushNotificationCategories,
-  SidebarProjectGroupingMode,
+import {
+  AgentReviewMode,
+  type ProviderInstanceId,
+  type PushNotificationCategories,
+  type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
@@ -18,6 +19,7 @@ import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-sto
 
 const PREFERENCES_KEY = "t3code.preferences";
 const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
+const isAgentReviewMode = Schema.is(AgentReviewMode);
 
 export interface Preferences {
   readonly liveActivitiesEnabled?: boolean;
@@ -46,6 +48,8 @@ export interface Preferences {
   /** Fresh keys reset both shelves to collapsed when users update. */
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  /** How thorough Find issues reviews on this device, as last picked. */
+  readonly agentReviewMode?: AgentReviewMode;
   /**
    * Notifications sent by each connected computer through Expo push. Absent
    * until the user first touches the setting; read through
@@ -114,6 +118,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    agentReviewMode?: AgentReviewMode;
     directPush?: Preferences["directPush"];
   } = {};
 
@@ -193,6 +198,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
+  }
+  if (isAgentReviewMode(parsed.agentReviewMode)) {
+    preferences.agentReviewMode = parsed.agentReviewMode;
   }
   if (
     typeof parsed.directPush === "object" &&
