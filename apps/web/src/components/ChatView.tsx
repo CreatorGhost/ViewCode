@@ -310,6 +310,7 @@ import {
   beginBackgroundDraftSubmissionByRef,
   clearBackgroundDraftSubmissionByRef,
   composerDraftHasUserContent,
+  composerDraftNeedsServerReconcile,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -1652,6 +1653,45 @@ export default function ChatView(props: ChatViewProps) {
   const composerActiveProvider = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
+  // The thread's settings are what the next message uses. A model or mode
+  // picked here and not sent yet gives way when the thread changes elsewhere
+  // (another device, the server, an agent), and a new pick binds to the
+  // thread's current settings. Before paint, so the picker never shows a
+  // stale pick.
+  const serverModelSelection = activeServerThread?.modelSelection;
+  const serverRuntimeMode = activeServerThread?.runtimeMode;
+  const serverInteractionMode = activeServerThread?.interactionMode;
+  const serverThreadSettings = useMemo(
+    () =>
+      serverModelSelection && serverRuntimeMode && serverInteractionMode
+        ? {
+            modelSelection: serverModelSelection,
+            runtimeMode: serverRuntimeMode,
+            interactionMode: serverInteractionMode,
+          }
+        : null,
+    [serverInteractionMode, serverModelSelection, serverRuntimeMode],
+  );
+  const composerNeedsServerReconcile = useComposerDraftStore(
+    (store) =>
+      serverThreadSettings !== null &&
+      composerDraftNeedsServerReconcile(
+        store.getComposerDraft(composerDraftTarget),
+        serverThreadSettings,
+      ),
+  );
+  const reconcileComposerServerSettings = useComposerDraftStore(
+    (store) => store.reconcileServerThreadSettings,
+  );
+  useLayoutEffect(() => {
+    if (!composerNeedsServerReconcile || serverThreadSettings === null) return;
+    reconcileComposerServerSettings(composerDraftTarget, serverThreadSettings);
+  }, [
+    composerDraftTarget,
+    composerNeedsServerReconcile,
+    reconcileComposerServerSettings,
+    serverThreadSettings,
+  ]);
   const composerHasUnsentContent = useComposerDraftStore((store) =>
     composerDraftHasUserContent(store.getComposerDraft(composerDraftTarget)),
   );
@@ -2894,10 +2934,12 @@ export default function ChatView(props: ChatViewProps) {
     () =>
       resolveComposerProviderSelection({
         entries: providerInstanceEntries,
+        // The thread's selection is what its next turn runs on; the session
+        // still names the previous provider until that turn hands off.
         candidateInstanceIds: [
           selectedProviderByThreadId,
-          activeThread?.session?.providerInstanceId,
           activeThread?.modelSelection.instanceId,
+          activeThread?.session?.providerInstanceId,
           activeProjectDefaultModelSelection?.instanceId,
         ],
         lockedProvider,

@@ -78,6 +78,17 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   whole request; the server decides the handoff. Clients only label it, from
   the continuation group of `session.providerInstanceId`, not of the staged
   selection. Upstream merges that bring the lock back must drop it again.
+- A thread's `modelSelection`, `runtimeMode` and `interactionMode` are what its
+  next turn uses, and every client sees them change. A composer's pick is only
+  an unsent intent kept in its local draft, so it records the thread value it
+  was made against (`serverBasis`, `client-runtime/composerSettingsBasis.ts`)
+  and gives way once the thread holds anything else: a switch made on the
+  phone, by an agent or by this composer's own send. Without that, a stale
+  desktop pick outranked a switch made on the phone and its next send handed
+  the thread back. Picks saved without a basis (older builds) follow the
+  thread. For the same reason the composer prefers the thread's instance to
+  `session.providerInstanceId`, which names the old provider until the
+  handoff turn runs.
 - A handoff's "from" model is never read from `thread.modelSelection`: the
   client saves the new selection (`thread.meta.update`) before the turn, so
   once the live session is gone (idle reaper, restart) that field already

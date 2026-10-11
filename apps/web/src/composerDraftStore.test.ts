@@ -2745,6 +2745,129 @@ describe("composerDraftStore runtime and interaction settings", () => {
   });
 });
 
+describe("composerDraftStore server thread settings", () => {
+  const threadId = ThreadId.make("thread-server-settings");
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+  const opus = modelSelection(CLAUDE_AGENT_DRIVER, "claude-opus-5-5", { effort: "high" });
+  const gpt = modelSelection(CODEX_DRIVER, "gpt-6.1");
+  const server = (selection: ModelSelection) => ({
+    modelSelection: selection,
+    runtimeMode: "full-access" as const,
+    interactionMode: "default" as const,
+  });
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("drops an unsent model pick when the thread's model changes elsewhere", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(threadRef, opus, { explicit: true });
+    store.reconcileServerThreadSettings(threadRef, server(opus));
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.activeProvider).toBe(CLAUDE_AGENT_INSTANCE);
+
+    // Another device switched the thread to GPT.
+    store.reconcileServerThreadSettings(threadRef, server(gpt));
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
+
+  it("keeps a pick made after the thread's model changed", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(threadRef, opus, { explicit: true });
+    store.reconcileServerThreadSettings(threadRef, server(opus));
+    store.reconcileServerThreadSettings(threadRef, server(gpt));
+
+    store.setModelSelection(threadRef, opus, { explicit: true });
+    store.reconcileServerThreadSettings(threadRef, server(gpt));
+    store.reconcileServerThreadSettings(threadRef, server(gpt));
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.activeProvider).toBe(CLAUDE_AGENT_INSTANCE);
+  });
+
+  it("treats an effort change as a pick", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProviderModelOptions(threadRef, CODEX_DRIVER, toSelections({ effort: "low" }), {
+      instanceId: CODEX_INSTANCE,
+      model: "gpt-6.1",
+    });
+    store.reconcileServerThreadSettings(threadRef, server(gpt));
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.activeProvider).toBe(CODEX_INSTANCE);
+
+    store.reconcileServerThreadSettings(threadRef, server({ ...gpt, model: "gpt-6.1-sol" }));
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
+
+  it("makes picks saved by older builds follow the thread", () => {
+    const threadKey = scopedThreadKey(threadRef);
+    useComposerDraftStore.setState({
+      draftsByThreadKey: {
+        [threadKey]: {
+          prompt: "keep me",
+          images: [],
+          files: [],
+          nonPersistedImageIds: [],
+          persistedAttachments: [],
+          terminalContexts: [],
+          previewAnnotations: [],
+          reviewComments: [],
+          modelSelectionByProvider: { [CLAUDE_AGENT_INSTANCE]: opus },
+          activeProvider: CLAUDE_AGENT_INSTANCE,
+          modelSelectionExplicit: true,
+          runtimeMode: "approval-required",
+          interactionMode: null,
+        },
+      },
+    });
+
+    useComposerDraftStore.getState().reconcileServerThreadSettings(threadRef, server(gpt));
+
+    const draft = draftByKey(threadKey);
+    expect(draft?.prompt).toBe("keep me");
+    expect(draft?.activeProvider).toBeNull();
+    expect(draft?.modelSelectionByProvider).toEqual({});
+    expect(draft?.runtimeMode).toBeNull();
+  });
+
+  it("decides runtime and interaction modes on their own", () => {
+    const store = useComposerDraftStore.getState();
+    store.setRuntimeMode(threadRef, "approval-required");
+    store.setInteractionMode(threadRef, "plan");
+    store.reconcileServerThreadSettings(threadRef, server(opus));
+
+    store.reconcileServerThreadSettings(threadRef, {
+      ...server(opus),
+      runtimeMode: "auto-accept-edits",
+    });
+
+    const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
+    expect(draft?.runtimeMode).toBeNull();
+    expect(draft?.interactionMode).toBe("plan");
+  });
+
+  it("keeps a bound pick across a reload", async () => {
+    await useComposerDraftStore.persist.clearStorage();
+    vi.useFakeTimers();
+    try {
+      const store = useComposerDraftStore.getState();
+      store.setModelSelection(threadRef, opus, { explicit: true });
+      store.reconcileServerThreadSettings(threadRef, server(gpt));
+      await vi.advanceTimersByTimeAsync(300);
+
+      resetComposerDraftStore();
+      await useComposerDraftStore.persist.rehydrate();
+      useComposerDraftStore.getState().reconcileServerThreadSettings(threadRef, server(gpt));
+
+      expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.activeProvider).toBe(CLAUDE_AGENT_INSTANCE);
+    } finally {
+      await useComposerDraftStore.persist.clearStorage();
+      vi.useRealTimers();
+      resetComposerDraftStore();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // createDeferredStorage
 // ---------------------------------------------------------------------------

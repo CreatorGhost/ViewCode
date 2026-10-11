@@ -1907,10 +1907,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () =>
       resolveComposerProviderSelection({
         entries: providerInstanceEntries,
+        // Same order as ChatView: the thread's selection before its session's.
         candidateInstanceIds: [
           selectedProviderByThreadId,
-          activeThread?.session?.providerInstanceId,
           activeThreadModelSelection?.instanceId,
+          activeThread?.session?.providerInstanceId,
           activeProjectDefaultModelSelection?.instanceId,
         ],
         lockedProvider,

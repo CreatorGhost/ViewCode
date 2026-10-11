@@ -103,6 +103,10 @@
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
     },
+    "./composer-settings-basis": {
+      "types": "./src/composerSettingsBasis.ts",
+      "default": "./src/composerSettingsBasis.ts"
+    },
     "./usage-resume": {
       "types": "./src/usageResume.ts",
       "default": "./src/usageResume.ts"
