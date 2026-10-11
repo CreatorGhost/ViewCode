@@ -451,6 +451,8 @@ interface MessagesTimelineProps {
    * projection and list extraData — do not remount on this value.
    */
   displayThreadKey?: string;
+  /** The rows are a held snapshot of the previous thread while the next one loads. */
+  paintOnly?: boolean;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   supportsConversationRollback: boolean;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
@@ -525,6 +527,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   undeliveredMessages,
   routeThreadKey,
   displayThreadKey,
+  paintOnly = false,
   onOpenTurnDiff,
   supportsConversationRollback,
   onRevertToTurnCount,
@@ -587,7 +590,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const previousLatestTurnRef = useRef(latestTurn);
   // The list stays mounted across thread switches. Its first end pins on the
   // new thread must snap, not glide, even if that thread is mid-turn.
-  const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(null);
+  const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(listIdentityKey);
   let paintedExpandedTurnIds = expandedTurnIds;
   let paintedExpandedWorkGroupIds = expandedWorkGroupIds;
   let paintedExpandedSpawnEntryIds = expandedSpawnEntryIds;
@@ -1108,25 +1111,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (restoringThreadPosition || state?.data !== rows) return;
     const isAtEnd = resolveTimelineIsAtEnd(state);
     const position = state?.data?.length ? resolveWorkGroupScrollAnchor(state) : undefined;
-    if (position && state && isAtEnd !== undefined) {
+    if (position && state && isAtEnd !== undefined && !paintOnly) {
       const index = state.indexByKey(position.rowId);
       const row = index === undefined ? undefined : state.elementAtIndex(index);
       const element = listRef.current?.getScrollableNode();
       if (row && element) {
-        rememberTimelinePosition(listIdentityKey, {
-          ...position,
-          // DOM geometry includes the header and the virtualizer's layout adjustment.
-          offsetWithinRow: element.getBoundingClientRect().top - row.getBoundingClientRect().top,
-          scrollOffset: element.scrollTop,
-          atEnd: isAtEnd,
-          disclosures: {
-            turns: paintedExpandedTurnIds,
-            workGroups: paintedExpandedWorkGroupIds,
-            spawnEntries: paintedExpandedSpawnEntryIds,
-            reasoningMessages: paintedExpandedReasoningMessageIds,
-            workGroupState: workGroupViewState,
+        rememberTimelinePosition(
+          listIdentityKey,
+          {
+            ...position,
+            // DOM geometry includes the header and the virtualizer's layout adjustment.
+            offsetWithinRow: element.getBoundingClientRect().top - row.getBoundingClientRect().top,
+            scrollOffset: element.scrollTop,
+            atEnd: isAtEnd,
+            disclosures: {
+              turns: paintedExpandedTurnIds,
+              workGroups: paintedExpandedWorkGroupIds,
+              spawnEntries: paintedExpandedSpawnEntryIds,
+              reasoningMessages: paintedExpandedReasoningMessageIds,
+              workGroupState: workGroupViewState,
+            },
           },
-        });
+          liveFollowEnabled && !anchoredEndSpace,
+        );
       }
     }
     if (isAtEnd !== undefined && !citationPositioning) {
@@ -1176,6 +1183,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     workGroupViewState,
     rows,
     listIdentityKey,
+    liveFollowEnabled,
+    anchoredEndSpace,
+    paintOnly,
     restoringThreadPosition,
     listRef,
     minimapItems,
@@ -1188,6 +1198,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const frame = requestAnimationFrame(handleScroll);
     return () => cancelAnimationFrame(frame);
   }, [handleScroll, rows.length]);
+
+  const savedLiveFollowEnabledRef = useRef(liveFollowEnabled);
+  useLayoutEffect(() => {
+    const wasFollowing = savedLiveFollowEnabledRef.current;
+    savedLiveFollowEnabledRef.current = liveFollowEnabled;
+    if (wasFollowing && !liveFollowEnabled) handleScroll();
+  }, [handleScroll, liveFollowEnabled]);
 
   useEffect(() => {
     if (!timelineViewportElement) {

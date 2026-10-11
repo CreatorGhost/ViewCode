@@ -10158,6 +10158,7 @@ export default function ChatView(props: ChatViewProps) {
                 }
                 routeThreadKey={displayedTimelineKey}
                 displayThreadKey={displayedTimelineKey}
+                paintOnly={paintOnlyDisplayedTimeline}
                 onOpenTurnDiff={paintOnlyDisplayedTimeline ? noopHeldTurnDiff : onOpenTurnDiff}
                 supportsConversationRollback={
                   !paintOnlyDisplayedTimeline && supportsConversationRollback
