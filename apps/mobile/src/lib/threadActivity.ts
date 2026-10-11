@@ -330,7 +330,7 @@ export function isContextCompactionActivityGroup(
   );
 }
 
-function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+export function isUserInputActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return entry.activities.some((activity) => activity.workEntry.questionAnswer !== undefined);
 }
 

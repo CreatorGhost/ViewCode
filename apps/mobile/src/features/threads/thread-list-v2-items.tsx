@@ -3,6 +3,7 @@ import {
   THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME,
   THREAD_LIST_V2_ROW_DIVIDERS,
   THREAD_LIST_V2_PROVIDER_LEADS_TITLE,
+  THREAD_LIST_V2_META_ICONS,
   selectedThreadRowColors,
   getThreadListV2NewBranchMenuTitle,
   getThreadListV2RowAppearance,
@@ -274,6 +275,8 @@ const DRAFT_TASK_MENU_ACTIONS: MenuAction[] = [
  * web sidebar uses for drafts, because this one waits on the user.
  */
 export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props: {
+  /** Drawn inside a Home folder card (see HomeFolderCardSlice). */
+  readonly inFolderCard?: boolean;
   readonly pendingTask: PendingNewTask;
   readonly project: EnvironmentProject | null;
   readonly projectTitle?: string;
@@ -304,7 +307,8 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   const rowContent = (
     <>
       <View className="flex-row items-center gap-1.5">
-        {props.project ? (
+        {/* A folder card's header already names the project; only the badge stays. */}
+        {props.project && !props.inFolderCard ? (
           <ProjectFavicon
             environmentId={pendingTask.environmentId}
             faviconPath={props.project.faviconPath}
@@ -314,15 +318,17 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             workspaceRoot={props.project.workspaceRoot}
           />
         ) : null}
-        <Text
-          className={cn(
-            "flex-1 text-sm font-t3-medium text-foreground-muted",
-            sidebarPane && "text-drawer-foreground-muted",
-          )}
-          numberOfLines={1}
-        >
-          {projectTitle}
-        </Text>
+        {props.inFolderCard ? null : (
+          <Text
+            className={cn(
+              "flex-1 text-sm font-t3-medium text-foreground-muted",
+              sidebarPane && "text-drawer-foreground-muted",
+            )}
+            numberOfLines={1}
+          >
+            {projectTitle}
+          </Text>
+        )}
         {isDraft ? (
           <View className="flex-row items-center gap-1">
             <SymbolView
@@ -421,7 +427,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
           accessibilityLabel={pendingTask.title}
           accessibilityRole="button"
           key={pendingTask.key}
-          className={sidebarPane ? "bg-drawer" : "bg-screen"}
+          className={sidebarPane ? "bg-drawer" : props.inFolderCard ? "bg-card" : "bg-screen"}
           interactionClassName={sidebarPane ? "bg-thread-hover" : "bg-row-hover"}
           onPress={() => onSelectPendingTask(pendingTask)}
           style={
@@ -438,7 +444,14 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             rowContent
           ) : (
             <View>
-              <View className="px-5 py-2.5">{rowContent}</View>
+              {/* In a folder card it shares the thread rows' padding so titles line up. */}
+              <View
+                className={
+                  props.inFolderCard ? THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME : "px-5 py-2.5"
+                }
+              >
+                {rowContent}
+              </View>
               {props.showTrailingDivider !== false ? (
                 <View className="ml-5 h-px bg-border-subtle" />
               ) : null}
@@ -1076,6 +1089,64 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             {thread.session.lastError}
           </Text>
+        ) : THREAD_LIST_V2_META_ICONS && (thread.branch || props.environmentLabel) ? (
+          /* Machine, then branch, each led by its glyph and truncating on its own. */
+          <View className="min-w-0 flex-1 flex-row items-center gap-1.5">
+            {props.environmentLabel ? (
+              <>
+                {props.environmentMachine ? (
+                  <EnvironmentMachineSymbol
+                    kind={props.environmentMachine}
+                    size={12}
+                    tintColorClassName={
+                      selected
+                        ? selectedThreadRowColors.mutedIconTintClassName
+                        : rowAppearance.tertiaryIconTintClassName
+                    }
+                  />
+                ) : null}
+                <Text
+                  className={cn(
+                    "shrink text-xs",
+                    selected
+                      ? selectedThreadRowColors.mutedForegroundClassName
+                      : rowAppearance.tertiaryForegroundClassName,
+                  )}
+                  numberOfLines={1}
+                >
+                  {props.environmentLabel}
+                </Text>
+              </>
+            ) : null}
+            {thread.branch ? (
+              <>
+                {props.environmentLabel ? <View className="w-1.5" /> : null}
+                <SymbolView
+                  name="arrow.triangle.branch"
+                  size={12}
+                  tintColorClassName={
+                    selected
+                      ? selectedThreadRowColors.mutedIconTintClassName
+                      : rowAppearance.tertiaryIconTintClassName
+                  }
+                  type="monochrome"
+                />
+                <Text
+                  className={cn(
+                    "shrink text-xs",
+                    selected
+                      ? selectedThreadRowColors.mutedForegroundClassName
+                      : rowAppearance.mutedForegroundClassName,
+                  )}
+                  style={{ fontFamily: MONO_FONT }}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  {thread.branch}
+                </Text>
+              </>
+            ) : null}
+          </View>
         ) : thread.branch || props.environmentLabel ? (
           /* "branch · machine" share one truncating line. The machine sits
              last so a tight fit cuts the repetitive label, not the branch —

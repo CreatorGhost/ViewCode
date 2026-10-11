@@ -1,8 +1,13 @@
 import type { MenuAction } from "@react-native-menu/menu";
 import { useCallback, useMemo } from "react";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
+import { useWorkspaceState } from "../../state/workspace";
 import { HomePillToolbar } from "./HomePillToolbar";
 import type { HomeHeaderProps } from "./HomeHeader.types";
+import {
+  environmentConnectionLabel,
+  selectedEnvironmentHealth,
+} from "./workspace-connection-status";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
 
@@ -11,6 +16,7 @@ function checkedMenuState(checked: boolean) {
 }
 
 export function HomeHeader(props: HomeHeaderProps) {
+  const { environments: workspaceEnvironments } = useWorkspaceState();
   // The environment pill and the project row each open their own menu; the
   // list ignores sort/group options, so these filters are the whole scope.
   const environmentActions = useMemo<MenuAction[]>(
@@ -23,11 +29,16 @@ export function HomeHeader(props: HomeHeaderProps) {
       ...props.environments.map((environment) => ({
         id: `environment:${environment.environmentId}`,
         title: environment.label,
+        subtitle: environmentConnectionLabel(
+          workspaceEnvironments.find(
+            (candidate) => candidate.environmentId === environment.environmentId,
+          )?.connectionState ?? "offline",
+        ),
         state: checkedMenuState(props.selectedEnvironmentId === environment.environmentId),
       })),
       { id: "environment-settings", title: "Manage environments" },
     ],
-    [props.environments, props.selectedEnvironmentId],
+    [props.environments, props.selectedEnvironmentId, workspaceEnvironments],
   );
   const projectActions = useMemo<MenuAction[]>(
     () =>
@@ -102,9 +113,11 @@ export function HomeHeader(props: HomeHeaderProps) {
     <>
       <NativeStackScreenOptions options={{ headerShown: false }} />
       <HomePillToolbar
-        searchQuery={props.searchQuery}
-        onSearchQueryChange={props.onSearchQueryChange}
         environmentLabel={environmentLabel}
+        environmentHealth={selectedEnvironmentHealth(
+          workspaceEnvironments,
+          props.selectedEnvironmentId,
+        )}
         environmentActions={environmentActions}
         projectLabel={projectLabel}
         projectActions={projectActions}

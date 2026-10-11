@@ -6,6 +6,8 @@ export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-6 py-2.5";
 export const THREAD_LIST_V2_ROW_DIVIDERS = false;
 /** Clean list: the provider glyph leads the title instead of trailing the meta line. */
 export const THREAD_LIST_V2_PROVIDER_LEADS_TITLE = true;
+/** Synara-style meta line: an icon leads the machine and the branch. */
+export const THREAD_LIST_V2_META_ICONS = true;
 
 export const selectedThreadRowColors = {
   foregroundClassName: "text-thread-selected-foreground",
@@ -23,11 +25,12 @@ export function getThreadListV2RowAppearance(
   sidebarPane: boolean,
   selected: boolean,
   /** Inside a Home folder card: a flat row, the card draws the box. */
-  _inFolderCard = false,
+  inFolderCard = false,
 ) {
   const selectedBackgroundColor = theme["--color-thread-selected"];
-  // Clean list: Home rows sit flat on the screen; the sidebar keeps its pills.
-  const backgroundColor = theme[sidebarPane ? "--color-drawer" : "--color-screen"];
+  // Clean list: Home rows sit flat on their folder card; the sidebar keeps its pills.
+  const backgroundColor =
+    theme[sidebarPane ? "--color-drawer" : inFolderCard ? "--color-card" : "--color-screen"];
   const radius = sidebarPane ? 20 : 0;
   const style: ViewStyle = {
     backgroundColor: selected ? selectedBackgroundColor : backgroundColor,

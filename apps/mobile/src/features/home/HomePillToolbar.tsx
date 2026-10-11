@@ -1,30 +1,28 @@
 import type { MenuAction } from "@react-native-menu/menu";
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { BackHandler, Keyboard, Pressable, type TextInputInstance, View } from "react-native";
+import type { ComponentProps } from "react";
+import { Pressable, View } from "react-native";
 
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import type { ControlPillMenu } from "../../components/ControlPill";
-import { MaterialSearchField } from "../../components/MaterialSearchField";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLayout";
 import { useWorkspaceState } from "../../state/workspace";
-import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { HomePillIconButton, HomePillSurface } from "./HomePillButton";
-import { WorkspaceConnectionTitle } from "./WorkspaceConnectionTitle";
+import { workspaceFleetSubtitle } from "./workspace-connection-status";
 
 type MenuActionHandler = NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
 
 /**
- * Android Home's top bar: settings, the environment pill (the connection
- * status takes its place while an environment is unreachable), usage and
- * search, with the project filter on the row below.
+ * Android Home's top bar: settings and usage around the ViewCode brand block,
+ * whose subtitle summarises how many computers are online (and opens
+ * environment settings). The environment and project filter pills sit on the
+ * row below.
  */
 export function HomePillToolbar(props: {
-  readonly searchQuery: string;
-  readonly onSearchQueryChange: (query: string) => void;
   readonly environmentLabel: string;
+  readonly environmentHealth: "online" | "attention";
   readonly environmentActions: MenuAction[];
   readonly projectLabel: string;
   readonly projectActions: MenuAction[];
@@ -34,69 +32,59 @@ export function HomePillToolbar(props: {
   readonly onOpenUsage: () => void;
 }) {
   const { paddingTop } = useMaterialToolbarLayout();
-  const { scale, buttonSize } = useAndroidControlSizing();
-  const { state } = useWorkspaceState();
-  const { onSearchQueryChange } = props;
-  const searchRef = useRef<TextInputInstance>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searching = searchOpen || props.searchQuery.length > 0;
-  const openSearch = useCallback(() => {
-    setSearchOpen(true);
-    searchRef.current?.focus();
-    return true;
-  }, []);
-  useHardwareKeyboardCommand("focusSearch", openSearch);
+  const { scale } = useAndroidControlSizing();
+  const { state, environments } = useWorkspaceState();
+  const subtitle = workspaceFleetSubtitle(state.networkStatus, environments);
+  const subtitleText = subtitle.tail ? `${subtitle.lead} · ${subtitle.tail}` : subtitle.lead;
 
-  const closeSearch = useCallback(() => {
-    onSearchQueryChange("");
-    setSearchOpen(false);
-    Keyboard.dismiss();
-  }, [onSearchQueryChange]);
-
-  useEffect(() => {
-    if (!searching) return;
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      closeSearch();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [closeSearch, searching]);
-
-  const environmentPill = (open?: () => void) => (
+  const filterPill = (input: {
+    readonly label: string;
+    readonly accessibilityLabel: string;
+    readonly accessibilityHint: string;
+    readonly showsHealth?: boolean;
+    readonly onPress: () => void;
+  }) => (
     <HomePillSurface
-      accessibilityLabel={`Environment: ${props.environmentLabel}`}
-      accessibilityHint="Chooses which environment's threads to show."
-      onPress={open ?? props.onOpenEnvironments}
-      className="min-w-0 flex-1"
-      style={{ paddingHorizontal: 14 * scale, gap: 8 * scale }}
+      accessibilityLabel={input.accessibilityLabel}
+      accessibilityHint={input.accessibilityHint}
+      onPress={input.onPress}
+      className="min-w-0 shrink"
+      // Lighter than the round buttons above: a filter row, not primary actions.
+      style={{ height: Math.round(40 * scale), paddingHorizontal: 12 * scale, gap: 6 * scale }}
     >
-      {/* No onPress: a pressable status would swallow the tap and hide the
-          environment menu whenever any one environment is unreachable. The
-          chevron stays outside the swap so the pill still reads as a menu. */}
-      <View className="min-w-0 shrink">
-        <WorkspaceConnectionTitle
-          brand={
-            <View className="min-w-0 flex-row items-center" style={{ gap: 8 * scale }}>
-              <View className="size-2 rounded-full bg-adaptive-emerald-600-400" />
-              <Text
-                className="shrink font-t3-bold text-foreground"
-                style={{ fontSize: 16 * scale }}
-                numberOfLines={1}
-              >
-                {props.environmentLabel}
-              </Text>
-            </View>
-          }
+      {input.showsHealth ? (
+        <View
+          className={`size-2 rounded-full ${
+            props.environmentHealth === "online"
+              ? "bg-adaptive-emerald-600-400"
+              : "bg-adaptive-amber-700-400"
+          }`}
         />
-      </View>
+      ) : null}
+      <Text
+        className="min-w-0 shrink font-t3-medium text-foreground"
+        style={{ fontSize: 14 * scale }}
+        numberOfLines={1}
+      >
+        {input.label}
+      </Text>
       <SymbolView
         name="chevron.down"
-        size={Math.round(15 * scale)}
+        size={Math.round(13 * scale)}
         tintColorClassName="accent-foreground-muted"
         type="monochrome"
       />
     </HomePillSurface>
   );
+
+  const environmentPill = (onPress: () => void) =>
+    filterPill({
+      label: props.environmentLabel,
+      accessibilityLabel: `Environment: ${props.environmentLabel}`,
+      accessibilityHint: "Chooses which environment's threads to show.",
+      showsHealth: true,
+      onPress,
+    });
 
   return (
     <View className="bg-screen" style={{ paddingTop }}>
@@ -104,84 +92,89 @@ export function HomePillToolbar(props: {
         className="flex-row items-center"
         style={{ gap: 8 * scale, paddingHorizontal: 16, paddingVertical: 8 * scale }}
       >
-        {searching ? (
-          <>
-            <HomePillIconButton
-              accessibilityLabel="Close search"
-              icon="arrow.left"
-              onPress={closeSearch}
-            />
-            <MaterialSearchField
-              inputRef={searchRef}
-              accessibilityLabel="Search threads"
-              clearAccessibilityLabel="Clear search"
-              placeholder="Search threads"
-              value={props.searchQuery}
-              onChangeText={onSearchQueryChange}
-            />
-          </>
-        ) : (
-          <>
-            <HomePillIconButton
-              accessibilityLabel="Open settings"
-              icon="gearshape"
-              onPress={props.onOpenSettings}
-            />
-            {state.hasConnections ? (
-              <AndroidAnchoredMenu
-                actions={props.environmentActions}
-                onPressAction={props.onMenuAction}
-                className="min-w-0 flex-1"
-              >
-                {(open) => environmentPill(open)}
-              </AndroidAnchoredMenu>
-            ) : (
-              environmentPill()
-            )}
-            <HomePillIconButton
-              accessibilityLabel="Open usage"
-              icon="chart.bar.xaxis"
-              onPress={props.onOpenUsage}
-            />
-            <HomePillIconButton
-              accessibilityLabel="Search threads"
-              icon="magnifyingglass"
-              onPress={openSearch}
-            />
-          </>
-        )}
-      </View>
-      {!searching && props.projectActions.length > 1 ? (
-        <View className="flex-row px-6">
-          <AndroidAnchoredMenu actions={props.projectActions} onPressAction={props.onMenuAction}>
-            {(open) => (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Project: ${props.projectLabel}`}
-                accessibilityHint="Chooses which project's threads to show."
-                onPress={open}
-                hitSlop={{ top: 4, bottom: 4 }}
-                className="flex-row items-center gap-1"
-                style={({ pressed }) => ({ minHeight: buttonSize - 8, opacity: pressed ? 0.6 : 1 })}
-              >
-                <Text
-                  className="text-foreground-muted"
-                  style={{ fontSize: 16 * scale }}
-                  numberOfLines={1}
-                >
-                  {props.projectLabel}
-                </Text>
-                <SymbolView
-                  name="chevron.down"
-                  size={Math.round(15 * scale)}
-                  tintColorClassName="accent-foreground-muted"
-                  type="monochrome"
-                />
-              </Pressable>
-            )}
-          </AndroidAnchoredMenu>
+        <HomePillIconButton
+          accessibilityLabel="Open settings"
+          icon="gearshape"
+          onPress={props.onOpenSettings}
+        />
+        <View className="min-w-0 flex-1 items-center">
+          <Text
+            className="font-t3-bold text-foreground"
+            style={{ fontSize: 19 * scale }}
+            numberOfLines={1}
+          >
+            ViewCode
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={subtitleText}
+            accessibilityHint="Opens environment settings."
+            onPress={props.onOpenEnvironments}
+            hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          >
+            <Text
+              className="text-foreground-muted"
+              style={{ fontSize: 12 * scale }}
+              numberOfLines={1}
+            >
+              {subtitle.lead}
+              {subtitle.tail ? (
+                <>
+                  {" · "}
+                  <Text
+                    className={
+                      subtitle.tailTone === "warning"
+                        ? "text-adaptive-amber-700-400"
+                        : "text-foreground-muted"
+                    }
+                    style={{ fontSize: 12 * scale }}
+                  >
+                    {subtitle.tail}
+                  </Text>
+                </>
+              ) : null}
+            </Text>
+          </Pressable>
         </View>
-      ) : null}
+        <HomePillIconButton
+          accessibilityLabel="Open usage"
+          icon="chart.bar.xaxis"
+          onPress={props.onOpenUsage}
+        />
+      </View>
+      <View
+        className="flex-row items-center"
+        style={{ gap: 8 * scale, paddingHorizontal: 16, paddingBottom: 8 * scale }}
+      >
+        {state.hasConnections ? (
+          <AndroidAnchoredMenu
+            actions={props.environmentActions}
+            onPressAction={props.onMenuAction}
+            className="min-w-0 shrink"
+          >
+            {(open) => environmentPill(open)}
+          </AndroidAnchoredMenu>
+        ) : (
+          environmentPill(props.onOpenEnvironments)
+        )}
+        {props.projectActions.length > 1 ? (
+          <AndroidAnchoredMenu
+            actions={props.projectActions}
+            onPressAction={props.onMenuAction}
+            className="min-w-0 shrink"
+          >
+            {(open) =>
+              filterPill({
+                label: props.projectLabel,
+                accessibilityLabel: `Project: ${props.projectLabel}`,
+                accessibilityHint: "Chooses which project's threads to show.",
+                onPress: open,
+              })
+            }
+          </AndroidAnchoredMenu>
+        ) : null}
+      </View>
     </View>
   );
 }
