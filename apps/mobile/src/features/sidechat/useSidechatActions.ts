@@ -4,7 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { MessageId, ThreadId } from "@t3tools/contracts";
+import { MessageId, ThreadId, type ModelSelection } from "@t3tools/contracts";
 import { useRef, useState } from "react";
 
 import { uuidv4 } from "../../lib/uuid";
@@ -24,6 +24,7 @@ export function useSidechatActions() {
     readonly parent: EnvironmentThreadShell;
     readonly sidechat: EnvironmentThreadShell | null;
     readonly question: string;
+    readonly modelSelection: ModelSelection;
     readonly onCreated: (threadId: ThreadId) => void;
   }) => {
     if (pendingRef.current) return null;
@@ -40,6 +41,7 @@ export function useSidechatActions() {
             parent: input.parent,
             threadId,
             question: input.question,
+            modelSelection: input.modelSelection,
           }),
         });
         if (created._tag === "Failure") {
@@ -58,7 +60,7 @@ export function useSidechatActions() {
         input: {
           threadId,
           message: { messageId, role: "user", text: input.question, attachments: [] },
-          modelSelection: target.modelSelection,
+          modelSelection: input.modelSelection,
           runtimeMode: target.runtimeMode,
           interactionMode: "default",
         },

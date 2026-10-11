@@ -55,8 +55,28 @@ describe("sidechatsOf", () => {
 describe("resolveActiveSidechat", () => {
   const chats = [shell("a"), shell("b")];
 
+  it("opens the most recently updated side chat without a prior selection", () => {
+    const threads = sidechatsOf(
+      [
+        shell("phone", { updatedAt: "2026-01-01T00:00:00.000Z" }),
+        shell("laptop", { updatedAt: "2026-01-02T00:00:00.000Z" }),
+      ],
+      parent,
+    );
+    expect(resolveActiveSidechat(threads, null)?.id).toBe("laptop");
+  });
+
   it("prefers the remembered side chat while it exists", () => {
     expect(resolveActiveSidechat(chats, ThreadId.make("b"))?.id).toBe("b");
+  });
+
+  it("keeps an explicit selection when another chat receives a live update", () => {
+    const threads = sidechatsOf(
+      [shell("selected"), shell("updated-elsewhere", { updatedAt: "2026-01-03T00:00:00.000Z" })],
+      parent,
+    );
+    expect(resolveActiveSidechat(threads, ThreadId.make("selected"))?.id).toBe("selected");
+    expect(resolveActiveSidechat(threads, FRESH_SIDECHAT)).toBeNull();
   });
 
   it("falls back to the first when the remembered one is gone", () => {

@@ -1,14 +1,20 @@
 import type { LegendListRef } from "@legendapp/list/react-native";
+import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
 import { isChildAgentRunning } from "@t3tools/client-runtime/state/child-agents";
-import { sidechatsOf } from "@t3tools/client-runtime/state/sidechat";
+import {
+  FRESH_SIDECHAT,
+  resolveActiveSidechat,
+  sidechatsOf,
+  type SidechatPreference,
+} from "@t3tools/client-runtime/state/sidechat";
 import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
 } from "@t3tools/client-runtime/state/threads";
-import { EnvironmentId, type MessageId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, type MessageId, type ModelSelection, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
@@ -18,14 +24,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { ComposerActionButton, ComposerToolbarRow } from "../../components/ComposerToolbar";
 import { buildThreadFeed } from "../../lib/threadActivity";
 import { relativeTime } from "../../lib/time";
 import { useProject, useThreadShell, useThreadShells } from "../../state/entities";
 import { useEnvironmentPresentation } from "../../state/presentation";
+import { environmentServerConfigsAtom } from "../../state/server";
 import { useEnvironmentThread } from "../../state/threads";
 import { ThreadFeed } from "../threads/ThreadFeed";
 import { projectThreadContentPresentation } from "../threads/threadContentPresentation";
 import { useSidechatActions } from "./useSidechatActions";
+import { SidechatModelPicker } from "./SidechatModelPicker";
+import { resolveSidechatModelSelection, resolveSidechatWhileCreating } from "./sidechatModel";
 
 type SideChatSheetProps = StaticScreenProps<{
   readonly environmentId: string;
@@ -35,6 +45,15 @@ type SideChatSheetProps = StaticScreenProps<{
 
 /** A quick conversation over the parent, without changing the workspace's selected thread. */
 export function SideChatSheet({ route }: SideChatSheetProps) {
+  return (
+    <SideChatContent
+      key={`${route.params.environmentId}:${route.params.parentThreadId}`}
+      route={route}
+    />
+  );
+}
+
+function SideChatContent({ route }: SideChatSheetProps) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const environmentId = EnvironmentId.make(route.params.environmentId);
@@ -58,11 +77,33 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
       ),
     [environmentId, parentThreadId, shells],
   );
-  const [selectedId, setSelectedId] = useState<ThreadId | null>(() =>
+  const [preferred, setPreferred] = useState<SidechatPreference>(() =>
     route.params.sideChatThreadId ? ThreadId.make(route.params.sideChatThreadId) : null,
   );
-  const active = sidechats.find((thread) => thread.id === selectedId) ?? null;
-  const detailState = useEnvironmentThread(environmentId, active?.id ?? null);
+  const [createdThreadId, setCreatedThreadId] = useState<ThreadId | null>(null);
+  const active = resolveSidechatWhileCreating(
+    resolveActiveSidechat(sidechats, preferred),
+    createdThreadId,
+  );
+  // Pin the side chat the sheet opened on: following "newest" live would move an
+  // unsent draft to whichever side chat another device touched last.
+  if (preferred === null && active !== null) {
+    setPreferred(active.id);
+  }
+  const awaitingCreatedShell = createdThreadId !== null && active === null;
+  if (createdThreadId !== null && active?.id === createdThreadId) {
+    setCreatedThreadId(null);
+  }
+  const [showList, setShowList] = useState(false);
+  const [picked, setPicked] = useState<ModelSelection | null>(null);
+  const selection = resolveSidechatModelSelection({
+    picked,
+    sidechatSelection: active?.modelSelection ?? null,
+    parentSelection: parent?.modelSelection ?? null,
+  });
+  const configs = useAtomValue(environmentServerConfigsAtom);
+  const serverConfig = configs.get(environmentId) ?? null;
+  const detailState = useEnvironmentThread(environmentId, active?.id ?? createdThreadId);
   const detail = Option.getOrNull(detailState.data);
   const { presentation } = useEnvironmentPresentation(environmentId);
   const connectionPhase = presentation?.connection.phase ?? "offline";
@@ -113,11 +154,16 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
     !pending &&
     !working &&
     !needsAnswer &&
+    !awaitingCreatedShell &&
+    selection !== null &&
     question.trim().length > 0 &&
-    (selectedId === null || active !== null);
+    !showList;
 
-  const changeSelection = (threadId: ThreadId | null) => {
-    setSelectedId(threadId);
+  const changeSelection = (preference: SidechatPreference) => {
+    setPreferred(preference);
+    setCreatedThreadId(null);
+    setShowList(false);
+    setPicked(null);
     setQuestion("");
     setSubmittedMessageId(null);
     clearError();
@@ -127,12 +173,16 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
     navigation.dispatch(StackActions.replace("Thread", { environmentId, threadId: active.id }));
   };
   const sendQuestion = async () => {
-    if (!canSend || parent === null) return;
+    if (!canSend || parent === null || selection === null) return;
     const messageId = await send({
       parent,
       sidechat: active,
       question: question.trim(),
-      onCreated: setSelectedId,
+      modelSelection: selection,
+      onCreated: (threadId) => {
+        setCreatedThreadId(threadId);
+        setPreferred(threadId);
+      },
     });
     if (messageId !== null) {
       setQuestion("");
@@ -142,13 +192,13 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
 
   return (
     <KeyboardAvoidingView automaticOffset behavior="padding" className="flex-1 bg-sheet">
-      <View className="flex-row items-center gap-3 border-b border-border-subtle px-4 py-3">
-        {selectedId !== null ? (
+      <View className="flex-row items-center gap-2 px-4 py-3">
+        {showList ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back to side chats"
+            accessibilityLabel="Back to side chat"
             disabled={pending}
-            onPress={() => changeSelection(null)}
+            onPress={() => setShowList(false)}
             className="size-11 items-center justify-center rounded-full bg-card disabled:opacity-50"
           >
             <SymbolView name="chevron.left" size={18} tintColorClassName="accent-icon" />
@@ -160,6 +210,26 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
             {parent?.title ?? "Thread unavailable"}
           </Text>
         </View>
+        {!showList && sidechats.length > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="See all side chats"
+            disabled={pending}
+            onPress={() => setShowList(true)}
+            className="size-11 items-center justify-center rounded-full bg-card active:opacity-70 disabled:opacity-50"
+          >
+            <SymbolView name="text.bubble" size={18} tintColorClassName="accent-icon" />
+          </Pressable>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="New side chat"
+          disabled={pending || unavailable}
+          onPress={() => changeSelection(FRESH_SIDECHAT)}
+          className="size-11 items-center justify-center rounded-full bg-card active:opacity-70 disabled:opacity-50"
+        >
+          <SymbolView name="square.and.pencil" size={18} tintColorClassName="accent-icon" />
+        </Pressable>
         {active !== null ? (
           <Pressable
             accessibilityRole="button"
@@ -180,7 +250,7 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
         </Pressable>
       </View>
 
-      {selectedId === null ? (
+      {showList ? (
         <ScrollView
           className="flex-1"
           keyboardShouldPersistTaps="handled"
@@ -196,7 +266,7 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
               accessibilityLabel={`Reopen side chat: ${thread.title}`}
               disabled={pending}
               onPress={() => changeSelection(thread.id)}
-              className="flex-row items-center gap-3 rounded-2xl border border-border-subtle bg-card p-3"
+              className="flex-row items-center gap-3 rounded-3xl border border-border-subtle bg-card p-4 active:opacity-70 disabled:opacity-50"
             >
               <SymbolView name="text.bubble" size={18} tintColorClassName="accent-icon" />
               <View className="min-w-0 flex-1 gap-1">
@@ -204,9 +274,8 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
                   {thread.title}
                 </Text>
                 <Text className="text-xs text-foreground-muted">
-                  {isChildAgentRunning(thread)
-                    ? "Working"
-                    : `${relativeTime(thread.updatedAt)} ago`}
+                  {relativeTime(thread.updatedAt)} ago
+                  {isChildAgentRunning(thread) ? " · Working" : ""}
                 </Text>
               </View>
               <SymbolView name="chevron.right" size={14} tintColorClassName="accent-icon-subtle" />
@@ -249,89 +318,99 @@ export function SideChatSheet({ route }: SideChatSheetProps) {
       ) : (
         <View className="flex-1 items-center justify-center p-4">
           <Text className="text-sm text-foreground-secondary">
-            {pending
+            {pending || awaitingCreatedShell
               ? "Opening side chat…"
-              : "This side chat is no longer available. Go back to ask a new question."}
+              : "Ask anything about this thread without interrupting it. The side chat starts with what the main agent has done so far."}
           </Text>
         </View>
       )}
 
-      <View
-        className="gap-2 border-t border-border-subtle px-4 pt-3"
-        style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-      >
-        {needsAnswer ? (
-          <View className="gap-2">
+      {!showList ? (
+        <View className="gap-2 px-3 pt-2" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+          {needsAnswer ? (
+            <View className="gap-2">
+              <Text accessibilityLiveRegion="polite" className="text-xs text-foreground-secondary">
+                Needs your answer. Open the thread to respond.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open as thread"
+                onPress={openAsThread}
+                className="min-h-11 flex-row items-center justify-center gap-2 rounded-full bg-card px-3"
+              >
+                <SymbolView name="arrow.up.right" size={16} tintColorClassName="accent-icon" />
+                <Text className="text-xs font-t3-medium">Open as thread</Text>
+              </Pressable>
+            </View>
+          ) : working ? (
+            // An even 4dp inset keeps the Stop pill concentric with the status pill.
+            <View className="flex-row items-center justify-between gap-3 rounded-full bg-card py-1 pl-4 pr-1">
+              <Text accessibilityLiveRegion="polite" className="text-xs text-foreground-secondary">
+                Working…
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Stop side chat"
+                disabled={!connected}
+                hitSlop={4}
+                onPress={() => active && void stop(active)}
+                className="h-9 flex-row items-center gap-1.5 rounded-full bg-subtle px-3 active:opacity-70 disabled:opacity-50"
+              >
+                <SymbolView name="stop.fill" size={12} tintColorClassName="accent-icon" />
+                <Text className="text-xs font-t3-medium">Stop</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {!connected || unavailable ? (
             <Text accessibilityLiveRegion="polite" className="text-xs text-foreground-secondary">
-              Needs your answer. Open the thread to respond.
+              {!connected
+                ? "Connect to this environment to send a question."
+                : "The parent thread is unavailable."}
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open as thread"
-              onPress={openAsThread}
-              className="min-h-11 flex-row items-center justify-center gap-2 rounded-full bg-card px-3"
-            >
-              <SymbolView name="arrow.up.right" size={16} tintColorClassName="accent-icon" />
-              <Text className="text-xs font-t3-medium">Open as thread</Text>
-            </Pressable>
-          </View>
-        ) : working ? (
-          <View className="flex-row items-center justify-between gap-3">
-            <Text accessibilityLiveRegion="polite" className="text-xs text-foreground-secondary">
-              Working…
+          ) : working && !needsAnswer ? (
+            <Text className="text-xs text-foreground-secondary">
+              Wait for the reply or stop to send a follow-up.
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Stop side chat"
-              disabled={!connected}
-              onPress={() => active && void stop(active)}
-              className="min-h-11 flex-row items-center gap-2 rounded-full bg-card px-3 disabled:opacity-50"
-            >
-              <SymbolView name="stop.fill" size={12} tintColorClassName="accent-icon" />
-              <Text className="text-xs font-t3-medium">Stop</Text>
-            </Pressable>
+          ) : null}
+          {displayedError ? (
+            <Text accessibilityRole="alert" className="text-xs text-danger-foreground">
+              {displayedError}
+            </Text>
+          ) : null}
+          <View className="overflow-hidden rounded-3xl border border-border-subtle bg-card px-2 pt-1">
+            <TextInput
+              accessibilityLabel={active === null ? "Ask about this thread" : "Side chat follow-up"}
+              placeholder={active === null ? "Ask about this thread…" : "Ask a follow-up…"}
+              multiline
+              editable={!pending && !unavailable}
+              value={question}
+              onChangeText={setQuestion}
+              className="max-h-32 min-h-12 rounded-none border-0 bg-transparent px-2 py-3 text-base"
+            />
+            <ComposerToolbarRow paddingHorizontal={0} paddingTop={0} paddingBottom={2}>
+              <View className="min-w-0 flex-1">
+                {selection && parent ? (
+                  <SidechatModelPicker
+                    environmentId={environmentId}
+                    serverConfig={serverConfig}
+                    selection={selection}
+                    runtimeMode={active?.runtimeMode ?? parent.runtimeMode}
+                    sessionInstanceId={active?.session?.providerInstanceId ?? null}
+                    disabled={pending || working || unavailable}
+                    onChange={setPicked}
+                  />
+                ) : null}
+              </View>
+              <ComposerActionButton
+                accessibilityLabel="Send side chat question"
+                disabled={!canSend}
+                onPress={() => void sendQuestion()}
+                icon="arrow.up"
+              />
+            </ComposerToolbarRow>
           </View>
-        ) : null}
-        {!connected || unavailable ? (
-          <Text accessibilityLiveRegion="polite" className="text-xs text-foreground-secondary">
-            {!connected
-              ? "Connect to this environment to send a question."
-              : "The parent thread is unavailable."}
-          </Text>
-        ) : working && !needsAnswer ? (
-          <Text className="text-xs text-foreground-secondary">
-            Wait for the reply or stop to send a follow-up.
-          </Text>
-        ) : null}
-        {displayedError ? (
-          <Text accessibilityRole="alert" className="text-xs text-danger-foreground">
-            {displayedError}
-          </Text>
-        ) : null}
-        <View className="flex-row items-end gap-2">
-          <TextInput
-            accessibilityLabel={
-              selectedId === null ? "Ask about this thread" : "Side chat follow-up"
-            }
-            placeholder={selectedId === null ? "Ask about this thread…" : "Ask a follow-up…"}
-            multiline
-            editable={!pending && !unavailable}
-            value={question}
-            onChangeText={setQuestion}
-            className="max-h-32 min-h-12 flex-1 rounded-2xl border-border-subtle bg-card text-sm"
-          />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Send side chat question"
-            accessibilityState={{ disabled: !canSend }}
-            disabled={!canSend}
-            onPress={() => void sendQuestion()}
-            className="size-12 items-center justify-center rounded-full bg-primary disabled:opacity-40"
-          >
-            <SymbolView name="arrow.up" size={20} tintColorClassName="accent-primary-foreground" />
-          </Pressable>
         </View>
-      </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
