@@ -17,7 +17,6 @@ function environment(
     environmentId: id as never,
     environmentLabel: id,
     displayUrl: "",
-    isRelayManaged: false,
     isEnabled: true,
     connectionState: "connected",
     connectionError: null,
