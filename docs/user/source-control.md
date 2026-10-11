@@ -170,9 +170,10 @@ chat's agents: you stay in the chat, which shows the review as one block with it
 step and the agents it started, and **Show findings** opens the panel. Started from the pull request
 page, it runs in a thread of its own linked to the pull request, and the page's **Review** tab shows
 it. It runs with your default permissions for new threads, reads the change without touching your
-checkout, and posts nothing to the host unless you ask. On Android the review button is in the pull
-request screen's header and uses your default model; the screen stays open, says the review is
-under way, and links to its findings. Agents can start a review with the `review_pull_request`
+checkout, and posts nothing to the host unless you ask. On Android the pull request screen's header
+also has a review button, which uses your default model and runs the review as the agent of the
+chat you opened the screen from; the screen stays open, says the review is under way, and links to
+its findings. Agents can start a review with the `review_pull_request`
 tool, and review a thread's own changes with `review_local_changes`; either review runs as the
 asking agent's child and changes nothing.
 
@@ -209,16 +210,29 @@ A fix is an ordinary message in your chat, so you take it back like any other: *
 on that message rewinds the conversation, or revert the turn's changes. Sessions started to fix findings by earlier versions can
 still be undone with **Undo review fixes** on their first message, or in the command palette.
 
-In the mobile app, a review thread shows a **Review findings** row where its findings arrive. Tap
-it for the verdict, merge confidence and review effort, and the findings grouped by severity; tap a
-finding for its detail and suggested fix. The phone shows no diff, so each finding names its file
-and line instead. **Fix with agent** (or **Fix all**) sends the findings to a session already
-working on the change or to a new session; opened from a thread's pull request, it writes the
-request into that thread's message box instead. For somebody else's pull request,
-**Post comment**, **Post all** and **Post selected** (tick the findings first) open a sheet where
-you choose what to submit the review as and write its overall comment before posting. **Dismiss**
-hides a finding until you show dismissed ones, and the thumbs tell later reviews of the project
-which findings helped.
+In the mobile app, agent review sits at the top of a chat's **Review changes** (from the chat's Git
+menu, the Git sheet or the command palette). **Find issues** reviews what the diff on screen is
+about: the uncommitted changes while there are any, otherwise the chat's pull request, or its
+branch against the base. The line under it says what it will read. The depth menu beside it picks
+**Quick**, **Deep** or **Security** (the phone remembers your pick) and, under **What to review**,
+the pull request, the current changes, the branch, or **A commit…** from the latest ones (search,
+or paste a SHA). The model starts as the chat's own; tap it to pick another for this review. The
+review runs as one of the chat's agents, and its findings screen opens at once and fills in as the
+reviewer verifies findings. Back in the chat, the review is one agent row (**Deep review ·
+Reviewing**) that opens its findings, and **Review changes** says where the latest review stands.
+
+The findings screen shows, while the review runs, how long it has run and its agents, with **View
+agent** and **Stop**; a review that failed says why, with **Try again**, and one that ended early
+keeps the findings it sent. Then come the verdict, merge confidence and review effort, and the
+findings grouped by severity; tap a finding for its detail and suggested fix. The phone shows no
+diff, so each finding names its file and line instead. **Fix with agent** sends the request into
+the chat the review belongs to, now or when that chat's current step ends, and marks the finding
+**Sent to …**. **Fix all** sends a single finding the same way and lists several first so you can
+leave some out. With no chat at all, a new chat opens with the request ready to send. For somebody
+else's pull request, **Post comment**, **Post all** and **Post selected** (tick the findings first)
+open a sheet where you choose what to submit the review as and write its overall comment before
+posting; **Post all** waits for the review to finish. **Dismiss** hides a finding until you show
+dismissed ones, and the thumbs tell later reviews of the project which findings helped.
 
 For a review of somebody else's pull request the findings are review comments instead: **Post
 comment** posts one, and **Post all** or **Post selected** posts several as one review, each time

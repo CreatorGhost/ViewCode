@@ -540,9 +540,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `GH_TOKEN` in the server's environment would cause.
 - Findings live in the web Review panel (a right-panel surface) and the pull request detail's Review
   tab, both one view (`ReviewSurface`), not in the transcript. Mobile has a findings screen
-  (`features/review/findings/`) opened from the transcript's findings row and the Android pull
-  request screen: a list by severity with no diff, since a phone has no room to read findings
-  under their lines. Which set a thread or pull request shows, and the read of linked threads, are
+  (`features/review/findings/`): a list by severity with no diff, since a phone has no room to
+  read findings under their lines. Mobile starts reviews from a bar at the top of Review changes
+  (`features/review/agent/`) rather than a form: what it reads is inferred from the diff on screen
+  (`inferAgentReviewTarget` in client-runtime's `agentReview.ts`), and a start goes straight to the
+  findings screen, which shows the review's state while it is not done. Which set a thread or pull
+  request shows, and the read of linked threads, are
   client-runtime's (`reviewFindings.ts`, `state/reviewFindings.ts`) so both clients agree. Thread
   shells carry no activities, so a view subscribes to the activities of the thread itself, its
   child agents and up to five threads linked to the same pull request (`threadReviewCandidates`;
@@ -562,8 +565,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   instant.
 - Fix with agent never picks a session: it sends the request into a chat as the reader's own
   message, through the web composer's queue (`queuedMessageStore`, drained by the root
-  `QueuedMessageSender` whether or not the chat is on screen), so a working chat takes it at its
-  next stopping point exactly as a typed message would. The panel beside a chat uses that chat.
+  `QueuedMessageSender` whether or not the chat is on screen) or mobile's thread outbox, so a
+  working chat takes it at its next stopping point exactly as a typed message would. The panel
+  beside a chat, or the chat mobile's findings screen was opened from, uses that chat.
   Seen from the reviewer itself, or from the pull request page (`selectReviewFixChat`), it is the
   chat the review was started from (its parent), else the chat most recently working on what was
   reviewed (`reviewFixCandidates`, which never offers child agents or side chats: a reviewer's
@@ -576,8 +580,8 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   thread and `reviewFindingIdentity` (path, lines, title), and the server's posted records are
   matched by the same identity across a review's sets (`postedReviewFindings`), because a review
   now sends several: keyed by set, a finding posted from the early set was unposted in the final
-  one and Post all posted it twice. Post all also waits for the final set. `review.startFixThread`
-  is no longer used by web; mobile's fix sheet still starts sessions with it until its own pass.
+  one and Post all posted it twice. Post all also waits for the final set. No client uses
+  `review.startFixThread` any more; it stays for older clients.
 - Undoing a fix sent into a chat is the chat's own rewind (Edit from here), since it is an ordinary
   turn there. `ReviewFixThread.undo` (`review.undoFixes`, capability `reviewFixUndo`) remains for
   sessions `review.startFixThread` started: `thread.checkpoint.revert` to the turn count a hidden
