@@ -1042,7 +1042,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       />
                     </Animated.View>
                   ) : null}
-                  {props.onOpenAgentThread &&
+                  {props.selectedThread.kind !== "sidechat" &&
+                  props.onOpenAgentThread &&
                   activeUserInputRequestId === null &&
                   !composerKeyboardOpen ? (
                     <ActiveAgentsStrip

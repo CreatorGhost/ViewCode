@@ -102,6 +102,7 @@ type ThreadGitControlsProps = ThreadGitMenuProps & {
   readonly projectScripts: ReadonlyArray<ProjectScript>;
   readonly terminalSessions: ReadonlyArray<TerminalMenuSession>;
   readonly showActionControls?: boolean;
+  readonly onOpenSideChat?: () => void;
   readonly showDirectFileControl?: boolean;
   readonly onOpenTerminal: (terminalId?: string | null) => void;
   readonly onOpenNewTerminal: () => void;
@@ -418,6 +419,13 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
 
   return (
     <NativeHeaderToolbar placement="right">
+      {props.onOpenSideChat ? (
+        <NativeHeaderToolbar.Button
+          accessibilityLabel="Open side chat"
+          icon="text.bubble"
+          onPress={props.onOpenSideChat}
+        />
+      ) : null}
       {showActionControls && props.auxiliaryPaneControl ? (
         <NativeHeaderToolbar.Button
           accessibilityLabel={props.auxiliaryPaneControl.accessibilityLabel}

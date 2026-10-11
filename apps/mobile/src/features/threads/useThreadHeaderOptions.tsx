@@ -18,6 +18,7 @@ export function useThreadHeaderOptions(props: {
   readonly usesNativeHeaderGlass: boolean;
   readonly gitControls: Parameters<typeof ThreadGitControls>[0];
   readonly onReturnToThread?: () => void;
+  readonly onOpenSideChat?: () => void;
 }) {
   const navigation = useNavigation();
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
@@ -81,6 +82,18 @@ export function useThreadHeaderOptions(props: {
     [navigation],
   );
 
+  const sideChatHeaderItems = props.onOpenSideChat
+    ? [
+        withNativeGlassHeaderItem({
+          accessibilityLabel: "Open side chat",
+          icon: { name: "text.bubble", type: "sfSymbol" as const },
+          identifier: "thread-side-chat",
+          onPress: props.onOpenSideChat,
+          type: "button" as const,
+        }),
+      ]
+    : [];
+
   const options: AppNativeStackNavigationOptions = {
     headerShown: true,
     headerTitle: props.title,
@@ -103,8 +116,10 @@ export function useThreadHeaderOptions(props: {
     // Search lives in the persistent sidebar, so the split header keeps
     // the git controls on the RIGHT (no center items — center space is
     // reserved for future breadcrumbs/status).
-    unstable_headerRightItems: () =>
-      layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems,
+    unstable_headerRightItems: () => [
+      ...sideChatHeaderItems,
+      ...(layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems),
+    ],
     unstable_headerSubtitle: props.usesNativeHeaderGlass ? props.subtitle : undefined,
     contentStyle: undefined,
   };
@@ -113,7 +128,11 @@ export function useThreadHeaderOptions(props: {
     sidebar: false,
     fallback:
       !layout.usesSplitView && !props.usesNativeHeaderGlass ? (
-        <ThreadGitControls {...props.gitControls} showActionControls />
+        <ThreadGitControls
+          {...props.gitControls}
+          onOpenSideChat={props.onOpenSideChat}
+          showActionControls
+        />
       ) : null,
   };
 }

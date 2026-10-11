@@ -7,7 +7,7 @@ import { resolveShortcutCommand } from "../../keybindings";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
 import { selectSidechatDock, useSidechatDockStore } from "../../sidechatDockStore";
 import { useSplitPaneFocused } from "../../splitView/SplitPaneContext";
-import { isSidechat } from "./sidechat.logic";
+import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 import { SidechatDock } from "./SidechatDock";
 
 /**

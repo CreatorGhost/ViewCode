@@ -56,6 +56,8 @@ function threadDetailToShell(
   return {
     environmentId,
     id: thread.id,
+    kind: thread.kind,
+    parentThreadId: thread.parentThreadId,
     projectId: thread.projectId,
     title: thread.title,
     modelSelection: thread.modelSelection,

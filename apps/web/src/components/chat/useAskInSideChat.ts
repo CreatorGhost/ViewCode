@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { openSideChat } from "../../sidechatDockStore";
 import { useThreadShell } from "../../state/entities";
 import { quoteForComposer } from "./selectionQuote";
-import { isSidechat } from "./sidechat.logic";
+import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 
 /**
  * Opens the side chat beside the source thread with the selection quoted in its composer.

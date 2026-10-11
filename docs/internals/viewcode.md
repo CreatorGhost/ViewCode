@@ -600,8 +600,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `ChatView`: `ChatView` is route-bound with global key handlers, so a second
   instance would fight the first. It uses `ProviderModelPicker`, never the
   composer's `ComposerModelEffortPicker`. The sidebar, the mobile home list and
-  the palette, tabs, Ctrl-Tab and the split companion hide side chats; mobile
-  has no dock.
+  the palette, tabs, Ctrl-Tab and the split companion hide side chats. Mobile
+  opens a form sheet over the parent and subscribes to the side chat directly,
+  without changing the workspace selection.
 - `openSideChat(parentRef, prefill?)` (`sidechatDockStore.ts`) is the hook for
   other code, such as a selection toolbar's "Ask in side chat".
 
