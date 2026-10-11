@@ -446,6 +446,7 @@ it.effect(
           "unlink_pull_request",
           "list_thread_pull_requests",
           "review_pull_request",
+          "submit_review_findings",
         ]),
       );
       const linkTool = server.tools.find(({ tool }) => tool.name === "link_pull_request");

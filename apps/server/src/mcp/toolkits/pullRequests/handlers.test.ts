@@ -226,6 +226,87 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
+  describe("submit_review_findings", () => {
+    const report = {
+      verdict: "request-changes",
+      mergeConfidence: 2,
+      reviewEffort: 3,
+      findings: [
+        {
+          severity: "blocker",
+          confidence: 90,
+          path: "src/a.ts",
+          line: 4,
+          title: "Unchecked input",
+          detail: "The handler passes the query straight to the shell.",
+        },
+      ],
+      needsChecking: [],
+    } as const;
+
+    it.effect("records the findings on the thread against its linked pull request", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          thread: makeThread([
+            makeLink(3, { linkedAt: "2026-08-01T00:00:00.000Z" }),
+            makeLink(7, { url: "https://github.com/T3Tools/T3Code/pull/7" }),
+          ]),
+        });
+        const result = yield* harness.call("submit_review_findings", report);
+        expect(result).toMatchObject({ target: "pull-request", findings: 1, needsChecking: 0 });
+        const commands = yield* Ref.get(harness.commands);
+        expect(commands).toMatchObject([
+          {
+            type: "thread.activity.append",
+            threadId: THREAD_ID,
+            activity: {
+              kind: "viewcode.review.findings",
+              summary: "Review: request changes, 1 finding",
+              turnId: null,
+              payload: {
+                ...report,
+                // The link most recently made, not the first.
+                target: {
+                  kind: "pull-request",
+                  host: "github.com",
+                  repository: "t3tools/t3code",
+                  number: 7,
+                  url: "https://github.com/T3Tools/T3Code/pull/7",
+                },
+              },
+            },
+          },
+        ]);
+      }),
+    );
+
+    it.effect("records a review of local changes when no pull request is linked", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness();
+        expect(yield* harness.call("submit_review_findings", report)).toMatchObject({
+          target: "local",
+        });
+        const error = yield* harness
+          .call("submit_review_findings", { ...report, target: "pull-request" })
+          .pipe(Effect.flip);
+        expect(error._tag).toBe("ReviewFindingsTargetMissingError");
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          { activity: { payload: { target: { kind: "local" } } } },
+        ]);
+      }),
+    );
+
+    it.effect("records a local target when asked, even with a linked pull request", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ thread: makeThread([makeLink(7)]) });
+        yield* harness.call("submit_review_findings", { ...report, target: "local" });
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          { activity: { payload: { target: { kind: "local" } } } },
+        ]);
+      }),
+    );
+  });
+
   it.effect("refuses a credential without the pull-requests capability", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

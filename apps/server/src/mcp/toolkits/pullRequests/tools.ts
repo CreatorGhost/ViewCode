@@ -5,6 +5,7 @@ import {
   PullRequestOperationError,
   PullRequestUnavailableError,
   PullRequestState,
+  ReviewFindingsReport,
   ThreadPullRequestLinkSource,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
@@ -14,6 +15,7 @@ import * as Toolkit from "effect/unstable/ai/Toolkit";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
+import { SUBMIT_REVIEW_FINDINGS_TOOL } from "../../../review/ReviewPlaybook.ts";
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
@@ -149,6 +151,24 @@ export class PullRequestReviewFailedError extends Schema.TaggedError<PullRequest
   }
 }
 
+export class ReviewFindingsFailedError extends Schema.TaggedError<ReviewFindingsFailedError>()(
+  "ReviewFindingsFailedError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not record the review findings.";
+  }
+}
+
+export class ReviewFindingsTargetMissingError extends Schema.TaggedError<ReviewFindingsTargetMissingError>()(
+  "ReviewFindingsTargetMissingError",
+  {},
+) {
+  override get message(): string {
+    return "This thread has no linked pull request. Pass target local for a review of local changes.";
+  }
+}
+
 export const PullRequestToolError = Schema.Union([
   McpCapabilityUnavailableError,
   PullRequestUrlInvalidError,
@@ -161,6 +181,8 @@ export const PullRequestToolError = Schema.Union([
   PullRequestWatchFailedError,
   PullRequestNotWatchableError,
   PullRequestReviewFailedError,
+  ReviewFindingsFailedError,
+  ReviewFindingsTargetMissingError,
   // The review service's own failures say what to change (pick a model, sign in to the host).
   PullRequestAgentReview.PullRequestAgentReviewError,
   PullRequestUnavailableError,
@@ -259,6 +281,25 @@ export const ReviewPullRequestResult = Schema.Struct({
 });
 export type ReviewPullRequestResult = typeof ReviewPullRequestResult.Type;
 
+export const SubmitReviewFindingsInput = Schema.Struct({
+  ...ReviewFindingsReport.fields,
+  target: Schema.optional(
+    Schema.Literals(["pull-request", "local"]).annotate({
+      description:
+        "What you reviewed. Defaults to the pull request linked to this thread, or local when none is linked.",
+    }),
+  ),
+});
+export type SubmitReviewFindingsInput = typeof SubmitReviewFindingsInput.Type;
+
+export const SubmitReviewFindingsResult = Schema.Struct({
+  target: Schema.Literals(["pull-request", "local"]),
+  findings: Schema.Int,
+  needsChecking: Schema.Int,
+  message: Schema.String,
+});
+export type SubmitReviewFindingsResult = typeof SubmitReviewFindingsResult.Type;
+
 const LinkPullRequestTool = Tool.make("link_pull_request", {
   description: `${REGISTER_EVERY_PR} Links a pull request to this thread so ViewCode tracks it, shows its status beside the thread, and settles the thread when it merges. Pass the URL, or repository plus number. Linking an already-linked pull request succeeds with alreadyLinked=true.`,
   parameters: PullRequestTargetInput,
@@ -340,6 +381,21 @@ const ReviewPullRequestTool = Tool.make("review_pull_request", {
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
+const SubmitReviewFindingsTool = Tool.make(SUBMIT_REVIEW_FINDINGS_TOOL, {
+  description:
+    "Hand ViewCode the findings of the review you just reported, after writing the report. ViewCode shows them under your report as a card from which the user can send findings to a coding session to fix. Pass every reported finding under findings and the ones you could not settle under needsChecking, with the severities, confidences, paths and lines from your report; detail says what is wrong, why it matters and how it is reached; suggestedFix is code that applies as it stands. Calling it again replaces the findings recorded for this thread, so a re-review submits its full set.",
+  parameters: SubmitReviewFindingsInput,
+  success: SubmitReviewFindingsResult,
+  failure: PullRequestToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Submit review findings")
+  // It only records the findings in the caller's own thread, so read-only sandboxes can use it.
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const PullRequestsToolkit = Toolkit.make(
   LinkPullRequestTool,
   UnlinkPullRequestTool,
@@ -347,4 +403,5 @@ export const PullRequestsToolkit = Toolkit.make(
   WatchPullRequestTool,
   UnwatchPullRequestTool,
   ReviewPullRequestTool,
+  SubmitReviewFindingsTool,
 );

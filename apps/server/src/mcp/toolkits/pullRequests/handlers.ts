@@ -1,8 +1,12 @@
 import {
   CommandId,
+  EventId,
   pullRequestHostOf,
+  REVIEW_FINDINGS_ACTIVITY_KIND,
   type OrchestrationProjectShell,
   type OrchestrationThreadShell,
+  type ReviewFindingsActivityPayload,
+  type ReviewFindingsTarget,
   type SourceControlProviderKind,
   type ThreadId,
   type ThreadPullRequestLink,
@@ -16,6 +20,7 @@ import {
 } from "@t3tools/shared/threadPullRequests";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -37,6 +42,9 @@ import {
   PullRequestWatchFailedError,
   PullRequestThreadNotFoundError,
   PullRequestsToolkit,
+  ReviewFindingsFailedError,
+  ReviewFindingsTargetMissingError,
+  type SubmitReviewFindingsInput,
   type ThreadPullRequestEntry,
 } from "./tools.ts";
 
@@ -148,6 +156,30 @@ export function listThreadPullRequests(
   };
 }
 
+/**
+ * What a review recorded with `submit_review_findings` was about: the pull request linked to the
+ * thread most recently (a review thread has one), or the thread's own checkout. Null when the
+ * reviewer asked for a pull request and none is linked.
+ */
+export function reviewFindingsTarget(
+  thread: Pick<OrchestrationThreadShell, "pullRequests">,
+  requested: SubmitReviewFindingsInput["target"],
+): ReviewFindingsTarget | null {
+  if (requested === "local") return { kind: "local" };
+  let link: ThreadPullRequestLink | undefined;
+  for (const candidate of visibleThreadPullRequests(thread.pullRequests)) {
+    if (link === undefined || candidate.linkedAt > link.linkedAt) link = candidate;
+  }
+  if (link === undefined) return requested === "pull-request" ? null : { kind: "local" };
+  return { kind: "pull-request", ...normalizeThreadPullRequestKey(link), url: link.url };
+}
+
+const VERDICT_LABELS: Record<ReviewFindingsActivityPayload["verdict"], string> = {
+  approve: "approve",
+  "approve-with-nits": "approve with nits",
+  "request-changes": "request changes",
+};
+
 const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
@@ -166,7 +198,8 @@ const make = Effect.gen(function* () {
       | typeof PullRequestUnlinkFailedError
       | typeof PullRequestListFailedError
       | typeof PullRequestWatchFailedError
-      | typeof PullRequestReviewFailedError,
+      | typeof PullRequestReviewFailedError
+      | typeof ReviewFindingsFailedError,
   ) {
     const scope = yield* McpInvocationContext.requireMcpCapability("pull-requests");
     const thread = yield* snapshots
@@ -310,6 +343,47 @@ const make = Effect.gen(function* () {
       requireThread(PullRequestListFailedError).pipe(Effect.map(listThreadPullRequests)),
     watch_pull_request: (input) => setWatching(input, true),
     unwatch_pull_request: (input) => setWatching(input, false),
+    submit_review_findings: ({ target: requested, ...report }) =>
+      Effect.gen(function* () {
+        const thread = yield* requireThread(ReviewFindingsFailedError);
+        const target = reviewFindingsTarget(thread, requested);
+        if (target === null) return yield* new ReviewFindingsTargetMissingError({});
+        const payload: ReviewFindingsActivityPayload = { ...report, target };
+        const createdAt = DateTime.formatIso(yield* DateTime.now);
+        const count = report.findings.length;
+        // Clients show only the latest findings activity, which is how a re-review replaces the
+        // set. It belongs to the running turn, so reverting that turn removes it.
+        yield* engine
+          .dispatch({
+            type: "thread.activity.append",
+            commandId: yield* commandId("mcp-review-findings", thread.id),
+            threadId: thread.id,
+            activity: {
+              id: EventId.make(yield* crypto.randomUUIDv4.pipe(Effect.orDie)),
+              tone: "info",
+              kind: REVIEW_FINDINGS_ACTIVITY_KIND,
+              summary: `Review: ${VERDICT_LABELS[report.verdict]}, ${count} ${count === 1 ? "finding" : "findings"}`,
+              payload,
+              turnId: thread.session?.activeTurnId ?? null,
+              createdAt,
+            },
+            createdAt,
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.failCause(cause as Cause.Cause<never>)
+                : Effect.fail(new ReviewFindingsFailedError({ cause })),
+            ),
+          );
+        return {
+          target: target.kind,
+          findings: count,
+          needsChecking: report.needsChecking.length,
+          message:
+            "Recorded and shown to the reader under your report. Don't repeat the findings; end your turn.",
+        };
+      }),
     review_pull_request: ({ mode, focus, ...targetInput }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(PullRequestReviewFailedError);

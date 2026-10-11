@@ -16,6 +16,9 @@ import * as Path from "effect/Path";
 
 const PLAYBOOK_DIR = "review-playbooks";
 
+/** The MCP tool a reviewer hands its findings to; the playbook names it. */
+export const SUBMIT_REVIEW_FINDINGS_TOOL = "submit_review_findings";
+
 export const reviewModeLabel = (mode: AgentReviewMode): string =>
   AGENT_REVIEW_MODES.find((entry) => entry.mode === mode)?.label ?? mode;
 
@@ -68,7 +71,15 @@ const SHARED_RULES = `## Ground rules
    \`path:line — problem — why it matters — confidence\`, followed by the suggested fix.
 4. **Needs checking**, when there is anything there.
 5. **Checked and fine**: one line per area you covered and found no problem in, and the files you
-   only skimmed, so the reader knows what the review did and did not look at.`;
+   only skimmed, so the reader knows what the review did and did not look at.
+
+After writing the report, call ViewCode's \`${SUBMIT_REVIEW_FINDINGS_TOOL}\` tool once with the
+verdict, both scores, every reported finding under \`findings\` and every **Needs checking** item
+under \`needsChecking\` (a security audit's confirmed findings and those that need validation),
+each with the severity, confidence, path, lines and suggested fix the report gives it. The reader
+sends findings from it to a session that fixes them, so each \`detail\` must stand on its own. The
+written report stays the reader's version; the tool call does not replace it. If you review again
+in this thread, call the tool again with the full new set. Without the tool, the report is enough.`;
 
 const QUICK = `## Quick review
 
