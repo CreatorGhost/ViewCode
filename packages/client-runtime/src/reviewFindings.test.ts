@@ -10,7 +10,9 @@ import {
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  groupReviewFindingsBySeverity,
   openReviewFindingCount,
+  reviewFindingEntries,
   reviewFixCandidates,
   reviewPostOverallComment,
   reviewSourceCandidates,
@@ -228,6 +230,32 @@ describe("selectRunningPullRequestReview", () => {
     expect(reviewThreadMode("Security audit: #7 Fix", 7)).toBe("security");
     expect(reviewThreadMode("Review: #7", 7)).toBeNull();
     expect(reviewThreadMode("Code review: #7 Fix", 7)).toBeNull();
+  });
+});
+
+describe("groupReviewFindingsBySeverity", () => {
+  const finding = (title: string, severity: "blocker" | "important" | "nit" | "question") => ({
+    severity,
+    confidence: 80,
+    path: "a.ts",
+    title,
+    detail: "Detail.",
+  });
+
+  it("groups the most severe first, settled findings before unsettled ones, empty groups left out", () => {
+    const groups = groupReviewFindingsBySeverity(
+      reviewFindingEntries({
+        findings: [finding("Nit", "nit"), finding("Blocker", "blocker")],
+        needsChecking: [finding("Unsettled blocker", "blocker"), finding("Ask", "question")],
+      }),
+    );
+    expect(
+      groups.map((group) => [group.severity, group.entries.map((entry) => entry.key)]),
+    ).toEqual([
+      ["blocker", ["finding:1", "check:0"]],
+      ["nit", ["finding:0"]],
+      ["question", ["check:1"]],
+    ]);
   });
 });
 

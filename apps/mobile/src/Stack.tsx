@@ -41,6 +41,7 @@ import {
   HardwareKeyboardCommandProvider,
 } from "./features/keyboard/HardwareKeyboardCommandProvider";
 import { ReviewCommentComposerSheet } from "./features/review/ReviewCommentComposerSheet";
+import { ReviewFindingsRouteScreen } from "./features/review/findings/ReviewFindingsRouteScreen";
 import { ReviewSheet } from "./features/review/ReviewSheet";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
 import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteScreen";
@@ -485,6 +486,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "SettingsLegal",
   "SettingsSheet",
   "ThreadReviewComment",
+  "ThreadReviewFindings",
   "ThreadDevicePreview",
   "ThreadSettingsSheet",
 ]);
@@ -662,6 +664,13 @@ const RootStackConfig = createNativeStackNavigator({
         sheetAllowedDetents: Platform.OS === "android" ? undefined : [0.55, 0.92],
         sheetGrabberVisible: Platform.OS !== "android",
       },
+    }),
+    // An overlay over whichever thread opened it (the review's own, or a thread on the same pull
+    // request), so the workspace keeps that thread selected beneath it.
+    ThreadReviewFindings: createNativeStackScreen({
+      screen: ReviewFindingsRouteScreen,
+      linking: `${THREAD_LINKING_PREFIX}/review-findings`,
+      options: SOLID_HEADER_OPTIONS,
     }),
     ThreadFiles: createNativeStackScreen({
       screen: ThreadFilesTreeScreen,

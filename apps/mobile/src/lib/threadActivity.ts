@@ -5,11 +5,16 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@t3tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload, isToolLifecycleItemType } from "@t3tools/contracts";
+import {
+  REVIEW_FINDINGS_ACTIVITY_KIND,
+  UserInputAttachmentAnswerPayload,
+  isToolLifecycleItemType,
+} from "@t3tools/contracts";
 import type {
   OrchestrationLatestTurn,
   OrchestrationThread,
   OrchestrationThreadActivity,
+  ReviewFindingsActivityPayload,
   ToolLifecycleItemType,
   TurnId,
   UserInputQuestion,
@@ -25,6 +30,7 @@ import {
   readHtmlRenderReference,
   type HtmlRenderReference,
 } from "@t3tools/shared/htmlRender";
+import { latestReviewFindingsActivityId, readReviewFindings } from "@t3tools/shared/reviewFindings";
 import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
@@ -133,6 +139,8 @@ export interface WorkLogEntry {
   agentMessageSent?: AgentMessageSentPayload;
   /** A page the agent published with `html_render`; renders inline. */
   htmlRender?: HtmlRenderReference;
+  /** The findings a reviewer submitted; renders as a card that opens them. */
+  reviewFindings?: ReviewFindingsActivityPayload;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -239,6 +247,14 @@ export type ThreadFeedEntry =
       readonly createdAt: string;
       readonly turnId: TurnId | null;
       readonly render: HtmlRenderReference;
+    }
+  | {
+      /** The findings a reviewer submitted; the card opens them, the feed only says they came. */
+      readonly type: "review-findings";
+      readonly id: string;
+      readonly createdAt: string;
+      readonly turnId: TurnId | null;
+      readonly findings: ReviewFindingsActivityPayload;
     };
 
 export type ThreadFeedAgentMessageEntry = Extract<
@@ -324,6 +340,10 @@ function isAgentMessageActivityGroup(entry: ThreadFeedActivityGroup): boolean {
 
 function isHtmlRenderActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return entry.activities.some((activity) => activity.workEntry.htmlRender !== undefined);
+}
+
+function isReviewFindingsActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return entry.activities.some((activity) => activity.workEntry.reviewFindings !== undefined);
 }
 
 function normalizeDraftAnswer(value: string | undefined): string | null {
@@ -488,8 +508,13 @@ function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): DerivedWorkLogEntry[] {
   const ordered = Arr.sort(activities, activityOrder);
+  // A re-review's findings replace the earlier set.
+  const reviewFindingsId = latestReviewFindingsActivityId(ordered);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of foldUserInputActivities(ordered)) {
+    if (activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND && activity.id !== reviewFindingsId) {
+      continue;
+    }
     // The setup card owns its snapshot, including failed and cancelled outcomes.
     if (
       isWorktreeSetupActivity(activity.kind) &&
@@ -600,6 +625,8 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     const htmlRender = readHtmlRenderReference(payload);
     if (htmlRender) entry.htmlRender = htmlRender;
   }
+  const reviewFindings = readReviewFindings(activity);
+  if (reviewFindings) entry.reviewFindings = reviewFindings;
   const toolCallId =
     asTrimmedString(payload?.toolCallId) ?? asTrimmedString(asRecord(payload?.data)?.toolCallId);
   if (toolCallId) {
@@ -1660,7 +1687,8 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
       entry.activity.workEntry.sourceActivityKind === "context-compaction" ||
       entry.activity.workEntry.questionAnswer !== undefined ||
       entry.activity.workEntry.agentMessageSent !== undefined ||
-      entry.activity.workEntry.htmlRender !== undefined;
+      entry.activity.workEntry.htmlRender !== undefined ||
+      entry.activity.workEntry.reviewFindings !== undefined;
     if (isStandalone || firstActivityEntry?.turnId !== entry.turnId) {
       flushGroup();
     }
@@ -1791,7 +1819,8 @@ function deriveThreadFeedTurnFolds(
               entry.type === "activity-group" &&
               (isUserInputActivityGroup(entry) ||
                 isAgentMessageActivityGroup(entry) ||
-                isHtmlRenderActivityGroup(entry))
+                isHtmlRenderActivityGroup(entry) ||
+                isReviewFindingsActivityGroup(entry))
             ),
         )
         .map((entry) => entry.id),
@@ -1869,7 +1898,8 @@ export function deriveThreadFeedPresentation(
       entry.type !== "thinking" &&
       entry.type !== "agent-spawn" &&
       entry.type !== "agent-message" &&
-      entry.type !== "html-render",
+      entry.type !== "html-render" &&
+      entry.type !== "review-findings",
   );
   const activeTailGroup = sourceFeed.findLast(
     (entry) => entry.type !== "message" || !isEmptyMessage(entry),
@@ -1991,6 +2021,7 @@ function activityRunTurnId(entry: ThreadFeedEntry): TurnId | null {
         !activity.workEntry.agentSpawn &&
         !activity.workEntry.agentMessageSent &&
         !activity.workEntry.htmlRender &&
+        !activity.workEntry.reviewFindings &&
         activity.workEntry.tone !== "error",
     )
   ) {
@@ -2220,6 +2251,18 @@ function appendActivityGroupRows(
     const spawn = activity.workEntry.agentSpawn;
     const sent = activity.workEntry.agentMessageSent;
     const render = activity.workEntry.htmlRender;
+    const findings = activity.workEntry.reviewFindings;
+    if (findings !== undefined) {
+      flushGroupableRun(false);
+      result.push({
+        type: "review-findings",
+        id: activity.id,
+        createdAt: activity.createdAt,
+        turnId: activity.turnId,
+        findings,
+      });
+      continue;
+    }
     if (render !== undefined) {
       flushGroupableRun(false);
       result.push({

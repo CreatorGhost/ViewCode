@@ -514,7 +514,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   environment, never `gh auth switch`), and refused when GitHub answers as someone else, which a
   `GH_TOKEN` in the server's environment would cause.
 - Findings live in the web Review panel (a right-panel surface) and the pull request detail's Review
-  tab, both one view (`ReviewFindingsView`), not in the transcript. Thread shells carry no
+  tab, both one view (`ReviewFindingsView`), not in the transcript. Mobile has a findings screen
+  (`features/review/findings/`) opened from the transcript's findings row: a list by severity
+  with no diff, since a phone has no room to read findings under their lines. Which set a thread
+  or pull request shows, and the read of linked threads, are client-runtime's
+  (`reviewFindings.ts`, `state/reviewFindings.ts`) so both clients agree. Thread shells carry no
   activities, so a thread without findings of its own, or the pull request detail, finds a linked
   review by subscribing to the activities of up to five threads linked to the same pull request,
   and only while that panel or detail is open. A review still under way is recognised by the title

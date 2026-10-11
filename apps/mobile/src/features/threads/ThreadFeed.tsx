@@ -178,6 +178,7 @@ import {
 import { appendPendingThreadMessages, type PendingThreadFeedEntry } from "./pending-thread-feed";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
+import { ReviewFindingsFeedCard } from "../review/findings/ReviewFindingsFeedCard";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import {
@@ -1504,6 +1505,17 @@ function renderFeedEntry(
         environmentId={props.environmentId}
         threadId={props.threadId}
         render={entry.render}
+        iconColor={iconSubtleColor}
+      />
+    );
+  }
+
+  if (entry.type === "review-findings") {
+    return (
+      <ReviewFindingsFeedCard
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        findings={entry.findings}
         iconColor={iconSubtleColor}
       />
     );

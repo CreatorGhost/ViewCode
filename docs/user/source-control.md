@@ -185,6 +185,12 @@ worktree of its own. **Dismiss** hides a finding until you show dismissed ones a
 thread's pull request from the panel, pick the mode, model and focus in its empty state, or under
 **Find issues** for a new review; the thread stays open and the findings arrive when it is done.
 
+In the mobile app, a review thread shows a **Review findings** row where its findings arrive. Tap
+it for the verdict, merge confidence and review effort, and the findings grouped by severity; tap a
+finding for its detail and suggested fix. The phone shows no diff, so each finding names its file
+and line instead. **Dismiss** hides a finding until you show dismissed ones, and the thumbs tell
+later reviews of the project which findings helped.
+
 For a review of somebody else's pull request the findings are review comments instead: **Post
 comment** posts one, and **Post all** or **Post selected** posts several as one review, each time
 after you choose what to submit it as and write its overall comment. Posted findings link to the

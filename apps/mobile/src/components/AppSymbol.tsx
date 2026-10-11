@@ -109,6 +109,15 @@ import IconUserCircle from "@tabler/icons-react-native/IconUserCircle";
 import IconWifiOff from "@tabler/icons-react-native/IconWifiOff";
 import IconWorld from "@tabler/icons-react-native/IconWorld";
 import IconX from "@tabler/icons-react-native/IconX";
+import IconAlertOctagon from "@tabler/icons-react-native/IconAlertOctagon";
+import IconHelpCircle from "@tabler/icons-react-native/IconHelpCircle";
+import IconListCheck from "@tabler/icons-react-native/IconListCheck";
+import IconSquare from "@tabler/icons-react-native/IconSquare";
+import IconSquareCheckFilled from "@tabler/icons-react-native/IconSquareCheckFilled";
+import IconThumbDown from "@tabler/icons-react-native/IconThumbDown";
+import IconThumbDownFilled from "@tabler/icons-react-native/IconThumbDownFilled";
+import IconThumbUp from "@tabler/icons-react-native/IconThumbUp";
+import IconThumbUpFilled from "@tabler/icons-react-native/IconThumbUpFilled";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { withUniwind } from "uniwind";
 
@@ -144,6 +153,8 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "chart.bar.xaxis": IconChartBar,
   checkmark: IconCheck,
   "checkmark.circle": IconCircleCheck,
+  "checkmark.square.fill": IconSquareCheckFilled,
+  checklist: IconListCheck,
   circle: IconCircle,
   clock: IconClock,
   timer: IconClock,
@@ -163,6 +174,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "ellipsis.circle": IconDotsCircleHorizontal,
   "exclamationmark.triangle": IconAlertTriangle,
   "exclamationmark.circle": IconAlertCircle,
+  "exclamationmark.octagon": IconAlertOctagon,
   eye: IconEye,
   folder: IconFolder,
   "folder.badge.plus": IconFolderPlus,
@@ -170,6 +182,10 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   gearshape: IconSettings,
   globe: IconWorld,
   hammer: IconHammer,
+  "hand.thumbsdown": IconThumbDown,
+  "hand.thumbsdown.fill": IconThumbDownFilled,
+  "hand.thumbsup": IconThumbUp,
+  "hand.thumbsup.fill": IconThumbUpFilled,
   house: IconHome,
   "info.circle": IconInfoCircle,
   internaldrive: IconDatabase,
@@ -195,6 +211,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   plus: IconPlus,
   minus: IconMinus,
   "qrcode.viewfinder": IconQrcode,
+  "questionmark.circle": IconHelpCircle,
   "point.3.connected.trianglepath.dotted": IconNetwork,
   "point.topleft.down.curvedto.point.bottomright.up": IconGitMerge,
   safari: IconExternalLink,
@@ -203,6 +220,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "sidebar.left": IconLayoutSidebar,
   "sidebar.right": IconLayoutSidebarRight,
   "slider.horizontal.3": IconAdjustmentsHorizontal,
+  square: IconSquare,
   "square.and.pencil": IconEdit,
   "square.on.square": IconCopy,
   "square.grid.2x2": IconApps,

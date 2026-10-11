@@ -4,6 +4,7 @@ import {
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   type ReviewFinding,
+  type ReviewFindingSeverity,
   type ReviewFindingsActivityPayload,
   type ReviewFindingsTarget,
   type ThreadId,
@@ -218,6 +219,22 @@ export function reviewFindingEntries(
       needsChecking: true,
     })),
   ];
+}
+
+/**
+ * Findings by severity, most severe first, each group in the order the reviewer gave them with
+ * the settled ones first. Severities without findings are left out.
+ */
+export function groupReviewFindingsBySeverity(
+  entries: ReadonlyArray<ReviewFindingEntry>,
+): ReadonlyArray<{
+  readonly severity: ReviewFindingSeverity;
+  readonly entries: ReadonlyArray<ReviewFindingEntry>;
+}> {
+  return REVIEW_FINDING_SEVERITIES.flatMap((severity) => {
+    const group = entries.filter((entry) => entry.finding.severity === severity);
+    return group.length === 0 ? [] : [{ severity, entries: group }];
+  });
 }
 
 /** How many findings of a set are still to act on: neither dismissed nor posted. */
