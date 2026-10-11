@@ -121,7 +121,7 @@ export function ReviewStatusBar({
 }
 
 /** The reviewer's current step; reads only that thread's activities. */
-const ReviewWorkLine = memo(function ReviewWorkLine({
+export const ReviewWorkLine = memo(function ReviewWorkLine({
   environmentId,
   threadId,
 }: {
