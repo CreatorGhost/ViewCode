@@ -6,12 +6,12 @@ export interface ReviewFixDestination {
   readonly title: string;
 }
 
-/** Which findings set a card's state belongs to. */
-export function reviewFindingsCardKey(environmentId: string, activityId: string): string {
-  return `${environmentId}:${activityId}`;
+/** Which review a card's state belongs to: its thread, whose every set of findings shares it. */
+export function reviewFindingsCardKey(environmentId: string, reviewThreadId: string): string {
+  return `${environmentId}:${reviewThreadId}`;
 }
 
-/** Keyed by findings set (`reviewFindingsCardKey`), then by finding key. */
+/** Keyed by review (`reviewFindingsCardKey`), then by finding identity (`reviewFindingIdentity`). */
 type ByCard<T> = Readonly<Record<string, Readonly<Record<string, T>>>>;
 
 interface ReviewFixSentState {

@@ -23,6 +23,7 @@ import * as Schema from "effect/Schema";
 import {
   type PostedReviewFinding,
   readReviewFindings,
+  reviewFindingIdentity,
   REVIEW_FINDING_SEVERITIES,
   REVIEW_VERDICT_LABELS,
 } from "@t3tools/shared/reviewFindings";
@@ -474,6 +475,8 @@ export interface ReviewFindingEntry {
   readonly needsChecking: boolean;
 }
 
+export { reviewFindingIdentity };
+
 /** Every finding of a set, the settled ones first, each under a key that survives re-renders. */
 export function reviewFindingEntries(
   findings: Pick<ReviewFindingsActivityPayload, "findings" | "needsChecking">,
@@ -490,6 +493,22 @@ export function reviewFindingEntries(
       needsChecking: true,
     })),
   ];
+}
+
+/**
+ * The reader's marks on findings (dismissed, sent to a chat), kept by finding identity so they
+ * hold across the sets one review sends, as they apply to this set's keys.
+ */
+export function reviewFindingMarksByKey<T>(
+  entries: ReadonlyArray<ReviewFindingEntry>,
+  marks: Readonly<Record<string, T>>,
+): Readonly<Record<string, T>> {
+  const byKey: Record<string, T> = {};
+  for (const entry of entries) {
+    const mark = marks[reviewFindingIdentity(entry.finding)];
+    if (mark !== undefined) byKey[entry.key] = mark;
+  }
+  return byKey;
 }
 
 /**

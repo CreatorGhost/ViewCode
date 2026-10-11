@@ -16,6 +16,8 @@ import {
   mergeReviewFindingRatings,
   openReviewFindingCount,
   reviewFindingEntries,
+  reviewFindingIdentity,
+  reviewFindingMarksByKey,
   reviewFixCandidates,
   reviewFixUndo,
   reviewHeadMoved,
@@ -359,6 +361,29 @@ describe("selectLatestReview", () => {
       selectLatestReview([candidate("old", [started({})], "2026-08-01T00:00:00.000Z")])?.mode,
     ).toBe("quick");
     expect(selectLatestReview([candidate("chat", [], "2026-08-01T00:00:00.000Z")])).toBeNull();
+  });
+});
+
+describe("reviewFindingMarksByKey", () => {
+  it("keeps the reader's marks on a finding when the review's next set moves it", () => {
+    const finding = (title: string, line: number) => ({
+      severity: "nit" as const,
+      confidence: 80,
+      path: "a.ts",
+      line,
+      title,
+      detail: "Detail.",
+    });
+    const partial = reviewFindingEntries({
+      findings: [finding("Stale label", 4)],
+      needsChecking: [],
+    });
+    const marks = { [reviewFindingIdentity(partial[0]!.finding)]: true as const };
+    const final = reviewFindingEntries({
+      findings: [finding("Missing guard", 1), finding("Stale  label", 4)],
+      needsChecking: [],
+    });
+    expect(reviewFindingMarksByKey(final, marks)).toEqual({ "finding:1": true });
   });
 });
 

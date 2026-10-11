@@ -4,7 +4,15 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { reviewCommentContextReference } from "../../lib/composerContextRecords";
 import { formatInlineContextReference } from "../../lib/composerContextReferences";
-import { placeReviewFindings, reviewFindingsFixPrompt } from "./reviewPanel.logic";
+import {
+  firstFindingToReveal,
+  placeReviewFindings,
+  reviewFileCollapsed,
+  reviewFindingsFixPrompt,
+  reviewFixAllMode,
+  reviewIssueOrder,
+  reviewPostAllWaits,
+} from "./reviewPanel.logic";
 
 describe("placeReviewFindings", () => {
   // Only the hunk ranges matter here; the viewer fills the rest in when it renders.
@@ -46,6 +54,16 @@ describe("placeReviewFindings", () => {
     });
     const { general, placed } = placeReviewFindings(entries, files);
     expect(general.map((entry) => entry.key)).toEqual(["finding:3", "finding:4", "finding:5"]);
+    // The issues list and Previous/Next: General first, then the diff in reading order.
+    expect(reviewIssueOrder(general, placed)).toEqual([
+      "finding:3",
+      "finding:4",
+      "finding:5",
+      "check:0",
+      "finding:2",
+      "finding:1",
+      "finding:0",
+    ]);
     expect(
       placed.map(({ entry, fileKey, startLine, lineNumber }) => [
         entry.key,
@@ -119,5 +137,58 @@ describe("reviewFindingsFixPrompt", () => {
     expect(prompt).toContain("1. [a.ts L12 to L14]");
     expect(prompt).toContain("2. [README.md file](t3-context://v1/review-comment/");
     expect(prompt).toContain("The reviewer could not settle this one.");
+  });
+});
+
+describe("firstFindingToReveal", () => {
+  const order = ["check:0", "finding:1"] as const;
+  it("goes to the first finding once the change is read, once, unless the reader scrolled", () => {
+    const reveal = (input: Partial<Parameters<typeof firstFindingToReveal>[0]>) =>
+      firstFindingToReveal({
+        order,
+        diffPending: false,
+        revealed: false,
+        readerScrolled: false,
+        ...input,
+      });
+    expect(reveal({})).toBe("check:0");
+    expect(reveal({ diffPending: true })).toBeNull();
+    expect(reveal({ revealed: true })).toBeNull();
+    expect(reveal({ readerScrolled: true })).toBeNull();
+    expect(reveal({ order: [] })).toBeNull();
+  });
+});
+
+describe("reviewFileCollapsed", () => {
+  it("folds files without findings and opens those with, each until toggled", () => {
+    const withFindings = new Set(["a"]);
+    expect(reviewFileCollapsed("a", withFindings, new Set())).toBe(false);
+    expect(reviewFileCollapsed("b", withFindings, new Set())).toBe(true);
+    // Show all files toggles every file without findings open.
+    expect(reviewFileCollapsed("b", withFindings, new Set(["b"]))).toBe(false);
+    expect(reviewFileCollapsed("a", withFindings, new Set(["a"]))).toBe(true);
+  });
+});
+
+describe("Fix all and Post all", () => {
+  it("sends one finding straight away and lists several first", () => {
+    expect(reviewFixAllMode(0)).toBe("none");
+    expect(reviewFixAllMode(1)).toBe("send");
+    expect(reviewFixAllMode(3)).toBe("choose");
+  });
+
+  it("holds Post all while the review works, never one finding or ticked ones", () => {
+    expect(reviewPostAllWaits({ commentMode: true, tickedCount: 0, stillReviewing: true })).toBe(
+      true,
+    );
+    expect(reviewPostAllWaits({ commentMode: true, tickedCount: 2, stillReviewing: true })).toBe(
+      false,
+    );
+    expect(reviewPostAllWaits({ commentMode: true, tickedCount: 0, stillReviewing: false })).toBe(
+      false,
+    );
+    expect(reviewPostAllWaits({ commentMode: false, tickedCount: 0, stillReviewing: true })).toBe(
+      false,
+    );
   });
 });

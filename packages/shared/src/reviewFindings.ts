@@ -86,20 +86,73 @@ export interface PostedReviewFinding {
 }
 
 /**
+ * A finding's identity across the sets one review sends (findings so far, then the final set):
+ * its file, its lines and its title, whitespace and case aside. Keys (`finding:3`) name a place
+ * in one set only.
+ */
+export function reviewFindingIdentity(
+  finding: Pick<ReviewFinding, "path" | "line" | "endLine" | "title">,
+): string {
+  const title = finding.title.trim().replace(/\s+/g, " ").toLowerCase();
+  return `${finding.path}\u0000${finding.line ?? ""}-${finding.endLine ?? ""}\u0000${title}`;
+}
+
+/** The finding a key names in a set, if any. */
+export function reviewFindingAt(
+  payload: Pick<ReviewFindingsActivityPayload, "findings" | "needsChecking">,
+  key: string,
+): ReviewFinding | undefined {
+  const match = /^(finding|check):(\d+)$/.exec(key);
+  if (match === null) return undefined;
+  const list = match[1] === "finding" ? payload.findings : payload.needsChecking;
+  return list[Number(match[2])];
+}
+
+/**
  * Which findings of one findings activity were posted to the pull request, by key, from the
- * records the server appends to the review thread after each review it posts.
+ * records the server appends to the review thread after each review it posts. A finding posted
+ * from an earlier set of the same review (its findings so far) counts as posted here too, matched
+ * by `reviewFindingIdentity`, so a later Post all cannot post it twice.
  */
 export function postedReviewFindings(
-  activities: ReadonlyArray<Pick<OrchestrationThreadActivity, "kind" | "payload">>,
+  activities: ReadonlyArray<
+    Pick<OrchestrationThreadActivity, "kind" | "payload"> & { readonly id?: string }
+  >,
   findingsActivityId: string,
 ): ReadonlyMap<string, PostedReviewFinding> {
+  const sets = new Map<string, ReviewFindingsActivityPayload>();
+  for (const activity of activities) {
+    if (activity.id === undefined) continue;
+    const payload = readReviewFindings(activity);
+    if (payload !== undefined) sets.set(activity.id, payload);
+  }
+  const current = sets.get(findingsActivityId);
+  const keyByIdentity = new Map<string, string>();
+  if (current !== undefined) {
+    current.findings.forEach((finding, index) =>
+      keyByIdentity.set(reviewFindingIdentity(finding), `finding:${index}`),
+    );
+    current.needsChecking.forEach((finding, index) =>
+      keyByIdentity.set(reviewFindingIdentity(finding), `check:${index}`),
+    );
+  }
   const posted = new Map<string, PostedReviewFinding>();
   for (const activity of activities) {
     if (activity.kind !== REVIEW_FINDINGS_POSTED_ACTIVITY_KIND) continue;
     const payload = Option.getOrUndefined(decodePostedPayload(activity.payload));
-    if (payload === undefined || payload.findingsActivityId !== findingsActivityId) continue;
+    if (payload === undefined) continue;
+    const record = { url: payload.url, verdict: payload.verdict };
+    if (payload.findingsActivityId === findingsActivityId) {
+      for (const { key, placement } of payload.findings) posted.set(key, { ...record, placement });
+      continue;
+    }
+    const earlier = sets.get(payload.findingsActivityId);
+    if (earlier === undefined) continue;
     for (const { key, placement } of payload.findings) {
-      posted.set(key, { placement, url: payload.url, verdict: payload.verdict });
+      const finding = reviewFindingAt(earlier, key);
+      const here =
+        finding === undefined ? undefined : keyByIdentity.get(reviewFindingIdentity(finding));
+      if (here !== undefined && !posted.has(here)) posted.set(here, { ...record, placement });
     }
   }
   return posted;

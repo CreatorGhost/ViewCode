@@ -1,6 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   openReviewFindingCount,
+  reviewFindingEntries,
+  reviewFindingMarksByKey,
   type ReviewFindingsSource,
   type ReviewProgress,
   selectLatestReview,
@@ -189,13 +191,19 @@ export function usePullRequestReviewFindings(
       : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
         NO_ACTIVITIES);
   const { posted, ratings } = useFindingRecords(source, sourceActivities);
-  const dismissed = useReviewFixSentStore((state) =>
+  const dismissedByIdentity = useReviewFixSentStore((state) =>
     source === null
       ? NO_DISMISSED
-      : (state.dismissedByCard[reviewFindingsCardKey(environmentId, source.activityId)] ??
+      : (state.dismissedByCard[reviewFindingsCardKey(environmentId, source.threadId)] ??
         NO_DISMISSED),
   );
   const openCount =
-    source === null ? 0 : openReviewFindingCount(source.findings, dismissed, posted);
+    source === null
+      ? 0
+      : openReviewFindingCount(
+          source.findings,
+          reviewFindingMarksByKey(reviewFindingEntries(source.findings), dismissedByIdentity),
+          posted,
+        );
   return { source, posted, ratings, review, openCount };
 }

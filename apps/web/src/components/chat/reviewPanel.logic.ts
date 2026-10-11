@@ -1,4 +1,4 @@
-import type { ReviewFindingEntry } from "@t3tools/client-runtime/review-findings";
+import type { ReviewFindingEntry, ReviewFindingKey } from "@t3tools/client-runtime/review-findings";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { fencedCode, type PostedReviewFinding } from "@t3tools/shared/reviewFindings";
 
@@ -151,4 +151,62 @@ export function reviewFindingsFixPrompt(input: {
     ].join("\n\n"),
     comments,
   };
+}
+
+/**
+ * The order the panel lists and steps through findings: those with no line in the diff (General)
+ * first, then the rest in the diff's reading order.
+ */
+export function reviewIssueOrder(
+  general: ReadonlyArray<Pick<ReviewFindingEntry, "key">>,
+  placed: ReadonlyArray<Pick<PlacedReviewFinding, "entry">>,
+): ReadonlyArray<ReviewFindingKey> {
+  return [...general.map((entry) => entry.key), ...placed.map((entry) => entry.entry.key)];
+}
+
+/**
+ * The finding the panel goes to on its own: the first, once the change is read (until then every
+ * finding sits under General, which is not where it stays), once only, and never after the
+ * reader scrolled somewhere of their own.
+ */
+export function firstFindingToReveal(input: {
+  readonly order: ReadonlyArray<ReviewFindingKey>;
+  readonly diffPending: boolean;
+  readonly revealed: boolean;
+  readonly readerScrolled: boolean;
+}): ReviewFindingKey | null {
+  if (input.revealed || input.diffPending || input.readerScrolled) return null;
+  return input.order[0] ?? null;
+}
+
+/**
+ * Whether a file shows folded to one row: files with findings open and the rest fold, each until
+ * the reader toggles it.
+ */
+export function reviewFileCollapsed(
+  fileKey: string,
+  filesWithFindings: ReadonlySet<string>,
+  toggledFiles: ReadonlySet<string>,
+): boolean {
+  return filesWithFindings.has(fileKey) === toggledFiles.has(fileKey);
+}
+
+/**
+ * What Fix all does: nothing without open findings, sends one straight away, and lists several
+ * first so some can be left out.
+ */
+export function reviewFixAllMode(openCount: number): "none" | "send" | "choose" {
+  return openCount === 0 ? "none" : openCount === 1 ? "send" : "choose";
+}
+
+/**
+ * Whether Post all waits: a review still at work may change or drop the findings it sent so far.
+ * A single finding, or ticked ones, can be posted meanwhile.
+ */
+export function reviewPostAllWaits(input: {
+  readonly commentMode: boolean;
+  readonly tickedCount: number;
+  readonly stillReviewing: boolean;
+}): boolean {
+  return input.commentMode && input.tickedCount === 0 && input.stillReviewing;
 }
