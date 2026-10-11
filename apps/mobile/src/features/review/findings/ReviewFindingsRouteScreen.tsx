@@ -19,6 +19,7 @@ import {
   buildReviewFixMessage,
   REVIEW_FINDING_SEVERITY_LABELS,
   REVIEW_VERDICT_LABELS,
+  reviewFindingsMode,
 } from "@t3tools/shared/reviewFindings";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, View } from "react-native";
@@ -224,9 +225,56 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
     () => ({ label: "Fix with agent", icon: "hammer", run: (entry) => fix([entry]) }),
     [fix],
   );
-  const primary =
-    openEntries.length > 0
-      ? { label: "Fix all", icon: "hammer" as const, run: () => fix(openEntries) }
+
+  // Somebody else's pull request: findings are posted to it as review comments, not fixed, and
+  // only ever behind the post sheet's own tap.
+  const commentMode =
+    findings !== null &&
+    reviewFindingsMode(findings) === "comment" &&
+    findings.target.kind === "pull-request";
+  const [ticks, setTicks] = useState<ReadonlySet<string>>(() => new Set());
+  const tick = useCallback(
+    (entry: ReviewFindingEntry) =>
+      setTicks((current) => {
+        const next = new Set(current);
+        if (!next.delete(entry.key)) next.add(entry.key);
+        return next;
+      }),
+    [],
+  );
+  const startPost = useCallback(
+    (keys: ReadonlyArray<string>) => {
+      if (keys.length === 0) return;
+      navigation.navigate("ThreadReviewFindingsPost", {
+        environmentId,
+        threadId: reviewThreadId,
+        keys: keys.join(","),
+      });
+    },
+    [environmentId, navigation, reviewThreadId],
+  );
+  const postAction = useMemo<ReviewFindingAction>(
+    () => ({ label: "Post comment", icon: "text.bubble", run: (entry) => startPost([entry.key]) }),
+    [startPost],
+  );
+  const unposted = openEntries.filter((entry) => !posted.has(entry.key));
+  const tickedKeys = unposted.filter((entry) => ticks.has(entry.key)).map((entry) => entry.key);
+  const primary: { label: string; icon: AppSymbolName; run: () => void } | null = commentMode
+    ? unposted.length === 0
+      ? null
+      : tickedKeys.length > 0
+        ? {
+            label: `Post selected (${tickedKeys.length})`,
+            icon: "text.bubble",
+            run: () => startPost(tickedKeys),
+          }
+        : {
+            label: `Post all (${unposted.length})`,
+            icon: "text.bubble",
+            run: () => startPost(unposted.map((entry) => entry.key)),
+          }
+    : openEntries.length > 0
+      ? { label: "Fix all", icon: "hammer", run: () => fix(openEntries) }
       : null;
   const footerHeight =
     primary === null ? 0 : FOOTER_BUTTON_HEIGHT + 12 + Math.max(insets.bottom, 16);
@@ -356,8 +404,10 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
                             canRate={canRate}
                             posted={posted.get(entry.key)}
                             sentTo={sent[entry.key]}
-                            busy={false}
-                            action={fixAction}
+                            action={commentMode ? postAction : fixAction}
+                            {...(commentMode && !posted.has(entry.key)
+                              ? { ticked: ticks.has(entry.key), onTick: tick }
+                              : {})}
                             onToggleExpanded={toggleExpanded}
                             onDismiss={dismiss}
                             onRate={rate}

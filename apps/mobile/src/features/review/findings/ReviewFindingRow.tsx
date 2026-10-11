@@ -7,7 +7,7 @@ import {
   reviewFindingLocation,
 } from "@t3tools/shared/reviewFindings";
 import { memo, type ReactNode } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import { type AppSymbolName, SymbolView } from "../../../components/AppSymbol";
 import { AppText as Text } from "../../../components/AppText";
@@ -44,35 +44,26 @@ export interface ReviewFindingAction {
   readonly run: (entry: ReviewFindingEntry) => void;
 }
 
-export function FindingPill(props: {
+function FindingPill(props: {
   readonly label: string;
   readonly icon?: AppSymbolName;
   readonly accessibilityLabel?: string;
   readonly selected?: boolean;
-  readonly disabled?: boolean;
-  readonly busy?: boolean;
   readonly onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={props.accessibilityLabel ?? props.label}
-      accessibilityState={{
-        disabled: props.disabled === true,
-        busy: props.busy === true,
-        ...(props.selected === undefined ? {} : { selected: props.selected }),
-      }}
-      disabled={props.disabled || props.busy}
+      accessibilityState={props.selected === undefined ? undefined : { selected: props.selected }}
       hitSlop={4}
       onPress={props.onPress}
       className={cn(
-        "min-h-10 flex-row items-center gap-1.5 rounded-full px-3.5 active:opacity-70 disabled:opacity-[0.45]",
+        "min-h-10 flex-row items-center gap-1.5 rounded-full px-3.5 active:opacity-70",
         props.selected ? "bg-subtle-strong" : "bg-subtle",
       )}
     >
-      {props.busy ? (
-        <ActivityIndicator size="small" colorClassName="accent-icon-muted" />
-      ) : props.icon ? (
+      {props.icon ? (
         <SymbolView
           name={props.icon}
           size={15}
@@ -111,7 +102,6 @@ export const ReviewFindingRow = memo(function ReviewFindingRow(props: {
   readonly sentTo: ReviewFixDestination | undefined;
   /** Present in comment mode, where findings are ticked to post several as one review. */
   readonly ticked?: boolean | undefined;
-  readonly busy: boolean;
   readonly action: ReviewFindingAction | null;
   readonly onToggleExpanded: (entry: ReviewFindingEntry) => void;
   readonly onTick?: ((entry: ReviewFindingEntry) => void) | undefined;
@@ -234,7 +224,6 @@ export const ReviewFindingRow = memo(function ReviewFindingRow(props: {
               <FindingPill
                 label={props.action.label}
                 icon={props.action.icon}
-                busy={props.busy}
                 onPress={() => props.action?.run(entry)}
               />
             ) : null}
