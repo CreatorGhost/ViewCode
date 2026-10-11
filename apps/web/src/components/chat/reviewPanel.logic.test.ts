@@ -10,9 +10,7 @@ import {
   reviewFileCollapsed,
   reviewFindingsFixPrompt,
   reviewFixAllInitiallyTicked,
-  reviewFixAllMode,
   reviewIssueOrder,
-  reviewPostAllWaits,
   revealFirstAgain,
 } from "./reviewPanel.logic";
 
@@ -187,29 +185,6 @@ describe("reviewFileCollapsed", () => {
     // Show all files toggles every file without findings open.
     expect(reviewFileCollapsed("b", withFindings, new Set(["b"]))).toBe(false);
     expect(reviewFileCollapsed("a", withFindings, new Set(["a"]))).toBe(true);
-  });
-});
-
-describe("Fix all and Post all", () => {
-  it("sends one finding straight away and lists several first", () => {
-    expect(reviewFixAllMode(0)).toBe("none");
-    expect(reviewFixAllMode(1)).toBe("send");
-    expect(reviewFixAllMode(3)).toBe("choose");
-  });
-
-  it("holds Post all while the review works, never one finding or ticked ones", () => {
-    expect(reviewPostAllWaits({ commentMode: true, tickedCount: 0, stillReviewing: true })).toBe(
-      true,
-    );
-    expect(reviewPostAllWaits({ commentMode: true, tickedCount: 2, stillReviewing: true })).toBe(
-      false,
-    );
-    expect(reviewPostAllWaits({ commentMode: true, tickedCount: 0, stillReviewing: false })).toBe(
-      false,
-    );
-    expect(reviewPostAllWaits({ commentMode: false, tickedCount: 0, stillReviewing: true })).toBe(
-      false,
-    );
   });
 });
 

@@ -551,6 +551,26 @@ export function reviewFindingMarksByKey<T>(
 }
 
 /**
+ * What Fix all does: nothing without open findings, sends one straight away, and lists several
+ * first so some can be left out.
+ */
+export function reviewFixAllMode(openCount: number): "none" | "send" | "choose" {
+  return openCount === 0 ? "none" : openCount === 1 ? "send" : "choose";
+}
+
+/**
+ * Whether Post all waits: a review still at work may change or drop the findings it sent so far.
+ * A single finding, or ticked ones, can be posted meanwhile.
+ */
+export function reviewPostAllWaits(input: {
+  readonly commentMode: boolean;
+  readonly tickedCount: number;
+  readonly stillReviewing: boolean;
+}): boolean {
+  return input.commentMode && input.tickedCount === 0 && input.stillReviewing;
+}
+
+/**
  * Findings by severity, most severe first, each group in the order the reviewer gave them with
  * the settled ones first. Severities without findings are left out.
  */

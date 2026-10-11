@@ -12,6 +12,8 @@ import {
   REVIEW_HEAD_MOVED_NOTICE,
   type ReviewFindingsSource,
   reviewFindingRatingsEqual,
+  reviewFixAllMode,
+  reviewPostAllWaits,
   reviewRereviewBasis,
   reviewRereviewSummary,
   unsettledReviewFindingRatings,
@@ -83,9 +85,7 @@ import {
   postedReviewFindingsEqual,
   reviewFileCollapsed,
   reviewFindingsFixPrompt,
-  reviewFixAllMode,
   reviewIssueOrder,
-  reviewPostAllWaits,
 } from "./reviewPanel.logic";
 import {
   type ReviewFixDestination,
