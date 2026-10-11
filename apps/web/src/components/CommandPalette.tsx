@@ -56,6 +56,7 @@ import {
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
+  ListChecksIcon,
   MessageSquareIcon,
   MonitorIcon,
   MoonIcon,
@@ -2075,6 +2076,19 @@ function OpenCommandPaletteDialog(props: {
       () => void navigate({ to: "/" }),
     ),
   );
+  if (activeThread !== null && activeThread.kind !== "sidechat") {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:open-review-panel",
+      searchTerms: ["review", "findings", "code review", "agent review"],
+      title: "Open review panel",
+      icon: <ListChecksIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore.getState().open(threadRef, "review");
+      },
+    });
+  }
   if (activeThread !== null && activeThread.kind !== "sidechat") {
     const thread = activeThread;
     actionItems.push({

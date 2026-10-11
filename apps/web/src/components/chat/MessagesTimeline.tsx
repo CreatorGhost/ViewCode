@@ -1,4 +1,5 @@
-import { ArrowUpIcon, ClockIcon } from "lucide-react";
+import { REVIEW_VERDICT_LABELS } from "@t3tools/shared/reviewFindings";
+import { ArrowUpIcon, ClockIcon, ListChecksIcon } from "lucide-react";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
@@ -136,6 +137,7 @@ import type {
   ComposerContextRecord,
   KnownComposerContextRecord,
 } from "@t3tools/contracts";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import type { QueuedComposerMessage } from "../../queuedMessageStore";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
@@ -154,7 +156,7 @@ import {
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ShellCommandBlock } from "./ShellCommandBlock";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
-import { ReviewFindingsCard } from "./ReviewFindingsCard";
+import { REVIEW_VERDICT_BADGES } from "./ReviewPanel";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
@@ -2699,19 +2701,31 @@ function ReviewFindingsTimelineRow({
 }: {
   row: Extract<TimelineRow, { kind: "review-findings" }>;
 }) {
-  const ctx = use(TimelineRowCtx);
-  const context = useMemo(
-    () => ({ markdownCwd: ctx.markdownCwd, threadRef: ctx.threadRef, skills: ctx.skills }),
-    [ctx.markdownCwd, ctx.threadRef, ctx.skills],
-  );
-  // A re-review's card starts fresh rather than keeping the previous one's expanded rows.
+  const { threadRef } = use(TimelineRowCtx);
+  const { verdict, findings, needsChecking } = row.reviewFindings;
+  const issues = findings.length + needsChecking.length;
+  // The findings themselves live in the Review panel; the transcript only says they arrived.
   return (
-    <ReviewFindingsCard
-      key={row.id}
-      activityId={row.id}
-      findings={row.reviewFindings}
-      context={context}
-    />
+    <div className="mx-auto flex w-full max-w-chat min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+      <ListChecksIcon aria-hidden className="size-3.5 shrink-0" />
+      <span className="font-medium text-foreground">Review findings</span>
+      <Badge size="sm" variant={REVIEW_VERDICT_BADGES[verdict]}>
+        {REVIEW_VERDICT_LABELS[verdict]}
+      </Badge>
+      <span className="truncate">
+        {issues} {issues === 1 ? "issue" : "issues"}
+      </span>
+      {threadRef ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          onClick={() => useRightPanelStore.getState().open(threadRef, "review")}
+        >
+          Open in panel
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

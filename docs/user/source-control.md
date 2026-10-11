@@ -166,10 +166,13 @@ default permissions for new threads, reads the change without touching your chec
 nothing to the host unless you ask. On Android the review button is in the pull request screen's
 header and uses your default model. Agents can start a review with the `review_pull_request` tool.
 
-When the review is done, its findings also appear as a card under the report (on web and desktop).
-Choose **Fix** on a finding, or tick findings and choose **Fix all**, to send them to a session
-already working on the pull request or to a new session on its branch in a worktree of its own;
-that session checks each finding against the code before fixing it and tells you which it skipped.
+When the review is done, choose **Review** at the top of the chat (on web and desktop), in the
+review thread or in any thread linked to the same pull request. The side panel shows the change
+with each finding under the lines it is about; findings without a place in the diff are listed
+under **General**, and the arrows step from one finding to the next. **Fix with agent** (or **Fix
+all**) sends findings to a session already working on the pull request or to a new session on its
+branch in a worktree of its own; that session checks each finding against the code before fixing
+it and tells you which it skipped. **Dismiss** hides a finding until you show dismissed ones again.
 
 ### Mark files as viewed
 

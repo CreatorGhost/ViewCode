@@ -52,6 +52,7 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import { OpenThreadTabs, type ActiveTabExtras } from "../tabs/OpenThreadTabs";
 import { useSplitPaneActions } from "../../splitView/SplitPaneContext";
 import { SplitPaneControls } from "../../splitView/SplitPaneControls";
+import { ReviewHeaderButton } from "./ReviewHeaderButton";
 import { SidechatHeaderButton } from "./SidechatHeaderButton";
 
 interface ChatHeaderProps {
@@ -511,6 +512,13 @@ export const ChatHeader = memo(function ChatHeader({
             {createPortal(headerActions, actionsContainer)}
           </MenuPopup>
         </Menu>
+        {isServerThread ? (
+          <ReviewHeaderButton
+            environmentId={activeThreadEnvironmentId}
+            threadId={activeThreadId}
+            compact={actionsCollapsed}
+          />
+        ) : null}
         {isServerThread ? (
           <SidechatHeaderButton
             environmentId={activeThreadEnvironmentId}

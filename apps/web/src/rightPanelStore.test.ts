@@ -407,6 +407,26 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("keeps an open review surface across a restart", () => {
+    useRightPanelStore.getState().open(refA, "diff");
+    useRightPanelStore.getState().open(refA, "review");
+    const saved = JSON.parse(
+      JSON.stringify({ byThreadKey: useRightPanelStore.getState().byThreadKey }),
+    );
+    const restored = migratePersistedRightPanelState(saved).byThreadKey;
+    expect(selectThreadRightPanelState(restored, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "review",
+      surfaces: [
+        { id: "diff", kind: "diff" },
+        { id: "review", kind: "review" },
+      ],
+    });
+    // The header button toggles it like any other singleton.
+    useRightPanelStore.getState().toggle(refA, "review");
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
+  });
+
   it("open sets the active panel for a thread", () => {
     useRightPanelStore.getState().open(refA, "preview");
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("preview");

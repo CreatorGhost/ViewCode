@@ -22,6 +22,7 @@ import {
   FileDiff,
   Files,
   Globe2,
+  ListChecks,
   Plus,
   TerminalSquare,
   Volume2,
@@ -123,6 +124,8 @@ interface RightPanelTabsProps {
   onAddPullRequests: () => void;
   onAddAgents: () => void;
   onAddDevice: () => void;
+  /** Absent where there is no thread to review (the pull-request list's shared panel). */
+  onAddReview?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -326,6 +329,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequests: () => void;
   onAddAgents: () => void;
   onAddDevice: () => void;
+  onAddReview: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -406,6 +410,19 @@ function RightPanelEmptyState(props: {
             disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
             onClick: props.onAddAgents,
             badgeCount: props.liveAgentCount,
+          },
+        ]
+      : []),
+    ...(props.onAddReview
+      ? [
+          {
+            label: "Review",
+            icon: ListChecks,
+            shortcut: "R",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddReview,
+            badgeCount: 0,
           },
         ]
       : []),
@@ -636,6 +653,8 @@ function surfaceTitle(
       return "Pull requests";
     case "agents":
       return "Agents";
+    case "review":
+      return "Review";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -721,6 +740,8 @@ function SurfaceIcon({
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "agents":
       return <Bot className="size-3 shrink-0" />;
+    case "review":
+      return <ListChecks className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -932,6 +953,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             available: true,
             disabledReason: SURFACE_DISABLED_REASONS.agents,
             onClick: props.onAddAgents,
+          },
+        ] as const)
+      : []),
+    ...(props.onAddReview
+      ? ([
+          {
+            label: "Review",
+            icon: ListChecks,
+            shortcut: "R",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddReview,
           },
         ] as const)
       : []),
@@ -1426,6 +1459,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequests={props.onAddPullRequests}
             onAddAgents={props.onAddAgents}
             onAddDevice={props.onAddDevice}
+            onAddReview={props.onAddReview}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
