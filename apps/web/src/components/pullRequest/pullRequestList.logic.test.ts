@@ -1417,6 +1417,18 @@ describe("merging the environments' own listings", () => {
     ]);
   });
 
+  it("keys each project's account by environment and project, like its folder group", () => {
+    const merged = mergePullRequestLists([
+      [ENV_1, answer({ accounts: { ["project-1" as ProjectId]: "work-login" } })],
+      [ENV_2, answer({ accounts: { ["project-1" as ProjectId]: "freelance-login" } })],
+      [ENV_2, answer()],
+    ]);
+    expect(merged?.accounts).toEqual({
+      [`${ENV_1}:project-1`]: "work-login",
+      [`${ENV_2}:project-1`]: "freelance-login",
+    });
+  });
+
   it("tells two environments' copies of one pull request apart", () => {
     const row = entry({ number: 4 });
     expect(pullRequestEntryKey({ ...row, environmentId: ENV_1 })).not.toBe(

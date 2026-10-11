@@ -279,6 +279,7 @@ const PAGE_SIZE = 99;
 const MAX_PAGE_SIZE = 500;
 /** Stable empty map so the memos below do not see a new object on every render. */
 const EMPTY_VIEWERS: PullRequestListResult["viewers"] = {};
+const EMPTY_ACCOUNTS: Readonly<Record<string, string>> = {};
 /** Stable so a read that is not wanted right now does not re-key on every render. */
 const NO_LIST_TARGETS: ReadonlyArray<EnvironmentQueryTarget<PullRequestListInput>> = [];
 const EMPTY_PREVIEW_SESSIONS = {};
@@ -1277,6 +1278,8 @@ function PullRequestsRouteView() {
 
   const viewers = baselineQuery.data?.viewers ?? listData?.viewers ?? EMPTY_VIEWERS;
   const listErrors = baselineQuery.data?.errors ?? listData?.errors ?? [];
+  // Snapshots saved before accounts existed have none.
+  const accounts = baselineQuery.data?.accounts ?? listData?.accounts ?? EMPTY_ACCOUNTS;
   const facets = useMemo(
     () =>
       collectPullRequestListFacets(
@@ -1846,7 +1849,13 @@ function PullRequestsRouteView() {
           {displayGroups.map((group) => (
             <div key={group.key} className="space-y-0.5">
               {showGroupHeaders ? (
-                <PullRequestGroupHeader group={group} project={projectFolderByKey.get(group.key)} />
+                <PullRequestGroupHeader
+                  group={group}
+                  project={projectFolderByKey.get(group.key)}
+                  account={
+                    accounts[group.key] === undefined ? undefined : `@${accounts[group.key]}`
+                  }
+                />
               ) : null}
               {group.entries.map((entry) => {
                 const entryKey = pullRequestEntryKey(entry);

@@ -726,6 +726,11 @@ export const pullRequestDiffStatKey = (row: {
 export interface MergedPullRequestList {
   /** Keyed `"<environmentId> <host>"`, so one host's two accounts stay two accounts. */
   readonly viewers: PullRequestViewers;
+  /**
+   * The host account each project was read as, keyed `"<environmentId>:<projectId>"` like its
+   * group. Absent in snapshots saved before accounts existed.
+   */
+  readonly accounts?: Readonly<Record<string, string>> | undefined;
   readonly providers: PullRequestListResult["providers"];
   readonly entries: ReadonlyArray<EnvironmentPullRequestEntry>;
   readonly errors: ReadonlyArray<EnvironmentPullRequestError>;
@@ -749,6 +754,7 @@ export function mergePullRequestLists(
 ): MergedPullRequestList | null {
   if (answers.length === 0) return null;
   const viewers: Record<string, string> = {};
+  const accounts: Record<string, string> = {};
   const truncatedEnvironments: string[] = [];
   const providers = new Map<string, PullRequestListResult["providers"][number]>();
   const entries: EnvironmentPullRequestEntry[] = [];
@@ -758,6 +764,9 @@ export function mergePullRequestLists(
   for (const [environmentId, answer] of answers) {
     for (const [host, login] of Object.entries(answer.viewers)) {
       viewers[`${environmentId} ${host}`] = login;
+    }
+    for (const [projectId, login] of Object.entries(answer.accounts ?? {})) {
+      accounts[`${environmentId}:${projectId}`] = login;
     }
     for (const provider of answer.providers) {
       const held = providers.get(provider.host);
@@ -783,6 +792,7 @@ export function mergePullRequestLists(
   }
   return {
     viewers,
+    accounts,
     providers: [...providers.values()],
     entries: entries.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     errors,
@@ -850,6 +860,8 @@ const decodeSnapshot = Schema.decodeUnknownOption(
       // Per environment here, unlike the wire shape, which is per repository within one.
       nextCursors: Schema.Record(Schema.String, PullRequestListResult.fields.nextCursors),
       truncatedEnvironments: Schema.Array(Schema.String),
+      // Merged form, keyed by environment and project like the groups.
+      accounts: Schema.optional(Schema.Record(Schema.String, Schema.String)),
     }),
     // Optional so a snapshot written before the partitions existed still hydrates the feed.
     partitions: Schema.optional(
