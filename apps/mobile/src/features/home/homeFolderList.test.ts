@@ -13,6 +13,7 @@ import {
   type HomeFolderListItem,
 } from "./homeFolderList";
 import { buildHomeProjectScopes } from "./homeThreadList";
+import type { PendingDraftTask, PendingNewTask } from "../../state/pending-new-tasks-model";
 
 const ENV = EnvironmentId.make("env");
 const NOW = "2026-06-10T00:00:00.000Z";
@@ -82,13 +83,14 @@ function build(
     readonly expandedSettledFolderKeys?: string[];
     readonly onlyScope?: (typeof scopes)[number];
     readonly statusFilter?: "all" | "working" | "needs-you";
+    readonly pendingTasks?: PendingNewTask[];
   } = {},
 ) {
   return buildHomeFolderList({
     threads,
     scopes: options.onlyScope ? [options.onlyScope] : scopes,
     projectScoped: options.onlyScope !== undefined,
-    pendingTasks: [],
+    pendingTasks: options.pendingTasks ?? [],
     environmentId: null,
     searchQuery: options.searchQuery ?? "",
     ...(options.statusFilter ? { statusFilter: options.statusFilter } : {}),
@@ -389,6 +391,29 @@ describe("folder cards", () => {
       "folder-header first",
       "folder-lead last",
     ]);
+  });
+
+  it("keeps a folder's draft inside its card and closes the card on it", () => {
+    const draft = {
+      kind: "draft",
+      key: "draft:a",
+      environmentId: ENV,
+      projectId: ProjectId.make("app"),
+      projectTitle: undefined,
+      projectCwd: undefined,
+      branch: null,
+      title: "Unsent idea",
+      createdAt: NOW,
+      draftKey: "a",
+      draft: {} as PendingDraftTask["draft"],
+    } satisfies PendingDraftTask;
+    const { items } = build([thread("a1", "app")], { pendingTasks: [draft] });
+    const last = items.at(-1);
+    expect(last?.type).toBe("v2-pending");
+    expect(last && "folderEdge" in last ? last.folderEdge : undefined).toEqual({
+      first: false,
+      last: true,
+    });
   });
 
   it("closes a folder card on its settled row", () => {

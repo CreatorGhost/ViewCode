@@ -274,6 +274,8 @@ const DRAFT_TASK_MENU_ACTIONS: MenuAction[] = [
  * web sidebar uses for drafts, because this one waits on the user.
  */
 export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props: {
+  /** Drawn inside a Home folder card (see HomeFolderCardSlice). */
+  readonly inFolderCard?: boolean;
   readonly pendingTask: PendingNewTask;
   readonly project: EnvironmentProject | null;
   readonly projectTitle?: string;
@@ -304,7 +306,8 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   const rowContent = (
     <>
       <View className="flex-row items-center gap-1.5">
-        {props.project ? (
+        {/* A folder card's header already names the project; only the badge stays. */}
+        {props.project && !props.inFolderCard ? (
           <ProjectFavicon
             environmentId={pendingTask.environmentId}
             faviconPath={props.project.faviconPath}
@@ -314,15 +317,17 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             workspaceRoot={props.project.workspaceRoot}
           />
         ) : null}
-        <Text
-          className={cn(
-            "flex-1 text-sm font-t3-medium text-foreground-muted",
-            sidebarPane && "text-drawer-foreground-muted",
-          )}
-          numberOfLines={1}
-        >
-          {projectTitle}
-        </Text>
+        {props.inFolderCard ? null : (
+          <Text
+            className={cn(
+              "flex-1 text-sm font-t3-medium text-foreground-muted",
+              sidebarPane && "text-drawer-foreground-muted",
+            )}
+            numberOfLines={1}
+          >
+            {projectTitle}
+          </Text>
+        )}
         {isDraft ? (
           <View className="flex-row items-center gap-1">
             <SymbolView
@@ -421,7 +426,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
           accessibilityLabel={pendingTask.title}
           accessibilityRole="button"
           key={pendingTask.key}
-          className={sidebarPane ? "bg-drawer" : "bg-screen"}
+          className={sidebarPane ? "bg-drawer" : props.inFolderCard ? "bg-card" : "bg-screen"}
           interactionClassName={sidebarPane ? "bg-thread-hover" : "bg-row-hover"}
           onPress={() => onSelectPendingTask(pendingTask)}
           style={
@@ -438,7 +443,14 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             rowContent
           ) : (
             <View>
-              <View className="px-5 py-2.5">{rowContent}</View>
+              {/* In a folder card it shares the thread rows' padding so titles line up. */}
+              <View
+                className={
+                  props.inFolderCard ? THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME : "px-5 py-2.5"
+                }
+              >
+                {rowContent}
+              </View>
               {props.showTrailingDivider !== false ? (
                 <View className="ml-5 h-px bg-border-subtle" />
               ) : null}

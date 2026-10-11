@@ -823,22 +823,25 @@ export function HomeScreen(props: HomeScreenProps) {
           item.pendingTask.projectId,
         );
         return (
-          <ThreadListV2PendingRow
-            pendingTask={item.pendingTask}
-            project={projectByKey.get(pendingScopeKey) ?? null}
-            projectTitle={v2ProjectTitleByProjectKey.get(pendingScopeKey)}
-            environmentLabel={
-              Object.keys(props.savedConnectionsById).length > 1
-                ? (props.savedConnectionsById[item.pendingTask.environmentId]?.environmentLabel ??
-                  null)
-                : null
-            }
-            environmentMachine={machineByEnvironmentId.get(item.pendingTask.environmentId)}
-            showPendingDivider={item.showPendingDivider}
-            showTrailingDivider={item.showTrailingDivider}
-            onSelectPendingTask={props.onSelectPendingTask}
-            onDeletePendingTask={props.onDeletePendingTask}
-          />
+          <HomeFolderCardSlice edge={item.folderEdge}>
+            <ThreadListV2PendingRow
+              inFolderCard={item.folderEdge != null}
+              pendingTask={item.pendingTask}
+              project={projectByKey.get(pendingScopeKey) ?? null}
+              projectTitle={v2ProjectTitleByProjectKey.get(pendingScopeKey)}
+              environmentLabel={
+                Object.keys(props.savedConnectionsById).length > 1
+                  ? (props.savedConnectionsById[item.pendingTask.environmentId]?.environmentLabel ??
+                    null)
+                  : null
+              }
+              environmentMachine={machineByEnvironmentId.get(item.pendingTask.environmentId)}
+              showPendingDivider={item.showPendingDivider}
+              showTrailingDivider={item.showTrailingDivider}
+              onSelectPendingTask={props.onSelectPendingTask}
+              onDeletePendingTask={props.onDeletePendingTask}
+            />
+          </HomeFolderCardSlice>
         );
       }
       if (item.type === "v2-snoozed-shelf") {
