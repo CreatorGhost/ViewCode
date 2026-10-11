@@ -39,7 +39,9 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  FoldVerticalIcon,
   MessageSquarePlusIcon,
+  UnfoldVerticalIcon,
   WrenchIcon,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -57,6 +59,7 @@ import { StyledDiffCodeView } from "../diffs/StyledDiffCodeView";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   REVIEW_SEVERITY_BADGES,
   type ReviewFindingAction,
@@ -741,8 +744,8 @@ function ReviewFindingsViewContent({
         )}
         <span className="text-muted-foreground text-xs">
           {openEntries.length === 0
-            ? "No issues found"
-            : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"} found`}
+            ? "No issues"
+            : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"}`}
         </span>
         {rereviewSummary !== null ? (
           <span className="text-muted-foreground text-xs">· {rereviewSummary}</span>
@@ -784,29 +787,42 @@ function ReviewFindingsViewContent({
           </Button>
         </span>
         {filesWithoutFindings.length > 0 ? (
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            aria-pressed={allFilesOpen}
-            onClick={() =>
-              setToggledFiles(
-                allFilesOpen
-                  ? new Set()
-                  : new Set(filesWithoutFindings.map((file) => file.fileKey)),
-              )
-            }
-          >
-            {allFilesOpen ? "Fold other files" : "Show all files"}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-pressed={allFilesOpen}
+                  aria-label={allFilesOpen ? "Fold files without issues" : "Show all files"}
+                  onClick={() =>
+                    setToggledFiles(
+                      allFilesOpen
+                        ? new Set()
+                        : new Set(filesWithoutFindings.map((file) => file.fileKey)),
+                    )
+                  }
+                />
+              }
+            >
+              {allFilesOpen ? <FoldVerticalIcon aria-hidden /> : <UnfoldVerticalIcon aria-hidden />}
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {allFilesOpen ? "Fold files without issues" : "Show all files"}
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
         {startReview ? <FindIssuesButton target={startReview} rereview={rereview} /> : null}
-        {postAllWaits ? (
-          <span className="text-muted-foreground text-xs">Wait for the review to finish</span>
-        ) : null}
-        <Button type="button" size="xs" disabled={primaryDisabled} onClick={primary.run}>
+        <Button
+          type="button"
+          size="xs"
+          disabled={primaryDisabled}
+          title={postAllWaits ? "Wait for the review to finish" : undefined}
+          onClick={primary.run}
+        >
           {commentMode ? <MessageSquarePlusIcon aria-hidden /> : <WrenchIcon aria-hidden />}
-          {primary.label}
+          {postAllWaits ? "Post all after the review" : primary.label}
         </Button>
       </header>
       <div className="flex min-w-0 flex-wrap items-center gap-1 border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
