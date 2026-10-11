@@ -2613,6 +2613,17 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
+export type MacSigningMode = "developer-id" | "ad-hoc";
+
+// `--signed` builds use the Developer ID certificate and notarize. Every other
+// macOS build is signed ad-hoc, because Apple Silicon refuses to launch an
+// unsigned app and electron-builder skips signing when it finds no certificate.
+// An ad-hoc app is not notarized, so Gatekeeper asks the user to approve it
+// once (right-click > Open) on first launch.
+export function resolveMacSigningMode(signed: boolean): MacSigningMode {
+  return signed ? "developer-id" : "ad-hoc";
+}
+
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
     ? "ViewCode (Nightly)"
@@ -2700,7 +2711,16 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           schemes: ["t3code", "t3code-dev"],
         },
       ],
-      ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      ...(resolveMacSigningMode(signed) === "developer-id"
+        ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") }
+        : {
+            identity: "-",
+            // The hardened runtime's library validation rejects Electron's
+            // frameworks when they carry no Team ID, and notarization needs a
+            // Developer ID, so neither applies to an ad-hoc signature.
+            hardenedRuntime: false,
+            notarize: false,
+          }),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
@@ -3807,6 +3827,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* Effect.log(
     `[desktop-artifact] Building ${options.platform}/${options.target} (arch=${options.arch}, version=${appVersion})...`,
   );
+  if (options.platform === "mac" && resolveMacSigningMode(options.signed) === "ad-hoc") {
+    yield* Effect.log(
+      "[desktop-artifact] Signing ad-hoc without notarization; pass --signed to use a Developer ID.",
+    );
+  }
   const builderArgs = [
     "exec",
     "--filter",
