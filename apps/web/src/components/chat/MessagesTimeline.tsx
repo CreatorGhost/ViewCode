@@ -2705,7 +2705,14 @@ function ReviewFindingsTimelineRow({
     [ctx.markdownCwd, ctx.threadRef, ctx.skills],
   );
   // A re-review's card starts fresh rather than keeping the previous one's expanded rows.
-  return <ReviewFindingsCard key={row.id} findings={row.reviewFindings} context={context} />;
+  return (
+    <ReviewFindingsCard
+      key={row.id}
+      activityId={row.id}
+      findings={row.reviewFindings}
+      context={context}
+    />
+  );
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {

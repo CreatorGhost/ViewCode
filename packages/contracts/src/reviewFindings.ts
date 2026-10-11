@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
  * The machine-readable half of an agent review: what the reviewer hands ViewCode with
@@ -94,3 +94,73 @@ export const ReviewFindingsActivityPayload = Schema.Struct({
   target: ReviewFindingsTarget,
 });
 export type ReviewFindingsActivityPayload = typeof ReviewFindingsActivityPayload.Type;
+
+/** One finding sent to be fixed; a needs-checking item says so, since nobody settled it. */
+export const ReviewFindingToFix = Schema.Struct({
+  finding: ReviewFinding,
+  needsChecking: Schema.Boolean,
+});
+export type ReviewFindingToFix = typeof ReviewFindingToFix.Type;
+
+/** At most a full review's findings, so the message stays under the turn input limit. */
+export const ReviewFindingsToFix = Schema.Array(ReviewFindingToFix).check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(REVIEW_FINDINGS_MAX_FINDINGS),
+);
+
+/**
+ * Starts a session that fixes findings from a review thread: a new thread on the pull request's
+ * head in a worktree of its own (linked to the pull request), or on the review thread's checkout
+ * for a local review.
+ */
+export const ReviewStartFixThreadInput = Schema.Struct({
+  reviewThreadId: ThreadId,
+  target: ReviewFindingsTarget,
+  findings: ReviewFindingsToFix,
+});
+export type ReviewStartFixThreadInput = typeof ReviewStartFixThreadInput.Type;
+
+export const ReviewStartFixThreadResult = Schema.Struct({
+  threadId: ThreadId,
+  title: TrimmedNonEmptyString,
+});
+export type ReviewStartFixThreadResult = typeof ReviewStartFixThreadResult.Type;
+
+export class ReviewFixThreadError extends Schema.TaggedError<ReviewFixThreadError>()(
+  "ReviewFixThreadError",
+  {
+    stage: Schema.Literals([
+      "review-thread",
+      "project",
+      "settings",
+      "checkout",
+      "create-thread",
+      "link",
+      "start-turn",
+    ]),
+    /** What the checkout reported, which is the only way to know what to do about it. */
+    detail: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    switch (this.stage) {
+      case "review-thread":
+        return "The review thread was not found.";
+      case "project":
+        return "The review's project was not found.";
+      case "settings":
+        return "Could not read the default settings for new threads.";
+      case "checkout":
+        return this.detail
+          ? `Could not check out the pull request: ${this.detail}`
+          : "Could not check out the pull request.";
+      case "create-thread":
+        return "Could not create the session.";
+      case "link":
+        return "The session was created, but the pull request could not be linked to it.";
+      case "start-turn":
+        return "The session was created, but the findings could not be sent to it.";
+    }
+  }
+}

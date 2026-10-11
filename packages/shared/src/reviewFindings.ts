@@ -3,6 +3,8 @@ import {
   ReviewFindingsActivityPayload,
   type OrchestrationThreadActivity,
   type ReviewFinding,
+  type ReviewFindingToFix,
+  type ReviewFindingsTarget,
   type ReviewFindingSeverity,
   type ReviewVerdict,
 } from "@t3tools/contracts";
@@ -71,6 +73,43 @@ export function reviewFindingMarkdown(finding: ReviewFinding): string {
     parts.push(`Suggested fix:\n\n${fencedCode(finding.suggestedFix, finding.path)}`);
   }
   return parts.join("\n\n");
+}
+
+/**
+ * The message that hands findings to a coding session. The findings come from another agent and
+ * may be wrong, so the session is told to verify each one before fixing it and to say which it
+ * skipped. Findings sent together ("Fix all") travel in one message.
+ */
+export function buildReviewFixMessage(input: {
+  readonly reviewTitle: string;
+  readonly target: ReviewFindingsTarget;
+  readonly findings: ReadonlyArray<ReviewFindingToFix>;
+}): string {
+  const source =
+    input.target.kind === "pull-request"
+      ? `on PR #${input.target.number} (${input.target.url})`
+      : "on the local changes";
+  const what = input.findings.length === 1 ? "this review finding" : "these review findings";
+  const header =
+    `Fix ${what} from "${input.reviewTitle}" ${source}. Another agent found them: verify each ` +
+    "against the code first; fix the ones that hold, skip the ones that don't and say why. Run " +
+    "the project's checks for what you touch.";
+  const blocks = input.findings.map(({ finding, needsChecking }, index) => {
+    const facts = [
+      `Severity: ${finding.severity}`,
+      `Confidence: ${finding.confidence}`,
+      `Location: ${reviewFindingLocation(finding)}`,
+    ];
+    if (finding.preExisting) facts.push("Pre-existing: the change makes it worse or reachable");
+    if (needsChecking) facts.push("Needs checking: the reviewer could not settle it");
+    const lines = [`${index + 1}. ${finding.title}`, facts.join(" · "), "", finding.detail];
+    if (finding.rule) lines.push("", `Rule: ${finding.rule}`);
+    if (finding.suggestedFix) {
+      lines.push("", "Suggested fix:", fencedCode(finding.suggestedFix, finding.path));
+    }
+    return lines.join("\n");
+  });
+  return [header, ...blocks].join("\n\n");
 }
 
 /** `path:line` or `path:line-endLine`, the way the report cites a location. */

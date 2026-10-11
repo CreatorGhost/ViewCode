@@ -192,6 +192,7 @@ import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
+import * as ReviewFixThread from "./review/ReviewFixThread.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -709,6 +710,7 @@ const makeWsRpcLayer = (
       const pullRequests = yield* PullRequestService.PullRequestService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestAgentReview = yield* PullRequestAgentReview.PullRequestAgentReview;
+      const reviewFixThread = yield* ReviewFixThread.ReviewFixThread;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
@@ -3944,6 +3946,10 @@ const makeWsRpcLayer = (
             review.getDiffFileContents(input),
             { "rpc.aggregate": "review" },
           ),
+        [WS_METHODS.reviewStartFixThread]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewStartFixThread, reviewFixThread.start(input), {
+            "rpc.aggregate": "review",
+          }),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",

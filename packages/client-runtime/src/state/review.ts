@@ -52,6 +52,11 @@ export function createReviewEnvironmentAtoms<R, E>(
           }),
         ),
     }),
+    /** A new session that fixes review findings, on the environment that holds the review. */
+    startFixThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:start-fix-thread",
+      tag: WS_METHODS.reviewStartFixThread,
+    }),
     diffFileContents: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:diff-file-contents",
       tag: WS_METHODS.reviewGetDiffFileContents,

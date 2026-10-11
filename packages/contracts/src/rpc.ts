@@ -97,6 +97,11 @@ import {
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
 } from "./review.ts";
+import {
+  ReviewFixThreadError,
+  ReviewStartFixThreadInput,
+  ReviewStartFixThreadResult,
+} from "./reviewFindings.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   ClientOrchestrationCommand,
@@ -385,6 +390,7 @@ export const WS_METHODS = {
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
+  reviewStartFixThread: "review.startFixThread",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -1408,6 +1414,13 @@ const WsReviewGetDiffFileContentsRpc = Rpc.make(WS_METHODS.reviewGetDiffFileCont
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
+/** Only reaches servers that record review findings, which is the only way to have some. */
+const WsReviewStartFixThreadRpc = Rpc.make(WS_METHODS.reviewStartFixThread, {
+  payload: ReviewStartFixThreadInput,
+  success: ReviewStartFixThreadResult,
+  error: Schema.Union([ReviewFixThreadError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1825,6 +1838,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
+  WsReviewStartFixThreadRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,

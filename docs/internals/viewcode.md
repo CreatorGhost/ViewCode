@@ -481,6 +481,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   the bundle and is written to `<stateDir>/review-playbooks/` on use, not read from a file beside
   the code: the single executable has no sibling files, and the desktop bundle can sit inside an
   asar the agent's shell cannot read.
+- Findings arrive twice on purpose: the written report for the reader, and `submit_review_findings`
+  for the app, recorded as a `viewcode.review.findings` activity. Activities are append-only, so a
+  re-review replaces the set only by coming later: clients render the latest one and skip the rest.
+- Fix to an existing session goes through the web composer's queue (in memory; it sends now, at
+  the next tool boundary, or at turn end for providers that cannot steer), because the server has
+  no queue for user turns and inventing one would fork that behaviour. Only a new session is a
+  server method (`ReviewFixThread.start`, `review.startFixThread`), which checks the pull request
+  out into a worktree of its own. Which findings were sent where is client memory only.
 
 ### Side chats
 

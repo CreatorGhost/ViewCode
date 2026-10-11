@@ -166,6 +166,11 @@ default permissions for new threads, reads the change without touching your chec
 nothing to the host unless you ask. On Android the review button is in the pull request screen's
 header and uses your default model. Agents can start a review with the `review_pull_request` tool.
 
+When the review is done, its findings also appear as a card under the report (on web and desktop).
+Choose **Fix** on a finding, or tick findings and choose **Fix all**, to send them to a session
+already working on the pull request or to a new session on its branch in a worktree of its own;
+that session checks each finding against the code before fixing it and tells you which it skipped.
+
 ### Mark files as viewed
 
 Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a
