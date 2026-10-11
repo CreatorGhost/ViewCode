@@ -16,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -41,6 +42,7 @@ export const make = Effect.gen(function* () {
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const settings = yield* ServerSettings.ServerSettingsService;
+  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
 
   const canonicalizePath = (value: string) => {
     const resolvedPath = path.resolve(value);
@@ -91,6 +93,23 @@ export const make = Effect.gen(function* () {
     if (
       isWithinRoot(candidate, workspaceRoot) ||
       worktreesRoots.some((root) => isWithinRoot(candidate, root))
+    ) {
+      return;
+    }
+    // A project the user added is theirs to review wherever it lives, which matters when the
+    // server runs from a checkout somewhere else. Read only when the cheaper roots refused.
+    const projectRoots = yield* snapshots.getProjectShells().pipe(
+      Effect.flatMap((projects) =>
+        Effect.forEach(projects, (project) =>
+          canonicalizePath(project.workspaceRoot).pipe(Effect.orElseSucceed(() => null)),
+        ),
+      ),
+      Effect.orElseSucceed((): ReadonlyArray<string | null> => []),
+    );
+    if (
+      projectRoots.some(
+        (root) => root !== null && !isFilesystemRoot(root, path) && isWithinRoot(candidate, root),
+      )
     ) {
       return;
     }

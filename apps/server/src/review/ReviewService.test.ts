@@ -5,7 +5,10 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 
+import type { OrchestrationProjectShell } from "@t3tools/contracts";
+
 import { ServerConfig } from "../config.ts";
+import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -17,8 +20,19 @@ function makeLayer(input: {
   readonly detectCalls?: Array<{ readonly cwd: string }>;
   readonly worktreesDirectory?: string;
   readonly previousWorktreesDirectories?: ReadonlyArray<string>;
+  readonly projectRoots?: ReadonlyArray<string>;
 }) {
   return ReviewService.layer.pipe(
+    Layer.provide(
+      Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+        getProjectShells: () =>
+          Effect.succeed(
+            (input.projectRoots ?? []).map(
+              (workspaceRoot) => ({ workspaceRoot }) as OrchestrationProjectShell,
+            ),
+          ),
+      }),
+    ),
     Layer.provide(
       Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
         get: () => Effect.die("unexpected VCS registry get"),
@@ -172,6 +186,31 @@ describe("ReviewService", () => {
       assert.match(error.detail, /Failed to resolve a path/);
       assert.instanceOf(error.cause, PlatformError.PlatformError);
       assert.deepStrictEqual(detectCalls, []);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows a registered project's workspace outside the server's cwd, not others", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const projectRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-project-" });
+      const outsideRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-outside-" });
+      const nested = `${projectRoot}/packages/app`;
+      yield* fs.makeDirectory(nested, { recursive: true });
+      const layer = makeLayer({ workspaceRoot, baseDir, projectRoots: [projectRoot, "/"] });
+
+      const review = (cwd: string) =>
+        Effect.gen(function* () {
+          const service = yield* ReviewService.ReviewService;
+          return yield* service.getDiffPreview({ cwd });
+        }).pipe(Effect.provide(layer));
+
+      assert.strictEqual((yield* review(projectRoot)).cwd, projectRoot);
+      assert.strictEqual((yield* review(nested)).cwd, nested);
+      // A project registered at the filesystem root does not open every path.
+      const error = yield* review(outsideRoot).pipe(Effect.flip);
+      assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
