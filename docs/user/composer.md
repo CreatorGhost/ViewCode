@@ -230,6 +230,8 @@ two horizontal lines, has its own copy button when you hover it. It copies just 
 its formatting for apps that keep it (Slack, email, Notion, Google Docs) and as clean plain text,
 without Markdown symbols, everywhere else. The arrow next to it copies for Slack, for WhatsApp,
 as Markdown or as plain text instead, and the button keeps your last choice on that device.
+A whole reply's copy button works the same way: it copies the reply as Markdown, and the arrow
+next to it copies it for Slack, for WhatsApp or as plain text.
 
 On mobile, tap a chip to inspect its content. File references open the current file; attached
 files show the copy that was attached to the message.

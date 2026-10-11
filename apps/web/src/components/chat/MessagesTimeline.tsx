@@ -171,7 +171,7 @@ import {
   rememberTimelinePosition,
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
-import { MessageCopyButton } from "./MessageCopyButton";
+import { MessageCopyButton, ReplyCopyButton } from "./MessageCopyButton";
 import { ReadAloudButton } from "./ReadAloudButton";
 import { readAloudMessageKey } from "~/lib/readAloud.logic";
 import { useReadAloudStore } from "~/lib/readAloudPlayer";
@@ -2603,7 +2603,7 @@ function AssistantMessageMeta({
         "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
         alwaysVisible || readingAloud
           ? "opacity-100"
-          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
+          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100 has-[[data-popup-open]]:opacity-100",
         className,
       )}
     >
@@ -2651,7 +2651,16 @@ function AssistantReplyActions({
 
   return (
     <>
-      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <ReplyCopyButton
+        markdown={assistantCopyState.text ?? ""}
+        target={() => {
+          const viewport = ctx.listRef.current?.getScrollableNode();
+          if (!(viewport instanceof HTMLElement)) return null;
+          return viewport.querySelector(
+            `[data-assistant-citation-source="${CSS.escape(message.id)}"]`,
+          );
+        }}
+      />
       <ReadAloudButton
         messageKey={readAloudMessageKey(ctx.routeThreadKey, message.id)}
         markdown={assistantCopyState.text ?? ""}
