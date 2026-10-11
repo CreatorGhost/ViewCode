@@ -695,6 +695,16 @@ function restoreLegacyArchives(): Promise<void> {
   return legacyRestore;
 }
 
+/**
+ * Resolves once any in-flight legacy restore has landed its archive
+ * retirements. Removing or delivering a restored message earlier could leave
+ * it in the on-disk archive, and a restart would queue it again. Failures are
+ * the restore's own to report.
+ */
+export async function waitForLegacyArchiveRestore(): Promise<void> {
+  await legacyRestore?.catch(() => undefined);
+}
+
 async function restoreLegacyArchivesOnce(): Promise<void> {
   if (legacyArchives.length === 0) return;
   const draftsToRestore = legacyArchives.filter(
@@ -721,7 +731,10 @@ async function restoreLegacyArchivesOnce(): Promise<void> {
       .some((current) => current.messageId === message.messageId);
     if (!alreadyQueued) await threadOutboxManager.enqueue(message);
     // Retire each message once it is durably queued, so a later retry never
-    // re-sends one the user has since discarded or pulled back to edit.
+    // re-sends one the user has since discarded or pulled back to edit. The
+    // retirement itself must land before this restore resolves: removal and
+    // delivery wait on the restore, so a discarded or sent message can never
+    // still be in the archive on disk and come back after a restart.
     legacyArchives = legacyArchives.map((archive) => ({
       ...archive,
       queuedMessages: archive.queuedMessages.filter(
@@ -729,6 +742,7 @@ async function restoreLegacyArchivesOnce(): Promise<void> {
       ),
     }));
     schedulePersistComposerState();
+    await flushComposerDrafts();
   }
   legacyArchives = [];
   schedulePersistComposerState();
@@ -1044,7 +1058,10 @@ function schedulePersistComposerState(): void {
     // so flushComposerDrafts' queue drain cannot resolve ahead of it.
     void persistenceQueue.run(async () => {
       try {
-        await waitForComposerDraftsLoaded();
+        // Hydration only: waiting on the legacy restore here would deadlock
+        // it, since the restore flushes this queue after each retirement.
+        ensureComposerDraftsLoaded();
+        if (loadPromise !== null) await loadPromise;
         await writePersistedComposerState(
           appAtomRegistry.get(composerDraftsAtom),
           appAtomRegistry.get(stickyComposerModelSelectionAtom),

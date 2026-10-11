@@ -151,6 +151,7 @@ import type { DraftComposerAttachment } from "../lib/composerImages";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
 import { appAtomRegistry } from "./atom-registry";
 import { threadOutboxManager } from "./thread-outbox";
+import { encodeQueuedThreadMessage } from "./thread-outbox-model";
 import {
   appendComposerDraftAttachments,
   captureComposerDraftInsertion,
@@ -259,6 +260,46 @@ describe("mobile composer drafts", () => {
     expect(merged.only?.text).toBe("only archived");
     expect(merged.shared?.text).toContain("live");
     expect(merged.shared?.text).toContain("archived");
+  });
+
+  it("lands a restored legacy message's retirement before anything can discard it, so a restart never requeues it", async () => {
+    const queued = {
+      environmentId: EnvironmentId.make("environment-1"),
+      threadId: ThreadId.make("thread-1"),
+      messageId: MessageId.make("legacy-message"),
+      commandId: CommandId.make("legacy-command"),
+      text: "Unsent before the upgrade",
+      attachments: [],
+      createdAt: "2026-08-24T12:00:00.000Z",
+    };
+    composerDraftFileMocks.setDocument({
+      schemaVersion: 1,
+      drafts: {},
+      signedOutDrafts: {
+        acct: { drafts: {}, queuedMessages: [encodeQueuedThreadMessage(queued)] },
+      },
+    });
+    const outboxLoad = vi.spyOn(threadOutboxManager, "load").mockResolvedValue(true);
+    onTestFinished(() => outboxLoad.mockRestore());
+    const enqueue = vi.spyOn(threadOutboxManager, "enqueue").mockImplementation(async (message) => {
+      appAtomRegistry.set(threadOutboxManager.queuedMessagesByThreadKeyAtom, {
+        "environment-1:thread-1": [message],
+      });
+    });
+    onTestFinished(() => enqueue.mockRestore());
+
+    await waitForComposerDraftsLoaded();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+
+    // No debounce has fired: the archive on disk must already be retired.
+    const onDisk = decodePersistedComposerState(JSON.parse(composerDraftFileMocks.getDocument()));
+    expect(onDisk.legacyArchives.flatMap((archive) => archive.queuedMessages)).toEqual([]);
+
+    // The user discards it, then the app restarts.
+    appAtomRegistry.set(threadOutboxManager.queuedMessagesByThreadKeyAtom, {});
+    resetComposerDraftsLoadState();
+    await waitForComposerDraftsLoaded();
+    expect(enqueue).toHaveBeenCalledTimes(1);
   });
 
   it("restores visible file chips from legacy drafts", async () => {

@@ -70,6 +70,7 @@ import {
   undoComposerDraftMerge,
   updateComposerDraftSettings,
   waitForComposerDraftsLoaded,
+  waitForLegacyArchiveRestore,
 } from "./use-composer-drafts";
 import { useAtomCommand } from "./use-atom-command";
 import {
@@ -223,6 +224,9 @@ export async function prepareQueuedMessageAttachments(
     }
   | { readonly status: "abandoned" }
 > {
+  // Never send a restored legacy message before its archive retirement is on
+  // disk, or a restart would queue and send it a second time.
+  await waitForLegacyArchiveRestore();
   if (!(await confirmThreadOutboxMessageQueued(queuedMessage))) {
     return { status: "abandoned" };
   }
