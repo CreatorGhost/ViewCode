@@ -129,6 +129,7 @@ export const discovery = {
   executable: "gh",
   versionArgs: ["--version"],
   authArgs: ["auth", "status", "--json", "hosts"],
+  authProbeIsGlobal: true,
   parseAuth: parseGitHubAuth,
   refineUnknownRemote: refineUnknownGitHubRemote,
   installHint:

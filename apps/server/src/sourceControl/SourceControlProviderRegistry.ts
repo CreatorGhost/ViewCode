@@ -18,6 +18,7 @@ import * as GitLabSourceControlProvider from "./GitLabSourceControlProvider.ts";
 import * as ForgejoSourceControlProvider from "./ForgejoSourceControlProvider.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
+  makeSourceControlDiscoveryProbes,
   probeSourceControlProvider,
   refineUnknownRemoteProvider,
   type SourceControlProviderDiscoverySpec,
@@ -264,6 +265,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       SourceControlProvider.SourceControlProvider["Service"]
     >(registrations.map((registration) => [registration.kind, registration.provider]));
     const discoverySpecs = registrations.map((registration) => registration.discovery);
+    const probes = yield* makeSourceControlDiscoveryProbes(process);
 
     const get: SourceControlProviderRegistry["Service"]["get"] = (kind) =>
       Effect.succeed(providers.get(kind) ?? unsupportedProvider(kind));
@@ -298,7 +300,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
 
         return yield* refineUnknownRemoteProvider({
           specs: discoverySpecs,
-          process,
+          probes,
           cwd,
           context,
         });
@@ -319,7 +321,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
         ? Cache.get(providerContextCache, input.cwd)
         : refineUnknownRemoteProvider({
             specs: discoverySpecs,
-            process,
+            probes,
             cwd: input.cwd,
             context: input.context,
           })
@@ -345,15 +347,20 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       get,
       resolveHandle,
       resolve: (input) => resolveHandle(input).pipe(Effect.map((handle) => handle.provider)),
-      discover: Effect.forEach(
-        discoverySpecs,
-        (spec) =>
-          probeSourceControlProvider({
-            spec,
-            process,
-            cwd: config.cwd,
-          }),
-        { concurrency: "unbounded" },
+      // A rescan is the user saying something changed, such as a new sign-in.
+      discover: probes.reset.pipe(
+        Effect.andThen(
+          Effect.forEach(
+            discoverySpecs,
+            (spec) =>
+              probeSourceControlProvider({
+                spec,
+                process,
+                cwd: config.cwd,
+              }),
+            { concurrency: "unbounded" },
+          ),
+        ),
       ),
     });
   },

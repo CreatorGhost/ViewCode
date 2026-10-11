@@ -301,6 +301,47 @@ it.effect("routes GitHub Enterprise remotes that gh is signed in to", () =>
   }),
 );
 
+it.effect("claims GitHub Enterprise remotes in every repository with one gh probe", () =>
+  Effect.gen(function* () {
+    let ghSpawns = 0;
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: "git@git.corp.example:team/app.git" }],
+      process: {
+        run: (input) =>
+          input.command === "gh"
+            ? Effect.sync(() => {
+                ghSpawns += 1;
+              }).pipe(
+                Effect.as(
+                  processOutput(
+                    JSON.stringify({
+                      hosts: {
+                        "git.corp.example": [
+                          { state: "success", active: true, host: "git.corp.example", login: "u" },
+                        ],
+                      },
+                    }),
+                  ),
+                ),
+              )
+            : Effect.succeed(processOutput("")),
+      },
+    });
+
+    const handles = yield* Effect.forEach(
+      ["/repo/a", "/repo/b", "/repo/c"],
+      (cwd) => registry.resolveHandle({ cwd }),
+      { concurrency: "unbounded" },
+    );
+
+    assert.deepStrictEqual(
+      handles.map((handle) => handle.provider.kind),
+      ["github", "github", "github"],
+    );
+    assert.strictEqual(ghSpawns, 1);
+  }),
+);
+
 it.effect("names the host no provider could claim", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry({
