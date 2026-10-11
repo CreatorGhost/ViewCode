@@ -161,6 +161,11 @@ export const ReviewFindingsActivityPayload = Schema.Struct({
   basedOn: Schema.optional(ReviewBasedOn),
   /** How the earlier findings fared, as the re-review reported it. */
   previous: Schema.optional(ReviewPreviousSummary),
+  /**
+   * false: the findings verified so far, sent while the review goes on; a later set replaces
+   * them. Absent on findings from before it existed, which were always the final set.
+   */
+  complete: Schema.optional(Schema.Boolean),
 });
 export type ReviewFindingsActivityPayload = typeof ReviewFindingsActivityPayload.Type;
 

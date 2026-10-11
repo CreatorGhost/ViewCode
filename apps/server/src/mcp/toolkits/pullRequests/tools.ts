@@ -381,6 +381,12 @@ export const SubmitReviewFindingsInput = Schema.Struct({
         "Only for a re-review: how many of the previous review's findings are fixed and how many are still open. Still-open ones are also passed again in findings or needsChecking.",
     }),
   ),
+  complete: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "false while you are still reviewing: the findings verified so far, shown to the user at once. Default true: the review is done and this is its final set.",
+    }),
+  ),
 });
 export type SubmitReviewFindingsInput = typeof SubmitReviewFindingsInput.Type;
 
@@ -539,7 +545,7 @@ const ReviewLocalChangesTool = Tool.make("review_local_changes", {
 
 const SubmitReviewFindingsTool = Tool.make(SUBMIT_REVIEW_FINDINGS_TOOL, {
   description:
-    "Hand ViewCode the findings of the review you just reported, after writing the report. ViewCode shows them to the user, who sends them to a coding session to fix or, on somebody else's pull request, posts them as review comments. Pass every reported finding under findings and the ones you could not settle under needsChecking, with the severities, confidences, paths and lines from your report; detail says what is wrong, why it matters and how it is reached; suggestedFix is code that applies as it stands. Calling it again replaces the findings recorded for this thread, so a re-review submits its full set.",
+    "Hand ViewCode the findings of your review. ViewCode shows them to the user, who sends them to a coding session to fix or, on somebody else's pull request, posts them as review comments. Pass every reported finding under findings and the ones you could not settle under needsChecking, with the severities, confidences, paths and lines from your report; detail says what is wrong, why it matters and how it is reached; suggestedFix is code that applies as it stands. Calling it again replaces the findings recorded for this thread, so every call passes the whole set so far. While still reviewing, call it with complete: false as soon as findings are verified, so the user sees them early, and end with a call without it (or complete: true) once the report is written.",
   parameters: SubmitReviewFindingsInput,
   success: SubmitReviewFindingsResult,
   failure: PullRequestToolError,

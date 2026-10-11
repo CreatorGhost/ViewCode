@@ -82,13 +82,21 @@ const SHARED_RULES = `## Ground rules
 5. **Checked and fine**: one line per area you covered and found no problem in, and the files you
    only skimmed, so the reader knows what the review did and did not look at.
 
-After writing the report, call ViewCode's \`${SUBMIT_REVIEW_FINDINGS_TOOL}\` tool once with the
+## Findings as you go
+
+The reader watches ViewCode's Review panel while you work, so do not keep findings until the end.
+As soon as you have findings that held up under your check, call ViewCode's
+\`${SUBMIT_REVIEW_FINDINGS_TOOL}\` tool with \`complete: false\`, and again each time more hold
+up. Every call carries the whole set so far, the verdict and scores as they stand, and replaces the
+one before it, so never send only the new ones.
+
+After writing the report, call the tool once more without \`complete\` with the final set: the
 verdict, both scores, every reported finding under \`findings\` and every **Needs checking** item
 under \`needsChecking\` (a security audit's confirmed findings and those that need validation),
 each with the severity, confidence, path, lines and suggested fix the report gives it. The reader
-sends findings from it to a session that fixes them, so each \`detail\` must stand on its own. The
+sends findings from it to the chat that fixes them, so each \`detail\` must stand on its own. The
 written report stays the reader's version; the tool call does not replace it. If you review again
-in this thread, call the tool again with the full new set. Without the tool, the report is enough.
+in this thread, send the full new set the same way. Without the tool, the report is enough.
 
 ## Rated findings
 
@@ -135,7 +143,9 @@ One agent, one pass over the whole change. Cover:
 - Performance on hot paths: extra work per request, per render or per item, unbounded growth.
 - Readability where it hides a bug.
 
-Before reporting, re-read each finding against the code once and drop the ones that do not hold.`;
+Re-read each finding against the code once and drop the ones that do not hold. Send the ones
+that hold as you go (see Findings as you go): once the first ones are checked, then the final set
+after the report.`;
 
 const DEEP = `## Deep review
 
@@ -162,7 +172,9 @@ A lead agent (you) and child agents. This uses several agents and more of the us
 4. **Adversarial verification.** Hand every candidate finding to a fresh agent (or a fresh pass)
    whose only job is to disprove it from the code. Report only findings that survive. Put the ones
    nobody could settle under **Needs checking**, with what would settle each. Drop disproved ones;
-   you may list them under **Rejected**, one line each.
+   you may list them under **Rejected**, one line each. Each time a lens's findings come back
+   from verification, send everything verified so far with \`complete: false\` (see Findings as
+   you go), so the reader is not left waiting for the last lens.
 5. **Consolidate.** Merge duplicates across lenses, keep the strongest evidence, and write the
    report.`;
 
@@ -186,7 +198,8 @@ is marked needs validation.
    Use child agents for the classes (\`viewcode_spawn_agent\`) when you have them; otherwise work
    through them yourself.
 3. **Adversarial validation**, as in a deep review: a fresh agent or pass tries to disprove each
-   candidate.
+   candidate. Each time an attack class or batch is validated, send everything confirmed or
+   needing validation so far with \`complete: false\` (see Findings as you go).
 4. **Verdicts.** Each finding is **confirmed** (with a complete trace from the attacker-controlled
    source to the sink, file:line at each step), **needs validation** (with what would prove it), or
    **rejected** (one line why).

@@ -379,6 +379,34 @@ describe("pull request toolkit handlers", () => {
       }),
     );
 
+    it.effect("records findings sent while the review goes on as not complete", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ thread: makeThread([makeLink(7)]) });
+        const partial = yield* harness.call("submit_review_findings", {
+          ...report,
+          complete: false,
+        });
+        expect(partial.message).toContain("Keep reviewing");
+        const final = yield* harness.call("submit_review_findings", report);
+        expect(final.message).toContain("end your turn");
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          {
+            activity: {
+              summary: "Review so far: request changes, 1 finding",
+              payload: { complete: false },
+            },
+          },
+          // Without the flag the set is final, as every call was before it existed.
+          {
+            activity: {
+              summary: "Review: request changes, 1 finding",
+              payload: { complete: true },
+            },
+          },
+        ]);
+      }),
+    );
+
     it.effect("pins pull request findings to the commit the review started on", () =>
       Effect.gen(function* () {
         const started = (headSha: string): OrchestrationThreadActivity => ({
