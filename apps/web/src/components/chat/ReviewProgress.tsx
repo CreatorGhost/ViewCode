@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { reviewStatusText } from "@t3tools/client-runtime/agent-review";
+import { formatReviewElapsed, reviewStatusText } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   collectChildAgents,
@@ -18,6 +18,27 @@ import { environmentThreadDetails } from "../../state/threads";
 import { Button } from "../ui/button";
 import { reviewWorkLine } from "./reviewProgress.logic";
 import type { LatestReviewStatus } from "./useReviewFindingsSource";
+
+/**
+ * How long a review has run, by the shared minute clock, so the panel and the chat say the same
+ * thing: until `endMs` once it stopped, else until now.
+ */
+export function useReviewElapsedMs(startedAt: string, endMs: number | null): number {
+  const nowMinute = useNowMinute();
+  // The clock's minute is UTC ("YYYY-MM-DDTHH:MM"); it re-renders its readers once a minute.
+  const now = endMs ?? Date.parse(`${nowMinute}:00.000Z`);
+  return now - Date.parse(startedAt);
+}
+
+/** The review's elapsed time in the words the status bar uses ("6 min"). */
+export function ReviewElapsed({ startedAt, endMs }: { startedAt: string; endMs: number | null }) {
+  const elapsedMs = useReviewElapsedMs(startedAt, endMs);
+  return (
+    <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
+      {formatReviewElapsed(elapsedMs)}
+    </span>
+  );
+}
 
 /** "Deep review · GPT-6.1": the kind of review and the model it runs on. */
 export function useReviewLabel(environmentId: EnvironmentId, review: LatestReviewStatus): string {
@@ -52,7 +73,7 @@ export function ReviewStatusBar({
 }) {
   const { progress } = review;
   const label = useReviewLabel(environmentId, review);
-  const nowMinute = useNowMinute();
+  const elapsedMs = useReviewElapsedMs(review.startedAt, null);
   const navigate = useNavigate();
   const actions = useAgentControlActions();
   const [stopping, setStopping] = useState(false);
@@ -70,13 +91,7 @@ export function ReviewStatusBar({
     setStopping(false);
   };
   if (progress.kind === "done") return null;
-  // The clock's minute is UTC ("YYYY-MM-DDTHH:MM"); it re-renders the bar once a minute.
-  const text = reviewStatusText({
-    progress,
-    label,
-    elapsedMs: Date.parse(`${nowMinute}:00.000Z`) - Date.parse(review.startedAt),
-    newer,
-  });
+  const text = reviewStatusText({ progress, label, elapsedMs, newer });
   const viewAgent = (
     <Button
       type="button"

@@ -23,7 +23,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { cn } from "~/lib/utils";
 import type { AgentMessageRenderContext } from "./AgentMessageCard";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
-import { ReviewAgentList, ReviewWorkLine } from "./ReviewProgress";
+import { ReviewAgentList, ReviewElapsed, ReviewWorkLine } from "./ReviewProgress";
 
 const STATUS_DOT_CLASS: Record<SpawnedAgentRowStatus, string> = {
   running: "bg-success",
@@ -255,13 +255,8 @@ function ReviewAgentRow(props: {
   // The reviewer waits between turns for its agents' answers; it is still reviewing then.
   const status: SpawnedAgentRowStatus | null = running ? "running" : rowStatus;
   const mode = AGENT_REVIEW_MODES.find((entry) => entry.mode === sent.review)?.label ?? "Review";
-  // The whole review, from its start to its reviewer's last turn, not just that turn.
+  // The whole review, from its start to its reviewer's last turn, in the panel's words.
   const lastTurn = spawnedAgentElapsedRange(shell);
-  const startMs = shell === null ? Number.NaN : Date.parse(shell.createdAt);
-  const range =
-    lastTurn === null || !Number.isFinite(startMs)
-      ? null
-      : { startMs, endMs: running ? null : lastTurn.endMs };
   const threadRef = context.threadRef;
   return (
     <div data-agent-message-id={sent.messageId}>
@@ -296,7 +291,9 @@ function ReviewAgentRow(props: {
             </span>
           ) : null}
         </span>
-        {range ? <AgentElapsed startMs={range.startMs} endMs={range.endMs} live={running} /> : null}
+        {shell && lastTurn ? (
+          <ReviewElapsed startedAt={shell.createdAt} endMs={running ? null : lastTurn.endMs} />
+        ) : null}
         {threadRef ? (
           <Button
             type="button"
