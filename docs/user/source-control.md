@@ -185,6 +185,20 @@ them to a session already working on the pull request or to a new session on its
 worktree of its own. **Dismiss** hides a finding until you show dismissed ones again. To review a
 thread's pull request from the panel, pick the mode, model and focus in its empty state, or under
 **Find issues** for a new review; the thread stays open and the findings arrive when it is done.
+In a thread with no pull request, the same form reviews the thread's own uncommitted changes (or
+its branch, when everything is committed), as does **Review my changes** in the command palette.
+
+With findings showing, **Find issues** can re-review them: **Only what changed since this review**
+reads just what was pushed since and reports how many earlier findings were fixed and how many are
+still open. A review of local changes reads the whole change again but still reports them. Thumbs
+up and down rate a finding (click again to take the rating back); ratings follow you to every
+device, and later reviews of the project lean away from the kinds of findings you turned down.
+
+A new session started to fix a review's findings can be taken back: **Undo review fixes** on its
+first message, or in the command palette, reverts the session and its file changes to before the
+fixes after you confirm. That needs a worktree of the session's own, which a pull request fix has;
+a fix of local changes shares its checkout, so there the undo is refused and you can use **Edit
+from here** to rewind the conversation and keep the files.
 
 In the mobile app, a review thread shows a **Review findings** row where its findings arrive. Tap
 it for the verdict, merge confidence and review effort, and the findings grouped by severity; tap a
@@ -201,11 +215,11 @@ For a review of somebody else's pull request the findings are review comments in
 comment** posts one, and **Post all** or **Post selected** posts several as one review, each time
 after you choose what to submit it as and write its overall comment. Posted findings link to the
 pull request. On GitHub they are posted on the commit the agent reviewed, so if the pull request
-changed since, GitHub may show them as outdated. You can also ask in the chat, for example "post
-the blockers": the agent posts only when your own latest message asks, never on its own or for
-another agent, and as a plain comment unless you say to approve or request changes. To have the
-agent write them the way you do, describe your style under **Your review style** in the GitHub
-entry of **Settings → Source control** (one per account; with several signed in, pick the account above it first).
+changed since, GitHub may show them as outdated; posting warns you when it has. You can also ask
+in the chat, for example "post the blockers": the agent posts only when your own latest message
+asks, never on its own or for another agent, and as a plain comment unless you say to approve or
+request changes. To have the agent write them the way you do, describe your style under **Your
+review style** in the GitHub entry of **Settings → Source control** (one per account; with several signed in, pick the account above it first).
 
 On GitHub you can also let it learn from your own reviews: **Learn from my reviews** in the same
 place reads up to 40 of your recent review comments and review texts from the past year, as that
