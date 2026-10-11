@@ -17,8 +17,8 @@ import { PullRequestReviewVerdict } from "./pullRequest.ts";
  * as a `REVIEW_FINDINGS_ACTIVITY_KIND` activity; clients render the latest one as a card whose
  * findings can be sent to a coding session to fix.
  *
- * The bounds keep a full "Fix all" message (every finding at its longest) under
- * `PROVIDER_SEND_TURN_MAX_INPUT_CHARS`, so a fix never fails for being too long.
+ * A whole set at its longest makes too long a message for one turn, so findings sent to be fixed
+ * together are also bounded by size (`ReviewFindingsToFix`).
  */
 export const REVIEW_FINDINGS_ACTIVITY_KIND = "viewcode.review.findings";
 
@@ -167,10 +167,49 @@ export const ReviewFindingToFix = Schema.Struct({
 });
 export type ReviewFindingToFix = typeof ReviewFindingToFix.Type;
 
-/** At most a full review's findings, so the message stays under the turn input limit. */
+/**
+ * How long the findings of one fix message may be in all (`reviewFixMessageFindingChars`): under
+ * `PROVIDER_SEND_TURN_MAX_INPUT_CHARS`, with room for the request around them and the review's
+ * title, so a fix the schema accepts never fails for being too long.
+ */
+export const REVIEW_FIX_MESSAGE_MAX_FINDING_CHARS = 110_000;
+
+/** Its number, severity, confidence, labels and line breaks, beyond the finding's own text. */
+const REVIEW_FIX_MESSAGE_FINDING_OVERHEAD_CHARS = 300;
+
+/**
+ * At least the characters one finding takes in a fix message (`buildReviewFixMessage`): its text,
+ * its path twice (location and fence language) and the fence around its suggested fix, which
+ * outgrows any backtick run inside it.
+ */
+export function reviewFixMessageFindingChars(finding: ReviewFinding): number {
+  const fix = finding.suggestedFix;
+  const longestRun =
+    fix === undefined ? 0 : Math.max(0, ...(fix.match(/`+/g) ?? []).map((run) => run.length));
+  return (
+    REVIEW_FIX_MESSAGE_FINDING_OVERHEAD_CHARS +
+    finding.title.length +
+    finding.detail.length +
+    2 * finding.path.length +
+    (finding.rule?.length ?? 0) +
+    (fix === undefined ? 0 : fix.length + 2 * Math.max(3, longestRun + 1))
+  );
+}
+
+/**
+ * Up to a whole review's findings, settled and needs-checking alike ("Fix all"), as long as their
+ * message fits one turn. Typical findings fit many times over; only a set near every bound at
+ * once is refused, and is sent in parts instead.
+ */
 export const ReviewFindingsToFix = Schema.Array(ReviewFindingToFix).check(
   Schema.isMinLength(1),
-  Schema.isMaxLength(REVIEW_FINDINGS_MAX_FINDINGS),
+  Schema.isMaxLength(REVIEW_FINDINGS_MAX_FINDINGS + REVIEW_FINDINGS_MAX_NEEDS_CHECKING),
+  Schema.makeFilter(
+    (items) =>
+      items.reduce((chars, item) => chars + reviewFixMessageFindingChars(item.finding), 0) <=
+        REVIEW_FIX_MESSAGE_MAX_FINDING_CHARS ||
+      "These findings make too long a message for one session. Send fewer at once.",
+  ),
 );
 
 /**

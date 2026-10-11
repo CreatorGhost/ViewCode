@@ -8,7 +8,10 @@ import {
   REVIEW_FINDING_MAX_SUGGESTED_FIX_CHARS,
   REVIEW_FINDING_MAX_TITLE_CHARS,
   REVIEW_FINDINGS_MAX_FINDINGS,
+  REVIEW_FINDINGS_MAX_NEEDS_CHECKING,
+  ReviewFindingsToFix,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 
 import {
   buildReviewFixMessage,
@@ -157,7 +160,8 @@ describe("buildReviewFixMessage", () => {
     expect(text).not.toContain("Suggested fix");
   });
 
-  it("keeps a full Fix all under the turn input limit", () => {
+  it("keeps any Fix all the schema accepts under the turn input limit", () => {
+    // Every field at its longest, and a suggested fix of backticks for the longest fence.
     const longest = {
       severity: "important",
       confidence: 100,
@@ -166,12 +170,17 @@ describe("buildReviewFixMessage", () => {
       endLine: 100_000,
       title: "t".repeat(REVIEW_FINDING_MAX_TITLE_CHARS),
       detail: "d".repeat(REVIEW_FINDING_MAX_DETAIL_CHARS),
-      suggestedFix: "f".repeat(REVIEW_FINDING_MAX_SUGGESTED_FIX_CHARS),
+      suggestedFix: "`".repeat(REVIEW_FINDING_MAX_SUGGESTED_FIX_CHARS),
       rule: "r".repeat(REVIEW_FINDING_MAX_RULE_CHARS),
       preExisting: true,
     } as const;
+    const accepts = Schema.is(ReviewFindingsToFix);
+    const items = (count: number, finding: typeof longest | typeof typical) =>
+      Array.from({ length: count }, () => ({ finding, needsChecking: true }));
+    let count = 1;
+    while (accepts(items(count + 1, longest))) count++;
     const text = buildReviewFixMessage({
-      reviewTitle: "Review: #1 A long title",
+      reviewTitle: `Review: #1 ${"a".repeat(500)}`,
       target: {
         kind: "pull-request",
         host: "github.com",
@@ -179,12 +188,23 @@ describe("buildReviewFixMessage", () => {
         number: 1,
         url: "https://github.com/o/r/pull/1",
       },
-      findings: Array.from({ length: REVIEW_FINDINGS_MAX_FINDINGS }, () => ({
-        finding: longest,
-        needsChecking: true,
-      })),
+      findings: items(count, longest),
     });
     expect(text.length).toBeLessThan(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+
+    // A whole review of ordinary findings is one Fix all.
+    const typical = {
+      severity: "nit",
+      confidence: 80,
+      path: "src/components/chat/ReviewFindingsView.tsx",
+      line: 120,
+      title: "t".repeat(80),
+      detail: "d".repeat(700),
+      suggestedFix: "f".repeat(600),
+    } as const;
+    expect(
+      accepts(items(REVIEW_FINDINGS_MAX_FINDINGS + REVIEW_FINDINGS_MAX_NEEDS_CHECKING, typical)),
+    ).toBe(true);
   });
 });
 
