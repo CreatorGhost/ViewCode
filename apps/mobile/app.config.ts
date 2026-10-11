@@ -410,7 +410,15 @@ const config: ExpoConfig = {
         recordAudioAndroid: false,
       },
     ],
-    ["expo-image-picker", { photosPermission: false, microphonePermission: false }],
+    // microphonePermission: false would add RECORD_AUDIO to blockedPermissions,
+    // stripping it from the manifest and breaking Android voice input.
+    [
+      "expo-image-picker",
+      {
+        photosPermission: false,
+        microphonePermission: "Allow ViewCode to use your microphone for voice input.",
+      },
+    ],
     [
       "expo-splash-screen",
       {
