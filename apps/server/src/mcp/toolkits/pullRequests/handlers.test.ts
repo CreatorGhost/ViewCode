@@ -308,6 +308,20 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
+  it.effect("passes what of the local changes to review", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      yield* harness.call("review_local_changes", {
+        scope: { kind: "branch", base: "origin/release" },
+      });
+      yield* harness.call("review_local_changes", { scope: { kind: "commit", sha: "abc1234" } });
+      expect(yield* Ref.get(harness.localReviews)).toMatchObject([
+        { scope: { kind: "branch", base: "origin/release" } },
+        { scope: { kind: "commit", sha: "abc1234" } },
+      ]);
+    }),
+  );
+
   it.effect("starts a review of the calling thread's own changes", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

@@ -21,6 +21,8 @@ function makeLayer(input: {
   readonly worktreesDirectory?: string;
   readonly previousWorktreesDirectories?: ReadonlyArray<string>;
   readonly projectRoots?: ReadonlyArray<string>;
+  /** Answers git commands for a checkout detected as git; without it nothing is a repository. */
+  readonly git?: (args: ReadonlyArray<string>) => { exitCode: number; stdout: string };
 }) {
   return ReviewService.layer.pipe(
     Layer.provide(
@@ -40,11 +42,27 @@ function makeLayer(input: {
         detect: (request) =>
           Effect.sync(() => {
             input.detectCalls?.push({ cwd: request.cwd });
-            return null;
+            return input.git === undefined
+              ? null
+              : ({ kind: "git" } as unknown as VcsDriverRegistry.VcsDriverHandle);
           }),
       }),
     ),
-    Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+    Layer.provide(
+      Layer.mock(GitVcsDriver.GitVcsDriver)({
+        execute: (request) =>
+          Effect.sync(() => {
+            const result = input.git?.(request.args) ?? { exitCode: 128, stdout: "" };
+            return {
+              exitCode: result.exitCode as never,
+              stdout: result.stdout,
+              stderr: "",
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            };
+          }),
+      }),
+    ),
     Layer.provide(
       ServerSettings.ServerSettingsService.layerTest({
         worktreesDirectory: input.worktreesDirectory ?? "",
@@ -55,6 +73,60 @@ function makeLayer(input: {
     Layer.provideMerge(NodeServices.layer),
   );
 }
+
+describe("ReviewService.listCommits", () => {
+  it.effect("lists the checkout's latest commits and the base a branch review diffs against", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const outsideRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-outside-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const calls: Array<ReadonlyArray<string>> = [];
+      const git = (args: ReadonlyArray<string>) => {
+        calls.push(args);
+        return args[0] === "log"
+          ? {
+              exitCode: 0,
+              stdout:
+                "a1b2c3d4e5\x1fa1b2c3d\x1fFix the retry\x1fAda\x1f2026-10-01T10:00:00+00:00\x1e\n" +
+                "f6e5d4c3b2\x1ff6e5d4c\x1fAdd a cache\x1fGrace\x1f2026-09-30T09:00:00+00:00\x1e\n",
+            }
+          : { exitCode: 0, stdout: "origin/main\n" };
+      };
+      const { listed, refused } = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return {
+          listed: yield* review.listCommits({ cwd: workspaceRoot, limit: 2 }),
+          refused: yield* review.listCommits({ cwd: outsideRoot }).pipe(Effect.flip),
+        };
+      }).pipe(Effect.provide(makeLayer({ workspaceRoot, baseDir, git })));
+
+      assert.deepStrictEqual(listed, {
+        commits: [
+          {
+            sha: "a1b2c3d4e5",
+            shortSha: "a1b2c3d",
+            subject: "Fix the retry",
+            author: "Ada",
+            committedAt: "2026-10-01T10:00:00+00:00",
+          },
+          {
+            sha: "f6e5d4c3b2",
+            shortSha: "f6e5d4c",
+            subject: "Add a cache",
+            author: "Grace",
+            committedAt: "2026-09-30T09:00:00+00:00",
+          },
+        ],
+        base: "origin/main",
+      });
+      assert.include(calls[0] ?? [], "--max-count=2");
+      // A checkout outside the workspace is refused before git runs there.
+      assert.strictEqual(refused._tag, "VcsRepositoryDetectionError");
+      assert.strictEqual(calls.length, 2);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
 
 describe("ReviewService", () => {
   it.effect("rejects diff preview cwd outside the configured workspace roots", () =>

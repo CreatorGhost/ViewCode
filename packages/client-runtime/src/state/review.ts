@@ -27,6 +27,12 @@ export function createReviewEnvironmentAtoms<R, E>(
       tag: WS_METHODS.reviewGetDiffPreview,
       staleTimeMs: 5_000,
     }),
+    /** A checkout's latest commits, to pick one to review; servers with `localAgentReviewScope`. */
+    commits: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:review:commits",
+      tag: WS_METHODS.reviewListCommits,
+      staleTimeMs: 30_000,
+    }),
     diffFilePatch: createEnvironmentQueryAtomFamily(runtime, {
       label: "environment-data:review:diff-file-patch",
       staleTimeMs: 5 * 60_000,

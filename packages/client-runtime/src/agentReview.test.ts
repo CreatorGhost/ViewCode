@@ -3,7 +3,10 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   buildAgentReviewStart,
+  filterReviewCommits,
   formatReviewElapsed,
+  localReviewScopeLabel,
+  pastedReviewCommitSha,
   reviewStatusText,
   shortReviewError,
 } from "./agentReview.ts";
@@ -59,6 +62,61 @@ describe("buildAgentReviewStart", () => {
     expect(buildAgentReviewStart(request, choices, { canScope: false }).input).not.toHaveProperty(
       "scope",
     );
+  });
+});
+
+describe("local review scopes", () => {
+  const request = { kind: "local", projectId: PROJECT_ID, sourceThreadId: CHAT } as const;
+  const start = (scope: Parameters<typeof localReviewScopeLabel>[0]) =>
+    buildAgentReviewStart(
+      request,
+      { mode: "quick", modelSelection: null, focus: "", scope },
+      { canScope: true },
+    ).input;
+
+  it("sends each kind as asked, and nothing for the default", () => {
+    expect(start(null)).not.toHaveProperty("scope");
+    expect(start({ kind: "uncommitted" })).toMatchObject({ scope: { kind: "uncommitted" } });
+    expect(start({ kind: "branch" })).toMatchObject({ scope: { kind: "branch" } });
+    expect(start({ kind: "branch", base: "origin/release" })).toMatchObject({
+      scope: { kind: "branch", base: "origin/release" },
+    });
+    expect(start({ kind: "commit", sha: "abc1234" })).toMatchObject({
+      scope: { kind: "commit", sha: "abc1234" },
+    });
+  });
+
+  it("names each kind in a few words", () => {
+    expect(localReviewScopeLabel(null)).toBe("Uncommitted changes, else the branch");
+    expect(localReviewScopeLabel({ kind: "uncommitted" })).toBe("Uncommitted changes");
+    expect(localReviewScopeLabel({ kind: "branch", base: "origin/main" })).toBe(
+      "Branch against origin/main",
+    );
+    expect(localReviewScopeLabel({ kind: "commit", sha: "a1b2c3d4e5f6" })).toBe("Commit a1b2c3d");
+  });
+
+  it("finds commits by SHA prefix, subject or author, and takes a pasted SHA", () => {
+    const commit = (sha: string, subject: string, author: string) => ({
+      sha,
+      shortSha: sha.slice(0, 7),
+      subject,
+      author,
+      committedAt: "2026-10-01T10:00:00Z",
+    });
+    const commits = [
+      commit("a1b2c3d4", "Fix the retry", "Ada"),
+      commit("f6e5d4c3", "Cache", "Grace"),
+    ];
+    expect(filterReviewCommits(commits, "").map((entry) => entry.sha)).toEqual([
+      "a1b2c3d4",
+      "f6e5d4c3",
+    ]);
+    expect(filterReviewCommits(commits, "F6E").map((entry) => entry.sha)).toEqual(["f6e5d4c3"]);
+    expect(filterReviewCommits(commits, "retry").map((entry) => entry.sha)).toEqual(["a1b2c3d4"]);
+    expect(filterReviewCommits(commits, "grace").map((entry) => entry.sha)).toEqual(["f6e5d4c3"]);
+    expect(pastedReviewCommitSha(" A1B2C3D ")).toBe("a1b2c3d");
+    expect(pastedReviewCommitSha("a1b2c3")).toBeNull();
+    expect(pastedReviewCommitSha("main")).toBeNull();
   });
 });
 

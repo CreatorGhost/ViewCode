@@ -2,8 +2,9 @@ import {
   type AgentReviewChoices,
   type AgentReviewRequest,
   buildAgentReviewStart,
+  localReviewScopeReady,
 } from "@t3tools/client-runtime/agent-review";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -33,7 +34,7 @@ import {
   resolveDefaultProviderModelSelection,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
-import { useProject, useServerConfigs } from "../../state/entities";
+import { useProject, useServerConfigs, useThreadShell } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { pullRequestEnvironment } from "../../state/pullRequests";
 import { reviewEnvironment } from "../../state/review";
@@ -139,15 +140,32 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
   const [focus, setFocus] = useState("");
   // What of the local changes to read; null leaves it to the reviewer (uncommitted, else branch).
   const [scope, setScope] = useState<LocalReviewScope | null>(null);
-  const { pending, canScope } = starter;
+  const { pending } = starter;
+  const canScope = request.kind === "local" && starter.canScope;
+  const scopeReady = !canScope || localReviewScopeReady(scope);
+  // The checkout a local review reads, whose commits and base the scope choices offer.
+  const sourceThread = useThreadShell(
+    request.kind === "local" ? scopeThreadRef(environmentId, request.sourceThreadId) : null,
+  );
+  const checkoutCwd =
+    request.kind === "local"
+      ? (sourceThread?.worktreePath ?? project?.workspaceRoot ?? null)
+      : null;
   const start = (basedOn?: ReviewBasedOnInput) =>
-    starter.start({ mode, modelSelection: selection, focus, basedOn, scope });
+    starter.start({
+      mode,
+      modelSelection: selection,
+      focus,
+      basedOn,
+      scope: canScope ? scope : null,
+    });
 
   return {
     /** Whether a review of local changes can be told what to read. */
-    canScope: request.kind === "local" && canScope,
+    canScope,
     scope,
     setScope,
+    checkoutCwd,
     entries,
     modelOptions,
     selection,
@@ -157,7 +175,7 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
     focus,
     setFocus,
     pending,
-    canStart: !pending && selection !== null,
+    canStart: !pending && selection !== null && scopeReady,
     start,
   };
 }

@@ -13,6 +13,7 @@ import {
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { ReviewScopeFields } from "./ReviewScopeFields";
 import type { LatestReviewStatus } from "./useReviewFindingsSource";
 
 export interface ReviewStartTarget {
@@ -50,32 +51,12 @@ export function ReviewStartForm({
       }}
     >
       {form.canScope && !(rereview !== null && scope === "rereview") ? (
-        <div className="flex flex-col gap-2">
-          <span id={`${id}-local`} className="font-medium text-xs text-muted-foreground">
-            What to review
-          </span>
-          <ToggleGroup
-            aria-labelledby={`${id}-local`}
-            className="w-full *:flex-1"
-            value={[form.scope?.kind ?? "auto"]}
-            onValueChange={(next) => {
-              const value = next[0];
-              if (value === "auto") form.setScope(null);
-              if (value === "uncommitted" || value === "branch") form.setScope({ kind: value });
-            }}
-          >
-            <Toggle value="auto">Auto</Toggle>
-            <Toggle value="uncommitted">Uncommitted</Toggle>
-            <Toggle value="branch">Branch</Toggle>
-          </ToggleGroup>
-          <span className="text-xs text-muted-foreground">
-            {form.scope === null
-              ? "The uncommitted changes, or the branch against its base when everything is committed."
-              : form.scope.kind === "uncommitted"
-                ? "Only the changes not committed yet."
-                : "The branch's commits against the branch it was made from."}
-          </span>
-        </div>
+        <ReviewScopeFields
+          environmentId={target.environmentId}
+          cwd={form.checkoutCwd}
+          scope={form.scope}
+          onScopeChange={form.setScope}
+        />
       ) : null}
       {rereview !== null ? (
         <div className="flex flex-col gap-2">

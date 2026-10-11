@@ -1,14 +1,16 @@
-import type {
-  AgentReviewMode,
+import {
+  type AgentReviewMode,
   LocalReviewScope,
-  ModelSelection,
-  ProjectId,
-  PullRequestRef,
-  PullRequestStartReviewInput,
-  ReviewBasedOnInput,
-  ReviewStartLocalInput,
-  ThreadId,
+  type ReviewCommit,
+  type ModelSelection,
+  type ProjectId,
+  type PullRequestRef,
+  type PullRequestStartReviewInput,
+  type ReviewBasedOnInput,
+  type ReviewStartLocalInput,
+  type ThreadId,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 
 import type { ReviewProgress } from "./reviewFindings.ts";
 
@@ -124,4 +126,51 @@ export function reviewStatusText(input: {
         ? "The review ended before sending all its findings"
         : `${newer ? "A new review" : "The review"} ended without sending findings`;
   }
+}
+
+/** What a review of local changes reads, in a few words: "Branch against origin/main". */
+export function localReviewScopeLabel(scope: LocalReviewScope | null | undefined): string {
+  switch (scope?.kind) {
+    case undefined:
+      return "Uncommitted changes, else the branch";
+    case "uncommitted":
+      return "Uncommitted changes";
+    case "branch":
+      return scope.base === undefined ? "Branch against its base" : `Branch against ${scope.base}`;
+    case "commit":
+      return `Commit ${scope.sha.slice(0, 7)}`;
+  }
+}
+
+const COMMIT_SHA = /^[0-9a-f]{7,64}$/i;
+
+/** A commit named by a pasted SHA, when the text is one (7 to 64 hex digits). */
+export function pastedReviewCommitSha(text: string): string | null {
+  const trimmed = text.trim();
+  return COMMIT_SHA.test(trimmed) ? trimmed.toLowerCase() : null;
+}
+
+/**
+ * The commits a picker shows for what the reader typed: those whose SHA starts with it, or whose
+ * subject or author contains it, in the order listed (newest first).
+ */
+export function filterReviewCommits(
+  commits: ReadonlyArray<ReviewCommit>,
+  query: string,
+): ReadonlyArray<ReviewCommit> {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) return commits;
+  return commits.filter(
+    (commit) =>
+      commit.sha.toLowerCase().startsWith(needle) ||
+      commit.subject.toLowerCase().includes(needle) ||
+      commit.author.toLowerCase().includes(needle),
+  );
+}
+
+const isLocalReviewScope = Schema.is(LocalReviewScope);
+
+/** Whether a scope the reader is still filling in can be sent: a base that is a ref, a SHA. */
+export function localReviewScopeReady(scope: LocalReviewScope | null): boolean {
+  return scope === null || isLocalReviewScope(scope);
 }

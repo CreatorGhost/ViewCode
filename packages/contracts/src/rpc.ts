@@ -96,6 +96,8 @@ import {
   ReviewDiffPreviewError,
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
+  ReviewListCommitsInput,
+  ReviewListCommitsResult,
 } from "./review.ts";
 import {
   LearnedReviewStyle,
@@ -403,6 +405,7 @@ export const WS_METHODS = {
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
+  reviewListCommits: "review.listCommits",
   reviewStartFixThread: "review.startFixThread",
   reviewStartLocal: "review.startLocal",
   reviewPostFindings: "review.postFindings",
@@ -1434,6 +1437,13 @@ const WsReviewGetDiffFileContentsRpc = Rpc.make(WS_METHODS.reviewGetDiffFileCont
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
+/** Only send to environments advertising `localAgentReviewScope`. */
+const WsReviewListCommitsRpc = Rpc.make(WS_METHODS.reviewListCommits, {
+  payload: ReviewListCommitsInput,
+  success: ReviewListCommitsResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
 /** Only reaches servers that record review findings, which is the only way to have some. */
 const WsReviewStartFixThreadRpc = Rpc.make(WS_METHODS.reviewStartFixThread, {
   payload: ReviewStartFixThreadInput,
@@ -1905,6 +1915,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
+  WsReviewListCommitsRpc,
   WsReviewStartFixThreadRpc,
   WsReviewStartLocalRpc,
   WsReviewRateFindingRpc,

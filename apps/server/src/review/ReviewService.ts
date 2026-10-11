@@ -13,6 +13,9 @@ import {
   type ReviewDiffPreviewError,
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewResult,
+  REVIEW_LIST_COMMITS_MAX,
+  type ReviewListCommitsInput,
+  type ReviewListCommitsResult,
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
@@ -21,6 +24,19 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { isFilesystemRoot, managedWorktreesDirectories } from "../worktreesDirectory.ts";
+
+// Fields split by the unit separator, commits by the record separator: neither occurs in a
+// subject or a name.
+const REVIEW_COMMIT_FORMAT = "%H%x1f%h%x1f%s%x1f%an%x1f%cI%x1e";
+
+/** Commits as `git log --format=REVIEW_COMMIT_FORMAT` prints them, newest first. */
+export function parseReviewCommitLog(stdout: string): ReviewListCommitsResult["commits"] {
+  return stdout.split("\x1e").flatMap((record) => {
+    const [sha, shortSha, subject, author, committedAt] = record.trim().split("\x1f");
+    if (!sha || !shortSha || committedAt === undefined) return [];
+    return [{ sha, shortSha, subject: subject ?? "", author: author ?? "", committedAt }];
+  });
+}
 
 export class ReviewService extends Context.Service<
   ReviewService,
@@ -31,6 +47,10 @@ export class ReviewService extends Context.Service<
     readonly getDiffFileContents: (
       input: ReviewDiffFileContentsInput,
     ) => Effect.Effect<ReviewDiffFileContentsResult, ReviewDiffPreviewError>;
+    /** The checkout's latest commits, to pick one to review, and the base a branch review uses. */
+    readonly listCommits: (
+      input: ReviewListCommitsInput,
+    ) => Effect.Effect<ReviewListCommitsResult, ReviewDiffPreviewError>;
   }
 >()("t3/review/ReviewService") {}
 
@@ -69,7 +89,10 @@ export const make = Effect.gen(function* () {
   };
 
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
-    operation: "ReviewService.getDiffPreview" | "ReviewService.getDiffFileContents",
+    operation:
+      | "ReviewService.getDiffPreview"
+      | "ReviewService.getDiffFileContents"
+      | "ReviewService.listCommits",
     cwd: string,
   ) {
     const worktreesDirectories = yield* settings.getSettings.pipe(
@@ -120,7 +143,9 @@ export const make = Effect.gen(function* () {
       detail:
         operation === "ReviewService.getDiffPreview"
           ? "Review diff preview cwd must stay within the configured workspace root."
-          : "Review diff file contents cwd must stay within the configured workspace root.",
+          : operation === "ReviewService.listCommits"
+            ? "Review commits cwd must stay within the configured workspace root."
+            : "Review diff file contents cwd must stay within the configured workspace root.",
     });
   });
 
@@ -170,9 +195,45 @@ export const make = Effect.gen(function* () {
     return yield* git.getReviewDiffFileContents(input);
   });
 
+  const listCommits: ReviewService["Service"]["listCommits"] = Effect.fn(
+    "ReviewService.listCommits",
+  )(function* (input) {
+    yield* assertWorkspaceBoundCwd("ReviewService.listCommits", input.cwd);
+    const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
+    if (handle?.kind !== "git") return { commits: [], base: null };
+    const log = yield* git.execute({
+      operation: "ReviewService.listCommits",
+      cwd: input.cwd,
+      args: [
+        "log",
+        `--max-count=${input.limit ?? REVIEW_LIST_COMMITS_MAX}`,
+        "--no-color",
+        `--format=${REVIEW_COMMIT_FORMAT}`,
+        "HEAD",
+        "--",
+      ],
+      // A repository without commits has no HEAD to list from.
+      allowNonZeroExit: true,
+      maxOutputBytes: 256 * 1024,
+    });
+    // The remote's default branch, which a branch review without a named base diffs against.
+    const base = yield* git.execute({
+      operation: "ReviewService.listCommits.base",
+      cwd: input.cwd,
+      args: ["rev-parse", "--abbrev-ref", "origin/HEAD"],
+      allowNonZeroExit: true,
+    });
+    const baseRef = base.exitCode === 0 ? base.stdout.trim() : "";
+    return {
+      commits: log.exitCode === 0 ? parseReviewCommitLog(log.stdout) : [],
+      base: baseRef.length > 0 && baseRef !== "origin/HEAD" ? baseRef : null,
+    };
+  });
+
   return ReviewService.of({
     getDiffPreview,
     getDiffFileContents,
+    listCommits,
   });
 });
 
