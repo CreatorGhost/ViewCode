@@ -28,7 +28,7 @@ import { openConnectPhoneDialog } from "../connectPhone/ConnectPhoneDialog";
 import { openProjectColorDialog } from "../ProjectColorPicker";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
-import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
+import { useOpenPullRequests } from "../pullRequest/useOpenPullRequests";
 import { useSidebarProjectGroups } from "../sidebar/useSidebarProjectGroups";
 import { useSwitchProjectScope } from "../sidebar/useSwitchProjectScope";
 import { Button } from "../ui/button";
@@ -192,20 +192,14 @@ const RailProjectSwitcher = memo(function RailProjectSwitcher() {
 
 /** Pull Requests is the only destination the rings and Settings don't already cover. */
 const RailPullRequestsButton = memo(function RailPullRequestsButton(props: { active: boolean }) {
-  const navigate = useNavigate();
+  const openPullRequests = useOpenPullRequests();
   const { environments } = useEnvironments();
   const pullRequestsSupported = environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
   );
   if (!pullRequestsSupported) return null;
   return (
-    <RailButton
-      label="Pull Requests"
-      active={props.active}
-      onClick={() =>
-        void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() })
-      }
-    >
+    <RailButton label="Pull Requests" active={props.active} onClick={() => void openPullRequests()}>
       <PullRequestGlyph.pullRequest />
     </RailButton>
   );

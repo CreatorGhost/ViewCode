@@ -108,6 +108,35 @@ export function readPullRequestListPreferences(
   }
 }
 
+/**
+ * The remembered controls, scoped to the project folder the sidebar shows, or to every project
+ * when it shows All. A folder spans its members on several servers, so the one already scoped
+ * stays; otherwise the member on `preferredEnvironmentId`, as opening the folder picks it.
+ * Widening to All drops the server the folder's scope brought along, but keeps one the reader
+ * picked on its own.
+ */
+export function pullRequestListPreferencesForFolder(
+  preferences: PullRequestListPreferences,
+  folderProjects: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }> | null,
+  preferredEnvironmentId: EnvironmentId | null,
+): PullRequestListPreferences {
+  const { projectId, environmentId, ...rest } = preferences;
+  if (folderProjects === null) {
+    return projectId === undefined ? preferences : rest;
+  }
+  const member =
+    folderProjects.find(
+      (ref) => ref.projectId === projectId && ref.environmentId === environmentId,
+    ) ??
+    folderProjects.find((ref) => ref.environmentId === preferredEnvironmentId) ??
+    folderProjects[0];
+  if (member === undefined) return preferences;
+  return { ...rest, projectId: member.projectId, environmentId: member.environmentId };
+}
+
 export function writePullRequestListPreferences(
   preferences: PullRequestListPreferences,
   storage?: PreferenceStorage,

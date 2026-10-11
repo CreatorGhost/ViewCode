@@ -40,6 +40,7 @@ import {
 } from "./pullRequestList.logic";
 import {
   pullRequestListPreferences,
+  pullRequestListPreferencesForFolder,
   readPullRequestListPreferences,
   writePullRequestListPreferences,
 } from "./pullRequestListPreferences";
@@ -1333,6 +1334,45 @@ describe("remembered pull request list controls", () => {
     expect(() =>
       writePullRequestListPreferences({ involvement: "all", state: "open" }, denied),
     ).not.toThrow();
+  });
+});
+
+describe("opening the page on the sidebar's project folder", () => {
+  const local = "env-local" as EnvironmentId;
+  const remote = "env-remote" as EnvironmentId;
+  const folder = [
+    { environmentId: remote, projectId: "project-remote" as ProjectId },
+    { environmentId: local, projectId: "project-local" as ProjectId },
+  ];
+  const base = { involvement: "authored", state: "open", sort: "blocked" } as const;
+
+  it("scopes to the folder's member on this machine, keeping the other controls", () => {
+    expect(pullRequestListPreferencesForFolder(base, folder, local)).toEqual({
+      ...base,
+      projectId: "project-local",
+      environmentId: local,
+    });
+  });
+
+  it("keeps a member of the same folder that was already scoped", () => {
+    const scoped = { ...base, projectId: "project-remote" as ProjectId, environmentId: remote };
+    expect(pullRequestListPreferencesForFolder(scoped, folder, local)).toEqual(scoped);
+  });
+
+  it("replaces a remembered project from another folder", () => {
+    const elsewhere = { ...base, projectId: "project-other" as ProjectId, environmentId: local };
+    expect(pullRequestListPreferencesForFolder(elsewhere, folder, null)).toEqual({
+      ...base,
+      projectId: "project-remote",
+      environmentId: remote,
+    });
+  });
+
+  it("widens to every project under All, dropping the server only the project brought", () => {
+    const scoped = { ...base, projectId: "project-remote" as ProjectId, environmentId: remote };
+    expect(pullRequestListPreferencesForFolder(scoped, null, local)).toEqual(base);
+    const serverOnly = { ...base, environmentId: remote };
+    expect(pullRequestListPreferencesForFolder(serverOnly, null, local)).toEqual(serverOnly);
   });
 });
 
