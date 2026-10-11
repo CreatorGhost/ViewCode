@@ -1,4 +1,11 @@
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type ThreadPullRequestLink,
+  TurnId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import {
@@ -6,6 +13,7 @@ import {
   reviewedChangeLabel,
   reviewStopPlan,
   type AgentReviewChanges,
+  agentReviewRetryRequest,
   agentReviewTargetChoices,
   agentReviewTargetLabel,
   buildAgentReviewStart,
@@ -324,6 +332,43 @@ describe("what a review of a chat's work reads", () => {
     expect(inferred(null, changes({ dirty: false, branch: null, pullRequestNumber: 3 }))).toBe(
       "This PR #3",
     );
+  });
+
+  it("tries a review again on what it read, as the same chat's agent", () => {
+    const link = {
+      host: "github.com",
+      repository: "acme/web",
+      number: 7,
+      url: "https://github.com/acme/web/pull/7",
+      source: "manual",
+      linkedAt: "2026-08-01T00:00:00.000Z",
+      snapshot: null,
+      stack: null,
+    } satisfies ThreadPullRequestLink;
+    const reviewer = { projectId: PROJECT_ID, parentThreadId: CHAT, pullRequests: [link] };
+    const pullRequest = {
+      kind: "pull-request",
+      reference: { projectId: PROJECT_ID, host: "github.com", repository: "acme/web", number: 7 },
+      sourceThreadId: CHAT,
+    };
+    expect(agentReviewRetryRequest({ reviewer, scope: null, findingsTarget: null })).toEqual(
+      pullRequest,
+    );
+    // A local review that was told what to read is one, whatever its branch is linked to.
+    expect(
+      agentReviewRetryRequest({ reviewer, scope: { kind: "uncommitted" }, findingsTarget: null }),
+    ).toEqual({ kind: "local", projectId: PROJECT_ID, sourceThreadId: CHAT });
+    expect(
+      agentReviewRetryRequest({ reviewer, scope: null, findingsTarget: { kind: "local" } }),
+    ).toEqual({ kind: "local", projectId: PROJECT_ID, sourceThreadId: CHAT });
+    // A local review of the project's workspace belongs to no chat to name its checkout.
+    expect(
+      agentReviewRetryRequest({
+        reviewer: { projectId: PROJECT_ID, parentThreadId: null, pullRequests: [] },
+        scope: null,
+        findingsTarget: null,
+      }),
+    ).toBeNull();
   });
 
   it("names a picked commit by its short SHA", () => {

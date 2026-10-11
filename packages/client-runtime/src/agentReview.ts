@@ -10,9 +10,15 @@ import {
   type EnvironmentId,
   type OrchestrationThreadShell,
   type ReviewDiffPreviewSourceKind,
+  type ReviewFindingsTarget,
   type ReviewStartLocalInput,
   type ThreadId,
+  type ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import {
+  resolveThreadCurrentPullRequestLink,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
 import * as Schema from "effect/Schema";
 
 import { collectChildAgents } from "./state/childAgents.ts";
@@ -356,6 +362,42 @@ export function inferAgentReviewTarget(
   return (
     (section === "branch-range" ? (committed ?? uncommitted) : (uncommitted ?? committed)) ?? null
   );
+}
+
+/**
+ * What Try again asks for: the review again on what it read, as the same chat's agent. What it
+ * read is its findings' target when it sent any; otherwise a local review records any scope it
+ * was given, and a pull request review is linked to the pull request. Null for a local review
+ * that belongs to no chat, which there is no checkout to name for.
+ */
+export function agentReviewRetryRequest(input: {
+  readonly reviewer: {
+    readonly projectId: ProjectId;
+    readonly parentThreadId?: ThreadId | null | undefined;
+    readonly pullRequests: ReadonlyArray<ThreadPullRequestLink>;
+  };
+  readonly scope: LocalReviewScope | null;
+  readonly findingsTarget: ReviewFindingsTarget | null;
+}): AgentReviewRequest | null {
+  const { reviewer, findingsTarget } = input;
+  const sourceThreadId = reviewer.parentThreadId ?? undefined;
+  const pullRequest =
+    findingsTarget?.kind === "pull-request"
+      ? findingsTarget
+      : findingsTarget === null && input.scope === null
+        ? resolveThreadCurrentPullRequestLink(visibleThreadPullRequests(reviewer.pullRequests))
+        : null;
+  if (pullRequest !== null) {
+    const { host, repository, number } = pullRequest;
+    return {
+      kind: "pull-request",
+      reference: { projectId: reviewer.projectId, host, repository, number },
+      sourceThreadId,
+    };
+  }
+  return sourceThreadId === undefined
+    ? null
+    : { kind: "local", projectId: reviewer.projectId, sourceThreadId };
 }
 
 /** A target's identity, to tell the chosen one among a menu's choices. */
