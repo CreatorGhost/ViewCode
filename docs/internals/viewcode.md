@@ -494,6 +494,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   no queue for user turns and inventing one would fork that behaviour. Only a new session is a
   server method (`ReviewFixThread.start`, `review.startFixThread`), which checks the pull request
   out into a worktree of its own. Which findings were sent where is client memory only.
+- Posting findings (`ReviewFindingsPoster.post`, `review.postFindings`) is one
+  `PullRequestService.submitReview`, the pull request page's own path: a host refuses the whole
+  review over one comment on a line its diff does not show, so the server reads the diff first and
+  puts such findings in the review's text. Unlike a fix, a post is recorded on the review thread
+  (`viewcode.review.posted`), because posting twice is visible to other people.
 
 ### Side chats
 

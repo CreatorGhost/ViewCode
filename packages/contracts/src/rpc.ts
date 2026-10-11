@@ -99,6 +99,9 @@ import {
 } from "./review.ts";
 import {
   ReviewFixThreadError,
+  ReviewPostFindingsError,
+  ReviewPostFindingsInput,
+  ReviewPostFindingsResult,
   ReviewStartFixThreadInput,
   ReviewStartFixThreadResult,
 } from "./reviewFindings.ts";
@@ -391,6 +394,7 @@ export const WS_METHODS = {
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
   reviewStartFixThread: "review.startFixThread",
+  reviewPostFindings: "review.postFindings",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -1421,6 +1425,13 @@ const WsReviewStartFixThreadRpc = Rpc.make(WS_METHODS.reviewStartFixThread, {
   error: Schema.Union([ReviewFixThreadError, EnvironmentAuthorizationError]),
 });
 
+/** Like starting a fix, only reaches servers that record review findings. */
+const WsReviewPostFindingsRpc = Rpc.make(WS_METHODS.reviewPostFindings, {
+  payload: ReviewPostFindingsInput,
+  success: ReviewPostFindingsResult,
+  error: Schema.Union([ReviewPostFindingsError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -1839,6 +1850,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
   WsReviewStartFixThreadRpc,
+  WsReviewPostFindingsRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,

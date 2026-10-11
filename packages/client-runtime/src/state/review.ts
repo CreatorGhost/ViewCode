@@ -57,6 +57,11 @@ export function createReviewEnvironmentAtoms<R, E>(
       label: "environment-data:review:start-fix-thread",
       tag: WS_METHODS.reviewStartFixThread,
     }),
+    /** Posts findings to the reviewed pull request as one review. */
+    postFindings: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:post-findings",
+      tag: WS_METHODS.reviewPostFindings,
+    }),
     diffFileContents: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:diff-file-contents",
       tag: WS_METHODS.reviewGetDiffFileContents,

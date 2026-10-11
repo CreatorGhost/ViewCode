@@ -14,6 +14,7 @@ import {
   buildReviewFixMessage,
   buildReviewFromFindings,
   fencedCode,
+  postedReviewFindings,
   readReviewFindings,
   reviewCommentableLines,
   reviewFindingCommentBody,
@@ -276,5 +277,37 @@ describe("buildReviewFromFindings", () => {
     expect(review.comments).toEqual([]);
     expect(review.placements).toEqual([{ key: "finding:0", placement: "body" }]);
     expect(review.body).toBe(reviewFindingCommentBody(onLine, "body"));
+  });
+});
+
+describe("postedReviewFindings", () => {
+  const posted = (findingsActivityId: string, findings: ReadonlyArray<unknown>) => ({
+    kind: "viewcode.review.posted",
+    payload: {
+      findingsActivityId,
+      verdict: "comment",
+      url: "https://github.com/o/r/pull/7",
+      findings,
+    },
+  });
+
+  it("collects what each review posted from one findings activity", () => {
+    const result = postedReviewFindings(
+      [
+        posted("findings-1", [{ key: "finding:0", placement: "inline" }]),
+        posted("findings-0", [{ key: "finding:1", placement: "inline" }]),
+        { kind: "viewcode.review.findings", payload: {} },
+        posted("findings-1", [{ key: "check:2", placement: "body" }]),
+        posted("findings-1", [{ key: "not a key", placement: "body" }]),
+      ],
+      "findings-1",
+    );
+    expect([...result.entries()]).toEqual([
+      [
+        "finding:0",
+        { placement: "inline", url: "https://github.com/o/r/pull/7", verdict: "comment" },
+      ],
+      ["check:2", { placement: "body", url: "https://github.com/o/r/pull/7", verdict: "comment" }],
+    ]);
   });
 });

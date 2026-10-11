@@ -1,11 +1,14 @@
 import {
   REVIEW_FINDINGS_ACTIVITY_KIND,
+  REVIEW_FINDINGS_POSTED_ACTIVITY_KIND,
   ReviewFindingsActivityPayload,
+  ReviewFindingsPostedActivityPayload,
   type OrchestrationThreadActivity,
   type PullRequestReviewCommentDraft,
   type PullRequestReviewPosition,
   type PullRequestReviewVerdict,
   type ReviewFinding,
+  type ReviewFindingPlacement,
   type ReviewFindingToFix,
   type ReviewFindingsMode,
   type ReviewFindingsTarget,
@@ -63,6 +66,35 @@ export function latestReviewFindingsActivityId(
   return (
     activities.findLast((activity) => activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND)?.id ?? null
   );
+}
+
+const decodePostedPayload = Schema.decodeUnknownOption(ReviewFindingsPostedActivityPayload);
+
+export interface PostedReviewFinding {
+  readonly placement: ReviewFindingPlacement;
+  /** The pull request the review is on. */
+  readonly url: string;
+  readonly verdict: PullRequestReviewVerdict;
+}
+
+/**
+ * Which findings of one findings activity were posted to the pull request, by key, from the
+ * records the server appends to the review thread after each review it posts.
+ */
+export function postedReviewFindings(
+  activities: ReadonlyArray<Pick<OrchestrationThreadActivity, "kind" | "payload">>,
+  findingsActivityId: string,
+): ReadonlyMap<string, PostedReviewFinding> {
+  const posted = new Map<string, PostedReviewFinding>();
+  for (const activity of activities) {
+    if (activity.kind !== REVIEW_FINDINGS_POSTED_ACTIVITY_KIND) continue;
+    const payload = Option.getOrUndefined(decodePostedPayload(activity.payload));
+    if (payload === undefined || payload.findingsActivityId !== findingsActivityId) continue;
+    for (const { key, placement } of payload.findings) {
+      posted.set(key, { placement, url: payload.url, verdict: payload.verdict });
+    }
+  }
+  return posted;
 }
 
 /**
@@ -151,9 +183,6 @@ export function reviewSubmitVerdictFor(verdict: ReviewVerdict): PullRequestRevie
       return "comment";
   }
 }
-
-/** Where a posted finding went: on its line of the diff, or into the review's own text. */
-export type ReviewFindingPlacement = "inline" | "body";
 
 /** The lines of a pull request's head that a host takes a comment on, by file. */
 export type ReviewCommentableLines = ReadonlyMap<

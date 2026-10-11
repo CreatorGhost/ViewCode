@@ -46,6 +46,7 @@ import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
+import * as ReviewFindingsPoster from "./review/ReviewFindingsPoster.ts";
 import * as ReviewFixThread from "./review/ReviewFixThread.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
@@ -310,6 +311,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(AgentMessaging.layer),
   Layer.provideMerge(PullRequestAgentReview.layer),
   Layer.provideMerge(ReviewFixThread.layer),
+  Layer.provideMerge(ReviewFindingsPoster.layer),
   Layer.provideMerge(PullRequestSyncReactor.layer),
   Layer.provideMerge(ThreadPullRequestReactor.layer),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),

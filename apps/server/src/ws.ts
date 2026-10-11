@@ -192,6 +192,7 @@ import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
+import * as ReviewFindingsPoster from "./review/ReviewFindingsPoster.ts";
 import * as ReviewFixThread from "./review/ReviewFixThread.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
@@ -711,6 +712,7 @@ const makeWsRpcLayer = (
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestAgentReview = yield* PullRequestAgentReview.PullRequestAgentReview;
       const reviewFixThread = yield* ReviewFixThread.ReviewFixThread;
+      const reviewFindingsPoster = yield* ReviewFindingsPoster.ReviewFindingsPoster;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
@@ -3955,6 +3957,10 @@ const makeWsRpcLayer = (
           ),
         [WS_METHODS.reviewStartFixThread]: (input) =>
           observeRpcEffect(WS_METHODS.reviewStartFixThread, reviewFixThread.start(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewPostFindings]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewPostFindings, reviewFindingsPoster.post(input), {
             "rpc.aggregate": "review",
           }),
         [WS_METHODS.terminalOpen]: (input) =>
