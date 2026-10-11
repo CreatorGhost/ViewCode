@@ -69,6 +69,8 @@ export interface ReviewFindingCardProps {
   readonly dismissed: boolean;
   readonly rating: ReviewFindingRating | undefined;
   readonly sentTo: ReviewFixDestination | undefined;
+  /** Shows the message the finding was sent as. */
+  readonly onOpenSent?: ((destination: ReviewFixDestination) => void) | undefined;
   /** Shown for findings outside the diff, which have no line above them to say where they are. */
   readonly showLocation: boolean;
   /** Present in reviewer mode, where findings are ticked to post them. */
@@ -105,6 +107,7 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
   dismissed,
   rating,
   sentTo,
+  onOpenSent,
   showLocation,
   ticked,
   onTick,
@@ -236,9 +239,22 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
               {dismissed ? "Restore" : "Dismiss"}
             </Button>
             {sentTo ? (
-              <span className="min-w-0 truncate text-muted-foreground text-xs">
-                Sent to {sentTo.title}
-              </span>
+              onOpenSent ? (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost-muted"
+                  className="min-w-0"
+                  title="Show the message, where the agent says whether it fixed this"
+                  onClick={() => onOpenSent(sentTo)}
+                >
+                  <span className="truncate">Sent to {sentTo.title}</span>
+                </Button>
+              ) : (
+                <span className="min-w-0 truncate text-muted-foreground text-xs">
+                  Sent to {sentTo.title}
+                </span>
+              )
             ) : null}
             {onRate ? (
               <span className="ml-auto flex shrink-0 items-center gap-0.5">

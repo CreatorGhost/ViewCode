@@ -4,7 +4,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommand,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { MessageId, type ScopedThreadRef } from "@t3tools/contracts";
 import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import { applyClaudePromptEffortPrefix } from "@t3tools/shared/model";
 
@@ -181,7 +181,8 @@ export async function sendQueuedMessage(
       input: {
         threadId,
         message: {
-          messageId: newMessageId(),
+          messageId:
+            message.messageId === undefined ? newMessageId() : MessageId.make(message.messageId),
           role: "user",
           text:
             context !== undefined && !inlineContext

@@ -160,6 +160,7 @@ import { REVIEW_VERDICT_BADGES } from "./ReviewFindingsView";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
+import { useTimelineMessageFocusStore } from "../../timelineMessageFocusStore";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useAtomValue } from "@effect/atom-react";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
@@ -850,6 +851,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+  // Another surface asked to show one of this chat's messages (a review fix sent here).
+  const messageFocus = useTimelineMessageFocusStore((state) =>
+    state.request?.threadKey === routeThreadKey ? state.request : null,
+  );
+  useEffect(() => {
+    if (messageFocus === null) return;
+    const index = rows.findIndex(
+      (row) => row.kind === "message" && row.message.id === messageFocus.messageId,
+    );
+    // Still queued: the request waits for the message to go out.
+    if (index === -1) return;
+    onManualNavigation();
+    void listRef.current?.scrollToIndex({ index, animated: true, viewOffset: 80 });
+    useTimelineMessageFocusStore.getState().settle(messageFocus.nonce);
+  }, [listRef, messageFocus, onManualNavigation, rows]);
   const restoreRowIndex =
     restoringThreadPosition && rememberedPosition?.atEnd === false
       ? rows.findIndex((row) => row.id === rememberedPosition.rowId)

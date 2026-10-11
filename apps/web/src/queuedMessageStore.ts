@@ -32,6 +32,11 @@ export interface QueuedMessageSendSettings {
  */
 export interface QueuedComposerMessage {
   id: string;
+  /**
+   * The id the turn's message goes out with, when the sender needs to find it later (a review
+   * fix, which links to it). Absent: a fresh one at send.
+   */
+  messageId?: string;
   prompt: string;
   images: ComposerImageAttachment[];
   files: ComposerFileAttachment[];

@@ -64,8 +64,10 @@ import {
 } from "./ReviewFindingCard";
 import { ReviewFixAllDialog } from "./ReviewFixAllDialog";
 import {
+  type ReviewFixChat,
   type ReviewFixRequest,
   resolveReviewFixChat,
+  useRevealReviewFix,
   useSendReviewFixToChat,
 } from "./reviewFixChat";
 import { ReviewPostDialog } from "./ReviewPostDialog";
@@ -98,13 +100,12 @@ export const REVIEW_VERDICT_BADGES: Record<ReviewVerdict, "success" | "info" | "
 export type ReviewFixInChatRequest = ReviewFixRequest;
 
 /**
- * Writes a fix request into the composer of the chat that fixes, unsent. Resolves to that chat
- * when it is not the one beside the view (the pull request page's choice), for marking the
- * findings sent there.
+ * Fix with agent where no chat sits beside the view (the pull request page): sends the request
+ * into the chat it picks, and resolves to where it went, for marking the findings sent there.
  */
 export type ReviewFixInChat = (
   request: ReviewFixInChatRequest,
-) => void | Promise<ReviewFixDestination | null>;
+) => Promise<ReviewFixDestination | null>;
 
 /**
  * Marks a finding the reader stepped to with one fade of the accent, then leaves it as it was. The
@@ -148,7 +149,10 @@ interface ReviewFindingsViewProps {
   readonly posted: ReadonlyMap<string, PostedReviewFinding>;
   /** How the findings are rated, from the review thread's records. */
   readonly ratings: ReadonlyMap<string, ReviewFindingRating>;
-  /** Fix with agent writes into the chat beside the view; without one it picks a session. */
+  /**
+   * Fix with agent for a view with no chat beside it (the pull request page). Absent: the chat
+   * beside the view, or seen from the reviewer itself the chat the review was started from.
+   */
   readonly onFixInChat: ReviewFixInChat | undefined;
   /** Where a new review of the same change starts, when one can. */
   readonly startReview: ReviewStartTarget | null;
@@ -412,6 +416,11 @@ function ReviewFindingsViewContent({
   const fixInReviewThread = source.threadId === threadRef?.threadId;
   const panelThread = useThreadShell(threadRef);
   const markSent = useReviewFixSentStore((state) => state.markSent);
+  const revealFix = useRevealReviewFix();
+  const openSent = useCallback(
+    (destination: ReviewFixDestination) => revealFix(environmentId, destination),
+    [environmentId, revealFix],
+  );
   const sendToChat = useSendReviewFixToChat();
   const fix = useCallback(
     async (selection: ReadonlyArray<ReviewFindingEntry>) => {
@@ -421,24 +430,23 @@ function ReviewFindingsViewContent({
         entries: selection,
       });
       const keys = selection.map((entry) => entry.key);
-      if (!fixInReviewThread && onFixInChat !== undefined) {
+      // The pull request page has its own way to a chat (`onFixInChat`).
+      if (onFixInChat !== undefined) {
         const sent = await onFixInChat(request);
-        const destination =
-          sent ??
-          (threadRef !== null && panelThread !== null
-            ? { threadId: threadRef.threadId, title: panelThread.title }
-            : null);
-        if (destination !== null) markSent(cardKey, keys.map(identityOf), destination);
+        if (sent) markSent(cardKey, keys.map(identityOf), sent);
         return;
       }
-      const chat = resolveReviewFixChat({
-        environmentId,
-        reviewThreadId: source.threadId,
-        projectId,
-        target: findings.target,
-      });
+      const chat: ReviewFixChat | null =
+        !fixInReviewThread && threadRef !== null
+          ? { kind: "thread", ref: threadRef, title: panelThread?.title ?? "this chat" }
+          : resolveReviewFixChat({
+              environmentId,
+              reviewThreadId: source.threadId,
+              projectId,
+              target: findings.target,
+            });
       if (chat === null) return;
-      const destination = await sendToChat(chat, request);
+      const destination = await sendToChat(environmentId, chat, request);
       if (destination !== null) markSent(cardKey, keys.map(identityOf), destination);
     },
     [
@@ -639,6 +647,7 @@ function ReviewFindingsViewContent({
       dismissed={dismissed[entry.key] === true}
       rating={ratings.get(entry.key)}
       sentTo={sent[entry.key]}
+      onOpenSent={openSent}
       showLocation={showLocation}
       {...(commentMode && !posted.has(entry.key)
         ? { ticked: ticks.has(entry.key), onTick: tick }

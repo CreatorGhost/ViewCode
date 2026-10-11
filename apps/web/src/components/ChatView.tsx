@@ -219,7 +219,6 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
-import type { ReviewFixInChatRequest } from "./chat/ReviewFindingsView";
 import { ReviewPanel } from "./chat/ReviewPanel";
 import { REVIEW_FIX_UNDO_OPEN_EVENT, ReviewFixUndoDialog } from "./chat/ReviewFixUndoDialog";
 import { reviewFixUndo } from "@t3tools/client-runtime/review-findings";
@@ -5057,38 +5056,6 @@ export default function ChatView(props: ChatViewProps) {
       useRightPanelStore.getState().close(activeThreadRef);
     }
   }, [activeRightPanelSurface, activeThreadRef]);
-  // "Fix with agent" leaves the request in the composer for the reader to edit and send, so the
-  // chat has to be in view: a maximized panel steps back and a sheet closes.
-  const fixReviewFindingsInChat = useCallback(
-    (request: ReviewFixInChatRequest) => {
-      const store = useComposerDraftStore.getState();
-      // The chips' records go in first, so the text that refers to them finds them.
-      for (const comment of request.comments) {
-        store.addReviewComment(composerDraftTarget, comment, { appendReference: false });
-      }
-      const inserted =
-        composerRef.current?.insertTextAtEnd(request.prompt, { ensureLeadingBoundary: true }) ??
-        false;
-      if (!inserted) {
-        toastManager.add({
-          type: "warning",
-          title: "The composer is not ready",
-          description: "Try again once the connection or pending input is resolved.",
-        });
-        return;
-      }
-      if (shouldUseRightPanelSheet) closePreviewPanel();
-      else setMaximizedRightPanelThreadKey(null);
-      scheduleComposerFocus();
-    },
-    [
-      closePreviewPanel,
-      composerDraftTarget,
-      composerRef,
-      scheduleComposerFocus,
-      shouldUseRightPanelSheet,
-    ],
-  );
   const togglePreviewPanel = useCallback(() => {
     if (!activeThreadRef || !isPreviewSupportedInRuntime()) return;
     if (previewPanelOpen) {
@@ -9928,12 +9895,7 @@ export default function ChatView(props: ChatViewProps) {
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "review" && isServerThread ? (
-      <ReviewPanel
-        key={activeThreadKey}
-        threadRef={activeThreadRef}
-        cwd={gitCwd ?? undefined}
-        onFixInChat={fixReviewFindingsInChat}
-      />
+      <ReviewPanel key={activeThreadKey} threadRef={activeThreadRef} cwd={gitCwd ?? undefined} />
     ) : renderedRightPanelSurface?.kind === "agents" ? (
       <AgentsPanel
         model={agentPanelModel}

@@ -4,6 +4,8 @@ import { create } from "zustand";
 export interface ReviewFixDestination {
   readonly threadId: ThreadId;
   readonly title: string;
+  /** The message the fix went out as, to show it; absent while it waits in a new chat's draft. */
+  readonly messageId?: string | undefined;
 }
 
 /** Which review a card's state belongs to: its thread, whose every set of findings shares it. */

@@ -21,11 +21,7 @@ import {
 } from "../ui/empty";
 import { announceReviewStarted } from "../pullRequest/PullRequestAgentReviewDialog";
 import { ReviewChangeView } from "./ReviewChangeView";
-import {
-  ReviewFindingsView,
-  type ReviewFixInChat,
-  type ReviewFixInChatRequest,
-} from "./ReviewFindingsView";
+import { ReviewFindingsView, type ReviewFixInChat } from "./ReviewFindingsView";
 import { ReviewStatusBar } from "./ReviewProgress";
 import { ReviewStartForm, type ReviewStartTarget, useReviewRetry } from "./ReviewStart";
 import type { ReviewDiffTarget } from "./useReviewDiff";
@@ -138,18 +134,16 @@ export function ReviewSurface({
 /**
  * The Review surface of the right panel: the latest review of this thread (one started from it
  * runs as its child agent; or the newest review of its pull request) and its findings over the
- * change they are about. Findings for fixing go to this thread's composer (`onFixInChat`);
+ * change they are about. Findings for fixing are sent into this chat as the reader's message;
  * findings for somebody else's pull request are posted to it as review comments.
  */
 export function ReviewPanel({
   threadRef,
   cwd,
-  onFixInChat,
 }: {
   threadRef: ScopedThreadRef;
   /** The thread's checkout: where a local review's change is read, and file links resolve. */
   cwd: string | undefined;
-  onFixInChat?: ((request: ReviewFixInChatRequest) => void) | undefined;
 }) {
   const { source, posted, ratings, pullRequests, projectId, review } =
     useReviewFindingsSource(threadRef);
@@ -216,7 +210,7 @@ export function ReviewPanel({
       cwd={cwd}
       change={change}
       startReview={startReview}
-      onFixInChat={onFixInChat}
+      onFixInChat={undefined}
       empty={
         <Empty size="compact">
           <EmptyHeader>

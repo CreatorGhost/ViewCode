@@ -19,6 +19,7 @@ import {
   reviewFindingIdentity,
   reviewFindingMarksByKey,
   reviewFixCandidates,
+  selectReviewFixChat,
   reviewFixUndo,
   reviewHeadMoved,
   reviewPostOverallComment,
@@ -648,6 +649,60 @@ describe("reviewFixCandidates", () => {
     expect(
       reviewFixCandidates({ reviewThread: review, target: PR_TARGET, threads: [review] }),
     ).toEqual({ candidates: [], preselectedId: null });
+  });
+});
+
+describe("selectReviewFixChat", () => {
+  const chat = ThreadId.make("chat");
+  const reviewer = fixThread("review", { parentThreadId: chat });
+
+  it("always picks the chat the review was started from", () => {
+    const choice = selectReviewFixChat({
+      reviewThreadId: reviewer.id,
+      projectId: PROJECT_ID,
+      target: PR_TARGET,
+      threads: [
+        reviewer,
+        fixThread("chat"),
+        // Busier chats on the pull request do not take it over.
+        fixThread("other", {
+          pullRequests: [fixLink(7)],
+          updatedAt: "2026-08-09T00:00:00.000Z",
+        }),
+      ],
+    });
+    expect(choice).toMatchObject({ kind: "thread", thread: { id: "chat" } });
+  });
+
+  it("without a parent, picks the chat working on the change, never one of the reviewer's agents", () => {
+    const topLevel = fixThread("review");
+    const choice = selectReviewFixChat({
+      reviewThreadId: topLevel.id,
+      projectId: PROJECT_ID,
+      target: PR_TARGET,
+      threads: [
+        topLevel,
+        fixThread("lens", {
+          parentThreadId: topLevel.id,
+          pullRequests: [fixLink(7)],
+          updatedAt: "2026-08-09T00:00:00.000Z",
+        }),
+        fixThread("author", { pullRequests: [fixLink(7)] }),
+      ],
+    });
+    expect(choice).toMatchObject({ kind: "thread", thread: { id: "author" } });
+  });
+
+  it("opens a new chat on a local review's checkout when no chat works on it", () => {
+    const local = fixThread("review", { branch: "feature", worktreePath: "/w/f" });
+    expect(
+      selectReviewFixChat({
+        reviewThreadId: local.id,
+        projectId: null,
+        target: { kind: "local" },
+        threads: [local],
+      }),
+    ).toEqual({ kind: "new", projectId: PROJECT_ID, branch: "feature", worktreePath: "/w/f" });
   });
 });
 

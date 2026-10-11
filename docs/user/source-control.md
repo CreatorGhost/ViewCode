@@ -182,13 +182,17 @@ verifies them, marked **Still reviewing…** until its last set arrives. The iss
 the panel goes to the first one, and a row or the arrows go to the next, with each finding under the
 lines it is about (findings without a place in the diff are listed under **General**). Files
 without findings stay folded; **Show all files** opens them. A review that fails says why, with
-**Try again** to start it again as it was asked; one that ends without findings says so. **Fix
-with agent** writes a request to verify and fix the finding into your chat's message box, with its
-lines attached, for you to edit and send. **Fix all** does the same for every open finding, letting
-you untick some first when there are several. Seen from the reviewer itself, or from the pull
-request page, the request goes to the chat the review was started from, else the chat working on
-the pull request, else a new chat on its branch; nothing is ever sent for you. **Dismiss** hides a
-finding until you show dismissed ones again. To review from the panel, pick the depth, model and
+**Try again** to start it again as it was asked; one that ends without findings says so, with
+**Try again** too, and a running review has **Stop**. **Fix with agent** sends your chat a message
+asking it to verify and fix the finding, with its lines attached: at once, or when the chat's
+current step ends if it is working. **Fix all** does the same for every open finding, letting you
+untick some first when there are several. The agent says which it fixed and which it skipped;
+**Sent to …** on a finding shows that message. Seen from the reviewer itself, or from the pull
+request page, the message goes to the chat the review was started from, else the chat working on
+the pull request; with no chat at all, a new chat opens on the branch with the request ready to
+send. **Dismiss** hides a finding until you show dismissed ones again, and like **Sent to …** it
+stays on the finding when the review's next findings arrive. While the review works, **Post all**
+waits for its final findings; a single comment can be posted at any time. To review from the panel, pick the depth, model and
 focus in its empty state, or under **Find issues** for a new review. In a chat with no pull request
 it reviews the chat's own changes, as does **Review my changes** in the command palette: under
 **What to review**, **Auto** reads the uncommitted changes (or the branch when everything is
@@ -202,7 +206,7 @@ rate a finding (click again to take the rating back); ratings follow you to ever
 later reviews of the project lean away from the kinds of findings you turned down.
 
 A fix is an ordinary message in your chat, so you take it back like any other: **Edit from here**
-on that message rewinds the conversation. Sessions started to fix findings by earlier versions can
+on that message rewinds the conversation, or revert the turn's changes. Sessions started to fix findings by earlier versions can
 still be undone with **Undo review fixes** on their first message, or in the command palette.
 
 In the mobile app, a review thread shows a **Review findings** row where its findings arrive. Tap

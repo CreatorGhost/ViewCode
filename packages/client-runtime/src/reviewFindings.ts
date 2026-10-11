@@ -8,6 +8,7 @@ import {
   ReviewStartedActivityPayload,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
+  type ProjectId,
   type PullRequestRef,
   type ReviewBasedOnInput,
   type ReviewFinding,
@@ -596,6 +597,58 @@ export function reviewFixCandidates<T extends FixCandidateThread>(input: {
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   return { candidates, preselectedId: candidates.length === 1 ? candidates[0]!.id : null };
+}
+
+/** Where a review's findings go to be fixed, when the view has no chat beside it. */
+export type ReviewFixChatChoice<T> =
+  | { readonly kind: "thread"; readonly thread: T }
+  | {
+      readonly kind: "new";
+      readonly projectId: ProjectId;
+      readonly branch: string | null;
+      readonly worktreePath: string | null;
+    };
+
+/**
+ * The chat that fixes a review's findings when the view has no chat beside it (the reviewer's own
+ * thread, the pull request page): the chat the review was started from (its parent), else the
+ * chat most recently working on what it reviewed (`reviewFixCandidates`, never an agent), else a
+ * new chat on the reviewed checkout. Null without a project to open one in.
+ */
+export function selectReviewFixChat<
+  T extends FixCandidateThread & Partial<Pick<OrchestrationThreadShell, "kind">>,
+>(input: {
+  readonly reviewThreadId: ThreadId;
+  readonly projectId: ProjectId | null;
+  readonly target: ReviewFindingsTarget;
+  /** The environment's threads, the reviewer among them when it is loaded. */
+  readonly threads: ReadonlyArray<T>;
+}): ReviewFixChatChoice<T> | null {
+  const reviewer = input.threads.find((thread) => thread.id === input.reviewThreadId);
+  const parentId = reviewer?.kind === "sidechat" ? null : (reviewer?.parentThreadId ?? null);
+  const parent =
+    parentId === null ? undefined : input.threads.find((thread) => thread.id === parentId);
+  if (parent !== undefined && parent.archivedAt === null) return { kind: "thread", thread: parent };
+  const projectId = input.projectId ?? reviewer?.projectId ?? null;
+  if (projectId === null) return null;
+  const [chat] = reviewFixCandidates({
+    reviewThread: reviewer ?? {
+      id: input.reviewThreadId,
+      projectId,
+      branch: null,
+      worktreePath: null,
+    },
+    target: input.target,
+    threads: input.threads,
+  }).candidates;
+  if (chat !== undefined) return { kind: "thread", thread: chat };
+  const local = input.target.kind === "local";
+  return {
+    kind: "new",
+    projectId,
+    branch: local ? (reviewer?.branch ?? null) : null,
+    worktreePath: local ? (reviewer?.worktreePath ?? null) : null,
+  };
 }
 
 const decodeFixStarted = Schema.decodeUnknownOption(ReviewFixStartedActivityPayload);

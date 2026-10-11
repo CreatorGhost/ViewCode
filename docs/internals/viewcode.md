@@ -560,14 +560,24 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   without answering therefore ends the review rather than leaving it running. The answer's hop
   from a finished agent to its idle lead is not queued, so the bar can read "ended" for that
   instant.
-- Fix with agent never picks a session: it writes the request into a chat's composer, unsent. The
-  panel beside a chat uses that chat. Seen from the reviewer itself, or from the pull request page
-  (`resolveReviewFixChat`), it is the chat the review was started from (its parent), else the chat
-  most recently working on what was reviewed (`reviewFixCandidates`, which never offers child agents
-  or side chats: a reviewer's lenses are linked to the pull request too), else a new chat on the
-  reviewed checkout (the page's own handoff checks the pull request out first). Which findings were
-  sent where or dismissed is client memory only. `review.startFixThread` is no longer used by web;
-  mobile's fix sheet still starts sessions with it until its own pass.
+- Fix with agent never picks a session: it sends the request into a chat as the reader's own
+  message, through the web composer's queue (`queuedMessageStore`, drained by the root
+  `QueuedMessageSender` whether or not the chat is on screen), so a working chat takes it at its
+  next stopping point exactly as a typed message would. The panel beside a chat uses that chat.
+  Seen from the reviewer itself, or from the pull request page (`selectReviewFixChat`), it is the
+  chat the review was started from (its parent), else the chat most recently working on what was
+  reviewed (`reviewFixCandidates`, which never offers child agents or side chats: a reviewer's
+  lenses are linked to the pull request too); only with no chat at all does a new one open, on the
+  reviewed checkout, with the request in its draft for the reader to send (a draft has no thread to
+  queue for). The queued message carries its own `messageId`, which the finding's "Sent to …" link
+  uses to scroll that chat's timeline to it (`timelineMessageFocusStore`); whether a finding was
+  fixed or skipped is the agent's answer there, not tracked state.
+- The reader's marks on findings (dismissed, sent to a chat) are client memory keyed by review
+  thread and `reviewFindingIdentity` (path, lines, title), and the server's posted records are
+  matched by the same identity across a review's sets (`postedReviewFindings`), because a review
+  now sends several: keyed by set, a finding posted from the early set was unposted in the final
+  one and Post all posted it twice. Post all also waits for the final set. `review.startFixThread`
+  is no longer used by web; mobile's fix sheet still starts sessions with it until its own pass.
 - Undoing a fix sent into a chat is the chat's own rewind (Edit from here), since it is an ordinary
   turn there. `ReviewFixThread.undo` (`review.undoFixes`, capability `reviewFixUndo`) remains for
   sessions `review.startFixThread` started: `thread.checkpoint.revert` to the turn count a hidden

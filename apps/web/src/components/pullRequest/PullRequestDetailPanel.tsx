@@ -80,7 +80,7 @@ import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
 import { buildPhysicalToLogicalProjectKeyMap } from "~/sidebarProjectGrouping";
-import { useProjects, useServerConfigs } from "~/state/entities";
+import { readThreadShell, useProjects, useServerConfigs } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
@@ -1356,21 +1356,30 @@ export function PullRequestDetailPanel({
   };
 
   /**
-   * Fix with agent from the Review tab: into the composer of the chat beside the panel; without
-   * one, of the chat the review was started from or the chat most recently working on this pull
-   * request; only with none of those a new chat on the pull request's checkout. Never sent, never a
-   * choice of sessions.
+   * Fix with agent from the Review tab: sent into the chat beside the panel; without one, into the
+   * chat the review was started from or the chat most recently working on this pull request; only
+   * with none of those a new chat on the pull request's checkout, with the request in its message
+   * box. Never a choice of sessions.
    */
   const fixReviewFindings = async (
     request: ReviewFixInChatRequest,
   ): Promise<ReviewFixDestination | null> => {
+    if (attachTarget !== null && typeof attachTarget === "object") {
+      const title = readThreadShell(attachTarget)?.title ?? "this chat";
+      return sendReviewFixToChat(
+        actingEnvironmentId,
+        { kind: "thread", ref: attachTarget, title },
+        request,
+      );
+    }
     const task = { prompt: request.prompt, reviewComments: request.comments };
     if (attachTarget !== null) {
+      // A chat not started yet has no thread to send to: the reader sends it.
       writeTaskToComposer(attachTarget, task);
       toastManager.add({
         type: "success",
-        title: "Added to the composer",
-        description: "The fix request is in the composer — read it over, then send.",
+        title: "Added to the message box",
+        description: "Read the fix request over, then send.",
       });
       return null;
     }
@@ -1384,7 +1393,7 @@ export function PullRequestDetailPanel({
             projectId: actingProjectId,
             target: source.findings.target,
           });
-    if (chat?.kind === "thread") return sendReviewFixToChat(chat, request);
+    if (chat?.kind === "thread") return sendReviewFixToChat(actingEnvironmentId, chat, request);
     await startHandoff("review-fix", task);
     return null;
   };
