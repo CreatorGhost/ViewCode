@@ -294,6 +294,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["fold tool calls commands work summary worked for transcript"],
   },
   {
+    id: "header-actions",
+    title: "Actions and Git in the top bar",
+    to: "/settings/appearance",
+    searchTerms: ["add action scripts commit push pull request header toolbar buttons hide"],
+  },
+  {
     id: "read-aloud-engine",
     title: "Read aloud engine",
     to: "/settings/appearance",
