@@ -492,11 +492,17 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   that message also asks for each `detail` written as the comment itself, in the reading account's
   style from server settings (`pullRequestReviewStyles`, keyed by `reviewStyleKey`: host and login),
   since the reviewer runs on the server whichever client started it.
-- Fix to an existing session goes through the web composer's queue (in memory; it sends now, at
-  the next tool boundary, or at turn end for providers that cannot steer), because the server has
-  no queue for user turns and inventing one would fork that behaviour. Only a new session is a
-  server method (`ReviewFixThread.start`, `review.startFixThread`), which checks the pull request
-  out into a worktree of its own. Which findings were sent where is client memory only.
+- Findings live in the web Review panel (a right-panel surface), not in the transcript. Thread
+  shells carry no activities, so a thread without findings of its own finds a linked review by
+  subscribing to the activities of up to five other threads linked to the same pull request, and
+  only while the panel is open. From a thread working on the pull request, Fix with agent writes an
+  editable request into that thread's composer; it never sends.
+- Fix from the review thread itself goes to another session: an existing one through the web
+  composer's queue (in memory; it sends now, at the next tool boundary, or at turn end for
+  providers that cannot steer), because the server has no queue for user turns and inventing one
+  would fork that behaviour. Only a new session is a server method (`ReviewFixThread.start`,
+  `review.startFixThread`), which checks the pull request out into a worktree of its own. Which
+  findings were sent where, dismissed or rated is client memory only.
 - Posting findings (`ReviewFindingsPoster.post`, `review.postFindings`) is one
   `PullRequestService.submitReview`, the pull request page's own path: a host refuses the whole
   review over one comment on a line its diff does not show, so the server reads the diff first and
