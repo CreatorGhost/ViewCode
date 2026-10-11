@@ -1,20 +1,29 @@
 import type { CodeViewItem, DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
 import type { CodeViewDiffItem, CodeViewHandle } from "@pierre/diffs/react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type {
   ProjectId,
-  ReviewFindingToFix,
+  PullRequestReviewVerdict,
   ReviewFindingsTarget,
   ReviewVerdict,
   ScopedThreadRef,
 } from "@t3tools/contracts";
-import { REVIEW_VERDICT_LABELS } from "@t3tools/shared/reviewFindings";
+import {
+  type PostedReviewFinding,
+  REVIEW_VERDICT_LABELS,
+  reviewFindingsMode,
+} from "@t3tools/shared/reviewFindings";
 import { Link } from "@tanstack/react-router";
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ListChecksIcon,
+  MessageSquarePlusIcon,
   WrenchIcon,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,13 +32,17 @@ import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { fnv1a32, resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
+import { reviewEnvironment } from "../../state/review";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { StyledDiffCodeView } from "../diffs/StyledDiffCodeView";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
-import { ReviewFindingCard } from "./ReviewFindingCard";
+import { toastManager } from "../ui/toast";
+import { type ReviewFindingAction, ReviewFindingCard } from "./ReviewFindingCard";
 import { ReviewFixDialog, type ReviewFixItem } from "./ReviewFixDialog";
+import { ReviewPostDialog } from "./ReviewPostDialog";
 import {
   placeReviewFindings,
   type PlacedReviewFinding,
@@ -52,14 +65,6 @@ export const REVIEW_VERDICT_BADGES: Record<ReviewVerdict, "success" | "info" | "
   "approve-with-nits": "info",
   "request-changes": "warning",
 };
-
-/** What a reviewer-mode client posts to the pull request: some findings of one set. */
-export interface ReviewPostRequest {
-  readonly reviewThreadRef: ScopedThreadRef;
-  readonly activityId: string;
-  readonly target: ReviewFindingsTarget;
-  readonly findings: ReadonlyArray<ReviewFindingToFix>;
-}
 
 /** A request for this thread's composer and the chip records its text refers to. */
 export type ReviewFixInChatRequest = ReturnType<typeof reviewFindingsFixPrompt>;
@@ -90,22 +95,34 @@ interface ReviewFindingsViewProps {
   readonly source: ReviewFindingsSource;
   readonly projectId: ProjectId | null;
   readonly cwd: string | undefined;
-  readonly onPost: ((request: ReviewPostRequest) => void) | undefined;
+  readonly posted: ReadonlyMap<string, PostedReviewFinding>;
   readonly onFixInChat: ((request: ReviewFixInChatRequest) => void) | undefined;
 }
 
-// The source is recomputed whenever any thread changes; the view only cares when the set or
-// the reviewing thread's title does, and a redraw would rebuild every annotation in the diff.
+function postedEqual(
+  left: ReadonlyMap<string, PostedReviewFinding>,
+  right: ReadonlyMap<string, PostedReviewFinding>,
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const [key, entry] of left) {
+    const other = right.get(key);
+    if (other?.placement !== entry.placement || other.url !== entry.url) return false;
+  }
+  return true;
+}
+
+// The source and the posted record are recomputed whenever any thread changes; the view only
+// cares when what they say does, and a redraw would rebuild every annotation in the diff.
 const ReviewFindingsView = memo(
   ReviewFindingsViewContent,
   (previous, next) =>
     previous.threadRef === next.threadRef &&
     previous.projectId === next.projectId &&
     previous.cwd === next.cwd &&
-    previous.onPost === next.onPost &&
     previous.onFixInChat === next.onFixInChat &&
     previous.source.activityId === next.source.activityId &&
-    previous.source.threadTitle === next.source.threadTitle,
+    previous.source.threadTitle === next.source.threadTitle &&
+    postedEqual(previous.posted, next.posted),
 );
 
 function ReviewFindingsViewContent({
@@ -113,7 +130,7 @@ function ReviewFindingsViewContent({
   source,
   projectId,
   cwd,
-  onPost,
+  posted,
   onFixInChat,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
@@ -194,20 +211,64 @@ function ReviewFindingsViewContent({
     [cardKey, rateFor],
   );
 
-  // One action identity per set, so the memoized cards do not redraw for it.
-  const post = useCallback(
-    (keys: ReadonlyArray<ReviewFindingKey>) => {
-      if (!onPost) return;
-      onPost({
-        reviewThreadRef,
-        activityId: source.activityId,
-        target: findings.target,
-        findings: entries
-          .filter((entry) => keys.includes(entry.key))
-          .map((entry) => fixItem(entry).item),
-      });
+  // Somebody else's pull request: findings are posted to it as review comments, not fixed.
+  const pullRequestTarget = findings.target.kind === "pull-request" ? findings.target : null;
+  const commentMode = reviewFindingsMode(findings) === "comment" && pullRequestTarget !== null;
+  const postFindings = useAtomCommand(reviewEnvironment.postFindings, { reportFailure: false });
+  const [posting, setPosting] = useState<ReadonlyArray<ReviewFindingEntry> | null>(null);
+  const [busyKeys, setBusyKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const submitPost = async (
+    selection: ReadonlyArray<ReviewFindingEntry>,
+    input: { verdict: PullRequestReviewVerdict; overallComment: string },
+  ): Promise<boolean> => {
+    if (pullRequestTarget === null) return false;
+    const keys = selection.map((entry) => entry.key);
+    setBusyKeys(new Set(keys));
+    const result = await postFindings({
+      environmentId,
+      input: {
+        reviewThreadId: source.threadId,
+        findingsActivityId: source.activityId,
+        target: pullRequestTarget,
+        verdict: input.verdict,
+        overallComment: input.overallComment,
+        findings: selection.map((entry) => ({ key: entry.key, finding: entry.finding })),
+      },
+    });
+    setBusyKeys(new Set());
+    if (result._tag === "Failure") {
+      if (isAtomCommandInterrupted(result)) return false;
+      const error = squashAtomCommandFailure(result);
+      const message = error instanceof Error ? error.message : "Could not post the review.";
+      // A review is one request, so its failure is every finding's it carried.
+      setFailures(
+        (current) => new Map([...current, ...keys.map((key) => [key, message] as const)]),
+      );
+      toastManager.add({ type: "error", title: "Could not post the review", description: message });
+      return false;
+    }
+    setFailures(
+      (current) =>
+        new Map([...current].filter(([key]) => !keys.some((sentKey) => sentKey === key))),
+    );
+    setTicks(new Set());
+    toastManager.add({
+      type: "success",
+      title: selection.length === 1 ? "Posted the finding" : `Posted ${selection.length} findings`,
+      actionProps: {
+        children: "Open pull request",
+        onClick: () => window.open(result.value.url, "_blank", "noopener,noreferrer"),
+      },
+    });
+    return true;
+  };
+  // The cards' action keeps one identity per set, so the memoized cards do not redraw for it.
+  const startPost = useCallback(
+    (keys: ReadonlyArray<string>) => {
+      setPosting(entries.filter((entry) => keys.includes(entry.key)));
     },
-    [entries, findings.target, onPost, reviewThreadRef, source.activityId],
+    [entries, setPosting],
   );
   // Fixing happens in the chat beside the panel, as a request the reader sends themselves; the
   // review thread itself does not fix (reviewers do not), so there it picks a session instead.
@@ -223,16 +284,16 @@ function ReviewFindingsViewContent({
     },
     [fixInReviewThread, onFixInChat, source.activityId],
   );
-  const cardAction = useMemo(
+  const cardAction = useMemo<ReviewFindingAction>(
     () =>
-      onPost
-        ? { label: "Post comment", run: (key: ReviewFindingKey) => post([key]) }
+      commentMode
+        ? { kind: "post", label: "Post comment", run: (key) => startPost([key]) }
         : {
+            kind: "fix",
             label: "Fix with agent",
-            run: (key: ReviewFindingKey) =>
-              fix(entries.filter((candidate) => candidate.key === key)),
+            run: (key) => fix(entries.filter((candidate) => candidate.key === key)),
           },
-    [entries, fix, onPost, post],
+    [commentMode, entries, fix, startPost],
   );
 
   const filesWithFindings = useMemo(() => new Set(placed.map((entry) => entry.fileKey)), [placed]);
@@ -306,6 +367,9 @@ function ReviewFindingsViewContent({
               ticks.has(key) ? "t" : "",
               ratings[key] ?? "",
               sent[key]?.title ?? "",
+              busyKeys.has(key) ? "b" : "",
+              posted.get(key)?.placement ?? "",
+              failures.get(key) ?? "",
             ].join(""),
           )
           .join("|");
@@ -319,12 +383,15 @@ function ReviewFindingsViewContent({
         };
       }),
     [
+      busyKeys,
       currentKey,
       diff.files,
       dismissed,
       expanded,
+      failures,
       filesWithFindings,
       placed,
+      posted,
       ratings,
       sent,
       ticks,
@@ -370,11 +437,16 @@ function ReviewFindingsViewContent({
       rating={ratings[entry.key]}
       sentTo={sent[entry.key]}
       showLocation={showLocation}
-      {...(onPost ? { ticked: ticks.has(entry.key), onTick: tick } : {})}
+      {...(commentMode && !posted.has(entry.key)
+        ? { ticked: ticks.has(entry.key), onTick: tick }
+        : {})}
       onToggleExpanded={toggleExpanded}
       onDismiss={dismiss}
       onRate={rate}
       action={cardAction}
+      busy={busyKeys.has(entry.key)}
+      posted={posted.get(entry.key)}
+      failure={failures.get(entry.key)}
       markdownCwd={cwd}
       threadRef={threadRef}
     />
@@ -410,16 +482,20 @@ function ReviewFindingsViewContent({
     [toggleFile],
   );
 
-  const tickedKeys = order.filter((key) => ticks.has(key));
-  const primary = onPost
-    ? {
-        label: tickedKeys.length > 0 ? `Post ${tickedKeys.length} selected` : "Post all",
-        run: () => post(tickedKeys.length > 0 ? tickedKeys : openEntries.map((entry) => entry.key)),
-      }
-    : {
-        label: "Fix all",
-        run: () => fix(openEntries),
-      };
+  const tickedKeys = order.filter((key) => ticks.has(key) && !posted.has(key));
+  const unposted = openEntries.filter((entry) => !posted.has(entry.key));
+  const primary = commentMode
+    ? tickedKeys.length > 0
+      ? { label: `Post selected (${tickedKeys.length})`, run: () => startPost(tickedKeys) }
+      : {
+          label: `Post all (${unposted.length})`,
+          run: () => startPost(unposted.map((entry) => entry.key)),
+        }
+    : { label: "Fix all", run: () => fix(openEntries) };
+  const primaryDisabled = commentMode
+    ? (tickedKeys.length === 0 && unposted.length === 0) || busyKeys.size > 0
+    : openEntries.length === 0;
+  const placedKeys = new Set(placed.map((entry) => entry.entry.key));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -466,8 +542,8 @@ function ReviewFindingsViewContent({
             <ChevronRightIcon aria-hidden />
           </Button>
         </span>
-        <Button type="button" size="xs" disabled={openEntries.length === 0} onClick={primary.run}>
-          <WrenchIcon aria-hidden />
+        <Button type="button" size="xs" disabled={primaryDisabled} onClick={primary.run}>
+          {commentMode ? <MessageSquarePlusIcon aria-hidden /> : <WrenchIcon aria-hidden />}
           {primary.label}
         </Button>
       </header>
@@ -536,29 +612,38 @@ function ReviewFindingsViewContent({
           onClose={() => setFixing(null)}
         />
       ) : null}
+      {posting !== null ? (
+        <ReviewPostDialog
+          entries={posting}
+          verdict={findings.verdict}
+          // The server has the last word, from the pull request's own diff; this is the panel's.
+          placementOf={(entry) => (placedKeys.has(entry.key) ? "inline" : "body")}
+          markdownCwd={cwd}
+          onPost={(input) => submitPost(posting, input)}
+          onClose={() => setPosting(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
 /**
  * The Review surface of the right panel: the latest findings for this thread (its own, or those
- * of the newest review of its pull request) over the change they are about. `onPost` turns it
- * into reviewer mode, where findings are posted to the pull request instead of fixed; it is only
- * given where posting is available. `onFixInChat` puts a fix request into this thread's composer.
+ * of the newest review of its pull request) over the change they are about. Findings for fixing
+ * go to this thread's composer (`onFixInChat`); findings for somebody else's pull request are
+ * posted to it as review comments.
  */
 export function ReviewPanel({
   threadRef,
   cwd,
-  onPost,
   onFixInChat,
 }: {
   threadRef: ScopedThreadRef;
   /** The thread's checkout: where a local review's change is read, and file links resolve. */
   cwd: string | undefined;
-  onPost?: ((request: ReviewPostRequest) => void) | undefined;
   onFixInChat?: ((request: ReviewFixInChatRequest) => void) | undefined;
 }) {
-  const { source, projectId } = useReviewFindingsSource(threadRef);
+  const { source, posted, projectId } = useReviewFindingsSource(threadRef);
   if (source === null) {
     return (
       <Empty size="compact">
@@ -582,7 +667,7 @@ export function ReviewPanel({
       source={source}
       projectId={projectId}
       cwd={cwd}
-      onPost={onPost}
+      posted={posted}
       onFixInChat={onFixInChat}
     />
   );

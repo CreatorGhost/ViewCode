@@ -14,6 +14,7 @@ import {
   placeReviewFindings,
   reviewFindingEntries,
   reviewFindingsFixPrompt,
+  reviewPostOverallComment,
   reviewSourceCandidates,
   selectReviewFindingsSource,
 } from "./reviewPanel.logic";
@@ -288,5 +289,25 @@ describe("reviewFindingsFixPrompt", () => {
     expect(prompt).toContain("1. [a.ts L12 to L14]");
     expect(prompt).toContain("2. [README.md file](t3-context://v1/review-comment/");
     expect(prompt).toContain("The reviewer could not settle this one.");
+  });
+});
+
+describe("reviewPostOverallComment", () => {
+  const entry = (title: string, severity: "blocker" | "important" | "nit", check = false) => ({
+    key: check ? ("check:0" as const) : ("finding:0" as const),
+    needsChecking: check,
+    finding: { severity, confidence: 80, path: "a.ts", title, detail: "Detail." },
+  });
+
+  it("starts from the verdict and the two most severe settled findings", () => {
+    expect(
+      reviewPostOverallComment("request-changes", [
+        entry("A nit", "nit"),
+        entry("Unsettled blocker", "blocker", true),
+        entry("Important one", "important"),
+        entry("A blocker", "blocker"),
+      ]),
+    ).toBe("Request changes.\n\n- A blocker\n- Important one");
+    expect(reviewPostOverallComment("approve", [])).toBe("Approve.");
   });
 });

@@ -1,16 +1,19 @@
 import type { ReviewFindingSeverity, ScopedThreadRef } from "@t3tools/contracts";
 import {
   fencedCode,
+  type PostedReviewFinding,
   REVIEW_FINDING_SEVERITY_LABELS,
   reviewFindingLocation,
 } from "@t3tools/shared/reviewFindings";
 import {
+  CheckIcon,
   CircleHelpIcon,
   InfoIcon,
   OctagonAlertIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
   TriangleAlertIcon,
+  MessageSquarePlusIcon,
   WrenchIcon,
 } from "lucide-react";
 import { memo } from "react";
@@ -47,6 +50,13 @@ function isLongDetail(detail: string): boolean {
   return detail.length > 320 || detail.split("\n").length > 4;
 }
 
+/** A finding's main action: fixing it, or posting it to somebody else's pull request. */
+export interface ReviewFindingAction {
+  readonly kind: "fix" | "post";
+  readonly label: string;
+  readonly run: (key: ReviewFindingKey) => void;
+}
+
 export interface ReviewFindingCardProps {
   readonly entry: ReviewFindingEntry;
   /** The finding Previous and Next are on. */
@@ -64,7 +74,13 @@ export interface ReviewFindingCardProps {
   readonly onDismiss: (key: ReviewFindingKey, dismissed: boolean) => void;
   readonly onRate: (key: ReviewFindingKey, rating: ReviewFindingRating) => void;
   /** The finding's main action: fix it, or in reviewer mode post it. */
-  readonly action: { readonly label: string; readonly run: (key: ReviewFindingKey) => void };
+  readonly action: ReviewFindingAction;
+  /** A post of this finding is under way. */
+  readonly busy: boolean;
+  /** Where this finding was posted, from the review thread's record. */
+  readonly posted: PostedReviewFinding | undefined;
+  /** Why the last attempt to post it failed. */
+  readonly failure: string | undefined;
   readonly markdownCwd: string | undefined;
   readonly threadRef: ScopedThreadRef;
 }
@@ -87,6 +103,9 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
   onDismiss,
   onRate,
   action,
+  busy,
+  posted,
+  failure,
   markdownCwd,
   threadRef,
 }: ReviewFindingCardProps) {
@@ -165,11 +184,38 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
               skills={NO_SKILLS}
             />
           ) : null}
+          {failure ? (
+            <p role="alert" className="text-destructive-foreground text-xs">
+              {failure}
+            </p>
+          ) : null}
           <div className="flex min-w-0 items-center gap-1">
-            <Button type="button" size="xs" variant="outline" onClick={() => action.run(key)}>
-              <WrenchIcon aria-hidden />
-              {action.label}
-            </Button>
+            {posted ? (
+              <a
+                href={posted.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-w-0 items-center gap-1 text-muted-foreground text-xs hover:text-foreground"
+              >
+                <CheckIcon aria-hidden className="size-3.5 shrink-0" />
+                {posted.placement === "inline" ? "Posted on its line" : "Posted in the review"}
+              </a>
+            ) : (
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                disabled={busy}
+                onClick={() => action.run(key)}
+              >
+                {action.kind === "post" ? (
+                  <MessageSquarePlusIcon aria-hidden />
+                ) : (
+                  <WrenchIcon aria-hidden />
+                )}
+                {action.label}
+              </Button>
+            )}
             <Button
               type="button"
               size="xs"

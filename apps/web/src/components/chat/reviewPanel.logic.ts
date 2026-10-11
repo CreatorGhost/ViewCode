@@ -8,7 +8,12 @@ import {
   type ThreadPullRequestKey,
 } from "@t3tools/contracts";
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { fencedCode, readReviewFindings } from "@t3tools/shared/reviewFindings";
+import {
+  fencedCode,
+  readReviewFindings,
+  REVIEW_FINDING_SEVERITIES,
+  REVIEW_VERDICT_LABELS,
+} from "@t3tools/shared/reviewFindings";
 import {
   threadPullRequestKeysEqual,
   visibleThreadPullRequests,
@@ -34,7 +39,7 @@ interface ThreadFindings {
 export interface ReviewFindingsSource {
   readonly threadId: ThreadId;
   readonly threadTitle: string;
-  readonly activityId: string;
+  readonly activityId: OrchestrationThreadActivity["id"];
   readonly createdAt: string;
   readonly findings: ReviewFindingsActivityPayload;
 }
@@ -280,4 +285,26 @@ export function reviewFindingsFixPrompt(input: {
     ].join("\n\n"),
     comments,
   };
+}
+
+/**
+ * Where a posted review's own text starts until the reader rewrites it: the reviewer's verdict,
+ * then the two most severe findings being posted, the settled ones first.
+ */
+export function reviewPostOverallComment(
+  verdict: ReviewFindingsActivityPayload["verdict"],
+  entries: ReadonlyArray<ReviewFindingEntry>,
+): string {
+  const top = entries
+    .toSorted(
+      (left, right) =>
+        Number(left.needsChecking) - Number(right.needsChecking) ||
+        REVIEW_FINDING_SEVERITIES.indexOf(left.finding.severity) -
+          REVIEW_FINDING_SEVERITIES.indexOf(right.finding.severity),
+    )
+    .slice(0, 2)
+    .map((entry) => `- ${entry.finding.title}`);
+  return [`${REVIEW_VERDICT_LABELS[verdict]}.`, ...(top.length > 0 ? [top.join("\n")] : [])].join(
+    "\n\n",
+  );
 }

@@ -173,7 +173,10 @@ under **General**, and the arrows step from one finding to the next. **Fix with 
 all**) writes a request to verify and fix the findings into this thread's message box, with their
 lines attached, for you to edit and send. In the review thread itself it instead sends them to a
 session already working on the pull request or to a new session on its branch in a worktree of its
-own. **Dismiss** hides a finding until you show dismissed ones again.
+own. **Dismiss** hides a finding until you show dismissed ones again. For a review of somebody
+else's pull request the findings are review comments instead: **Post comment** posts one, and
+**Post all** or **Post selected** posts several as one review, each time after you choose what to
+submit it as and write its overall comment. Posted findings link to the pull request.
 
 ### Mark files as viewed
 
