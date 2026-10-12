@@ -290,6 +290,13 @@ describe("reviewProgress", () => {
     expect(reviewProgress({ run: { kind: "ended" }, findings: { complete: true } })).toEqual({
       kind: "done",
     });
+    // A reviewer whose session errored after its final findings (a server restart) is done.
+    expect(
+      reviewProgress({
+        run: { kind: "failed", error: "Provider session did not survive a server restart." },
+        findings: { complete: true },
+      }),
+    ).toEqual({ kind: "done" });
     expect(reviewProgress({ run: { kind: "running" }, findings: partial })).toEqual({
       kind: "running",
       partial: true,

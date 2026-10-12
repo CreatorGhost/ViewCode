@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { formatReviewDuration, formatReviewElapsed } from "@t3tools/client-runtime/agent-review";
+import { reviewProgress } from "@t3tools/client-runtime/review-findings";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   SPAWNED_AGENT_STATUS_LABEL,
@@ -28,6 +29,7 @@ import {
   useMinuteClock,
   useReviewerRun,
 } from "../review/agent/useAgentReviews";
+import { useReviewThreadFindings } from "../review/findings/useReviewThreadFindings";
 import type { AgentChatterHeaderEntry } from "./agentChatter";
 import { ThreadDisclosureChevron } from "./thread-work-log";
 
@@ -228,6 +230,8 @@ interface SpawnedReview {
   readonly label: string;
   /** Its reviewer or an agent it started is at work (`reviewRunState`). */
   readonly running: boolean;
+  /** It sent its final findings (`reviewProgress`). */
+  readonly done: boolean;
   readonly onOpen: () => void;
 }
 
@@ -254,18 +258,22 @@ function ReviewAgentRow(props: {
 }) {
   const { sent, environmentId } = props;
   const navigation = useNavigation();
-  const shell = useThreadShell(
-    useMemo(
-      () => scopeThreadRef(environmentId, ThreadId.make(sent.toThreadId)),
-      [environmentId, sent.toThreadId],
-    ),
+  const ref = useMemo(
+    () => scopeThreadRef(environmentId, ThreadId.make(sent.toThreadId)),
+    [environmentId, sent.toThreadId],
   );
+  const { shell, source } = useReviewThreadFindings(ref);
   const { run } = useReviewerRun(environmentId, shell);
+  // Read as its findings screen reads it: a review that sent its final findings is done, even if
+  // its reviewer's session errored afterwards (a server restart while its last turn wrapped up).
+  const progress =
+    run === null ? null : reviewProgress({ run, findings: source?.findings ?? null });
   const chatId = shell?.parentThreadId ?? null;
   const review = useMemo<SpawnedReview>(
     () => ({
       label: agentReviewModeLabel(props.mode),
-      running: run?.kind === "running",
+      running: progress?.kind === "running",
+      done: progress?.kind === "done",
       onOpen: () =>
         navigation.navigate("ThreadReviewFindings", {
           environmentId,
@@ -273,7 +281,7 @@ function ReviewAgentRow(props: {
           ...(chatId === null ? {} : { fromThreadId: chatId }),
         }),
     }),
-    [chatId, environmentId, navigation, props.mode, run?.kind, sent.toThreadId],
+    [chatId, environmentId, navigation, progress?.kind, props.mode, sent.toThreadId],
   );
   return <AgentRow sent={sent} environmentId={environmentId} review={review} />;
 }
@@ -302,7 +310,11 @@ function AgentRow(props: {
     .get(environmentId)
     ?.providers.find((candidate) => candidate.instanceId === instanceId);
   const status: SpawnedAgentRowStatus | null =
-    review?.running === true ? "running" : resolveSpawnedAgentRowStatus(shell, sent.delivery);
+    review?.running === true
+      ? "running"
+      : review?.done === true
+        ? "done"
+        : resolveSpawnedAgentRowStatus(shell, sent.delivery);
   const lastTurn = spawnedAgentElapsedRange(shell);
   const live = status === "running" && lastTurn !== null && lastTurn.endMs === null;
   const nowMs = useSecondTicker(live && review === null);
