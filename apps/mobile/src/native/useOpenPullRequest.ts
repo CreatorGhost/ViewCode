@@ -47,7 +47,9 @@ export function useOpenPullRequest(options?: {
       if (!destination) return tryOpenExternalUrl(url, "pull-request");
       // ViewCode: an agent review started from the PR runs as the chat it was opened from.
       const params = threadId ? { ...destination, threadId } : destination;
-      if (Platform.OS === "android")
+      // ViewCode: a PR opened from a chat stacks above it, so Back returns to the chat; a PR
+      // opened from the list or another PR takes the workspace's single detail slot.
+      if (Platform.OS === "android" && !threadId)
         navigation.dispatch((state) =>
           CommonActions.reset(
             androidWorkspaceNavigationState(state, { name: "PullRequest", params }),
