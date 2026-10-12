@@ -5,6 +5,7 @@ import {
   canPerformPullRequestAction,
   mergeSummary,
   mergeUnavailableReason,
+  reviewSummaryRequired,
   ALL_PR_ACTIONS,
 } from "./pullRequestActions";
 
@@ -117,5 +118,13 @@ describe("mobile pull request actions", () => {
     expect(canPerformPullRequestAction(pr, "merge")).toBe(false);
     expect(canPerformPullRequestAction(pr, "enable-auto-merge")).toBe(false);
     expect(mergeUnavailableReason(pr, true)).toContain("no available merge methods");
+  });
+});
+
+describe("reviewSummaryRequired", () => {
+  it("asks only Forgejo for a summary, and only when requesting changes", () => {
+    expect(reviewSummaryRequired("forgejo", "request-changes")).toBe(true);
+    expect(reviewSummaryRequired("forgejo", "approve")).toBe(false);
+    expect(reviewSummaryRequired("github", "request-changes")).toBe(false);
   });
 });

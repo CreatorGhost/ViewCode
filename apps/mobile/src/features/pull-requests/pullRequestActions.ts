@@ -3,6 +3,7 @@ import type {
   PullRequestAction,
   PullRequestDetail,
   PullRequestMergeMethod,
+  PullRequestReviewVerdict,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import type { AppSymbolName } from "../../components/AppSymbol";
@@ -139,6 +140,15 @@ export function mergeSummary(
   if (mergeUnavailableReason(pr, connectionAllowsWrites)) return "Unavailable";
   return `${methodLabel}${pr.autoMergeEnabled === false ? " · auto-merge off" : ""}`;
 }
+
+/**
+ * Forgejo requires a summary when requesting changes, even with inline comments. Upstream asks
+ * the host's client definition; ViewCode has no per-host client packages.
+ */
+export const reviewSummaryRequired = (
+  provider: SourceControlProviderKind,
+  verdict: PullRequestReviewVerdict,
+) => provider === "forgejo" && verdict === "request-changes";
 
 export const openOnProviderLabel = (provider: SourceControlProviderKind) =>
   `Open on ${resolveChangeRequestPresentation({ kind: provider, name: "", baseUrl: "" }).providerName}`;
