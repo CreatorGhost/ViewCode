@@ -5,6 +5,7 @@ import {
   connectionRouteId,
   connectionRouteLabel,
   connectionRoutes,
+  isLearned,
 } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -68,7 +69,10 @@ export function EnvironmentRoutesSection({
           count={routes.length}
           inUse={connectionRouteId(route.target) === activeRouteId}
           // The last route goes with the machine, which is "Remove" on the row.
-          onRemove={routes.length > 1 ? () => confirmRemove(route) : undefined}
+          // A learned route would be learned again, so it cannot be removed.
+          onRemove={
+            routes.length > 1 && !isLearned(route) ? () => confirmRemove(route) : undefined
+          }
         />
       ))}
       <Pressable
@@ -100,6 +104,7 @@ function RouteRow(props: {
         accessibilityLabel={[
           label,
           address,
+          isLearned(route) ? "Found automatically" : null,
           props.inUse ? "In use" : null,
           `Route ${props.position} of ${props.count}`,
         ]
@@ -115,7 +120,7 @@ function RouteRow(props: {
         </View>
         {address !== null ? (
           <Text numberOfLines={1} className="text-sm text-foreground-muted">
-            {address}
+            {isLearned(route) ? `${address} · found automatically` : address}
           </Text>
         ) : null}
       </View>

@@ -160,7 +160,16 @@ A machine can have more than one route: LAN, Tailscale, a public URL, SSH, or
 T3 Connect. To add one, choose **Add route** in the machine's route list, or
 next to it in the T3 Connect list. Pairing the same machine again over another
 address also adds a route instead of a second machine. A new route is placed by
-speed, in that order, and you can reorder routes at any time.
+speed, in that order. On web and desktop you can reorder routes at any time.
+
+While connected through T3 Connect or a paired address, T3 Code also learns the
+machine's current LAN and Tailscale addresses and adds them as routes, so
+pairing once over Tailscale, Quick connect, or T3 Connect is enough to use the
+LAN at home. When the
+machine's LAN address changes, for example after it joins another Wi-Fi network,
+the learned route follows it. The machine must allow network access for its LAN
+address to be learned. A learned route cannot be removed; it goes away with the route it was learned through, or when the machine stops
+reporting that address.
 
 T3 Code connects over the first route that answers. Away from home, a LAN
 address that does not answer is checked briefly and skipped. It is only tried
