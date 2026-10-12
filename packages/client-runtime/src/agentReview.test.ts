@@ -11,6 +11,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   localReviewDiffRequest,
   reviewedChangeLabel,
+  reviewNoChangesText,
   reviewStopPlan,
   type AgentReviewChanges,
   agentReviewRetryRequest,
@@ -182,6 +183,16 @@ describe("the change a review shows", () => {
       "Commit 7523ce0",
     );
     expect(reviewedChangeLabel(local, { kind: "uncommitted" }, null)).toBe("Uncommitted changes");
+  });
+
+  it("says why an empty branch diff is empty", () => {
+    const local = { kind: "local" } as const;
+    expect(reviewNoChangesText(local, { kind: "branch" }, "origin/dev")).toBe(
+      "No commits in branch vs origin/dev here. If the work is not committed yet, review Uncommitted instead.",
+    );
+    expect(reviewNoChangesText(local, { kind: "uncommitted" }, null)).toBe(
+      "No uncommitted changes here.",
+    );
   });
 });
 

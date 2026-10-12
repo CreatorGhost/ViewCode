@@ -183,6 +183,8 @@ export const ReviewWorkLine = memo(function ReviewWorkLine({
   return line === null ? null : <span className="min-w-0 truncate ps-3.5">{line}</span>;
 });
 
+const COLLAPSED_AGENT_LIMIT = 3;
+
 /** The agents the reviewer started (a deep review's lenses), each with where it stands. */
 export const ReviewAgentList = memo(function ReviewAgentList({
   environmentId,
@@ -203,7 +205,22 @@ export const ReviewAgentList = memo(function ReviewAgentList({
       })),
     [environmentId, threadId, threads],
   );
+  const [expanded, setExpanded] = useState(false);
   if (agents.length === 0) return null;
+  // A deep review starts many lenses; past a few, one line counts them until asked for the list.
+  if (agents.length > COLLAPSED_AGENT_LIMIT && !expanded) {
+    const running = agents.filter((agent) => agent.status === "running").length;
+    return (
+      <div className={cn("flex min-w-0 items-center gap-2 ps-3.5", className)}>
+        <span className="truncate">
+          {agents.length} agents{running > 0 ? ` · ${running} running` : ""}
+        </span>
+        <Button type="button" size="xs" variant="ghost" onClick={() => setExpanded(true)}>
+          Show
+        </Button>
+      </div>
+    );
+  }
   return (
     <ul className={cn("flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 ps-3.5", className)}>
       {agents.map((agent) => (

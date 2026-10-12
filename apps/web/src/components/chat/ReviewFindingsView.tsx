@@ -1,6 +1,6 @@
 import type { CodeViewItem, DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
 import type { CodeViewDiffItem, CodeViewHandle } from "@pierre/diffs/react";
-import { reviewedChangeLabel } from "@t3tools/client-runtime/agent-review";
+import { reviewedChangeLabel, reviewNoChangesText } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   reviewFindingEntries,
@@ -260,6 +260,8 @@ function ReviewFindingsViewContent({
     cwd: cwd ?? null,
     scope: source.scope,
   });
+  // The diff came back empty: the findings have nothing to sit in, so they take the panel.
+  const noDiff = !diff.pending && diff.error === null && diff.files.length === 0;
   const entries = useMemo(() => reviewFindingEntries(findings), [findings]);
   const sent = useMemo(
     () => reviewFindingMarksByKey(entries, sentByIdentity),
@@ -788,31 +790,35 @@ function ReviewFindingsViewContent({
             {dismissedCount} dismissed · {showDismissed ? "hide" : "show"}
           </Button>
         ) : null}
-        <span className="ml-auto flex items-center gap-0.5">
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Previous issue"
-            disabled={order.length === 0}
-            onClick={() => goTo(shownIndex === 0 ? order.length - 1 : shownIndex - 1)}
-          >
-            <ChevronLeftIcon aria-hidden />
-          </Button>
-          <span className="text-muted-foreground text-xs tabular-nums">
-            Issue {order.length === 0 ? 0 : shownIndex + 1}/{order.length}
+        {order.length > 0 ? (
+          <span className="ml-auto flex items-center gap-0.5">
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Previous issue"
+              disabled={order.length === 0}
+              onClick={() => goTo(shownIndex === 0 ? order.length - 1 : shownIndex - 1)}
+            >
+              <ChevronLeftIcon aria-hidden />
+            </Button>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              Issue {order.length === 0 ? 0 : shownIndex + 1}/{order.length}
+            </span>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Next issue"
+              disabled={order.length === 0}
+              onClick={() => goTo((shownIndex + 1) % order.length)}
+            >
+              <ChevronRightIcon aria-hidden />
+            </Button>
           </span>
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Next issue"
-            disabled={order.length === 0}
-            onClick={() => goTo((shownIndex + 1) % order.length)}
-          >
-            <ChevronRightIcon aria-hidden />
-          </Button>
-        </span>
+        ) : (
+          <span className="ml-auto" />
+        )}
         {filesWithoutFindings.length > 0 ? (
           <Tooltip>
             <TooltipTrigger
@@ -905,23 +911,32 @@ function ReviewFindingsViewContent({
           })}
         </ol>
       ) : null}
-      {general.length > 0 ? (
-        <section
-          aria-label="General"
-          className="max-h-[40%] shrink-0 overflow-y-auto border-b border-border/60 py-1"
-        >
-          <h4 className="px-3 pt-1 text-muted-foreground text-xs">General ({general.length})</h4>
-          {general.map((entry) => renderCard(entry, true))}
-        </section>
-      ) : null}
-      {diff.partial || diff.error !== null ? (
+      {diff.partial || diff.error !== null || noDiff ? (
         <p className="border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
           {diff.error !== null
             ? `The change could not be loaded: ${diff.error}`
-            : "Part of the change is not shown here. Findings in it are listed under General."}
+            : noDiff
+              ? `${reviewNoChangesText(findings.target, source.scope, diff.base)}${general.length > 0 ? " The issues are listed without their diff." : ""}`
+              : "Part of the change is not shown here. Issues in it are listed above the diff."}
         </p>
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col">
+      {general.length > 0 ? (
+        <section
+          aria-label={noDiff ? "Issues" : "Not in the diff"}
+          className={cn(
+            "overflow-y-auto py-1",
+            noDiff ? "min-h-0 flex-1" : "max-h-[40%] shrink-0 border-b border-border/60",
+          )}
+        >
+          {noDiff ? null : (
+            <h4 className="px-3 pt-1 text-muted-foreground text-xs">
+              Not in the diff ({general.length})
+            </h4>
+          )}
+          {general.map((entry) => renderCard(entry, true))}
+        </section>
+      ) : null}
+      <div className={cn("flex min-h-0 flex-col", noDiff ? "hidden" : "flex-1")}>
         {diff.files.length > 0 ? (
           <StyledDiffCodeView<FindingAnnotationGroup>
             className="@container h-full overflow-auto [scrollbar-gutter:stable]"

@@ -1,5 +1,5 @@
 import type { CodeViewDiffItem } from "@pierre/diffs/react";
-import { reviewedChangeLabel } from "@t3tools/client-runtime/agent-review";
+import { reviewedChangeLabel, reviewNoChangesText } from "@t3tools/client-runtime/agent-review";
 import type { EnvironmentId, LocalReviewScope, ProjectId } from "@t3tools/contracts";
 import { useMemo } from "react";
 
@@ -73,7 +73,9 @@ export function ReviewChangeView({
             Loading the change...
           </p>
         ) : diff.error === null ? (
-          <p className="px-3 py-2 text-muted-foreground text-sm">No changes to show.</p>
+          <p className="px-3 py-2 text-muted-foreground text-sm">
+            {reviewNoChangesText(target, scope, diff.base)}
+          </p>
         ) : null}
       </div>
     </div>

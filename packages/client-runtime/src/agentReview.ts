@@ -218,6 +218,23 @@ export function reviewedChangeLabel(
 }
 
 /**
+ * What the review panel says when the reviewed change has no diff in this checkout. A branch with
+ * nothing committed past its base is the usual cause: the work is still uncommitted.
+ */
+export function reviewNoChangesText(
+  target: Parameters<typeof reviewedChangeLabel>[0],
+  scope: LocalReviewScope | null,
+  shownBase: string | null,
+): string {
+  const label = reviewedChangeLabel(target, scope, shownBase);
+  if (scope?.kind === "branch") {
+    return `No commits in ${label.toLowerCase()} here. If the work is not committed yet, review Uncommitted instead.`;
+  }
+  if (scope?.kind === "uncommitted") return "No uncommitted changes here.";
+  return `No changes in ${label} here.`;
+}
+
+/**
  * What to read for a review of local changes, as `review.getDiffPreview` takes it, and which of
  * its sources is the reviewed change: the branch range for a branch (against its named base) or a
  * commit (`<sha>^...<sha>`), the working tree for uncommitted changes, and for a review that left it
