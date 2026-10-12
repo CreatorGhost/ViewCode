@@ -568,7 +568,8 @@ export function reviewIssueOrder(
   const reading = [...general, ...placed.map((entry) => entry.entry)];
   const rank = (entry: Pick<ReviewFindingEntry, "finding">) =>
     REVIEW_FINDING_SEVERITIES.indexOf(entry.finding.severity);
-  return reading.toSorted((left, right) => rank(left) - rank(right)).map((entry) => entry.key);
+  // A fresh array, sorted in place: Hermes (mobile) has no `toSorted`.
+  return reading.sort((left, right) => rank(left) - rank(right)).map((entry) => entry.key);
 }
 
 /**
@@ -578,7 +579,7 @@ export function reviewIssueOrder(
 export function reviewFindingsInFileOrder<
   T extends { readonly finding: Pick<ReviewFinding, "path" | "line"> },
 >(entries: ReadonlyArray<T>): ReadonlyArray<T> {
-  return entries.toSorted(
+  return [...entries].sort(
     (left, right) =>
       left.finding.path.localeCompare(right.finding.path) ||
       (left.finding.line ?? 0) - (right.finding.line ?? 0),
