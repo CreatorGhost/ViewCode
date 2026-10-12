@@ -36,6 +36,8 @@ export function useOpenPullRequest(options?: {
   const projectId =
     options?.context?.projectId ?? first(routeContext?.projectId) ?? thread?.projectId;
   const replace = options?.replace;
+  // A link opened from a PR screen keeps the chat's threadId but is not itself on a chat.
+  const openedFromChat = threadId !== undefined && !route.name.startsWith("PullRequest");
   return useCallback(
     async (url: string) => {
       const destination = nativePullRequestDestination(
@@ -49,7 +51,7 @@ export function useOpenPullRequest(options?: {
       const params = threadId ? { ...destination, threadId } : destination;
       // ViewCode: a PR opened from a chat stacks above it, so Back returns to the chat; a PR
       // opened from the list or another PR takes the workspace's single detail slot.
-      if (Platform.OS === "android" && !threadId)
+      if (Platform.OS === "android" && !openedFromChat)
         navigation.dispatch((state) =>
           CommonActions.reset(
             androidWorkspaceNavigationState(state, { name: "PullRequest", params }),
@@ -59,6 +61,6 @@ export function useOpenPullRequest(options?: {
       else navigation.navigate("PullRequest", params);
       return true;
     },
-    [environmentId, projectId, threadId, navigation, replace],
+    [environmentId, projectId, threadId, openedFromChat, navigation, replace],
   );
 }
