@@ -9,6 +9,7 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 
 import type { UploadedMobileAttachment } from "./attachmentUpload";
 
@@ -44,13 +45,20 @@ export interface ProjectThreadStartTurnSpec {
   readonly worktreeBranchName: string;
 }
 
+/** An attachment-only send is titled after its first attachment, like web, not the prompt. */
+function titleSourceText(spec: ProjectThreadStartTurnSpec): string {
+  const first = spec.uploadedAttachments[0];
+  if (spec.text !== ATTACHMENT_ONLY_BOOTSTRAP_PROMPT || !first) return spec.text;
+  return `${first.type === "file" ? "File" : "Image"}: ${first.name}`;
+}
+
 /**
  * Single source of the `thread.turn.start` bootstrap payload used to create a
  * thread from a project draft — shared by the immediate send path and the
  * offline outbox drain so both deliver identical commands.
  */
 export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpec) {
-  const title = deriveThreadTitleFromPrompt(spec.text);
+  const title = deriveThreadTitleFromPrompt(titleSourceText(spec));
   const isWorktree = spec.workspaceMode === "worktree";
   return {
     commandId: CommandId.make(spec.commandId),

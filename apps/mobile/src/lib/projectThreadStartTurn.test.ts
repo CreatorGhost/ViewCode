@@ -6,6 +6,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -64,6 +65,40 @@ describe("project thread title", () => {
     expect(input.titleSeed).toBe(title);
     expect(input.bootstrap.createThread.title).toBe(input.titleSeed);
     expect(input.message.text).toBe(text);
+  });
+});
+
+describe("attachment-only new thread", () => {
+  it("is titled after its first image, not the attachment-only prompt", () => {
+    const input = buildProjectThreadStartTurnInput({
+      projectId: ProjectId.make("project"),
+      projectCwd: "/workspace",
+      threadId: "new-thread",
+      commandId: "command",
+      messageId: "message",
+      createdAt: "2026-10-12T00:00:00Z",
+      text: ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+      uploadedAttachments: [
+        {
+          type: "image",
+          name: "screenshot.png",
+          mimeType: "image/png",
+          sizeBytes: 10,
+          dataUrl: "data:image/png;base64,AA==",
+        },
+      ],
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      workspaceMode: "local",
+      branch: null,
+      worktreePath: null,
+      startFromOrigin: false,
+      worktreeBranchName: "unused",
+    });
+
+    expect(input.titleSeed).toBe("Image: screenshot.png");
+    expect(input.message.text).toBe(ATTACHMENT_ONLY_BOOTSTRAP_PROMPT);
   });
 });
 
