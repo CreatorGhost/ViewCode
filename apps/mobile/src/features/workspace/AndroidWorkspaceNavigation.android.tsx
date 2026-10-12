@@ -7,7 +7,7 @@ import { useKeyboardState } from "react-native-keyboard-controller";
 import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
-import { flattenThemeColor, themeColorWithAlpha } from "../../lib/mobileTheme";
+import { androidWorkspaceNavigationColors } from "./android-workspace-navigation-colors";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import type { WorkspaceTab } from "./workspace-tabs-state";
@@ -43,15 +43,8 @@ export function AndroidWorkspaceNavigation(props: {
   const { scale } = useAndroidControlSizing();
   const rail = Boolean(props.rail);
   const size = Math.max(1, scale);
-  const containerColor = rail
-    ? colors["--color-header"]
-    : flattenThemeColor(
-        themeColorWithAlpha(colors["--color-header-foreground"], 0.05),
-        flattenThemeColor(colors["--color-header"], colors["--color-screen"]),
-      );
-  const indicatorColor = colors["--color-secondary"];
-  const selectedColor = colors["--color-secondary-foreground"];
-  const unselectedColor = colors["--color-header-foreground"];
+  const { containerColor, indicatorColor, selectedColor, unselectedColor } =
+    androidWorkspaceNavigationColors(colors, rail);
   if (!rail && keyboardVisible) return null;
 
   const select = (tab: WorkspaceTab) => {
