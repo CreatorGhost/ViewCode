@@ -2078,7 +2078,7 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
-  it("retries thread title generation after a transient failure", async () => {
+  it("retries thread title generation after a killed CLI", async () => {
     const now = "2026-01-01T00:00:00.000Z";
     const seededTitle = "Please investigate reconnect failures after restar...";
     const harness = await createHarness({ initialTitle: seededTitle });
@@ -2090,7 +2090,7 @@ describe("ProviderCommandReactor", () => {
           ? Effect.fail(
               new TextGenerationError({
                 operation: "generateThreadTitle",
-                detail: "Claude CLI request timed out.",
+                detail: "Claude CLI command failed with code 137.",
               }),
             )
           : Effect.succeed({ title: "Generated title" });

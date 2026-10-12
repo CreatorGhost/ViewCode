@@ -86,7 +86,6 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
-import { isRetryableTextGenerationError } from "../../textGeneration/textGenerationRetry.ts";
 const isProviderAdapterProcessError = Schema.is(ProviderAdapterProcessError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
@@ -1560,7 +1559,6 @@ const make = Effect.gen(function* () {
             Effect.retry({
               times: 2,
               schedule: Schedule.exponential("2 seconds"),
-              while: isRetryableTextGenerationError,
             }),
           );
         if (!generated) return;
