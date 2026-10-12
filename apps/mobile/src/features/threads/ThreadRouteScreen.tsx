@@ -5,6 +5,7 @@ import {
   clearComposerDraftContent,
 } from "../../state/use-composer-drafts";
 import { useWorktreeSetup } from "./use-worktree-setup";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { ScreenHeaderButton } from "../../components/ScreenHeaderButton";
@@ -335,7 +336,7 @@ function ThreadRouteContent(
 ) {
   const { themeVariables } = useAppearancePreferences();
   const headerColor = themeVariables["--color-header"];
-  const { fileInspector, layout, panes, selectThread, showAuxiliaryPane, toggleAuxiliaryPane } =
+  const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
@@ -549,6 +550,19 @@ function ThreadRouteContent(
     openFilesInspector: handleOpenFilesInspector,
     toggleAuxiliaryPane,
   };
+  // Push, not navigate: navigate reuses this Thread route, so back would skip
+  // the parent thread.
+  const handleOpenAgentThread = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      navigation.dispatch(
+        StackActions.push("Thread", {
+          environmentId: String(thread.environmentId),
+          threadId: String(thread.id),
+        }),
+      );
+    },
+    [navigation],
+  );
   const handleToggleInspector = useCallback(() => {
     const action = inspectorToggleActionRef.current;
     if (action.inspectorMode === null) {
@@ -1071,7 +1085,7 @@ function ThreadRouteContent(
           onRemoveDraftImage={composer.onRemoveDraftImage}
           serverConfig={serverConfig}
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
-          onOpenAgentThread={selectThread}
+          onOpenAgentThread={handleOpenAgentThread}
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}
