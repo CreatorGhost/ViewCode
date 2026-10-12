@@ -1,8 +1,13 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import { BotIcon, ChevronDownIcon, ListChecksIcon } from "lucide-react";
 import { AGENT_REVIEW_MODES, ThreadId } from "@t3tools/contracts";
-import { reviewRunState } from "@t3tools/client-runtime/review-findings";
+import {
+  latestReviewFindingsSource,
+  reviewProgress,
+  reviewRunState,
+} from "@t3tools/client-runtime/review-findings";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   collectChildAgents,
@@ -19,6 +24,7 @@ import { Button } from "../ui/button";
 import { useServerConfigs, useThreadShell, useThreadShells } from "../../state/entities";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useAgentControl } from "../../state/agentControl";
+import { environmentThreadDetails } from "../../state/threads";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { cn } from "~/lib/utils";
 import type { AgentMessageRenderContext } from "./AgentMessageCard";
@@ -243,17 +249,27 @@ function ReviewAgentRow(props: {
   const { ref, shell, provider, modelLabel, status: rowStatus } = useSpawnedAgent(sent, context);
   const threads = useThreadShells();
   const control = useAgentControl(context.environmentId);
-  const running = useMemo(() => {
-    if (shell === null) return false;
+  const activities = useAtomValue(environmentThreadDetails.activitiesAtom(ref));
+  const progress = useMemo(() => {
+    if (shell === null) return null;
     const agents = collectChildAgents(threads, {
       environmentId: context.environmentId,
       threadId: shell.id,
     }).map((agent) => agent.thread);
     const queued = (threadId: string) => control.get(threadId)?.queued ?? 0;
-    return reviewRunState(shell, agents, queued).kind === "running";
-  }, [context.environmentId, control, shell, threads]);
-  // The reviewer waits between turns for its agents' answers; it is still reviewing then.
-  const status: SpawnedAgentRowStatus | null = running ? "running" : rowStatus;
+    const findings =
+      latestReviewFindingsSource({ id: shell.id, title: shell.title, activities: activities ?? [] })
+        ?.findings ?? null;
+    return reviewProgress({ run: reviewRunState(shell, agents, queued), findings });
+  }, [activities, context.environmentId, control, shell, threads]);
+  const running = progress?.kind === "running";
+  // The reviewer waits between turns for its agents' answers; it is still reviewing then. One that
+  // sent its final findings is done, as its panel says, even if its session errored afterwards.
+  const status: SpawnedAgentRowStatus | null = running
+    ? "running"
+    : progress?.kind === "done"
+      ? "done"
+      : rowStatus;
   const mode = AGENT_REVIEW_MODES.find((entry) => entry.mode === sent.review)?.label ?? "Review";
   // The whole review, from its start to its reviewer's last turn, in the panel's words.
   const lastTurn = spawnedAgentElapsedRange(shell);
