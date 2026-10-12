@@ -1769,6 +1769,28 @@ describe("EnvironmentSupervisor routes", () => {
     }),
   );
 
+  it.effect("never tries a LAN route that another environment answers", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        checkRoute: (route) =>
+          Effect.succeed(
+            route.target._tag === "BearerConnectionTarget" ? "elsewhere" : "unchecked",
+          ),
+        prepare: (_attempt, target) =>
+          target._tag === "RelayConnectionTarget"
+            ? Effect.fail(blocked("Sign in to T3 Connect."))
+            : Effect.succeed(preparedFor(target)),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "blocked");
+      // Only T3 Connect reached the resolver; the LAN credential went nowhere.
+      expect(yield* Ref.get(harness.prepareCount)).toBe(1);
+    }),
+  );
+
   it.effect("keeps retrying when one route is blocked and another failed transiently", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({

@@ -34,9 +34,11 @@ export interface EnvironmentConnectionLease {
 
 /**
  * The result of an unauthenticated reachability check. T3 Connect and SSH
- * routes have no cheap check, so they are "unchecked".
+ * routes have no cheap check, so they are "unchecked". "elsewhere" means a
+ * different environment answered at that address (a LAN IP on another
+ * network), so the route is not tried and no credential goes there.
  */
-export type RouteCheck = "answered" | "silent" | "unchecked";
+export type RouteCheck = "answered" | "silent" | "elsewhere" | "unchecked";
 
 /** How long a direct route has to answer before it counts as unreachable from here. */
 const ROUTE_CHECK_TIMEOUT_MS = 2_500;
@@ -111,6 +113,7 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
   const silent: Array<ConnectionRoute> = [];
   for (const [index, route] of routes.entries()) {
     const check = checks.length === 0 ? "unchecked" : yield* Fiber.join(checks[index]!);
+    if (check === "elsewhere") continue;
     if (check === "silent") {
       silent.push(route);
       continue;
@@ -151,7 +154,7 @@ export const make = Effect.gen(function* () {
       timeoutMs: ROUTE_CHECK_TIMEOUT_MS,
     }).pipe(
       Effect.map((descriptor): RouteCheck =>
-        descriptor.environmentId === entry.target.environmentId ? "answered" : "silent",
+        descriptor.environmentId === entry.target.environmentId ? "answered" : "elsewhere",
       ),
       Effect.orElseSucceed((): RouteCheck => "silent"),
       Effect.provideService(HttpClient.HttpClient, httpClient),
