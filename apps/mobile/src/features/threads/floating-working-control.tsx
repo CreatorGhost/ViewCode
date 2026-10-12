@@ -27,6 +27,7 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { DevicePreviewButton } from "../devices/device-preview-button";
 import type { FloatingWorkingStatus } from "./floating-working-status";
 import { ShimmeringWorkContent } from "./thread-work-log";
+import { useVisibleSecondClock } from "./use-visible-second-clock";
 
 const CONTROL_HEIGHT = 38.5; // h-11 with the mobile 14px rem
 // The collapsed composer capsule starts 6 below its overlay's top edge, so
@@ -389,14 +390,7 @@ function WorkingDuration(props: {
   readonly startedAt: string;
   readonly onLayout: (event: LayoutChangeEvent) => void;
 }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    setNowMs(Date.now());
-    const intervalId = setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => clearInterval(intervalId);
-  }, [props.startedAt]);
-
+  const nowMs = useVisibleSecondClock(true);
   const duration = formatWorkingDuration(props.startedAt, nowMs);
   const label = `Working for ${duration}`;
 

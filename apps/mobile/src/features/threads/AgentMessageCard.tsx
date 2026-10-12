@@ -13,7 +13,7 @@ import {
 import { type AgentReviewMode, ThreadId, type EnvironmentId } from "@t3tools/contracts";
 import type { AgentMessageEnvelope, AgentMessageSentPayload } from "@t3tools/shared/agentMessages";
 import { useNavigation } from "@react-navigation/native";
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import * as Haptics from "expo-haptics";
 import { Pressable, View, type ColorValue } from "react-native";
 
@@ -32,6 +32,7 @@ import {
 import { useReviewThreadFindings } from "../review/findings/useReviewThreadFindings";
 import type { AgentChatterHeaderEntry } from "./agentChatter";
 import { ThreadDisclosureChevron } from "./thread-work-log";
+import { useVisibleSecondClock } from "./use-visible-second-clock";
 
 /**
  * An agent-to-agent message as one line: "to"/"from" icon, the agent's name
@@ -317,7 +318,7 @@ function AgentRow(props: {
         : resolveSpawnedAgentRowStatus(shell, sent.delivery);
   const lastTurn = spawnedAgentElapsedRange(shell);
   const live = status === "running" && lastTurn !== null && lastTurn.endMs === null;
-  const nowMs = useSecondTicker(live && review === null);
+  const nowMs = useVisibleSecondClock(live && review === null);
   // A review's time is the whole review's, in the words its findings use: how long so far by the
   // minute while it runs, how long it took once it is over.
   const reviewNowMs = useMinuteClock(review?.running === true);
@@ -429,15 +430,4 @@ function AgentRow(props: {
       ) : null}
     </View>
   );
-}
-
-/** Now, refreshed once a second while `active`; frozen otherwise. */
-function useSecondTicker(active: boolean): number {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => clearInterval(id);
-  }, [active]);
-  return nowMs;
 }
