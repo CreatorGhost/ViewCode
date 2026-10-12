@@ -1,26 +1,43 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Sink from "effect/Sink";
+import * as Stream from "effect/Stream";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
+import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopServerExposure from "./DesktopServerExposure.ts";
 import {
+  DesktopTailscalePhoneAccess,
   detectTailscaleInstalled,
+  layer as tailscalePhoneAccessLayer,
   shouldAutoEnableTailscaleServe,
 } from "./DesktopTailscalePhoneAccess.ts";
 
-describe("shouldAutoEnableTailscaleServe", () => {
-  const off = { tailscaleServeEnabled: false } as const;
+const { DEFAULT_DESKTOP_SETTINGS } = DesktopAppSettings;
 
-  it("stays off by default, even when Tailscale is installed", () => {
-    assert.isFalse(shouldAutoEnableTailscaleServe({ settings: off, installed: true }));
+describe("shouldAutoEnableTailscaleServe", () => {
+  const defaults = {
+    tailscaleServeEnabled: DEFAULT_DESKTOP_SETTINGS.tailscaleServeEnabled,
+    tailscaleAutoServe: DEFAULT_DESKTOP_SETTINGS.tailscaleAutoServe,
+  };
+
+  it("turns on by default when the CLI is installed", () => {
+    assert.isTrue(shouldAutoEnableTailscaleServe({ settings: defaults, installed: true }));
+    assert.isFalse(shouldAutoEnableTailscaleServe({ settings: defaults, installed: false }));
   });
 
-  it("needs the opt-in and an installed CLI", () => {
-    const optedIn = { ...off, tailscaleAutoServe: true } as const;
-    assert.isTrue(shouldAutoEnableTailscaleServe({ settings: optedIn, installed: true }));
-    assert.isFalse(shouldAutoEnableTailscaleServe({ settings: optedIn, installed: false }));
+  it("stays off once the user turned it off", () => {
+    assert.isFalse(
+      shouldAutoEnableTailscaleServe({
+        settings: { ...defaults, tailscaleAutoServe: false },
+        installed: true,
+      }),
+    );
   });
 
   it("leaves a Serve that is already on alone", () => {
@@ -58,5 +75,82 @@ describe("detectTailscaleInstalled", () => {
       onlyPathCounts,
       Effect.provide(NodeServices.layer),
     ),
+  );
+});
+
+describe("applyAtStartup", () => {
+  /** A fake `tailscale status --json` that prints `statusJson`; nothing is executed. */
+  const statusSpawner = (statusJson: string) =>
+    ChildProcessSpawner.make(() =>
+      Effect.succeed(
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(1),
+          exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+          isRunning: Effect.succeed(false),
+          kill: () => Effect.void,
+          unref: Effect.succeed(Effect.void),
+          stdin: Sink.drain,
+          stdout: Stream.make(new TextEncoder().encode(statusJson)),
+          stderr: Stream.empty,
+          all: Stream.empty,
+          getInputFd: () => Sink.drain,
+          getOutputFd: () => Stream.empty,
+        }),
+      ),
+    );
+
+  /** Runs startup with the CLI on PATH and returns the Serve changes it asked for. */
+  const runStartup = (statusJson: string) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fileSystem.makeTempDirectoryScoped();
+      const cli = path.join(dir, "tailscale");
+      yield* fileSystem.writeFileString(cli, "#!/bin/sh\n");
+      yield* fileSystem.chmod(cli, 0o755);
+      const requests: Array<{ readonly enabled: boolean; readonly automatic?: boolean }> = [];
+      const access = yield* Layer.build(
+        tailscalePhoneAccessLayer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(DesktopAppSettings.DesktopAppSettings)({
+                get: Effect.succeed(DEFAULT_DESKTOP_SETTINGS),
+              }),
+              Layer.mock(DesktopServerExposure.DesktopServerExposure)({
+                setTailscaleServeEnabled: (input) =>
+                  Effect.sync(() => {
+                    requests.push(input);
+                  }).pipe(Effect.as({} as DesktopServerExposure.DesktopServerExposureChange)),
+              }),
+              Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, statusSpawner(statusJson)),
+            ),
+          ),
+        ),
+      );
+      yield* DesktopTailscalePhoneAccess.use((service) => service.applyAtStartup).pipe(
+        Effect.provide(access),
+        Effect.provideService(HostProcessEnvironment, { PATH: dir }),
+      );
+      return requests;
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(HostProcessPlatform, "freebsd"),
+      Effect.provide(NodeServices.layer),
+    );
+
+  it.effect("turns Serve on by default when Tailscale is signed in", () =>
+    Effect.gen(function* () {
+      const requests = yield* runStartup(
+        '{"Self":{"DNSName":"laptop.tail1234.ts.net.","TailscaleIPs":[]}}',
+      );
+      assert.deepStrictEqual(requests, [{ enabled: true, automatic: true }]);
+    }),
+  );
+
+  it.effect("leaves Serve off while Tailscale is signed out", () =>
+    Effect.gen(function* () {
+      const requests = yield* runStartup('{"Self":{"TailscaleIPs":[]}}');
+      assert.deepStrictEqual(requests, []);
+    }),
   );
 });

@@ -715,9 +715,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   (PATH, then fixed install paths such as the Mac app's bundled CLI, which never
   joins PATH; never a spawn; `knownTailscaleExecutablePaths` in `packages/tailscale`
   is shared with the spawns, which fall back the same way), whose "Turn on"
-  reuses `setTailscaleServeEnabled`, and whose launch-time opt-in
-  (`tailscaleAutoServe`) defaults off because managed laptops' security software
-  kills tailscaled. The dialog does not offer upstream's hosted T3 Connect tunnel:
+  reuses `setTailscaleServeEnabled`. Launch turns Serve on when the CLI is found and
+  `tailscale status` shows a tailnet name (`tailscaleAutoServe`, default on, persisted
+  only as `false`); turning Serve off also sets it false, so ViewCode never turns Serve
+  back on after the user turned it off. Pairing still gates every phone. The dialog
+  does not offer upstream's hosted T3 Connect tunnel:
   Quick connect does that job on the user's own account, and a third choice only
   confused people. T3 Connect's server side (`cloud/`) is untouched and still
   reachable from Settings → Connections in builds that configure it.

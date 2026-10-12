@@ -70,7 +70,7 @@ export function ConnectPhoneSettingsSection() {
       {tailscale.access?.installed ? (
         <SettingsRow
           title="Turn on Tailscale phone access at launch"
-          description="Off by default. Starts Tailscale HTTPS when ViewCode opens so the phone can reach this computer over your tailnet. Some security software stops Tailscale, so leave it off on managed computers."
+          description="Starts Tailscale HTTPS when ViewCode opens so a paired phone can reach this computer over your tailnet. Turning Tailscale HTTPS off also turns this off."
           control={
             <Switch
               checked={tailscale.access.automatic}

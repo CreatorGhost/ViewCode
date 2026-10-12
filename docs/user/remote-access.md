@@ -16,10 +16,12 @@ phone will reach it, and scan the code from the app's **Add environment**.
   [Quick connect](#quick-connect).
 - **Same Wi-Fi.** Choose **Turn on and restart** if asked; ViewCode restarts once
   and reopens on the code. Works only on the same network.
-- **Anywhere · Tailscale.** Shown only when Tailscale is installed on this computer. **Turn on Tailscale** enables
-  Tailscale HTTPS and restarts once. Works wherever your phone is on your tailnet.
-  **Settings → Connections** can turn it on at every launch; that is off by
-  default because some security software stops Tailscale.
+- **Anywhere · Tailscale.** Shown only when Tailscale is installed on this computer. When
+  Tailscale is signed in, the desktop app turns on Tailscale HTTPS at launch, so the
+  phone only needs to scan the code. If it is not on yet, **Turn on Tailscale** enables
+  it and restarts once. Works wherever your phone is on your tailnet; phones still
+  have to pair. To stop it starting at launch, turn off **Turn on Tailscale phone
+  access at launch** in **Settings → Connections**, or turn Tailscale HTTPS off there.
 
 Each code works once for five minutes; choose **New code** for another phone. Keep
 the computer awake and ViewCode running. **Turn off local network access** in the

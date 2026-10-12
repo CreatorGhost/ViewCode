@@ -28,6 +28,7 @@ const DesktopSettingsPatch = Schema.Struct({
   serverExposureMode: Schema.optionalKey(Schema.Literals(["local-only", "network-accessible"])),
   tailscaleServeEnabled: Schema.optionalKey(Schema.Boolean),
   tailscaleServePort: Schema.optionalKey(Schema.Number),
+  tailscaleAutoServe: Schema.optionalKey(Schema.Boolean),
   updateChannel: Schema.optionalKey(Schema.Literals(["latest", "nightly"])),
   updateChannelConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   wslBackendEnabled: Schema.optionalKey(Schema.Boolean),
@@ -130,6 +131,7 @@ describe("DesktopSettings", () => {
         serverExposureMode: "local-only",
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        tailscaleAutoServe: true,
         updateChannel: "nightly",
         updateChannelConfiguredByUser: false,
         wslBackendEnabled: false,
@@ -160,6 +162,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "network-accessible",
           tailscaleServeEnabled: true,
           tailscaleServePort: 8443,
+          tailscaleAutoServe: true,
           updateChannel: "latest",
           updateChannelConfiguredByUser: true,
           wslBackendEnabled: false,
@@ -215,6 +218,8 @@ describe("DesktopSettings", () => {
         const exposure = yield* settings.setServerExposureMode("local-only");
         assert.isFalse(exposure.changed);
 
+        // The first turn-off records the launch opt-out; a repeat changes nothing.
+        yield* settings.setTailscaleServe({ enabled: false, port: Option.none() });
         const tailscale = yield* settings.setTailscaleServe({
           enabled: false,
           port: Option.none(),
@@ -268,6 +273,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "network-accessible",
           tailscaleServeEnabled: true,
           tailscaleServePort: 8443,
+          tailscaleAutoServe: true,
           updateChannel: "latest",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
@@ -325,6 +331,7 @@ describe("DesktopSettings", () => {
             serverExposureMode: "network-accessible",
             tailscaleServeEnabled: true,
             tailscaleServePort: 8443,
+            tailscaleAutoServe: true,
             updateChannel: "nightly",
             updateChannelConfiguredByUser: true,
             wslBackendEnabled: false,
@@ -357,6 +364,26 @@ describe("DesktopSettings", () => {
     ),
   );
 
+  it.effect("remembers that the user turned Tailscale Serve off", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        assert.isTrue((yield* settings.get).tailscaleAutoServe);
+
+        yield* settings.setTailscaleServe({ enabled: true, port: Option.none() });
+        yield* settings.setTailscaleServe({ enabled: false, port: Option.none() });
+
+        const persisted = yield* decodeDesktopSettingsPatch(
+          yield* fileSystem.readFileString(environment.desktopSettingsPath),
+        );
+        assert.deepEqual(persisted, { tailscaleAutoServe: false });
+        assert.isFalse((yield* settings.load).tailscaleAutoServe);
+      }),
+    ),
+  );
+
   it.effect("migrates legacy implicit update channels to the runtime default", () =>
     withSettings(
       Effect.gen(function* () {
@@ -374,6 +401,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "local-only",
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
+          tailscaleAutoServe: true,
           updateChannel: "nightly",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
@@ -403,6 +431,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "local-only",
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
+          tailscaleAutoServe: true,
           updateChannel: "latest",
           updateChannelConfiguredByUser: true,
           wslBackendEnabled: false,
@@ -431,6 +460,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "local-only",
           tailscaleServeEnabled: true,
           tailscaleServePort: 443,
+          tailscaleAutoServe: true,
           updateChannel: "latest",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
