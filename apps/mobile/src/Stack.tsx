@@ -23,6 +23,8 @@ import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
+import { WorkspaceRootScreen } from "./features/workspace/WorkspaceRootScreen";
+import { AndroidWorkspaceTabsProvider } from "./features/workspace/AndroidWorkspaceTabsProvider";
 import {
   RenderErrorBoundary,
   RenderFailureView,
@@ -64,7 +66,6 @@ import { SideChatSheet } from "./features/sidechat/SideChatSheet";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
-import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectNewRoute } from "./features/projects/AddProjectNewRoute";
@@ -567,13 +568,15 @@ function RootStackLayout(props: {
       <ThreadOutboxDrainWorker />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
-        <AdaptiveWorkspaceLayout
-          pathname={workspaceLocation.pathname}
-          workspaceRouteKey={workspaceLocation.routeKey}
-        >
-          {props.children}
-          <HardwareKeyboardCommandOverlay />
-        </AdaptiveWorkspaceLayout>
+        <AndroidWorkspaceTabsProvider>
+          <AdaptiveWorkspaceLayout
+            pathname={workspaceLocation.pathname}
+            workspaceRouteKey={workspaceLocation.routeKey}
+          >
+            {props.children}
+            <HardwareKeyboardCommandOverlay />
+          </AdaptiveWorkspaceLayout>
+        </AndroidWorkspaceTabsProvider>
       </ExistingThreadSettingsRouteProvider>
     </HardwareKeyboardCommandProvider>
   );
@@ -626,7 +629,7 @@ const RootStackConfig = createNativeStackNavigator({
   },
   screens: {
     Home: createNativeStackScreen({
-      screen: HomeRouteScreen,
+      screen: WorkspaceRootScreen,
       linking: "",
       options: {
         ...GLASS_HEADER_OPTIONS,

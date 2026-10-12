@@ -96,6 +96,10 @@ import {
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
+import {
+  useAndroidWorkspaceBack,
+  useWorkspaceListNavigation,
+} from "../workspace/useAndroidWorkspaceNavigation";
 
 function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -108,7 +112,7 @@ function ThreadHeader(
     readonly onOpenFilesInspector: () => void;
   },
 ) {
-  const navigation = useNavigation();
+  const returnToList = useWorkspaceListNavigation("threads");
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { onOpenTerminal } = props.gitControls;
   const native = useThreadHeaderOptions(props);
@@ -185,16 +189,7 @@ function ThreadHeader(
             />
           ) : null
         }
-        onBack={
-          layout.usesSplitView
-            ? undefined
-            : () => {
-                // A deep link or cold start has no previous route; Home is the way out.
-                // Read the history at press time: it changes without re-rendering this screen.
-                if (navigation.canGoBack()) navigation.goBack();
-                else navigation.dispatch(StackActions.replace("Home"));
-              }
-        }
+        onBack={layout.usesSplitView ? undefined : returnToList}
         actions={androidHeaderActions}
         hideBottomBorder
       />
@@ -262,6 +257,7 @@ function ThreadUnavailableScreen(props: {
 }
 
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
+  useAndroidWorkspaceBack("threads");
   const { state: workspaceState } = useWorkspaceState();
   const { connectionState } = useRemoteConnectionStatus();
   const { selectedThread } = useThreadSelection();

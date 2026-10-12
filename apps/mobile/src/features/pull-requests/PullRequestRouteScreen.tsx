@@ -40,6 +40,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
+import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
+import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
+import { AndroidWorkspaceSidebarButton } from "../layout/workspace-sidebar-toolbar";
+import { useAndroidWorkspaceBack } from "../workspace/useAndroidWorkspaceNavigation";
 import { EmptyState } from "../../components/EmptyState";
 import { SegmentedControl } from "../../components/SegmentedControl";
 import { SymbolView } from "../../components/AppSymbol";
@@ -284,9 +288,18 @@ function PullRequestOverview(props: {
   );
 }
 
+function usePullRequestToolbarHeight(bottomInset: number) {
+  const { buttonSize } = useAndroidControlSizing();
+  // Reserve the controls, native toolbar padding, and outer gaps before onLayout measures them.
+  return useState(() => (Platform.OS === "android" ? bottomInset + buttonSize + 40 : 0));
+}
+
 export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestParams>) {
+  const returnToList = useAndroidWorkspaceBack("pullRequests");
+  const { layout } = useAdaptiveWorkspaceLayout();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const [toolbarHeight, setToolbarHeight] = usePullRequestToolbarHeight(insets.bottom);
   const params = route.params;
   const [section, setSection] = useState<"overview" | "activity" | "commits">("overview");
   // LegendList commits replacement rows after the header. Keep selection with the visible content.
@@ -371,7 +384,7 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
   };
   return (
     <PullRequestMarkdownRepository value={pr?.provider === "github" ? pr.url : null}>
-      <View className="flex-1 bg-screen">
+      <View className={Platform.OS === "android" ? "flex-1 bg-header" : "flex-1 bg-screen"}>
         <NativeStackScreenOptions
           options={{
             title: `#${params.number}`,
@@ -382,7 +395,9 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
         {Platform.OS === "android" ? (
           <AndroidScreenHeader
             title={`#${params.number}`}
-            onBack={() => navigation.goBack()}
+            subtitle={params.repository}
+            onBack={layout.usesSplitView ? undefined : returnToList}
+            leading={layout.usesSplitView ? <AndroidWorkspaceSidebarButton /> : undefined}
             actions={[
               ...(permissions.verdicts.length
                 ? [
@@ -454,7 +469,17 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
             ) : null}
           </NativeHeaderToolbar.Menu>
         </NativeHeaderToolbar>
-        <View style={{ flex: 1 }}>
+        <View
+          style={{
+            flex: 1,
+            marginHorizontal: Platform.OS === "android" && layout.usesSplitView ? 4 : 0,
+          }}
+          className={
+            Platform.OS === "android"
+              ? "overflow-hidden rounded-t-[28px] bg-sheet-solid"
+              : undefined
+          }
+        >
           <LegendList
             ref={scrollView}
             initialScrollOffset={-insets.top}
@@ -485,7 +510,7 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
             contentContainerStyle={{
               paddingHorizontal: 16,
               paddingTop: 8,
-              paddingBottom: 24,
+              paddingBottom: 24 + (Platform.OS === "android" ? toolbarHeight : 0),
             }}
             data={[
               {
@@ -581,7 +606,7 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
                   >
                     <PullRequestIdentity pr={identity} params={params} />
                     <SegmentedControl
-                      className="bg-grouped-card"
+                      className={Platform.OS === "android" ? undefined : "bg-grouped-card"}
                       options={[
                         { value: "overview", label: "Overview" },
                         { value: "activity", label: "Activity" },
@@ -604,7 +629,12 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
             ListFooterComponent={tab === "overview" ? filesContent.footer : null}
           />
         </View>
-        <PullRequestActionToolbar pr={pr} params={params} onOpenFiles={openFiles} />
+        <PullRequestActionToolbar
+          pr={pr}
+          params={params}
+          onOpenFiles={openFiles}
+          onHeightChange={setToolbarHeight}
+        />
       </View>
     </PullRequestMarkdownRepository>
   );
@@ -645,8 +675,10 @@ export function PullRequestFileRouteScreen({
     readonly replacingDraftId?: string;
   }
 >) {
+  const { layout } = useAdaptiveWorkspaceLayout();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const [toolbarHeight, setToolbarHeight] = usePullRequestToolbarHeight(insets.bottom);
   const commit = route.params.commit;
   const result = usePullRequestDiff(route.params);
   const filter = usePullRequestFileFilter(result.parsed);
@@ -825,7 +857,7 @@ export function PullRequestFileRouteScreen({
   const seekingFile = !targetFile && result.nextCursor !== null;
   const loadingDiff = (result.isPending && !data.rows.length) || (seekingFile && !result.error);
   return (
-    <View className="flex-1 bg-screen">
+    <View className={Platform.OS === "android" ? "flex-1 bg-header" : "flex-1 bg-screen"}>
       <NativeStackScreenOptions
         options={{
           title,
@@ -958,7 +990,15 @@ export function PullRequestFileRouteScreen({
           />
         </View>
       ) : null}
-      <View className="flex-1" collapsable={false}>
+      <View
+        className={
+          Platform.OS === "android"
+            ? "flex-1 overflow-hidden rounded-t-[28px] bg-sheet-solid"
+            : "flex-1"
+        }
+        collapsable={false}
+        style={{ marginHorizontal: Platform.OS === "android" && layout.usesSplitView ? 4 : 0 }}
+      >
         {loadingDiff || result.error ? (
           <View style={{ paddingTop: Platform.OS === "ios" && !staleDiff ? insets.top : 0 }}>
             <PullRequestReadStatus pending={loadingDiff} error={result.error} />
@@ -1032,7 +1072,7 @@ export function PullRequestFileRouteScreen({
               rowHeight={nativeReviewDiffStyle.rowHeight}
               contentWidth={NATIVE_REVIEW_DIFF_CONTENT_WIDTH}
               contentInsetTop={Platform.OS === "ios" ? (staleDiff ? 0 : insets.top) : undefined}
-              contentInsetBottom={Platform.OS === "ios" ? insets.bottom : undefined}
+              contentInsetBottom={Platform.OS === "android" ? toolbarHeight : insets.bottom}
               contentResetKey={`pull-request:${route.params.environmentId}:${route.params.repository}:${route.params.number}:${commit ?? "all"}`}
             />
           </View>
@@ -1082,6 +1122,7 @@ export function PullRequestFileRouteScreen({
         params={route.params}
         filePath={visibleFile?.path}
         onOpenFiles={() => navigation.navigate("PullRequestFiles", route.params)}
+        onHeightChange={setToolbarHeight}
       />
     </View>
   );
