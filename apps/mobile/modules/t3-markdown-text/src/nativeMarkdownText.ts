@@ -943,6 +943,67 @@ function appendDocumentBlock(
   }
 }
 
+/**
+ * Plain text of a block for the clipboard, such as a drafted message in a quote:
+ * blocks on their own lines, list markers kept, inline formatting dropped.
+ */
+export function nativeMarkdownPlainText(node: MarkdownNode): string {
+  const children = node.children ?? [];
+  switch (node.type) {
+    case "soft_break":
+    case "line_break":
+      return "\n";
+    case "code_block":
+      return nodeTextContent(node).replace(/\n$/, "");
+    case "code_inline":
+      return nodeTextContent(node);
+    case "text":
+    case "math_inline":
+      return textNodeContent(nodeTextContent(node));
+    case "html_inline":
+    case "html_block":
+      return inlineHtmlText(nodeTextContent(node));
+    case "link": {
+      // Same shape as the web's plain-text copy: the label, then an external URL.
+      const label = children.map(nativeMarkdownPlainText).join("");
+      const href = node.href ?? "";
+      if (!/^https?:\/\//i.test(href)) return label;
+      return !label || label === href ? href : `${label} (${href})`;
+    }
+    case "list":
+      return children
+        .map((item, index) => {
+          const marker =
+            item.type === "task_list_item"
+              ? item.checked
+                ? "☑"
+                : "☐"
+              : node.ordered
+                ? `${(node.start ?? 1) + index}.`
+                : "-";
+          return `${marker} ${nativeMarkdownPlainText(item).replaceAll("\n", "\n   ")}`;
+        })
+        .join("\n");
+    case "list_item":
+    case "task_list_item":
+      // Tight lists carry inline nodes directly; group them so a line stays one line.
+      return nativeMarkdownListItemBlocks(node).map(nativeMarkdownPlainText).join("\n");
+    case "table":
+    case "table_head":
+    case "table_body":
+      return children.map(nativeMarkdownPlainText).join("\n");
+    case "table_row":
+      return children
+        .map((cell) => nativeMarkdownPlainText(cell).replace(/\s+/g, " ").trim())
+        .join(" | ");
+    case "document":
+    case "blockquote":
+      return children.map(nativeMarkdownPlainText).join("\n\n");
+    default:
+      return node.content ?? children.map(nativeMarkdownPlainText).join("");
+  }
+}
+
 function containsRichBlock(node: MarkdownNode): boolean {
   if (
     node.type === "code_block" ||
