@@ -2511,6 +2511,103 @@ describe("buildThreadFeed", () => {
     },
   );
 
+  it("shows the latest thought's first sentence on the live row, under a running tool too", () => {
+    const turnId = TurnId.make("live-thought");
+    const reasoning = (second: number, text: string): OrchestrationThread["messages"][number] => ({
+      id: MessageId.make(`live-thought-${second}`),
+      role: "reasoning",
+      text,
+      turnId,
+      streaming: false,
+      createdAt: `2026-04-01T00:00:0${second}.000Z`,
+      updatedAt: `2026-04-01T00:00:0${second}.000Z`,
+    });
+    const latestTurn = {
+      turnId,
+      state: "running" as const,
+      requestedAt: "2026-04-01T00:00:00.000Z",
+      startedAt: "2026-04-01T00:00:00.000Z",
+      completedAt: null,
+      assistantMessageId: null,
+    };
+    const thread = makeThread({
+      id: ThreadId.make("live-thought"),
+      projectId: ProjectId.make("project-1"),
+      title: "Live thought",
+      messages: [
+        reasoning(1, "First idea."),
+        reasoning(2, "First paragraph.\n\nSecond paragraph."),
+        // A blank thought never replaces the last one worth showing.
+        reasoning(3, "   "),
+      ],
+      latestTurn,
+    });
+    const thinking = deriveThreadFeedPresentation(
+      buildThreadFeed(thread),
+      latestTurn,
+      new Set(),
+      new Set(),
+      "now",
+    );
+    expect(thinking).toMatchObject([
+      {
+        type: "work-toggle",
+        id: "live-activity-row",
+        summary: "Thinking",
+        thought: "First paragraph.",
+        live: true,
+      },
+    ]);
+
+    const withRunningTool = buildThreadFeed({
+      ...thread,
+      messages: [reasoning(1, "Found the cause: no commits yet. Checking the UI next.")],
+      activities: [
+        makeActivity({
+          id: EventId.make("live-thought-tool"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Running command",
+          createdAt: "2026-04-01T00:00:05.000Z",
+          turnId,
+          payload: {
+            toolCallId: "live-thought-tool",
+            itemType: "command_execution",
+            command: "rg cause",
+            status: "inProgress",
+          },
+        }),
+      ],
+    });
+    const toolRunning = deriveThreadFeedPresentation(
+      withRunningTool,
+      latestTurn,
+      new Set(),
+      new Set(),
+      "now",
+    );
+    const liveRow = toolRunning.find((row) => row.type === "work-toggle");
+    expect(liveRow).toMatchObject({ thought: "Found the cause: no commits yet.", live: true });
+    expect(liveRow).not.toMatchObject({ summary: "Thinking" });
+    if (liveRow?.type !== "work-toggle") return;
+
+    // The expanded group lists the thought itself, and a settled turn has no live row.
+    const expanded = deriveThreadFeedPresentation(
+      withRunningTool,
+      latestTurn,
+      new Set(),
+      new Set([liveRow.groupId]),
+      "now",
+    );
+    expect(expanded.find((row) => row.type === "work-toggle")).not.toHaveProperty("thought");
+    const settled = deriveThreadFeedPresentation(
+      buildThreadFeed(thread),
+      { ...latestTurn, state: "completed", completedAt: "2026-04-01T00:00:06.000Z" },
+      new Set([turnId]),
+    );
+    expect(settled.find((row) => row.type === "work-toggle")).not.toHaveProperty("thought");
+  });
+
   it("groups ordered reasoning blocks, keeps the live slot, and restores the group after unfolding", () => {
     const turnId = TurnId.make("reasoning-group");
     const messages: OrchestrationThread["messages"] = [1, 2, 3, 4].map((second) => ({

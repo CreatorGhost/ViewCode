@@ -928,11 +928,11 @@ export function ThreadWorkGroupToggle(props: {
   readonly toolIcon?: ToolActivityIcon;
   readonly hasFailure: boolean;
   readonly shimmer: boolean;
+  readonly thought?: string | undefined;
   readonly onToggle: () => void;
 }) {
-  const accessibilityLabel = props.hasFailure
-    ? `${props.summary}, tool call failed`
-    : props.summary;
+  const statusLabel = props.hasFailure ? `${props.summary}, tool call failed` : props.summary;
+  const accessibilityLabel = props.thought ? `${props.thought} ${statusLabel}` : statusLabel;
   const icon =
     props.summaryToolIcon ??
     (props.toolSurface
@@ -941,6 +941,28 @@ export function ThreadWorkGroupToggle(props: {
 
   return (
     <View className="-mx-1 px-1 py-0">
+      {props.thought ? (
+        // The latest thought sits above the status line as an ordinary work-log
+        // row, wrapped up to four lines.
+        <Pressable
+          accessible={false}
+          onPress={props.onToggle}
+          className="flex-row items-start gap-1.5 rounded-md px-0.5 active:bg-subtle"
+        >
+          <View className="h-6 w-6 items-center justify-center">
+            <WorkLogIcon icon="brain" color={props.iconSubtleColor} />
+          </View>
+          <Text
+            key={props.rowSizing.textSizeKey}
+            selectable={false}
+            numberOfLines={4}
+            ellipsizeMode="tail"
+            className="min-w-0 flex-1 py-0.5 text-sm text-foreground-muted"
+          >
+            {props.thought}
+          </Text>
+        </Pressable>
+      ) : null}
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: props.expanded }}

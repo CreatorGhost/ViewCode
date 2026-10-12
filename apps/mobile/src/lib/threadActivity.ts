@@ -37,6 +37,7 @@ import {
   extractWorkLogToolLifecycleStatus,
   isWorktreeSetupActivity,
   liveActivityToolStatus,
+  liveThoughtLine,
   normalizeCompactToolLabel,
   omitSupersededLifecycleMarkers,
   resolveWorkEntryToolPresentation,
@@ -197,6 +198,8 @@ export type ThreadFeedEntry =
       readonly hasFailure: boolean;
       readonly live: boolean;
       readonly shimmer: boolean;
+      /** First sentence of the latest thought, shown above the live status line. */
+      readonly thought?: string;
     }
   | {
       readonly type: "turn-fold";
@@ -2091,6 +2094,18 @@ function appendMixedActivityRun(
   const toolSummary = toolRows.find((entry) => entry.type === "work-toggle");
   const thinking = live && (last.type === "message" || !toolSummary?.shimmer);
   const thoughtCount = run.filter((entry) => entry.type === "message").length;
+  // The expanded group already lists the thought, so the preview steps aside.
+  const latestThought =
+    live && !expanded
+      ? run.findLast(
+          (entry) =>
+            entry.type === "message" &&
+            entry.message.role === "reasoning" &&
+            entry.message.text.trim() !== "",
+        )
+      : undefined;
+  const thought =
+    latestThought?.type === "message" ? liveThoughtLine(latestThought.message.text) : "";
   result.push({
     type: "work-toggle",
     id: live ? LIVE_ACTIVITY_ROW_ID : `work-toggle:${groupId}`,
@@ -2110,6 +2125,7 @@ function appendMixedActivityRun(
           ...(toolSummary.toolIcon ? { toolIcon: toolSummary.toolIcon } : {}),
           ...(toolSummary.summaryToolIcon ? { summaryToolIcon: toolSummary.summaryToolIcon } : {}),
         }),
+    ...(thought ? { thought } : {}),
     hasFailure: toolSummary?.hasFailure ?? false,
     live,
     shimmer: live,
