@@ -797,8 +797,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `t3code://`, env var names) stay for upstream merges. `lib/runtime.ts` still
   provides a disabled `ManagedRelayClient` and `connection/platform.ts` an empty
   `CloudSession`, because the shared `client-runtime` layers require those
-  services. Saved relay-managed connections are dropped when the old connection
-  document is migrated. **Merge cost:** upstream edits to the deleted
+  services. Client-runtime keeps upstream's relay route kind for web and desktop;
+  mobile never creates one and drops only an environment's relay route (not the
+  environment) when it loads the catalog. **Merge cost:** upstream edits to the deleted
   `apps/mobile/src/features/cloud/`, `CloudEnvironmentRows`, `SettingsAuthRouteScreen`
   or `agent-awareness/remoteRegistration.ts` conflict as modify/delete; delete them
   again. Take ours for `app.config.ts`, `pnpm-workspace.yaml` (no `@clerk/expo`) and
@@ -991,6 +992,38 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Utterances stay under 250 characters: Chromium's `speechSynthesis` cuts off
   or stalls long ones, and drops events for utterances it garbage-collects, so
   the queue stays referenced until it ends.
+
+### Mobile features taken from upstream after the v2 split
+
+- Upstream mobile work after `024d49520` is taken commit by commit
+  (`cherry picked from` or `Ported from upstream <sha>` in each commit body).
+  v2-only parts are dropped or rebuilt on v1: the latest-thought row reads v1
+  `role === "reasoning"` messages (`lib/threadActivity.ts`), and Home holds
+  `threadShellsAtom` (there is no `navigationThreadShellsAtom`).
+- Opening another thread from inside a Thread must `StackActions.push`. The
+  Thread route has no `getId`, so `navigate` swaps params and back skips the
+  parent (child agents, `AgentMessageCard`, `ActiveAgentsStrip`).
+- Home keeps its thread list frozen while a Thread covers it
+  (`home-route-visibility.ts`); new Home subscriptions that change often go
+  through `useAtomValueWhileVisible`. Timers use `useVisibleSecondClock`.
+- A send failure is shown per thread above the composer
+  (`state/thread-composer-error.ts`). ViewCode send paths (handoff, agent
+  messaging) report message errors with `setThreadComposerError`, not the
+  global connection banner.
+- Dictation is owned by `VoiceInputProvider` at the app root so it survives
+  navigation. It must record through `useVoiceRecorder`, or Android loses its
+  SpeechRecognizer path (`AndroidSpeechRecorder`). The edge pill has no live
+  waveform on purpose (it repainted every 80 ms). `App.tsx` holds the
+  navigation ref the pill uses to return to its thread.
+- One environment can have several routes. In the catalog, an environment's
+  targets are its routes in order; bearer ids are per address
+  (`bearer:<env>:<origin>`) and old `bearer:<env>` ids stay valid, so saved
+  phones need no re-pairing. The server advertises private IPv4 and tailnet
+  addresses in its config (`environment/DirectEndpoints.ts`), never in socket
+  mode (`listenPath`), where host and port are nominal. A learned LAN route is
+  plain HTTP and reuses the paired token, so a phone paired over Tailscale
+  sends it unencrypted on the home Wi-Fi once Network access is on. Mobile
+  has no route reordering.
 
 ## Traps (things that cost hours)
 
