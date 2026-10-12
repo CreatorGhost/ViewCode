@@ -171,7 +171,13 @@ describe("mobile themes", () => {
       const generated = readGeneratedMobileThemeVariables(
         themeId === DEFAULT_MOBILE_THEME_ID ? appearance : `${themeId}-${appearance}`,
       );
-      expect(generated).toEqual(getMobileThemeVariables(themeId, appearance));
+      // ViewCode's palettes spell some hex colors in upper case; the formatter lowercases the
+      // generated stylesheet, so compare the colors rather than their spelling.
+      const lowercase = (variables: Record<string, string>) =>
+        Object.fromEntries(
+          Object.entries(variables).map(([name, value]) => [name, value.toLowerCase()]),
+        );
+      expect(lowercase(generated)).toEqual(lowercase(getMobileThemeVariables(themeId, appearance)));
       for (const platform of ["ios", "android"]) {
         const variables = getMobileThemeRuntimeVariables(themeId, appearance, platform);
         const sheet = variables["--color-sheet-solid"];
