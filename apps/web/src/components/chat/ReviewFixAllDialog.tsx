@@ -1,4 +1,8 @@
-import type { ReviewFindingEntry, ReviewFindingKey } from "@t3tools/client-runtime/review-findings";
+import {
+  type ReviewFindingEntry,
+  type ReviewFindingKey,
+  reviewFixAllInitiallyTicked,
+} from "@t3tools/client-runtime/review-findings";
 import { REVIEW_FINDING_SEVERITY_LABELS } from "@t3tools/shared/reviewFindings";
 import { useState } from "react";
 
@@ -15,7 +19,6 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { REVIEW_SEVERITY_BADGES } from "./ReviewFindingCard";
-import { reviewFixAllInitiallyTicked } from "./reviewPanel.logic";
 
 function findingLocation(entry: ReviewFindingEntry): string {
   const { path, line } = entry.finding;

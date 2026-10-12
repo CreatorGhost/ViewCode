@@ -551,6 +551,48 @@ export function reviewFindingMarksByKey<T>(
 }
 
 /**
+ * The order findings are listed and stepped through, which Fix all lists them in too: most severe
+ * first (blocker, important, nit, question), and within a severity in file order: on web those with
+ * no line in the diff (General) first, then the diff's reading order.
+ */
+export function reviewIssueOrder(
+  general: ReadonlyArray<Pick<ReviewFindingEntry, "key" | "finding">>,
+  placed: ReadonlyArray<{ readonly entry: Pick<ReviewFindingEntry, "key" | "finding"> }>,
+): ReadonlyArray<ReviewFindingKey> {
+  const reading = [...general, ...placed.map((entry) => entry.entry)];
+  const rank = (entry: Pick<ReviewFindingEntry, "finding">) =>
+    REVIEW_FINDING_SEVERITIES.indexOf(entry.finding.severity);
+  return reading.toSorted((left, right) => rank(left) - rank(right)).map((entry) => entry.key);
+}
+
+/**
+ * Findings in file order where no diff places them (mobile): by path, then line, those naming no
+ * line first. Their keys in `reviewIssueOrder` are what the list shows.
+ */
+export function reviewFindingsInFileOrder<
+  T extends { readonly finding: Pick<ReviewFinding, "path" | "line"> },
+>(entries: ReadonlyArray<T>): ReadonlyArray<T> {
+  return entries.toSorted(
+    (left, right) =>
+      left.finding.path.localeCompare(right.finding.path) ||
+      (left.finding.line ?? 0) - (right.finding.line ?? 0),
+  );
+}
+
+/**
+ * Whether Fix all starts with a finding ticked: not one already sent to a chat, and not a question
+ * or a finding the reviewer could not settle, which are not fixes. The reader can tick them.
+ */
+export function reviewFixAllInitiallyTicked(
+  entry: Pick<ReviewFindingEntry, "key" | "finding" | "needsChecking">,
+  sent: Readonly<Record<string, unknown>>,
+): boolean {
+  return (
+    sent[entry.key] === undefined && !entry.needsChecking && entry.finding.severity !== "question"
+  );
+}
+
+/**
  * What Fix all does: nothing without open findings, sends one straight away, and lists several
  * first so some can be left out.
  */

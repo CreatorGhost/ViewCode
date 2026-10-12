@@ -1,10 +1,6 @@
 import type { ReviewFindingEntry, ReviewFindingKey } from "@t3tools/client-runtime/review-findings";
 import type { FileDiffMetadata } from "@pierre/diffs";
-import {
-  fencedCode,
-  type PostedReviewFinding,
-  REVIEW_FINDING_SEVERITIES,
-} from "@t3tools/shared/reviewFindings";
+import { fencedCode, type PostedReviewFinding } from "@t3tools/shared/reviewFindings";
 
 import { reviewCommentContextReference } from "../../lib/composerContextRecords";
 import { formatInlineContextReference } from "../../lib/composerContextReferences";
@@ -160,34 +156,6 @@ export function reviewFindingsFixPrompt(input: {
     ].join("\n\n"),
     comments,
   };
-}
-
-/**
- * The order the panel lists and steps through findings, which Fix all lists them in too: most
- * severe first (blocker, important, nit, question), and within a severity those with no line in
- * the diff (General) first, then the diff's reading order.
- */
-export function reviewIssueOrder(
-  general: ReadonlyArray<Pick<ReviewFindingEntry, "key" | "finding">>,
-  placed: ReadonlyArray<{ readonly entry: Pick<ReviewFindingEntry, "key" | "finding"> }>,
-): ReadonlyArray<ReviewFindingKey> {
-  const reading = [...general, ...placed.map((entry) => entry.entry)];
-  const rank = (entry: Pick<ReviewFindingEntry, "finding">) =>
-    REVIEW_FINDING_SEVERITIES.indexOf(entry.finding.severity);
-  return reading.toSorted((left, right) => rank(left) - rank(right)).map((entry) => entry.key);
-}
-
-/**
- * Whether Fix all starts with a finding ticked: not one already sent to a chat, and not a question
- * or a finding the reviewer could not settle, which are not fixes. The reader can tick them.
- */
-export function reviewFixAllInitiallyTicked(
-  entry: Pick<ReviewFindingEntry, "key" | "finding" | "needsChecking">,
-  sent: Readonly<Record<string, unknown>>,
-): boolean {
-  return (
-    sent[entry.key] === undefined && !entry.needsChecking && entry.finding.severity !== "question"
-  );
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   type ReviewFindingsSource,
   reviewFindingRatingsEqual,
   reviewFixAllMode,
+  reviewIssueOrder,
   reviewPostAllWaits,
   reviewRereviewBasis,
   reviewRereviewSummary,
@@ -85,7 +86,6 @@ import {
   postedReviewFindingsEqual,
   reviewFileCollapsed,
   reviewFindingsFixPrompt,
-  reviewIssueOrder,
 } from "./reviewPanel.logic";
 import {
   type ReviewFixDestination,

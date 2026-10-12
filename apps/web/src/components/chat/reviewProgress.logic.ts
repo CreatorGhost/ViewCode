@@ -1,3 +1,4 @@
+import { reviewFindingsSentText } from "@t3tools/client-runtime/agent-review";
 import {
   normalizeCompactToolLabel,
   workLogEntryIsToolLike,
@@ -31,11 +32,9 @@ function mentionsSubmitFindings(entry: WorkLogEntry): boolean {
 /** "Sent 3 findings so far" from the reviewer's latest findings, or that it is sending them. */
 function findingsSentLine(activities: ReadonlyArray<OrchestrationThreadActivity>): string {
   const latest = activities.findLast((activity) => activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND);
-  const findings = latest === undefined ? undefined : readReviewFindings(latest);
-  if (findings === undefined) return "Sending findings";
-  const count = findings.findings.length + findings.needsChecking.length;
-  const counted = `${count} ${count === 1 ? "finding" : "findings"}`;
-  return findings.complete === false ? `Sent ${counted} so far` : `Sent ${counted}`;
+  return reviewFindingsSentText(
+    (latest === undefined ? undefined : readReviewFindings(latest)) ?? null,
+  );
 }
 
 /** A tool's output rather than a description of the step: never shown as the step. */

@@ -24,6 +24,7 @@ import {
   formatReviewElapsed,
   localReviewScopeLabel,
   pastedReviewCommitSha,
+  reviewFindingsSentText,
   reviewStatusText,
   shortReviewError,
 } from "./agentReview.ts";
@@ -268,6 +269,17 @@ describe("reviewStatusText", () => {
     expect(formatReviewElapsed(-5_000)).toBe("just started");
     expect(shortReviewError("x".repeat(200))).toHaveLength(140);
     expect(shortReviewError(null)).toBe("the reviewer stopped with an error");
+  });
+
+  it("names the step of sending findings by how many were sent", () => {
+    const set = (count: number, complete?: boolean) => ({
+      findings: Array.from({ length: count }, () => ({}) as never),
+      needsChecking: [],
+      ...(complete === undefined ? {} : { complete }),
+    });
+    expect(reviewFindingsSentText(null)).toBe("Sending findings");
+    expect(reviewFindingsSentText(set(1, false))).toBe("Sent 1 finding so far");
+    expect(reviewFindingsSentText(set(4))).toBe("Sent 4 findings");
   });
 });
 

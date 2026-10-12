@@ -10,6 +10,7 @@ import {
   type EnvironmentId,
   type OrchestrationThreadShell,
   type ReviewDiffPreviewSourceKind,
+  type ReviewFindingsActivityPayload,
   type ReviewFindingsTarget,
   type ReviewStartLocalInput,
   type ThreadId,
@@ -123,6 +124,19 @@ export function formatReviewDuration(durationMs: number): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest > 0 ? `took ${hours} h ${rest} min` : `took ${hours} h`;
+}
+
+/**
+ * The step a reviewer is on while it sends findings, from its latest set: "Sent 3 findings so far",
+ * "Sent 4 findings" for the final set, or "Sending findings" before any arrived.
+ */
+export function reviewFindingsSentText(
+  findings: Pick<ReviewFindingsActivityPayload, "findings" | "needsChecking" | "complete"> | null,
+): string {
+  if (findings === null) return "Sending findings";
+  const count = findings.findings.length + findings.needsChecking.length;
+  const counted = `${count} ${count === 1 ? "finding" : "findings"}`;
+  return findings.complete === false ? `Sent ${counted} so far` : `Sent ${counted}`;
 }
 
 const MAX_ERROR_CHARS = 140;

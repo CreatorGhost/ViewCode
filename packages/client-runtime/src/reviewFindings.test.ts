@@ -18,7 +18,10 @@ import {
   reviewFindingEntries,
   reviewFindingIdentity,
   reviewFindingMarksByKey,
+  reviewFindingsInFileOrder,
+  reviewFixAllInitiallyTicked,
   reviewFixAllMode,
+  reviewIssueOrder,
   reviewFixCandidates,
   selectReviewFixChat,
   reviewFixUndo,
@@ -889,5 +892,53 @@ describe("Fix all and Post all", () => {
     expect(reviewPostAllWaits({ commentMode: false, tickedCount: 0, stillReviewing: true })).toBe(
       false,
     );
+  });
+});
+
+describe("reviewIssueOrder by severity", () => {
+  const entry = (key: string, severity: "blocker" | "important" | "nit" | "question") => ({
+    key: key as `finding:${number}`,
+    finding: { severity, confidence: 80, path: "a.ts", title: key, detail: "Detail." },
+  });
+  it("lists the most severe first, keeping file order within a severity", () => {
+    expect(
+      reviewIssueOrder(
+        [entry("finding:9", "question")],
+        [
+          { entry: entry("finding:0", "important") },
+          { entry: entry("finding:1", "important") },
+          { entry: entry("finding:2", "question") },
+          { entry: entry("finding:3", "blocker") },
+        ],
+      ),
+    ).toEqual(["finding:3", "finding:0", "finding:1", "finding:9", "finding:2"]);
+  });
+
+  it("puts findings no diff places in file order, path then line", () => {
+    const at = (key: string, path: string, line?: number) => ({
+      key,
+      finding: { severity: "important", path, line, title: key },
+    });
+    expect(
+      reviewFindingsInFileOrder([at("c", "b.ts", 3), at("a", "a.ts", 9), at("b", "b.ts")]).map(
+        (entry) => entry.key,
+      ),
+    ).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("reviewFixAllInitiallyTicked", () => {
+  const entry = (severity: "important" | "question", needsChecking = false) => ({
+    key: "finding:0" as const,
+    needsChecking,
+    finding: { severity, confidence: 80, path: "a.ts", title: "T", detail: "Detail." },
+  });
+  it("ticks fixes not sent yet, and leaves questions, unsettled and sent findings to the reader", () => {
+    expect(reviewFixAllInitiallyTicked(entry("important"), {})).toBe(true);
+    expect(reviewFixAllInitiallyTicked(entry("question"), {})).toBe(false);
+    expect(reviewFixAllInitiallyTicked(entry("important", true), {})).toBe(false);
+    expect(
+      reviewFixAllInitiallyTicked(entry("important"), { "finding:0": { title: "Chat" } }),
+    ).toBe(false);
   });
 });
