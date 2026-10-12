@@ -5390,6 +5390,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     );
   };
   /** Resolves true when at least one chip was inserted for the accepted attachments. */
+  // A dropped or picked file's path on disk, when the desktop app can tell and this composer's
+  // environment is the one running on this computer.
+  const localFilePath = (file: File): string | null =>
+    folderDropTarget({
+      localEnvironmentDisabled: isLocalEnvironmentDisabled(),
+      environmentId,
+      primaryEnvironmentId,
+    }) === "local"
+      ? resolveDroppedFolderPath(file, window.desktopBridge?.getPathForFile)
+      : null;
   const addComposerAttachments = async (
     files: File[],
     options?: {
@@ -5443,6 +5453,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const acceptedImages: File[] = [];
     const acceptedFiles: ComposerFileAttachment[] = [];
     let error: string | null = null;
+    const linkedByPath: Array<{ name: string; path: string }> = [];
     for (const file of files) {
       const attachmentKind = classifyComposerAttachmentFile(file);
       const fileMimeType =
@@ -5487,6 +5498,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           continue;
         }
         if (file.size > fileStagingLimit) {
+          // The agent runs on this computer, so a file too big to upload can go in by its path.
+          const path = localFilePath(file);
+          if (path !== null) {
+            linkedByPath.push({ name: file.name, path });
+            continue;
+          }
           error = fileAttachmentTooLargeMessage(file.name, fileStagingLimit);
           continue;
         }
@@ -5510,6 +5527,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     setThreadError(threadId, error);
     let insertedAny = false;
+    if (linkedByPath.length > 0) {
+      // Placed like the chips of attached files, at the caret.
+      insertedAny = insertComposerText(
+        `${linkedByPath.map((linked) => serializeComposerFileLink(linked.path)).join(" ")} `,
+        "cursor",
+        { ensureLeadingBoundary: true },
+      );
+    }
+    if (linkedByPath.length > 0) {
+      toastManager.add({
+        type: "info",
+        title:
+          linkedByPath.length === 1
+            ? `${linkedByPath[0]!.name} is linked by its path`
+            : `${linkedByPath.length} files are linked by their paths`,
+        description: `Too big to upload, so the agent reads ${linkedByPath.length === 1 ? "it" : "them"} from this computer instead.`,
+        data: { hideCopyButton: true },
+      });
+    }
     if (acceptedFiles.length > 0) {
       // Only files the draft actually took get a chip; a duplicate is deduped by the store
       // and a chip for it would point at nothing.
