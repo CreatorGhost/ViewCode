@@ -1760,6 +1760,57 @@ describe("EnvironmentRegistry routes", () => {
     }),
   );
 
+  it.effect("pairing a legacy address again drops the routes learned over its old token", () =>
+    Effect.gen(function* () {
+      const legacy = new BearerConnectionTarget({
+        environmentId: BEARER_TARGET.environmentId,
+        label: BEARER_TARGET.label,
+        connectionId: `bearer:${BEARER_TARGET.environmentId}`,
+      });
+      const legacyProfile = new BearerConnectionProfile({
+        connectionId: legacy.connectionId,
+        environmentId: legacy.environmentId,
+        label: legacy.label,
+        httpBaseUrl: "https://desk.tail1234.ts.net/",
+        wsBaseUrl: "wss://desk.tail1234.ts.net/",
+      });
+      // Learned over the legacy route, so it borrows that route's token.
+      const learned = new BearerConnectionTarget({
+        ...legacy,
+        connectionId: `learned:${legacy.environmentId}:http://192.168.1.10:3773@${legacy.connectionId}`,
+      });
+      const learnedProfile = new BearerConnectionProfile({
+        connectionId: learned.connectionId,
+        environmentId: learned.environmentId,
+        label: learned.label,
+        httpBaseUrl: "http://192.168.1.10:3773/",
+        wsBaseUrl: "ws://192.168.1.10:3773/",
+        learned: true,
+      });
+      const harness = yield* makeHarness(
+        [learned, legacy],
+        [learnedProfile, legacyProfile],
+        [[legacy.connectionId, BEARER_CREDENTIAL]],
+      );
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        const tailnet = new BearerConnectionTarget({
+          ...legacy,
+          connectionId: `bearer:${legacy.environmentId}:https://desk.tail1234.ts.net`,
+        });
+        yield* registry.register(
+          lanRegistration(
+            tailnet,
+            new BearerConnectionProfile({ ...legacyProfile, connectionId: tailnet.connectionId }),
+          ),
+        );
+        expect(routesOf(yield* Ref.get(harness.storedTargets), legacy.environmentId)).toEqual([
+          tailnet,
+        ]);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
   it.effect("a second SSH host for the same machine adds a route beside the first", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness([SSH_CONNECTION], [SSH_PROFILE]);

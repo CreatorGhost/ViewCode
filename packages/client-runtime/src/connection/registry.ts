@@ -557,11 +557,14 @@ export const make = Effect.gen(function* () {
           const route: ConnectionRoute = { target: registered.target, profile: registered.profile };
           const existing = connectionRoutes(previous);
           const sameAddress = findRouteToSameAddress(existing, route);
-          const routes = existing.filter(
-            (existing) =>
-              existing !== sameAddress ||
-              connectionRouteId(existing.target) === connectionRouteId(route.target),
-          );
+          // Pairing an address again under a new id (old `bearer:<env>` ids do)
+          // drops the old route and its credential, so routes learned over it
+          // go too; the new route learns them again.
+          const routes =
+            sameAddress === undefined ||
+            connectionRouteId(sameAddress.target) === connectionRouteId(route.target)
+              ? existing
+              : routesAfterRemoving(existing, connectionRouteId(sameAddress.target));
           const next = withRoutes(previous, upsertRoute(routes, route));
           if (next.addressesChanged) {
             yield* forgetRoutingTrust(environmentId, "register-connection");
