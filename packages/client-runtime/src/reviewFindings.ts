@@ -360,25 +360,31 @@ export function selectLatestReview<
   }
   if (newest === null) return null;
   const { thread, started } = newest;
-  // A review that stopped after a provider error failed, whatever turns ran after it.
-  const error = thread.run.kind === "running" ? null : reviewErrorSinceStart(thread.activities);
-  const run: ReviewRunState =
-    error === null
-      ? thread.run
-      : {
-          kind: "failed",
-          error:
-            thread.run.kind === "failed" && thread.run.error ? thread.run.error : error || null,
-        };
   return {
     thread,
     mode: started.mode ?? "quick",
     focus: started.focus,
     scope: started.scope,
     progress: reviewProgress({
-      run,
+      run: reviewRunWithErrors(thread.run, thread.activities),
       findings: latestReviewFindingsSource(thread)?.findings ?? null,
     }),
+  };
+}
+
+/**
+ * Where a review's work stands once its record is read too: one that stopped after a provider
+ * error since it started failed (`reviewErrorSinceStart`), whatever turns ran after it.
+ */
+export function reviewRunWithErrors(
+  run: ReviewRunState,
+  activities: ReadonlyArray<Pick<FindingsActivity, "kind" | "payload">>,
+): ReviewRunState {
+  const error = run.kind === "running" ? null : reviewErrorSinceStart(activities);
+  if (error === null) return run;
+  return {
+    kind: "failed",
+    error: run.kind === "failed" && run.error ? run.error : error || null,
   };
 }
 
