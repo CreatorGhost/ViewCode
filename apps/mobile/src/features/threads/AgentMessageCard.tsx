@@ -12,7 +12,8 @@ import {
 } from "@t3tools/client-runtime/state/child-agents";
 import { type AgentReviewMode, ThreadId, type EnvironmentId } from "@t3tools/contracts";
 import type { AgentMessageEnvelope, AgentMessageSentPayload } from "@t3tools/shared/agentMessages";
-import { StackActions, useNavigation } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
+import { openThreadFromThread } from "./openThreadFromThread";
 import { memo, useMemo, useState, type ReactNode } from "react";
 import * as Haptics from "expo-haptics";
 import { Pressable, View, type ColorValue } from "react-native";
@@ -75,14 +76,10 @@ function AgentMessageRow(props: {
           className="max-w-[45%] shrink-0"
           hitSlop={6}
           onPress={() =>
-            // Push, not navigate: navigate reuses this Thread route, so back
-            // would skip the thread this message was opened from.
-            navigation.dispatch(
-              StackActions.push("Thread", {
-                environmentId: props.environmentId,
-                threadId: props.threadId,
-              }),
-            )
+            openThreadFromThread(navigation, {
+              environmentId: props.environmentId,
+              threadId: props.threadId,
+            })
           }
         >
           <Text className="text-sm font-t3-medium text-foreground" numberOfLines={1}>
@@ -372,10 +369,7 @@ function AgentRow(props: {
           disabled={!shell}
           onPress={
             review?.onOpen ??
-            (() =>
-              navigation.dispatch(
-                StackActions.push("Thread", { environmentId, threadId: sent.toThreadId }),
-              ))
+            (() => openThreadFromThread(navigation, { environmentId, threadId: sent.toThreadId }))
           }
         >
           <Text className="text-sm text-foreground" numberOfLines={1}>
@@ -423,9 +417,7 @@ function AgentRow(props: {
               accessibilityHint="Opens the reviewer's own chat."
               hitSlop={6}
               onPress={() =>
-                navigation.dispatch(
-                  StackActions.push("Thread", { environmentId, threadId: sent.toThreadId }),
-                )
+                openThreadFromThread(navigation, { environmentId, threadId: sent.toThreadId })
               }
               className="self-start active:opacity-70"
             >

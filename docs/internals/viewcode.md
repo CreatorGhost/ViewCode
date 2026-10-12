@@ -1000,9 +1000,10 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   v2-only parts are dropped or rebuilt on v1: the latest-thought row reads v1
   `role === "reasoning"` messages (`lib/threadActivity.ts`), and Home holds
   `threadShellsAtom` (there is no `navigationThreadShellsAtom`).
-- Opening another thread from inside a Thread must `StackActions.push`. The
-  Thread route has no `getId`, so `navigate` swaps params and back skips the
-  parent (child agents, `AgentMessageCard`, `ActiveAgentsStrip`).
+- Opening another thread from inside a Thread goes through
+  `openThreadFromThread`: it pushes, because the Thread route has no `getId`
+  and `navigate` would swap params so Back skips the parent, and it pops back
+  to a thread already below so chat ↔ agent hops don't pile up history.
 - Home keeps its thread list frozen while a Thread covers it
   (`home-route-visibility.ts`); new Home subscriptions that change often go
   through `useAtomValueWhileVisible`. Timers use `useVisibleSecondClock`.

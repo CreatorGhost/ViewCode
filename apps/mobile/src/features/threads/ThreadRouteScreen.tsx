@@ -96,6 +96,7 @@ import {
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
+import { openThreadFromThread } from "./openThreadFromThread";
 import {
   useAndroidWorkspaceBack,
   useWorkspaceListNavigation,
@@ -552,12 +553,10 @@ function ThreadRouteContent(
   // the parent thread.
   const handleOpenAgentThread = useCallback(
     (thread: EnvironmentThreadShell) => {
-      navigation.dispatch(
-        StackActions.push("Thread", {
-          environmentId: String(thread.environmentId),
-          threadId: String(thread.id),
-        }),
-      );
+      openThreadFromThread(navigation, {
+        environmentId: String(thread.environmentId),
+        threadId: String(thread.id),
+      });
     },
     [navigation],
   );
