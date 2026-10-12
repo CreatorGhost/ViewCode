@@ -36,6 +36,7 @@ import { useDirectPushRegistration } from "./features/agent-awareness/useDirectP
 import { AttachmentFileScreen } from "./features/files/AttachmentFileScreen";
 import { ThreadFilesTreeScreen, ThreadFileScreen } from "./features/files/ThreadFilesRouteScreen";
 import { AdaptiveWorkspaceLayout } from "./features/layout/AdaptiveWorkspaceLayout";
+import { selectedPullRequestKey } from "./features/pull-requests/pullRequestSelection";
 import {
   HardwareKeyboardCommandOverlay,
   HardwareKeyboardCommandProvider,
@@ -572,6 +573,7 @@ function RootStackLayout(props: {
           <AdaptiveWorkspaceLayout
             pathname={workspaceLocation.pathname}
             workspaceRouteKey={workspaceLocation.routeKey}
+            selectedPullRequestKey={selectedPullRequestKey(props.state)}
           >
             {props.children}
             <HardwareKeyboardCommandOverlay />
