@@ -1,9 +1,10 @@
-import { ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import {
   localReviewDiffRequest,
   reviewedChangeLabel,
+  reviewStopPlan,
   buildAgentReviewStart,
   canChooseLocalReviewScope,
   filterReviewCommits,
@@ -168,6 +169,43 @@ describe("the change a review shows", () => {
       "Commit 7523ce0",
     );
     expect(reviewedChangeLabel(local, { kind: "uncommitted" }, null)).toBe("Uncommitted changes");
+  });
+});
+
+describe("reviewStopPlan", () => {
+  const environmentId = EnvironmentId.make("env");
+  const shell = (id: string, parent: string | null, running: boolean) => ({
+    id: ThreadId.make(id),
+    environmentId,
+    parentThreadId: parent === null ? null : ThreadId.make(parent),
+    archivedAt: null,
+    session: null,
+    latestTurn: running
+      ? {
+          turnId: TurnId.make(`${id}-turn`),
+          state: "running" as const,
+          requestedAt: "2026-10-01T10:00:00.000Z",
+          startedAt: null,
+          completedAt: null,
+          assistantMessageId: null,
+        }
+      : null,
+  });
+
+  it("stops the review's working agents, then discards for all of them, never the chat", () => {
+    const plan = reviewStopPlan(
+      [
+        shell("chat", null, true),
+        shell("review", "chat", false),
+        shell("lens-a", "review", true),
+        shell("lens-b", "review", false),
+        shell("sibling", "chat", true),
+      ],
+      { environmentId, threadId: ThreadId.make("review") },
+    );
+    expect(plan.stop).toEqual(["review", "lens-a"]);
+    // The reviewer last, so an answer a lens still held for it is dropped before it is unpaused.
+    expect(plan.discard).toEqual(["lens-a", "lens-b", "review"]);
   });
 });
 

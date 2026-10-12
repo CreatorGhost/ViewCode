@@ -3,6 +3,7 @@ import {
   formatReviewDuration,
   formatReviewElapsed,
   reviewStatusText,
+  reviewStopPlan,
 } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -84,16 +85,16 @@ export function ReviewStatusBar({
   const navigate = useNavigate();
   const actions = useAgentControlActions();
   const [stopping, setStopping] = useState(false);
-  // Stops the reviewer and the agents it started, and nothing else: the chat it belongs to is in
-  // the same agent tree, so this never stops the tree as a whole.
+  // Stops the reviewer and its agents for good (`reviewStopPlan`), and nothing else: the chat it
+  // belongs to is in the same agent tree, so this never acts on the tree as a whole.
   const stopReview = async () => {
     setStopping(true);
-    const agents = collectChildAgents(readThreadShells(), {
-      environmentId,
-      threadId: review.threadId,
-    }).filter((agent) => agent.running);
-    for (const threadId of [review.threadId, ...agents.map((agent) => agent.thread.id)]) {
+    const plan = reviewStopPlan(readThreadShells(), { environmentId, threadId: review.threadId });
+    for (const threadId of plan.stop) {
       await actions.stop(scopeThreadRef(environmentId, threadId), "thread");
+    }
+    for (const threadId of plan.discard) {
+      await actions.discard(scopeThreadRef(environmentId, threadId), "thread");
     }
     setStopping(false);
   };

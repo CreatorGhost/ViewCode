@@ -7,10 +7,14 @@ import {
   type PullRequestRef,
   type PullRequestStartReviewInput,
   type ReviewBasedOnInput,
+  type EnvironmentId,
+  type OrchestrationThreadShell,
   type ReviewStartLocalInput,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+
+import { collectChildAgents } from "./state/childAgents.ts";
 
 import type { ReviewProgress } from "./reviewFindings.ts";
 
@@ -248,4 +252,33 @@ const isLocalReviewScope = Schema.is(LocalReviewScope);
 /** Whether a scope the reader is still filling in can be sent: a base that is a ref, a SHA. */
 export function localReviewScopeReady(scope: LocalReviewScope | null): boolean {
   return scope === null || isLocalReviewScope(scope);
+}
+
+/**
+ * What stopping a review does, as two existing agent controls composed: stop the reviewer and the
+ * agents of it still at work (each alone, since the chat it belongs to is in the same agent tree),
+ * then discard for the reviewer and every agent under it, which unpauses them and drops whatever
+ * they hold, so a stopped review looks like a finished one and no held answer wakes the reviewer
+ * again. The agents are discarded before the reviewer, so an answer one of them still had for it
+ * is dropped first.
+ */
+export function reviewStopPlan(
+  threads: ReadonlyArray<
+    Pick<
+      OrchestrationThreadShell,
+      "id" | "parentThreadId" | "archivedAt" | "session" | "latestTurn"
+    > & {
+      readonly environmentId: EnvironmentId;
+    }
+  >,
+  review: { readonly environmentId: EnvironmentId; readonly threadId: ThreadId },
+): { readonly stop: ReadonlyArray<ThreadId>; readonly discard: ReadonlyArray<ThreadId> } {
+  const agents = collectChildAgents(threads, review);
+  return {
+    stop: [
+      review.threadId,
+      ...agents.filter((agent) => agent.running).map((agent) => agent.thread.id),
+    ],
+    discard: [...agents.map((agent) => agent.thread.id), review.threadId],
+  };
 }
