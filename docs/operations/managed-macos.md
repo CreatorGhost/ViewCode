@@ -1,5 +1,12 @@
 # Running ViewCode on a managed (EDR-protected) Mac
 
+> **ViewCode no longer targets managed machines.** Three defaults that existed
+> only for this laptop were lifted: the first-run provider gate (installed
+> providers are probed at boot again), the click-only Same Wi-Fi test (it runs
+> when Connect phone opens) and Tailscale Serve being off at launch (now on when
+> Tailscale is signed in). What respects an organisation's policy files stays.
+> The report below is kept as a record.
+
 Field report from a locked-down company laptop, checked against ViewCode's
 source. Specifics that identify the machine, user or tenant (names, prevention
 IDs) are deliberately left out; keep it that way, this repository is public.

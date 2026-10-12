@@ -150,9 +150,8 @@ off (see [`managed-mac-experiments.md`](managed-mac-experiments.md)).
 **Not verified:** the new build there; the enterprise-policy fix against the
 real policy file.
 
-**Risk questions.** Any launch path the gate or guard misses? The Windows
-un-escaping approach? Migration edge cases (pending across restarts,
-malformed settings, persistence failure)? Stale second `choose`?
+**Risk questions.** Any launch path the guard misses? The Windows
+un-escaping approach?
 
 ## 5. Composer: model/effort picker, usage, context window
 
