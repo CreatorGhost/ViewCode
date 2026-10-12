@@ -94,7 +94,6 @@ import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetup
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
-import { ProviderChoiceStep } from "../onboarding/ProviderChoiceStep";
 import { searchableSetting } from "./settingsSearch";
 import {
   backgroundActivityOverrideSettings,
@@ -437,13 +436,6 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
         />
       ) : null}
 
-      {selectedEnvironment?.serverConfig?.settings.providerSelection === "pending" ? (
-        <ProviderChoiceStep
-          key={`choice:${selectedEnvironment.environmentId}`}
-          environmentId={selectedEnvironment.environmentId}
-          machineLabel={selectedEnvironment.label}
-        />
-      ) : null}
       {selectedEnvironment ? (
         <SelectedEnvironmentProviderSettings
           key={selectedEnvironment.environmentId}
@@ -954,12 +946,7 @@ export function EnvironmentProviderSettings({
       <ProviderInstanceCard
         key={row.instanceId}
         instanceId={row.instanceId}
-        // Until agents are chosen nothing is running, so show every switch off.
-        instance={
-          settings.providerSelection === "pending"
-            ? { ...row.instance, enabled: false }
-            : row.instance
-        }
+        instance={row.instance}
         driverOption={driverOption}
         liveProvider={liveProvider}
         mode={mode}

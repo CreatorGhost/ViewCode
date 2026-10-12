@@ -1137,8 +1137,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         automaticGitFetchInterval: 10_000,
         // A fresh install starts new threads in Auto, written so it stays decided.
         defaultRuntimeMode: "auto",
-        // ViewCode: a fresh environment waits for the first-run provider choice.
-        providerSelection: "pending",
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
@@ -1148,10 +1146,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverConfig = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      yield* fileSystem.writeFileString(
-        serverConfig.settingsPath,
-        '{"providerSelection":"chosen"}',
-      );
+      yield* fileSystem.writeFileString(serverConfig.settingsPath, "{}");
 
       const settings = yield* serverSettings.getSettings;
       assert.equal(settings.defaultRuntimeMode, "full-access");
@@ -1216,7 +1211,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
       const original =
-        '{"providerInstances":{"codex_personal":{"driver":"codex","environment":[{"name":"API_TOKEN","value":"inline-test-token","sensitive":true}],"config":{}}},"providerSelection":"chosen","defaultRuntimeMode":"full-access"}';
+        '{"providerInstances":{"codex_personal":{"driver":"codex","environment":[{"name":"API_TOKEN","value":"inline-test-token","sensitive":true}],"config":{}}},"defaultRuntimeMode":"full-access"}';
       yield* fs.writeFileString(config.settingsPath, original);
       const error = yield* Effect.flip(
         service.updateSettings({

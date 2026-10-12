@@ -1194,9 +1194,6 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
-export const ProviderSelectionState = Schema.Literals(["pending", "chosen"]);
-export type ProviderSelectionState = typeof ProviderSelectionState.Type;
-
 export const ServerSettings = Schema.Struct({
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
@@ -1455,17 +1452,6 @@ export const ServerSettings = Schema.Struct({
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  /**
-   * ViewCode: whether the user has chosen which providers this environment
-   * may run. `"pending"` (a fresh install) means no provider is probed or
-   * launched until the choice is made (`server.chooseProviders`, or turning
-   * one on in Settings). Absent means the file predates the choice and needs
-   * migration: the server decides and persists it when settings load, so
-   * clients always see a value. Persisted explicitly because sparse settings
-   * files drop defaults. Server-side so a second browser or the phone cannot
-   * bypass it.
-   */
-  providerSelection: Schema.optionalKey(ProviderSelectionState),
   /**
    * ViewCode Quick connect: dial out to the user's own relay Worker so the
    * phone can reach this computer. `url` is the relay's https origin, written
@@ -1777,8 +1763,6 @@ export const ServerSettingsPatch = Schema.Struct({
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),
   ),
-  /** Closes a pending provider selection; prefer `server.chooseProviders`. */
-  providerSelection: Schema.optionalKey(Schema.Literal("chosen")),
   /**
    * Clients send only the switch. `url` is written by the server's Quick
    * connect setup (`null` clears it); the settings RPC drops it from clients.

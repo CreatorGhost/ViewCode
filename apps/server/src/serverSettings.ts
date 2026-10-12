@@ -62,10 +62,6 @@ import {
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
-import {
-  applyProviderSelectionRules,
-  decideProviderSelection,
-} from "./provider/providerSelection.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
 
@@ -786,30 +782,10 @@ const make = Effect.gen(function* () {
     );
     // Only rewrite a file that decoded cleanly; an untrusted one stays for the user to repair.
     const migrated = settingsFileTrusted ? yield* moveInlineBitbucketTokens(folded) : folded;
-    // ViewCode: decide once whether this environment still has to choose its
-    // providers (see provider/providerSelection.ts).
-    const selected =
-      migrated.providerSelection === undefined
-        ? decideProviderSelection(migrated, {
-            rawSettingsJson,
-            settingsFileTrusted,
-            hasHistory: yield* readEnvironmentHasHistory,
-          })
-        : migrated;
-    if (selected !== loaded && settingsFileTrusted) {
-      const written = yield* Effect.exit(writeSettingsAtomically(selected));
-      if (Exit.isFailure(written)) {
-        if (selected === migrated) return yield* Effect.failCause(written.cause);
-        // An unpersisted decision is not permission: run with providers off
-        // and decide again next time.
-        yield* Effect.logWarning("could not persist the provider selection; providers stay off", {
-          path: settingsPath,
-          cause: Cause.pretty(written.cause),
-        });
-        return { ...selected, providerSelection: "pending" as const };
-      }
+    if (migrated !== loaded && settingsFileTrusted) {
+      yield* writeSettingsAtomically(migrated);
     }
-    return selected;
+    return migrated;
   });
 
   const settingsCache = yield* Cache.make<typeof cacheKey, ServerSettings, ServerSettingsError>({
@@ -1146,11 +1122,7 @@ const make = Effect.gen(function* () {
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* getSettingsFromCache;
-        const updated = applyProviderSelectionRules(
-          current,
-          patch,
-          applyServerSettingsPatch(current, patch),
-        );
+        const updated = applyServerSettingsPatch(current, patch);
         const persisted = yield* persistProviderEnvironmentSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>

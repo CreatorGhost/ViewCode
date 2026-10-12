@@ -306,7 +306,6 @@ import {
   ViewCodeRelaySetupError,
   ViewCodeRelaySetupStartInput,
 } from "./remoteAccess.ts";
-import { ChooseProvidersInput, DetectProvidersResult } from "./providerChoice.ts";
 import {
   AgentControlError,
   AgentControlInput,
@@ -461,8 +460,6 @@ export const WS_METHODS = {
   serverRemoveKeybinding: "server.removeKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
-  serverDetectProviders: "server.detectProviders",
-  serverChooseProviders: "server.chooseProviders",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
@@ -771,20 +768,6 @@ const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
 
 const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
   payload: Schema.Struct({ patch: ServerSettingsPatch }),
-  success: ServerSettings,
-  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
-});
-
-// ViewCode: filesystem-only lookup of every built-in provider CLI.
-const WsServerDetectProvidersRpc = Rpc.make(WS_METHODS.serverDetectProviders, {
-  payload: Schema.Struct({}),
-  success: DetectProvidersResult,
-  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
-});
-
-// ViewCode: enable exactly these providers and lift the first-run gate.
-const WsServerChooseProvidersRpc = Rpc.make(WS_METHODS.serverChooseProviders, {
-  payload: ChooseProvidersInput,
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
@@ -1813,8 +1796,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRemoveKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
-  WsServerDetectProvidersRpc,
-  WsServerChooseProvidersRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,

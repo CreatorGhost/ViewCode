@@ -123,7 +123,7 @@ subagents"). Used only when the user asks for built-in/inline ones.
 agents? Any state (status "Working") that can get stuck when a native
 sub-agent is killed?
 
-## 4. Providers: Command Code, provider choice, launch guard
+## 4. Providers: Command Code, launch guard
 
 **Command Code.** Headless CLI adapter (`cmd -p --output-format json`,
 `--resume`). MCP only via files, so no agents toolkit; works as a worker.
@@ -132,15 +132,6 @@ Credits read from `~/.commandcode/auth.json` only when
 (never the key). Code: `provider/commandCodeCli.ts`,
 `provider/Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`,
 `Layers/commandCodeUsageLimits.ts`.
-
-**Provider choice (first run).** Fresh home → `providerSelection: "pending"`,
-every instance effectively off (gate in `deriveProviderInstanceConfigMap`),
-nothing launched until the user chooses in onboarding / Settings → Providers;
-existing homes migrate to `chosen`. RPCs `server.detectProviders`
-(filesystem only) and `server.chooseProviders` (initial choice only). Code:
-`provider/providerSelection.ts`, `providerLaunch.ts`, web
-`onboarding/ProviderChoiceStep.tsx`, `ProviderChoicePendingNotice.tsx`,
-`onboarding/providerChoice.logic.ts`, `settings/ProviderSettingsPanel.tsx`.
 
 **Launch guard.** Every provider launch resolves the executable (uncached,
 right before launch), runs the resolved path, fails closed; Windows
