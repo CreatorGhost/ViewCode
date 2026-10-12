@@ -3,7 +3,11 @@ import {
   type AgentReviewChoices,
   type AgentReviewRequest,
   agentReviewRetryRequest,
+  localReviewScopeLabel,
+  reviewedChangeLabel,
+  reviewFindingsSentText,
   reviewStatusText,
+  reviewStopPlan,
 } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -17,11 +21,13 @@ import {
   reviewPostAllWaits,
   type ReviewProgress,
   reviewProgress,
+  reviewRunWithErrors,
 } from "@t3tools/client-runtime/review-findings";
 import {
   type ChildAgentEntry,
   resolveSpawnedAgentRowStatus,
   SPAWNED_AGENT_STATUS_LABEL,
+  spawnedAgentElapsedRange,
 } from "@t3tools/client-runtime/state/child-agents";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
@@ -32,7 +38,7 @@ import {
   type AgentReviewMode,
   EnvironmentId,
   type ReviewFindingRating,
-  type ReviewFindingsTarget,
+  type ReviewFindingsActivityPayload,
   type ReviewVerdict,
   ThreadId,
 } from "@t3tools/contracts";
@@ -54,7 +60,7 @@ import { ScreenHeader } from "../../../components/ScreenHeader";
 import { cn } from "../../../lib/cn";
 import { tryOpenExternalUrl } from "../../../lib/openExternalUrl";
 import { relativeTime } from "../../../lib/time";
-import { useEnvironmentServerConfig } from "../../../state/entities";
+import { useEnvironmentServerConfig, useThreadShells } from "../../../state/entities";
 import { reviewEnvironment } from "../../../state/review";
 import {
   reviewFindingsCardKey,
@@ -100,9 +106,6 @@ const VERDICT_CHIP: Record<ReviewVerdict, { readonly className: string; readonly
   },
 };
 
-function targetLabel(target: ReviewFindingsTarget): string {
-  return target.kind === "pull-request" ? `PR #${target.number}` : "Local changes";
-}
 
 function SummaryRow(props: {
   readonly icon: AppSymbolName;
@@ -147,13 +150,18 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
     ratings,
     loading,
     started,
+    activities,
   } = useReviewThreadFindings(reviewRef);
   const serverConfig = useEnvironmentServerConfig(environmentId);
   const canRate = serverConfig?.environment.capabilities.reviewFindingRatings === true;
   const findings = source?.findings ?? null;
   const { run, agents } = useReviewerRun(environmentId, reviewer);
   // Only a review thread has a run to tell; an older one without its start record reads as done.
-  const progress = started === null || run === null ? null : reviewProgress({ run, findings });
+  // One that stopped after a provider error failed, whatever turns ran after it.
+  const progress =
+    started === null || run === null
+      ? null
+      : reviewProgress({ run: reviewRunWithErrors(run, activities), findings });
   const stillReviewing = progress?.kind === "running";
   // A review just asked for may reach this phone before its thread or its start record does.
   const waiting = loading || reviewer === null || (started === null && run?.kind === "running");
@@ -366,6 +374,13 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
             scope: started.scope,
           },
         };
+  // What was reviewed, as web's header names it: "PR #12", "Branch vs origin/main", "Commit 7523ce0".
+  const changeLabel =
+    source !== null
+      ? reviewedChangeLabel(source.findings.target, source.scope, null)
+      : started?.scope
+        ? localReviewScopeLabel(started.scope)
+        : null;
   const statusBlock =
     progress !== null && progress.kind !== "done" && reviewer !== null && started !== null ? (
       <ReviewStatusBlock
@@ -374,6 +389,7 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
         mode={started.mode ?? "quick"}
         progress={progress}
         agents={agents}
+        findings={findings}
         onViewAgent={() =>
           navigation.navigate("Thread", { environmentId, threadId: reviewThreadId })
         }
@@ -394,7 +410,7 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
     <View className={Platform.OS === "android" ? "flex-1 bg-header" : "flex-1 bg-screen"}>
       <ScreenHeader
         title="Review findings"
-        subtitle={findings ? targetLabel(findings.target) : undefined}
+        subtitle={changeLabel ?? undefined}
         onBack={() => navigation.goBack()}
         sidebar={false}
       />
@@ -469,7 +485,7 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
                   <Text className="text-[15px] text-foreground" numberOfLines={1}>
                     {findings.target.kind === "pull-request"
                       ? `${findings.target.repository} #${findings.target.number}`
-                      : "Local changes"}
+                      : changeLabel}
                   </Text>
                 </SummaryRow>
                 <SummaryRow icon="person.crop.circle" label="Reviewed by">
@@ -600,6 +616,8 @@ function ReviewStatusBlock(props: {
   readonly mode: AgentReviewMode;
   readonly progress: Exclude<ReviewProgress, { readonly kind: "done" }>;
   readonly agents: ReadonlyArray<ChildAgentEntry<EnvironmentThreadShell>>;
+  /** The findings it sent so far, if any. */
+  readonly findings: ReviewFindingsActivityPayload | null;
   readonly onViewAgent: () => void;
   readonly retry: {
     readonly request: AgentReviewRequest;
@@ -613,18 +631,32 @@ function ReviewStatusBlock(props: {
   const actions = useAgentControlActions();
   const { start, pending } = useStartAgentReview(environmentId);
   const [stopping, setStopping] = useState(false);
+  const endMs = spawnedAgentElapsedRange(reviewer)?.endMs ?? null;
   const text = reviewStatusText({
     progress,
     label,
     elapsedMs: now - Date.parse(reviewer.createdAt),
+    // Once it is over, how long it took ("took 3 min").
+    durationMs: endMs === null ? null : endMs - Date.parse(reviewer.createdAt),
     newer: false,
   });
+  // Under it, while findings arrive the step web names ("Sent 2 findings so far"); once the
+  // review stopped, what it was.
+  const detail =
+    progress.kind === "running"
+      ? props.findings === null
+        ? null
+        : reviewFindingsSentText(props.findings)
+      : label;
+  const threads = useThreadShells();
+  // Stopped for good, as web stops it (`reviewStopPlan`): the reviewer and its working agents,
+  // then discard for its agents and the reviewer so nothing is left paused. The chat it belongs to
+  // is in the same agent tree and is never touched.
   const stop = async () => {
     setStopping(true);
-    const running = agents.filter((agent) => agent.running).map((agent) => agent.thread.id);
-    for (const id of [reviewer.id, ...running]) {
-      await actions.stop({ environmentId, id }, "thread");
-    }
+    const plan = reviewStopPlan(threads, { environmentId, threadId: reviewer.id });
+    for (const id of plan.stop) await actions.stop({ environmentId, id }, "thread");
+    for (const id of plan.discard) await actions.discard({ environmentId, id }, "thread");
     setStopping(false);
   };
   return (
@@ -652,6 +684,11 @@ function ReviewStatusBlock(props: {
           {text}
         </Text>
       </View>
+      {detail !== null ? (
+        <Text className="pl-4 text-[13px] text-foreground-muted" numberOfLines={1}>
+          {detail}
+        </Text>
+      ) : null}
       {progress.kind === "running" && agents.length > 0 ? (
         <View className="gap-1 pl-4">
           {agents.map((agent) => {

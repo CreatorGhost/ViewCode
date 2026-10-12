@@ -55,6 +55,18 @@ export function useAgentControlActions() {
       ),
     [resumeCommand],
   );
+  /** Without asking: for a caller that already said what it drops, such as a review's Stop. */
+  const discard = useCallback(
+    async (ref: AgentRef, scope: AgentControlScope) =>
+      reportFailure(
+        await discardCommand({
+          environmentId: ref.environmentId,
+          input: { threadId: ref.id, scope },
+        }),
+        "Could not discard the held messages",
+      ),
+    [discardCommand],
+  );
   const confirmDiscard = useCallback(
     (ref: AgentRef, scope: AgentControlScope) =>
       Alert.alert(
@@ -100,7 +112,7 @@ export function useAgentControlActions() {
   );
 
   return useMemo(
-    () => ({ stop, resume, confirmDiscard, runMenuEvent }),
-    [confirmDiscard, resume, runMenuEvent, stop],
+    () => ({ stop, resume, discard, confirmDiscard, runMenuEvent }),
+    [confirmDiscard, discard, resume, runMenuEvent, stop],
   );
 }

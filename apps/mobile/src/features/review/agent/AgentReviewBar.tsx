@@ -10,6 +10,7 @@ import {
   agentReviewTargetLabel,
   inferAgentReviewTarget,
   localReviewScopeReady,
+  reviewFindingsSentText,
   reviewStatusText,
 } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -349,7 +350,6 @@ function AgentReviewStatusRow(props: {
   const label = useAgentReviewLabel(props.environmentId, review.mode, review.modelSelection);
   const now = useMinuteClock(progress.kind === "running");
   const findings = review.source?.findings ?? null;
-  const soFar = findings === null ? 0 : findings.findings.length + findings.needsChecking.length;
   const text =
     progress.kind === "done"
       ? `${findings === null ? "Done" : REVIEW_VERDICT_LABELS[findings.verdict]} · ${
@@ -359,8 +359,18 @@ function AgentReviewStatusRow(props: {
           progress,
           label,
           elapsedMs: now - Date.parse(review.startedAt),
+          // Once it is over, how long it took ("took 3 min").
+          durationMs:
+            review.endedAt === null
+              ? null
+              : Date.parse(review.endedAt) - Date.parse(review.startedAt),
           newer: false,
-        })}${progress.kind === "running" && progress.partial ? ` · ${soFar} so far` : ""}`;
+        })}${
+          // The step web's progress line names while findings arrive: "Sent 2 findings so far".
+          progress.kind === "running" && progress.partial
+            ? ` · ${reviewFindingsSentText(findings)}`
+            : ""
+        }`;
   return (
     <View className="flex-row items-center gap-1">
       <Pressable

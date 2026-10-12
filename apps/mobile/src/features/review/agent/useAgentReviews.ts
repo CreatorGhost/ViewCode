@@ -91,6 +91,8 @@ export interface LatestAgentReview {
   readonly scope: LocalReviewScope | null;
   readonly modelSelection: ModelSelection;
   readonly startedAt: string;
+  /** When the reviewer's latest turn ended, for how long a review that is over took. */
+  readonly endedAt: string | null;
   readonly progress: ReviewProgress;
   /** Its latest findings, final or so far. */
   readonly source: ReviewFindingsSource | null;
@@ -149,6 +151,7 @@ export function useChatAgentReviews(ref: ScopedThreadRef): {
             scope: latest.scope,
             modelSelection: latest.thread.modelSelection,
             startedAt: latest.thread.createdAt,
+            endedAt: latest.thread.endedAt,
             progress: latest.progress,
             source,
             openCount,

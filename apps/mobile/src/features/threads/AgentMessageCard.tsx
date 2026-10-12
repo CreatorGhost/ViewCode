@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { formatReviewDuration, formatReviewElapsed } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   SPAWNED_AGENT_STATUS_LABEL,
@@ -22,7 +23,11 @@ import { cn } from "../../lib/cn";
 import { useThreadShell } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { resolveHomeAgentModelLabel } from "../home/homeFolderList";
-import { agentReviewModeLabel, useReviewerRun } from "../review/agent/useAgentReviews";
+import {
+  agentReviewModeLabel,
+  useMinuteClock,
+  useReviewerRun,
+} from "../review/agent/useAgentReviews";
 import type { AgentChatterHeaderEntry } from "./agentChatter";
 import { ThreadDisclosureChevron } from "./thread-work-log";
 
@@ -299,16 +304,21 @@ function AgentRow(props: {
   const status: SpawnedAgentRowStatus | null =
     review?.running === true ? "running" : resolveSpawnedAgentRowStatus(shell, sent.delivery);
   const lastTurn = spawnedAgentElapsedRange(shell);
-  // A review's time is the whole review's, from its start to its reviewer's last turn.
-  const reviewStartMs = shell === null ? Number.NaN : Date.parse(shell.createdAt);
-  const range =
+  const live = status === "running" && lastTurn !== null && lastTurn.endMs === null;
+  const nowMs = useSecondTicker(live && review === null);
+  // A review's time is the whole review's, in the words its findings use: how long so far by the
+  // minute while it runs, how long it took once it is over.
+  const reviewNowMs = useMinuteClock(review?.running === true);
+  const elapsed =
     review === null
-      ? lastTurn
-      : lastTurn === null || !Number.isFinite(reviewStartMs)
+      ? lastTurn !== null && (lastTurn.endMs !== null || live)
+        ? formatAgentElapsed((lastTurn.endMs ?? nowMs) - lastTurn.startMs)
+        : null
+      : shell === null || lastTurn === null
         ? null
-        : { startMs: reviewStartMs, endMs: review.running ? null : lastTurn.endMs };
-  const live = status === "running" && range !== null && range.endMs === null;
-  const nowMs = useSecondTicker(live);
+        : review.running || lastTurn.endMs === null
+          ? formatReviewElapsed(reviewNowMs - Date.parse(shell.createdAt))
+          : formatReviewDuration(lastTurn.endMs - Date.parse(shell.createdAt));
   const name = review?.label ?? (shell?.title.trim() || sent.toName.trim() || "Agent");
   const task = review === null ? spawnedAgentTaskTitle(sent) : null;
   const modelLabel = shell ? resolveHomeAgentModelLabel(serverConfigs, shell) : null;
@@ -364,10 +374,8 @@ function AgentRow(props: {
             ) : null}
           </Text>
         </Pressable>
-        {range && (range.endMs !== null || live) ? (
-          <Text className="shrink-0 text-xs text-foreground-tertiary">
-            {formatAgentElapsed((range.endMs ?? nowMs) - range.startMs)}
-          </Text>
+        {elapsed !== null ? (
+          <Text className="shrink-0 text-xs text-foreground-tertiary">{elapsed}</Text>
         ) : null}
         <Pressable
           accessibilityRole="button"
