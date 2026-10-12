@@ -1024,6 +1024,24 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   plain HTTP and reuses the paired token, so a phone paired over Tailscale
   sends it unencrypted on the home Wi-Fi once Network access is on. Mobile
   has no route reordering.
+- Pull requests use upstream's `features/pull-requests` and `features/workspace`;
+  ViewCode's old `features/pullRequests` screen is gone and its agent review
+  lives in `PullRequestAgentReview.tsx`. Every entry point (Git sheet, Open PR,
+  the git toast) goes through `useOpenPullRequest` and passes the chat's
+  `threadId`, so a review started there runs as that chat's agent.
+- The Android Chats / Pull requests bar and rail are React Native, not
+  upstream's Compose `T3WorkspaceNavigationModule`: `t3-native-controls` has no
+  Compose. Back walks history when there is any (chats stack on chats here) and
+  resets to the list only when nothing is underneath; upstream gives each
+  detail one slot above Home. iOS keeps Home and opens the list as a
+  `PullRequests` route from a header button; `v5-workspace-context`,
+  `native-layout-metrics` and `ScrollViewMarker` are stand-ins for upstream's
+  Screens 5 pieces.
+- PR write actions check `orchestration:operate`, the scope ViewCode's server
+  enforces, not upstream's split scopes.
+- `@t3tools/mobile-markdown-text` is installed as a copy, not a link: after
+  editing `apps/mobile/modules/t3-markdown-text`, run `pnpm install` before
+  tsc or Metro see it.
 
 ## Traps (things that cost hours)
 
