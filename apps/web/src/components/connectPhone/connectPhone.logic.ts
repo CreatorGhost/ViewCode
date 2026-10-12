@@ -403,7 +403,7 @@ export function canTestLanReachability(input: {
 }
 
 export const LAN_BLOCKED_MESSAGE =
-  "This computer is blocking incoming connections to ViewCode (macOS firewall or security software). Local-network pairing won't work until IT allows ViewCode; running the server with `npx t3` / node may be allowed.";
+  "This computer is blocking incoming connections to ViewCode, usually its firewall. Allow incoming connections for ViewCode in the firewall settings, or use the Anywhere tab instead.";
 
 export const LAN_UNREACHABLE_MESSAGE =
   "The ViewCode server is not reachable, even from this computer. Restart ViewCode and open this again.";
