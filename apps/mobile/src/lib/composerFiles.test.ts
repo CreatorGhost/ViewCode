@@ -185,10 +185,10 @@ describe("composer file attachments", () => {
     );
 
     it.each([
-      { size: { width: 4032, height: 3024 }, resizes: [{ width: 2048 }] },
-      { size: { width: 3024, height: 4032 }, resizes: [{ height: 2048 }] },
-      { size: { width: 2048, height: 1536 }, resizes: [] },
-    ])("bounds a $size.width x $size.height photo to a 2048 px longest edge", async (input) => {
+      { size: { width: 4032, height: 3024 }, resizes: [{ width: 2000 }] },
+      { size: { width: 3024, height: 4032 }, resizes: [{ height: 2000 }] },
+      { size: { width: 2000, height: 1500 }, resizes: [] },
+    ])("bounds a $size.width x $size.height photo to a 2000 px longest edge", async (input) => {
       native.size = input.size;
       mocks.pickMedia.mockResolvedValue({ canceled: false, assets: [photo] });
 
@@ -207,7 +207,9 @@ describe("composer file attachments", () => {
       const name = `photo.${original.extension}`;
       mocks.pickMedia.mockResolvedValue({
         canceled: false,
-        assets: [{ ...photo, fileName: name, mimeType: original.mimeType }],
+        assets: [
+          { ...photo, fileName: name, mimeType: original.mimeType, width: 1200, height: 900 },
+        ],
       });
       mocks.readBase64.mockResolvedValue(original.base64);
 
@@ -225,6 +227,23 @@ describe("composer file attachments", () => {
           previewUri: photo.uri,
         }),
       ]);
+    });
+
+    // Claude refuses images past 2000 px once a chat holds more than 20, so a long screenshot is
+    // rendered down even when its bytes are small.
+    it("renders a supported original longer than 2000 px", async () => {
+      mocks.pickMedia.mockResolvedValue({
+        canceled: false,
+        assets: [
+          { ...photo, fileName: "long.png", mimeType: "image/png", width: 1200, height: 3000 },
+        ],
+      });
+
+      const result = await pickComposerImages({ existingCount: 0 });
+
+      expect(mocks.manipulate).toHaveBeenCalledWith(photo.uri);
+      expect(mocks.readBase64).not.toHaveBeenCalled();
+      expect(result.error).toBeNull();
     });
 
     it("renders a supported original that exceeds the image limit instead of rejecting it", async () => {
@@ -292,7 +311,10 @@ describe("composer file attachments", () => {
     it("retains a rendered photo when another original cannot be read", async () => {
       mocks.pickMedia.mockResolvedValue({
         canceled: false,
-        assets: [{ ...photo, fileName: "missing.gif", mimeType: "image/gif" }, photo],
+        assets: [
+          { ...photo, fileName: "missing.gif", mimeType: "image/gif", width: 1200, height: 900 },
+          photo,
+        ],
       });
       mocks.readBase64.mockRejectedValue(new Error("missing file"));
 

@@ -379,6 +379,23 @@ describe("compressImageForStash", () => {
     expect(bitmapSpy).not.toHaveBeenCalled();
   });
 
+  // Claude refuses images past 2000 px once a chat holds more than 20, so a long screenshot is
+  // re-encoded even when its bytes already fit.
+  it("compressImageToByteLimit re-encodes a small file longer than 2000 px", async () => {
+    stubCanvasPipeline(() => 200_000);
+    const header = new Uint8Array(1024);
+    header.set([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+    ]);
+    new DataView(header.buffer).setUint32(16, 1200);
+    new DataView(header.buffer).setUint32(20, 3000);
+    const original = new File([header], "long.png", { type: "image/png" });
+
+    const result = await compressImageToByteLimit(original, 10 * 1024 * 1024);
+
+    expect(result.ok && result.recompressed).toBe(true);
+  });
+
   it("compressImageToByteLimit re-encodes an oversized file under the byte cap", async () => {
     stubCanvasPipeline(() => 200_000);
 
@@ -649,7 +666,7 @@ describe("snapshot coordinates after compression", () => {
               sizeBytes: compressed.file.size,
               dataUrl: `data:${compressed.file.type};base64,${Buffer.from(await compressed.file.arrayBuffer()).toString("base64")}`,
             };
-      expect(image.imageSize).toEqual({ width: 2048, height: 1280 });
+      expect(image.imageSize).toEqual({ width: 2000, height: 1250 });
       const resized = resizeSnapShotSource(source, image.imageSize);
       const [restored] = hydrateImagesFromPersisted([
         {
@@ -662,10 +679,10 @@ describe("snapshot coordinates after compression", () => {
         },
       ]);
       expect(restored?.source?.accessibility).toMatchObject({
-        imageSize: { width: 2048, height: 1280 },
+        imageSize: { width: 2000, height: 1250 },
         root: {
-          bounds: { x: 0, y: 0, width: 2048, height: 1280 },
-          children: [{ bounds: { x: 1920, y: 1120, width: 80, height: 80 } }, { bounds: null }],
+          bounds: { x: 0, y: 0, width: 2000, height: 1250 },
+          children: [{ bounds: { x: 1875, y: 1094, width: 78, height: 78 } }, { bounds: null }],
         },
       });
       expect(source.accessibility).toMatchObject({ imageSize: { width: 2560, height: 1600 } });
