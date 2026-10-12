@@ -242,6 +242,7 @@ export function HomeRouteScreen() {
           }
           onSearchQueryChange={setSearchQuery}
           onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+          onOpenPullRequests={() => navigation.navigate("PullRequests")}
         />
 
         <HomeScreen

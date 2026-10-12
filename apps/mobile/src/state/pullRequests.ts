@@ -1,5 +1,3 @@
-import { createPullRequestEnvironmentAtoms } from "@t3tools/client-runtime/state/pull-requests";
-
-import { connectionAtomRuntime } from "../connection/runtime";
-
-export const pullRequestEnvironment = createPullRequestEnvironmentAtoms(connectionAtomRuntime);
+// ViewCode's agent reviews read pull requests through the same atoms as the PR screens, so
+// both share one cache and one refresh signal.
+export { composerPullRequests as pullRequestEnvironment } from "./pull-requests";

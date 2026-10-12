@@ -134,7 +134,10 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
           : () => undefined,
       sharesBackground: !child.props.separateBackground,
       tintColor: child.props.tintColor as ColorValue | undefined,
-      variant: "plain",
+      variant:
+        child.props.variant === "done" || child.props.variant === "prominent"
+          ? child.props.variant
+          : "plain",
     };
   }
 
@@ -154,7 +157,10 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
       },
       sharesBackground: !child.props.separateBackground,
       tintColor: child.props.tintColor as ColorValue | undefined,
-      variant: "plain",
+      variant:
+        child.props.variant === "done" || child.props.variant === "prominent"
+          ? child.props.variant
+          : "plain",
     };
   }
 
@@ -230,6 +236,12 @@ function NativeHeaderToolbarButton(_props: {
   readonly onPress?: () => void;
   readonly separateBackground?: boolean;
   readonly tintColor?: ColorValue;
+  readonly variant?: "plain" | "done" | "prominent";
+  // Upstream sizes and identifies items on react-native-screens 5; ViewCode's
+  // native stack has no such fields, so these are accepted and ignored.
+  readonly identifier?: string;
+  readonly width?: number;
+  readonly height?: number;
 }) {
   return null;
 }
@@ -244,6 +256,12 @@ function NativeHeaderToolbarMenu(_props: {
   readonly separateBackground?: boolean;
   readonly tintColor?: ColorValue;
   readonly title?: string;
+  readonly variant?: "plain" | "done" | "prominent";
+  // Upstream sizes and identifies items on react-native-screens 5; ViewCode's
+  // native stack has no such fields, so these are accepted and ignored.
+  readonly identifier?: string;
+  readonly width?: number;
+  readonly height?: number;
 }) {
   return null;
 }

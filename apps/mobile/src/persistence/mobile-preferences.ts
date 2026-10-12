@@ -8,6 +8,7 @@ import * as Semaphore from "effect/Semaphore";
 import {
   AgentReviewMode,
   type ProviderInstanceId,
+  type PullRequestMergeMethod,
   type PushNotificationCategories,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
@@ -22,6 +23,8 @@ const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
 const isAgentReviewMode = Schema.is(AgentReviewMode);
 
 export interface Preferences {
+  readonly pullRequestHideTestFiles?: boolean;
+  readonly pullRequestMergeMethod?: PullRequestMergeMethod;
   readonly liveActivitiesEnabled?: boolean;
   readonly themeId?: MobileThemeId;
   readonly lightThemeId?: MobileThemeId;
@@ -100,6 +103,8 @@ export class MobilePreferencesStore extends Context.Service<
 
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
+    pullRequestHideTestFiles?: boolean;
+    pullRequestMergeMethod?: PullRequestMergeMethod;
     liveActivitiesEnabled?: boolean;
     themeId?: MobileThemeId;
     lightThemeId?: MobileThemeId;
@@ -121,6 +126,18 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     agentReviewMode?: AgentReviewMode;
     directPush?: Preferences["directPush"];
   } = {};
+
+  if (typeof parsed.pullRequestHideTestFiles === "boolean") {
+    preferences.pullRequestHideTestFiles = parsed.pullRequestHideTestFiles;
+  }
+
+  if (
+    parsed.pullRequestMergeMethod === "squash" ||
+    parsed.pullRequestMergeMethod === "merge" ||
+    parsed.pullRequestMergeMethod === "rebase"
+  ) {
+    preferences.pullRequestMergeMethod = parsed.pullRequestMergeMethod;
+  }
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;

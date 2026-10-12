@@ -50,7 +50,16 @@ import { GitBranchesSheet } from "./features/threads/git/GitBranchesSheet";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
 import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
-import { PullRequestRouteScreen } from "./features/pullRequests/PullRequestRouteScreen";
+import {
+  PullRequestRouteScreen,
+  PullRequestFileRouteScreen,
+  PullRequestFilesRouteScreen,
+} from "./features/pull-requests/PullRequestRouteScreen";
+import { PullRequestReviewSheet } from "./features/pull-requests/PullRequestReviewSheet";
+import { PullRequestsRouteScreen } from "./features/pull-requests/PullRequestsRouteScreen";
+import { PullRequestReviewersScreen } from "./features/pull-requests/PullRequestReviewersScreen";
+import { PullRequestInlineCommentScreen } from "./features/pull-requests/PullRequestInlineCommentScreen";
+import { PullRequestDiscussionScreen } from "./features/pull-requests/PullRequestDiscussionScreen";
 import { SideChatSheet } from "./features/sidechat/SideChatSheet";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
@@ -153,6 +162,12 @@ const SOLID_HEADER_OPTIONS: AppScreenOptions = {
   headerTitleStyle: { fontSize: 18, fontWeight: "800" },
   headerTransparent: false,
   unstable_navigationItemStyle: Platform.OS === "ios" ? "editor" : undefined,
+};
+
+// Android PR screens render their own Material toolbar.
+const PULL_REQUEST_HEADER_OPTIONS: AppScreenOptions = {
+  ...GLASS_HEADER_OPTIONS,
+  headerShown: Platform.OS !== "android",
 };
 
 // Solid header variant for screens inside sheets (centered title, no editor style).
@@ -466,6 +481,8 @@ const NewTaskSheetStack = createNativeStackNavigator({
 // influence the adaptive workspace layout: opening Settings over Home should
 // not flip the sidebar in or change the active thread.
 const WORKSPACE_OVERLAY_ROUTES = new Set([
+  "PullRequestReview",
+  "PullRequestInlineComment",
   "Connections",
   "ConnectionsNew",
   "GitBranches",
@@ -474,7 +491,6 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "GitOverview",
   "SideChat",
   "NewTaskSheet",
-  "PullRequest",
   "SettingsLegal",
   "SettingsSheet",
   "ThreadReviewComment",
@@ -617,6 +633,67 @@ const RootStackConfig = createNativeStackNavigator({
         contentStyle: { backgroundColor: "transparent" },
         headerBackVisible: false,
         ...getCompactBrandHeaderOptions(),
+      },
+    }),
+    // ViewCode: iOS reaches the pull request list from Home; Android shows it as a tab.
+    PullRequests: createNativeStackScreen({
+      screen: PullRequestsRouteScreen,
+      linking: "pull-requests",
+      options: PULL_REQUEST_HEADER_OPTIONS,
+    }),
+    PullRequest: createNativeStackScreen({
+      screen: PullRequestRouteScreen,
+      linking: {
+        path: "pull-requests/:environmentId/:projectId/:repository/:number",
+        parse: { number: Number },
+      },
+      options: PULL_REQUEST_HEADER_OPTIONS,
+    }),
+    PullRequestFile: createNativeStackScreen({
+      screen: PullRequestFileRouteScreen,
+      options: PULL_REQUEST_HEADER_OPTIONS,
+    }),
+    PullRequestFiles: createNativeStackScreen({
+      screen: PullRequestFilesRouteScreen,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.6, 0.92],
+        sheetGrabberVisible: true,
+        headerShown: false,
+      },
+    }),
+    PullRequestReviewers: createNativeStackScreen({
+      screen: PullRequestReviewersScreen,
+      options: {
+        ...PULL_REQUEST_HEADER_OPTIONS,
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.75, 0.92],
+        sheetGrabberVisible: true,
+        headerBackVisible: false,
+      },
+    }),
+    PullRequestDiscussion: createNativeStackScreen({
+      screen: PullRequestDiscussionScreen,
+      options: PULL_REQUEST_HEADER_OPTIONS,
+    }),
+    PullRequestInlineComment: createNativeStackScreen({
+      screen: PullRequestInlineCommentScreen,
+      options: {
+        ...(Platform.OS === "android"
+          ? { presentation: "fullScreenModal" as const }
+          : FORM_SHEET_PRESENTATION_OPTIONS),
+        sheetAllowedDetents: Platform.OS === "android" ? undefined : [0.75, 0.92],
+        sheetGrabberVisible: Platform.OS !== "android",
+        headerShown: false,
+      },
+    }),
+    PullRequestReview: createNativeStackScreen({
+      screen: PullRequestReviewSheet,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.75, 0.92],
+        sheetGrabberVisible: true,
+        headerShown: false,
       },
     }),
     Thread: createNativeStackScreen({
@@ -771,12 +848,6 @@ const RootStackConfig = createNativeStackNavigator({
         sheetAllowedDetents: [0.55, 0.92],
         sheetGrabberVisible: true,
       },
-    }),
-    // Android only: iOS still opens linked pull requests on the host.
-    PullRequest: createNativeStackScreen({
-      screen: PullRequestRouteScreen,
-      linking: `${THREAD_LINKING_PREFIX}/pull-requests/:number`,
-      options: { headerShown: false, gestureEnabled: true, presentation: "card" },
     }),
     GitConfirm: createNativeStackScreen({
       screen: GitConfirmSheet,

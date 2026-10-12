@@ -107,6 +107,8 @@ export interface NativeReviewDiffStyle {
 }
 
 export interface NativeReviewDiffViewProps extends ViewProps {
+  readonly contentInsetTop?: number;
+  readonly contentInsetBottom?: number;
   readonly rowsJson: string;
   readonly tokensJson?: string;
   readonly tokensPatchJson?: string;

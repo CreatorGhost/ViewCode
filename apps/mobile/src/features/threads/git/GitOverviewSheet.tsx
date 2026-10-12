@@ -1,3 +1,4 @@
+import { useOpenPullRequest } from "../../../native/useOpenPullRequest";
 import {
   type GitActionRequestInput,
   buildMenuItems,
@@ -34,7 +35,6 @@ import {
   NativeStackScreenOptions,
   nativeHeaderScrollEdgeEffects,
 } from "../../../native/StackHeader";
-import { tryOpenExternalUrl } from "../../../lib/openExternalUrl";
 import { useEnvironmentQuery } from "../../../state/query";
 import { useThreadSelection } from "../../../state/use-thread-selection";
 import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
@@ -59,6 +59,7 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const presentation = props.presentation ?? "sheet";
+  const openPullRequest = useOpenPullRequest({ replace: presentation === "sheet" });
   const isInspector = presentation === "inspector";
   const environmentId = EnvironmentId.make(props.route.params.environmentId);
   const threadId = ThreadId.make(props.route.params.threadId);
@@ -122,10 +123,10 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
       Alert.alert("No open PR", "This branch does not have an open pull request.");
       return;
     }
-    if (!(await tryOpenExternalUrl(prUrl, "pull-request"))) {
+    if (!(await openPullRequest(prUrl))) {
       Alert.alert("Unable to open PR", "The pull request could not be opened.");
     }
-  }, [gitStatus.data]);
+  }, [gitStatus.data, openPullRequest]);
 
   const runActionWithPrompt = useCallback(
     async (input: GitActionRequestInput) => {
@@ -337,19 +338,7 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
                     title={`#${link.number} ${link.snapshot?.title ?? "Pull request"}`}
                     subtitle={`${link.repository} · ${link.snapshot === null ? "Status pending" : link.snapshot.isDraft && link.snapshot.state === "open" ? "Draft" : link.snapshot.state}`}
                     onPress={() => {
-                      // Android shows the pull request in the app; iOS opens it on the host.
-                      if (Platform.OS === "android" && selectedThread) {
-                        navigation.navigate("PullRequest", {
-                          environmentId: String(environmentId),
-                          threadId: String(threadId),
-                          projectId: String(selectedThread.projectId),
-                          repository: link.repository,
-                          number: String(link.number),
-                          ...(link.host ? { host: link.host } : {}),
-                        });
-                        return;
-                      }
-                      void tryOpenExternalUrl(link.url, "pull-request").then((opened) => {
+                      void openPullRequest(link.url).then((opened) => {
                         if (!opened)
                           Alert.alert("Unable to open PR", "The pull request could not be opened.");
                       });

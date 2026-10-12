@@ -37,6 +37,18 @@ export function HomeHeader(props: HomeHeaderProps) {
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
           headerTintColor: iconColor,
           unstable_headerRightItems: () => [
+            ...(props.onOpenPullRequests
+              ? [
+                  withNativeGlassHeaderItem({
+                    accessibilityLabel: "Open pull requests",
+                    icon: { name: "arrow.triangle.pull", type: "sfSymbol" } as const,
+                    identifier: "home-pull-requests",
+                    label: "",
+                    onPress: props.onOpenPullRequests,
+                    type: "button",
+                  }),
+                ]
+              : []),
             withNativeGlassHeaderItem({
               accessibilityLabel: "Open usage",
               icon: { name: "chart.bar.xaxis", type: "sfSymbol" } as const,
