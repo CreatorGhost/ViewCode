@@ -14,6 +14,8 @@ export {
 } from "./onboarding.ts";
 export * from "./presentation.ts";
 export * as ProfileStore from "./profileStore.ts";
+export * from "./routes.ts";
+export { type RouteCheck } from "./driver.ts";
 export {
   EnvironmentNotRegisteredError,
   EnvironmentRegistry,
