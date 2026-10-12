@@ -5,10 +5,14 @@ import {
   type VoiceInputControllerDependencies,
 } from "@t3tools/client-runtime/voice-input";
 
+import type { VoiceInputThread } from "./voiceInputReturn";
+
 export type VoiceInputTarget = {
   readonly ownerKey: string;
   /** Names the draft being dictated into while its composer is off screen. */
   readonly label?: string;
+  /** Lets the global dictation pill return to the thread this draft belongs to. */
+  readonly thread?: VoiceInputThread;
   readonly readDraft: () => VoiceDraftSnapshot | null;
   readonly commitDraft: VoiceInputControllerDependencies["commitDraft"];
   readonly subscribe: () => () => void;
@@ -69,6 +73,10 @@ export class VoiceInputSession {
 
   get label(): string | null {
     return this.target?.label ?? null;
+  }
+
+  get thread(): VoiceInputThread | null {
+    return this.target?.thread ?? null;
   }
 
   cancel(ownerKey: string | null): void {

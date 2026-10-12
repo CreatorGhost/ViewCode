@@ -27,6 +27,7 @@ import {
 } from "@t3tools/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
+import type { VoiceInputThread } from "./voiceInputReturn";
 import { useVoiceRecorder } from "./useVoiceRecorder";
 import { voiceInputStopsForAppState } from "./voiceInputAppState";
 
@@ -76,10 +77,11 @@ export function useGlobalVoiceInput() {
 }
 
 function useVoiceInputRuntime() {
-  const [{ state, ownerKey, label }, setState] = useState({
+  const [{ state, ownerKey, label, thread }, setState] = useState({
     state: INITIAL_STATE,
     ownerKey: null as string | null,
     label: null as string | null,
+    thread: null as VoiceInputThread | null,
   });
   const [focusedOwners, setFocusedOwners] = useState<ReadonlySet<string>>(new Set());
   const setOwnerFocused = useCallback((key: string, focused: boolean) => {
@@ -119,6 +121,7 @@ function useVoiceInputRuntime() {
           state: nextState,
           ownerKey: sessionRef.current?.ownerKey ?? null,
           label: sessionRef.current?.label ?? null,
+          thread: sessionRef.current?.thread ?? null,
         }),
     });
   }
@@ -205,6 +208,7 @@ function useVoiceInputRuntime() {
     isBusy: voiceInputBlocksSubmission(state),
     ownerKey,
     label,
+    thread,
     focusedOwners,
     setOwnerFocused,
     session,

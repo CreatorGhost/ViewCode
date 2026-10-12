@@ -1,11 +1,11 @@
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { StatusBar } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { createStaticNavigation } from "@react-navigation/native";
+import { createStaticNavigation, useNavigationContainerRef } from "@react-navigation/native";
 
 import { RegistryContext } from "@effect/atom-react";
 import { ThreadArrangementHost } from "./features/threads/ThreadArrangementSheet";
@@ -25,6 +25,10 @@ import { useUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { VoiceInputProvider } from "./features/voice-input/VoiceInputProvider";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
+import {
+  resolveVoiceInputThreadReturn,
+  type VoiceInputThread,
+} from "./features/voice-input/voiceInputReturn";
 
 import "../global.css";
 
@@ -81,6 +85,15 @@ export default function App() {
 function AppContent() {
   const { themeAppearance } = useAppearancePreferences();
   const navigationTheme = useMobileNavigationTheme();
+  const navigationRef = useNavigationContainerRef();
+  const openDictationThread = useCallback(
+    (thread: VoiceInputThread) => {
+      if (!navigationRef.isReady()) return;
+      const action = resolveVoiceInputThreadReturn(navigationRef.getRootState(), thread);
+      if (action) navigationRef.dispatch(action);
+    },
+    [navigationRef],
+  );
 
   return (
     <>
@@ -96,9 +109,9 @@ function AppContent() {
                 this, React Navigation defaults to its light theme and every native
                 header (glass buttons, title, materials) is forced light even when
                 the system is in dark mode. */}
-              <GlobalVoiceInputControl>
+              <GlobalVoiceInputControl onOpenThread={openDictationThread}>
                 <IncomingShareProvider>
-                  <Navigation linking={appLinking} theme={navigationTheme} />
+                  <Navigation ref={navigationRef} linking={appLinking} theme={navigationTheme} />
                 </IncomingShareProvider>
                 <ConfirmDialogHost />
                 <ThreadArrangementHost />

@@ -8,6 +8,7 @@ import {
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { useGlobalVoiceInput } from "./VoiceInputProvider";
 import { createVoiceInputTarget } from "./voiceInputSession";
+import type { VoiceInputThread } from "./voiceInputReturn";
 
 const IDLE_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 
@@ -15,6 +16,8 @@ export function useVoiceInputController(input: {
   readonly ownerKey: string | null;
   /** Shown by the global dictation pill when this composer is off screen. */
   readonly label: string;
+  /** Where the global dictation pill returns to; omitted for new-task drafts. */
+  readonly thread?: VoiceInputThread;
   readonly readDraftMessage: () => string | null;
   readonly subscribeToDraftChanges: (onChange: () => void) => () => void;
   readonly selection: ComposerEditorSelection;
@@ -60,6 +63,7 @@ export function useVoiceInputController(input: {
         captured.subscribeToDraftChanges,
       ),
       label: captured.label,
+      ...(captured.thread ? { thread: captured.thread } : {}),
     });
   }, [session]);
   const state = global.ownerKey === input.ownerKey ? global.state : IDLE_STATE;

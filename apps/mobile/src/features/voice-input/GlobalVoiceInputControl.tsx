@@ -27,6 +27,7 @@ import { cn } from "../../lib/cn";
 import { DictationElapsedTime } from "./ComposerDictationControl";
 import { useGlobalVoiceInput } from "./VoiceInputProvider";
 import { resolveVoiceComposerPresentation } from "./voiceInputPresentation";
+import type { VoiceInputThread } from "./voiceInputReturn";
 
 const PILL_HEIGHT = 36;
 const COLLAPSED_WIDTH = 64;
@@ -48,7 +49,11 @@ const ENTERING = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
  * ViewCode leaves out upstream's live waveform here: the pill repaints only
  * when the timer ticks, once a second.
  */
-export function GlobalVoiceInputControl(props: { readonly children: ReactNode }) {
+export function GlobalVoiceInputControl(props: {
+  readonly children: ReactNode;
+  /** Returns to the dictating thread; the pill lives outside the navigator. */
+  readonly onOpenThread: (thread: VoiceInputThread) => void;
+}) {
   const voice = useGlobalVoiceInput();
   const collapseRef = useRef<(() => void) | null>(null);
   const presentation = resolveVoiceComposerPresentation(voice.state, voice.elapsedSeconds);
@@ -56,7 +61,9 @@ export function GlobalVoiceInputControl(props: { readonly children: ReactNode })
     presentation.statusLabel !== null &&
     !(voice.ownerKey && voice.focusedOwners.has(voice.ownerKey));
   // Mounted only while visible, so each dictation starts collapsed.
-  const pill = visible ? <EdgeDictationPill collapseRef={collapseRef} /> : null;
+  const pill = visible ? (
+    <EdgeDictationPill collapseRef={collapseRef} onOpenThread={props.onOpenThread} />
+  ) : null;
   return (
     <>
       <View
@@ -73,7 +80,10 @@ export function GlobalVoiceInputControl(props: { readonly children: ReactNode })
   );
 }
 
-function EdgeDictationPill(props: { readonly collapseRef: RefObject<(() => void) | null> }) {
+function EdgeDictationPill(props: {
+  readonly collapseRef: RefObject<(() => void) | null>;
+  readonly onOpenThread: (thread: VoiceInputThread) => void;
+}) {
   const voice = useGlobalVoiceInput();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -117,6 +127,7 @@ function EdgeDictationPill(props: { readonly collapseRef: RefObject<(() => void)
   const isError = phase === "error";
   const openSettings = isError && voice.state.errorAction === "settings";
   const label = voice.label ?? "Draft";
+  const thread = voice.thread;
 
   return (
     <View pointerEvents="box-none" className="absolute inset-0">
@@ -184,20 +195,31 @@ function EdgeDictationPill(props: { readonly collapseRef: RefObject<(() => void)
             </Pressable>
             <Pressable
               accessibilityLabel={isError ? (presentation.statusLabel ?? label) : label}
-              accessibilityHint="Hides dictation controls"
+              accessibilityHint={thread ? "Returns to the thread" : "Hides dictation controls"}
               accessibilityRole="button"
-              className="min-w-0 flex-1 justify-center self-stretch active:opacity-70"
-              onPress={() => setExpanded(false)}
+              className="min-w-0 flex-1 flex-row items-center gap-1 self-stretch active:opacity-70"
+              onPress={() => {
+                setExpanded(false);
+                if (thread) props.onOpenThread(thread);
+              }}
             >
               <Text
                 className={cn(
-                  "text-xs",
+                  "min-w-0 shrink text-xs",
                   isError ? "text-danger-foreground" : "font-t3-medium text-foreground",
                 )}
                 numberOfLines={1}
               >
                 {isError ? presentation.statusLabel : label}
               </Text>
+              {thread ? (
+                <SymbolView
+                  name="chevron.right"
+                  size={11}
+                  tintColorClassName="accent-icon-muted"
+                  type="monochrome"
+                />
+              ) : null}
             </Pressable>
             {phase === "recording" ? (
               <>
