@@ -61,6 +61,9 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 // Status hues follow the system-wide convention set by sidebar v1 and the
 // Live Activity/widgets (amber approval, indigo input, sky working) so a
 // thread reads the same color everywhere it surfaces.
+/** Rows inside a Home folder card line up with its section-label header on every platform. */
+const FOLDER_CARD_ROW_CONTENT_CLASS_NAME = "px-6 py-2.5";
+
 const STATUS_LABEL_BY_STATUS: Partial<
   Record<ThreadListV2Status, { label: string; className: string; pillClassName: string }>
 > = {
@@ -446,9 +449,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             <View>
               {/* In a folder card it shares the thread rows' padding so titles line up. */}
               <View
-                className={
-                  props.inFolderCard ? THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME : "px-5 py-2.5"
-                }
+                className={props.inFolderCard ? FOLDER_CARD_ROW_CONTENT_CLASS_NAME : "px-5 py-2.5"}
               >
                 {rowContent}
               </View>
@@ -1263,8 +1264,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
              separates rows. The opaque screen background stays so swipe
              actions reveal behind the row. */
           <View>
-            <View className={THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME}>{cardContent}</View>
-            {THREAD_LIST_V2_ROW_DIVIDERS && props.showTrailingDivider !== false ? (
+            <View
+              className={
+                props.inFolderCard
+                  ? FOLDER_CARD_ROW_CONTENT_CLASS_NAME
+                  : THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME
+              }
+            >
+              {cardContent}
+            </View>
+            {THREAD_LIST_V2_ROW_DIVIDERS &&
+            !props.inFolderCard &&
+            props.showTrailingDivider !== false ? (
               <View className="ml-5 h-px bg-border-subtle" />
             ) : null}
           </View>
@@ -1295,9 +1306,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             "min-h-[44px] flex-row items-center gap-2.5 py-2",
             sidebarPane
               ? "px-3"
-              : props.inFolderCard || Platform.OS === "android"
-                ? THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME
-                : "px-5",
+              : props.inFolderCard
+                ? FOLDER_CARD_ROW_CONTENT_CLASS_NAME
+                : Platform.OS === "android"
+                  ? THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME
+                  : "px-5",
           )}
         >
           {props.project ? (
