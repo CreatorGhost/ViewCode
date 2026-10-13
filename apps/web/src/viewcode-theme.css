@@ -21,8 +21,10 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   --vc-label: rgb(0 0 0 / 0.85);
   --vc-window: var(--app-theme-chrome);
   --vc-sheet: var(--app-theme-canvas);
-  --vc-sheet-inset: 10px;
-  --vc-sheet-radius: 16px;
+  /* The content sheet sits flush beside the sidebar, like the workspace design: no frame of
+     window colour around it and no rounded corners. The brand lab still sets the radius. */
+  --vc-sheet-inset: 0px;
+  --vc-sheet-radius: 0px;
   --vc-row-radius: 7px;
   --vc-card-radius: 16px;
   --vc-hairline: color-mix(in srgb, var(--vc-label) 10%, transparent);
@@ -73,7 +75,7 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]):not(
 
 /* ---------------------------------------------------------------------------
  * Two planes (row 6): the sidebar sits on the window colour with no border;
- * the content sits on an inset rounded sheet. Desktop widths only; on phones
+ * the content sits on its own sheet (flush, see --vc-sheet-inset). Desktop widths only; on phones
  * the sidebar is a sheet of its own and the content fills the screen.
  * ------------------------------------------------------------------------- */
 
@@ -813,7 +815,9 @@ html:root
   :is([data-testid="sidebar-row"], [data-testid="sidebar-row-child"])[aria-current="page"]::before {
   content: none;
 }
-[data-project-tint] [data-sidebar-folder-badge] {
+/* A coloured folder's badge is filled in its own colour (Sidebar sets --project-accent on it),
+   so every folder in an All-projects list keeps its colour. */
+[data-sidebar-folder-badge][data-colored] {
   background-color: color-mix(
     in srgb,
     var(--project-accent) var(--shell-tint-badge-fill),
@@ -821,11 +825,23 @@ html:root
   );
   color: var(--project-accent);
 }
-[data-project-tint] [data-app-rail] button[data-rail-project][data-pressed] {
+/* Rail project tiles: one rounded tile per project with its icon inside. The selected one is
+   ringed and filled in its project colour (AppRail hands each tile its own --project-accent),
+   or in the label colour when the project has none. */
+[data-app-rail] button[data-rail-project] {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border-color: color-mix(in srgb, var(--foreground) 9%, transparent);
+  background-color: color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+[data-app-rail] button[data-rail-project][data-pressed] {
+  --rail-tile-color: var(--project-accent, color-mix(in srgb, var(--foreground) 55%, transparent));
+  border-color: transparent;
   background-color: color-mix(
     in srgb,
-    var(--project-accent) var(--shell-tint-rail-fill),
+    var(--rail-tile-color) var(--shell-tint-rail-fill),
     transparent
   );
-  box-shadow: inset 0 0 0 2px var(--project-accent);
+  box-shadow: inset 0 0 0 2px var(--rail-tile-color);
 }

@@ -2,16 +2,21 @@ import type { ProjectIconColor } from "@t3tools/contracts";
 import { projectIconColorClassName } from "../projectIconColors";
 import { cn } from "~/lib/utils";
 
-const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const monogramSegmenter = new Intl.Segmenter(undefined, {
+  granularity: "grapheme",
+});
 
 export function ProjectMonogram({
   text,
   color,
   className,
+  bare,
 }: {
   readonly text: string;
   readonly color: ProjectIconColor;
   readonly className?: string | undefined;
+  /** Letters only, for a surface that is already a tile. */
+  readonly bare?: boolean | undefined;
 }) {
   // Wrapped like the emoji and Lucide branches so the monogram sits where an
   // <img> favicon would. Menu items, buttons and the like pull every bare svg
@@ -28,9 +33,13 @@ export function ProjectMonogram({
           "size-full overflow-hidden rounded-[25%] font-mono select-none",
           projectIconColorClassName(color),
         )}
-        style={{
-          backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)",
-        }}
+        style={
+          bare
+            ? undefined
+            : {
+                backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)",
+              }
+        }
       >
         <text
           x="8"

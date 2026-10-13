@@ -1,7 +1,7 @@
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import { useAtomValue } from "@effect/atom-react";
-import type { ProjectIconColor, ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Atom } from "effect/unstable/reactivity";
 import { ChevronDownIcon, XIcon } from "lucide-react";
@@ -12,10 +12,8 @@ import { environmentCatalog } from "../../connection/catalog";
 import { isEditableFocused } from "../../lib/editableFocus";
 import { isPreviewFocused } from "../../lib/previewFocus";
 import { isTerminalFocused } from "../../lib/terminalFocus";
-import { buildProjectColorLookup } from "../../projectColor.logic";
-import { projectAccentClassName } from "../../projectIconColors";
 import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../../state/server";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useThreadShells } from "../../state/entities";
 import { environmentShell } from "../../state/shell";
 import { resolveThreadRouteRef } from "../../threadRoutes";
 import type { ThreadShell } from "../../types";
@@ -146,8 +144,6 @@ const TabItem = memo(function TabItem(props: {
   /** The agent finished or is waiting on the user, and the tab hasn't been opened since. */
   attention?: boolean | undefined;
   active: boolean;
-  /** The tab's own project colour: a strip under every tab, the border of the active one. */
-  projectColor: ProjectIconColor | null;
   onSelect: (key: string) => void;
   onClose: (key: string) => void;
   /** Header-supplied behaviour for the active tab: leading glyph, rename field, thread menu. */
@@ -196,16 +192,8 @@ const TabItem = memo(function TabItem(props: {
         props.active
           ? "bg-foreground/10 text-foreground"
           : "text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
-        props.projectColor && projectAccentClassName(props.projectColor),
-        props.projectColor && props.active && "ring-1 ring-(--project-accent)/70",
       )}
     >
-      {props.projectColor ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-(--project-accent)"
-        />
-      ) : null}
       {extras?.glyph ?? (Icon ? <Icon className="size-3 shrink-0 opacity-70" /> : null)}
       {extras?.renameField ??
         (title.lead ? (
@@ -269,10 +257,6 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
     active ? state.tabsByEnvironmentId[active.environmentId] : undefined,
   );
   const shells = useThreadShells();
-  const projects = useProjects();
-  const projectColorByKey = useMemo(() => buildProjectColorLookup(projects), [projects]);
-  const projectColorOf = (shell: ThreadShell | undefined) =>
-    shell ? (projectColorByKey.get(`${shell.environmentId}:${shell.projectId}`) ?? null) : null;
   const visited = useUiStateStore((state) => state.threadLastVisitedAtById);
   const scroller = useRef<HTMLDivElement>(null);
   // A custom instance id says nothing about its driver, so the glyph comes from the provider list.
@@ -353,7 +337,6 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
           status={shell ? resolveSidebarThreadStatus(shell) : "ready"}
           unread={false}
           active
-          projectColor={projectColorOf(shell)}
           onSelect={select}
           onClose={close}
           activeExtras={props.activeExtras}
@@ -394,7 +377,6 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
             unread={unread}
             attention={unread || status === "approval" || status === "input"}
             active={key === activeKey}
-            projectColor={projectColorOf(shell)}
             onSelect={select}
             onClose={close}
             activeExtras={key === activeKey ? props.activeExtras : undefined}

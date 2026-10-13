@@ -917,6 +917,11 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   test holds every built-in theme to readable contrast under the tint, so a new
   theme must pass it. The composer change is limited to the glow's colour and
   alphas; the halo can be turned off, the running light cannot.
+- Project colour lives on the left panel only: rail tiles, folder badges, the
+  sidebar tint, the selected row and the composer glow. The top bar and the
+  tabs carry none (user decision: a coloured header read as a second layer).
+  The ViewCode default is pure-black neutrals with the content flush beside the
+  sidebar, not Droppy's inset sheet (`--vc-sheet-inset`, user decision).
 - Provider usage rings, Settings, Pull Requests and Connect phone stay at the
   bottom of the rail (user decision); the sidebar has no footer of its own.
 

@@ -87,65 +87,61 @@ const RailProjectButton = memo(function RailProjectButton(props: {
   const { project, needsYou, working } = props;
   const navigate = useNavigate();
   const projectColor = resolveProjectGroupColor(project);
+  // `contents` keeps the tile a direct rail item while handing it --project-accent for its ring.
   return (
-    <RailButton
-      label={railProjectLabel(project.displayName, { needsYou, working })}
-      tooltip={project.displayName}
-      pressed={props.selected}
-      project
-      onClick={() => props.onSelect(project)}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        const position = { x: event.clientX, y: event.clientY };
-        void (async () => {
-          const api = readLocalApi();
-          if (!api) return;
-          const clicked = await settlePromise(() =>
-            api.contextMenu.show<"project-color" | "project-settings">(
-              [
-                { id: "project-color", label: "Project color…" },
-                { id: "project-settings", label: "Project settings", icon: "settings" },
-              ],
-              position,
-            ),
-          );
-          if (clicked._tag === "Failure") return;
-          if (clicked.value === "project-color") openProjectColorDialog(project.projectKey);
-          if (clicked.value === "project-settings") {
-            void navigate({
-              to: "/projects/$projectKey",
-              params: { projectKey: project.projectKey },
-            });
-          }
-        })();
-      }}
-    >
-      {projectColor ? (
-        <span
-          className={cn(
-            "flex rounded-md p-0.5 ring-2 ring-(--project-accent)",
-            projectAccentClassName(projectColor),
-          )}
-        >
-          <ProjectFavicon project={project} className="size-4" />
-        </span>
-      ) : (
-        <ProjectFavicon project={project} className="size-5" />
-      )}
-      {needsYou > 0 ? (
-        <span
-          aria-hidden
-          className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 font-semibold text-3xs text-background tabular-nums leading-none ring-2 ring-sidebar"
-        >
-          {needsYou}
-        </span>
-      ) : working > 0 ? (
-        <span
-          aria-hidden
-          className="absolute right-0.5 bottom-0.5 size-1.5 rounded-full bg-muted-foreground"
-        />
-      ) : null}
-    </RailButton>
+    <span className={cn("contents", projectColor && projectAccentClassName(projectColor))}>
+      <RailButton
+        label={railProjectLabel(project.displayName, { needsYou, working })}
+        tooltip={project.displayName}
+        pressed={props.selected}
+        project
+        onClick={() => props.onSelect(project)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          const position = { x: event.clientX, y: event.clientY };
+          void (async () => {
+            const api = readLocalApi();
+            if (!api) return;
+            const clicked = await settlePromise(() =>
+              api.contextMenu.show<"project-color" | "project-settings">(
+                [
+                  { id: "project-color", label: "Project color…" },
+                  {
+                    id: "project-settings",
+                    label: "Project settings",
+                    icon: "settings",
+                  },
+                ],
+                position,
+              ),
+            );
+            if (clicked._tag === "Failure") return;
+            if (clicked.value === "project-color") openProjectColorDialog(project.projectKey);
+            if (clicked.value === "project-settings") {
+              void navigate({
+                to: "/projects/$projectKey",
+                params: { projectKey: project.projectKey },
+              });
+            }
+          })();
+        }}
+      >
+        <ProjectFavicon project={project} className="size-5" bareMonogram />
+        {needsYou > 0 ? (
+          <span
+            aria-hidden
+            className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 font-semibold text-3xs text-background tabular-nums leading-none ring-2 ring-sidebar"
+          >
+            {needsYou}
+          </span>
+        ) : working > 0 ? (
+          <span
+            aria-hidden
+            className="absolute right-0.5 bottom-0.5 size-1.5 rounded-full bg-muted-foreground"
+          />
+        ) : null}
+      </RailButton>
+    </span>
   );
 });
 
@@ -239,7 +235,10 @@ function useRailEnvironmentId(): EnvironmentId | null {
     strict: false,
     select: (params) => params.environmentId ?? null,
   });
-  const draftId = useParams({ strict: false, select: (params) => params.draftId ?? null });
+  const draftId = useParams({
+    strict: false,
+    select: (params) => params.draftId ?? null,
+  });
   const draftEnvironmentId = useComposerDraftStore((store) =>
     draftId === null ? null : (store.getDraftSession(DraftId.make(draftId))?.environmentId ?? null),
   );
@@ -271,7 +270,7 @@ export const AppRail = memo(function AppRail() {
     >
       <div className="h-[var(--workspace-topbar-height)] w-full shrink-0 drag-region" />
       {/* Many projects scroll here; the bottom group never leaves the screen. */}
-      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-contain py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2.5 overflow-y-auto overscroll-contain py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {railVisible ? <RailProjectSwitcher /> : null}
       </div>
       <div className="flex flex-col items-center gap-1 pb-2">

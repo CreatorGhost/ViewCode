@@ -1568,31 +1568,28 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
         onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
       >
-        {projectColor ? (
-          <span
-            aria-hidden
-            className={cn(
-              "pointer-events-none absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-(--project-accent)",
-              projectAccentClassName(projectColor),
-            )}
-          />
-        ) : null}
         <button
           type="button"
           aria-label={`Change icon and color for ${group.displayName}`}
           onClick={handleChooseIconClick}
           onKeyDown={(event) => event.stopPropagation()}
           data-sidebar-folder-badge=""
-          className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm hover:bg-sidebar-foreground/8"
+          data-colored={projectColor ? "" : undefined}
+          className={cn(
+            "flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm hover:bg-sidebar-foreground/8",
+            projectColor && projectAccentClassName(projectColor),
+          )}
         >
           {group.projectIcon || group.faviconPath ? (
-            <ProjectFavicon project={group} className="size-3.5" />
+            <ProjectFavicon project={group} className="size-3.5" bareMonogram={!!projectColor} />
           ) : (
             <FolderGlyph
               aria-hidden
               className={cn(
                 "size-3.5",
-                projectIconColorClassName(deriveProjectIdentity(group.title).color),
+                projectColor
+                  ? "text-(--project-accent)"
+                  : projectIconColorClassName(deriveProjectIdentity(group.title).color),
               )}
             />
           )}

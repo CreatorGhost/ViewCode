@@ -4,7 +4,7 @@ export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"]
 
 /** ViewCode's own default theme. Web and desktop only; mobile keeps its Uniwind set. */
 export const VIEWCODE_THEME_ID = "viewcode";
-/** ViewCode's default look: navy-slate surfaces with a teal accent. */
+/** ViewCode's default look: pure-black neutral surfaces with a teal accent. */
 export const VIEWCODE_TEAL_THEME_ID = "viewcode-teal";
 
 /** True for ViewCode's own glass themes: the plain one, the teal default and the named set. */
@@ -1158,32 +1158,57 @@ export const INSTRUMENT_THEME: ThemeDefinition = {
   },
 };
 
+/**
+ * ViewCode's default: pure-black neutral surfaces (the chat a shade darker than the sidebar
+ * and rail) with a teal accent. Warm-grey text and hairlines, no blue cast, so the project
+ * tint and the composer glow are the only colour on the chrome.
+ */
 export const VIEWCODE_TEAL_THEME: ThemeDefinition = {
   id: VIEWCODE_TEAL_THEME_ID,
   label: "ViewCode Teal",
   appearance: "dark",
   colors: {
     ...instrumentColors(VIEWCODE_THEME.colors, [
-      "#1a2230",
-      "#151c28",
-      "#1f2836",
-      "#283344",
-      "#e3e9f1",
-      "#94a3b8",
-      "#334155",
-      "#5ec4d4",
-      "#0b2a30",
+      "#0c0c0c",
+      "#161614",
+      "#1b1b19",
+      "#1f1f1d",
+      "#ecebe8",
+      "#8d8c88",
+      "#262624",
+      "#23c5b3",
+      "#06201d",
     ]),
-    sidebar: "#151c28",
-    messageSurface: "#22303f",
-    messageAction: "#5ec4d4",
-    messageActionForeground: "#0b2a30",
-    messageActionHover: "#74cfdc",
-    update: "#5ec4d4",
-    updateForeground: "#8fd8e3",
-    updateSurface: "rgb(94 196 212 / 0.14)",
-    terminalBackground: "#121822",
-    terminalCursor: "#5ec4d4",
+    toolbar: "#0c0c0c",
+    toolbarBorder: "#1f1f1d",
+    surfaceOverlay: "#1f1f1d",
+    input: "#2c2c2a",
+    placeholder: "#6f6e6a",
+    iconMuted: "#8d8c88",
+    sidebar: "#161614",
+    sidebarMutedForeground: "#8d8c88",
+    sidebarControlSurface: "#1f1f1d",
+    sidebarRowHover: "#1d1d1b",
+    sidebarRowActive: "#232321",
+    sidebarRowSelected: "#232321",
+    sidebarBorder: "#222220",
+    messageSurface: "#1d1d1b",
+    messageAction: "#23c5b3",
+    messageActionForeground: "#06201d",
+    messageActionHover: "#5fd9cb",
+    accentSurface: "#0f1f1d",
+    accentSurfaceForeground: "#7fe0d4",
+    codeBackground: "#141413",
+    error: "#e5534b",
+    errorForeground: "#f0857f",
+    warning: "#e5a54b",
+    warningForeground: "#f0c071",
+    update: "#23c5b3",
+    updateForeground: "#7fe0d4",
+    updateSurface: "rgb(35 197 179 / 0.14)",
+    terminalBackground: "#0c0c0c",
+    terminalCursor: "#23c5b3",
+    terminalSelection: "rgb(35 197 179 / 0.22)",
   },
   variants: {
     light: instrumentColors(VIEWCODE_LIGHT_COLORS, [
