@@ -34,8 +34,11 @@ import { openConnectPhoneDialog } from "../connectPhone/ConnectPhoneDialog";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
+  actions,
 }: {
   isElectron: boolean;
+  /** Controls at the row's end, such as the thread sidebar's New menu. */
+  actions?: ReactNode;
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const { theme } = useTheme();
@@ -76,6 +79,9 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         >
           {pillLabel}
         </Badge>
+      ) : null}
+      {actions ? (
+        <div className="relative z-10 ml-auto flex shrink-0 items-center gap-1 pr-2">{actions}</div>
       ) : null}
     </div>
   );

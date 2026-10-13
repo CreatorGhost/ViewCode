@@ -529,6 +529,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     [],
   );
   const openAddProject = useCallback(() => dispatch({ _tag: "OpenAddProject" }), []);
+  const openNewProject = useCallback(() => dispatch({ _tag: "OpenNewProject" }), []);
   const openNewThreadIn = useCallback(() => dispatch({ _tag: "OpenNewThreadIn" }), []);
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -648,6 +649,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           openNewThreadIn();
         } else if (detail.open === "add-project") {
           openAddProject();
+        } else if (detail.open === "new-project") {
+          openNewProject();
         } else if (detail.query !== undefined) {
           dispatch({
             _tag: "OpenSearch",
@@ -658,7 +661,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           setOpen(true);
         }
       }),
-    [openAddProject, openNewThreadIn, setOpen],
+    [openAddProject, openNewProject, openNewThreadIn, setOpen],
   );
 
   return (
@@ -1899,8 +1902,20 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
     clearOpenIntent();
+    // The sidebar's "New folder" goes straight to New project's name step, when a
+    // connected server keeps a folder for new projects.
+    if (openIntent.newProject === true && newProjectEnvironmentOptions.length > 0) {
+      openNewProjectFlow();
+      return;
+    }
     openAddProjectFlow();
-  }, [clearOpenIntent, openAddProjectFlow, openIntent]);
+  }, [
+    clearOpenIntent,
+    newProjectEnvironmentOptions.length,
+    openAddProjectFlow,
+    openIntent,
+    openNewProjectFlow,
+  ]);
 
   useLayoutEffect(() => {
     if (openIntent?.kind !== "new-thread-in" || projectThreadItems.length === 0) {

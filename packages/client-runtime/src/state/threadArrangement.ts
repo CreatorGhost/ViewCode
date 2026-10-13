@@ -280,9 +280,9 @@ type AttentionInput = Pick<
  * on the user (approval or question) outranks working, which outranks a
  * finish the user has not seen yet.
  */
-export function resolveSidebarAttention(
-  thread: AttentionInput,
-  isUnseen: (thread: AttentionInput) => boolean,
+export function resolveSidebarAttention<T extends AttentionInput>(
+  thread: T,
+  isUnseen: (thread: T) => boolean,
 ): SidebarAttentionFilter | null {
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return "needs-you";
   if (isChildAgentRunning(thread)) return "working";
@@ -296,10 +296,7 @@ export function countSidebarAttention<T extends AttentionInput>(
 ): SidebarAttentionCounts {
   const counts = { "needs-you": 0, working: 0, new: 0 };
   for (const thread of threads) {
-    const attention = resolveSidebarAttention(
-      thread,
-      isUnseen as (thread: AttentionInput) => boolean,
-    );
+    const attention = resolveSidebarAttention(thread, isUnseen);
     if (attention !== null) counts[attention] += 1;
   }
   return counts;

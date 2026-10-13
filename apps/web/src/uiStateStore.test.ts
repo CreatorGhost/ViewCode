@@ -12,6 +12,7 @@ import {
   reorderProjects,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
+  setFolderSortOrder,
   setProjectExpanded,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
@@ -23,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKey: null,
+    folderSortOrderById: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -202,6 +204,7 @@ describe("parsePersistedState", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
+      folderSortOrderById: {},
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -324,6 +327,7 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
+      folderSortOrderById: {},
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
@@ -361,5 +365,19 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(resolveProjectExpanded(persisted.projectExpandedById ?? {}, ["unknown"])).toBe(true);
+  });
+});
+
+describe("folder sort order", () => {
+  it("stores only folders off the default and drops unknown values on load", () => {
+    const sorted = setFolderSortOrder(makeUiState(), "project-a", "name");
+    expect(sorted.folderSortOrderById).toEqual({ "project-a": "name" });
+    expect(setFolderSortOrder(sorted, "project-a", "name")).toBe(sorted);
+    expect(setFolderSortOrder(sorted, "project-a", "status").folderSortOrderById).toEqual({});
+    expect(
+      parsePersistedState({
+        folderSortOrderById: { "project-a": "recent", "project-b": "size", "project-c": "status" },
+      }).folderSortOrderById,
+    ).toEqual({ "project-a": "recent" });
   });
 });
