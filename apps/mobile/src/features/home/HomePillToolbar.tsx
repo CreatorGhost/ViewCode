@@ -34,7 +34,7 @@ export function HomeFleetTitle(props: { readonly onOpenEnvironments: () => void 
   const subtitleText = subtitle.tail ? `${subtitle.lead} · ${subtitle.tail}` : subtitle.lead;
   return (
     <View className="min-w-0 items-center">
-      <CompactBrandTitle showStageLabel={false} />
+      <CompactBrandTitle showStageLabel={false} compact={Platform.OS === "ios"} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={subtitleText}

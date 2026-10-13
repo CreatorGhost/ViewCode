@@ -97,8 +97,9 @@ export function HomeHeader(props: HomeHeaderProps) {
               onPress: props.onOpenSettings,
               type: "button",
             }),
+            // Beside Settings, so each side holds a two-button capsule and the brand title stays centred.
+            terminalItem,
           ],
-          // The first right item sits rightmost: Usage keeps Android's corner, the terminal sits inside it.
           unstable_headerRightItems: () => [
             withNativeGlassHeaderItem({
               accessibilityLabel: "Open usage",
@@ -108,7 +109,6 @@ export function HomeHeader(props: HomeHeaderProps) {
               onPress: props.onOpenUsage,
               type: "button",
             }),
-            terminalItem,
           ],
           // The keys below are set per-branch (not `undefined`) so a later
           // reapply cannot clobber options owned by NativeHeaderToolbar.
