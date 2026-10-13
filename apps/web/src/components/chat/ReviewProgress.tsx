@@ -102,6 +102,7 @@ export function ReviewStatusBar({
   const durationMs =
     review.endedAt === null ? null : Date.parse(review.endedAt) - Date.parse(review.startedAt);
   const text = reviewStatusText({ progress, label, elapsedMs, durationMs, newer });
+  const running = progress.kind === "running";
   const viewAgent = (
     <Button
       type="button"
@@ -120,13 +121,17 @@ export function ReviewStatusBar({
   return (
     <div
       role="status"
-      className="flex shrink-0 flex-col gap-0.5 border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs"
+      className={cn(
+        "relative flex shrink-0 flex-col gap-0.5 border-b border-border/60 px-3 text-muted-foreground text-xs",
+        running ? "bg-success/5 py-2.5" : "py-1.5",
+      )}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        {progress.kind === "running" ? (
+      <div className={cn("flex min-w-0 items-center", running ? "gap-2.5" : "gap-2")}>
+        {running ? (
+          // A spinning ring, unmissable at a glance, where a pulsing dot was easy to miss.
           <span
             aria-hidden
-            className="size-1.5 shrink-0 rounded-full bg-success motion-safe:animate-status-pulse"
+            className="size-5 shrink-0 rounded-full border-2 border-success/20 border-t-success motion-safe:animate-review-ring"
           />
         ) : (
           <span
@@ -137,9 +142,22 @@ export function ReviewStatusBar({
             )}
           />
         )}
-        <span className={cn("min-w-0 truncate", progress.kind === "failed" && "text-destructive")}>
-          {text}
-        </span>
+        {running ? (
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate font-semibold text-foreground text-sm">
+              {newer ? "A new review is running" : review.title}
+            </span>
+            <span className="truncate">
+              {label} · {formatReviewElapsed(elapsedMs)}
+            </span>
+          </span>
+        ) : (
+          <span
+            className={cn("min-w-0 truncate", progress.kind === "failed" && "text-destructive")}
+          >
+            {text}
+          </span>
+        )}
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {viewAgent}
           {progress.kind === "running" ? (
@@ -159,10 +177,19 @@ export function ReviewStatusBar({
           ) : null}
         </span>
       </div>
-      {progress.kind === "running" ? (
+      {running ? (
         <>
-          <ReviewWorkLine environmentId={environmentId} threadId={review.threadId} />
-          <ReviewAgentList environmentId={environmentId} threadId={review.threadId} />
+          {/* Under the title: their own inset plus this much clears the ring. */}
+          <div className="flex min-w-0 flex-col gap-0.5 ps-4">
+            <ReviewWorkLine environmentId={environmentId} threadId={review.threadId} />
+            <ReviewAgentList environmentId={environmentId} threadId={review.threadId} />
+          </div>
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 -bottom-px h-0.5 overflow-hidden"
+          >
+            <span className="absolute inset-y-0 left-0 w-1/4 bg-linear-to-r from-transparent via-success to-transparent motion-safe:animate-review-sweep motion-reduce:hidden" />
+          </span>
         </>
       ) : null}
     </div>
