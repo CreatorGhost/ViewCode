@@ -1266,12 +1266,59 @@ export const make = Effect.gen(function* () {
       /**
        * One repository asked on its own. What every host without a search across repositories
        * does, and what a batched read falls back to for a repository it could not answer for.
+       *
+       * A host with a search is searched for this one repository first, unless `searched` says a
+       * search has just answered nothing for it. The search is the cheap read: GitHub's listing
+       * computes every check of every row and its line counts, which for a hundred rows of a
+       * busy repository is past the ten seconds GitHub allows a request (measured: HTTP 504 at
+       * 11s, against 4s for the same rows searched). A search of one repository names one owner,
+       * so it runs as the account that owner is read with, which a search across owners cannot.
        */
-      const readRepository = (project: SupportedProject): Effect.Effect<RepositoryBatch> => {
+      const readRepository = (
+        project: SupportedProject,
+        searched = false,
+      ): Effect.Effect<RepositoryBatch> => {
         {
           const key = project.cursorKey;
           const cursor = cursorOf(project);
+          const search = searched ? undefined : project.api.listChangeRequestsAcross;
+          const searchAs = (viewer: string) =>
+            search === undefined
+              ? Effect.succeed(null)
+              : search({
+                  cwd: project.project.workspaceRoot,
+                  host: project.host,
+                  repositories: [project.repository],
+                  state: input.state,
+                  involvement,
+                  viewer,
+                  limit,
+                  query: input.query,
+                  filters: input.filters,
+                  ...(cursor === undefined
+                    ? {}
+                    : {
+                        cursor: {
+                          updatedBefore: cursor.updatedBefore,
+                          delivered: cursor.delivered,
+                        },
+                      }),
+                }).pipe(
+                  observeRead,
+                  // Silence on a first slice is not an answer: a repository the search does not
+                  // index, or one this account cannot see, says nothing rather than failing.
+                  Effect.map((read) =>
+                    read.value.items.length === 0 && cursor === undefined
+                      ? null
+                      : { ...read, value: { ...read.value, continues: true } },
+                  ),
+                  Effect.orElseSucceed(() => null),
+                );
           const readAs = (viewer: string) =>
+            Effect.flatMap(searchAs(viewer), (found) =>
+              found === null ? listAs(viewer) : Effect.succeed(found),
+            );
+          const listAs = (viewer: string) =>
             project.api
               .listChangeRequests({
                 cwd: project.project.workspaceRoot,
@@ -1371,7 +1418,9 @@ export const make = Effect.gen(function* () {
         const first = chunk[0]!;
         const readAcross = first.api.listChangeRequestsAcross;
         const separately = () =>
-          Effect.forEach(chunk, readRepository, { concurrency: REPOSITORY_CONCURRENCY });
+          Effect.forEach(chunk, (project) => readRepository(project), {
+            concurrency: REPOSITORY_CONCURRENCY,
+          });
         if (readAcross === undefined) return separately();
         const viewer = viewers[first.host]!;
         const cursor = cursorOf(first);
@@ -1447,7 +1496,7 @@ export const make = Effect.gen(function* () {
                       cursorOf(project) === undefined &&
                       !searchIsKnownVisible
                     ) {
-                      return readRepository(project);
+                      return readRepository(project, true);
                     }
                     const cursorHere = cursorOf(project);
                     const items =
