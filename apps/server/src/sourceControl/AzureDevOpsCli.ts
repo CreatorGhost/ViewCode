@@ -47,7 +47,7 @@ export class AzureDevOpsCliAuthenticationError extends Schema.TaggedError<AzureD
   azureDevOpsCommandErrorFields,
 ) {
   get detail(): string {
-    return "Azure DevOps CLI is not authenticated. Run `az devops login` and retry.";
+    return "Azure DevOps CLI is not authenticated. Run `az login` or `az devops login` and retry.";
   }
 
   override get message(): string {

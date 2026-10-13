@@ -22,7 +22,7 @@ import { azureDevOpsPullRequestWebUrl } from "../sourceControl/azureDevOpsPullRe
  */
 const RawIdentitySchema = Schema.Struct({
   displayName: Schema.optional(Schema.NullOr(Schema.String)),
-  /** An email or UPN, which is what `az account show` reports for the signed-in user. */
+  /** An email or UPN, which is what the viewer lookup reports for the signed-in user. */
   uniqueName: Schema.optional(Schema.NullOr(Schema.String)),
   imageUrl: Schema.optional(Schema.NullOr(Schema.String)),
 });
@@ -110,9 +110,27 @@ const RawThreadPageSchema = Schema.Struct({
 
 const RawViewerSchema = Schema.Struct({
   user: Schema.optional(
-    Schema.NullOr(Schema.Struct({ name: Schema.optional(Schema.NullOr(Schema.String)) })),
+    Schema.NullOr(
+      Schema.Struct({
+        name: Schema.optional(Schema.NullOr(Schema.String)),
+        /** `user` for a person; `servicePrincipal` for an app, whose name is its appId. */
+        type: Schema.optional(Schema.NullOr(Schema.String)),
+      }),
+    ),
   ),
 });
+
+/** What Azure DevOps reports for the identity a request ran as, PAT sign-ins included. */
+const RawIdentitySelfSchema = Schema.Struct({
+  accountName: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+/** The account `az login` is signed in as. */
+export interface AzureCliAccount {
+  readonly name: string;
+  /** False for a service principal, whose name is an appId no pull request author carries. */
+  readonly isPerson: boolean;
+}
 
 /**
  * Where a repository lives, in the terms Azure's REST routes address it by. They take the project
@@ -161,7 +179,7 @@ function normalizeRefName(refName: string): string {
   return refName.trim().replace(/^refs\/heads\//, "");
 }
 
-/** A login has to compare against `az account show`, which reports an email. */
+/** A login has to compare against the viewer, which is an email or UPN. */
 function toActor(raw: Schema.Schema.Type<typeof RawIdentitySchema> | null | undefined) {
   const login = trimmed(raw?.uniqueName) ?? trimmed(raw?.displayName);
   return login === null
@@ -279,6 +297,7 @@ const decodePullRequest = decodeJsonResult(RawPullRequestSchema);
 const decodeThreadPage = decodeJsonResult(RawThreadPageSchema);
 const decodeThreadEntry = Schema.decodeUnknownExit(RawThreadSchema);
 const decodeViewer = decodeJsonResult(RawViewerSchema);
+const decodeIdentitySelf = decodeJsonResult(RawIdentitySelfSchema);
 
 type DecodeFailure = Cause.Cause<Schema.SchemaError>;
 
@@ -323,10 +342,26 @@ export function decodePullRequestJson(
 }
 
 /** `az account show --query user` reports the signed-in account, whose name is an email. */
-export function decodeViewerJson(raw: string): Result.Result<string | null, DecodeFailure> {
+export function decodeViewerJson(
+  raw: string,
+): Result.Result<AzureCliAccount | null, DecodeFailure> {
   const decoded = decodeViewer(raw);
+  if (!Result.isSuccess(decoded)) return Result.fail(decoded.failure);
+  const user = decoded.success.user;
+  const name = trimmed(user?.name);
+  return Result.succeed(
+    name === null ? null : { name, isPerson: (trimmed(user?.type) ?? "user") === "user" },
+  );
+}
+
+/**
+ * Azure DevOps' own word on who is signed in, which holds for a personal access token as much as
+ * for `az login`. Its account name is the UPN or email a pull request author's `uniqueName` is.
+ */
+export function decodeIdentitySelfJson(raw: string): Result.Result<string | null, DecodeFailure> {
+  const decoded = decodeIdentitySelf(raw);
   return Result.isSuccess(decoded)
-    ? Result.succeed(trimmed(decoded.success.user?.name))
+    ? Result.succeed(trimmed(decoded.success.accountName))
     : Result.fail(decoded.failure);
 }
 

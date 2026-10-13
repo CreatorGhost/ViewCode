@@ -2,6 +2,7 @@ import * as Result from "effect/Result";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  decodeIdentitySelfJson,
   decodeItemContentJson,
   decodeIterationChangesJson,
   decodeIterationsJson,
@@ -227,13 +228,45 @@ describe("decodePullRequestJson", () => {
 
 describe("decodeViewerJson", () => {
   it("reads the signed-in account name", () => {
-    expect(expectSuccess(decodeViewerJson(asJson({ user: { name: "bilal@acme.dev" } })))).toBe(
-      "bilal@acme.dev",
-    );
+    expect(
+      expectSuccess(decodeViewerJson(asJson({ user: { name: "bilal@acme.dev", type: "user" } }))),
+    ).toEqual({ name: "bilal@acme.dev", isPerson: true });
+  });
+
+  it("tells a service principal, named by its appId, from a person", () => {
+    expect(
+      expectSuccess(
+        decodeViewerJson(
+          asJson({
+            user: { name: "0b6e2c1d-0000-0000-0000-000000000000", type: "servicePrincipal" },
+          }),
+        ),
+      ),
+    ).toEqual({ name: "0b6e2c1d-0000-0000-0000-000000000000", isPerson: false });
   });
 
   it("returns nothing when nobody is signed in", () => {
     expect(expectSuccess(decodeViewerJson(asJson({ user: null })))).toBeNull();
+  });
+});
+
+describe("decodeIdentitySelfJson", () => {
+  it("reads the account Azure DevOps signed the request in as", () => {
+    expect(
+      expectSuccess(
+        decodeIdentitySelfJson(
+          asJson({
+            accountName: " bilal@acme.dev ",
+            displayName: "Bilal",
+            continuation_token: null,
+          }),
+        ),
+      ),
+    ).toBe("bilal@acme.dev");
+  });
+
+  it("returns nothing for an identity without an account name", () => {
+    expect(expectSuccess(decodeIdentitySelfJson(asJson({ displayName: "Bilal" })))).toBeNull();
   });
 });
 

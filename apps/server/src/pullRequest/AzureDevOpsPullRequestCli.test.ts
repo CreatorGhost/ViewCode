@@ -181,6 +181,17 @@ function iterationRows(count: number): ReadonlyArray<Record<string, unknown>> {
   }));
 }
 
+/** How the runner reports an `az` that said its caller is not signed in. */
+function signInError(stderr: string) {
+  return new AzureDevOpsCli.AzureDevOpsCliAuthenticationError({
+    operation: "execute",
+    command: "az",
+    cwd: "/w",
+    argumentCount: 4,
+    cause: stderr,
+  });
+}
+
 afterEach(() => {
   mockedExecute.mockReset();
 });
@@ -442,6 +453,7 @@ layer("AzureDevOpsPullRequestCli.layer", (it) => {
       const viewer = yield* cli.getViewer({ cwd: "/w" });
 
       assert.strictEqual(viewer, "bilal@acme.dev");
+      expect(mockedExecute).toHaveBeenCalledTimes(1);
       expect(argsOfCall(0)).toEqual([
         "account",
         "show",
@@ -454,9 +466,112 @@ layer("AzureDevOpsPullRequestCli.layer", (it) => {
     }),
   );
 
-  it.effect("fails when nobody is signed in", () =>
+  it.effect("asks Azure DevOps who is signed in when a token stands in for `az login`", () =>
     Effect.gen(function* () {
-      mockedExecute.mockReturnValueOnce(Effect.succeed(output("")));
+      // `az devops login` and AZURE_DEVOPS_EXT_PAT sign every `az repos` call in, while
+      // `az account show` still says nobody is there.
+      mockedExecute
+        .mockReturnValueOnce(Effect.fail(signInError("Please run 'az login' to setup account.")))
+        .mockReturnValueOnce(
+          Effect.succeed(
+            output(
+              json({
+                id: "6f9c9b7f-0000-0000-0000-000000000000",
+                accountName: "bilal@acme.dev",
+                displayName: "Bilal",
+                continuation_token: null,
+              }),
+            ),
+          ),
+        );
+      const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
+
+      const viewer = yield* cli.getViewer({ cwd: "/w" });
+
+      assert.strictEqual(viewer, "bilal@acme.dev");
+      expect(argsOfCall(1)).toEqual([
+        "devops",
+        "invoke",
+        "--detect",
+        "true",
+        "--area",
+        "IMS",
+        "--resource",
+        "me",
+        "--api-version",
+        "7.1",
+        "--only-show-errors",
+        "--output",
+        "json",
+      ]);
+    }),
+  );
+
+  it.effect("takes a service principal's Azure DevOps identity over its appId", () =>
+    Effect.gen(function* () {
+      mockedExecute
+        .mockReturnValueOnce(
+          Effect.succeed(
+            output(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                name: "0b6e2c1d-0000-0000-0000-000000000000",
+                type: "servicePrincipal",
+              }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(Effect.succeed(output(json({ accountName: "deploy-bot@acme.dev" }))));
+      const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
+
+      assert.strictEqual(yield* cli.getViewer({ cwd: "/w" }), "deploy-bot@acme.dev");
+    }),
+  );
+
+  it.effect("keeps a service principal's appId when Azure DevOps will not name it", () =>
+    Effect.gen(function* () {
+      mockedExecute
+        .mockReturnValueOnce(
+          Effect.succeed(
+            output(
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              JSON.stringify({
+                name: "0b6e2c1d-0000-0000-0000-000000000000",
+                type: "servicePrincipal",
+              }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(Effect.fail(signInError("TF400813: not authorized")));
+      const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
+
+      assert.strictEqual(
+        yield* cli.getViewer({ cwd: "/w" }),
+        "0b6e2c1d-0000-0000-0000-000000000000",
+      );
+    }),
+  );
+
+  it.effect("reports a sign-in failure when neither `az login` nor a token is set up", () =>
+    Effect.gen(function* () {
+      mockedExecute
+        .mockReturnValueOnce(Effect.succeed(output("")))
+        .mockReturnValueOnce(
+          Effect.fail(signInError("run the login command (az login ... az devops login)")),
+        );
+      const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
+
+      const error = yield* Effect.flip(cli.getViewer({ cwd: "/w" }));
+
+      assert.strictEqual(error._tag, "AzureDevOpsCliAuthenticationError");
+    }),
+  );
+
+  it.effect("fails when Azure DevOps answers for nobody", () =>
+    Effect.gen(function* () {
+      mockedExecute
+        .mockReturnValueOnce(Effect.succeed(output("")))
+        .mockReturnValueOnce(Effect.succeed(output(json({ accountName: null }))));
       const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
 
       const error = yield* Effect.flip(cli.getViewer({ cwd: "/w" }));

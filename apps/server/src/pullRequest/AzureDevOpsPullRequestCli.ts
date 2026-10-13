@@ -13,6 +13,7 @@ import type {
 
 import * as AzureDevOpsCli from "../sourceControl/AzureDevOpsCli.ts";
 import {
+  decodeIdentitySelfJson,
   decodeItemContentJson,
   decodeIterationChangesJson,
   decodeIterationsJson,
@@ -59,7 +60,7 @@ export class AzureDevOpsViewerUnavailableError extends Schema.TaggedError<AzureD
   },
 ) {
   get detail(): string {
-    return "Azure CLI returned no account for the current sign-in.";
+    return "Azure DevOps returned no account for the current sign-in.";
   }
 
   override get message(): string {
@@ -369,6 +370,8 @@ export const make = Effect.gen(function* () {
   const invoke = <A>(input: {
     readonly cwd: string;
     readonly operation: string;
+    /** Every pull request route lives under `git`; the signed-in identity lives under `IMS`. */
+    readonly area?: string;
     readonly resource: string;
     readonly routeParameters: ReadonlyArray<string>;
     readonly queryParameters?: ReadonlyArray<string>;
@@ -383,13 +386,15 @@ export const make = Effect.gen(function* () {
         "invoke",
         ...detectArgs,
         "--area",
-        "git",
+        input.area ?? "git",
         "--resource",
         input.resource,
         "--api-version",
         REST_API_VERSION,
-        "--route-parameters",
-        ...input.routeParameters,
+        // az refuses the flag with nothing after it, so a route without parameters leaves it off.
+        ...(input.routeParameters.length === 0
+          ? []
+          : ["--route-parameters", ...input.routeParameters]),
         ...(input.queryParameters === undefined
           ? []
           : ["--query-parameters", ...input.queryParameters]),
@@ -524,27 +529,46 @@ export const make = Effect.gen(function* () {
   };
 
   return AzureDevOpsPullRequestCli.of({
-    getViewer: (input) =>
-      executeJson({ cwd: input.cwd, args: ["account", "show", "--query", "user"] }).pipe(
-        Effect.flatMap((result): Effect.Effect<string, AzureDevOpsPullRequestCliError> => {
-          // `--query user` narrows the payload to the account, so it is nested back under the
-          // key the decoder reads to keep one shape for the signed-in user.
-          const decoded = decodeViewerJson(`{"user":${result.stdout.trim() || "null"}}`);
-          if (!Result.isSuccess(decoded)) {
-            return Effect.fail(
-              new AzureDevOpsPullRequestReadError({
-                command: "az",
-                cwd: input.cwd,
-                operation: "getViewer",
-                cause: decoded.failure,
-              }),
-            );
-          }
-          return decoded.success === null
-            ? Effect.fail(new AzureDevOpsViewerUnavailableError({ command: "az", cwd: input.cwd }))
-            : Effect.succeed(decoded.success);
+    getViewer: (input) => {
+      // Who Azure DevOps itself says is signed in. The azure-devops extension signs in with an
+      // `az login` session when there is one and with a personal access token (`az devops login`
+      // or AZURE_DEVOPS_EXT_PAT) otherwise, and only this answers for the token: `az account show`
+      // knows nothing of it. The route is reached through the organization the checkout names,
+      // which is why the lookup needs a repository and the sign-in probe cannot make it. Suspended,
+      // because building the call is what runs `az`, and this runs second if at all.
+      const devOpsIdentity = Effect.suspend(() =>
+        invoke({
+          cwd: input.cwd,
+          operation: "getViewer",
+          area: "IMS",
+          resource: "me",
+          routeParameters: [],
+          decode: decodeIdentitySelfJson,
         }),
-      ),
+      ).pipe(
+        Effect.filterOrFail(
+          (name): name is string => name !== null,
+          () => new AzureDevOpsViewerUnavailableError({ command: "az", cwd: input.cwd }),
+        ),
+      );
+      return executeJson({ cwd: input.cwd, args: ["account", "show", "--query", "user"] }).pipe(
+        // `--query user` narrows the payload to the account, so it is nested back under the key
+        // the decoder reads to keep one shape for the signed-in user.
+        Effect.map((result) => decodeViewerJson(`{"user":${result.stdout.trim() || "null"}}`)),
+        Effect.map((decoded) => (Result.isSuccess(decoded) ? decoded.success : null)),
+        // No `az login` is not the same as signed out: a token may be doing the signing in.
+        Effect.orElseSucceed(() => null),
+        Effect.flatMap((account): Effect.Effect<string, AzureDevOpsPullRequestCliError> => {
+          if (account?.isPerson === true) return Effect.succeed(account.name);
+          // A service principal's name is its appId, which no author carries, so Azure DevOps is
+          // asked for the identity it knows the principal by, keeping the appId only if it will
+          // not say.
+          return account === null
+            ? devOpsIdentity
+            : devOpsIdentity.pipe(Effect.orElseSucceed(() => account.name));
+        }),
+      );
+    },
 
     listPullRequests: (input) =>
       listPullRequestPage({
