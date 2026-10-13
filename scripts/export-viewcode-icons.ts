@@ -8,7 +8,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import sharp from "sharp";
-import { VIEWCODE_MARK } from "@t3tools/shared/viewcodeBrand";
 
 import { BRAND_ASSET_PATHS, resolveWebIconOverrides } from "./lib/brand-assets.ts";
 import { encodePngIco, WINDOWS_ICON_SIZES } from "./lib/icon-export.ts";
@@ -24,11 +23,11 @@ const canvas = (size: number, body: string) =>
 /** Platform masks are applied once: full bleed for iOS, safe margins for macOS and Android. */
 export async function renderViewCodeIcons(
   source: string,
-  flatSource: string,
+  markSource: string,
   monochromeSource: string,
 ) {
   const svg = source.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
-  // Strip the tile while retaining the full emblem's placement and gradients.
+  // Strip the tile while retaining the emblem's placement.
   const tileRects = svg.match(/<rect\b[^>]*\brx="\d+"[^>]*\/>/g) ?? [];
   const mark = tileRects.reduce((body, rect) => body.replace(rect, ""), svg);
   // The tile's fills (not its hairline edge) without corners, for full-bleed surfaces.
@@ -37,13 +36,9 @@ export async function renderViewCodeIcons(
   const body = (source: string) =>
     source.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
   const placeMark = (source: string, compact = false) =>
-    `<svg x="${compact ? 64 : 104}" y="${compact ? 220 : 265}" width="${compact ? 896 : 816}" height="${compact ? 582 : 530}" viewBox="0 0 1000 650" fill="none">${body(source)}</svg>`;
-  // Small sizes use the flat mark; on the dark tile its ">" takes the dark-theme slate.
-  const flatOnTile = flatSource.replace(
-    `fill="${VIEWCODE_MARK.slate}"`,
-    `fill="${VIEWCODE_MARK.darkSlate}"`,
-  );
-  const flatTile = svg.replace(/<svg\b[\s\S]*<\/svg>/, placeMark(flatOnTile, true));
+    `<svg x="${compact ? 64 : 192}" y="${compact ? 220 : 304}" width="${compact ? 896 : 640}" height="${compact ? 582 : 416}" viewBox="0 0 1000 650" fill="none">${body(source)}</svg>`;
+  // 32px and below enlarge the mark so the branch stays readable.
+  const flatTile = svg.replace(/<svg\b[\s\S]*<\/svg>/, placeMark(markSource, true));
   const rasterize = (body: string, size: number, opaque = false) => {
     const image = sharp(Buffer.from(canvas(1024, body))).resize(size, size);
     return (opaque ? image.flatten({ background: "#ffffff" }).removeAlpha() : image)
@@ -83,11 +78,11 @@ export async function renderViewCodeIcons(
       outputs.set(override.targetRelativePath, contents);
     }
   }
-  // 108dp at xxxhdpi, centered on the emblem rather than the square tile.
+  // 108dp at xxxhdpi.
   const adaptive = (body: string) =>
-    `<g transform="translate(512 512) scale(.6666667) translate(-512 -534)">${body}</g>`;
+    `<g transform="translate(512 512) scale(.6666667) translate(-512 -512)">${body}</g>`;
   const adaptiveMark = adaptive(mark);
-  // Oversized so the tile's gradients follow the emblem yet still bleed past the 108dp canvas.
+  // Oversized so the tile still bleeds past the 108dp canvas.
   const adaptiveBackground = adaptive(
     tileFills
       .map((rect) =>
@@ -128,12 +123,12 @@ export const renderProductionIcons = Effect.fn("viewcodeIcons.renderProductionIc
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const source = yield* fs.readFileString(path.join(repositoryRoot, "assets/viewcode-icon.svg"));
-  const flat = yield* fs.readFileString(path.join(repositoryRoot, "assets/viewcode-mark-flat.svg"));
+  const mark = yield* fs.readFileString(path.join(repositoryRoot, "assets/viewcode-mark.svg"));
   const monochrome = yield* fs.readFileString(
     path.join(repositoryRoot, "assets/viewcode-mark-monochrome.svg"),
   );
   return yield* Effect.tryPromise({
-    try: () => renderViewCodeIcons(source, flat, monochrome),
+    try: () => renderViewCodeIcons(source, mark, monochrome),
     catch: (cause) => new ViewCodeIconRenderError({ cause }),
   });
 });

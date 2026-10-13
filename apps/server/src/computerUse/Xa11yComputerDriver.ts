@@ -266,6 +266,12 @@ const CANCELLED_BEFORE_DISPATCH: ComputerUseError = {
 const isReplyTo = (message: unknown, id: number): boolean =>
   typeof message === "object" && message !== null && "id" in message && message.id === id;
 
+const reportsGranted = (outcome: WorkerOutcome): boolean => {
+  if (outcome.type !== "reply") return false;
+  const message = outcome.message as { ok?: unknown; result?: { accessibility?: unknown } };
+  return message.ok === true && message.result?.accessibility === "granted";
+};
+
 /** Why a worker went away; `crash` is any exit or channel loss we did not cause. */
 type StopReason = "timeout" | "crash" | "recycle" | "malformed" | "shutdown";
 
@@ -429,7 +435,14 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
           releaseMouse = true;
         }
         served += 1;
-        if (served >= (options.recycleAfter ?? DEFAULT_RECYCLE_AFTER)) discard(worker, "recycle");
+        // macOS reads a process's Accessibility grant once, so a worker that
+        // saw it missing never sees it granted: start a fresh one next call.
+        if (
+          served >= (options.recycleAfter ?? DEFAULT_RECYCLE_AFTER) ||
+          (request.op === "status" && !reportsGranted(outcome))
+        ) {
+          discard(worker, "recycle");
+        }
         resolve(outcome);
       };
       settlePending = settle;

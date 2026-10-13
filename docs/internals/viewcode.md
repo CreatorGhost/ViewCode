@@ -474,8 +474,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   driver logs worker start, stop, per-op timeouts and shim rewrites. None carry labels, titles,
   paths, values or coordinates; window and ref ids stay at debug.
   Ad-hoc signed builds lose the TCC grant on every rebuild while System Settings still shows it on;
-  the settings status line is a fresh check for that reason. Unverified on real hardware: the TCC
-  grant under Electron-as-node, xa11y input on macOS and Windows, and whether managed-Mac security
+  the settings status line is a fresh check for that reason. macOS reads a process's grant once,
+  so a status that is not granted discards the worker and the next check asks a fresh one; without
+  that, granting while the app ran needed a restart. xa11y can report the denial as a
+  `PlatformError` saying "Permission denied", which the driver treats as `PermissionDeniedError`.
+  Unverified on real hardware: xa11y input on macOS and Windows, and whether managed-Mac security
   software tolerates synthetic input; the first run on such a machine should be one
   `list-windows`.
 
@@ -957,21 +960,16 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   reduced motion and while another screen covers the thread). The Active agents bar
   and the checkout strip are glued to the composer and step aside while the
   keyboard is up.
-- Project colour lives on the left panel only: rail tiles, folder badges, the
-  sidebar tint, the selected row and the composer glow. The top bar and the
+- Project colour lives on the folder badges and the composer glow. The top bar and the
   tabs carry none (user decision: a coloured header read as a second layer).
-  The ViewCode default is pure-black neutrals with the content flush beside the
-  sidebar, not Droppy's inset sheet (`--vc-sheet-inset`, user decision).
-- The rail is a strip a step darker than the sidebar and the selected project is
-  its active tab, like a browser's: the tile takes the sidebar's surface and runs
-  into it with curved corners, its outer edge lit in the project colour or the
-  theme accent (user decision: a ring on one button did not say where you are).
-  A selected project without a colour tints the left panel in the theme accent
-  (`data-project-tint="accent"`), so every project gets the same surround; the
-  tint strengths live in `packages/shared/src/shellTint.ts`.
-  The rail's title strip keeps the sidebar colour so macOS window controls sit
-  on one surface. The tab must match the sidebar's fill exactly, tint included,
-  or a seam shows where they meet.
+  The ViewCode default is pure-black neutrals.
+- The shell is one calm surface (user decision, after a tinted panel, a darker
+  rail and a glowing Chrome-style tab read as forced, and full-length hairlines
+  read as unfinished): title bar, rail and sidebar share the sidebar colour, and
+  the work area is one floating panel, Linear-style, inset 8px with 12px corners,
+  a faint edge and a soft lift (`--vc-sheet-inset`). Nothing draws a line across
+  the window. The selected project and chat are soft neutral fills; a project's
+  colour stays on its folder badge and the composer glow.
 - Provider usage rings, Settings, Pull Requests and Connect phone stay at the
   bottom of the rail (user decision); the sidebar has no footer of its own.
 
@@ -1078,11 +1076,9 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   time. Android production layers are separate from development/preview so a
   production redraw cannot replace those channels' artwork.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
-  Headers and small favicons use the flat rendition with larger node openings;
-  app icons keep the full gradients and folds. The flat right bracket is light
-  slate in dark appearances so it remains visible. Brand colors stay fixed
-  rather than following each theme's accent; Android silhouettes use the
-  separate monochrome source.
+  The mark is flat everywhere: white on dark surfaces, near-black on light ones,
+  with teal ring centres in both. Brand colors stay fixed rather than following
+  each theme's accent; Android silhouettes use the separate monochrome source.
 - Generated worktree branches use `vc/` (`WORKTREE_BRANCH_PREFIX` in
   `packages/shared/src/git.ts`). Keep `t3code` in
   `LEGACY_WORKTREE_BRANCH_PREFIXES`: threads created before the rename sit on

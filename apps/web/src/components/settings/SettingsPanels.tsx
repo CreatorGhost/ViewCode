@@ -176,8 +176,11 @@ import { ChatAppearanceSettings } from "./ChatAppearanceSettings";
 import { ProjectColorSettings } from "./ProjectColorSettings";
 import { ReadAloudSettings } from "./ReadAloudSettings";
 
-const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
-  artwork: "Artwork",
+// No "Artwork": ViewCode draws no stage artwork, so a stored one reads as the pill.
+const ENVIRONMENT_IDENTIFICATION_LABELS: Record<
+  Exclude<EnvironmentIdentificationMode, "artwork">,
+  string
+> = {
   pill: "Version pill",
   none: "None",
 };
@@ -1228,6 +1231,10 @@ export function AppearanceSettingsPanel() {
   const environmentStageLabel = useEnvironmentStageLabel();
   const showEnvironmentIdentification =
     resolveEnvironmentIdentificationPillLabel(environmentStageLabel) !== null;
+  const shownEnvironmentIdentificationMode =
+    settings.environmentIdentificationMode === "artwork"
+      ? "pill"
+      : settings.environmentIdentificationMode;
   const glassOpacityRatio =
     (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
   const glassOpacitySliderStyle = {
@@ -1386,9 +1393,9 @@ export function AppearanceSettingsPanel() {
             }
             control={
               <Select
-                value={settings.environmentIdentificationMode}
+                value={shownEnvironmentIdentificationMode}
                 onValueChange={(value) => {
-                  if (value === "artwork" || value === "pill" || value === "none") {
+                  if (value === "pill" || value === "none") {
                     updateSettings({ environmentIdentificationMode: value });
                   }
                 }}
@@ -1399,7 +1406,7 @@ export function AppearanceSettingsPanel() {
                   aria-label="Environment identification"
                 >
                   <SelectValue>
-                    {ENVIRONMENT_IDENTIFICATION_LABELS[settings.environmentIdentificationMode]}
+                    {ENVIRONMENT_IDENTIFICATION_LABELS[shownEnvironmentIdentificationMode]}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>

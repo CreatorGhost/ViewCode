@@ -21,10 +21,10 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   --vc-label: rgb(0 0 0 / 0.85);
   --vc-window: var(--app-theme-chrome);
   --vc-sheet: var(--app-theme-canvas);
-  /* The content sheet sits flush beside the sidebar, like the workspace design: no frame of
-     window colour around it and no rounded corners. The brand lab still sets the radius. */
-  --vc-sheet-inset: 0px;
-  --vc-sheet-radius: 0px;
+  /* The content is one floating panel, Linear-style: inset from the window on every side, rounded,
+     with a faint edge and a soft lift, so no line has to divide the window (user decision). */
+  --vc-sheet-inset: 8px;
+  --vc-sheet-radius: 12px;
   --vc-row-radius: 7px;
   --vc-card-radius: 16px;
   --vc-hairline: color-mix(in srgb, var(--vc-label) 10%, transparent);
@@ -95,19 +95,17 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-
     margin: var(--vc-sheet-inset) var(--vc-sheet-inset) var(--vc-sheet-inset) 0;
     overflow: hidden;
     border-radius: var(--vc-sheet-radius);
+    border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
     background-color: var(--vc-sheet);
-    box-shadow: none;
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.3),
+      0 12px 32px -16px rgb(0 0 0 / 0.6);
   }
 
   html[data-theme-id^="viewcode"]:not([data-theme-id=""])
     [data-slot="sidebar"][data-state="collapsed"]
     ~ [data-slot="sidebar-inset"] {
     margin-left: var(--vc-sheet-inset);
-  }
-
-  /* Matrix paints window and sheet the same black, so a hairline marks the sheet. */
-  html[data-theme-id="viewcode-matrix"] [data-slot="sidebar-inset"] {
-    border: 1px solid var(--vc-hairline);
   }
 }
 
@@ -587,8 +585,13 @@ html[data-macos-window-controls="visible"] {
  * with a short accent bar, and everything that is not the thread title steps back.
  */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+  /* Titles at a reading size, like the calm desktop apps this shell follows. */
+  [data-app-sidebar] .text-row {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
   [data-testid="sidebar-row"] {
-    height: 1.875rem; /* 30px, up from 28 */
+    height: 2rem; /* 32px */
     border-radius: var(--vc-row-radius);
     transition: background-color 120ms ease-out;
   }
@@ -600,23 +603,14 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
     height: 1.625rem;
     border-radius: var(--vc-row-radius);
   }
-  /* The selected row: a soft fill and a 2px accent bar, instead of a heavy block. */
+  /* The selected row: a soft neutral fill, nothing more. */
   [data-testid="sidebar-row"][aria-current="page"],
   [data-testid="sidebar-row-child"][aria-current="page"] {
-    background-color: color-mix(in srgb, var(--app-theme-accent) 7%, transparent);
+    background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
   }
   [data-testid="sidebar-row"][aria-current="page"]::before,
   [data-testid="sidebar-row-child"][aria-current="page"]::before {
-    content: "";
-    position: absolute;
-    /* Inside the rounded fill, centred, about 60% of the row. */
-    left: 3px;
-    top: 20%;
-    bottom: 20%;
-    width: 2px;
-    border-radius: 9999px;
-    pointer-events: none;
-    background: var(--app-theme-accent);
+    content: none;
   }
   /* One left gutter for thread rows, project headers and Settled rows. */
   [data-testid="sidebar-row"],
@@ -634,10 +628,10 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   }
   /* Project headers: a small, spaced label rather than another row of equal weight. */
   [data-testid="sidebar-project-row"] {
-    height: 1.75rem;
-    margin-top: 0.375rem;
+    height: 2rem;
+    margin-top: 0.5rem;
     border-radius: var(--vc-row-radius);
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     letter-spacing: 0.01em;
     font-weight: 600;
   }
@@ -795,38 +789,6 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
     color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-bottom), transparent)
   );
 }
-[data-project-tint] [data-app-rail],
-/* The macOS gap beside the rail (rail only) is part of the same panel. */
-html[data-macos-window-controls="visible"] [data-project-tint] > [data-app-rail-layout] {
-  background-image: var(--shell-tint-gradient);
-}
-[data-project-tint] [data-app-sidebar] [data-slot="sidebar-inner"] {
-  background-image: var(--shell-tint-gradient), var(--surface-grain, none);
-  background-repeat: no-repeat, repeat;
-  background-size:
-    100% 100%,
-    var(--surface-grain-size, auto);
-}
-html:root [data-project-tint] [data-app-sidebar][data-app-sidebar] {
-  border-color: color-mix(in srgb, var(--project-accent) var(--shell-tint-border), transparent);
-}
-html:root
-  [data-project-tint]
-  :is([data-testid="sidebar-row"], [data-testid="sidebar-row-child"])[aria-current="page"] {
-  border-radius: 8px;
-  background-color: color-mix(
-    in srgb,
-    var(--project-accent) var(--shell-tint-selected-row),
-    transparent
-  );
-  box-shadow: inset 2px 0 0 var(--project-accent);
-}
-/* The bar is the inset shadow above; ViewCode themes' own bar steps aside. */
-html:root
-  [data-project-tint]
-  :is([data-testid="sidebar-row"], [data-testid="sidebar-row-child"])[aria-current="page"]::before {
-  content: none;
-}
 /* A coloured folder's badge is filled in its own colour (Sidebar sets --project-accent on it),
    so every folder in an All-projects list keeps its colour. */
 [data-sidebar-folder-badge][data-colored] {
@@ -837,116 +799,32 @@ html:root
   );
   color: var(--project-accent);
 }
-/* Rail project tiles: one rounded tile per project with its icon inside. The rail is a strip a
-   step darker than the sidebar, like a browser's tab strip, and the selected project is its
-   active tab: a tile in the sidebar's own surface that runs into the sidebar, with curved
-   corners where they meet, its outer edge lit in the project colour (AppRail hands each tile
-   its own --project-accent) or the theme accent. The others step back until hovered. Static:
-   no animation repaints any of it. */
+/*
+ * The shell is one calm surface: title bar, rail and sidebar share the sidebar colour, and the
+ * work area floats on it as one rounded panel (--vc-sheet-inset). A tinted panel, a darker rail
+ * and a glowing tab read as forced (user decision); a project's colour stays on its folder badge
+ * and the composer. The selected project is a soft neutral tile, the selected chat a soft neutral
+ * row.
+ */
 html [data-app-rail] {
-  --rail-strip: color-mix(in srgb, var(--sidebar) 35%, black);
-  background-color: var(--rail-strip);
-  border-right-width: 0;
-}
-html:not(.dark) [data-app-rail] {
-  --rail-strip: color-mix(in srgb, var(--sidebar) 86%, black);
-}
-/* The title strip stays the sidebar's, so the window controls sit on one surface. */
-html [data-app-rail] > :first-child {
   background-color: var(--sidebar);
-}
-[data-project-tint] [data-app-rail] > :first-child {
-  background-color: color-mix(
-    in srgb,
-    var(--project-accent) var(--shell-tint-surface-top),
-    var(--sidebar)
-  );
-}
-html[data-window-glass="true"] [data-app-rail] {
-  --rail-strip: transparent;
-  background-image: linear-gradient(
-    color-mix(in srgb, black 28%, transparent),
-    color-mix(in srgb, black 28%, transparent)
-  );
-}
-html[data-window-glass="true"] [data-app-rail] > :first-child {
-  background-color: transparent !important;
+  border-right-width: 0;
 }
 [data-app-rail] button[data-rail-project] {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  border-color: color-mix(in srgb, var(--foreground) 9%, transparent);
-  background-color: color-mix(in srgb, var(--foreground) 3%, transparent);
-}
-[data-app-rail] button[data-rail-project][data-pressed] {
-  --rail-tile-color: var(--project-accent, var(--app-theme-accent, var(--ring)));
-  --rail-tab-fill: var(--sidebar);
-  /* 34px tile in a 48px rail: 7px to the sidebar. */
-  --rail-tab-reach: 7px;
-  --rail-tab-flare: 8px;
+  border-radius: 10px;
   border-color: transparent;
-  border-radius: 9px 0 0 9px;
-  background-color: var(--rail-tab-fill);
-  box-shadow:
-    inset 3px 0 0 var(--rail-tile-color),
-    -4px 0 18px -4px color-mix(in srgb, var(--rail-tile-color) 70%, transparent);
+  background-color: transparent;
 }
-/* The sidebar of a coloured project is tinted near its top; the tab matches it. */
-[data-project-tint] [data-app-rail] button[data-rail-project][data-pressed] {
-  --rail-tab-fill: color-mix(
-    in srgb,
-    var(--project-accent) var(--shell-tint-surface-top),
-    var(--sidebar)
-  );
+[data-app-rail] button[data-rail-project]:hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
-html[data-window-glass="true"] [data-app-rail] button[data-rail-project][data-pressed] {
-  --rail-tab-fill: color-mix(in srgb, var(--rail-tile-color) 14%, transparent);
+/* Every lit rail button, the All projects one included, is the same soft neutral tile. */
+[data-app-rail] button[data-pressed] {
+  background-color: color-mix(in srgb, var(--foreground) 10%, transparent);
 }
-/* The bridge from the tile to the sidebar. */
-[data-app-rail] button[data-rail-project][data-pressed]::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 100%;
-  width: var(--rail-tab-reach);
-  border-radius: 0;
-  background-color: var(--rail-tab-fill);
-  box-shadow: none;
-}
-/* Curved corners above and below where the tab meets the sidebar. Not on touch screens, where
-   ::after is the button's larger hit area. */
-@media not (pointer: coarse) {
-  [data-app-rail] button[data-rail-project][data-pressed]::after {
-    content: "";
-    position: absolute;
-    top: calc(-1 * var(--rail-tab-flare));
-    bottom: calc(-1 * var(--rail-tab-flare));
-    left: calc(100% + var(--rail-tab-reach) - var(--rail-tab-flare));
-    width: var(--rail-tab-flare);
-    pointer-events: none;
-    background:
-      radial-gradient(
-          circle at 0 0,
-          transparent calc(var(--rail-tab-flare) - 0.5px),
-          var(--rail-tab-fill) var(--rail-tab-flare)
-        )
-        top / var(--rail-tab-flare) var(--rail-tab-flare) no-repeat,
-      radial-gradient(
-          circle at 0 100%,
-          transparent calc(var(--rail-tab-flare) - 0.5px),
-          var(--rail-tab-fill) var(--rail-tab-flare)
-        )
-        bottom / var(--rail-tab-flare) var(--rail-tab-flare) no-repeat;
-  }
-}
-[data-app-rail] button[data-rail-project] > :first-child {
-  transition:
-    opacity 150ms ease,
-    filter 150ms ease;
-}
-[data-app-rail]
-  button[data-rail-project]:not([data-pressed], :hover, :focus-visible)
-  > :first-child {
-  opacity: 0.6;
-  filter: saturate(0.7);
+/* A folder's sort order lives in its menu, in every theme; the row stays a name. */
+[data-folder-sort-label] {
+  display: none;
 }

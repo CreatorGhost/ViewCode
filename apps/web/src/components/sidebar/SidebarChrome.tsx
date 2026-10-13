@@ -4,7 +4,6 @@ import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
-import { useTheme } from "../../hooks/useTheme";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
 import {
@@ -42,10 +41,8 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   actions?: ReactNode;
 }) {
   const stageLabel = useEnvironmentStageLabel();
-  const { theme } = useTheme();
   const environmentIdentificationMode = resolveThemeEnvironmentIdentificationMode(
     useEnvironmentIdentificationMode(),
-    theme,
   );
   const backdropVariant = resolveSidebarStageBackdropVariant(
     stageLabel,

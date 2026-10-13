@@ -1,96 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
-  <defs>
-    <radialGradient id="tileBg" cx="512" cy="430" r="760" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#121a1f" />
-      <stop offset="1" stop-color="#0b1114" />
-    </radialGradient>
-    <radialGradient id="tileGlow" cx="512" cy="530" r="380" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#00b8c3" stop-opacity="0.19" />
-      <stop offset=".55" stop-color="#00b8c3" stop-opacity="0.066" />
-      <stop offset="1" stop-color="#00b8c3" stop-opacity="0" />
-    </radialGradient>
-  </defs>
-  <rect width="1024" height="1024" rx="228" fill="url(#tileBg)" />
-  <rect width="1024" height="1024" rx="228" fill="url(#tileGlow)" />
-  <rect x="2" y="2" width="1020" height="1020" rx="226" stroke="#ffffff" stroke-opacity=".06" stroke-width="4" />
-  <svg x="104" y="265" width="816" height="530" viewBox="0 0 1000 650" fill="none">
-    <defs>
-      <linearGradient id="leftBase" x1="242" y1="598" x2="355" y2="494" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#00dce5" />
-        <stop offset=".3" stop-color="#00b4c1" />
-        <stop offset=".65" stop-color="#00c7d1" />
-        <stop offset="1" stop-color="#0098a8" />
-      </linearGradient>
-      <radialGradient id="leftShadow" cx="143" cy="356" r="176" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#004b5c" stop-opacity="0.45" />
-        <stop offset=".42" stop-color="#005869" stop-opacity="0.34" />
-        <stop offset="1" stop-color="#006476" stop-opacity="0" />
-      </radialGradient>
-      <clipPath id="leftShape">
-        <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" />
-      </clipPath>
-      <linearGradient id="leftFold" x1="268" y1="19" x2="348" y2="98" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#00f0f5" />
-        <stop offset=".28" stop-color="#00e3eb" />
-        <stop offset=".62" stop-color="#00c6d1" />
-        <stop offset="1" stop-color="#00d9e2" />
-      </linearGradient>
-      <linearGradient id="rightBase" x1="78" y1="380" x2="346" y2="597" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#4d7f86" />
-        <stop offset=".36" stop-color="#6a7d87" />
-        <stop offset="1" stop-color="#5d707a" />
-      </linearGradient>
-      <linearGradient id="rightFold" x1="300" y1="25" x2="72" y2="391" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#7a8e98" />
-        <stop offset=".72" stop-color="#63767f" />
-        <stop offset=".9" stop-color="#2a9aa2" />
-        <stop offset="1" stop-color="#00d5dd" />
-      </linearGradient>
-      <linearGradient id="leftBranch" x1="425" y1="300" x2="474" y2="505" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#00bcc7" />
-        <stop offset=".48" stop-color="#007c89" />
-        <stop offset="1" stop-color="#005966" />
-      </linearGradient>
-      <linearGradient id="rightBranch" x1="614" y1="311" x2="467" y2="510" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#00bdc7" />
-        <stop offset=".5" stop-color="#08b2bb" />
-        <stop offset="1" stop-color="#005e6a" />
-      </linearGradient>
-      <radialGradient id="node0" cx="408" cy="205" r="86" gradientUnits="userSpaceOnUse">
-        <stop offset=".34" stop-color="#007987" />
-        <stop offset=".76" stop-color="#078d9a" />
-        <stop offset="1" stop-color="#00d4de" />
-      </radialGradient>
-      <radialGradient id="node1" cx="634" cy="253" r="82" gradientUnits="userSpaceOnUse">
-        <stop offset=".34" stop-color="#007987" />
-        <stop offset=".76" stop-color="#078d9a" />
-        <stop offset="1" stop-color="#00d4de" />
-      </radialGradient>
-      <radialGradient id="node2" cx="499" cy="567" r="82" gradientUnits="userSpaceOnUse">
-        <stop offset=".34" stop-color="#007987" />
-        <stop offset=".76" stop-color="#078d9a" />
-        <stop offset="1" stop-color="#00d4de" />
-      </radialGradient>
-      <filter id="foldGlow" x="-100%" y="-100%" width="300%" height="300%">
-        <feGaussianBlur stdDeviation="8" />
-      </filter>
-    </defs>
-    <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" fill="url(#leftBase)" />
-    <circle cx="143" cy="356" r="176" fill="url(#leftShadow)" clip-path="url(#leftShape)" />
-    <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C163 298 126 312 98 330 C54 356 55 397 84 430 L48 399 C7 359 6 306 46 263 Z" fill="url(#leftFold)" />
-    <g transform="translate(1000 0) scale(-1 1)">
-      <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" fill="url(#rightBase)" />
-      <path d="M184 278 C163 298 126 312 98 330 C54 356 55 397 84 430" fill="none" stroke="#00e3eb" stroke-width="16" opacity=".3" filter="url(#foldGlow)" />
-      <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C163 298 126 312 98 330 C54 356 55 397 84 430 L48 399 C7 359 6 306 46 263 Z" fill="url(#rightFold)" />
-      <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" stroke="#d3e6ea" stroke-opacity="0.28" stroke-width="4" stroke-linejoin="round" fill="none" />
-      <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" stroke="#b4d6dc" stroke-opacity="0.38" stroke-width="5" stroke-linejoin="round" fill="none" />
-    </g>
-    <path d="M408 270 V336 C408 421 489 424 490 499" stroke="url(#leftBranch)" stroke-width="64" fill="none" />
-    <path d="M600 300 L550 357 C511 398 499 434 499 501" stroke="url(#rightBranch)" stroke-width="64" fill="none" />
-    <path d="M491 198a83 83 0 1 0 -166 0a83 83 0 1 0 166 0M443 198a35 35 0 1 0 -70 0a35 35 0 1 0 70 0" fill="url(#node0)" fill-rule="evenodd" />
-    <path d="M713 246a79 79 0 1 0 -158 0a79 79 0 1 0 158 0M667 246a33 33 0 1 0 -66 0a33 33 0 1 0 66 0" fill="url(#node1)" fill-rule="evenodd" />
-    <path d="M578 560a79 79 0 1 0 -158 0a79 79 0 1 0 158 0M531 560a32 32 0 1 0 -64 0a32 32 0 1 0 64 0" fill="url(#node2)" fill-rule="evenodd" />
+  <rect width="1024" height="1024" rx="228" fill="#0b1114" />
+  <svg x="192" y="304" width="640" height="416" viewBox="0 0 1000 650" fill="none">
+    <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" fill="#ffffff" />
+    <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" transform="translate(1000 0) scale(-1 1)" fill="#ffffff" />
+    <path d="M408 270 V336 C408 421 489 424 490 499" stroke="#ffffff" stroke-width="64" fill="none" />
+    <path d="M600 300 L550 357 C511 398 499 434 499 501" stroke="#ffffff" stroke-width="64" fill="none" />
+    <path d="M504 198a96 96 0 1 0 -192 0a96 96 0 1 0 192 0M462 198a54 54 0 1 0 -108 0a54 54 0 1 0 108 0" fill="#ffffff" fill-rule="evenodd" />
+    <path d="M726 246a92 92 0 1 0 -184 0a92 92 0 1 0 184 0M686 246a52 52 0 1 0 -104 0a52 52 0 1 0 104 0" fill="#ffffff" fill-rule="evenodd" />
+    <path d="M588 560a89 89 0 1 0 -178 0a89 89 0 1 0 178 0M548 560a49 49 0 1 0 -98 0a49 49 0 1 0 98 0" fill="#ffffff" fill-rule="evenodd" />
+    <circle cx="408" cy="198" r="24" fill="#00bfc9" />
+    <circle cx="634" cy="246" r="24" fill="#00bfc9" />
+    <circle cx="499" cy="560" r="24" fill="#00bfc9" />
   </svg>
-
-
 </svg>
