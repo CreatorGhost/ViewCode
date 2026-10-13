@@ -505,9 +505,9 @@ html[data-window-glass="true"] body {
  * App rail (components/rail/AppRail.tsx): a 3rem strip left of the thread sidebar. The
  * sidebar's fixed container is shifted right of it instead of editing ui/sidebar.tsx, and
  * collapsing slides the sidebar fully off screen, passing under the rail. Parking its edge
- * behind the rail showed through on window glass, where the rail has no fill. Web only: macOS keeps the traffic-light
- * inset in --workspace-titlebar-content-left. Below THREAD_SIDEBAR_OVERLAY_BREAKPOINT
- * (threadSidebarWidth.ts) the thread sidebar is already an overlay sheet beside the rail.
+ * behind the rail showed through on window glass, where the rail has no fill. Below
+ * THREAD_SIDEBAR_OVERLAY_BREAKPOINT (threadSidebarWidth.ts) the thread sidebar is already an
+ * overlay sheet beside the rail.
  */
 @media (min-width: 768px) {
   [data-app-rail-layout] {
@@ -519,10 +519,59 @@ html[data-window-glass="true"] body {
   [data-app-rail-layout] [data-collapsible="offcanvas"] [data-slot="sidebar-container"] {
     left: calc(var(--sidebar-width) * -1) !important;
   }
-  /* The toggle floats over the rail now, so content starts right after it. macOS keeps the
-     traffic-light inset. */
-  [data-app-rail-layout="web"] {
+  /* Without traffic lights the toggle floats over the rail's empty top strip, so content
+     starts right after the rail. */
+  html:not([data-macos-window-controls="visible"]) [data-app-rail-layout] {
     --workspace-titlebar-content-left: 0.75rem !important;
+  }
+}
+
+/*
+ * macOS traffic lights (lib/windowControlsOverlay.ts sets the attribute while they show).
+ * DesktopWindow.ts places them at x 16: three 14pt buttons 6pt apart end at 70pt, and the
+ * preload sets --desktop-window-controls-inset to 90pt in CSS px, so zoom never moves this
+ * geometry against them. The clearance edge is 12pt after the lights.
+ *
+ * The lights sit on one surface: the rail's 52px top strip and the sidebar's title row are
+ * both the sidebar colour (the rail draws no divider). The toggle sits 12px past the
+ * clearance edge and the title row's content after it. With the sidebar collapsed or shown
+ * as an overlay (rail only), the main column starts at the clearance edge rather than under
+ * the lights, and the gap shows the same sidebar colour. Fullscreen hides the lights, the
+ * attribute flips to "hidden", and the web layout above applies.
+ */
+html[data-macos-window-controls="visible"] {
+  --macos-window-controls-clearance: calc(var(--desktop-window-controls-inset, 90px) - 8px);
+  --workspace-controls-left: calc(var(--macos-window-controls-clearance) + 0.75rem);
+}
+/* The sidebar's overlay sheet is portaled outside the wrapper that sets this, and its title
+   row still has to clear the fixed toggle. */
+:root {
+  --workspace-titlebar-content-left: calc(
+    var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +
+      var(--workspace-titlebar-control-gap)
+  );
+}
+@media (min-width: 768px) {
+  html[data-macos-window-controls="visible"] [data-app-rail-layout] {
+    background-color: var(--sidebar);
+  }
+  /* Titlebar content measures from the left edge of its own column. */
+  html[data-macos-window-controls="visible"]
+    [data-app-rail-layout]
+    [data-slot="sidebar-container"] {
+    --workspace-titlebar-content-left: calc(
+      var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +
+        var(--workspace-titlebar-control-gap) - var(--app-rail-width)
+    );
+  }
+  html[data-macos-window-controls="visible"]
+    [data-app-rail-layout]:not(:has(> [data-slot="sidebar"][data-state="expanded"]))
+    > [data-slot="sidebar-inset"] {
+    margin-left: calc(var(--macos-window-controls-clearance) - var(--app-rail-width)) !important;
+    --workspace-titlebar-content-left: calc(
+      var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +
+        var(--workspace-titlebar-control-gap) - var(--macos-window-controls-clearance)
+    );
   }
 }
 
