@@ -20,6 +20,6 @@ export interface HomeHeaderProps {
   /** Subscription limits and usage-limit resumes. */
   readonly onOpenUsage: () => void;
   readonly onStartNewTask: () => void;
-  /** ViewCode: iOS opens the pull request list from Home's header. */
+  /** ViewCode: iOS opens the pull request list from Home's scope row. */
   readonly onOpenPullRequests?: () => void;
 }

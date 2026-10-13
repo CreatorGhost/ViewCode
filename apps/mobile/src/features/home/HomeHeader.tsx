@@ -8,6 +8,7 @@ import {
   createNativeMailSearchToolbarItem,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
+import { HomeFleetTitle } from "./HomePillToolbar";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
@@ -27,42 +28,39 @@ export function HomeHeader(props: HomeHeaderProps) {
   }, []);
   useHardwareKeyboardCommand("focusSearch", focusSearch);
   const filterMenu = buildHomeListFilterMenu(props);
+  const renderTitle = useCallback(
+    () => <HomeFleetTitle onOpenEnvironments={props.onOpenEnvironments} />,
+    [props.onOpenEnvironments],
+  );
 
   return (
     <>
       <NativeStackScreenOptions
         optionsVersion={filterMenu.items}
         options={{
-          // Static header config (glass, title, fonts) lives in Stack.tsx
-          // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
+          // Keep UIKit's glass and scroll-edge behavior with a centered fleet title.
+          headerShown: true,
+          headerTitleAlign: "center",
+          unstable_navigationItemStyle: undefined,
+          headerTitle: renderTitle,
           headerTintColor: iconColor,
+          unstable_headerLeftItems: () => [
+            withNativeGlassHeaderItem({
+              accessibilityLabel: "Open settings",
+              icon: { name: "gearshape", type: "sfSymbol" } as const,
+              identifier: "home-settings",
+              label: "",
+              onPress: props.onOpenSettings,
+              type: "button",
+            }),
+          ],
           unstable_headerRightItems: () => [
-            ...(props.onOpenPullRequests
-              ? [
-                  withNativeGlassHeaderItem({
-                    accessibilityLabel: "Open pull requests",
-                    icon: { name: "arrow.triangle.pull", type: "sfSymbol" } as const,
-                    identifier: "home-pull-requests",
-                    label: "",
-                    onPress: props.onOpenPullRequests,
-                    type: "button",
-                  }),
-                ]
-              : []),
             withNativeGlassHeaderItem({
               accessibilityLabel: "Open usage",
               icon: { name: "chart.bar.xaxis", type: "sfSymbol" } as const,
               identifier: "home-usage",
               label: "",
               onPress: props.onOpenUsage,
-              type: "button",
-            }),
-            withNativeGlassHeaderItem({
-              accessibilityLabel: "Open settings",
-              icon: { name: "ellipsis", type: "sfSymbol" } as const,
-              identifier: "home-settings",
-              label: "",
-              onPress: props.onOpenSettings,
               type: "button",
             }),
           ],

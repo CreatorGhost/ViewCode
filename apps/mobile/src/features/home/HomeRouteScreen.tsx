@@ -2,7 +2,7 @@ import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { useNavigation } from "@react-navigation/native";
 import { useEffect, useMemo, useState } from "react";
-import { Platform, useWindowDimensions } from "react-native";
+import { Platform } from "react-native";
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { useProjects } from "../../state/entities";
@@ -24,12 +24,12 @@ import { buildHomeTerminalTargets, findSelectedTerminalTarget } from "./homeTerm
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
-import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
+import { HomeScopeFilters } from "./HomeScopeFilters";
+import type { HomeHeaderProps } from "./HomeHeader.types";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
 export function HomeRouteScreen() {
-  const { width: windowWidth } = useWindowDimensions();
   const { layout, panes } = useAdaptiveWorkspaceLayout();
   const projects = useProjects();
   // Streaming turns rewrite thread shells many times a second. While a Thread
@@ -140,6 +140,34 @@ export function HomeRouteScreen() {
     }
   }, [projectFilterOptions, selectedProjectKey]);
 
+  const homeHeaderProps: HomeHeaderProps = {
+    environments,
+    projects: projectFilterOptions,
+    searchQuery,
+    selectedEnvironmentId,
+    selectedProjectKey,
+    onEnvironmentChange: setSelectedEnvironmentId,
+    onProjectChange: setSelectedProjectKey,
+    onOpenEnvironments: () =>
+      navigation.navigate("SettingsSheet", {
+        screen: "SettingsContent",
+        params: { screen: "SettingsEnvironments" },
+      }),
+    onOpenSettings: () =>
+      navigation.navigate("SettingsSheet", {
+        screen: "SettingsContent",
+        params: { screen: "Settings" },
+      }),
+    onOpenUsage: () =>
+      navigation.navigate("SettingsSheet", {
+        screen: "SettingsContent",
+        params: { screen: "SettingsUsage" },
+      }),
+    onSearchQueryChange: setSearchQuery,
+    onStartNewTask: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
+    onOpenPullRequests: () => navigation.navigate("PullRequests"),
+  };
+
   // In split layouts the persistent sidebar IS the thread list — Home becomes
   // an empty detail pane so selecting a thread never transitions layouts.
   if (layout.usesSplitView) {
@@ -197,55 +225,12 @@ export function HomeRouteScreen() {
       }
     >
       <>
-        {/* Restore the header after leaving split view; screen options are
-            shallow-merged. The brand slot also doubles as the connection
-            status surface while an environment reconnects. */}
-        <NativeStackScreenOptions
-          optionsVersion={windowWidth}
-          options={{
-            ...getConnectionAwareBrandHeaderOptions({
-              headerWidth: windowWidth,
-              onOpenEnvironments: () =>
-                navigation.navigate("SettingsSheet", {
-                  screen: "SettingsContent",
-                  params: { screen: "SettingsEnvironments" },
-                }),
-            }),
-            headerShown: true,
-          }}
-        />
-        <HomeHeader
-          environments={environments}
-          projects={projectFilterOptions}
-          searchQuery={searchQuery}
-          selectedEnvironmentId={selectedEnvironmentId}
-          selectedProjectKey={selectedProjectKey}
-          onEnvironmentChange={setSelectedEnvironmentId}
-          onProjectChange={setSelectedProjectKey}
-          onOpenEnvironments={() =>
-            navigation.navigate("SettingsSheet", {
-              screen: "SettingsContent",
-              params: { screen: "SettingsEnvironments" },
-            })
-          }
-          onOpenSettings={() =>
-            navigation.navigate("SettingsSheet", {
-              screen: "SettingsContent",
-              params: { screen: "Settings" },
-            })
-          }
-          onOpenUsage={() =>
-            navigation.navigate("SettingsSheet", {
-              screen: "SettingsContent",
-              params: { screen: "SettingsUsage" },
-            })
-          }
-          onSearchQueryChange={setSearchQuery}
-          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
-          onOpenPullRequests={() => navigation.navigate("PullRequests")}
-        />
+        <HomeHeader {...homeHeaderProps} />
 
         <HomeScreen
+          listHeaderContent={
+            Platform.OS === "ios" ? <HomeScopeFilters {...homeHeaderProps} /> : undefined
+          }
           catalogState={catalogState}
           environments={environments}
           onAddConnection={() =>

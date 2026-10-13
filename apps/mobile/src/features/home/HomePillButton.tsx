@@ -8,7 +8,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 
 /**
  * Home's outlined pill surface: round icon buttons and the environment pill in
- * the Android top bar, and the floating composer launcher. A card-colored fill
+ * Home's scope row, and the floating composer launcher. A card-colored fill
  * with a hairline border reads in both light and dark themes.
  */
 export function HomePillSurface(props: {

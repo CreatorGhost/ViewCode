@@ -17,7 +17,7 @@ import {
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -86,6 +86,7 @@ import { HOME_COMPOSER_CLEARANCE } from "./HomeComposerLauncher";
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 interface HomeScreenProps {
+  readonly listHeaderContent?: ReactNode;
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
@@ -1073,9 +1074,7 @@ export function HomeScreen(props: HomeScreenProps) {
       ? null
       : (props.savedConnectionsById[props.selectedEnvironmentId]?.environmentLabel ??
         "this environment");
-  // Connection state surfaces in the header title slot
-  // (WorkspaceConnectionTitle) — nothing renders inside the list, so
-  // reconnects never shift the rows.
+  // Connection status stays in the header, so reconnects never shift the rows.
   const emptyState = deriveEmptyState({
     catalogState: props.catalogState,
     projectCount: props.projects.length,
@@ -1084,11 +1083,20 @@ export function HomeScreen(props: HomeScreenProps) {
   if (!hasAnyThreads) {
     return (
       <View className="flex-1 bg-screen">
+        {props.listHeaderContent ? (
+          <View style={{ paddingTop: NATIVE_LIQUID_GLASS_SUPPORTED ? insets.top + 52 : 8 }}>
+            {props.listHeaderContent}
+          </View>
+        ) : null}
         <View
           className="flex-1 items-center justify-center bg-screen px-8"
           style={{
             paddingBottom: Math.max(insets.bottom, 24) + iosBottomToolbarClearance,
-            paddingTop: NATIVE_LIQUID_GLASS_SUPPORTED ? insets.top + 72 : 0,
+            paddingTop: props.listHeaderContent
+              ? 0
+              : NATIVE_LIQUID_GLASS_SUPPORTED
+                ? insets.top + 72
+                : 0,
           }}
         >
           <View className="w-full max-w-[430px]">
@@ -1121,17 +1129,20 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  // Project and environment scoping stay in the header menu; the chips filter
-  // by what the work needs.
-  // Android's top bar already names the scope, so the chips lead the list.
-  const v2ListHeader = hasAnyThreads ? (
-    <HomeStatusFilterChips
-      value={statusFilter}
-      counts={statusFilterCounts}
-      onChange={setStatusFilter}
-    />
-  ) : Platform.OS === "ios" ? undefined : (
-    <HomeTopContentSpacer />
+  // iOS scopes scroll with the list beneath its native glass navigation bar.
+  const v2ListHeader = (
+    <>
+      {props.listHeaderContent}
+      {hasAnyThreads ? (
+        <HomeStatusFilterChips
+          value={statusFilter}
+          counts={statusFilterCounts}
+          onChange={setStatusFilter}
+        />
+      ) : Platform.OS === "ios" ? null : (
+        <HomeTopContentSpacer />
+      )}
+    </>
   );
 
   // Use the v2 project scope for its empty state. Snoozed threads need no
