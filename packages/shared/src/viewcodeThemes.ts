@@ -27,6 +27,7 @@ type NamedThemeSpec = Readonly<{
   light?: DroppyPalette;
   /** Roles set after the derivation, for a theme the palette alone can't express. */
   darkOverrides?: Partial<ThemeColors>;
+  lightOverrides?: Partial<ThemeColors>;
 }>;
 
 const NAMED_THEME_SPECS: ReadonlyArray<NamedThemeSpec> = [
@@ -62,7 +63,8 @@ const NAMED_THEME_SPECS: ReadonlyArray<NamedThemeSpec> = [
       accent: "#8839EF",
       surface: "#EFF1F5",
       success: "#40A02B",
-      warning: "#DF8E1D",
+      // Latte's yellow (#DF8E1D), deepened so waiting marks read at 3:1 on the sidebar.
+      warning: "#C9780F",
       danger: "#D20F39",
     },
   },
@@ -195,6 +197,66 @@ const NAMED_THEME_SPECS: ReadonlyArray<NamedThemeSpec> = [
       success: "#9CCFD8",
       warning: "#F6C177",
       danger: "#EB6F92",
+    },
+  },
+  {
+    // ViewCode's own pink theme. The derivation would grey the plum planes toward
+    // the ViewCode neutrals, so the planes and ink are pinned. Status hues stay
+    // apart from the pink: green success, amber warning, an orange-red danger.
+    id: "viewcode-blossom",
+    label: "Blossom",
+    dark: {
+      accent: "#F472B6",
+      surface: "#1A1218",
+      success: "#6CC58A",
+      warning: "#E5A54B",
+      danger: "#FF6B4A",
+    },
+    light: {
+      accent: "#DB2777",
+      surface: "#FFF5F8",
+      success: "#2E7D32",
+      warning: "#9A6700",
+      danger: "#C2410C",
+    },
+    darkOverrides: {
+      canvas: "#1A1218",
+      surface: "#1A1218",
+      toolbar: "#1A1218",
+      chrome: "#21161F",
+      sidebar: "#21161F",
+      surfaceRaised: "#2A1D27",
+      surfaceOverlay: "#2E2029",
+      codeBackground: "#22171F",
+      terminalBackground: "#1A1218",
+      text: "#F5E9F0",
+      toolbarForeground: "#F5E9F0",
+      sidebarForeground: "#F5E9F0",
+      messageForeground: "#F5E9F0",
+      codeForeground: "#F5E9F0",
+      terminalForeground: "#F5E9F0",
+      textMuted: "#B79AAB",
+      mutedForeground: "#B79AAB",
+      sidebarMutedForeground: "#B79AAB",
+      // Blush, the second accent: accent text on tinted fills and the send hover.
+      accentSurfaceForeground: "#F9A8D4",
+      messageActionHover: "#F9A8D4",
+    },
+    lightOverrides: {
+      canvas: "#FFF5F8",
+      surface: "#FFF5F8",
+      toolbar: "#FFF5F8",
+      chrome: "#FDEAF1",
+      sidebar: "#FDEAF1",
+      text: "#3B1530",
+      toolbarForeground: "#3B1530",
+      sidebarForeground: "#3B1530",
+      messageForeground: "#3B1530",
+      codeForeground: "#3B1530",
+      terminalForeground: "#3B1530",
+      textMuted: "#7A4D68",
+      mutedForeground: "#7A4D68",
+      sidebarMutedForeground: "#7A4D68",
     },
   },
   {
@@ -388,7 +450,14 @@ export function createViewCodeNamedThemes(
     appearance: "dark",
     colors: { ...deriveViewCodeThemeColors(base.dark, spec.dark, "dark"), ...spec.darkOverrides },
     ...(spec.light
-      ? { variants: { light: deriveViewCodeThemeColors(base.light, spec.light, "light") } }
+      ? {
+          variants: {
+            light: {
+              ...deriveViewCodeThemeColors(base.light, spec.light, "light"),
+              ...spec.lightOverrides,
+            },
+          },
+        }
       : {}),
   }));
 }
