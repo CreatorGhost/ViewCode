@@ -56,15 +56,29 @@ function parseRemoteFetchUrls(stdout: string): Map<string, string> {
   return remotes;
 }
 
+const remoteHostOf = (remoteUrl: string) => normalizeGitRemoteUrl(remoteUrl).split("/")[0];
+
+/**
+ * The remote that identifies the repository: `upstream` when origin is a fork of it on the same
+ * host, then `origin`, then the first remote by name. An upstream on another host is what origin
+ * mirrors (gitlab.company.com/mirrors/react from github.com/facebook/react); the project's change
+ * requests live on origin. `resolvedUrls` holds upstream and origin with SSH aliases resolved.
+ */
 function pickPrimaryRemote(
   remotes: ReadonlyMap<string, string>,
+  resolvedUrls: ReadonlyMap<string, string>,
 ): { readonly remoteName: string; readonly remoteUrl: string } | null {
-  for (const preferredRemoteName of ["upstream", "origin"] as const) {
-    const remoteUrl = remotes.get(preferredRemoteName);
-    if (remoteUrl) {
-      return { remoteName: preferredRemoteName, remoteUrl };
-    }
+  const upstreamUrl = remotes.get("upstream");
+  const originUrl = remotes.get("origin");
+  if (
+    upstreamUrl &&
+    (!originUrl ||
+      remoteHostOf(resolvedUrls.get("upstream") ?? upstreamUrl) ===
+        remoteHostOf(resolvedUrls.get("origin") ?? originUrl))
+  ) {
+    return { remoteName: "upstream", remoteUrl: upstreamUrl };
   }
+  if (originUrl) return { remoteName: "origin", remoteUrl: originUrl };
 
   const [remoteName, remoteUrl] =
     [...remotes.entries()].toSorted(([left], [right]) => left.localeCompare(right))[0] ?? [];
@@ -173,21 +187,21 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
   }
 
   const remotes = parseRemoteFetchUrls(remoteResult.value.stdout);
-  const remote = pickPrimaryRemote(remotes);
-  if (!remote) return null;
   // The repository and its provider are keyed on the real host behind an SSH config alias.
   const sshConfig = readSshConfig(processRunner);
-  const resolvedRemoteUrl = yield* resolveSshAliasRemote(remote.remoteUrl, sshConfig);
-  const originUrl = remotes.get("origin");
+  const resolvedUrls = new Map<string, string>();
+  for (const remoteName of ["upstream", "origin"]) {
+    const remoteUrl = remotes.get(remoteName);
+    if (remoteUrl) resolvedUrls.set(remoteName, yield* resolveSshAliasRemote(remoteUrl, sshConfig));
+  }
+  const remote = pickPrimaryRemote(remotes, resolvedUrls);
+  if (!remote) return null;
   return buildRepositoryIdentity({
     ...remote,
-    resolvedRemoteUrl,
-    originUrl:
-      originUrl === undefined
-        ? undefined
-        : originUrl === remote.remoteUrl
-          ? resolvedRemoteUrl
-          : yield* resolveSshAliasRemote(originUrl, sshConfig),
+    resolvedRemoteUrl:
+      resolvedUrls.get(remote.remoteName) ??
+      (yield* resolveSshAliasRemote(remote.remoteUrl, sshConfig)),
+    originUrl: resolvedUrls.get("origin"),
     rootPath: cacheKey,
   });
 });

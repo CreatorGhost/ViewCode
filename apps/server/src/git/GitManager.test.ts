@@ -666,6 +666,8 @@ function makeManager(input?: {
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
   gitConfigReads?: string[];
+  /** `ssh -G <host>` output by host; any other host reads as ssh failing. */
+  sshConfigByHost?: Record<string, string>;
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -733,7 +735,29 @@ function makeManager(input?: {
     serverSettingsLayer,
   ).pipe(Layer.provideMerge(sourceControlRegistryLayer), Layer.provideMerge(NodeServices.layer));
 
+  const sshConfigByHost = input?.sshConfigByHost;
   return GitManager.make.pipe(
+    sshConfigByHost === undefined
+      ? (effect) => effect
+      : Effect.provideServiceEffect(
+          VcsProcess.VcsProcess,
+          VcsProcess.VcsProcess.pipe(
+            Effect.map((vcsProcess) =>
+              VcsProcess.VcsProcess.of({
+                run: (runInput) => {
+                  if (runInput.command !== "ssh") return vcsProcess.run(runInput);
+                  const stdout = sshConfigByHost[runInput.args.at(-1) ?? ""];
+                  return Effect.succeed({
+                    ...fakeGhOutput(stdout ?? ""),
+                    ...(stdout === undefined
+                      ? { exitCode: ChildProcessSpawner.ExitCode(255) }
+                      : {}),
+                  });
+                },
+              }),
+            ),
+          ),
+        ),
     Effect.provide(managerLayer),
     Effect.map((manager) => ({ manager, ghCalls })),
   );
@@ -4910,6 +4934,66 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(
         (yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"])).stdout.trim(),
       ).toBe("fork-seed/feature/pr-local-fork");
+    }),
+  );
+
+  it.effect("adds a fork remote through origin's SSH config alias", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const originDir = yield* createBareRemote();
+      const forkDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", originDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-alias-fork"]);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "alias-fork.txt"), "alias fork\n");
+      yield* runGit(repoDir, ["add", "alias-fork.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Alias fork PR branch"]);
+      yield* runGit(repoDir, ["push", forkDir, "feature/pr-alias-fork"]);
+      yield* runGit(repoDir, ["checkout", "main"]);
+      yield* runGit(repoDir, ["branch", "-D", "feature/pr-alias-fork"]);
+      // Origin goes through the work-account alias; git maps the alias URLs onto the bare repos.
+      const originAliasUrl = "git@github.com-forkalias:pingdotgg/codething-mvp.git";
+      const forkAliasUrl = "git@github.com-forkalias:octocat/codething-mvp.git";
+      yield* runGit(repoDir, ["remote", "set-url", "origin", originAliasUrl]);
+      yield* runGit(repoDir, ["config", `url.${originDir}.insteadOf`, originAliasUrl]);
+      yield* runGit(repoDir, ["config", `url.${forkDir}.insteadOf`, forkAliasUrl]);
+
+      const { manager } = yield* makeManager({
+        sshConfigByHost: { "github.com-forkalias": "user git\nhostname github.com\nport 22\n" },
+        ghScenario: {
+          pullRequest: {
+            number: 83,
+            title: "Alias Fork PR",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/83",
+            baseRefName: "main",
+            headRefName: "feature/pr-alias-fork",
+            state: "open",
+            isCrossRepository: true,
+            headRepositoryNameWithOwner: "octocat/codething-mvp",
+            headRepositoryOwnerLogin: "octocat",
+          },
+          repositoryCloneUrls: {
+            "octocat/codething-mvp": {
+              url: "https://github.com/octocat/codething-mvp",
+              sshUrl: "git@github.com:octocat/codething-mvp.git",
+            },
+          },
+        },
+      });
+
+      yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "83",
+        mode: "local",
+      });
+
+      expect(
+        (yield* runGit(repoDir, ["config", "--get", "remote.octocat.url"])).stdout.trim(),
+      ).toBe(forkAliasUrl);
+      expect(
+        (yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"])).stdout.trim(),
+      ).toBe("octocat/feature/pr-alias-fork");
     }),
   );
 
