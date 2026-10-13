@@ -1716,6 +1716,26 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("skips indexing thousands of untracked files and reports the diff incomplete", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* Effect.forEach(
+          Array.from({ length: 5_001 }, (_, index) => `bulk/${index}.txt`),
+          (file) => writeTextFile(cwd, file, "x\n"),
+          { concurrency: 32, discard: true },
+        );
+        yield* writeTextFile(cwd, "README.md", "changed\n");
+
+        const preview = yield* driver.getReviewDiffPreview({ cwd });
+        const workingTree = preview.sources.find((source) => source.kind === "working-tree")!;
+        assert.isTrue(workingTree.truncated);
+        assert.include(workingTree.diff, "+changed");
+        assert.notInclude(workingTree.diff, "bulk/0.txt");
+      }),
+    );
+
     it.effect("preserves a staged deletion when the removed path still exists", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
