@@ -26,6 +26,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { ModelFastModeToggle } from "./ModelFastModeToggle";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import {
   FRESH_SIDECHAT,
@@ -297,18 +298,27 @@ export const SidechatDock = memo(function SidechatDock(props: {
           }}
         />
         <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1">
             {activeEntry ? (
-              <ProviderModelPicker
-                activeInstanceId={selection.instanceId}
-                model={selection.model}
-                lockedProvider={null}
-                instanceEntries={entries}
-                modelOptionsByInstance={modelOptions}
-                size="xs"
-                disabled={running}
-                onInstanceModelChange={onModelChange}
-              />
+              <>
+                <ProviderModelPicker
+                  activeInstanceId={selection.instanceId}
+                  model={selection.model}
+                  lockedProvider={null}
+                  instanceEntries={entries}
+                  modelOptionsByInstance={modelOptions}
+                  size="xs"
+                  disabled={running}
+                  onInstanceModelChange={onModelChange}
+                />
+                <ModelFastModeToggle
+                  selection={selection}
+                  driverKind={activeEntry.driverKind}
+                  models={activeEntry.models}
+                  disabled={running}
+                  onChange={setPicked}
+                />
+              </>
             ) : null}
           </div>
           {running && activeRef !== null ? (

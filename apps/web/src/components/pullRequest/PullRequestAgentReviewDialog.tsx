@@ -41,6 +41,7 @@ import { pullRequestEnvironment } from "../../state/pullRequests";
 import { reviewEnvironment } from "../../state/review";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { ModelFastModeToggle } from "../chat/ModelFastModeToggle";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { Button } from "../ui/button";
 import {
@@ -195,6 +196,10 @@ export type AgentReviewForm = ReturnType<typeof useAgentReviewForm>;
 export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
   const id = useId();
   const { selection } = form;
+  const selectedEntry =
+    selection === null
+      ? undefined
+      : form.entries.find((entry) => entry.instanceId === selection.instanceId);
   return (
     <div className="flex flex-col gap-4">
       <RadioGroup
@@ -224,18 +229,29 @@ export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm">Model</span>
         {selection ? (
-          <ProviderModelPicker
-            activeInstanceId={selection.instanceId}
-            model={selection.model}
-            lockedProvider={null}
-            instanceEntries={form.entries}
-            modelOptionsByInstance={form.modelOptions}
-            triggerAriaLabel="Review model"
-            disabled={form.pending}
-            onInstanceModelChange={(instanceId, model) =>
-              form.setPicked(createModelSelection(instanceId, model))
-            }
-          />
+          <span className="flex min-w-0 items-center gap-1">
+            {selectedEntry ? (
+              <ModelFastModeToggle
+                selection={selection}
+                driverKind={selectedEntry.driverKind}
+                models={selectedEntry.models}
+                disabled={form.pending}
+                onChange={form.setPicked}
+              />
+            ) : null}
+            <ProviderModelPicker
+              activeInstanceId={selection.instanceId}
+              model={selection.model}
+              lockedProvider={null}
+              instanceEntries={form.entries}
+              modelOptionsByInstance={form.modelOptions}
+              triggerAriaLabel="Review model"
+              disabled={form.pending}
+              onInstanceModelChange={(instanceId, model) =>
+                form.setPicked(createModelSelection(instanceId, model))
+              }
+            />
+          </span>
         ) : (
           <span className="text-sm text-muted-foreground">No providers available</span>
         )}
