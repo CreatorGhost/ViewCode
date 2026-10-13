@@ -21,10 +21,10 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   --vc-label: rgb(0 0 0 / 0.85);
   --vc-window: var(--app-theme-chrome);
   --vc-sheet: var(--app-theme-canvas);
-  /* The content sheet sits flush beside the sidebar, like the workspace design: no frame of
-     window colour around it and no rounded corners. The brand lab still sets the radius. */
-  --vc-sheet-inset: 0px;
-  --vc-sheet-radius: 0px;
+  /* The content is one floating panel, Linear-style: inset from the window on every side, rounded,
+     with a faint edge and a soft lift, so no line has to divide the window (user decision). */
+  --vc-sheet-inset: 8px;
+  --vc-sheet-radius: 12px;
   --vc-row-radius: 7px;
   --vc-card-radius: 16px;
   --vc-hairline: color-mix(in srgb, var(--vc-label) 10%, transparent);
@@ -95,19 +95,17 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-
     margin: var(--vc-sheet-inset) var(--vc-sheet-inset) var(--vc-sheet-inset) 0;
     overflow: hidden;
     border-radius: var(--vc-sheet-radius);
+    border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
     background-color: var(--vc-sheet);
-    box-shadow: none;
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.3),
+      0 12px 32px -16px rgb(0 0 0 / 0.6);
   }
 
   html[data-theme-id^="viewcode"]:not([data-theme-id=""])
     [data-slot="sidebar"][data-state="collapsed"]
     ~ [data-slot="sidebar-inset"] {
     margin-left: var(--vc-sheet-inset);
-  }
-
-  /* Matrix paints window and sheet the same black, so a hairline marks the sheet. */
-  html[data-theme-id="viewcode-matrix"] [data-slot="sidebar-inset"] {
-    border: 1px solid var(--vc-hairline);
   }
 }
 
@@ -803,10 +801,10 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
 }
 /*
  * The shell is one calm surface: title bar, rail and sidebar share the sidebar colour, and the
- * work area below the title bar is framed by a hairline with one rounded corner where it meets
- * the rail (user decision: a tinted panel, a darker rail and a glowing tab read as forced; a
- * project's colour stays on its folder badge and the composer). The selected project is a soft
- * neutral tile, the selected chat a soft neutral row.
+ * work area floats on it as one rounded panel (--vc-sheet-inset). A tinted panel, a darker rail
+ * and a glowing tab read as forced (user decision); a project's colour stays on its folder badge
+ * and the composer. The selected project is a soft neutral tile, the selected chat a soft neutral
+ * row.
  */
 html [data-app-rail] {
   background-color: var(--sidebar);
@@ -825,35 +823,6 @@ html [data-app-rail] {
 /* Every lit rail button, the All projects one included, is the same soft neutral tile. */
 [data-app-rail] button[data-pressed] {
   background-color: color-mix(in srgb, var(--foreground) 10%, transparent);
-}
-@media (min-width: 48rem) {
-  [data-app-rail-layout] [data-app-sidebar] [data-slot="sidebar-inner"] {
-    position: relative;
-  }
-  /* The frame: a hairline along the top of the work area and down its left edge. */
-  [data-app-rail-layout] [data-app-sidebar] [data-slot="sidebar-inner"]::after {
-    content: "";
-    position: absolute;
-    inset: var(--workspace-topbar-height) 0 0 0;
-    border-top: 1px solid var(--border);
-    border-left: 1px solid var(--border);
-    border-top-left-radius: 12px;
-    pointer-events: none;
-  }
-  /* The title bar is one strip across the window: the main column's top bar takes the sidebar
-     colour too, and the work area starts below the hairline. */
-  html:not([data-window-glass="true"]) [data-app-rail-layout] [data-workspace-topbar] {
-    background-color: var(--sidebar);
-  }
-  [data-app-rail-layout] [data-slot="sidebar-inset"]::before {
-    content: "";
-    position: absolute;
-    inset: var(--workspace-topbar-height) 0 auto 0;
-    height: 1px;
-    background-color: var(--border);
-    pointer-events: none;
-    z-index: 1;
-  }
 }
 /* A folder's sort order lives in its menu, in every theme; the row stays a name. */
 [data-folder-sort-label] {

@@ -962,14 +962,14 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   keyboard is up.
 - Project colour lives on the folder badges and the composer glow. The top bar and the
   tabs carry none (user decision: a coloured header read as a second layer).
-  The ViewCode default is pure-black neutrals with the content flush beside the
-  sidebar, not Droppy's inset sheet (`--vc-sheet-inset`, user decision).
+  The ViewCode default is pure-black neutrals.
 - The shell is one calm surface (user decision, after a tinted panel, a darker
-  rail and a glowing Chrome-style tab read as forced next to Synara): title bar,
-  rail and sidebar share the sidebar colour, the work area below the title bar
-  is framed by a hairline with one rounded corner where it meets the rail, and
-  the selected project and chat are soft neutral fills. A project's colour stays
-  on its folder badge and the composer glow; nothing tints the panel.
+  rail and a glowing Chrome-style tab read as forced, and full-length hairlines
+  read as unfinished): title bar, rail and sidebar share the sidebar colour, and
+  the work area is one floating panel, Linear-style, inset 8px with 12px corners,
+  a faint edge and a soft lift (`--vc-sheet-inset`). Nothing draws a line across
+  the window. The selected project and chat are soft neutral fills; a project's
+  colour stays on its folder badge and the composer glow.
 - Provider usage rings, Settings, Pull Requests and Connect phone stay at the
   bottom of the rail (user decision); the sidebar has no footer of its own.
 
