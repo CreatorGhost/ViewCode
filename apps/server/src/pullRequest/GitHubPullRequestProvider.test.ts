@@ -37,9 +37,9 @@ describe("gitHubProviderFailure", () => {
       stage,
     });
 
-  it("reads a host gh holds no account for as signed out, and other stages as failures", () => {
-    expect(gitHubProviderFailure(loginUnavailable("auth-token")).reason).toBe("unauthenticated");
-    expect(gitHubProviderFailure(loginUnavailable("empty-token")).reason).toBe("unauthenticated");
+  it("keeps every stage a failure, so the host-naming message reaches the page", () => {
+    expect(gitHubProviderFailure(loginUnavailable("auth-token")).reason).toBe("failed");
+    expect(gitHubProviderFailure(loginUnavailable("empty-token")).reason).toBe("failed");
     expect(gitHubProviderFailure(loginUnavailable("api-user")).reason).toBe("failed");
     expect(gitHubProviderFailure(loginUnavailable("decode")).reason).toBe("failed");
     expect(gitHubProviderFailure(loginUnavailable("pinned-host-mismatch")).reason).toBe("failed");

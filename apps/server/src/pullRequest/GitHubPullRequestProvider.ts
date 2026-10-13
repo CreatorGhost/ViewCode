@@ -106,9 +106,8 @@ export function gitHubProviderFailure(
 ): PullRequestProviderFailure {
   if (error._tag === "GitHubCliUnavailableError") return { reason: "missing-tool" };
   if (error._tag === "GitHubCliAuthenticationError") return { reason: "unauthenticated" };
-  if (error._tag === "GitHubViewerLoginUnavailableError" && error.signedOut) {
-    return { reason: "unauthenticated" };
-  }
+  // A host gh holds no account for stays a failure: its own message names the host and the
+  // remote alias that usually causes it, which the generic sign-in text would replace.
   if (error._tag === "GitHubCliRateLimitError")
     return {
       reason: "rate-limited",

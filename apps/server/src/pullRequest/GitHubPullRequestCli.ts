@@ -162,11 +162,6 @@ export class GitHubViewerLoginUnavailableError extends Schema.TaggedError<GitHub
     ]),
   },
 ) {
-  /** No credential for the host at all: what signing in to it fixes. */
-  get signedOut(): boolean {
-    return this.stage === "auth-token" || this.stage === "empty-token";
-  }
-
   get detail(): string {
     switch (this.stage) {
       case "auth-token":
