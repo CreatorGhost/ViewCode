@@ -214,7 +214,7 @@ if [ "$managed" = 1 ]; then
       if (lenient(text) !== text) console.log("Note: comments in " + file + " are not kept.");
     }
     const chosen = new Set(["claudeAgent", "cursor"]);
-    const drivers = ["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity", "commandCode"];
+    const drivers = ["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity", "commandCode", "droid", "devin", "pi"];
     settings.providers = settings.providers ?? {};
     for (const driver of drivers)
       settings.providers[driver] = { ...settings.providers[driver], enabled: chosen.has(driver) };
