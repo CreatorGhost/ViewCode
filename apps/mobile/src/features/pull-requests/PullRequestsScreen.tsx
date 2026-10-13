@@ -51,12 +51,7 @@ function PullRequestScrollView(props: ScrollViewProps) {
   );
 }
 
-export function PullRequestsScreen(
-  props: {
-    readonly sidebar?: boolean;
-    readonly selectedPullRequestKey?: string | null;
-  } = {},
-) {
+export function PullRequestsScreen() {
   const navigation = useNavigation();
   const primaryColumn = use(NativePrimaryColumnContext);
   const list = usePullRequestListContext();
@@ -131,8 +126,8 @@ export function PullRequestsScreen(
     targets.map((target) => target.environmentId),
     result.updateEntry,
   );
-  const sidebar = props.sidebar === true || primaryColumn !== null;
-  const selectedKey = props.selectedPullRequestKey ?? primaryColumn?.selectedPullRequestKey;
+  const sidebar = primaryColumn !== null;
+  const selectedKey = primaryColumn?.selectedPullRequestKey;
   const entries = useMemo(
     () =>
       filterPullRequestList(

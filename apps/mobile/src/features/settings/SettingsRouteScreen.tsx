@@ -116,7 +116,8 @@ function SettingsIndexSections() {
         <SettingsRow
           icon="arrow.triangle.pull"
           label="Pull requests"
-          onPress={() => navigation.dispatch(StackActions.replace("PullRequests"))}
+          // popTo returns to an open list instead of stacking a second one.
+          onPress={() => navigation.dispatch(StackActions.popTo("PullRequests"))}
         />
         <SettingsRow icon="folder" label="Organization" target="SettingsOrganization" />
         <SettingsRow icon="text.bubble" label="Thread behavior" target="SettingsThreads" />
