@@ -10,8 +10,7 @@ import { formatComposerContextReference } from "@t3tools/shared/composerContextR
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { normalizeThreadPullRequestKey } from "@t3tools/shared/threadPullRequests";
 import { useRef, useState } from "react";
-import { Alert, Platform } from "react-native";
-import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSelection";
+import { Alert } from "react-native";
 import { pullRequestComposerContext } from "../../lib/composerContext";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { uuidv4 } from "../../lib/uuid";
@@ -67,14 +66,10 @@ export function usePullRequestThreads(
   // ViewCode guards PR checkout with the same scope as starting a turn.
   const canCheckout = canAsk;
   const navigation = useNavigation();
-  const selectAndroidWorkspace = useAndroidWorkspaceSelection();
   const pending = useRef(false);
   const previousPrompts = useRef(new Map<string, string>());
-  const openThread = (thread: LinkedThread) => {
-    const destination = { environmentId: params.environmentId, threadId: thread.id };
-    if (Platform.OS === "android") selectAndroidWorkspace({ name: "Thread", params: destination });
-    else navigation.navigate("Thread", destination);
-  };
+  const openThread = (thread: LinkedThread) =>
+    navigation.navigate("Thread", { environmentId: params.environmentId, threadId: thread.id });
   const [busy, setBusy] = useState(false);
   const ask = async (thread?: LinkedThread, task: PullRequestAgentTask = "ask") => {
     if (!pr || !canAsk || pending.current) return;

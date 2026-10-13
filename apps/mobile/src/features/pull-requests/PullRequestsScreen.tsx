@@ -35,8 +35,7 @@ import {
   PR_LIST_PAGE_SIZE,
 } from "./pullRequestList";
 import { useDebouncedValue } from "../../state/queries";
-import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
-import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSelection";
+import { usePullRequestListContext } from "./PullRequestListContext";
 
 function PullRequestScrollView(props: ScrollViewProps) {
   const insets = useSafeAreaInsets();
@@ -60,30 +59,29 @@ export function PullRequestsScreen(
 ) {
   const navigation = useNavigation();
   const primaryColumn = use(NativePrimaryColumnContext);
-  const workspace = useWorkspaceTabs()!;
+  const list = usePullRequestListContext();
   const { environments } = useWorkspaceState();
   const configs = useAtomValue(environmentServerConfigsAtom);
   const insets = useSafeAreaInsets();
-  const [initialOffset] = useState(() => workspace.getScrollOffset("pullRequests"));
-  const [initialAnchor] = useState(() => workspace.getScrollAnchor("pullRequests"));
+  const [initialOffset] = useState(() => list.getScrollOffset());
+  const [initialAnchor] = useState(() => list.getScrollAnchor());
   const listRef = useRef<LegendListRef>(null);
-  const tab = workspace.state.tabs.pullRequests;
+  const search = list.state;
   const maintainVisiblePosition = useMemo(
     () => ({
-      data: tab.searchMode === "resting",
+      data: !search.searching,
       // At the top, reveal new PRs without pushing the filter strip out of view.
-      shouldRestorePosition: () => workspace.getScrollOffset("pullRequests") > 0,
+      shouldRestorePosition: () => list.getScrollOffset() > 0,
     }),
-    [tab.searchMode, workspace],
+    [search.searching, list],
   );
-  const debouncedQuery = useDebouncedValue(tab.query.trim(), 180);
+  const debouncedQuery = useDebouncedValue(search.query.trim(), 180);
   // Dismissal must restore the cached unfiltered list before restoring its offset.
-  const query = tab.searchMode === "resting" ? "" : debouncedQuery;
-  const selectedEnvironmentId = workspace.pullRequestEnvironmentId;
+  const query = !search.searching ? "" : debouncedQuery;
+  const selectedEnvironmentId = list.environmentId;
   const environmentId = environments.some((item) => item.environmentId === selectedEnvironmentId)
     ? selectedEnvironmentId
     : null;
-  const selectAndroidWorkspace = useAndroidWorkspaceSelection();
   const selectPullRequest = useCallback(
     (item: EnvironmentPullRequestListEntry) => {
       Keyboard.dismiss();
@@ -95,10 +93,9 @@ export function PullRequestsScreen(
         host: item.host,
         initialSummary: item,
       };
-      if (Platform.OS === "android") selectAndroidWorkspace({ name: "PullRequest", params });
-      else navigation.navigate("PullRequest", params);
+      navigation.navigate("PullRequest", params);
     },
-    [navigation, selectAndroidWorkspace],
+    [navigation],
   );
   const controlsAtom = pullRequestListControlsAtom(environmentId ?? "");
   const controls = useAtomValue(controlsAtom);
@@ -184,17 +181,16 @@ export function PullRequestsScreen(
     ),
     [selectPullRequest, selectedKey, actions, select, busyKey, sidebar],
   );
-  const previousSearchMode = useRef(tab.searchMode);
+  const previousSearchMode = useRef(search.searching);
   useEffect(() => {
-    const restoringSearch =
-      previousSearchMode.current !== "resting" && tab.searchMode === "resting";
-    previousSearchMode.current = tab.searchMode;
+    const restoringSearch = previousSearchMode.current && !search.searching;
+    previousSearchMode.current = search.searching;
     if (restoringSearch)
       void listRef.current?.scrollToOffset({
-        offset: tab.scrollOffset - (Platform.OS === "ios" ? insets.top : 0),
+        offset: search.scrollOffset - (Platform.OS === "ios" ? insets.top : 0),
         animated: false,
       });
-  }, [tab.searchMode, tab.scrollOffset, insets.top]);
+  }, [search.searching, search.scrollOffset, insets.top]);
   const initialIndex = initialAnchor
     ? entries.findIndex((entry) => pullRequestKey(entry) === initialAnchor.key)
     : -1;
@@ -241,22 +237,22 @@ export function PullRequestsScreen(
         }
         contentInsetStartAdjustment={Platform.OS === "ios" ? insets.top : 0}
         contentContainerStyle={{
-          paddingBottom: Math.max(insets.bottom, workspace.bottomClearance),
+          paddingBottom: insets.bottom + 16,
         }}
         onScroll={(event) => {
-          workspace.recordScrollOffset(
-            "pullRequests",
+          list.recordScrollOffset(
             Math.max(
               0,
               event.nativeEvent.contentOffset.y + (Platform.OS === "ios" ? insets.top : 0),
             ),
           );
-          const list = listRef.current?.getState();
-          const item = list ? entries[list.start] : undefined;
-          if (list && item)
-            workspace.recordScrollAnchor("pullRequests", {
+          const listState = listRef.current?.getState();
+          const item = listState ? entries[listState.start] : undefined;
+          if (listState && item)
+            list.recordScrollAnchor({
               key: pullRequestKey(item),
-              viewOffset: list.positionAtIndex(list.start) - event.nativeEvent.contentOffset.y,
+              viewOffset:
+                listState.positionAtIndex(listState.start) - event.nativeEvent.contentOffset.y,
             });
         }}
         keyboardDismissMode="on-drag"
@@ -270,7 +266,7 @@ export function PullRequestsScreen(
                 label: item.environmentLabel,
               }))}
               environmentId={environmentId}
-              onEnvironmentChange={workspace.setPullRequestEnvironmentId}
+              onEnvironmentChange={list.setEnvironmentId}
               value={controls}
               onChange={(next) => {
                 setControls(next);

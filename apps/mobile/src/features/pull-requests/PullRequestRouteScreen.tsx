@@ -43,7 +43,7 @@ import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { AndroidWorkspaceSidebarButton } from "../layout/workspace-sidebar-toolbar";
-import { useAndroidWorkspaceBack } from "../workspace/useAndroidWorkspaceNavigation";
+import { useDetailBack } from "../../native/useDetailBack";
 import { EmptyState } from "../../components/EmptyState";
 import { SegmentedControl } from "../../components/SegmentedControl";
 import { SymbolView } from "../../components/AppSymbol";
@@ -295,7 +295,7 @@ function usePullRequestToolbarHeight(bottomInset: number) {
 }
 
 export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestParams>) {
-  const returnToList = useAndroidWorkspaceBack("pullRequests");
+  const returnToList = useDetailBack("PullRequests");
   const { layout } = useAdaptiveWorkspaceLayout();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -396,7 +396,7 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
           <AndroidScreenHeader
             title={`#${params.number}`}
             subtitle={params.repository}
-            onBack={layout.usesSplitView ? undefined : returnToList}
+            onBack={returnToList}
             leading={layout.usesSplitView ? <AndroidWorkspaceSidebarButton /> : undefined}
             actions={[
               ...(permissions.verdicts.length

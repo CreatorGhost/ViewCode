@@ -1,5 +1,5 @@
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
-import { useNavigation } from "@react-navigation/native";
+import { StackActions, useNavigation } from "@react-navigation/native";
 import { Platform, View } from "react-native";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -78,6 +78,7 @@ function SettingsHomeScreen() {
 }
 
 function SettingsIndexSections() {
+  const navigation = useNavigation();
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const noServerTargets = selectedTargets.length === 0;
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
@@ -112,6 +113,11 @@ function SettingsIndexSections() {
             target="SettingsProjectOverview"
           />
         ) : null}
+        <SettingsRow
+          icon="arrow.triangle.pull"
+          label="Pull requests"
+          onPress={() => navigation.dispatch(StackActions.replace("PullRequests"))}
+        />
         <SettingsRow icon="folder" label="Organization" target="SettingsOrganization" />
         <SettingsRow icon="text.bubble" label="Thread behavior" target="SettingsThreads" />
         <SettingsRow icon="archivebox" label="Archived Threads" target="SettingsArchive" />
