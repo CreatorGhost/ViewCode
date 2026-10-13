@@ -957,21 +957,16 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   reduced motion and while another screen covers the thread). The Active agents bar
   and the checkout strip are glued to the composer and step aside while the
   keyboard is up.
-- Project colour lives on the left panel only: rail tiles, folder badges, the
-  sidebar tint, the selected row and the composer glow. The top bar and the
+- Project colour lives on the folder badges and the composer glow. The top bar and the
   tabs carry none (user decision: a coloured header read as a second layer).
   The ViewCode default is pure-black neutrals with the content flush beside the
   sidebar, not Droppy's inset sheet (`--vc-sheet-inset`, user decision).
-- The rail is a strip a step darker than the sidebar and the selected project is
-  its active tab, like a browser's: the tile takes the sidebar's surface and runs
-  into it with curved corners, its outer edge lit in the project colour or the
-  theme accent (user decision: a ring on one button did not say where you are).
-  A selected project without a colour tints the left panel in the theme accent
-  (`data-project-tint="accent"`), so every project gets the same surround; the
-  tint strengths live in `packages/shared/src/shellTint.ts`.
-  The rail's title strip keeps the sidebar colour so macOS window controls sit
-  on one surface. The tab must match the sidebar's fill exactly, tint included,
-  or a seam shows where they meet.
+- The shell is one calm surface (user decision, after a tinted panel, a darker
+  rail and a glowing Chrome-style tab read as forced next to Synara): title bar,
+  rail and sidebar share the sidebar colour, the work area below the title bar
+  is framed by a hairline with one rounded corner where it meets the rail, and
+  the selected project and chat are soft neutral fills. A project's colour stays
+  on its folder badge and the composer glow; nothing tints the panel.
 - Provider usage rings, Settings, Pull Requests and Connect phone stay at the
   bottom of the rail (user decision); the sidebar has no footer of its own.
 
