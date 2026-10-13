@@ -1,4 +1,5 @@
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
+import { isGlassEffectAPIAvailable } from "expo-glass-effect";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAtomValue } from "@effect/atom-react";
@@ -166,6 +167,8 @@ export interface ThreadComposerProps {
   readonly placeholder: string;
   readonly contentMaxWidth?: number;
   readonly bottomInset?: number;
+  /** The composer is mounted but hidden (a question card owns its slot): no running light. */
+  readonly hidden?: boolean;
   readonly connectionState: RemoteClientConnectionState;
   readonly environmentLabel: string | null;
   readonly selectedThread: OrchestrationThreadShell;
@@ -246,11 +249,20 @@ const COMPOSER_ATTACHMENT_ENTERING =
 
 const AnimatedGlassSurface = Animated.createAnimatedComponent(GlassSurface);
 
+// The composer surface draws native Liquid Glass here (GlassSurface), which an opaque cover would hide.
+const COMPOSER_USES_LIQUID_GLASS = Platform.OS === "ios" && isGlassEffectAPIAvailable();
+
 /** The glow the composer wears while the thread's turn runs. */
 export interface ComposerSurfaceGlow {
   readonly paint: ComposerGlowPaint;
   /** The composer's fill made opaque: it covers the running light inside a 2px band. */
   readonly cover: string;
+  /**
+   * Whether the light circles the edge. Off while the composer is hidden (a question card owns
+   * its slot) and over iOS Liquid Glass, whose see-through surface the opaque cover would flatten
+   * for the whole turn; the edge and halo still show there.
+   */
+  readonly running: boolean;
 }
 
 export function ComposerSurface(props: {
@@ -334,7 +346,7 @@ export function ComposerSurface(props: {
         >
           {null}
         </AnimatedGlassSurface>
-        {glow ? (
+        {glow?.running ? (
           <ComposerLiveRing
             color={glow.paint.color}
             cover={glow.cover}
@@ -526,9 +538,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               Platform.OS === "android"
                 ? themeColorWithAlpha(composerSurfaceColor, 1)
                 : flattenThemeColor(composerSurfaceColor, glowSurface),
+            running: !props.hidden && !COMPOSER_USES_LIQUID_GLASS,
           }
         : null,
-    [composerSurfaceColor, glowAccent, glowSurface, isTurnRunning, projectColor, themeAppearance],
+    [
+      composerSurfaceColor,
+      glowAccent,
+      glowSurface,
+      isTurnRunning,
+      projectColor,
+      props.hidden,
+      themeAppearance,
+    ],
   );
 
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);

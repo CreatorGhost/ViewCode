@@ -219,3 +219,25 @@ export function ThemeModePicks({
     </div>
   );
 }
+
+/**
+ * A one-appearance theme's mark over its preview: the moon (or sun) it is for, filled while the
+ * theme holds that half. Picking such a theme in the other mode changes nothing on screen, so
+ * this is its feedback.
+ */
+export function ThemeOnlyBadge({ mode, picked }: { mode: ThemeAppearance; picked: boolean }) {
+  const Icon = mode === "light" ? SunIcon : MoonIcon;
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute right-1 bottom-1 inline-flex h-5 items-center gap-1 rounded-full border px-1.5 text-2xs font-medium",
+        picked
+          ? "border-transparent bg-foreground text-background"
+          : "border-border/70 bg-background/80 text-muted-foreground",
+      )}
+    >
+      <Icon aria-hidden className="size-3" />
+      {mode === "light" ? "Light only" : "Dark only"}
+    </span>
+  );
+}

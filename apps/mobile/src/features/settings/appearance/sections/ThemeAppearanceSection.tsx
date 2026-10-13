@@ -67,7 +67,8 @@ function ThemeModePicks(props: {
   readonly onPick: (appearance: MobileThemeAppearance) => void;
 }) {
   return (
-    <View className="absolute bottom-1 right-1 flex-row gap-1">
+    // 32pt discs with 6pt of slop make 44pt targets; the 12pt gap keeps the two from overlapping.
+    <View className="absolute bottom-1 right-1 flex-row gap-3">
       {(["light", "dark"] as const).map((appearance) => {
         const picked = appearance === "light" ? props.lightPicked : props.darkPicked;
         return (
@@ -76,17 +77,17 @@ function ThemeModePicks(props: {
             accessibilityRole="button"
             accessibilityState={{ disabled: props.disabled, selected: picked }}
             className={cn(
-              "size-6 items-center justify-center rounded-full",
+              "size-8 items-center justify-center rounded-full",
               picked ? "bg-foreground" : "border border-border bg-card",
             )}
             disabled={props.disabled}
-            hitSlop={4}
+            hitSlop={6}
             key={appearance}
             onPress={() => props.onPick(appearance)}
           >
             <SymbolView
               name={appearance === "light" ? "sun.max" : "moon"}
-              size={13}
+              size={15}
               tintColorClassName={picked ? "accent-screen" : "accent-icon-muted"}
               type="monochrome"
               weight="medium"
@@ -94,6 +95,41 @@ function ThemeModePicks(props: {
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/**
+ * A one-appearance theme's mark: the moon (or sun) it is for, filled while the theme holds that
+ * half. Tapping such a card in the other mode changes nothing on screen, so this is its feedback.
+ */
+function ThemeOnlyBadge(props: {
+  readonly appearance: MobileThemeAppearance;
+  readonly picked: boolean;
+}) {
+  return (
+    <View
+      className={cn(
+        "absolute bottom-1 right-1 h-7 flex-row items-center gap-1 rounded-full px-2",
+        props.picked ? "bg-foreground" : "border border-border bg-card",
+      )}
+      pointerEvents="none"
+    >
+      <SymbolView
+        name={props.appearance === "light" ? "sun.max" : "moon"}
+        size={12}
+        tintColorClassName={props.picked ? "accent-screen" : "accent-icon-muted"}
+        type="monochrome"
+        weight="medium"
+      />
+      <Text
+        className={cn(
+          "text-2xs font-t3-medium",
+          props.picked ? "text-screen" : "text-foreground-muted",
+        )}
+      >
+        {props.appearance === "light" ? "Light only" : "Dark only"}
+      </Text>
     </View>
   );
 }
@@ -126,9 +162,23 @@ const ThemeCard = memo(function ThemeCard(props: {
     [materialYouColors, previewAppearance, themeId],
   );
   const showing = props.appearance === "light" ? props.lightPicked : props.darkPicked;
+  const twoSided = appearances.length > 1;
 
   return (
     <Pressable
+      // The sun and moon sit inside the card, where screen readers cannot reach them on their own.
+      accessibilityActions={
+        twoSided
+          ? [
+              { name: "light", label: "Use for light mode only" },
+              { name: "dark", label: "Use for dark mode only" },
+            ]
+          : undefined
+      }
+      onAccessibilityAction={(event) => {
+        const name = event.nativeEvent.actionName;
+        if (name === "light" || name === "dark") props.onPick(themeId, name);
+      }}
       accessibilityHint={
         appearances.length > 1
           ? "Uses this theme in light and dark mode"
@@ -151,7 +201,7 @@ const ThemeCard = memo(function ThemeCard(props: {
       ) : null}
       <View>
         <ThemeMiniPreview colors={colors} />
-        {appearances.length > 1 ? (
+        {twoSided ? (
           <ThemeModePicks
             darkPicked={props.darkPicked}
             disabled={props.disabled}
@@ -159,7 +209,12 @@ const ThemeCard = memo(function ThemeCard(props: {
             lightPicked={props.lightPicked}
             onPick={(appearance) => props.onPick(themeId, appearance)}
           />
-        ) : null}
+        ) : (
+          <ThemeOnlyBadge
+            appearance={appearances[0]!}
+            picked={appearances[0] === "light" ? props.lightPicked : props.darkPicked}
+          />
+        )}
       </View>
       <View className="flex-row items-center gap-1.5 px-0.5 pb-0.5">
         <View className="size-2 rounded-full" style={{ backgroundColor: colors.accent }} />

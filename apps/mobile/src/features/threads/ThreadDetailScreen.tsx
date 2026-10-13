@@ -1168,6 +1168,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 <View style={composerSlotHidden ? { display: "none" } : undefined}>
                   <ThreadComposer
                     editorRef={composerEditorRef}
+                    hidden={composerSlotHidden}
                     draftMessage={props.draftMessage}
                     draftAttachments={props.draftAttachments}
                     placeholder="Ask or run a command…"

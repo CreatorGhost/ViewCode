@@ -84,7 +84,7 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
   // Starts collapsed so the conversation stays readable; the summary line
   // already says how many agents run.
   const [expanded, setExpanded] = useState(false);
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
   const keyOf = (id: ThreadId) => `${environmentId}:${id}`;
   const summary = summarizeAgentTreeControl(
@@ -110,6 +110,41 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
   const sortedAgents = sortAgentsByStatus(groups, (group) => Math.min(...group.map(rankOf))).flat();
   const plural = agents.length > 1;
   const summaryText = activeAgentsSummaryText(summary, agents.length);
+  // Discard, Resume all and Stop all beside the title need about 400pt; narrower phones show the
+  // last (most pressing) in the bar and all of them in the opened list.
+  const narrow = windowWidth < 400;
+  const treeActions = [
+    ...(summary.paused > 0 || summary.queued > 0
+      ? [
+          <StripButton
+            key="discard"
+            label="Discard"
+            accessibilityLabel="Discard held agent messages"
+            tone="danger"
+            onPress={() => actions.confirmDiscard(self, "tree")}
+          />,
+        ]
+      : []),
+    ...(summary.paused > 0
+      ? [
+          <StripButton
+            key="resume"
+            label={plural ? "Resume all" : "Resume"}
+            onPress={() => void actions.resume(self, "tree")}
+          />,
+        ]
+      : []),
+    ...(summary.running > 0
+      ? [
+          <StripButton
+            key="stop"
+            label={plural ? "Stop all" : "Stop"}
+            accessibilityLabel={`Stop all agents (${summary.running} working)`}
+            onPress={() => void actions.stop(self, "tree")}
+          />,
+        ]
+      : []),
+  ];
 
   // Glued to the composer's top edge (ThreadComposer places it): inset from the
   // composer's sides, open at the bottom so it merges into the composer.
@@ -167,27 +202,7 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
             >
               {`· ${summaryText}`}
             </Text>
-            {summary.paused > 0 || summary.queued > 0 ? (
-              <StripButton
-                label="Discard"
-                accessibilityLabel="Discard held agent messages"
-                tone="danger"
-                onPress={() => actions.confirmDiscard(self, "tree")}
-              />
-            ) : null}
-            {summary.paused > 0 ? (
-              <StripButton
-                label={plural ? "Resume all" : "Resume"}
-                onPress={() => void actions.resume(self, "tree")}
-              />
-            ) : null}
-            {summary.running > 0 ? (
-              <StripButton
-                label={plural ? "Stop all" : "Stop"}
-                accessibilityLabel={`Stop all agents (${summary.running} working)`}
-                onPress={() => void actions.stop(self, "tree")}
-              />
-            ) : null}
+            {narrow ? (treeActions.at(-1) ?? null) : treeActions}
             {/* Swap glyphs, never rotate: a transformed Tabler SVG on
                 Android rotates out of its own viewport and vanishes. */}
             <SymbolView
@@ -197,6 +212,12 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
               type="monochrome"
             />
           </Pressable>
+          {expanded && narrow && treeActions.length > 1 ? (
+            // On a narrow phone the bar keeps only its main action; the rest wait here.
+            <View className="flex-row flex-wrap justify-end gap-2 border-t border-border-subtle px-3 py-2">
+              {treeActions}
+            </View>
+          ) : null}
           {expanded ? (
             <ScrollView
               className="border-t border-border-subtle"

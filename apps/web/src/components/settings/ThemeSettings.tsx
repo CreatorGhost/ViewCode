@@ -45,6 +45,7 @@ import {
   getThemeCardDefinition,
   previewColorsOf,
   ThemeModePicks,
+  ThemeOnlyBadge,
   ThemePreviewCircle,
   type ThemeCardDefinition,
   type ThemeMode,
@@ -300,7 +301,12 @@ function ThemeLibraryCard({
                       activeModes={activeModes}
                       onSelectMode={onUseMode}
                     />
-                  ) : null}
+                  ) : (
+                    <ThemeOnlyBadge
+                      mode={cardModes[0]!}
+                      picked={activeModes.includes(cardModes[0]!)}
+                    />
+                  )}
                 </>
               )}
             </div>
