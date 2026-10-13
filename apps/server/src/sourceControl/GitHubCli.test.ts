@@ -1047,9 +1047,10 @@ describe("GitHubCli account routing", () => {
       }
       if (input.args[0] === "auth" && input.args[1] === "token") {
         lookups.push(input.args);
-        return Effect.succeed(processOutput(`${TOKEN}\n`));
+        return Effect.succeed(processOutput(`${TOKEN}_${input.args.at(-1)}\n`));
       }
-      const as = input.env?.GH_TOKEN === TOKEN ? "freelance" : "main";
+      const token = input.env?.GH_TOKEN;
+      const as = token?.startsWith(TOKEN) ? token.slice(TOKEN.length + 1) : "main";
       calls.push({ args: input.args, as });
       const owner = gitHubCommandTarget({
         args: input.args,
@@ -1117,10 +1118,10 @@ describe("GitHubCli account routing", () => {
           assert.notInclude(command.join(" "), TOKEN);
         }
 
-        // Remembered for a while, so newly granted access or a sign-out takes effect.
+        // Past its time the account is still asked first, so a working one costs nothing.
         yield* TestClock.adjust("10 minutes");
         yield* gh.execute(listAcme());
-        assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+        assert.deepStrictEqual(fake.ranAs(), ["freelance"]);
       }).pipe(Effect.provide(budgetLayers)),
   );
 
@@ -1163,9 +1164,90 @@ describe("GitHubCli account routing", () => {
       assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
       yield* gh.execute(listAcme()).pipe(Effect.flip);
       assert.deepStrictEqual(fake.ranAs(), ["main"]);
-      yield* TestClock.adjust("5 minutes");
+      yield* TestClock.adjust("30 seconds");
       yield* gh.execute(listAcme()).pipe(Effect.flip);
       assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+    }).pipe(Effect.provide(budgetLayers)),
+  );
+
+  it.effect("keeps an owner's account when a read as that account fails", () =>
+    Effect.gen(function* () {
+      const visible: Record<string, ReadonlyArray<string>> = { acme: ["freelance"] };
+      const fake = fakeGh({ accounts: ["main", "freelance"], visible });
+      const gh = yield* GitHubCli.make.pipe(
+        Effect.provideService(VcsProcess.VcsProcess, { run: fake.run }),
+      );
+      yield* gh.execute(listAcme());
+      assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+
+      // One failed answer (a timeout, say) is not retried as accounts that cannot see the owner.
+      visible.acme = [];
+      yield* gh.execute(listAcme()).pipe(Effect.flip);
+      assert.deepStrictEqual(fake.ranAs(), ["freelance"]);
+
+      // And the next read still goes straight to the account that can.
+      visible.acme = ["freelance"];
+      yield* gh.execute(listAcme());
+      assert.deepStrictEqual(fake.ranAs(), ["freelance"]);
+      assert.strictEqual(
+        yield* gh.accountFor({ host: "github.com", repository: "acme/web" }),
+        "freelance",
+      );
+
+      // Once the account is due a second look, losing access sends the read round the others.
+      yield* TestClock.adjust("10 minutes");
+      visible.acme = ["main"];
+      yield* gh.execute(listAcme());
+      assert.deepStrictEqual(fake.ranAs(), ["freelance", "main"]);
+      assert.isNull(yield* gh.accountFor({ host: "github.com", repository: "acme/web" }));
+    }).pipe(Effect.provide(budgetLayers)),
+  );
+
+  it.effect("asks the other accounts at once and takes the one that answers", () =>
+    Effect.gen(function* () {
+      const fake = fakeGh({
+        accounts: ["main", "work", "freelance"],
+        visible: { acme: ["freelance"] },
+      });
+      // `work` never answers, so asking in turn would wait on it for good.
+      const run: typeof fake.run = (input) =>
+        input.env?.GH_TOKEN?.endsWith("_work") ? Effect.never : fake.run(input);
+      const gh = yield* GitHubCli.make.pipe(Effect.provideService(VcsProcess.VcsProcess, { run }));
+      yield* gh.execute(listAcme());
+      assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+      assert.strictEqual(
+        yield* gh.accountFor({ host: "github.com", repository: "acme/web" }),
+        "freelance",
+      );
+    }).pipe(Effect.provide(budgetLayers)),
+  );
+
+  it.effect("asks an overdue account again with a fresh token, even as the only account", () =>
+    Effect.gen(function* () {
+      const visible: Record<string, ReadonlyArray<string>> = { acme: ["freelance"] };
+      const accounts = ["main", "freelance"];
+      const fake = fakeGh({ accounts, visible });
+      // The token remembered for `freelance` stops working, as after signing in again.
+      let revoked = false;
+      const run: typeof fake.run = (input) =>
+        revoked && input.env?.GH_TOKEN === `${TOKEN}_freelance`
+          ? fake.run({ ...input, env: { ...input.env, GH_TOKEN: "revoked" } })
+          : fake.run(
+              revoked && input.env?.GH_TOKEN === undefined
+                ? { ...input, env: { ...input.env, GH_TOKEN: `${TOKEN}_freelance` } }
+                : input,
+            );
+      const gh = yield* GitHubCli.make.pipe(Effect.provideService(VcsProcess.VcsProcess, { run }));
+      yield* gh.execute(listAcme());
+      fake.ranAs();
+
+      // `freelance` is now the only account, and the active one.
+      accounts.splice(0, 2, "freelance");
+      revoked = true;
+      yield* TestClock.adjust("10 minutes");
+      yield* gh.execute(listAcme());
+      assert.deepStrictEqual(fake.ranAs(), ["main", "freelance"]);
+      assert.isNull(yield* gh.accountFor({ host: "github.com", repository: "acme/web" }));
     }).pipe(Effect.provide(budgetLayers)),
   );
 });
