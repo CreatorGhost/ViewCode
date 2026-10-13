@@ -183,6 +183,19 @@ describe("mobile connection storage", () => {
     });
   });
 
+  it("reads a retired theme as the initial theme", async () => {
+    mocks.setPreferencesJson(
+      JSON.stringify({ themeId: "ocean", lightThemeId: "ocean", darkThemeId: "instrument" }),
+      10,
+    );
+
+    await expect(loadPreferences()).resolves.toEqual({
+      themeId: "ocean",
+      lightThemeId: "ocean",
+      darkThemeId: "viewcode-teal",
+    });
+  });
+
   it("persists Material You independently for each appearance", async () => {
     const themes = { lightThemeId: "material-you", darkThemeId: "ocean" } as const;
     await savePreferencesPatch(themes);

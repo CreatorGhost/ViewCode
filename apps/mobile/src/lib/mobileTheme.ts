@@ -1,37 +1,75 @@
 import {
-  BUILT_IN_THEMES,
-  INSTRUMENT_THEME,
   MOBILE_PALETTE_THEMES,
   T3_CHAT_THEME,
   T3_CODE_LIGHT_THEME_COLORS,
   T3_CODE_DARK_THEME_COLORS,
   getThemeColorsForAppearance,
   MOBILE_DEFAULT_THEME_ID,
+  MOBILE_INITIAL_THEME_ID,
   MOBILE_THEME_IDS as SHARED_MOBILE_THEME_IDS,
+  VIEWCODE_TEAL_THEME_ID,
+  VIEWCODE_THEME_ID,
+  type MobilePaletteThemeId,
   type MobileThemeId as SharedMobileThemeId,
   type ThemeAppearance,
+  type ThemeColorRole,
   type ThemeColors,
+  type ThemeDefinition,
 } from "@t3tools/shared/themePalettes";
-import {
-  STANDARD_THEME_PREVIEW_COLORS,
-  type ThemePreviewColors,
-} from "@t3tools/shared/themePreview";
 
+/** The standard T3 Code palette: the base Uniwind `light` and `dark` themes. */
 export const DEFAULT_MOBILE_THEME_ID = MOBILE_DEFAULT_THEME_ID;
+/** What a phone wears until it picks a theme, and in place of one that no longer exists. */
+export const INITIAL_MOBILE_THEME_ID: MobileThemeId = MOBILE_INITIAL_THEME_ID;
 export const MOBILE_THEME_IDS = [...SHARED_MOBILE_THEME_IDS, "material-you"] as const;
 export type MobileThemeId = SharedMobileThemeId | "material-you";
 export type MobileThemeAppearance = ThemeAppearance;
 export type MobileThemeMode = MobileThemeAppearance | "system";
 export type MobileThemeIds = Readonly<Record<MobileThemeAppearance, MobileThemeId>>;
 
+const MOBILE_THEME_APPEARANCES = ["light", "dark"] as const;
+
+function themeAppearances(theme: ThemeDefinition): ReadonlyArray<MobileThemeAppearance> {
+  return MOBILE_THEME_APPEARANCES.filter(
+    (appearance) => getThemeColorsForAppearance(theme, appearance) !== null,
+  );
+}
+
+/**
+ * The appearances a theme has. Like desktop, a theme with one appearance can only take that half
+ * of the light/dark pair.
+ */
+export function getMobileThemeAppearances(
+  themeId: MobileThemeId,
+): ReadonlyArray<MobileThemeAppearance> {
+  const theme = MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId);
+  return theme ? themeAppearances(theme) : MOBILE_THEME_APPEARANCES;
+}
+
+/** Uniwind themes registered beside the base `light` and `dark`: one per palette appearance. */
+export const MOBILE_PALETTE_UNIWIND_THEME_NAMES: ReadonlyArray<`${MobilePaletteThemeId}-${MobileThemeAppearance}`> =
+  MOBILE_PALETTE_THEMES.flatMap((theme) =>
+    themeAppearances(theme).map(
+      (appearance) => `${theme.id as MobilePaletteThemeId}-${appearance}` as const,
+    ),
+  );
+
+const paletteOption = (theme: ThemeDefinition) => ({
+  id: theme.id as MobileThemeId,
+  label: theme.label,
+});
+const isViewCodeDefault = (theme: ThemeDefinition) =>
+  theme.id === VIEWCODE_TEAL_THEME_ID || theme.id === VIEWCODE_THEME_ID;
+
+/** Desktop's built-ins in desktop's order, with the standard palette and Material You after ViewCode's two. */
 export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
   readonly id: MobileThemeId;
   readonly label: string;
 }> = [
-  { id: INSTRUMENT_THEME.id as MobileThemeId, label: INSTRUMENT_THEME.label },
-  { id: DEFAULT_MOBILE_THEME_ID, label: "ViewCode" },
+  ...MOBILE_PALETTE_THEMES.filter(isViewCodeDefault).map(paletteOption),
+  { id: DEFAULT_MOBILE_THEME_ID, label: "T3 Code" },
   { id: "material-you", label: "Material You" },
-  ...BUILT_IN_THEMES.map((theme) => ({ id: theme.id as MobileThemeId, label: theme.label })),
+  ...MOBILE_PALETTE_THEMES.filter((theme) => !isViewCodeDefault(theme)).map(paletteOption),
 ];
 
 // Closed set: every key `createMobileThemeVariables` writes. Reads of a
@@ -42,7 +80,7 @@ export type MobileThemeVariables = Readonly<Record<MobileThemeVariable, string>>
 export function normalizeMobileThemeId(value: unknown): MobileThemeId {
   return typeof value === "string" && (MOBILE_THEME_IDS as readonly string[]).includes(value)
     ? (value as MobileThemeId)
-    : DEFAULT_MOBILE_THEME_ID;
+    : INITIAL_MOBILE_THEME_ID;
 }
 
 export function normalizeMobileThemeMode(value: unknown): MobileThemeMode {
@@ -54,20 +92,21 @@ export function resolveMobileThemeIds(preferences: {
   readonly lightThemeId?: unknown;
   readonly darkThemeId?: unknown;
 }): MobileThemeIds {
-  // ViewCode: a phone that never chose a theme wears Instrument.
+  // ViewCode: a phone that never chose a theme wears the initial theme, and so does a half
+  // whose theme no longer exists or lacks that appearance.
   const legacyThemeId =
     preferences.themeId === undefined
-      ? (INSTRUMENT_THEME.id as MobileThemeId)
+      ? INITIAL_MOBILE_THEME_ID
       : normalizeMobileThemeId(preferences.themeId);
+  const resolve = (appearance: MobileThemeAppearance, stored: unknown) => {
+    const themeId = stored === undefined ? legacyThemeId : normalizeMobileThemeId(stored);
+    return getMobileThemeAppearances(themeId).includes(appearance)
+      ? themeId
+      : INITIAL_MOBILE_THEME_ID;
+  };
   return {
-    light:
-      preferences.lightThemeId === undefined
-        ? legacyThemeId
-        : normalizeMobileThemeId(preferences.lightThemeId),
-    dark:
-      preferences.darkThemeId === undefined
-        ? legacyThemeId
-        : normalizeMobileThemeId(preferences.darkThemeId),
+    light: resolve("light", preferences.lightThemeId),
+    dark: resolve("dark", preferences.darkThemeId),
   };
 }
 
@@ -95,6 +134,21 @@ export function createMobileThemePairPatch(value: MobileThemeId) {
     darkThemeId: value,
     themeId: value,
   };
+}
+
+/**
+ * Tapping a theme card: a theme with both appearances takes both halves; a one-appearance theme
+ * takes only its own half, as on desktop.
+ */
+export function createMobileThemeCardPatch(
+  themeIds: MobileThemeIds,
+  activeAppearance: MobileThemeAppearance,
+  value: MobileThemeId,
+) {
+  const appearances = getMobileThemeAppearances(value);
+  return appearances.length === 1
+    ? createMobileThemeSelectionPatch(themeIds, activeAppearance, appearances[0]!, value)
+    : createMobileThemePairPatch(value);
 }
 
 const OKLCH_PATTERN = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+(-?[\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)$/;
@@ -178,6 +232,33 @@ export function flattenThemeColor(color: string, surface: string): string {
   return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
+function backdropRole(role: ThemeColorRole): ThemeColorRole {
+  if (role.startsWith("sidebar")) return "sidebar";
+  if (role.startsWith("toolbar")) return "toolbar";
+  if (role.startsWith("terminal")) return "terminalBackground";
+  return "canvas";
+}
+
+/**
+ * A palette in opaque native colours. ViewCode's themes spell hairlines, hovers and status
+ * surfaces as translucent white or black (`rgb(255 255 255 / 0.06)`), which mobile's contrast
+ * checks and native drawing cannot use, so each is composited over the plane it sits on: the
+ * sidebar for its rows, the toolbar for its controls, the terminal for its own roles, the canvas
+ * for the rest.
+ */
+export function flattenMobileThemeColors(colors: ThemeColors): ThemeColors {
+  const native = nativeColors(colors);
+  return Object.fromEntries(
+    Object.entries(native).map(([role, color]) => [
+      role,
+      flattenThemeColor(
+        color,
+        flattenThemeColor(native[backdropRole(role as ThemeColorRole)], "#000000"),
+      ),
+    ]),
+  ) as ThemeColors;
+}
+
 function relativeLuminance(channels: readonly [number, number, number]): number {
   const [red, green, blue] = channels.map((channel) => {
     const value = channel / 255;
@@ -239,6 +320,13 @@ export function themeColorWithContrast(
     }
   }
   return `#${readable.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Whether two opaque colours are far enough apart to read as separate planes. */
+function surfacesDiffer(first: string, second: string): boolean {
+  const firstChannels = rgbChannels(themeColorToNativeColor(first));
+  const secondChannels = rgbChannels(themeColorToNativeColor(second));
+  return !firstChannels || !secondChannels || contrastRatio(firstChannels, secondChannels) >= 1.025;
 }
 
 export function themeColorWithAlpha(color: string, alpha: number): string {
@@ -306,7 +394,12 @@ export function createMobileThemeVariables(
     "--color-inline-skill-border": withAlpha(c.accent, 0.42),
     "--color-inline-skill-foreground": c.accentSurfaceForeground,
     "--color-primary": c.messageAction,
-    "--color-primary-foreground": c.messageActionForeground,
+    // Some desktop accents carry a glyph below 4.5:1 (white on a mid-tone accent); mobile holds
+    // labels on filled buttons to it, as it does every other text role.
+    "--color-primary-foreground": themeColorWithContrast(
+      c.messageActionForeground,
+      c.messageAction,
+    ),
     "--color-primary-text": themeColorWithContrast(c.messageAction, textSurfaces),
     "--color-primary-shadow": "#000000",
     "--color-secondary": c.secondary,
@@ -318,10 +411,10 @@ export function createMobileThemeVariables(
     "--color-switch-inactive-thumb": c.mutedForeground,
     "--color-warning": c.warningSurface,
     "--color-warning-border": withAlpha(c.warning, 0.32),
-    "--color-warning-foreground": c.warningForeground,
+    "--color-warning-foreground": themeColorWithContrast(c.warningForeground, c.warningSurface),
     "--color-danger": c.errorSurface,
     "--color-danger-border": withAlpha(c.error, 0.32),
-    "--color-danger-foreground": c.errorForeground,
+    "--color-danger-foreground": themeColorWithContrast(c.errorForeground, c.errorSurface),
     "--color-update": c.updateSurface,
     "--color-update-foreground": c.updateForeground,
     "--color-input": c.surface,
@@ -385,7 +478,7 @@ export function getMobileThemeColors(
   }
   const theme =
     MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId) ?? T3_CHAT_THEME;
-  return getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
+  return flattenMobileThemeColors(getThemeColorsForAppearance(theme, appearance) ?? theme.colors);
 }
 
 export function getMobileThemeVariables(
@@ -395,14 +488,14 @@ export function getMobileThemeVariables(
 ): MobileThemeVariables {
   const colors = getMobileThemeColors(themeId, appearance);
   // Mobile settings groups and fallback materials use tonal fills where desktop
-  // uses outlined cards. Raise flat desktop surfaces above the sheet so grouped
+  // uses outlined cards. Raise flat or near-flat desktop surfaces above the sheet so grouped
   // content keeps a visible boundary. Regular cards retain their desktop surface.
   const groupedCard =
     themeId === DEFAULT_MOBILE_THEME_ID
       ? appearance === "light"
         ? colors.toolbarControlHover
         : colors.sidebarRowActive
-      : colors.surface === colors.chrome
+      : !surfacesDiffer(colors.surface, colors.chrome)
         ? colors.surfaceRaised
         : colors.surface;
   const mobileColors =
@@ -424,18 +517,16 @@ export function getMobileThemeVariables(
   return overrides ? ({ ...baseVariables, ...overrides } as MobileThemeVariables) : baseVariables;
 }
 
-export function getMobileThemePreviewColors(
-  themeId: MobileThemeId,
+/** The colours a theme card's mini picture of the app paints. */
+export function getMobileThemeCardColors(
+  themeId: SharedMobileThemeId,
   appearance: MobileThemeAppearance,
-): ThemePreviewColors {
-  if (themeId === DEFAULT_MOBILE_THEME_ID || themeId === "material-you")
-    return STANDARD_THEME_PREVIEW_COLORS[appearance];
-  const theme =
-    MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId) ?? T3_CHAT_THEME;
-  const colors = getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
+) {
+  const colors = getMobileThemeColors(themeId, appearance);
   return {
-    canvas: themeColorToNativeColor(colors.canvas),
-    accent: themeColorToNativeColor(colors.accent),
-    messageAction: themeColorToNativeColor(colors.messageAction),
+    canvas: colors.canvas,
+    sidebar: colors.sidebar,
+    text: colors.text,
+    accent: colors.messageAction,
   };
 }

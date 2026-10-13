@@ -11,15 +11,15 @@ Use **Change appearance** in the command palette to choose System, Light, or Dar
 the theme. **Cmd+Option+Shift+A** on macOS or **Ctrl+Alt+Shift+A** on Windows/Linux cycles through
 those modes. Customize these shortcuts under **Settings → Keybindings**.
 
-On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
-code, and terminal preferences. It does not follow environment themes or defaults.
+On mobile, open **Settings → Appearance**. Mobile offers the same built-in themes as desktop,
+starting with ViewCode Teal, plus the standard T3 Code palette. Tap a theme to use it, or tap
+its sun or moon to use it for light or dark mode only; a dark-only theme applies to dark mode.
+Mobile keeps its own theme, text, code, and terminal preferences and does not follow
+environment themes or defaults.
 
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
 your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
 can be selected separately for light and dark appearances.
-Android uses **Material You Layout** by default unless you have turned it off in Appearance.
-It changes shapes, spacing, and controls independently
-of the selected theme.
 
 ## Window transparency
 

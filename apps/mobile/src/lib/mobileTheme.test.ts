@@ -2,12 +2,14 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   BUILT_IN_THEME_IDS,
   BUILT_IN_THEMES,
+  MOBILE_PALETTE_THEME_IDS,
   MOBILE_PALETTE_THEMES,
   T3_CHAT_THEME,
   T3_CODE_LIGHT_THEME_COLORS,
   T3_CODE_DARK_THEME_COLORS,
   MOBILE_THEME_IDS,
-  getThemeColorsForAppearance,
+  VIEWCODE_THEME,
+  WEB_BUILT_IN_THEMES,
 } from "@t3tools/shared/themePalettes";
 import {
   readDefaultMobileThemeVariables,
@@ -16,13 +18,19 @@ import {
 import { getMobileThemeRuntimeVariables } from "./mobileThemeVariables";
 
 import {
+  createMobileThemeCardPatch,
   createMobileThemePairPatch,
   createMobileThemeSelectionPatch,
   createMobileThemeVariables,
   DEFAULT_MOBILE_THEME_ID,
+  flattenMobileThemeColors,
   flattenThemeColor,
-  getMobileThemePreviewColors,
+  getMobileThemeAppearances,
+  getMobileThemeCardColors,
+  getMobileThemeColors,
   getMobileThemeVariables,
+  INITIAL_MOBILE_THEME_ID,
+  MOBILE_THEME_OPTIONS,
   normalizeMobileThemeId,
   normalizeMobileThemeMode,
   resolveMobileThemeIds,
@@ -80,14 +88,27 @@ describe("mobile themes", () => {
     }
   });
 
-  it.each(MOBILE_THEME_IDS)("uses the web color roles for %s in both appearances", (themeId) => {
-    for (const appearance of ["light", "dark"] as const) {
-      const theme = MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId);
-      const colors = theme
-        ? getThemeColorsForAppearance(theme, appearance)!
-        : appearance === "dark"
-          ? T3_CODE_DARK_THEME_COLORS
-          : T3_CODE_LIGHT_THEME_COLORS;
+  it("offers desktop's built-ins in desktop's order, beside the standard palette", () => {
+    expect(MOBILE_PALETTE_THEMES).toBe(WEB_BUILT_IN_THEMES);
+    expect(MOBILE_PALETTE_THEME_IDS).toEqual(WEB_BUILT_IN_THEMES.map((theme) => theme.id));
+    expect(MOBILE_THEME_OPTIONS.map((option) => option.id)).toEqual([
+      "viewcode-teal",
+      "viewcode",
+      DEFAULT_MOBILE_THEME_ID,
+      "material-you",
+      ...MOBILE_PALETTE_THEME_IDS.slice(2),
+    ]);
+    expect(MOBILE_THEME_OPTIONS.map((option) => option.id)).not.toContain("instrument");
+  });
+
+  it.each(MOBILE_THEME_IDS)("uses the web color roles for %s in each appearance", (themeId) => {
+    for (const appearance of getMobileThemeAppearances(themeId)) {
+      const colors =
+        themeId === DEFAULT_MOBILE_THEME_ID
+          ? appearance === "dark"
+            ? T3_CODE_DARK_THEME_COLORS
+            : T3_CODE_LIGHT_THEME_COLORS
+          : getMobileThemeColors(themeId, appearance);
       const variables =
         themeId === DEFAULT_MOBILE_THEME_ID
           ? readDefaultMobileThemeVariables(appearance)
@@ -167,7 +188,7 @@ describe("mobile themes", () => {
   });
 
   it.each(MOBILE_THEME_IDS)("separates %s filled groups from their sheets", (themeId) => {
-    for (const appearance of ["light", "dark"] as const) {
+    for (const appearance of getMobileThemeAppearances(themeId)) {
       const generated = readGeneratedMobileThemeVariables(
         themeId === DEFAULT_MOBILE_THEME_ID ? appearance : `${themeId}-${appearance}`,
       );
@@ -271,23 +292,26 @@ describe("mobile themes", () => {
     },
   );
 
-  it("uses the same preview roles and standard artwork as desktop", () => {
-    expect(getMobileThemePreviewColors(DEFAULT_MOBILE_THEME_ID, "light")).toEqual({
-      canvas: "#fcfcfc",
-      accent: "#f4f4f5",
-      messageAction: "#4f46e5",
+  it("paints theme cards with the palette the phone wears", () => {
+    expect(getMobileThemeCardColors("viewcode-teal", "dark")).toEqual({
+      canvas: "#0c0c0c",
+      sidebar: "#161614",
+      text: "#ecebe8",
+      accent: "#23c5b3",
     });
     const desktopOcean = BUILT_IN_THEMES.find((theme) => theme.id === "ocean")!;
-    expect(getMobileThemePreviewColors("ocean", "light")).toEqual({
+    expect(getMobileThemeCardColors("ocean", "light")).toEqual({
       canvas: themeColorToNativeColor(desktopOcean.colors.canvas),
-      accent: themeColorToNativeColor(desktopOcean.colors.accent),
-      messageAction: themeColorToNativeColor(desktopOcean.colors.messageAction),
+      sidebar: themeColorToNativeColor(desktopOcean.colors.sidebar),
+      text: themeColorToNativeColor(desktopOcean.colors.text),
+      accent: themeColorToNativeColor(desktopOcean.colors.messageAction),
     });
   });
 
   it("normalizes persisted theme preferences", () => {
     expect(normalizeMobileThemeId("ocean")).toBe("ocean");
-    expect(normalizeMobileThemeId("missing-theme")).toBe(DEFAULT_MOBILE_THEME_ID);
+    expect(normalizeMobileThemeId("viewcode-blossom")).toBe("viewcode-blossom");
+    expect(normalizeMobileThemeId("missing-theme")).toBe(INITIAL_MOBILE_THEME_ID);
     expect(normalizeMobileThemeMode("dark")).toBe("dark");
     expect(normalizeMobileThemeMode("sepia")).toBe("system");
   });
@@ -301,9 +325,47 @@ describe("mobile themes", () => {
       resolveMobileThemeIds({ themeId: "grove", lightThemeId: "iris", darkThemeId: "ocean" }),
     ).toEqual({ light: "iris", dark: "ocean" });
     expect(resolveMobileThemeIds({ themeId: "grove", lightThemeId: "missing" })).toEqual({
-      light: DEFAULT_MOBILE_THEME_ID,
+      light: INITIAL_MOBILE_THEME_ID,
       dark: "grove",
     });
+  });
+
+  it("dresses a phone that never chose a theme in ViewCode Teal", () => {
+    expect(INITIAL_MOBILE_THEME_ID).toBe("viewcode-teal");
+    expect(resolveMobileThemeIds({})).toEqual({ light: "viewcode-teal", dark: "viewcode-teal" });
+    const dark = getMobileThemeVariables("viewcode-teal", "dark");
+    expect(dark["--color-screen"]).toBe("#0c0c0c");
+    expect(dark["--color-drawer"]).toBe("#161614");
+    expect(dark["--color-primary"]).toBe("#23c5b3");
+  });
+
+  it("moves a phone off a retired theme to the initial theme", () => {
+    expect(resolveMobileThemeIds({ themeId: "instrument" })).toEqual({
+      light: INITIAL_MOBILE_THEME_ID,
+      dark: INITIAL_MOBILE_THEME_ID,
+    });
+    expect(
+      resolveMobileThemeIds({ themeId: "ocean", lightThemeId: "ocean", darkThemeId: "instrument" }),
+    ).toEqual({ light: "ocean", dark: INITIAL_MOBILE_THEME_ID });
+  });
+
+  it("keeps a one-appearance theme on its own half", () => {
+    expect(getMobileThemeAppearances("viewcode-dracula")).toEqual(["dark"]);
+    expect(getMobileThemeAppearances("viewcode-blossom")).toEqual(["light", "dark"]);
+    expect(getMobileThemeAppearances("material-you")).toEqual(["light", "dark"]);
+    expect(resolveMobileThemeIds({ themeId: "viewcode-dracula" })).toEqual({
+      light: INITIAL_MOBILE_THEME_ID,
+      dark: "viewcode-dracula",
+    });
+    const themeIds = { light: "grove", dark: "ocean" } as const;
+    expect(createMobileThemeCardPatch(themeIds, "light", "viewcode-dracula")).toEqual({
+      lightThemeId: "grove",
+      darkThemeId: "viewcode-dracula",
+      themeId: "grove",
+    });
+    expect(createMobileThemeCardPatch(themeIds, "light", "viewcode-blossom")).toEqual(
+      createMobileThemePairPatch("viewcode-blossom"),
+    );
   });
 
   it("changes either theme without switching the active appearance", () => {
@@ -429,6 +491,29 @@ describe("mobile themes", () => {
         contrastRatio(variables["--color-md-user-code-text"], codeSurface),
       ).toBeGreaterThanOrEqual(4.5);
     }
+  });
+});
+
+describe("flattenMobileThemeColors", () => {
+  it("composites ViewCode's translucent roles over the plane each sits on", () => {
+    const colors = flattenMobileThemeColors(VIEWCODE_THEME.colors);
+    // White at 8 % over the #19191B canvas, 5 % over the #1F1F21 sidebar.
+    expect(colors.border).toBe(flattenThemeColor("rgba(255, 255, 255, 0.08)", "#19191B"));
+    expect(colors.border).toBe("#2b2b2d");
+    expect(colors.sidebarRowHover).toBe("#2a2a2c");
+    expect(colors.toolbarControl).toBe(flattenThemeColor("rgba(255, 255, 255, 0.07)", "#19191B"));
+    expect(colors.errorSurface).toBe(flattenThemeColor("rgba(229, 103, 95, 0.12)", "#19191B"));
+    expect(colors.canvas).toBe("#19191B");
+    for (const color of Object.values(colors)) expect(color).toMatch(/^#[\da-f]{6}$/iu);
+  });
+
+  it("leaves the opaque upstream palettes as they are", () => {
+    const grove = BUILT_IN_THEMES.find((theme) => theme.id === "grove")!;
+    expect(flattenMobileThemeColors(grove.colors)).toEqual(
+      Object.fromEntries(
+        Object.entries(grove.colors).map(([role, color]) => [role, themeColorToNativeColor(color)]),
+      ),
+    );
   });
 });
 

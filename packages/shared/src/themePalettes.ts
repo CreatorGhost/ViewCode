@@ -2,7 +2,7 @@ import { createViewCodeNamedThemes, VIEWCODE_NAMED_THEME_IDS } from "./viewcodeT
 
 export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"] as const;
 
-/** ViewCode's own default theme. Web and desktop only; mobile keeps its Uniwind set. */
+/** ViewCode's own theme, after Droppy Code: neutral glass with an amber accent. */
 export const VIEWCODE_THEME_ID = "viewcode";
 /** ViewCode's default look: pure-black neutral surfaces with a teal accent. */
 export const VIEWCODE_TEAL_THEME_ID = "viewcode-teal";
@@ -12,22 +12,31 @@ export function isViewCodeThemeId(id: string): boolean {
   return (
     id === VIEWCODE_THEME_ID ||
     id === VIEWCODE_TEAL_THEME_ID ||
-    VIEWCODE_NAMED_THEME_IDS.includes(id)
+    (VIEWCODE_NAMED_THEME_IDS as ReadonlyArray<string>).includes(id)
   );
 }
 
-/** Carbon and silver from the brand lab's "Instrument" direction. ViewCode mobile's default. */
-export const INSTRUMENT_THEME_ID = "instrument";
-
-/** The standard T3 Code palette, kept separate from the optional built-in theme library. */
+/**
+ * The standard T3 Code palette, kept separate from the optional built-in theme library. Mobile
+ * registers it as the base Uniwind `light` and `dark` themes. It is not what a new phone wears:
+ * that is `MOBILE_INITIAL_THEME_ID`.
+ */
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
 
+/** What a phone that never chose a theme, or chose one that no longer exists, wears. */
+export const MOBILE_INITIAL_THEME_ID = VIEWCODE_TEAL_THEME_ID;
+
 /**
- * Every palette the mobile app can render. Declared here so host-side tooling
- * (the app-store screenshot harness) can validate a requested theme without
- * importing React Native application code.
+ * Every palette the mobile app can render: the built-ins web and desktop offer, in their order
+ * (`WEB_BUILT_IN_THEMES`). Declared here so host-side tooling (the app-store screenshot
+ * harness) can validate a requested theme without importing React Native application code.
  */
-export const MOBILE_PALETTE_THEME_IDS = [...BUILT_IN_THEME_IDS, INSTRUMENT_THEME_ID] as const;
+export const MOBILE_PALETTE_THEME_IDS = [
+  VIEWCODE_TEAL_THEME_ID,
+  VIEWCODE_THEME_ID,
+  ...BUILT_IN_THEME_IDS,
+  ...VIEWCODE_NAMED_THEME_IDS,
+] as const;
 export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...MOBILE_PALETTE_THEME_IDS] as const;
 
 /**
@@ -42,7 +51,8 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "dark",
   VIEWCODE_THEME_ID,
   VIEWCODE_TEAL_THEME_ID,
-  INSTRUMENT_THEME_ID,
+  // Mobile's retired Instrument theme; phones that wore it now get the initial theme.
+  "instrument",
   ...VIEWCODE_NAMED_THEME_IDS,
   ...BUILT_IN_THEME_IDS,
   "t3-chat-dark",
@@ -1128,36 +1138,6 @@ function mix(color: string, over: string, alpha: number): string {
     .join("")}`;
 }
 
-export const INSTRUMENT_THEME: ThemeDefinition = {
-  id: INSTRUMENT_THEME_ID,
-  label: "Instrument",
-  appearance: "dark",
-  colors: instrumentColors(VIEWCODE_THEME.colors, [
-    "#171b1e",
-    "#101416",
-    "#1f2528",
-    "#293135",
-    "#e4edef",
-    "#a7b6bb",
-    "#465257",
-    "#c3d5db",
-    "#1b2d33",
-  ]),
-  variants: {
-    light: instrumentColors(VIEWCODE_LIGHT_COLORS, [
-      "#f5f6f6",
-      "#e6e9e9",
-      "#ffffff",
-      "#e9eded",
-      "#1c272b",
-      "#536269",
-      "#bec9cc",
-      "#2e4c58",
-      "#ffffff",
-    ]),
-  },
-};
-
 /**
  * ViewCode's default: pure-black neutral surfaces (the chat a shade darker than the sidebar
  * and rail) with a teal accent. Warm-grey text and hairlines, no blue cast, so the project
@@ -1233,12 +1213,6 @@ export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   IRIS_THEME,
 ];
 
-/** Palettes the mobile app registers as Uniwind themes, beside its standard one. */
-export const MOBILE_PALETTE_THEMES: ReadonlyArray<ThemeDefinition> = [
-  ...BUILT_IN_THEMES,
-  INSTRUMENT_THEME,
-];
-
 /** Built-ins offered on web and desktop: ViewCode's own theme first, then
  * upstream's, then Droppy's named themes ported onto the ViewCode look. */
 export const WEB_BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
@@ -1250,6 +1224,9 @@ export const WEB_BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
     light: VIEWCODE_LIGHT_COLORS,
   }),
 ];
+
+/** Palettes the mobile app registers as Uniwind themes, beside its standard one. */
+export const MOBILE_PALETTE_THEMES: ReadonlyArray<ThemeDefinition> = WEB_BUILT_IN_THEMES;
 
 export function getThemeColorsForAppearance(
   theme: ThemeDefinition,

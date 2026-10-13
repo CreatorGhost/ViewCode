@@ -30,7 +30,7 @@ type NamedThemeSpec = Readonly<{
   lightOverrides?: Partial<ThemeColors>;
 }>;
 
-const NAMED_THEME_SPECS: ReadonlyArray<NamedThemeSpec> = [
+const NAMED_THEME_SPECS = [
   {
     id: "viewcode-claude",
     label: "Claude",
@@ -341,10 +341,12 @@ const NAMED_THEME_SPECS: ReadonlyArray<NamedThemeSpec> = [
       terminalBackground: "#000000",
     },
   },
-];
+] as const satisfies ReadonlyArray<NamedThemeSpec>;
+
+export type ViewCodeNamedThemeId = (typeof NAMED_THEME_SPECS)[number]["id"];
 
 /** Ids of the ported themes, reserved so a saved or published theme can't take one. */
-export const VIEWCODE_NAMED_THEME_IDS: ReadonlyArray<string> = NAMED_THEME_SPECS.map(
+export const VIEWCODE_NAMED_THEME_IDS: ReadonlyArray<ViewCodeNamedThemeId> = NAMED_THEME_SPECS.map(
   (spec) => spec.id,
 );
 
@@ -444,7 +446,7 @@ export function deriveViewCodeThemeColors(
 export function createViewCodeNamedThemes(
   base: Readonly<{ dark: ThemeColors; light: ThemeColors }>,
 ): ReadonlyArray<ThemeDefinition> {
-  return NAMED_THEME_SPECS.map((spec) => ({
+  return NAMED_THEME_SPECS.map((spec: NamedThemeSpec) => ({
     id: spec.id,
     label: spec.label,
     appearance: "dark",

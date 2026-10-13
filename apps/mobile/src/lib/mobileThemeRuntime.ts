@@ -1,15 +1,19 @@
+import type { ThemeName } from "uniwind";
+
 import { resolveTextScaleVariables } from "./appearancePreferences";
-import { MOBILE_PALETTE_THEME_IDS, type MobilePaletteThemeId } from "@t3tools/shared/themePalettes";
 import {
   DEFAULT_MOBILE_THEME_ID,
+  MOBILE_PALETTE_UNIWIND_THEME_NAMES,
   type MobileThemeAppearance,
   type MobileThemeId,
   type MobileThemeMode,
 } from "./mobileTheme";
 
-export type MobileUniwindThemeName =
-  | MobileThemeAppearance
-  | `${MobilePaletteThemeId}-${MobileThemeAppearance}`;
+/**
+ * A registered Uniwind theme. One-appearance palettes register only that appearance, and
+ * `resolveMobileThemeIds` never puts one on the other half, so names are built, not looked up.
+ */
+export type MobileUniwindThemeName = ThemeName;
 
 export interface MobileThemeRuntimeState {
   readonly baseFontSize: number;
@@ -29,22 +33,21 @@ export type MobileThemeRuntimeOperation =
       readonly themeMode: MobileThemeMode;
     };
 
-const UNIWIND_THEME_NAMES: ReadonlyArray<"light" | "dark" | MobileUniwindThemeName> = [
+const UNIWIND_THEME_NAMES = [
   "light",
   "dark",
-  ...MOBILE_PALETTE_THEME_IDS.flatMap((themeId) => [
-    `${themeId}-light` as const,
-    `${themeId}-dark` as const,
-  ]),
-];
+  ...MOBILE_PALETTE_UNIWIND_THEME_NAMES,
+] as ReadonlyArray<MobileUniwindThemeName>;
 
 export function getMobileUniwindThemeName(
   themeId: MobileThemeId,
   appearance: MobileThemeAppearance,
 ): MobileUniwindThemeName {
-  return themeId === DEFAULT_MOBILE_THEME_ID || themeId === "material-you"
-    ? appearance
-    : `${themeId}-${appearance}`;
+  return (
+    themeId === DEFAULT_MOBILE_THEME_ID || themeId === "material-you"
+      ? appearance
+      : `${themeId}-${appearance}`
+  ) as MobileUniwindThemeName;
 }
 
 /**

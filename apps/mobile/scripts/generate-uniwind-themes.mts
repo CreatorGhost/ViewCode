@@ -6,8 +6,10 @@ import tailwindColors from "tailwindcss/colors";
 import { MOBILE_PALETTE_THEME_IDS, type MobilePaletteThemeId } from "@t3tools/shared/themePalettes";
 
 import {
+  getMobileThemeAppearances,
   getMobileThemeVariables,
   DEFAULT_MOBILE_THEME_ID,
+  MOBILE_PALETTE_UNIWIND_THEME_NAMES,
   type MobileThemeAppearance,
 } from "../src/lib/mobileTheme.ts";
 
@@ -135,9 +137,8 @@ const ADAPTIVE_COLORS: Readonly<Record<string, readonly [light: string, dark: st
   "--color-adaptive-zinc-600-300": [color("zinc", 600), color("zinc", 300)],
 };
 
-export const customThemeNames = MOBILE_PALETTE_THEME_IDS.flatMap((themeId) =>
-  APPEARANCES.map((appearance) => `${themeId}-${appearance}`),
-);
+// A one-appearance palette registers only that appearance: it never takes the other half.
+export const customThemeNames = MOBILE_PALETTE_UNIWIND_THEME_NAMES;
 
 const adaptiveVariablesFor = (appearance: MobileThemeAppearance) =>
   Object.fromEntries(
@@ -153,8 +154,9 @@ const variablesFor = (themeId: MobilePaletteThemeId, appearance: MobileThemeAppe
 });
 
 const renderVariant = (name: string, variables: Readonly<Record<string, string>>) => {
+  // Lower case, as the formatter writes hex colours; ViewCode's palettes spell some in upper case.
   const declarations = Object.entries(variables)
-    .map(([variable, value]) => `      ${variable}: ${value};`)
+    .map(([variable, value]) => `      ${variable}: ${value.toLowerCase()};`)
     .join("\n");
   return `    @variant ${name} {\n${declarations}\n    }`;
 };
@@ -168,7 +170,7 @@ export const renderUniwindThemesCSS = () => {
       }),
     ),
     ...MOBILE_PALETTE_THEME_IDS.flatMap((themeId) =>
-      APPEARANCES.map((appearance) =>
+      getMobileThemeAppearances(themeId).map((appearance) =>
         renderVariant(`${themeId}-${appearance}`, variablesFor(themeId, appearance)),
       ),
     ),

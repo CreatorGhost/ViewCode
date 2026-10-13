@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   DEFAULT_MOBILE_THEME_ID,
+  getMobileThemeAppearances,
   getMobileThemeVariables,
   MOBILE_THEME_IDS,
   type MobileThemeAppearance,
@@ -255,7 +256,7 @@ describe("getCachedNativeReviewDiffData", () => {
 describe("createNativeReviewDiffTheme", () => {
   it("serializes every native color as cross-platform opaque hex", () => {
     for (const themeId of MOBILE_THEME_IDS) {
-      for (const appearance of ["light", "dark"] as const) {
+      for (const appearance of getMobileThemeAppearances(themeId)) {
         const theme = createNativeReviewDiffTheme(
           appearance,
           themeId,

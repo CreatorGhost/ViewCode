@@ -3,7 +3,7 @@
 
 declare module 'uniwind' {
     export interface UniwindConfig {
-        themes: readonly ['light', 'dark', 't3-chat-light', 't3-chat-dark', 'grove-light', 'grove-dark', 'ocean-light', 'ocean-dark', 'ember-light', 'ember-dark', 'iris-light', 'iris-dark', 'instrument-light', 'instrument-dark']
+        themes: readonly ['light', 'dark', 'viewcode-teal-light', 'viewcode-teal-dark', 'viewcode-light', 'viewcode-dark', 't3-chat-light', 't3-chat-dark', 'grove-light', 'grove-dark', 'ocean-light', 'ocean-dark', 'ember-light', 'ember-dark', 'iris-light', 'iris-dark', 'viewcode-claude-light', 'viewcode-claude-dark', 'viewcode-catppuccin-light', 'viewcode-catppuccin-dark', 'viewcode-gruvbox-light', 'viewcode-gruvbox-dark', 'viewcode-solarized-light', 'viewcode-solarized-dark', 'viewcode-github-light', 'viewcode-github-dark', 'viewcode-dracula-dark', 'viewcode-tokyo-night-dark', 'viewcode-nord-dark', 'viewcode-one-dark-dark', 'viewcode-everforest-dark', 'viewcode-kanagawa-dark', 'viewcode-rose-pine-dark', 'viewcode-blossom-light', 'viewcode-blossom-dark', 'viewcode-ayu-dark', 'viewcode-night-owl-dark', 'viewcode-monokai-dark', 'viewcode-codex-dark', 'viewcode-cursor-dark', 'viewcode-matrix-dark']
     }
 }
 

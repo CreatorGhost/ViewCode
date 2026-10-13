@@ -29,7 +29,7 @@ import { materialYouPaletteToMobileThemeVariables } from "../../../lib/materialY
 import { getMobileThemeRuntimeVariables } from "../../../lib/mobileThemeVariables";
 import type { MobileThemeVariables } from "../../../lib/mobileTheme";
 import {
-  createMobileThemePairPatch,
+  createMobileThemeCardPatch,
   createMobileThemeSelectionPatch,
   normalizeMobileThemeMode,
   resolveMobileThemeIds,
@@ -63,7 +63,8 @@ interface AppearancePreferencesContextValue {
     appearance: MobileThemeAppearance,
     value: MobileThemeId,
   ) => void;
-  readonly setThemeIdForBothAppearances: (value: MobileThemeId) => void;
+  /** Both appearances, or only its own for a one-appearance theme. */
+  readonly selectTheme: (value: MobileThemeId) => void;
   readonly setThemeMode: (value: MobileThemeMode) => void;
   readonly setBaseFontSize: (value: number) => void;
   /** Pass null to clear the override and follow the base font size. */
@@ -204,13 +205,13 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [themeAppearance, updateThemePreferences],
   );
 
-  const setThemeIdForBothAppearances = useCallback(
+  const selectTheme = useCallback(
     (value: MobileThemeId) => {
-      const patch = createMobileThemePairPatch(value);
+      const patch = createMobileThemeCardPatch(selectedThemeIdsRef.current, themeAppearance, value);
       selectedThemeIdsRef.current = resolveMobileThemeIds(patch);
       updateThemePreferences(patch);
     },
-    [updateThemePreferences],
+    [themeAppearance, updateThemePreferences],
   );
 
   const setThemeMode = useCallback(
@@ -286,7 +287,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       systemColorPalettes,
       isReady,
       setThemeIdForAppearance,
-      setThemeIdForBothAppearances,
+      selectTheme,
       setThemeMode,
       setBaseFontSize,
       setTerminalFontSize,
@@ -305,7 +306,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       systemColorPalettes,
       isReady,
       setThemeIdForAppearance,
-      setThemeIdForBothAppearances,
+      selectTheme,
       setThemeMode,
       setBaseFontSize,
       setTerminalFontSize,

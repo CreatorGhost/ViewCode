@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { MOBILE_THEME_IDS } from "@t3tools/shared/themePalettes";
 
-import { getMobileThemeVariables } from "../../lib/mobileTheme";
+import { getMobileThemeAppearances, getMobileThemeVariables } from "../../lib/mobileTheme";
 import { getThreadListV2RowAppearance as iosAppearance } from "./thread-list-v2-row-appearance";
 import { getThreadListV2RowAppearance as androidAppearance } from "./thread-list-v2-row-appearance.android";
 
@@ -12,7 +12,7 @@ describe.each([
   it.each(MOBILE_THEME_IDS)(
     "preserves active selection and uses neutral hover for %s",
     (themeId) => {
-      for (const appearance of ["light", "dark"] as const) {
+      for (const appearance of getMobileThemeAppearances(themeId)) {
         const theme = getMobileThemeVariables(themeId, appearance);
         const idle = appearanceFor(theme, true, false);
         const active = appearanceFor(theme, true, true);

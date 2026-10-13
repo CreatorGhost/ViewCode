@@ -11,7 +11,7 @@ import { AsyncResult } from "effect/unstable/reactivity";
 
 import { useConnectionController } from "../connection/useConnectionController";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
-import type { MobileThemeId } from "../../lib/mobileTheme";
+import { getMobileThemeAppearances, type MobileThemeId } from "../../lib/mobileTheme";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
 import { holdEditingQueuedMessage } from "../../state/use-thread-outbox";
@@ -70,7 +70,7 @@ function EnabledShowcaseCaptureCoordinator(props: { readonly pathname: string })
     isReady: appearancePreferencesReady,
     themeId,
     themeIds,
-    setThemeIdForBothAppearances,
+    selectTheme,
   } = useAppearancePreferences();
   const workspace = useWorkspaceState();
   const projects = useProjects();
@@ -153,11 +153,14 @@ function EnabledShowcaseCaptureCoordinator(props: { readonly pathname: string })
   }, []);
 
   // Captures pick a palette for both color schemes so the requested theme is
-  // used whichever system appearance the runner set on the device.
+  // used whichever system appearance the runner set on the device. A
+  // one-appearance theme only takes its own.
   const themeApplied =
     requestedTheme === null
       ? themeRequestSettled
-      : themeIds.light === requestedTheme && themeIds.dark === requestedTheme;
+      : getMobileThemeAppearances(requestedTheme).every(
+          (appearance) => themeIds[appearance] === requestedTheme,
+        );
 
   useEffect(() => {
     if (
@@ -168,8 +171,8 @@ function EnabledShowcaseCaptureCoordinator(props: { readonly pathname: string })
     ) {
       return;
     }
-    setThemeIdForBothAppearances(requestedTheme);
-  }, [appearancePreferencesReady, requestedTheme, setThemeIdForBothAppearances, themeApplied]);
+    selectTheme(requestedTheme);
+  }, [appearancePreferencesReady, requestedTheme, selectTheme, themeApplied]);
 
   useEffect(() => {
     if (pairingUrls.length === 0) return;

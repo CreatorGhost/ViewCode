@@ -25,21 +25,18 @@ describe("generate mobile Uniwind themes", () => {
     ).toEqual([]);
   });
 
-  it("registers every custom palette for both appearances", () => {
-    expect(customThemeNames).toEqual([
-      "t3-chat-light",
-      "t3-chat-dark",
-      "grove-light",
-      "grove-dark",
-      "ocean-light",
-      "ocean-dark",
-      "ember-light",
-      "ember-dark",
-      "iris-light",
-      "iris-dark",
-      "instrument-light",
-      "instrument-dark",
+  it("registers each palette for the appearances it has", () => {
+    expect(customThemeNames.slice(0, 4)).toEqual([
+      "viewcode-teal-light",
+      "viewcode-teal-dark",
+      "viewcode-light",
+      "viewcode-dark",
     ]);
+    // Dark-only themes take only the dark half, so they register no light theme.
+    expect(customThemeNames).toContain("viewcode-blossom-light");
+    expect(customThemeNames).toContain("viewcode-dracula-dark");
+    expect(customThemeNames).not.toContain("viewcode-dracula-light");
+    expect(customThemeNames.some((name) => name.startsWith("instrument"))).toBe(false);
 
     const stylesheet = renderUniwindThemesCSS();
     for (const themeName of customThemeNames) {
