@@ -106,6 +106,9 @@ export function gitHubProviderFailure(
 ): PullRequestProviderFailure {
   if (error._tag === "GitHubCliUnavailableError") return { reason: "missing-tool" };
   if (error._tag === "GitHubCliAuthenticationError") return { reason: "unauthenticated" };
+  if (error._tag === "GitHubViewerLoginUnavailableError" && error.signedOut) {
+    return { reason: "unauthenticated" };
+  }
   if (error._tag === "GitHubCliRateLimitError")
     return {
       reason: "rate-limited",

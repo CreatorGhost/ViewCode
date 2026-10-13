@@ -142,16 +142,43 @@ export class GitHubPullRequestReadError extends Schema.TaggedError<GitHubPullReq
   }
 }
 
-/** Not a decode failure: gh answered, the account it answered for just has no login. */
+/**
+ * The signed-in account on a host could not be established. `stage` names the step that stopped
+ * it, which is what tells "nobody is signed in to this host" apart from "gh could not answer".
+ * Carries no cause on purpose: the steps handle a token, and nothing they print may reach a page.
+ */
 export class GitHubViewerLoginUnavailableError extends Schema.TaggedError<GitHubViewerLoginUnavailableError>()(
   "GitHubViewerLoginUnavailableError",
   {
     command: Schema.Literal("gh"),
     cwd: Schema.String,
+    host: Schema.String,
+    stage: Schema.Literals([
+      "pinned-host-mismatch",
+      "auth-token",
+      "empty-token",
+      "api-user",
+      "decode",
+    ]),
   },
 ) {
+  /** No credential for the host at all: what signing in to it fixes. */
+  get signedOut(): boolean {
+    return this.stage === "auth-token" || this.stage === "empty-token";
+  }
+
   get detail(): string {
-    return "GitHub CLI returned no login for the authenticated account.";
+    switch (this.stage) {
+      case "auth-token":
+      case "empty-token":
+        return `GitHub CLI has no account signed in to ${this.host}. Sign in with \`gh auth login --hostname ${this.host}\`, or check that the project's git remote uses a host gh knows (an SSH alias such as github.com-work is not one).`;
+      case "pinned-host-mismatch":
+        return `The GitHub account in use is for another host, not ${this.host}.`;
+      case "api-user":
+        return `GitHub CLI could not read the signed-in account on ${this.host}.`;
+      case "decode":
+        return `GitHub CLI returned no login for the signed-in account on ${this.host}.`;
+    }
   }
 
   override get message(): string {
@@ -1114,11 +1141,17 @@ export const make = Effect.gen(function* () {
   );
   const captureVerifiedCredential = Effect.fn("GitHubPullRequestCli.captureVerifiedCredential")(
     function* (input: { readonly cwd: string; readonly host: string }) {
-      const unavailable = () =>
-        new GitHubViewerLoginUnavailableError({ command: "gh", cwd: input.cwd });
       const host = input.host.toLowerCase();
+      const unavailable = (stage: GitHubViewerLoginUnavailableError["stage"]) =>
+        new GitHubViewerLoginUnavailableError({ command: "gh", cwd: input.cwd, host, stage });
+      // A missing gh is its own failure, with its own hint. Every other one is reported by its
+      // stage alone, never with what the command printed.
+      const unavailableAt =
+        (stage: GitHubViewerLoginUnavailableError["stage"]) => (error: GitHubCli.GitHubCliError) =>
+          error._tag === "GitHubCliUnavailableError" ? error : unavailable(stage);
       const pinned = yield* GitHubCli.PinnedGitHubCredential;
-      if (pinned !== null && pinned.host !== host) return yield* unavailable();
+      if (pinned !== null && pinned.host !== host)
+        return yield* unavailable("pinned-host-mismatch");
       // Only the digest is retained. Never attach credential lookup output to an error.
       const token =
         pinned !== null
@@ -1129,8 +1162,8 @@ export const make = Effect.gen(function* () {
                 args: ["auth", "token", "--hostname", host],
                 env: { GH_DEBUG: "" },
               })
-              .pipe(Effect.mapError(unavailable))).stdout.trim();
-      if (!token) return yield* unavailable();
+              .pipe(Effect.mapError(unavailableAt("auth-token")))).stdout.trim();
+      if (!token) return yield* unavailable("empty-token");
       const key = `${host}:${NodeCrypto.createHash("sha256").update(token).digest("hex")}`;
       const credential = { host, token: Redacted.make(token), credentialFingerprint: key };
       // A cold page may ask several times. Wait per credential and check again after the
@@ -1163,9 +1196,9 @@ export const make = Effect.gen(function* () {
                     GH_DEBUG: "",
                   },
                 })
-                .pipe(Effect.mapError(unavailable));
+                .pipe(Effect.mapError(unavailableAt("api-user")));
               const identity = yield* decodeRoutingIdentity(response.stdout).pipe(
-                Effect.mapError(unavailable),
+                Effect.mapError(() => unavailable("decode")),
               );
               const value = { accountId: String(identity.id), viewer: identity.login };
               if (routingIdentities.size >= 128)
