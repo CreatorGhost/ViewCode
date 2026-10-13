@@ -29,6 +29,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { cn } from "~/lib/utils";
 import type { AgentMessageRenderContext } from "./AgentMessageCard";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import { spawnedAgentsOpenKey } from "./SpawnedAgentRows.logic";
 import { ReviewAgentList, ReviewElapsed, ReviewWorkLine } from "./ReviewProgress";
 
 const STATUS_DOT_CLASS: Record<SpawnedAgentRowStatus, string> = {
@@ -50,7 +51,6 @@ const STATUS_TEXT_CLASS: Partial<Record<SpawnedAgentRowStatus, string>> = {
 
 /** Disclosure keys, kept in the timeline's spawn-row state so they survive virtualization. */
 export const spawnedAgentDetailsKey = (messageId: string) => `agent-spawn:${messageId}`;
-export const spawnedAgentsCollapsedKey = (rowId: string) => `agent-spawns-collapsed:${rowId}`;
 
 /**
  * Child agents this thread started, one line each: provider icon with a
@@ -78,15 +78,15 @@ export function SpawnedAgentRows(props: {
       </div>
     ) : null;
   }
-  const collapsedKey = spawnedAgentsCollapsedKey(rowId);
-  const collapsed = expandedKeys.has(collapsedKey);
+  const openKey = spawnedAgentsOpenKey(rowId);
+  const collapsed = !expandedKeys.has(openKey);
   return (
     <div className="mx-auto w-full max-w-chat">
       <SpawnedAgentsGroupHeader
         spawns={spawns}
         context={context}
         collapsed={collapsed}
-        onToggle={() => onToggle(collapsedKey, !collapsed)}
+        onToggle={() => onToggle(openKey, collapsed)}
       />
       {collapsed ? null : (
         <div className="ms-3 border-border/60 border-s ps-1">

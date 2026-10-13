@@ -160,6 +160,7 @@ import { REVIEW_VERDICT_BADGES } from "./ReviewFindingsView";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
+import { rememberedSpawnDisclosures } from "./SpawnedAgentRows.logic";
 import { useTimelineMessageFocusStore } from "../../timelineMessageFocusStore";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useAtomValue } from "@effect/atom-react";
@@ -1127,7 +1128,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             disclosures: {
               turns: paintedExpandedTurnIds,
               workGroups: paintedExpandedWorkGroupIds,
-              spawnEntries: paintedExpandedSpawnEntryIds,
+              spawnEntries: rememberedSpawnDisclosures(paintedExpandedSpawnEntryIds),
               reasoningMessages: paintedExpandedReasoningMessageIds,
               workGroupState: workGroupViewState,
             },
