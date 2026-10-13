@@ -137,7 +137,7 @@ const RailProjectButton = memo(function RailProjectButton(props: {
         ) : working > 0 ? (
           <span
             aria-hidden
-            className="absolute right-0.5 bottom-0.5 size-1.5 rounded-full bg-muted-foreground"
+            className="absolute right-0.5 bottom-0.5 size-1.5 rounded-full bg-info"
           />
         ) : null}
       </RailButton>

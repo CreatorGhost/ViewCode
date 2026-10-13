@@ -962,6 +962,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   tabs carry none (user decision: a coloured header read as a second layer).
   The ViewCode default is pure-black neutrals with the content flush beside the
   sidebar, not Droppy's inset sheet (`--vc-sheet-inset`, user decision).
+- The rail is a strip a step darker than the sidebar and the selected project is
+  its active tab, like a browser's: the tile takes the sidebar's surface and runs
+  into it with curved corners, its outer edge lit in the project colour or the
+  theme accent (user decision: a ring on one button did not say where you are).
+  The rail's title strip keeps the sidebar colour so macOS window controls sit
+  on one surface. The tab must match the sidebar's fill exactly, tint included,
+  or a seam shows where they meet.
 - Provider usage rings, Settings, Pull Requests and Connect phone stay at the
   bottom of the rail (user decision); the sidebar has no footer of its own.
 

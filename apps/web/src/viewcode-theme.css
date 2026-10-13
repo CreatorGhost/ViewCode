@@ -833,9 +833,41 @@ html:root
   );
   color: var(--project-accent);
 }
-/* Rail project tiles: one rounded tile per project with its icon inside. The selected one is
-   ringed and filled in its project colour (AppRail hands each tile its own --project-accent),
-   or in the label colour when the project has none. */
+/* Rail project tiles: one rounded tile per project with its icon inside. The rail is a strip a
+   step darker than the sidebar, like a browser's tab strip, and the selected project is its
+   active tab: a tile in the sidebar's own surface that runs into the sidebar, with curved
+   corners where they meet, its outer edge lit in the project colour (AppRail hands each tile
+   its own --project-accent) or the theme accent. The others step back until hovered. Static:
+   no animation repaints any of it. */
+html [data-app-rail] {
+  --rail-strip: color-mix(in srgb, var(--sidebar) 58%, black);
+  background-color: var(--rail-strip);
+  border-right-width: 0;
+}
+html:not(.dark) [data-app-rail] {
+  --rail-strip: color-mix(in srgb, var(--sidebar) 93%, black);
+}
+/* The title strip stays the sidebar's, so the window controls sit on one surface. */
+html [data-app-rail] > :first-child {
+  background-color: var(--sidebar);
+}
+[data-project-tint] [data-app-rail] > :first-child {
+  background-color: color-mix(
+    in srgb,
+    var(--project-accent) var(--shell-tint-surface-top),
+    var(--sidebar)
+  );
+}
+html[data-window-glass="true"] [data-app-rail] {
+  --rail-strip: transparent;
+  background-image: linear-gradient(
+    color-mix(in srgb, black 28%, transparent),
+    color-mix(in srgb, black 28%, transparent)
+  );
+}
+html[data-window-glass="true"] [data-app-rail] > :first-child {
+  background-color: transparent !important;
+}
 [data-app-rail] button[data-rail-project] {
   width: 34px;
   height: 34px;
@@ -844,12 +876,74 @@ html:root
   background-color: color-mix(in srgb, var(--foreground) 3%, transparent);
 }
 [data-app-rail] button[data-rail-project][data-pressed] {
-  --rail-tile-color: var(--project-accent, color-mix(in srgb, var(--foreground) 55%, transparent));
+  --rail-tile-color: var(--project-accent, var(--app-theme-accent, var(--ring)));
+  --rail-tab-fill: var(--sidebar);
+  /* 34px tile in a 48px rail: 7px to the sidebar. */
+  --rail-tab-reach: 7px;
+  --rail-tab-flare: 8px;
   border-color: transparent;
-  background-color: color-mix(
+  border-radius: 9px 0 0 9px;
+  background-color: var(--rail-tab-fill);
+  box-shadow:
+    inset 2px 0 0 var(--rail-tile-color),
+    -6px 0 16px -8px
+      color-mix(in srgb, var(--rail-tile-color) var(--shell-glow-border), transparent);
+}
+/* The sidebar of a coloured project is tinted near its top; the tab matches it. */
+[data-project-tint] [data-app-rail] button[data-rail-project][data-pressed] {
+  --rail-tab-fill: color-mix(
     in srgb,
-    var(--rail-tile-color) var(--shell-tint-rail-fill),
-    transparent
+    var(--project-accent) var(--shell-tint-surface-top),
+    var(--sidebar)
   );
-  box-shadow: inset 0 0 0 2px var(--rail-tile-color);
+}
+html[data-window-glass="true"] [data-app-rail] button[data-rail-project][data-pressed] {
+  --rail-tab-fill: color-mix(in srgb, var(--rail-tile-color) 14%, transparent);
+}
+/* The bridge from the tile to the sidebar. */
+[data-app-rail] button[data-rail-project][data-pressed]::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 100%;
+  width: var(--rail-tab-reach);
+  border-radius: 0;
+  background-color: var(--rail-tab-fill);
+  box-shadow: none;
+}
+/* Curved corners above and below where the tab meets the sidebar. Not on touch screens, where
+   ::after is the button's larger hit area. */
+@media not (pointer: coarse) {
+  [data-app-rail] button[data-rail-project][data-pressed]::after {
+    content: "";
+    position: absolute;
+    top: calc(-1 * var(--rail-tab-flare));
+    bottom: calc(-1 * var(--rail-tab-flare));
+    left: calc(100% + var(--rail-tab-reach) - var(--rail-tab-flare));
+    width: var(--rail-tab-flare);
+    pointer-events: none;
+    background:
+      radial-gradient(
+          circle at 0 0,
+          transparent calc(var(--rail-tab-flare) - 0.5px),
+          var(--rail-tab-fill) var(--rail-tab-flare)
+        )
+        top / var(--rail-tab-flare) var(--rail-tab-flare) no-repeat,
+      radial-gradient(
+          circle at 0 100%,
+          transparent calc(var(--rail-tab-flare) - 0.5px),
+          var(--rail-tab-fill) var(--rail-tab-flare)
+        )
+        bottom / var(--rail-tab-flare) var(--rail-tab-flare) no-repeat;
+  }
+}
+[data-app-rail] button[data-rail-project] > :first-child {
+  transition:
+    opacity 150ms ease,
+    filter 150ms ease;
+}
+[data-app-rail]
+  button[data-rail-project]:not([data-pressed], :hover, :focus-visible)
+  > :first-child {
+  opacity: 0.6;
+  filter: saturate(0.7);
 }
