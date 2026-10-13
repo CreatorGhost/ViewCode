@@ -41,10 +41,17 @@ import {
 } from "./gitHubPullRequests.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-/** How long a repository owner stays on the account that could read it. */
+/**
+ * How long the account that could read a repository owner is taken at its word. Past it the
+ * account is still asked first, and only a failure then sends the read round the others.
+ */
 const ACCOUNT_ROUTE_TTL_MS = 10 * 60_000;
-/** How long an owner no other account could read stays on the active one before asking again. */
-const NO_ACCOUNT_ROUTE_TTL_MS = 5 * 60_000;
+/**
+ * How long an owner no other account could read stays on the active one before asking again.
+ * Short, because "no account could read it" is also what one slow or failed answer from the
+ * account that can read it looks like, and that must not hide the repository for minutes.
+ */
+const NO_ACCOUNT_ROUTE_TTL_MS = 30_000;
 
 /** The account a repository owner's commands run as. A null login stays on the active account. */
 interface AccountRoute {
@@ -714,7 +721,13 @@ export const make = Effect.gen(function* () {
           ),
           Effect.orElseSucceed(() => []),
         ),
-    { capacity: 8, timeToLive: () => Duration.minutes(1) },
+    {
+      capacity: 8,
+      // `gh auth status` checks every token online, which is over a second. An empty answer is
+      // gh failing to say, so it is asked again rather than believed.
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) && exit.value.length > 0 ? Duration.minutes(5) : Duration.zero,
+    },
   );
   const accountTokens = yield* Cache.makeWith(
     (key: string) => {
@@ -741,9 +754,10 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  /** What is remembered for `key`. An account outlives its time; "no account" does not. */
   const liveRoute = (key: string, now: number): AccountRoute | undefined => {
     const route = routes.get(key);
-    if (route === undefined || route.expiresAt > now) return route;
+    if (route === undefined || route.login !== null || route.expiresAt > now) return route;
     routes.delete(key);
     return undefined;
   };
@@ -812,64 +826,61 @@ export const make = Effect.gen(function* () {
     );
 
   /**
-   * Runs a read that `triedLogin` (null: the active account) could not answer as each other
-   * account signed in to the host, the active one first, and remembers the first that answers.
-   * A machine with one account gets the original failure back.
+   * Runs a read one account could not answer as the accounts signed in to the host, all at once,
+   * and remembers the first that answers. `overdue` is the remembered account that failed, or
+   * null when it was the active one. A machine with one account gets the original failure back.
    */
   const retryAsOtherAccounts = (
     input: GitHubCliCommand,
     target: GitHubCommandTarget,
-    triedLogin: string | null,
+    overdue: AccountRoute | null,
     failure: GitHubCliError,
   ) =>
     Effect.gen(function* () {
-      const accounts = yield* Cache.get(signedInAccounts, target.host);
-      if (accounts.length < 2) return yield* failure;
+      const candidates = (yield* Cache.get(signedInAccounts, target.host)).filter(
+        // The overdue account is asked again too: it failed with the token remembered for it,
+        // and signing in again gives it a new one.
+        (account) => overdue !== null || !account.active,
+      );
+      // Before the remotes are read: a machine with one account never needs them for this.
+      if (candidates.length === 0 && overdue === null) return yield* failure;
       const key = yield* routeKeyOf(target, input.cwd);
-      const candidates = accounts
-        .toSorted((left, right) => Number(right.active) - Number(left.active))
-        .filter((account) =>
-          triedLogin === null ? !account.active : account.account !== triedLogin,
-        );
-      for (const account of candidates) {
-        let token: Redacted.Redacted<string> | null = null;
-        if (!account.active) {
-          const found = yield* Effect.option(
-            Cache.get(accountTokens, `${target.host}\0${account.account}`),
-          );
-          if (Option.isNone(found)) {
-            yield* Effect.logWarning("Could not read a signed-in GitHub account's token", {
-              host: target.host,
-              login: account.account,
-            });
-            continue;
-          }
-          token = found.value;
-        }
-        const exit = yield* Effect.exit(runAs(input, target.host, token));
-        if (Exit.isFailure(exit)) {
-          yield* Effect.logDebug("GitHub read failed as another signed-in account", {
-            host: target.host,
-            login: account.account,
-          });
-          continue;
-        }
-        const now = yield* Clock.currentTimeMillis;
-        if (token === null) routes.delete(key);
-        else
-          remember(key, { login: account.account, token, expiresAt: now + ACCOUNT_ROUTE_TTL_MS });
-        return exit.value;
+      // Forgotten before anything else is asked, so it cannot outlive a failure nothing else
+      // answers. Unless another read has already replaced it.
+      if (overdue !== null && routes.get(key) === overdue) routes.delete(key);
+      if (candidates.length === 0) return yield* failure;
+      // At once rather than in turn: each account costs a round trip to GitHub, and the reader
+      // is waiting on the last one tried.
+      const answered = yield* Effect.option(
+        Effect.raceAll(
+          candidates.map((account) =>
+            Effect.flatMap(
+              account.active
+                ? Effect.succeed<Redacted.Redacted<string> | null>(null)
+                : Cache.get(accountTokens, `${target.host}\0${account.account}`),
+              (token) =>
+                Effect.map(runAs(input, target.host, token), (output) => ({
+                  login: account.account,
+                  token,
+                  output,
+                })),
+            ),
+          ),
+        ),
+      );
+      const now = yield* Clock.currentTimeMillis;
+      if (Option.isNone(answered)) {
+        remember(key, { login: null, token: null, expiresAt: now + NO_ACCOUNT_ROUTE_TTL_MS });
+        yield* Effect.logWarning("No signed-in GitHub account could read this", {
+          host: target.host,
+          tried: candidates.map((account) => account.account),
+        });
+        return yield* failure;
       }
-      remember(key, {
-        login: null,
-        token: null,
-        expiresAt: (yield* Clock.currentTimeMillis) + NO_ACCOUNT_ROUTE_TTL_MS,
-      });
-      yield* Effect.logWarning("No signed-in GitHub account could read this", {
-        host: target.host,
-        tried: candidates.map((account) => account.account),
-      });
-      return yield* failure;
+      const { login, token, output } = answered.value;
+      if (token === null) routes.delete(key);
+      else remember(key, { login, token, expiresAt: now + ACCOUNT_ROUTE_TTL_MS });
+      return output;
     });
 
   /** Runs a command as the account its repository is remembered against, finding one for a read. */
@@ -878,16 +889,32 @@ export const make = Effect.gen(function* () {
       const target = commandTarget(input);
       if (target === null) return yield* runGh(input, input.env);
       const route = yield* routeOf(target, input.cwd);
+      const now = yield* Clock.currentTimeMillis;
+      const overdue = route !== undefined && route.expiresAt <= now;
       return yield* runAs(input, target.host, route?.token ?? null).pipe(
+        Effect.tap(() =>
+          overdue
+            ? Effect.map(routeKeyOf(target, input.cwd), (key) => {
+                // Only while it is still what is remembered: a slower read must not put back
+                // an account another read has since replaced.
+                if (routes.get(key) === route) {
+                  remember(key, { ...route, expiresAt: now + ACCOUNT_ROUTE_TTL_MS });
+                }
+              })
+            : Effect.void,
+        ),
         Effect.catchIf(
           (error) =>
             target.read &&
-            // An owner no other account could read is left alone until that answer expires.
-            route?.login !== null &&
+            // An owner nothing is remembered about, or whose account is due a second look. A
+            // failure as an account that has just been answering is about the command (a
+            // timeout, a missing pull request), not about who can see the repository, so it
+            // must not cost the owner its account.
+            (route === undefined || overdue) &&
             (error._tag === "GitHubCliCommandError" ||
               error._tag === "GitHubPullRequestNotFoundError" ||
               error._tag === "GitHubCliAuthenticationError"),
-          (error) => retryAsOtherAccounts(input, target, route?.login ?? null, error),
+          (error) => retryAsOtherAccounts(input, target, route ?? null, error),
         ),
       );
     });
