@@ -1,4 +1,4 @@
-/** Flat code-bracket and git-branch emblem shared by web and mobile; full artwork is assets/viewcode-mark.svg. */
+/** Flat code-bracket and git-branch emblem shared by web and mobile; artwork is assets/viewcode-mark.svg. */
 export const VIEWCODE_MARK = {
   viewBox: "0 0 1000 650",
   aspectRatio: 1.5384615384615385,
@@ -14,8 +14,14 @@ export const VIEWCODE_MARK = {
     "M726 246a92 92 0 1 0 -184 0a92 92 0 1 0 184 0M686 246a52 52 0 1 0 -104 0a52 52 0 1 0 104 0",
     "M588 560a89 89 0 1 0 -178 0a89 89 0 1 0 178 0M548 560a49 49 0 1 0 -98 0a49 49 0 1 0 98 0",
   ],
+  /** Teal dots at the ring centres. */
+  nodeCenters: [
+    [408, 198],
+    [634, 246],
+    [499, 560],
+  ],
+  nodeDotRadius: 24,
   teal: "#00bfc9",
-  slate: "#1e2a33",
-  darkSlate: "#8da3ad",
-  tile: "#0b1114",
+  /** Mark color on light surfaces; dark surfaces use white. */
+  ink: "#0b1114",
 } as const;

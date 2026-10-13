@@ -20,7 +20,7 @@ function icon(icons: Map<string, Buffer>, path: string) {
 }
 
 it.layer(NodeServices.layer)("ViewCode production icons", (it) => {
-  it.effect("makes iOS and apple-touch icons opaque and full bleed on the dark tile", () =>
+  it.effect("makes iOS and apple-touch icons opaque and full bleed on the near-black tile", () =>
     Effect.gen(function* () {
       const icons = yield* loadIcons;
       yield* Effect.promise(async () => {
@@ -36,7 +36,7 @@ it.layer(NodeServices.layer)("ViewCode production icons", (it) => {
             .extract({ left: 0, top: 0, width: 1, height: 1 })
             .raw()
             .toBuffer();
-          // Dark ambient tile edge, not a white flatten showing through.
+          // Near-black tile edge, not a white flatten showing through.
           for (const channel of corner) assert.isBelow(channel, 24);
         }
       });
@@ -74,9 +74,9 @@ it.layer(NodeServices.layer)("ViewCode production icons", (it) => {
       yield* Effect.promise(async () => {
         const image = icon(icons, "apps/mobile/assets/android-icon-mark-prod.png");
         for (const [left, top] of [
-          [195, 186],
-          [247, 197],
-          [216, 269],
+          [199, 193],
+          [240, 202],
+          [216, 258],
         ]) {
           const pixel = await sharp(image)
             .extract({ left: left!, top: top!, width: 1, height: 1 })
