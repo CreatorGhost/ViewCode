@@ -1,9 +1,6 @@
 import { useNavigation, useRoute, StackActions } from "@react-navigation/native";
 import { nativePullRequestDestination } from "../lib/pullRequestNavigation";
 import { useCallback } from "react";
-import { Platform } from "react-native";
-import { CommonActions } from "@react-navigation/native";
-import { androidWorkspaceNavigationState } from "../lib/android-workspace-navigation";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useThreadShell } from "../state/entities";
 import { tryOpenExternalUrl } from "../lib/openExternalUrl";
@@ -36,8 +33,6 @@ export function useOpenPullRequest(options?: {
   const projectId =
     options?.context?.projectId ?? first(routeContext?.projectId) ?? thread?.projectId;
   const replace = options?.replace;
-  // A link opened from a PR screen keeps the chat's threadId but is not itself on a chat.
-  const openedFromChat = threadId !== undefined && !route.name.startsWith("PullRequest");
   return useCallback(
     async (url: string) => {
       const destination = nativePullRequestDestination(
@@ -49,18 +44,10 @@ export function useOpenPullRequest(options?: {
       if (!destination) return tryOpenExternalUrl(url, "pull-request");
       // ViewCode: an agent review started from the PR runs as the chat it was opened from.
       const params = threadId ? { ...destination, threadId } : destination;
-      // ViewCode: a PR opened from a chat stacks above it, so Back returns to the chat; a PR
-      // opened from the list or another PR takes the workspace's single detail slot.
-      if (Platform.OS === "android" && !openedFromChat)
-        navigation.dispatch((state) =>
-          CommonActions.reset(
-            androidWorkspaceNavigationState(state, { name: "PullRequest", params }),
-          ),
-        );
-      else if (replace) navigation.dispatch(StackActions.replace("PullRequest", params));
+      if (replace) navigation.dispatch(StackActions.replace("PullRequest", params));
       else navigation.navigate("PullRequest", params);
       return true;
     },
-    [environmentId, projectId, threadId, openedFromChat, navigation, replace],
+    [environmentId, projectId, threadId, navigation, replace],
   );
 }

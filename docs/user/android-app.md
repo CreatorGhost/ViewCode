@@ -58,9 +58,8 @@ whatever hides a match. **+** on a folder starts a new task in that project.
 
 ## Pull requests
 
-Home has two tabs at the bottom, **Chats** and **Pull requests** (a rail beside
-the sidebar on a tablet or unfolded phone). The list covers every connected
-computer; filter it by computer, project, state or your involvement, or search.
+Open them from **Settings → Projects & threads → Pull requests**. The list
+covers every connected computer; filter it by computer, project, state or your involvement, or search.
 
 A pull request opens on **Overview** (checks, reviewers, conflicts, merge and
 changed files), **Activity** (comments and review threads you can reply to and

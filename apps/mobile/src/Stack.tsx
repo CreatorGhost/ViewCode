@@ -23,8 +23,7 @@ import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
 import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
-import { WorkspaceRootScreen } from "./features/workspace/WorkspaceRootScreen";
-import { AndroidWorkspaceTabsProvider } from "./features/workspace/AndroidWorkspaceTabsProvider";
+import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
 import {
   RenderErrorBoundary,
   RenderFailureView,
@@ -36,7 +35,6 @@ import { useDirectPushRegistration } from "./features/agent-awareness/useDirectP
 import { AttachmentFileScreen } from "./features/files/AttachmentFileScreen";
 import { ThreadFilesTreeScreen, ThreadFileScreen } from "./features/files/ThreadFilesRouteScreen";
 import { AdaptiveWorkspaceLayout } from "./features/layout/AdaptiveWorkspaceLayout";
-import { selectedPullRequestKey } from "./features/pull-requests/pullRequestSelection";
 import {
   HardwareKeyboardCommandOverlay,
   HardwareKeyboardCommandProvider,
@@ -569,16 +567,13 @@ function RootStackLayout(props: {
       <ThreadOutboxDrainWorker />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
-        <AndroidWorkspaceTabsProvider>
-          <AdaptiveWorkspaceLayout
-            pathname={workspaceLocation.pathname}
-            workspaceRouteKey={workspaceLocation.routeKey}
-            selectedPullRequestKey={selectedPullRequestKey(props.state)}
-          >
-            {props.children}
-            <HardwareKeyboardCommandOverlay />
-          </AdaptiveWorkspaceLayout>
-        </AndroidWorkspaceTabsProvider>
+        <AdaptiveWorkspaceLayout
+          pathname={workspaceLocation.pathname}
+          workspaceRouteKey={workspaceLocation.routeKey}
+        >
+          {props.children}
+          <HardwareKeyboardCommandOverlay />
+        </AdaptiveWorkspaceLayout>
       </ExistingThreadSettingsRouteProvider>
     </HardwareKeyboardCommandProvider>
   );
@@ -631,7 +626,7 @@ const RootStackConfig = createNativeStackNavigator({
   },
   screens: {
     Home: createNativeStackScreen({
-      screen: WorkspaceRootScreen,
+      screen: HomeRouteScreen,
       linking: "",
       options: {
         ...GLASS_HEADER_OPTIONS,
@@ -640,7 +635,6 @@ const RootStackConfig = createNativeStackNavigator({
         ...getCompactBrandHeaderOptions(),
       },
     }),
-    // ViewCode: iOS reaches the pull request list from Home; Android shows it as a tab.
     PullRequests: createNativeStackScreen({
       screen: PullRequestsRouteScreen,
       linking: "pull-requests",

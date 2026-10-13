@@ -1156,14 +1156,12 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   lives in `PullRequestAgentReview.tsx`. Every entry point (Git sheet, Open PR,
   the git toast) goes through `useOpenPullRequest` and passes the chat's
   `threadId`, so a review started there runs as that chat's agent.
-- The Android Chats / Pull requests bar and rail are React Native, not
-  upstream's Compose `T3WorkspaceNavigationModule`: `t3-native-controls` has no
-  Compose. Back walks history when there is any (chats stack on chats here) and
-  resets to the list only when nothing is underneath; upstream gives each
-  detail one slot above Home. iOS keeps Home and opens the list as a
-  `PullRequests` route from a header button; `v5-workspace-context`,
-  `native-layout-metrics` and `ScrollViewMarker` are stand-ins for upstream's
-  Screens 5 pieces.
+- Mobile Home stays the chat list on Android and iOS, including the split-view
+  sidebar. Pull requests open as a `PullRequests` stack route from Settings;
+  iOS also keeps its Home header entry. PRs and chats retain ordinary stack
+  history, so Back returns to the list or chat they were opened from, with a
+  list fallback for cold links. `v5-workspace-context`, `native-layout-metrics`
+  and `ScrollViewMarker` remain stand-ins for upstream's Screens 5 pieces.
 - PR write actions check `orchestration:operate`, the scope ViewCode's server
   enforces, not upstream's split scopes.
 - `@t3tools/mobile-markdown-text` is installed as a copy, not a link: after

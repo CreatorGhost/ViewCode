@@ -98,10 +98,7 @@ import {
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
 import { openThreadFromThread } from "./openThreadFromThread";
-import {
-  useAndroidWorkspaceBack,
-  useWorkspaceListNavigation,
-} from "../workspace/useAndroidWorkspaceNavigation";
+import { useDetailBack } from "../../native/useDetailBack";
 
 function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -114,7 +111,7 @@ function ThreadHeader(
     readonly onOpenFilesInspector: () => void;
   },
 ) {
-  const returnToList = useWorkspaceListNavigation("threads");
+  const navigation = useNavigation();
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { onOpenTerminal } = props.gitControls;
   const native = useThreadHeaderOptions(props);
@@ -191,7 +188,14 @@ function ThreadHeader(
             />
           ) : null
         }
-        onBack={layout.usesSplitView ? undefined : returnToList}
+        onBack={
+          layout.usesSplitView
+            ? undefined
+            : () => {
+                if (navigation.canGoBack()) navigation.goBack();
+                else navigation.dispatch(StackActions.replace("Home"));
+              }
+        }
         actions={androidHeaderActions}
         hideBottomBorder
       />
@@ -259,7 +263,7 @@ function ThreadUnavailableScreen(props: {
 }
 
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
-  useAndroidWorkspaceBack("threads");
+  useDetailBack("Home");
   const { state: workspaceState } = useWorkspaceState();
   const { connectionState } = useRemoteConnectionStatus();
   const { selectedThread } = useThreadSelection();

@@ -16,7 +16,6 @@ import {
 } from "./pullRequestActions";
 import { scopedPullRequestListKey, type EnvironmentPullRequestListEntry } from "./pullRequestList";
 import { pullRequestTarget } from "./usePullRequestDiff";
-import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSelection";
 
 export function usePullRequestListActions(
   environmentIds: readonly EnvironmentId[],
@@ -27,7 +26,6 @@ export function usePullRequestListActions(
 ) {
   const registry = use(RegistryContext);
   const navigation = useNavigation();
-  const selectAndroidWorkspace = useAndroidWorkspaceSelection();
   const permissionKey = JSON.stringify(environmentIds);
   const permissionAtom = useMemo(() => {
     const ids: readonly EnvironmentId[] = JSON.parse(permissionKey);
@@ -76,9 +74,7 @@ export function usePullRequestListActions(
             !pr.viewerPermissions.requestReviewers
           )
             throw new Error("Review requests aren't available for this pull request.");
-          if (Platform.OS === "android") {
-            selectAndroidWorkspace({ name: "PullRequest", params: params(entry) }, params(entry));
-          } else navigation.navigate("PullRequestReviewers", params(entry));
+          navigation.navigate("PullRequestReviewers", params(entry));
           return;
         }
         if (
@@ -106,14 +102,12 @@ export function usePullRequestListActions(
         setBusyKey(null);
       }
     },
-    [registry, navigation, params, run, onChanged, selectAndroidWorkspace],
+    [registry, navigation, params, run, onChanged],
   );
   const select = useCallback(
     (entry: EnvironmentPullRequestListEntry, action: string) => {
       if (action === "open") {
-        if (Platform.OS === "android")
-          selectAndroidWorkspace({ name: "PullRequest", params: params(entry) });
-        else navigation.navigate("PullRequest", params(entry));
+        navigation.navigate("PullRequest", params(entry));
         return;
       }
       if (action === "request-review") {
@@ -149,7 +143,7 @@ export function usePullRequestListActions(
         },
       ]);
     },
-    [navigation, params, perform, selectAndroidWorkspace],
+    [navigation, params, perform],
   );
   const actions = useCallback(
     (entry: EnvironmentPullRequestListEntry): ControlPillMenuProps["actions"] => [
