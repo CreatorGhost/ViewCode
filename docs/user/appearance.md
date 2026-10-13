@@ -29,6 +29,14 @@ window around the chat, tinted by your theme. Turn it off with **Window transpar
 your system settings, the window stays solid. The browser and other systems always use a solid
 background.
 
+## Project colour
+
+When you pick a single project in the rail and that project has a colour, the rail, the sidebar
+and the composer's glow while an agent works take on its colour, lightly enough to sit on any
+theme. With **All projects**, or a project without a colour, they use the theme's accent. In
+**Settings → Appearance → Project colour**, turn off **Colour the app with the active project**
+to keep the theme accent everywhere, or **Composer glow** to drop the glow.
+
 ## Motion
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the

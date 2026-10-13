@@ -23,6 +23,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME` and `VIEWCODE_TEAL_THEME`, the web-only default; `isViewCodeThemeId` names the glass themes), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids); `apps/web/src/viewcodeLookMigration.ts` runs two one-time moves to the teal default (upstream themes, then plain `viewcode`) that share one Undo target, the original look |
 | Thread goal and debug mode               | `goal`/`debugMode` on threads (contracts `orchestration.ts`, migration `059_ProjectionThreadsGoalDebugMode`, `orchestration/threadGoal.ts`), server `provider/turnGuidance.ts`, `review/DebugPlaybook.ts`, `orchestration/ThreadGoals.ts` + MCP `mcp/toolkits/goal/`, client-runtime `threadGoal.ts`, web `chat/useThreadGoalControls.ts`, mobile `threads/useThreadGoalActions.ts`                                                                   |
 | Project colors                           | `projectColor` on projects (contracts `orchestration.ts`, migration `058_ProjectionProjectColor`), web `projectColor.logic.ts`, `components/ProjectColorPicker.tsx`, `--project-accent` from `projectIconColors.ts` (the chat top bar draws it with `background-image` in `index.css` because themes and glass override its `background-color`), mobile `lib/projectIcon.ts`                                                                          |
+| Sidebar (folders, agent groups, strip)   | web `components/Sidebar.tsx`, `sidebar/SidebarAttentionStrip.tsx`, `sidebar/SidebarNewMenu.tsx`, client-runtime `state/threadArrangement.ts` (groups, sort, counts) and `state/threadTree.ts`, mobile `features/home/homeFolderList.ts`; title strip and project tint in `viewcode-theme.css`, tint strengths in shared `shellTint.ts`                                                                                                                |
 
 ## Decisions
 
@@ -874,6 +875,50 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   reduced motion. Anything wider or always-on needs a maintainer's sign-off.
 - Compact names drop the "Claude " prefix ("Opus 5.5"); the provider is shown
   beside them. Handoff is shown once per provider list, not on every row.
+
+### Sidebar
+
+- The shape is fixed by the user: rail, project folders, chats, each chat's agents.
+  Do not regroup by time. Grouping, sorting and the attention counts live in
+  client-runtime `threadArrangement.ts` so web and mobile arrange a folder alike.
+- An agent's group comes from `resolveSpawnedAgentRowStatus`, the status its row in
+  the lead's chat shows; an agent with no session and no turn is done, not working.
+  `sortChatAgents` and `flattenChatRows` must use the same group rule, or a group
+  splits into two runs with two labels. Mobile passes one that counts a paused
+  agent as Needs you, since it waits for Resume.
+- Labels appear only when a chat's agents span more than one group, and Done folds
+  only beside other groups: a chat whose agents are all done already folds them
+  behind its own disclosure, and a second fold costs a click for nothing. Done opens
+  for the open agent, a folder search and a strip filter.
+- The attention strip counts each thread once (needs you, then working, then new).
+  New is `hasUnseenCompletion`: a thread never opened counts as seen, so a fresh
+  install does not light up its history. The counts are one memo in the sidebar;
+  rows never subscribe, and a row gets its agent counts as four numbers so memoised
+  rows only re-render when their own counts move. A strip filter keeps matches and
+  the chats above them, not a matching chat's other agents
+  (`selectThreadTreeSearchMatches` with `includeDescendants: false`).
+- Folder sort is per logical project key: web keeps it in `uiStateStore`
+  (`folderSortOrderById`, the default stored as no entry), mobile for the session
+  like its other folder state. Recent and Name are plain orders, so they drop the
+  Needs you section on top.
+- macOS traffic lights: `main.tsx` marks `<html data-macos-window-controls>` from
+  the desktop bridge (`hidden` in fullscreen), and the layout is CSS keyed on it,
+  so a browser previews it by setting the attribute. Do not move the offsets back
+  into React state. Title row content is measured from the left edge of its own
+  column (the sidebar or main column starts after the rail), and with the sidebar
+  collapsed or shown as an overlay the main column starts 12pt after the lights,
+  because the rail alone is narrower than the three buttons.
+- The project tint follows only the project picked in the rail: with All, or a
+  project without a colour, the sidebar stays neutral and the composer glow keeps
+  the theme accent (user decision). It is `--project-accent` on a `display:
+contents` wrapper around the shell, since `components/ui` takes no dynamic
+  classes; nothing re-renders when it changes. Layer strengths come from
+  `shellTint.ts` per theme, written beside the palette by `themePalette.ts`; its
+  test holds every built-in theme to readable contrast under the tint, so a new
+  theme must pass it. The composer change is limited to the glow's colour and
+  alphas; the halo can be turned off, the running light cannot.
+- Provider usage rings, Settings, Pull Requests and Connect phone stay at the
+  bottom of the rail (user decision); the sidebar has no footer of its own.
 
 ### Account usage
 
