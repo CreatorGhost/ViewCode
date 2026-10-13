@@ -142,7 +142,7 @@ export function getChangeRequestTerminologyForKind(
 // `user@host:path`, or `host:path` with the user from the SSH config (`gitlab-work:group/app`).
 // Never a URL with a scheme, and never a one-letter Windows drive.
 const SCP_SSH_REMOTE_PATTERN =
-  /^(?![a-zA-Z][a-zA-Z0-9+.-]*:\/\/)(?:[a-zA-Z0-9._-]+@)?([^:/\\\s]{2,}):(?!\/\/)/;
+  /^(?![a-zA-Z][a-zA-Z0-9+.-]*:\/\/)(?:[^@:/\s]+@)?([^@:/\\\s]{2,}):(?!\/\/)/;
 
 // The port-443 SSH endpoints forges document, which serve the same repositories as the web host.
 const SSH_ENDPOINT_WEB_HOSTS: Readonly<Record<string, string>> = {

@@ -47,6 +47,8 @@ describe("sshAliasRemote", () => {
     expect(followsSshHostname("gitlab.company.com", "10.0.0.5")).toBe(false);
     expect(followsSshHostname("gitlab.company.com", "bastion.company.com")).toBe(false);
     expect(followsSshHostname("work", "10.0.0.5")).toBe(false);
+    expect(followsSshHostname("github.acme.com-work", "github.acme.com")).toBe(true);
+    expect(followsSshHostname("gitlab.company.com", "gitlab.company")).toBe(false);
   });
 
   it.effect("resolves an alias remote and leaves known hosts unread", () =>
