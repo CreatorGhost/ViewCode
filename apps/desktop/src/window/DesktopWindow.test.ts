@@ -791,7 +791,7 @@ describe("DesktopWindow", () => {
           // The 14-point native buttons should share the zoomed 52px header's center.
           const headerCenter = 26 * fakeWindow.window.webContents.getZoomFactor();
           assert.isAtMost(Math.abs(position.y + 7 - headerCenter), 0.5);
-          assert.equal(position.x, 16);
+          assert.equal(position.x, 12);
         }
 
         fakeWindow.isFullScreen.mockReturnValue(true);
@@ -801,7 +801,7 @@ describe("DesktopWindow", () => {
 
         fakeWindow.isFullScreen.mockReturnValue(false);
         fakeWindow.windowListeners.get("leave-full-screen")?.();
-        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 16, y: 19 }]);
+        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 12, y: 19 }]);
       }).pipe(Effect.provide(layer));
     }),
   );
