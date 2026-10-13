@@ -27,7 +27,16 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { cn } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import {
+  useClientSettings,
+  useEnvironmentIdentificationMode,
+  useLegacySidebarEnabled,
+} from "../hooks/useSettings";
+import { resolveShellTintColor } from "@t3tools/shared/shellTint";
+import { resolveProjectGroupColor } from "../projectColor.logic";
+import { projectAccentClassName } from "../projectIconColors";
+import { useUiStateStore } from "../uiStateStore";
+import { useSidebarProjectGroups } from "./sidebar/useSidebarProjectGroups";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -209,6 +218,25 @@ function NavigationHistoryShortcuts() {
   return null;
 }
 
+/**
+ * The colour the shell takes while the rail shows one project that has a colour (and the
+ * setting allows it), else null: the neutral sidebar and the theme accent's composer glow.
+ * Set once as `--project-accent` on the shell root, so rows never re-render for it.
+ */
+function useActiveProjectTint() {
+  const projectGroups = useSidebarProjectGroups();
+  const scopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
+  const followProjectColor = useClientSettings((settings) => settings.projectColorTint);
+  const scopedGroup = useMemo(
+    () => projectGroups.find((group) => group.projectKey === scopeKey) ?? null,
+    [projectGroups, scopeKey],
+  );
+  return resolveShellTintColor({
+    projectColor: scopedGroup ? resolveProjectGroupColor(scopedGroup) : null,
+    followProjectColor,
+  });
+}
+
 // Settings swaps the thread sidebar out of the tree. Keep the lightweight
 // project projection subscribed so returning to a draft never renders the
 // zero-project state while the environment snapshot reconnects.
@@ -220,6 +248,7 @@ function ProjectProjectionRetention() {
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
+  const projectTint = useActiveProjectTint();
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
@@ -284,43 +313,49 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
 
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>
-      <SidebarProvider
-        className="h-dvh! min-h-0!"
-        data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
-        // The macOS traffic-light layout keys on <html data-macos-window-controls>
-        // (lib/windowControlsOverlay.ts), so a browser can preview it.
-        data-app-rail-layout=""
-        defaultOpen
-        overlayBelow={THREAD_SIDEBAR_OVERLAY_BREAKPOINT}
-        style={sidebarProviderStyle}
+      {/* Layout-free: carries the active project's colour to the rail, sidebar and composer. */}
+      <div
+        className={cn("contents", projectTint && projectAccentClassName(projectTint))}
+        data-project-tint={projectTint ?? undefined}
       >
-        <ProjectProjectionRetention />
-        <AppRail />
-        <Sidebar
-          side="left"
-          collapsible="offcanvas"
-          data-app-sidebar=""
-          role="navigation"
-          aria-label={isOnSettings ? "Settings" : "Threads"}
-          resizable={resizable}
+        <SidebarProvider
+          className="h-dvh! min-h-0!"
+          data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
+          // The macOS traffic-light layout keys on <html data-macos-window-controls>
+          // (lib/windowControlsOverlay.ts), so a browser can preview it.
+          data-app-rail-layout=""
+          defaultOpen
+          overlayBelow={THREAD_SIDEBAR_OVERLAY_BREAKPOINT}
+          style={sidebarProviderStyle}
         >
-          {isOnSettings ? (
-            <>
-              <SidebarChromeHeader isElectron={isElectron} />
-              <SettingsSidebarNav pathname={pathname} />
-            </>
-          ) : legacySidebarEnabled ? (
-            <LegacyThreadSidebar />
-          ) : (
-            <ThreadSidebar />
-          )}
-          <SidebarRail onDoubleClick={resetSidebarWidth} />
-        </Sidebar>
-        {children}
-        <SidebarControl />
-        <NavigationHistoryShortcuts />
-        <MainAppLocationTracker />
-      </SidebarProvider>
+          <ProjectProjectionRetention />
+          <AppRail />
+          <Sidebar
+            side="left"
+            collapsible="offcanvas"
+            data-app-sidebar=""
+            role="navigation"
+            aria-label={isOnSettings ? "Settings" : "Threads"}
+            resizable={resizable}
+          >
+            {isOnSettings ? (
+              <>
+                <SidebarChromeHeader isElectron={isElectron} />
+                <SettingsSidebarNav pathname={pathname} />
+              </>
+            ) : legacySidebarEnabled ? (
+              <LegacyThreadSidebar />
+            ) : (
+              <ThreadSidebar />
+            )}
+            <SidebarRail onDoubleClick={resetSidebarWidth} />
+          </Sidebar>
+          {children}
+          <SidebarControl />
+          <NavigationHistoryShortcuts />
+          <MainAppLocationTracker />
+        </SidebarProvider>
+      </div>
     </PanelAnimationSuppressionProvider>
   );
 }

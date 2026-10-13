@@ -3,6 +3,12 @@ import * as Schema from "effect/Schema";
 import "culori/css";
 import { converter, parse } from "culori/fn";
 import {
+  oklabLightness,
+  parseThemeColor as parseShellColor,
+  resolveShellTintAlphas,
+  shellTintCssVariables,
+} from "@t3tools/shared/shellTint";
+import {
   WEB_BUILT_IN_THEMES,
   EMBER_THEME,
   GROVE_THEME,
@@ -1497,6 +1503,21 @@ export const THEME_PREVIEW_ID = "__preview";
  * can be judged against the real interface instead of a miniature. Callers
  * restore the stored theme (refreshTheme) when the draft goes away.
  */
+/**
+ * The project tint's and composer glow's strength for this palette's sidebar
+ * (shared/shellTint.ts). Without a palette the CSS defaults per appearance apply.
+ */
+function applyShellTint(root: HTMLElement, colors: ThemeColors | null): void {
+  const sidebar = colors ? parseShellColor(colors.sidebar) : null;
+  const variables = shellTintCssVariables(
+    resolveShellTintAlphas(sidebar ? oklabLightness(sidebar) : 0),
+  );
+  for (const [variable, value] of variables) {
+    if (sidebar) root.style.setProperty(variable, value);
+    else root.style.removeProperty(variable);
+  }
+}
+
 export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeAppearance): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
@@ -1511,6 +1532,7 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
     // A half-typed hex keeps the last good value instead of blanking the role.
     if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
+  applyShellTint(root, colors);
 }
 
 export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppearance): void {
@@ -1529,6 +1551,7 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
     for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
       root.style.setProperty(APP_THEME_VARIABLES[role], value);
     }
+    applyShellTint(root, colors);
     return;
   }
 
@@ -1536,6 +1559,7 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
   for (const variable of Object.values(APP_THEME_VARIABLES)) {
     root.style.removeProperty(variable);
   }
+  applyShellTint(root, null);
 }
 
 export function resolveThemeAppearance(

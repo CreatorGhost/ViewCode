@@ -51,6 +51,8 @@ function RailButton(props: {
   /** Tooltip text when the accessible label carries more (a project's waiting count). */
   tooltip?: string;
   onContextMenu?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  /** A project button; the active project's tint rings it (viewcode-theme.css). */
+  project?: boolean;
 }) {
   return (
     <Tooltip>
@@ -62,6 +64,7 @@ function RailButton(props: {
             aria-label={props.label}
             aria-pressed={props.pressed}
             data-pressed={props.pressed ? "" : undefined}
+            data-rail-project={props.project ? "" : undefined}
             onClick={props.onClick}
             onContextMenu={props.onContextMenu}
           />
@@ -89,6 +92,7 @@ const RailProjectButton = memo(function RailProjectButton(props: {
       label={railProjectLabel(project.displayName, { needsYou, working })}
       tooltip={project.displayName}
       pressed={props.selected}
+      project
       onClick={() => props.onSelect(project)}
       onContextMenu={(event) => {
         event.preventDefault();

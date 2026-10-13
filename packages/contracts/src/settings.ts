@@ -534,6 +534,10 @@ export const ClientSettingsSchema = Schema.Struct({
   collapseFinishedTurns: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // ViewCode: the chat top bar's project actions and Git buttons (off keeps it quiet).
   headerActionsVisible: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // ViewCode: the sidebar and composer glow take the active project's colour (off: theme accent).
+  projectColorTint: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // ViewCode: the glow around the composer while a turn runs.
+  composerGlow: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // ViewCode: read aloud voice (null is the default natural voice) and speed.
   readAloudVoice: Schema.NullOr(ReadAloudVoice).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1867,6 +1871,8 @@ export const ClientSettingsPatch = Schema.Struct({
   chatWidth: Schema.optionalKey(ChatWidth),
   collapseFinishedTurns: Schema.optionalKey(Schema.Boolean),
   headerActionsVisible: Schema.optionalKey(Schema.Boolean),
+  projectColorTint: Schema.optionalKey(Schema.Boolean),
+  composerGlow: Schema.optionalKey(Schema.Boolean),
   readAloudVoice: Schema.optionalKey(Schema.NullOr(ReadAloudVoice)),
   readAloudRate: Schema.optionalKey(ReadAloudRate),
 });

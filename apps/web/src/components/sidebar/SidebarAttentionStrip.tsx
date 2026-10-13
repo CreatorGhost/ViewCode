@@ -12,7 +12,7 @@ const ITEMS: ReadonlyArray<{
   {
     id: "needs-you",
     label: (count) => `${count} ${count === 1 ? "needs" : "need"} you`,
-    glyph: <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />,
+    glyph: <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning-foreground" />,
   },
   {
     id: "working",

@@ -173,6 +173,7 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { WindowTransparencySetting } from "./WindowTransparencySetting";
 import { ChatAppearanceSettings } from "./ChatAppearanceSettings";
+import { ProjectColorSettings } from "./ProjectColorSettings";
 import { ReadAloudSettings } from "./ReadAloudSettings";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
@@ -583,6 +584,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.headerActionsVisible !== DEFAULT_UNIFIED_SETTINGS.headerActionsVisible
         ? ["Actions and Git in the top bar"]
         : []),
+      ...(settings.projectColorTint !== DEFAULT_UNIFIED_SETTINGS.projectColorTint
+        ? ["Colour the app with the active project"]
+        : []),
+      ...(settings.composerGlow !== DEFAULT_UNIFIED_SETTINGS.composerGlow ? ["Composer glow"] : []),
       ...(settings.readAloudVoice !== DEFAULT_UNIFIED_SETTINGS.readAloudVoice
         ? ["Read aloud voice"]
         : []),
@@ -730,6 +735,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.chatWidth,
       settings.collapseFinishedTurns,
       settings.headerActionsVisible,
+      settings.projectColorTint,
+      settings.composerGlow,
       settings.readAloudVoice,
       settings.readAloudRate,
       followSystem,
@@ -811,6 +818,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       collapseFinishedTurns: DEFAULT_UNIFIED_SETTINGS.collapseFinishedTurns,
       headerActionsVisible: DEFAULT_UNIFIED_SETTINGS.headerActionsVisible,
+      projectColorTint: DEFAULT_UNIFIED_SETTINGS.projectColorTint,
+      composerGlow: DEFAULT_UNIFIED_SETTINGS.composerGlow,
       readAloudVoice: DEFAULT_UNIFIED_SETTINGS.readAloudVoice,
       readAloudRate: DEFAULT_UNIFIED_SETTINGS.readAloudRate,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -1259,6 +1268,8 @@ export function AppearanceSettingsPanel() {
           />
         </div>
       </SettingsSection>
+
+      <ProjectColorSettings />
 
       <SettingsSection id="appearance-interface" title="Interface">
         <SettingsRow

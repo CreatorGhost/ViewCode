@@ -332,8 +332,8 @@ function parentThreadKeyOf(
 // An agent's dot: one static colour per group, never animated.
 const AGENT_DOT_CLASS_NAME: Record<AgentStatusGroup, string> = {
   working: "bg-info",
-  "needs-you": "bg-warning",
-  failed: "rounded-[1px] bg-destructive",
+  "needs-you": "bg-warning-foreground",
+  failed: "rounded-[1px] bg-destructive-foreground",
   done: "bg-sidebar-muted-foreground/45",
 };
 

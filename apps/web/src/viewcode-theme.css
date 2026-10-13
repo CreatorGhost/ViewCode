@@ -729,3 +729,103 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
 [data-rail-usage-ring]:is(:hover, [data-popup-open]) {
   background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
 }
+
+/*
+ * Active project tint (AppSidebarLayout puts data-project-tint and --project-accent on the
+ * shell root while the rail shows one coloured project). Glass over the left panel: a light
+ * gradient on the rail and sidebar, a faint right edge, the selected row and the agent tree
+ * in the project colour, the rail's active project ringed in it. Strengths are the theme's
+ * pairing alphas (shared/shellTint.ts, written next to the palette by themePalette.ts); the
+ * defaults here cover the stock palette. Provider usage rings keep their own colours, and
+ * nothing here touches the composer beyond its glow colour.
+ */
+:root {
+  --shell-glow-color: var(--app-theme-accent, var(--ring));
+  --shell-tint-surface-top: 7%;
+  --shell-tint-surface-bottom: 3%;
+  --shell-tint-border: 22%;
+  --shell-tint-selected-row: 14%;
+  --shell-tint-guide: 30%;
+  --shell-tint-rail-fill: 16%;
+  --shell-tint-badge-fill: 18%;
+  --shell-glow-border: 45%;
+  --shell-glow-near: 28%;
+  --shell-glow-far: 12%;
+}
+:root:not(.dark) {
+  --shell-tint-surface-top: 3.5%;
+  --shell-tint-surface-bottom: 1.5%;
+  --shell-tint-border: 15%;
+  --shell-tint-selected-row: 9%;
+  --shell-tint-guide: 20%;
+  --shell-tint-rail-fill: 10%;
+  --shell-tint-badge-fill: 12%;
+  --shell-glow-border: 35%;
+  --shell-glow-near: 16%;
+  --shell-glow-far: 7%;
+}
+[data-project-tint] {
+  --shell-glow-color: var(--project-accent);
+  --sidebar-guide: color-mix(in srgb, var(--project-accent) var(--shell-tint-guide), transparent);
+}
+/* A very dark or very light project colour still glows: its lightness is held to a band
+   that reads on both dark and light sheets. */
+@supports (color: oklch(from red l c h)) {
+  [data-project-tint] {
+    --shell-glow-color: oklch(from var(--project-accent) clamp(0.6, l, 0.8) c h);
+  }
+}
+[data-project-tint] {
+  --shell-tint-gradient: linear-gradient(
+    color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-top), transparent),
+    color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-bottom), transparent)
+  );
+}
+[data-project-tint] [data-app-rail],
+/* The macOS gap beside the rail (rail only) is part of the same panel. */
+html[data-macos-window-controls="visible"] [data-project-tint] > [data-app-rail-layout] {
+  background-image: var(--shell-tint-gradient);
+}
+[data-project-tint] [data-app-sidebar] [data-slot="sidebar-inner"] {
+  background-image: var(--shell-tint-gradient), var(--surface-grain, none);
+  background-repeat: no-repeat, repeat;
+  background-size:
+    100% 100%,
+    var(--surface-grain-size, auto);
+}
+html:root [data-project-tint] [data-app-sidebar][data-app-sidebar] {
+  border-color: color-mix(in srgb, var(--project-accent) var(--shell-tint-border), transparent);
+}
+html:root
+  [data-project-tint]
+  :is([data-testid="sidebar-row"], [data-testid="sidebar-row-child"])[aria-current="page"] {
+  border-radius: 8px;
+  background-color: color-mix(
+    in srgb,
+    var(--project-accent) var(--shell-tint-selected-row),
+    transparent
+  );
+  box-shadow: inset 2px 0 0 var(--project-accent);
+}
+/* The bar is the inset shadow above; ViewCode themes' own bar steps aside. */
+html:root
+  [data-project-tint]
+  :is([data-testid="sidebar-row"], [data-testid="sidebar-row-child"])[aria-current="page"]::before {
+  content: none;
+}
+[data-project-tint] [data-sidebar-folder-badge] {
+  background-color: color-mix(
+    in srgb,
+    var(--project-accent) var(--shell-tint-badge-fill),
+    transparent
+  );
+  color: var(--project-accent);
+}
+[data-project-tint] [data-app-rail] button[data-rail-project][data-pressed] {
+  background-color: color-mix(
+    in srgb,
+    var(--project-accent) var(--shell-tint-rail-fill),
+    transparent
+  );
+  box-shadow: inset 0 0 0 2px var(--project-accent);
+}
