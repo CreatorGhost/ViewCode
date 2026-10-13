@@ -9605,6 +9605,14 @@ export default function ChatView(props: ChatViewProps) {
   }, [cancelWorktreeSetup, draftId, routeThreadRef.environmentId, worktreeSetup]);
   const onSendRef = useRef(onSend);
   onSendRef.current = onSend;
+  const onCompactContextRef = useRef(onCompactContext);
+  onCompactContextRef.current = onCompactContext;
+  // Stable identities, so a panel toggle does not re-render the composer.
+  const onComposerSend = useCallback(
+    (...args: Parameters<typeof onSend>) => onSendRef.current(...args),
+    [],
+  );
+  const onComposerCompactContext = useCallback(() => onCompactContextRef.current(), []);
   // Resend once the cancelled dispatch has settled and the composer is free.
   // Every state that makes `onSend` bail and wait is part of the readiness
   // check, so the flag survives a reconnect, a reverting checkpoint, or a
@@ -9669,22 +9677,30 @@ export default function ChatView(props: ChatViewProps) {
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
+      // Read at call time so opening a panel does not re-render the timeline.
+      const diffOpen =
+        selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) ===
+        "diff";
       explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;
       useDiffPanelStore.getState().selectTurn(activeThreadRef, turnId, filePath);
       useRightPanelStore.getState().open(activeThreadRef, "diff");
       onDiffPanelOpen?.();
     },
-    [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
+    [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
   const onOpenWorkingTreeDiff = useCallback(
     (filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
+      // Read at call time so opening a panel does not re-render the timeline.
+      const diffOpen =
+        selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) ===
+        "diff";
       explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;
       useDiffPanelStore.getState().selectWorkingTreeFile(activeThreadRef, filePath);
       useRightPanelStore.getState().open(activeThreadRef, "diff");
       onDiffPanelOpen?.();
     },
-    [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
+    [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
   openWorkingTreeDiffRef.current = onOpenWorkingTreeDiff;
   // The revert handler is read from a ref at call-time so the callback
@@ -10378,8 +10394,8 @@ export default function ChatView(props: ChatViewProps) {
                             onPageScrollKeyDown={onComposerPageScrollKeyDown}
                             onPageScrollKeyUp={onComposerPageScrollKeyUp}
                             onPageScrollRelease={onComposerPageScrollRelease}
-                            onCompactContext={onCompactContext}
-                            onSend={onSend}
+                            onCompactContext={onComposerCompactContext}
+                            onSend={onComposerSend}
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}
