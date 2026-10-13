@@ -35,6 +35,7 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { ThemeImportDialog } from "./ThemeImportDialog";
 import { searchableSetting } from "./settingsSearch";
@@ -43,12 +44,12 @@ import {
   STANDARD_THEME_CARDS,
   getThemeCardDefinition,
   previewColorsOf,
-  ThemePreviewCircles,
+  ThemeModePicks,
   ThemePreviewCircle,
   type ThemeCardDefinition,
   type ThemeMode,
 } from "./ThemePreviewCircles";
-import { ThemeWireframe } from "./ThemeWireframe";
+import { ThemeMiniPreview } from "./ThemeMiniPreview";
 
 // ViewCode: every web built-in, so the library offers the ViewCode theme and
 // the ported Droppy themes beside upstream's.
@@ -95,6 +96,7 @@ function ThemeLibraryCard({
   onUse,
   onUseMode,
   activeModes,
+  appearance,
   onEdit,
   onDuplicate,
   onDownload,
@@ -103,6 +105,8 @@ function ThemeLibraryCard({
 }: {
   theme: ThemeCardDefinition;
   isActive: boolean;
+  /** The appearance on screen: the card previews it and is ringed while it shows this theme. */
+  appearance: ThemeAppearance;
   onUse: () => void;
   onUseMode: (mode: ThemeMode) => void;
   activeModes: ReadonlyArray<ThemeMode>;
@@ -124,6 +128,8 @@ function ThemeLibraryCard({
   // A one-appearance theme can only take its own side of the mix, so the card
   // tooltip promises exactly what clicking it does.
   const cardModes = theme.previews.map((preview) => preview.mode);
+  const previewColors = previewColorsOf(theme, appearance) ?? theme.previews[0]!.colors;
+  const showing = isActive || activeModes.includes(appearance);
   const [radialModeOpen, setRadialModeOpen] = useState<ThemeAppearance | null>(null);
   const radialModeGroups = (["light", "dark"] as const).map((mode) => {
     const options =
@@ -145,13 +151,18 @@ function ThemeLibraryCard({
       <TooltipTrigger
         render={
           <div
-            className={cn(
-              "cursor-pointer overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-colors hover:bg-accent/10",
-              isActive && "bg-accent/30",
-            )}
+            className="group/theme-card flex cursor-pointer flex-col gap-2 rounded-xl border border-border/70 bg-card/60 p-2 transition-colors hover:bg-accent/10"
             data-theme-library-card={theme.id}
             onClick={onUse}
-            style={isActive ? { boxShadow: "inset 0 0 0 1px var(--ring)" } : undefined}
+            // The theme on screen is ringed in its own accent, as its preview shows it.
+            style={
+              showing
+                ? {
+                    borderColor: "transparent",
+                    boxShadow: `0 0 0 2px ${previewColors.messageAction}`,
+                  }
+                : undefined
+            }
           >
             <div className="relative">
               {variantNavigation ? (
@@ -281,21 +292,30 @@ function ThemeLibraryCard({
                   })}
                 </div>
               ) : (
-                <ThemePreviewCircles
-                  label={theme.label}
-                  activeModes={activeModes}
-                  onSelectMode={onUseMode}
-                  previews={theme.previews}
-                />
+                <>
+                  <ThemeMiniPreview colors={previewColors} />
+                  {cardModes.length > 1 ? (
+                    <ThemeModePicks
+                      label={theme.label}
+                      activeModes={activeModes}
+                      onSelectMode={onUseMode}
+                    />
+                  ) : null}
+                </>
               )}
             </div>
-            <div className="flex items-center gap-2 px-3 pb-3 pt-2">
+            <div className="flex min-h-6 items-center gap-1.5 px-0.5">
+              <span
+                aria-hidden
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: previewColors.messageAction }}
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <button
                     aria-label={`Use ${variantNavigation ? `${variantNavigation.collectionLabel}, ${theme.label} variant` : `${theme.label} theme`}${isActive ? ", currently active" : ""}`}
                     aria-pressed={isActive}
-                    className="min-w-0 cursor-pointer truncate rounded-sm text-left text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                    className="min-w-0 cursor-pointer truncate rounded-sm text-left text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -307,7 +327,7 @@ function ThemeLibraryCard({
                 </div>
               </div>
               {onEdit || onDuplicate || onDownload || onRemove ? (
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="hidden shrink-0 items-center gap-0.5 group-focus-within/theme-card:flex group-hover/theme-card:flex">
                   {onDuplicate ? (
                     <Tooltip>
                       <TooltipTrigger
@@ -413,6 +433,7 @@ function ThemeLibraryCard({
 
 function CustomThemeCollectionCard({
   themes,
+  appearance,
   activeModesFor,
   onUse,
   onUseMode,
@@ -422,6 +443,7 @@ function CustomThemeCollectionCard({
   onRemove,
 }: {
   themes: ReadonlyArray<ThemeDefinition>;
+  appearance: ThemeAppearance;
   activeModesFor: (themeId: string) => ReadonlyArray<ThemeMode>;
   onUse: (theme: ThemeDefinition) => void;
   onUseMode: (theme: ThemeDefinition, mode: ThemeMode) => void;
@@ -459,6 +481,7 @@ function CustomThemeCollectionCard({
   return (
     <ThemeLibraryCard
       activeModes={activeModesFor(theme.id)}
+      appearance={appearance}
       isActive={false}
       onDownload={() => onDownload(theme)}
       onDuplicate={() => onDuplicate(theme)}
@@ -661,22 +684,11 @@ export function ThemeLibrary({
   const activeThemeForAppearance =
     getThemeDefinition((initialAppearance === "light" ? lightOwner : darkOwner) ?? "") ?? null;
 
-  const cardDefById = (id: string | null): ThemeCardDefinition => {
-    if (id === null) return STANDARD_THEME_CARDS[0]!;
-    const definition = getThemeDefinition(id);
-    return definition ? getThemeCardDefinition(definition) : STANDARD_THEME_CARDS[0]!;
-  };
-
-  const pickColors = (id: string | null, appearance: ThemeAppearance) => {
-    const card = cardDefById(id);
-    return previewColorsOf(card, appearance) ?? card.previews[0]!.colors;
-  };
-
   const setMode = (mode: ThemeMode) => {
     if (!setAppearanceMode(mode)) notifyThemeSaveFailure();
   };
 
-  // ----- Wireframe tiles on top, two-ball cards below --------------------
+  // ----- Mode switch on top, theme cards below -----------------------------
   const handlePairPick = (cardId: string | null) => (mode: ThemeMode) => {
     if (mode === "system") return;
     assignHalf(mode, cardId);
@@ -692,55 +704,20 @@ export function ThemeLibrary({
     return rings;
   };
 
-  const wireframeColors = (appearance: ThemeAppearance) =>
-    pickColors(appearance === "light" ? lightOwner : darkOwner, appearance);
-
-  const renderWireframe = (mode: ThemeMode) => (
-    <ThemeWireframe
-      className="h-[8.75rem]"
-      panes={
-        mode === "system"
-          ? [
-              { clip: "left", colors: wireframeColors("light") },
-              { clip: "right", colors: wireframeColors("dark") },
-            ]
-          : [{ colors: wireframeColors(mode === "dark" ? "dark" : "light") }]
-      }
-    />
-  );
-
-  const renderModeTiles = () => (
-    <div aria-label="Appearance mode" className="grid w-full grid-cols-3 gap-3" role="group">
-      {(["system", "light", "dark"] as const).map((mode) => {
-        const isActive = appearanceMode === mode;
-        return (
-          <button
-            aria-label={mode === "system" ? "Follow the system appearance" : `Use ${mode} mode`}
-            aria-pressed={isActive}
-            className={cn(
-              "flex cursor-pointer flex-col items-stretch gap-1.5 rounded-xl border p-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-              isActive
-                ? "border-transparent bg-accent/30"
-                : "border-border/70 bg-card/60 hover:bg-accent/10",
-            )}
-            key={mode}
-            style={isActive ? { boxShadow: "inset 0 0 0 1px var(--ring)" } : undefined}
-            onClick={() => setMode(mode)}
-            type="button"
-          >
-            {renderWireframe(mode)}
-            <span
-              className={cn(
-                "flex items-center justify-center text-xs font-medium",
-                isActive ? "text-foreground" : "text-muted-foreground",
-              )}
-            >
-              {mode === "system" ? "System" : mode === "light" ? "Light" : "Dark"}
-            </span>
-          </button>
-        );
-      })}
-    </div>
+  const renderModeSwitch = () => (
+    <ToggleGroup
+      aria-label="Appearance mode"
+      variant="segmented"
+      value={[appearanceMode]}
+      onValueChange={(next) => {
+        const value = next[0];
+        if (value === "system" || value === "light" || value === "dark") setMode(value);
+      }}
+    >
+      <Toggle value="system">System</Toggle>
+      <Toggle value="light">Light</Toggle>
+      <Toggle value="dark">Dark</Toggle>
+    </ToggleGroup>
   );
 
   const customThemeCollections = [
@@ -757,19 +734,25 @@ export function ThemeLibrary({
       .entries(),
   ];
 
+  const themeCount =
+    STANDARD_THEME_CARDS.length +
+    MAINTAINER_THEMES.length +
+    environmentThemes.filter(
+      (environmentTheme) => !customThemes.some((theme) => theme.id === environmentTheme.id),
+    ).length +
+    customThemeCollections.length;
+
   const renderPairGrid = () => (
     // One shared provider so every tooltip in the grid hands off instantly to
     // the next hovered trigger instead of stacking on top of it. The card
     // tooltip briefly showing while crossing between a card's two circles is
     // accepted — scoping the group tighter makes the handoffs feel sluggish.
     <TooltipProvider>
-      <div
-        className="grid w-full gap-2"
-        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 16rem), 1fr))" }}
-      >
+      <div className="grid w-full grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
         {STANDARD_THEME_CARDS.map((standardTheme) => (
           <ThemeLibraryCard
             activeModes={pickedModesFor(null)}
+            appearance={initialAppearance}
             isActive={false}
             key={standardTheme.id}
             onDuplicate={() =>
@@ -790,6 +773,7 @@ export function ThemeLibrary({
           return (
             <ThemeLibraryCard
               activeModes={pickedModesFor(maintainerTheme.id)}
+              appearance={initialAppearance}
               isActive={false}
               key={maintainerTheme.id}
               onDuplicate={() =>
@@ -818,6 +802,7 @@ export function ThemeLibrary({
             // Duplicating is the way to keep a copy.
             <ThemeLibraryCard
               activeModes={pickedModesFor(environmentTheme.id)}
+              appearance={initialAppearance}
               isActive={false}
               key={environmentTheme.id}
               onDuplicate={() =>
@@ -840,6 +825,7 @@ export function ThemeLibrary({
         {customThemeCollections.map(([collectionId, themes]) => (
           <CustomThemeCollectionCard
             activeModesFor={pickedModesFor}
+            appearance={initialAppearance}
             key={collectionId}
             onDownload={(customTheme) =>
               downloadThemeFile(`${customTheme.id}.json`, serializeThemeFile(customTheme))
@@ -876,13 +862,16 @@ export function ThemeLibrary({
 
   return (
     <div className="space-y-3">
-      <h3 className="px-3 text-sm font-normal text-foreground/70 sm:px-4">
-        {searchableSetting("color-scheme").title}
-      </h3>
-      {renderModeTiles()}
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-3 px-3 sm:px-4">
+        <h3 className="text-sm font-medium text-foreground">
+          {searchableSetting("color-scheme").title}
+        </h3>
+        {renderModeSwitch()}
+      </div>
       <div className="flex min-h-8 flex-wrap items-center justify-between gap-3 px-3 pt-2 sm:px-4">
-        <h3 className="text-sm font-normal text-foreground/70">
+        <h3 className="flex items-baseline gap-2 text-sm font-medium text-foreground">
           {searchableSetting("theme").title}
+          <span className="text-xs font-normal text-muted-foreground">{themeCount} themes</span>
         </h3>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button

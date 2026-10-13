@@ -1,8 +1,8 @@
 # Appearance and themes
 
 On web and desktop, open **Settings → Appearance** to choose a theme and follow the system
-appearance or stay in light or dark mode. To use different themes for light and dark mode, select
-the corresponding preview within each theme. Appearance preferences are saved separately on each
+appearance or stay in light or dark mode. To use different themes for light and dark mode, hover a
+theme and pick its sun (light) or moon (dark). Appearance preferences are saved separately on each
 device or browser.
 
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
