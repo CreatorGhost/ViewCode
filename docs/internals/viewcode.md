@@ -1073,11 +1073,9 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   time. Android production layers are separate from development/preview so a
   production redraw cannot replace those channels' artwork.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
-  Headers and small favicons use the flat rendition with larger node openings;
-  app icons keep the full gradients and folds. The flat right bracket is light
-  slate in dark appearances so it remains visible. Brand colors stay fixed
-  rather than following each theme's accent; Android silhouettes use the
-  separate monochrome source.
+  The mark is flat everywhere: white on dark surfaces, near-black on light ones,
+  with teal ring centres in both. Brand colors stay fixed rather than following
+  each theme's accent; Android silhouettes use the separate monochrome source.
 - Generated worktree branches use `vc/` (`WORKTREE_BRANCH_PREFIX` in
   `packages/shared/src/git.ts`). Keep `t3code` in
   `LEGACY_WORKTREE_BRANCH_PREFIXES`: threads created before the rename sit on

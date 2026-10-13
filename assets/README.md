@@ -1,13 +1,13 @@
 # Brand icons
 
-**ViewCode:** the production icon comes from `viewcode-icon.svg`: a dark ambient tile (near-black
-radial with a faint teal glow) holding the code-bracket and git-branch emblem from `viewcode-mark.svg`. Large exports use its gradients
-and fold shading; headers and 16/32px favicons use `viewcode-mark-flat.svg`, with larger node
-openings so the branch stays readable (on the dark tile its ">" takes the dark-theme slate). `viewcode-mark-monochrome.svg` supplies the single-color
-Android themed and notification emblem. Run `vp run icons:export:production` to render production
-mobile, desktop and web assets. iOS and apple-touch exports are full bleed and opaque; macOS
-keeps an 824px tile inset 100px on a 1024px canvas. Android gets a transparent foreground inside
-the adaptive safe zone, the tile and glow as a full-bleed background, and a single-color emblem for themed and notification icons.
+**ViewCode:** the production icon comes from `viewcode-icon.svg`: a flat near-black tile holding the
+white code-bracket and git-branch emblem from `viewcode-mark.svg`, with teal dots in the branch rings.
+At 32px and below the emblem is enlarged so the branch stays readable. `viewcode-mark-monochrome.svg`
+supplies the single-color Android themed and notification emblem. Run `vp run icons:export:production`
+to render production mobile, desktop and web assets. iOS and apple-touch exports are full bleed and
+opaque; macOS keeps an 824px tile inset 100px on a 1024px canvas. Android gets a transparent
+foreground inside the adaptive safe zone, the tile as a full-bleed background, and a single-color
+emblem for themed and notification icons.
 
 Development and preview retain their existing assets. Their Icon Composer projects below still
 contain the inherited T3 mark; do not regenerate those variants until their projects are redrawn.
@@ -74,7 +74,7 @@ comes from their Icon Composer layers. `vp run icons:export:android` renders bot
 - `apps/mobile/assets/android-icon-foreground.png`: the development/preview transparent wordmark
 - `apps/mobile/assets/android-icon-background-dev.png` and `-nightly.png`: full-bleed variant
   artwork (blueprint grid and annotations; night sky and clouds). Production uses
-  `android-icon-background-prod.png`, the tile and glow from `viewcode-icon.svg`.
+  `android-icon-background-prod.png`, the tile from `viewcode-icon.svg`.
 - `apps/mobile/assets/android-splash-icon-*.png`: the two layers composed into one 288dp image, so
   the splash mask reproduces the launcher icon's framing.
 
