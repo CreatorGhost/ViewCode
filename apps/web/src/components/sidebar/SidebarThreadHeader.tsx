@@ -63,7 +63,7 @@ export function SidebarThreadHeader({
         value={searchQuery}
         onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
         onKeyDown={onSearchKeyDown}
-        placeholder="Search chats and agents"
+        placeholder="Search chats"
         aria-label="Search chats and agents"
         role="combobox"
         aria-autocomplete="list"
