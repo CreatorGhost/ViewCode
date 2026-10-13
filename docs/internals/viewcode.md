@@ -27,11 +27,17 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ### Staying mergeable with upstream
 
-- ViewCode tracks upstream T3 Code by merging it. Features live in new files
+- ViewCode takes upstream T3 Code work by `git cherry-pick -x` (or a hand
+  port naming the upstream PR) since upstream moved orchestration to v2;
+  never merge `upstream/main`. Features live in new files
   and hook into upstream code with small edits; theming goes through tokens
   and `components/ui` variants; contracts only gain optional fields; upstream
   features are hidden behind flags rather than deleted. Details and current
   hot spots: [`docs/NEXT_AGENT.md`](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
+- Newest upstream PR picked: #15925 (`e24ea1d28`, 2026-10-13).
+- Migration ids from 55 on are ViewCode's own (upstream's are its V2 schema).
+  `runMigrations` refuses a ledger that recorded other names there, such as a
+  T3 Code sharing `T3CODE_HOME`, so renumbering them needs a ledger rewrite.
 - Where upstream shipped its own version of a ViewCode feature, ViewCode's
   stays and upstream's is folded in or hidden:
   - Chat width: upstream's `chatWidth` (comfortable/wide/full) reused our key,
