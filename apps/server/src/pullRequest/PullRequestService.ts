@@ -565,6 +565,7 @@ function withRateLimitBackoff(
       : { withVerifiedCredential: api.withVerifiedCredential }),
     // Read from memory, so there is no host call for a pause to hold back.
     ...(api.accountFor === undefined ? {} : { accountFor: api.accountFor }),
+    ...(api.signedInLogins === undefined ? {} : { signedInLogins: api.signedInLogins }),
     listChangeRequests: wrap("listChangeRequests", api.listChangeRequests),
     ...(api.listChangeRequestsAcross === undefined
       ? {}
@@ -1746,57 +1747,65 @@ export const make = Effect.gen(function* () {
           // Who opened it is compared with the reader (own pull request, own remarks), so the
           // reader is the account this repository is read as, not just the host's active one.
           Effect.flatMap(([read, viewer]) =>
-            readerOf(project, viewer).pipe(Effect.map((reader) => [read, reader] as const)),
+            Effect.all([
+              readerOf(project, viewer),
+              project.api.signedInLogins === undefined
+                ? Effect.succeed([] as ReadonlyArray<string>)
+                : project.api.signedInLogins(project.host),
+            ]).pipe(Effect.map(([reader, logins]) => [read, reader, logins] as const)),
           ),
-          Effect.map(([{ value: changeRequest, observedAt }, viewer]): PullRequestDetail => ({
-            provider: project.api.kind,
-            capabilities: project.api.capabilities,
-            projectId: project.project.id,
-            projectTitle: project.project.title,
-            workspaceRoot: project.project.workspaceRoot,
-            repository: project.repository,
-            number: changeRequest.number,
-            title: changeRequest.title,
-            body: changeRequest.body,
-            url: changeRequest.url,
-            author: changeRequest.author,
-            state: changeRequest.state,
-            isDraft: changeRequest.isDraft,
-            mergeability: changeRequest.mergeability,
-            additions: changeRequest.additions,
-            deletions: changeRequest.deletions,
-            changedFiles: changeRequest.changedFiles,
-            headBranch: changeRequest.headBranch,
-            ...(changeRequest.headRepositoryNameWithOwner === undefined
-              ? {}
-              : { headRepositoryNameWithOwner: changeRequest.headRepositoryNameWithOwner }),
-            ...(changeRequest.headSha ? { headSha: changeRequest.headSha } : {}),
-            baseBranch: changeRequest.baseBranch,
-            createdAt: changeRequest.createdAt,
-            updatedAt: changeRequest.updatedAt,
-            observedAt,
-            mergedAt: changeRequest.mergedAt,
-            closedAt: changeRequest.closedAt,
-            reviewers: changeRequest.reviewers,
-            labels: changeRequest.labels,
-            checks: changeRequest.checks,
-            mergeCapabilities: changeRequest.mergeCapabilities,
-            viewerPermissions: changeRequest.viewerPermissions,
-            ...(viewer === null || viewer.trim().length === 0 ? {} : { viewer }),
-            ...(changeRequest.baseComparison === undefined
-              ? {}
-              : { baseComparison: changeRequest.baseComparison }),
-            ...(changeRequest.behindBy === undefined ? {} : { behindBy: changeRequest.behindBy }),
-            ...(changeRequest.autoMergeEnabled === undefined
-              ? {}
-              : { autoMergeEnabled: changeRequest.autoMergeEnabled }),
-            ...(changeRequest.autoMergeMethod === undefined
-              ? {}
-              : { autoMergeMethod: changeRequest.autoMergeMethod }),
-            ...(changeRequest.workflowApprovalsRequired === undefined
-              ? {}
-              : { workflowApprovalsRequired: changeRequest.workflowApprovalsRequired }),
-          })),
+          Effect.map(
+            ([{ value: changeRequest, observedAt }, viewer, logins]): PullRequestDetail => ({
+              provider: project.api.kind,
+              capabilities: project.api.capabilities,
+              projectId: project.project.id,
+              projectTitle: project.project.title,
+              workspaceRoot: project.project.workspaceRoot,
+              repository: project.repository,
+              number: changeRequest.number,
+              title: changeRequest.title,
+              body: changeRequest.body,
+              url: changeRequest.url,
+              author: changeRequest.author,
+              state: changeRequest.state,
+              isDraft: changeRequest.isDraft,
+              mergeability: changeRequest.mergeability,
+              additions: changeRequest.additions,
+              deletions: changeRequest.deletions,
+              changedFiles: changeRequest.changedFiles,
+              headBranch: changeRequest.headBranch,
+              ...(changeRequest.headRepositoryNameWithOwner === undefined
+                ? {}
+                : { headRepositoryNameWithOwner: changeRequest.headRepositoryNameWithOwner }),
+              ...(changeRequest.headSha ? { headSha: changeRequest.headSha } : {}),
+              baseBranch: changeRequest.baseBranch,
+              createdAt: changeRequest.createdAt,
+              updatedAt: changeRequest.updatedAt,
+              observedAt,
+              mergedAt: changeRequest.mergedAt,
+              closedAt: changeRequest.closedAt,
+              reviewers: changeRequest.reviewers,
+              labels: changeRequest.labels,
+              checks: changeRequest.checks,
+              mergeCapabilities: changeRequest.mergeCapabilities,
+              viewerPermissions: changeRequest.viewerPermissions,
+              ...(viewer === null || viewer.trim().length === 0 ? {} : { viewer }),
+              ...(logins.length > 1 ? { viewerLogins: logins } : {}),
+              ...(changeRequest.baseComparison === undefined
+                ? {}
+                : { baseComparison: changeRequest.baseComparison }),
+              ...(changeRequest.behindBy === undefined ? {} : { behindBy: changeRequest.behindBy }),
+              ...(changeRequest.autoMergeEnabled === undefined
+                ? {}
+                : { autoMergeEnabled: changeRequest.autoMergeEnabled }),
+              ...(changeRequest.autoMergeMethod === undefined
+                ? {}
+                : { autoMergeMethod: changeRequest.autoMergeMethod }),
+              ...(changeRequest.workflowApprovalsRequired === undefined
+                ? {}
+                : { workflowApprovalsRequired: changeRequest.workflowApprovalsRequired }),
+            }),
+          ),
         ),
       ),
     );

@@ -401,6 +401,9 @@ export class GitHubCli extends Context.Service<
         | { readonly cwd: string }
       ),
     ) => Effect.Effect<string | null>;
+
+    /** Every account signed in to `host` and able to authenticate; empty when gh cannot say. */
+    readonly signedInLogins: (host: string) => Effect.Effect<ReadonlyArray<string>>;
   }
 >()("t3/sourceControl/GitHubCli") {}
 
@@ -1200,6 +1203,10 @@ export const make = Effect.gen(function* () {
   return GitHubCli.of({
     execute,
     executeAsAccount,
+    signedInLogins: (host) =>
+      Cache.get(signedInAccounts, host.toLowerCase()).pipe(
+        Effect.map((accounts) => accounts.map((account) => account.account)),
+      ),
     accountFor: (input) =>
       Effect.map(
         routeOf(

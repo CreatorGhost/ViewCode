@@ -348,6 +348,11 @@ export interface PullRequestProviderApi {
     readonly host: string;
     readonly repository: string;
   }) => Effect.Effect<string | null>;
+  /**
+   * Every account the host CLI is signed in with, for a host where one reader may hold several
+   * (gh). A pull request any of them opened is the reader's own.
+   */
+  readonly signedInLogins?: (host: string) => Effect.Effect<ReadonlyArray<string>>;
 
   readonly listChangeRequests: (
     input: ProviderRepositoryRef & {

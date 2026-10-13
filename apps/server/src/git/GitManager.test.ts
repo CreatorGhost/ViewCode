@@ -586,6 +586,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           }),
         ),
       accountFor: () => Effect.succeed(null),
+      signedInLogins: () => Effect.succeed([]),
       executeAsAccount: ({ host: _host, login: _login, ...input }) => execute(input),
       getPullRequest: (input) =>
         execute({

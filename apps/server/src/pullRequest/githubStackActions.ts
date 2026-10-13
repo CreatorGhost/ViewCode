@@ -334,6 +334,8 @@ export const runGitHubStackAction = Effect.fn("runGitHubStackAction")(function* 
         // Pass the reviewed revision to GitHub, including when a push races this read.
         const updated = yield* github.execute({
           cwd: input.cwd,
+          // The mutation names no owner, so this routes it to the account the reads above ran as.
+          repository: input.repository,
           args: [
             "api",
             "--hostname",

@@ -809,6 +809,23 @@ describe("reviewFindingsModeFor", () => {
     );
   });
 
+  it("fixes a pull request opened by another account the reader is signed in with", () => {
+    expect(
+      PullRequestAgentReview.reviewFindingsModeFor({
+        author: "mgai-adi",
+        viewer: "CreatorGhost",
+        viewerLogins: ["CreatorGhost", "mgai-adi"],
+      }),
+    ).toBe("fix");
+    expect(
+      PullRequestAgentReview.reviewFindingsModeFor({
+        author: "octocat",
+        viewer: "CreatorGhost",
+        viewerLogins: ["CreatorGhost", "mgai-adi"],
+      }),
+    ).toBe("comment");
+  });
+
   it("fixes when either name is unknown, since fixing posts nothing", () => {
     expect(PullRequestAgentReview.reviewFindingsModeFor({ author: null, viewer: "bilal" })).toBe(
       "fix",
