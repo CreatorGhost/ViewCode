@@ -51,6 +51,9 @@ const buttonVariants = cva(
         ghost:
           "[--control-icon-color:var(--contrast-muted-foreground)] border-transparent text-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent",
         chip: "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-foreground/8 [:hover,[data-pressed]]:bg-foreground/8 [:hover,[data-pressed]]:text-foreground",
+        // A chip with its own outline, for a row of filters that reads as separate pills.
+        "chip-outline":
+          "[--control-icon-color:currentColor] border-foreground/12 bg-foreground/4 text-muted-foreground data-pressed:border-foreground/40 [:hover,[data-pressed]]:bg-foreground/8 [:hover,[data-pressed]]:text-foreground",
         "ghost-muted":
           "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-foreground",
         // Solid foreground disc/pill: the composer send and stop actions.

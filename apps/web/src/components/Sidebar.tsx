@@ -1019,6 +1019,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     }),
     [props.agentsDone, props.agentsFailed, props.agentsNeedYou, props.agentsWorking],
   );
+  // A chat with agents gets a second line: their counts by group, and its branch.
+  const hasAgentLine = !isChild && props.descendantCount > 0;
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
@@ -1330,7 +1332,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             style={rowStyle}
             className={cn(
               rowSurfaceBaseClassName,
-              isChild ? "h-6 text-xs" : "h-7 pl-2",
+              isChild ? "h-6 text-xs" : hasAgentLine ? "flex-wrap gap-y-0.5 py-1 pl-2" : "h-7 pl-2",
               props.isActive
                 ? "bg-sidebar-foreground/12 text-sidebar-foreground"
                 : isSelected
@@ -1366,6 +1368,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         >
           {leadingBadge}
         </span>
+        {agentGroup !== null && driverKind ? (
+          <ProviderInstanceIcon
+            driverKind={driverKind}
+            displayName={
+              providerEntry?.displayName ?? thread.session?.providerName ?? modelInstanceId
+            }
+            accentColor={providerEntry?.accentColor}
+            showBadge={false}
+            iconClassName="size-3 shrink-0 opacity-70"
+          />
+        ) : null}
         {title}
         {draftIndicator}
         {isRegeneratingTitle ? (
@@ -1385,7 +1398,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             onDoubleClick={(event) => event.stopPropagation()}
             className="inline-flex h-5 shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-0.5 text-2xs text-sidebar-muted-foreground hover:text-sidebar-foreground"
           >
-            {props.childrenExpanded ? null : <AgentGroupSummary counts={agentCounts} />}
             <ChevronRightIcon
               aria-hidden
               className={cn("size-3 transition-transform", props.childrenExpanded && "rotate-90")}
@@ -1453,6 +1465,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           </SidebarRowAction>
         </span>
         {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
+        {hasAgentLine ? (
+          // The chat's agents at a glance, and the branch they work on, under the title.
+          <span
+            data-sidebar-row-agents=""
+            className="flex min-w-0 basis-full items-center gap-2 pl-6.5 text-2xs text-sidebar-muted-foreground"
+          >
+            <AgentGroupSummary counts={agentCounts} />
+            {thread.branch ? (
+              <span className="ml-auto min-w-0 truncate text-branch">{thread.branch}</span>
+            ) : null}
+          </span>
+        ) : null}
       </TooltipTrigger>
       <SidebarThreadTooltip
         thread={thread}
@@ -1485,8 +1509,11 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
   >;
   /** This folder's search field is open. */
   searching: boolean;
-  /** Named on the row when it is not the default, Status. */
+  /** Named on the row while it is open ("Sort: Status"). */
   sortOrder: FolderSortOrder;
+  /** Top-level chats waiting on the user, and working (themselves or through an agent). */
+  needsYouCount: number;
+  workingCount: number;
   onToggle: (group: SidebarProjectSnapshot) => void;
   onToggleSearch: (group: SidebarProjectSnapshot) => void;
   onNewThread: (group: SidebarProjectSnapshot) => void;
@@ -1568,6 +1595,13 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
         onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
       >
+        <ChevronRightIcon
+          aria-hidden
+          className={cn(
+            "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+            props.expanded && "rotate-90",
+          )}
+        />
         <button
           type="button"
           aria-label={`Change icon and color for ${group.displayName}`}
@@ -1602,14 +1636,23 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
             machineByEnvironmentId={props.machineByEnvironmentId}
           />
         ) : null}
-        {props.sortOrder !== DEFAULT_FOLDER_SORT_ORDER ? (
+        {props.expanded ? (
           <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden">
-            {FOLDER_SORT_ORDER_LABEL[props.sortOrder]}
+            Sort: {FOLDER_SORT_ORDER_LABEL[props.sortOrder]}
           </span>
-        ) : null}
-        {!props.expanded && props.threadCount > 0 ? (
+        ) : props.threadCount > 0 ? (
+          // A closed folder says what is inside and what is happening there.
           <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground tabular-nums group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden">
-            {props.threadCount}
+            {props.threadCount} {props.threadCount === 1 ? "chat" : "chats"}
+            {props.needsYouCount > 0 ? (
+              <span className="text-warning-foreground">
+                {" "}
+                · {props.needsYouCount} {props.needsYouCount === 1 ? "needs" : "need"} you
+              </span>
+            ) : null}
+            {props.workingCount > 0 ? (
+              <span className="text-info"> · {props.workingCount} working</span>
+            ) : null}
           </span>
         ) : null}
         <span className="hidden shrink-0 items-center gap-0.5 group-hover/sidebar-row:flex group-focus-visible/sidebar-row:flex group-has-[:focus-visible]/sidebar-row:flex">
@@ -1762,6 +1805,7 @@ const SidebarDoneGroupRow = memo(function SidebarDoneGroupRow(props: {
       <span className="min-w-0 flex-1 truncate">
         Done (<span className="tabular-nums">{props.count}</span>)
       </span>
+      <span className="shrink-0 text-3xs">newest first</span>
     </button>
   );
 });
@@ -4294,6 +4338,14 @@ export default function Sidebar() {
                         machineByEnvironmentId={environmentMachineById}
                         searching={searching}
                         sortOrder={folderSortOrderById[folder.key] ?? DEFAULT_FOLDER_SORT_ORDER}
+                        needsYouCount={sections?.needsYou.length ?? 0}
+                        workingCount={
+                          sections?.active.filter(
+                            (node) =>
+                              node.thread.session?.status === "running" ||
+                              node.workingDescendantCount > 0,
+                          ).length ?? 0
+                        }
                         onToggle={toggleProjectFolder}
                         onToggleSearch={toggleFolderSearch}
                         onNewThread={createThreadInProject}

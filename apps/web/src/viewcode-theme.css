@@ -592,6 +592,10 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
     border-radius: var(--vc-row-radius);
     transition: background-color 120ms ease-out;
   }
+  /* A chat with agents carries a second line (their counts and its branch). */
+  [data-testid="sidebar-row"]:has(> [data-sidebar-row-agents]) {
+    height: auto;
+  }
   [data-testid="sidebar-row-child"] {
     height: 1.625rem;
     border-radius: var(--vc-row-radius);

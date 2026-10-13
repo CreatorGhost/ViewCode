@@ -60,7 +60,7 @@ export const SidebarAttentionStrip = memo(function SidebarAttentionStrip(props: 
           <Button
             key={item.id}
             size="chip"
-            variant="chip"
+            variant="chip-outline"
             aria-pressed={pressed}
             data-pressed={pressed ? "" : undefined}
             onClick={() => onChange(pressed ? null : item.id)}
@@ -73,7 +73,7 @@ export const SidebarAttentionStrip = memo(function SidebarAttentionStrip(props: 
       {active ? (
         <Button
           size="chip"
-          variant="chip"
+          variant="chip-outline"
           aria-label="Show everything"
           onClick={() => onChange(null)}
         >
