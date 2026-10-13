@@ -712,6 +712,14 @@ describe("pure helpers", () => {
       kind: "permission-accessibility",
       dispatched: "no",
     });
+    const platformDenied = Object.assign(
+      new Error("Platform error (-1): Permission denied: Enable Accessibility in System Settings"),
+      { name: "PlatformError" },
+    );
+    expect(classifyXa11yError(platformDenied, { afterDispatch: true })).toMatchObject({
+      kind: "permission-accessibility",
+      dispatched: "no",
+    });
   });
 });
 
