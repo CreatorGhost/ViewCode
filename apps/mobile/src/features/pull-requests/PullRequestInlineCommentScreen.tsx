@@ -1,5 +1,5 @@
-import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import { useCallback, useRef, useState } from "react";
+import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import { useRef, useState } from "react";
 import { Alert, View } from "react-native";
 import type { PullRequestReviewPosition } from "@t3tools/contracts";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
@@ -29,8 +29,6 @@ export function PullRequestInlineCommentScreen({ route }: StaticScreenProps<Inli
   const [editedBody, setBody] = useState<string | null>(null);
   const body = editedBody ?? saved?.body ?? "";
   const detail = useEnvironmentQuery(composerPullRequests.detail(pullRequestTarget(params)));
-  const { refresh: refreshDetail } = detail;
-  useFocusEffect(useCallback(() => refreshDetail(), [refreshDetail]));
   const permissions = usePullRequestPermissions(params, detail.data);
   const stale = detail.data && detail.data.headSha !== params.headSha;
   const pending = useRef(false);
