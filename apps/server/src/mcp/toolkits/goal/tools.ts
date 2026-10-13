@@ -34,7 +34,6 @@ export const SET_GOAL_TOOL_DESCRIPTION =
 const GetGoalTool = Tool.make("viewcode_get_goal", {
   description:
     "Read this thread's goal: the objective the user set for it and whether it is paused. goal is null when none is set.",
-  parameters: Schema.Struct({}),
   success: GoalResult,
   failure: GoalToolError,
   dependencies: [McpInvocationContext.McpInvocationContext],
