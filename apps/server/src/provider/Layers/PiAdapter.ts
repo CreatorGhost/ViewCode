@@ -84,6 +84,7 @@ const ResumeCursor = Schema.Struct({
   sessionFile: Schema.NonEmptyString,
 });
 const decodeResumeCursor = Schema.decodeUnknownOption(ResumeCursor);
+const encodeJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 type Adapter = ProviderAdapterShape<ProviderAdapterError>;
 
@@ -397,9 +398,8 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
       const environment: NodeJS.ProcessEnv = {
         ...McpProviderSession.withAgentDeviceEnvironment(options.environment, mcpSession),
         [PI_RUNTIME_MODE_ENV]: input.runtimeMode,
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         ...(mcpSession
-          ? { [PI_MCP_SERVER_ENV]: JSON.stringify(piMcpServerConfig(mcpSession)) }
+          ? { [PI_MCP_SERVER_ENV]: encodeJsonString(piMcpServerConfig(mcpSession)) }
           : {}),
       };
 
