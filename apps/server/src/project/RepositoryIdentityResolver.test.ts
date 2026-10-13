@@ -2,7 +2,7 @@
 import * as NodeFS from "node:fs";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { SourceControlProviderError } from "@t3tools/contracts";
-import { expect, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -413,4 +413,84 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       ),
     ),
   );
+});
+
+describe("SSH alias remotes", () => {
+  it("reads the host of SSH remotes only", () => {
+    expect(RepositoryIdentityResolver.sshRemoteHost("git@github.com-work:Acme/app.git")).toBe(
+      "github.com-work",
+    );
+    expect(RepositoryIdentityResolver.sshRemoteHost("ssh://git@work-gh:22/Acme/app.git")).toBe(
+      "work-gh",
+    );
+    expect(RepositoryIdentityResolver.sshRemoteHost("https://github.com/Acme/app.git")).toBeNull();
+    expect(RepositoryIdentityResolver.sshRemoteHost("/srv/git/app.git")).toBeNull();
+    // Never something ssh could read as an option.
+    expect(RepositoryIdentityResolver.sshRemoteHost("-oProxyCommand=x:a/b")).toBeNull();
+  });
+
+  it("swaps only the host", () => {
+    expect(
+      RepositoryIdentityResolver.withSshRemoteHost(
+        "git@github.com-work:Acme/app.git",
+        "github.com-work",
+        "github.com",
+      ),
+    ).toBe("git@github.com:Acme/app.git");
+    expect(
+      RepositoryIdentityResolver.withSshRemoteHost(
+        "ssh://git@work-gh:22/Acme/app.git",
+        "work-gh",
+        "github.com",
+      ),
+    ).toBe("ssh://git@github.com:22/Acme/app.git");
+  });
+
+  it("reads the real host from ssh -G output", () => {
+    expect(
+      RepositoryIdentityResolver.parseSshConfigHostname(
+        "user git\nhostname github.com\nport 22\nidentityfile ~/.ssh/id_work\n",
+      ),
+    ).toBe("github.com");
+  });
+});
+
+it.layer(NodeServices.layer)("RepositoryIdentityResolver SSH aliases", (it) => {
+  it.effect("identifies a repository behind an SSH alias by its real host", () => {
+    const calls: Array<string> = [];
+    const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
+      run: (input) =>
+        Effect.sync(() => {
+          calls.push(input.command);
+          return {
+            stdout:
+              input.command === "ssh"
+                ? "user git\nhostname github.com\nport 22\n"
+                : input.args.includes("rev-parse")
+                  ? "/repo\n"
+                  : "origin\tgit@github.com-work:Acme/app.git (fetch)\n",
+            stderr: "",
+            code: ChildProcessSpawner.ExitCode(0),
+            timedOut: false,
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            stdoutInvalidUtf8: false,
+            stderrInvalidUtf8: false,
+          };
+        }),
+    });
+    const resolverLayer = Layer.effect(
+      RepositoryIdentityResolver.RepositoryIdentityResolver,
+      RepositoryIdentityResolver.make(),
+    ).pipe(Layer.provide(processRunner));
+    return Effect.gen(function* () {
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      const identity = yield* resolver.resolve("/repo");
+      expect(identity?.canonicalKey).toBe("github.com/acme/app");
+      expect(identity?.provider).toBe("github");
+      // The checkout's own remote is left as written.
+      expect(identity?.locator).toMatchObject({ remoteUrl: "git@github.com-work:Acme/app.git" });
+      expect(calls.filter((command) => command === "ssh")).toHaveLength(1);
+    }).pipe(Effect.provide(resolverLayer));
+  });
 });
