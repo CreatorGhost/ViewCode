@@ -119,6 +119,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
+import type { ComposerCheckout } from "./composerChrome";
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
@@ -147,6 +148,10 @@ export interface ThreadDetailScreenProps {
     | null;
   /** Opens one of this thread's child agents from the Active agents strip. */
   readonly onOpenAgentThread?: (thread: EnvironmentThreadShell) => void;
+  /** Where the thread works, for the strip under the composer; null hides it. */
+  readonly composerCheckout?: ComposerCheckout | null;
+  /** Opens the thread's git controls (from the checkout strip's branch). */
+  readonly onOpenGit?: () => void;
   /** A usage limit stopped the thread; null when it did not. */
   readonly usageResume?: {
     readonly text: string;
@@ -385,9 +390,33 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   )
     ? 0
     : Math.max(insets.bottom, 12);
-  // While typing, the agents strip steps aside so the reply has room to see
-  // what it answers. Same platform split as the inset above.
+  // While typing, the bars glued to the composer (Active agents, checkout)
+  // step aside so the reply has room to see what it answers. Same platform
+  // split as the inset above.
   const composerKeyboardOpen = Platform.OS === "android" ? isKeyboardVisible : composerFocused;
+  // Memoised: the composer is memo'd, and this view re-renders on every streamed token.
+  const { onOpenAgentThread } = props;
+  const selectedThreadKind = props.selectedThread.kind;
+  const selectedThreadIdForAgents = props.selectedThread.id;
+  const selectedParentThreadId = props.selectedThread.parentThreadId ?? null;
+  const activeAgentsBar = useMemo(
+    () =>
+      selectedThreadKind !== "sidechat" && onOpenAgentThread ? (
+        <ActiveAgentsStrip
+          environmentId={props.environmentId}
+          threadId={selectedThreadIdForAgents}
+          parentThreadId={selectedParentThreadId}
+          onOpenThread={onOpenAgentThread}
+        />
+      ) : null,
+    [
+      onOpenAgentThread,
+      props.environmentId,
+      selectedParentThreadId,
+      selectedThreadIdForAgents,
+      selectedThreadKind,
+    ],
+  );
   const contentPresentationKind = props.contentPresentation.kind;
   // The raw sync status enters "synchronizing" on every full fetch, cached or
   // not. Whether messages are already on screen decides the pill label: no
@@ -1066,17 +1095,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         />
                       </Animated.View>
                     ) : null}
-                    {props.selectedThread.kind !== "sidechat" &&
-                    props.onOpenAgentThread &&
-                    activeUserInputRequestId === null &&
-                    !composerKeyboardOpen ? (
-                      <ActiveAgentsStrip
-                        environmentId={props.environmentId}
-                        threadId={props.selectedThread.id}
-                        parentThreadId={props.selectedThread.parentThreadId ?? null}
-                        onOpenThread={props.onOpenAgentThread}
-                      />
-                    ) : null}
                     {props.usageResume ? (
                       <Animated.View
                         className="shrink-0 px-4 pb-3"
@@ -1183,6 +1201,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
                     onExpandedChange={setComposerExpanded}
                     onEditorFocusChange={handleComposerFocusChange}
+                    // The glued bars step aside while the keyboard is up so the
+                    // draft keeps the room; the composer's own toolbar stays.
+                    topAccessory={composerKeyboardOpen ? null : activeAgentsBar}
+                    checkout={composerKeyboardOpen ? null : (props.composerCheckout ?? null)}
+                    onPressCheckoutBranch={props.onOpenGit}
                   />
                 </View>
               </View>

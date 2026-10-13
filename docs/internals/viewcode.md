@@ -939,6 +939,15 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   test holds every built-in theme to readable contrast under the tint, so a new
   theme must pass it. The composer change is limited to the glow's colour and
   alphas; the halo can be turned off, the running light cannot.
+- Mobile's thread composer wears the same glow (`features/threads/composerChrome.ts`):
+  the thread's project colour, else the theme accent (`--color-focus`), with the
+  `shellTint.ts` alphas; mobile has neither setting. Android cannot draw a coloured
+  shadow on every version and React Native has no conic gradient, so the halo is
+  stacked rings and the running light is SVG wedges drawn once and spun with a
+  Reanimated transform under an opaque cover (nothing repaints per frame; off under
+  reduced motion and while another screen covers the thread). The Active agents bar
+  and the checkout strip are glued to the composer and step aside while the
+  keyboard is up.
 - Project colour lives on the left panel only: rail tiles, folder badges, the
   sidebar tint, the selected row and the composer glow. The top bar and the
   tabs carry none (user decision: a coloured header read as a second layer).

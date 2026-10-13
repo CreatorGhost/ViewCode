@@ -1656,7 +1656,7 @@ export function NewTaskDraftScreen(props: {
 
       <ComposerSurface
         style={{
-          borderRadius: 26,
+          borderRadius: 22,
           minHeight: 140,
           overflow: "hidden",
           paddingBottom: 6,

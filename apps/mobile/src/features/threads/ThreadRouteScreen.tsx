@@ -73,6 +73,7 @@ import {
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetailScreen";
+import { resolveComposerCheckout } from "./composerChrome";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { agentControlEnvironment } from "../../state/agentControl";
@@ -364,7 +365,7 @@ function ThreadRouteContent(
       },
     };
   }, [selectedThread, selectedThreadDetailState]);
-  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
   const composer = useThreadComposerState();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
@@ -469,6 +470,19 @@ function ThreadRouteContent(
           input: { cwd: selectedThreadCwd },
         })
       : null,
+  );
+  const selectedThreadBranch = selectedThread?.branch ?? null;
+  const gitStatusData = gitStatus.data ?? null;
+  const composerCheckout = useMemo(
+    () =>
+      selectedThreadCwd === null
+        ? null
+        : resolveComposerCheckout({
+            worktreePath: selectedThreadWorktreePath,
+            threadBranch: selectedThreadBranch,
+            gitStatus: gitStatusData,
+          }),
+    [gitStatusData, selectedThreadBranch, selectedThreadCwd, selectedThreadWorktreePath],
   );
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: selectedThread?.environmentId ?? null,
@@ -1087,6 +1101,8 @@ function ThreadRouteContent(
           serverConfig={serverConfig}
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
           onOpenAgentThread={handleOpenAgentThread}
+          composerCheckout={composerCheckout}
+          onOpenGit={handleOpenGitInspector}
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}

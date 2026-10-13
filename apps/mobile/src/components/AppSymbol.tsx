@@ -103,6 +103,7 @@ import IconServer from "@tabler/icons-react-native/IconServer";
 import IconSettings from "@tabler/icons-react-native/IconSettings";
 import IconSparkles from "@tabler/icons-react-native/IconSparkles";
 import IconMessageCircleQuestion from "@tabler/icons-react-native/IconMessageCircleQuestion";
+import IconShield from "@tabler/icons-react-native/IconShield";
 import IconShieldQuestion from "@tabler/icons-react-native/IconShieldQuestion";
 import IconStack2 from "@tabler/icons-react-native/IconStack2";
 import IconStar from "@tabler/icons-react-native/IconStar";
@@ -267,6 +268,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "text.bubble": IconMessage,
   "questionmark.bubble": IconMessageCircleQuestion,
   "exclamationmark.shield": IconShieldQuestion,
+  shield: IconShield,
   "bubble.left.and.bubble.right": IconMessage,
   "bubble.left": IconMessage,
   sparkles: IconSparkles,
