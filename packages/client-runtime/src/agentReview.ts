@@ -342,6 +342,8 @@ export type AgentReviewTarget =
       readonly kind: "pull-request";
       readonly pullRequest: ReviewablePullRequest;
       readonly own: boolean;
+      /** Somebody asked the reader to review it. */
+      readonly requested?: boolean;
     }
   | { readonly kind: "local"; readonly scope: LocalReviewScope | null };
 
@@ -354,6 +356,8 @@ export interface AgentReviewChanges {
    * chat often has several open at once and a review of any of them can be asked for from it.
    */
   readonly openPullRequests?: ReadonlyArray<ReviewablePullRequest> | undefined;
+  /** The project's open pull requests the reader's review is requested on, newest first. */
+  readonly reviewRequested?: ReadonlyArray<ReviewablePullRequest> | undefined;
   /** Whether the checkout has uncommitted changes; null while that is unknown. */
   readonly dirty: boolean | null;
   /** The branch's committed changes and the base they are against; null when it has none. */
@@ -396,7 +400,8 @@ function localChoices(changes: AgentReviewChanges): AgentReviewTarget[] {
 
 /**
  * What a review asked for from a chat can read, in the order offered: its pull request, its
- * uncommitted changes, its branch against the base, then the project's other open pull requests.
+ * uncommitted changes, its branch against the base, the pull requests waiting for the reader's
+ * review, then the project's other open pull requests.
  * A server that cannot be told what of the local changes to read gets one "local changes" choice,
  * as does a checkout not read yet. Nothing without changes is offered; a commit is picked on its
  * own.
@@ -405,12 +410,26 @@ export function agentReviewTargetChoices(
   changes: AgentReviewChanges,
 ): ReadonlyArray<AgentReviewTarget> {
   const own = changes.pullRequest;
+  const notOwn = (pullRequest: ReviewablePullRequest) =>
+    own === null || !samePullRequest(pullRequest, own);
+  const requested = (changes.reviewRequested ?? [])
+    .filter(notOwn)
+    .slice(0, OTHER_REVIEWABLE_PULL_REQUEST_LIMIT);
   const others = (changes.openPullRequests ?? [])
-    .filter((pullRequest) => own === null || !samePullRequest(pullRequest, own))
+    .filter(
+      (pullRequest) =>
+        notOwn(pullRequest) && !requested.some((asked) => samePullRequest(asked, pullRequest)),
+    )
     .slice(0, OTHER_REVIEWABLE_PULL_REQUEST_LIMIT);
   return [
     ...(own === null ? [] : [{ kind: "pull-request" as const, pullRequest: own, own: true }]),
     ...localChoices(changes),
+    ...requested.map((pullRequest) => ({
+      kind: "pull-request" as const,
+      pullRequest,
+      own: false,
+      requested: true,
+    })),
     ...others.map((pullRequest) => ({ kind: "pull-request" as const, pullRequest, own: false })),
   ];
 }

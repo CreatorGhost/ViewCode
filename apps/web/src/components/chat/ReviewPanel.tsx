@@ -9,6 +9,7 @@ import {
   agentReviewTargetKey,
   agentReviewTargetLabel,
   agentReviewTargetRequest,
+  OTHER_REVIEWABLE_PULL_REQUEST_LIMIT,
   type ReviewablePullRequest,
 } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -70,15 +71,32 @@ function useReviewStartChoices(input: {
         })
       : null,
   );
+  // Its own read, so a request on an older pull request is not lost past the newest ones.
+  const requestedListed = useEnvironmentQuery(
+    canReviewPullRequest && projectId !== null
+      ? pullRequestEnvironment.list({
+          environmentId,
+          input: {
+            projectId,
+            state: "open",
+            involvement: "reviewing",
+            limit: OTHER_REVIEWABLE_PULL_REQUEST_LIMIT,
+          },
+        })
+      : null,
+  );
   const entries = listed.data?.entries;
+  const requestedEntries = requestedListed.data?.entries;
   return useMemo(() => {
     if (projectId === null) return [];
-    const openPullRequests = (entries ?? [])
-      .filter((entry) => entry.state === "open" && entry.projectId === projectId)
-      .map(({ host, repository, number, title }) => ({ host, repository, number, title }));
+    const reviewable = (list: typeof entries) =>
+      (list ?? [])
+        .filter((entry) => entry.state === "open" && entry.projectId === projectId)
+        .map(({ host, repository, number, title }) => ({ host, repository, number, title }));
     return agentReviewTargetChoices({
       pullRequest: canReviewPullRequest ? own : null,
-      openPullRequests,
+      openPullRequests: reviewable(entries),
+      reviewRequested: reviewable(requestedEntries),
       // The form's own "What to review" says what of the local changes to read.
       dirty: null,
       branch: null,
@@ -87,10 +105,15 @@ function useReviewStartChoices(input: {
     }).map((target) => ({
       key: agentReviewTargetKey(target),
       label: target.kind === "local" ? "This chat's changes" : agentReviewTargetLabel(target),
-      group: target.kind === "pull-request" && !target.own ? "open" : "chat",
+      group:
+        target.kind === "pull-request" && !target.own
+          ? target.requested
+            ? "requested"
+            : "open"
+          : "chat",
       request: agentReviewTargetRequest(target, { projectId, threadId }),
     }));
-  }, [canReviewLocal, canReviewPullRequest, entries, own, projectId, threadId]);
+  }, [canReviewLocal, canReviewPullRequest, entries, own, projectId, requestedEntries, threadId]);
 }
 
 const SCROLL_KEYS = new Set(["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "]);

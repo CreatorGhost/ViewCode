@@ -29,8 +29,8 @@ import type { LatestReviewStatus } from "./useReviewFindingsSource";
 export interface ReviewStartChoice {
   readonly key: string;
   readonly label: string;
-  /** The chat's own work, or another of the project's open pull requests. */
-  readonly group: "chat" | "open";
+  /** The chat's own work, a pull request waiting for the reader's review, or another open one. */
+  readonly group: "chat" | "requested" | "open";
   readonly request: AgentReviewRequest;
 }
 
@@ -45,6 +45,7 @@ export interface ReviewStartTarget {
 
 const CHOICE_GROUPS = [
   { group: "chat", label: "This chat" },
+  { group: "requested", label: "Waiting for your review" },
   { group: "open", label: "Open pull requests" },
 ] as const;
 
