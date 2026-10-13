@@ -1,3 +1,5 @@
+import * as NodeFS from "node:fs";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
 import * as Duration from "effect/Duration";
@@ -68,6 +70,42 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         expect(candidates).toContain(path.join("src-tauri", "icons", "icon.png"));
         expect(candidates).not.toContain(path.join("src", "assets", "react.svg"));
         expect(candidates).not.toContain(path.join("tests", "fixtures", "favicon.ico"));
+      }),
+    );
+
+    it.effect("offers one tile per image, and nothing through a link that leaves the project", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const parent = yield* makeTempDir;
+        const cwd = path.join(parent, "app");
+        yield* writeTextFile(cwd, "brand/logo.svg", "<svg>logo</svg>");
+        yield* writeTextFile(cwd, "src-tauri/icons/32x32.png", "png");
+        yield* writeTextFile(cwd, "src-tauri/icons/128x128.png", "png");
+        yield* writeTextFile(parent, "other/app/icon.svg", "<svg>other</svg>");
+        // A loop back into the project, and a link out of it.
+        yield* Effect.sync(() => {
+          NodeFS.symlinkSync(path.join(cwd, "brand"), path.join(cwd, "brand", "again"));
+          NodeFS.symlinkSync(path.join(parent, "other"), path.join(cwd, "outside"));
+        });
+
+        const candidates = yield* resolver.listCandidates(cwd);
+        expect(candidates).toEqual([
+          path.join("brand", "logo.svg"),
+          path.join("src-tauri", "icons", "128x128.png"),
+        ]);
+      }),
+    );
+
+    it.effect("uses an image named after the project's folder", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const parent = yield* makeTempDir;
+        const cwd = path.join(parent, "slicerninja");
+        yield* writeTextFile(cwd, "assets/slicerninja.png", "png");
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(path.join(cwd, "assets", "slicerninja.png"));
       }),
     );
 

@@ -1442,7 +1442,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             </span>
           )}
         </span>
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover/sidebar-row:flex group-focus-visible/sidebar-row:flex group-has-[:focus-visible]/sidebar-row:flex">
+        {/* Collapsed rather than display:none, so Tab can reach the actions: hidden ones are not
+            focusable, and they hide the moment focus leaves the previous control. */}
+        <span className="flex w-0 shrink-0 items-center gap-0.5 overflow-hidden opacity-0 group-hover/sidebar-row:w-auto group-hover/sidebar-row:opacity-100 group-focus-visible/sidebar-row:w-auto group-focus-visible/sidebar-row:opacity-100 group-has-[:focus-visible]/sidebar-row:w-auto group-has-[:focus-visible]/sidebar-row:opacity-100">
           {hasUnsentDraft ? (
             <SidebarRowAction label="Discard draft" onClick={handleDiscardDraftClick}>
               <XIcon className="size-3" />
@@ -1579,6 +1581,11 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
   );
   const FolderGlyph = props.expanded ? FolderOpenIcon : FolderIcon;
   const projectColor = resolveProjectGroupColor(group);
+  const folderColorClassName = projectColor
+    ? "text-(--project-accent)"
+    : projectIconColorClassName(deriveProjectIdentity(group.title).color);
+  // The badge shows the project's logo, saved or found; without one, its tinted folder.
+  const automaticIcon = !group.projectIcon && !group.faviconPath;
   return (
     <SidebarProjectHoverCard group={group} threadCount={props.threadCount}>
       <div
@@ -1614,19 +1621,13 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
             projectColor && projectAccentClassName(projectColor),
           )}
         >
-          {group.projectIcon || group.faviconPath ? (
-            <ProjectFavicon project={group} className="size-3.5" bareMonogram={!!projectColor} />
-          ) : (
-            <FolderGlyph
-              aria-hidden
-              className={cn(
-                "size-3.5",
-                projectColor
-                  ? "text-(--project-accent)"
-                  : projectIconColorClassName(deriveProjectIdentity(group.title).color),
-              )}
-            />
-          )}
+          <ProjectFavicon
+            project={group}
+            className={automaticIcon ? cn("size-3.5", folderColorClassName) : "size-3.5"}
+            bareMonogram={!!projectColor}
+            fallbackIcon={FolderGlyph}
+            iconFallback={automaticIcon}
+          />
         </button>
         <span className="min-w-0 flex-1 truncate">{group.displayName}</span>
         {props.showEnvironment ? (
@@ -1655,7 +1656,9 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
             ) : null}
           </span>
         ) : null}
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover/sidebar-row:flex group-focus-visible/sidebar-row:flex group-has-[:focus-visible]/sidebar-row:flex">
+        {/* Collapsed rather than display:none, so Tab can reach the actions: hidden ones are not
+            focusable, and they hide the moment focus leaves the previous control. */}
+        <span className="flex w-0 shrink-0 items-center gap-0.5 overflow-hidden opacity-0 group-hover/sidebar-row:w-auto group-hover/sidebar-row:opacity-100 group-focus-visible/sidebar-row:w-auto group-focus-visible/sidebar-row:opacity-100 group-has-[:focus-visible]/sidebar-row:w-auto group-has-[:focus-visible]/sidebar-row:opacity-100">
           <SidebarRowAction
             label={
               props.searching

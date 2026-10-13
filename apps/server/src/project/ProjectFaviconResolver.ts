@@ -24,6 +24,7 @@ import {
   iconPathsFromReadme,
   iconPathsFromWebManifest,
   isSkippedIconDirectory,
+  projectIconFamilyKey,
   rankProjectIconPaths,
 } from "@t3tools/shared/projectIconCandidates";
 
@@ -358,11 +359,17 @@ export const make = Effect.gen(function* () {
 
   // Image files in a bounded breadth-first walk of the workspace, relative to its root. Skips
   // dependencies, build output, tests and dot folders (isSkippedIconDirectory); only names
-  // without an extension are checked as folders, so the walk stays a readdir per folder.
+  // without an extension are checked as folders, so the walk stays a readdir per folder. A
+  // linked folder is walked once and only when it lands inside the workspace, so a link loop
+  // offers no copies and a link out of the project offers nothing from there.
   const scanImageFiles = Effect.fn("ProjectFaviconResolver.scanImageFiles")(function* (
     projectCwd: string,
   ) {
     const images: string[] = [];
+    const root = yield* fileSystem
+      .realPath(projectCwd)
+      .pipe(Effect.orElseSucceed(() => projectCwd));
+    const walked = new Set<string>([root]);
     let level: string[] = [""];
     let visited = 0;
     for (let depth = 0; depth <= ICON_SCAN_MAX_DEPTH && level.length > 0; depth += 1) {
@@ -393,12 +400,23 @@ export const make = Effect.gen(function* () {
         maybeDirectories,
         (relativePath) =>
           fileSystem.stat(path.join(projectCwd, relativePath)).pipe(
-            Effect.map((stats) => (stats.type === "Directory" ? relativePath : null)),
+            Effect.flatMap((stats) =>
+              stats.type === "Directory"
+                ? fileSystem
+                    .realPath(path.join(projectCwd, relativePath))
+                    .pipe(Effect.map((real) => ({ relativePath, real })))
+                : Effect.succeed(null),
+            ),
             Effect.orElseSucceed(() => null),
           ),
         { concurrency: 16 },
       );
-      for (const directory of kinds) if (directory) next.push(directory);
+      for (const directory of kinds) {
+        if (directory === null || walked.has(directory.real)) continue;
+        if (!directory.real.startsWith(`${root}${path.sep}`)) continue;
+        walked.add(directory.real);
+        next.push(directory.relativePath);
+      }
       level = next;
     }
     return images;
@@ -474,7 +492,11 @@ export const make = Effect.gen(function* () {
 
     // Projects that keep their mark elsewhere: what they declare, then the most logo-like image.
     const declared = yield* findDeclaredIcons(projectCwd);
-    const ranked = declared.length > 0 ? declared : yield* findRankedIcons(projectCwd, undefined);
+    // The folder's name stands in for the project's, which an asset request does not carry.
+    const ranked =
+      declared.length > 0
+        ? declared
+        : yield* findRankedIcons(projectCwd, path.basename(projectCwd));
     const best = ranked[0];
     return best === undefined ? null : path.join(projectCwd, best);
   });
@@ -540,11 +562,21 @@ export const make = Effect.gen(function* () {
     );
     const automatic = yield* resolvePath(projectCwd);
     const declared = yield* findDeclaredIcons(projectCwd);
-    const ranked = yield* findRankedIcons(projectCwd, projectName);
-    const candidates = new Set<string>();
-    if (automatic) candidates.add(path.relative(projectCwd, automatic));
-    for (const relativePath of [...declared, ...ranked]) candidates.add(relativePath);
-    return [...candidates].slice(0, ICON_CANDIDATE_LIMIT);
+    const ranked = yield* findRankedIcons(projectCwd, projectName ?? path.basename(projectCwd));
+    // One tile per image: the automatic one first, then other sizes of it and of others drop.
+    const candidates: string[] = [];
+    const families = new Set<string>();
+    for (const relativePath of [
+      ...(automatic ? [path.relative(projectCwd, automatic)] : []),
+      ...declared,
+      ...ranked,
+    ]) {
+      const family = projectIconFamilyKey(relativePath);
+      if (families.has(family)) continue;
+      families.add(family);
+      candidates.push(relativePath);
+    }
+    return candidates.slice(0, ICON_CANDIDATE_LIMIT);
   });
 
   return ProjectFaviconResolver.of({ resolvePath, listCandidates });

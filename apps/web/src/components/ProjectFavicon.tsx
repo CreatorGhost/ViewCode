@@ -36,8 +36,11 @@ export function ProjectFavicon(input: {
   fallbackIcon?: ComponentType<{ className?: string }>;
   /** A monogram without its own tinted square, for a surface that is already a tile (the rail). */
   bareMonogram?: boolean | undefined;
+  /** Without a logo, `fallbackIcon` rather than the project's monogram. */
+  iconFallback?: boolean | undefined;
 }) {
   const { project } = input;
+  const fallbackName = input.iconFallback ? undefined : project.title;
   const src = useAtomValue(
     projectFaviconUrlAtom({
       environmentId: project.environmentId,
@@ -90,7 +93,7 @@ export function ProjectFavicon(input: {
       <ProjectFaviconFallback
         className={input.className}
         icon={FallbackIcon}
-        projectName={project.title}
+        projectName={fallbackName}
         bareMonogram={input.bareMonogram}
       />
     );
@@ -108,7 +111,7 @@ export function ProjectFavicon(input: {
       src={src}
       className={input.className}
       fallbackIcon={FallbackIcon}
-      fallbackProjectName={project.title}
+      fallbackProjectName={fallbackName}
       bareMonogram={input.bareMonogram}
     />
   );

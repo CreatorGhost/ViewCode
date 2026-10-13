@@ -5,6 +5,7 @@ import {
   iconPathsFromReadme,
   iconPathsFromWebManifest,
   isSkippedIconDirectory,
+  projectIconFamilyKey,
   rankProjectIconPaths,
   scoreProjectIconPath,
 } from "./projectIconCandidates.ts";
@@ -27,7 +28,7 @@ describe("rankProjectIconPaths", () => {
     ).toEqual(["public/logo.svg"]);
   });
 
-  it("orders favicon before icon before logo, and svg before png", () => {
+  it("orders favicon before icon before logo, and offers an svg over its png", () => {
     expect(
       rankProjectIconPaths([
         "static/logo.png",
@@ -35,19 +36,32 @@ describe("rankProjectIconPaths", () => {
         "static/favicon.png",
         "static/favicon.svg",
       ]),
-    ).toEqual(["static/favicon.svg", "static/favicon.png", "static/icon.png", "static/logo.png"]);
+    ).toEqual(["static/favicon.svg", "static/icon.png", "static/logo.png"]);
   });
 
-  it("finds Tauri's size-named icons and prefers a large one", () => {
-    const ranked = rankProjectIconPaths([
-      "src-tauri/icons/16x16.png",
-      "src-tauri/icons/128x128.png",
-      "src-tauri/icons/icon.png",
-    ]);
-    expect(ranked[0]).toBe("src-tauri/icons/icon.png");
-    expect(ranked.indexOf("src-tauri/icons/128x128.png")).toBeLessThan(
-      ranked.indexOf("src-tauri/icons/16x16.png"),
-    );
+  it("finds Tauri's size-named icons and offers them as one image", () => {
+    expect(
+      rankProjectIconPaths([
+        "src-tauri/icons/16x16.png",
+        "src-tauri/icons/128x128.png",
+        "src-tauri/icons/icon.png",
+      ]),
+    ).toEqual(["src-tauri/icons/icon.png"]);
+    expect(
+      rankProjectIconPaths(["src-tauri/icons/16x16.png", "src-tauri/icons/128x128.png"]),
+    ).toEqual(["src-tauri/icons/128x128.png"]);
+  });
+
+  it("offers one copy of an image, but keeps its light and dark versions", () => {
+    expect(
+      rankProjectIconPaths([
+        "public/pwa-192x192.png",
+        "public/pwa-512x512.png",
+        "assets/logo.svg",
+        "assets/logo.png",
+        "assets/logo-dark.svg",
+      ]),
+    ).toEqual(["assets/logo.svg", "assets/logo-dark.svg", "public/pwa-512x512.png"]);
   });
 
   it("matches an image named after the project", () => {
@@ -83,6 +97,16 @@ describe("scoreProjectIconPath", () => {
     expect(scoreProjectIconPath("public\\favicon.ico")).toBe(
       scoreProjectIconPath("public/favicon.ico"),
     );
+  });
+});
+
+describe("projectIconFamilyKey", () => {
+  it("leaves sizes and the extension out of an image's identity", () => {
+    expect(projectIconFamilyKey("public/favicon-32x32.png")).toBe(
+      projectIconFamilyKey("public/favicon.svg"),
+    );
+    expect(projectIconFamilyKey("icons/128x128.png")).toBe("icons/icon");
+    expect(projectIconFamilyKey("logo-dark.svg")).not.toBe(projectIconFamilyKey("logo.svg"));
   });
 });
 

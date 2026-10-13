@@ -151,6 +151,11 @@ function smallestSizeIn(base: string): number | null {
   return sizes.length === 0 ? null : Math.min(...sizes);
 }
 
+function imageSize(relativePath: string): number {
+  const fileName = relativePath.split(/[\\/]/).at(-1) ?? "";
+  return smallestSizeIn(fileName.replace(/\.[^.]+$/, "")) ?? Number.MAX_SAFE_INTEGER;
+}
+
 function slug(value: string): string {
   return value
     .toLowerCase()
@@ -232,7 +237,26 @@ export function scoreProjectIconPath(
   return kind + extensionScore + location - sizePenalty;
 }
 
-/** The best `limit` candidates among `paths`, best first; paths that are not candidates drop. */
+/**
+ * Which image a path is a copy of: the same folder and name once sizes and the extension are left
+ * out, so "icons/32x32.png", "icons/128x128.png" and "icons/icon.png" are one image, as are
+ * "pwa-192.png" and "pwa-512.png". Appearance variants ("logo-dark") stay their own.
+ */
+export function projectIconFamilyKey(relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+  const slash = normalized.lastIndexOf("/");
+  const directory = slash === -1 ? "" : normalized.slice(0, slash);
+  const fileName = normalized.slice(slash + 1);
+  const dot = fileName.lastIndexOf(".");
+  const base = dot <= 0 ? fileName : fileName.slice(0, dot);
+  const name = base.replace(/[-_.@]?(?:\d+x\d+|\d+x|\d{2,4})/g, "");
+  return `${directory}/${name === "" ? "icon" : name}`;
+}
+
+/**
+ * The best `limit` candidates among `paths`, best first, one per image (`projectIconFamilyKey`);
+ * paths that are not candidates drop.
+ */
 export function rankProjectIconPaths(
   paths: Iterable<string>,
   options?: { readonly projectName?: string | undefined; readonly limit?: number },
@@ -248,10 +272,19 @@ export function rankProjectIconPaths(
   scored.sort(
     (left, right) =>
       right.score - left.score ||
+      // Of two sizes of one image the larger, and an unsized one before either.
+      imageSize(right.path) - imageSize(left.path) ||
       left.path.length - right.path.length ||
       left.path.localeCompare(right.path),
   );
-  return scored.slice(0, options?.limit ?? 8).map((entry) => entry.path);
+  const families = new Set<string>();
+  const best = scored.filter((entry) => {
+    const family = projectIconFamilyKey(entry.path);
+    if (families.has(family)) return false;
+    families.add(family);
+    return true;
+  });
+  return best.slice(0, options?.limit ?? 8).map((entry) => entry.path);
 }
 
 function isLocalImageReference(reference: string): boolean {
