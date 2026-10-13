@@ -4,13 +4,26 @@ import type {
   ReviewFindingRating,
   ScopedThreadRef,
 } from "@t3tools/contracts";
+import {
+  agentReviewTargetChoices,
+  agentReviewTargetKey,
+  agentReviewTargetLabel,
+  agentReviewTargetRequest,
+  type ReviewablePullRequest,
+} from "@t3tools/client-runtime/agent-review";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ReviewFindingsSource } from "@t3tools/client-runtime/review-findings";
 import type { PostedReviewFinding } from "@t3tools/shared/reviewFindings";
-import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import {
+  resolveThreadCurrentPullRequestLink,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
 import { ListChecksIcon } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useRef } from "react";
 
-import { useServerConfigs } from "../../state/entities";
+import { useServerConfigs, useThreadShell } from "../../state/entities";
+import { pullRequestEnvironment } from "../../state/pullRequests";
+import { useEnvironmentQuery } from "../../state/query";
 import {
   Empty,
   EmptyContent,
@@ -23,9 +36,62 @@ import { announceReviewStarted } from "../pullRequest/PullRequestAgentReviewDial
 import { ReviewChangeView } from "./ReviewChangeView";
 import { ReviewFindingsView, type ReviewFixInChat } from "./ReviewFindingsView";
 import { ReviewStatusBar } from "./ReviewProgress";
-import { ReviewStartForm, type ReviewStartTarget, useReviewRetry } from "./ReviewStart";
+import {
+  type ReviewStartChoice,
+  ReviewStartForm,
+  type ReviewStartTarget,
+  useReviewRetry,
+} from "./ReviewStart";
 import type { ReviewDiffTarget } from "./useReviewDiff";
 import { type LatestReviewStatus, useReviewFindingsSource } from "./useReviewFindingsSource";
+
+/** Enough of the project's open pull requests to fill the "Review" menu after the chat's own. */
+const OPEN_PULL_REQUEST_LIMIT = 20;
+
+/**
+ * What a review started from a chat can read: its pull request, its changes, or another of the
+ * project's open pull requests (`agentReviewTargetChoices`). The open ones are read only while the
+ * Review panel is open.
+ */
+function useReviewStartChoices(input: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ScopedThreadRef["threadId"];
+  readonly projectId: ProjectId | null;
+  readonly own: ReviewablePullRequest | null;
+  readonly canReviewPullRequest: boolean;
+  readonly canReviewLocal: boolean;
+}): ReadonlyArray<ReviewStartChoice> {
+  const { environmentId, threadId, projectId, own, canReviewPullRequest, canReviewLocal } = input;
+  const listed = useEnvironmentQuery(
+    canReviewPullRequest && projectId !== null
+      ? pullRequestEnvironment.list({
+          environmentId,
+          input: { projectId, state: "open", limit: OPEN_PULL_REQUEST_LIMIT },
+        })
+      : null,
+  );
+  const entries = listed.data?.entries;
+  return useMemo(() => {
+    if (projectId === null) return [];
+    const openPullRequests = (entries ?? [])
+      .filter((entry) => entry.state === "open" && entry.projectId === projectId)
+      .map(({ host, repository, number, title }) => ({ host, repository, number, title }));
+    return agentReviewTargetChoices({
+      pullRequest: canReviewPullRequest ? own : null,
+      openPullRequests,
+      // The form's own "What to review" says what of the local changes to read.
+      dirty: null,
+      branch: null,
+      canReviewLocal,
+      canScope: false,
+    }).map((target) => ({
+      key: agentReviewTargetKey(target),
+      label: target.kind === "local" ? "This chat's changes" : agentReviewTargetLabel(target),
+      group: target.kind === "pull-request" && !target.own ? "open" : "chat",
+      request: agentReviewTargetRequest(target, { projectId, threadId }),
+    }));
+  }, [canReviewLocal, canReviewPullRequest, entries, own, projectId, threadId]);
+}
 
 const SCROLL_KEYS = new Set(["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "]);
 
@@ -156,49 +222,59 @@ export function ReviewPanel({
   const host = pullRequest?.host;
   const repository = pullRequest?.repository;
   const number = pullRequest?.number;
+  const ownTitle = pullRequest?.snapshot?.title ?? null;
+  const own = useMemo<ReviewablePullRequest | null>(
+    () =>
+      host !== undefined && repository !== undefined && number !== undefined
+        ? { host, repository, number, title: ownTitle }
+        : null,
+    [host, number, ownTitle, repository],
+  );
+  const choices = useReviewStartChoices({
+    environmentId,
+    threadId,
+    projectId,
+    own,
+    canReviewPullRequest,
+    canReviewLocal,
+  });
   // Started here, the reviewer is this thread's child agent: the reader stays in this chat,
   // which shows the review among its agents while this panel shows the change and findings.
   const startReview = useMemo<ReviewStartTarget | null>(() => {
-    if (projectId === null) return null;
-    const onStarted = (started: Parameters<ReviewStartTarget["onStarted"]>[0]) =>
-      announceReviewStarted(started, "chat");
-    if (host !== undefined && repository !== undefined && number !== undefined) {
-      return canReviewPullRequest
-        ? {
-            environmentId,
-            request: {
-              kind: "pull-request",
-              reference: { projectId, host, repository, number },
-              sourceThreadId: threadId,
-            },
-            onStarted,
-          }
-        : null;
-    }
-    return canReviewLocal
-      ? {
-          environmentId,
-          request: { kind: "local", projectId, sourceThreadId: threadId },
-          onStarted,
-        }
-      : null;
-  }, [
-    canReviewLocal,
-    canReviewPullRequest,
-    environmentId,
-    host,
-    number,
-    projectId,
-    repository,
-    threadId,
-  ]);
-  const change = useMemo<ReviewDiffTarget | null>(
-    () =>
-      host !== undefined && repository !== undefined && number !== undefined
-        ? { kind: "pull-request", host, repository, number }
-        : { kind: "local" },
-    [host, number, repository],
+    const first = choices[0];
+    if (first === undefined) return null;
+    return {
+      environmentId,
+      request: first.request,
+      choices,
+      onStarted: (started) => announceReviewStarted(started, "chat"),
+    };
+  }, [choices, environmentId]);
+  // While a review that has sent no findings runs, the change it reads: the pull request its
+  // thread is linked to, which may be another of the project's than this chat's.
+  const reviewer = useThreadShell(
+    review === null ? null : scopeThreadRef(environmentId, review.threadId),
   );
+  const reviewed = useMemo(
+    () =>
+      review?.scope === null
+        ? resolveThreadCurrentPullRequestLink(
+            visibleThreadPullRequests(reviewer?.pullRequests ?? []),
+          )
+        : null,
+    [review?.scope, reviewer?.pullRequests],
+  );
+  const change = useMemo<ReviewDiffTarget | null>(() => {
+    const target = reviewed ?? own;
+    return target === null
+      ? { kind: "local" }
+      : {
+          kind: "pull-request",
+          host: target.host,
+          repository: target.repository,
+          number: target.number,
+        };
+  }, [own, reviewed]);
   return (
     <ReviewSurface
       environmentId={environmentId}

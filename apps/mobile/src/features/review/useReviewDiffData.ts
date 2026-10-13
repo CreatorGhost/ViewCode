@@ -83,6 +83,19 @@ function getCachedReviewFile(
   return file;
 }
 
+/**
+ * How many files from the top of the screen have their patch fetched. The native view reports only
+ * the top file, so the window covers what fits below it, folded files included; a smaller one left
+ * expanded files under folded ones reading "Loading diff…" with nothing loading.
+ */
+const FILE_WINDOW_SIZE = 8;
+
+function fileWindow(start: number): number[] {
+  return Array.from({ length: FILE_WINDOW_SIZE }, (_, offset) => start + offset);
+}
+
+const INITIAL_FILE_WINDOW = fileWindow(0);
+
 function isReviewDiffDebugLoggingEnabled(): boolean {
   return typeof __DEV__ !== "undefined" ? __DEV__ : false;
 }
@@ -151,9 +164,9 @@ export function useReviewDiffData(input: {
     source?.baseRef,
     source?.diffHash,
   ]);
-  const [requested, setRequested] = useState({ scope, indices: [0, 1, 2] });
+  const [requested, setRequested] = useState({ scope, indices: INITIAL_FILE_WINDOW });
   const indices = useMemo(
-    () => new Set(requested.scope === scope ? requested.indices : [0, 1, 2]),
+    () => new Set(requested.scope === scope ? requested.indices : INITIAL_FILE_WINDOW),
     [requested, scope],
   );
   const queries = useMemo(
@@ -223,8 +236,8 @@ export function useReviewDiffData(input: {
         fileId === null ? 0 : (lazySource?.files?.findIndex((file) => file.path === fileId) ?? -1);
       if (index < 0) return;
       setRequested((current) => {
-        const previous = current.scope === scope ? current.indices : [0, 1, 2];
-        const added = [index, index + 1, index + 2].filter((next) => !previous.includes(next));
+        const previous = current.scope === scope ? current.indices : INITIAL_FILE_WINDOW;
+        const added = fileWindow(index).filter((next) => !previous.includes(next));
         return added.length === 0 ? current : { scope, indices: [...previous, ...added] };
       });
       if (retry && patches[index]?._tag === "Failure" && queries[index])

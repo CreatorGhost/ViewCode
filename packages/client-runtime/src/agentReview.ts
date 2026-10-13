@@ -322,17 +322,38 @@ export function reviewStopPlan(
 }
 
 /**
- * What a review asked for from a chat's changes reads: the chat's pull request, or its local
- * changes (`scope` null where the server picks or cannot be told: uncommitted, else the branch).
+ * A pull request a review can read: the chat's own, or another open one of its project. The title
+ * is what the menu shows beside the number; null where it is not known.
+ */
+export interface ReviewablePullRequest {
+  readonly host: string;
+  readonly repository: string;
+  readonly number: number;
+  readonly title: string | null;
+}
+
+/**
+ * What a review asked for from a chat reads: a pull request (`own` for the chat's own), or the
+ * chat's local changes (`scope` null where the server picks or cannot be told: uncommitted, else
+ * the branch).
  */
 export type AgentReviewTarget =
-  | { readonly kind: "pull-request" }
+  | {
+      readonly kind: "pull-request";
+      readonly pullRequest: ReviewablePullRequest;
+      readonly own: boolean;
+    }
   | { readonly kind: "local"; readonly scope: LocalReviewScope | null };
 
 /** What of a chat's work there is to review, and what its server can review. */
 export interface AgentReviewChanges {
   /** The chat's current pull request, where the server reviews pull requests. */
-  readonly pullRequestNumber: number | null;
+  readonly pullRequest: ReviewablePullRequest | null;
+  /**
+   * The project's open pull requests, newest first, where the server reviews pull requests: a
+   * chat often has several open at once and a review of any of them can be asked for from it.
+   */
+  readonly openPullRequests?: ReadonlyArray<ReviewablePullRequest> | undefined;
   /** Whether the checkout has uncommitted changes; null while that is unknown. */
   readonly dirty: boolean | null;
   /** The branch's committed changes and the base they are against; null when it has none. */
@@ -343,24 +364,25 @@ export interface AgentReviewChanges {
   readonly canScope: boolean;
 }
 
-/**
- * What a review of a chat's work can read, in the order offered: its pull request, its uncommitted
- * changes, its branch against the base. A server that cannot be told what of the local changes to
- * read gets one "local changes" choice, as does a checkout not read yet. Nothing without changes
- * is offered; a commit is picked on its own.
- */
-export function agentReviewTargetChoices(
-  changes: AgentReviewChanges,
-): ReadonlyArray<AgentReviewTarget> {
-  const choices: AgentReviewTarget[] = [];
-  if (changes.pullRequestNumber !== null) choices.push({ kind: "pull-request" });
-  if (!changes.canReviewLocal) return choices;
+/** How many of the project's other open pull requests a menu offers. */
+export const OTHER_REVIEWABLE_PULL_REQUEST_LIMIT = 8;
+
+function samePullRequest(left: ReviewablePullRequest, right: ReviewablePullRequest): boolean {
+  return (
+    left.number === right.number &&
+    left.host.toLowerCase() === right.host.toLowerCase() &&
+    left.repository.toLowerCase() === right.repository.toLowerCase()
+  );
+}
+
+function localChoices(changes: AgentReviewChanges): AgentReviewTarget[] {
+  if (!changes.canReviewLocal) return [];
   if (!changes.canScope || changes.dirty === null) {
-    if (changes.dirty !== false || changes.branch !== null) {
-      choices.push({ kind: "local", scope: null });
-    }
-    return choices;
+    return changes.dirty !== false || changes.branch !== null
+      ? [{ kind: "local", scope: null }]
+      : [];
   }
+  const choices: AgentReviewTarget[] = [];
   if (changes.dirty) choices.push({ kind: "local", scope: { kind: "uncommitted" } });
   if (changes.branch !== null) {
     const { base } = changes.branch;
@@ -373,10 +395,32 @@ export function agentReviewTargetChoices(
 }
 
 /**
+ * What a review asked for from a chat can read, in the order offered: its pull request, its
+ * uncommitted changes, its branch against the base, then the project's other open pull requests.
+ * A server that cannot be told what of the local changes to read gets one "local changes" choice,
+ * as does a checkout not read yet. Nothing without changes is offered; a commit is picked on its
+ * own.
+ */
+export function agentReviewTargetChoices(
+  changes: AgentReviewChanges,
+): ReadonlyArray<AgentReviewTarget> {
+  const own = changes.pullRequest;
+  const others = (changes.openPullRequests ?? [])
+    .filter((pullRequest) => own === null || !samePullRequest(pullRequest, own))
+    .slice(0, OTHER_REVIEWABLE_PULL_REQUEST_LIMIT);
+  return [
+    ...(own === null ? [] : [{ kind: "pull-request" as const, pullRequest: own, own: true }]),
+    ...localChoices(changes),
+    ...others.map((pullRequest) => ({ kind: "pull-request" as const, pullRequest, own: false })),
+  ];
+}
+
+/**
  * What a review reads unless the reader picks otherwise, from the diff they are looking at: the
  * uncommitted changes, for those or for one turn's while the tree is dirty; otherwise what is
- * committed, the pull request or else the branch against its base. A diff with nothing in it
- * falls to the other. Null when there is nothing to review.
+ * committed, the chat's pull request or else the branch against its base. A diff with nothing in
+ * it falls to the other. Another pull request is only ever picked. Null when there is nothing to
+ * review.
  */
 export function inferAgentReviewTarget(
   section: ReviewDiffPreviewSourceKind | "turn" | null,
@@ -388,11 +432,27 @@ export function inferAgentReviewTarget(
       choice.kind === "local" && (choice.scope === null || choice.scope.kind === "uncommitted"),
   );
   const committed =
-    choices.find((choice) => choice.kind === "pull-request") ??
+    choices.find((choice) => choice.kind === "pull-request" && choice.own) ??
     choices.find((choice) => choice.kind === "local" && choice.scope?.kind === "branch");
   return (
     (section === "branch-range" ? (committed ?? uncommitted) : (uncommitted ?? committed)) ?? null
   );
+}
+
+/** The request that reviews a target as the chat's agent. */
+export function agentReviewTargetRequest(
+  target: AgentReviewTarget,
+  chat: { readonly projectId: ProjectId; readonly threadId: ThreadId },
+): AgentReviewRequest {
+  if (target.kind === "local") {
+    return { kind: "local", projectId: chat.projectId, sourceThreadId: chat.threadId };
+  }
+  const { host, repository, number } = target.pullRequest;
+  return {
+    kind: "pull-request",
+    reference: { projectId: chat.projectId, host, repository, number },
+    sourceThreadId: chat.threadId,
+  };
 }
 
 /**
@@ -433,7 +493,10 @@ export function agentReviewRetryRequest(input: {
 
 /** A target's identity, to tell the chosen one among a menu's choices. */
 export function agentReviewTargetKey(target: AgentReviewTarget): string {
-  if (target.kind === "pull-request") return "pull-request";
+  if (target.kind === "pull-request") {
+    const { host, repository, number } = target.pullRequest;
+    return `pull-request:${host.toLowerCase()}/${repository.toLowerCase()}#${number}`;
+  }
   switch (target.scope?.kind) {
     case undefined:
       return "local";
@@ -446,13 +509,22 @@ export function agentReviewTargetKey(target: AgentReviewTarget): string {
   }
 }
 
-/** A target as a menu offers it: "This PR #12", "Current changes", "Branch vs origin/main". */
-export function agentReviewTargetLabel(
-  target: AgentReviewTarget,
-  pullRequestNumber: number | null,
-): string {
+const PULL_REQUEST_TITLE_LIMIT = 48;
+
+/**
+ * A target as a menu offers it: "This PR #12", "PR #9 · Fix the login race", "Current changes",
+ * "Branch vs origin/main". Another pull request's title is cut short to fit a menu row.
+ */
+export function agentReviewTargetLabel(target: AgentReviewTarget): string {
   if (target.kind === "pull-request") {
-    return pullRequestNumber === null ? "This PR" : `This PR #${pullRequestNumber}`;
+    const { number, title } = target.pullRequest;
+    if (target.own) return `This PR #${number}`;
+    if (title === null) return `PR #${number}`;
+    const short =
+      title.length > PULL_REQUEST_TITLE_LIMIT
+        ? `${title.slice(0, PULL_REQUEST_TITLE_LIMIT - 1).trimEnd()}…`
+        : title;
+    return `PR #${number} · ${short}`;
   }
   switch (target.scope?.kind) {
     case undefined:

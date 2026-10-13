@@ -2,13 +2,15 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useNavigation } from "@react-navigation/native";
 import {
-  type AgentReviewRequest,
   type AgentReviewTarget,
   agentReviewRetryRequest,
   agentReviewTargetChoices,
   agentReviewTargetKey,
   agentReviewTargetLabel,
+  agentReviewTargetRequest,
   inferAgentReviewTarget,
+  type ReviewablePullRequest,
+  localReviewScopeLabel,
   localReviewScopeReady,
   reviewFindingsSentText,
   reviewStatusText,
@@ -18,7 +20,6 @@ import {
   AGENT_REVIEW_MODES,
   type AgentReviewMode,
   type EnvironmentId,
-  type LocalReviewScope,
   type ModelSelection,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -29,7 +30,7 @@ import {
 } from "@t3tools/shared/threadPullRequests";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, View } from "react-native";
 
 import { SymbolView } from "../../../components/AppSymbol";
 import { AppText as Text } from "../../../components/AppText";
@@ -37,6 +38,8 @@ import { ControlPill, ControlPillMenu } from "../../../components/ControlPill";
 import { cn } from "../../../lib/cn";
 import { useEnvironmentServerConfig, useThreadShell } from "../../../state/entities";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../../state/preferences";
+import { composerPullRequests } from "../../../state/pull-requests";
+import { useEnvironmentQuery } from "../../../state/query";
 import { SidechatModelPicker } from "../../sidechat/SidechatModelPicker";
 import type { ReviewSectionMenu } from "../review-section-menu";
 import type { ReviewSectionItem } from "../reviewModel";
@@ -51,6 +54,8 @@ import {
 } from "./useAgentReviews";
 
 const COMMIT_EVENT = "commit";
+/** Enough of the project's open pull requests to fill the menu after the chat's own. */
+const OPEN_PULL_REQUEST_LIMIT = 20;
 
 function sectionHasChanges(section: ReviewSectionItem | null): boolean | null {
   if (section === null) return false;
@@ -101,6 +106,20 @@ export function AgentReviewBar(props: {
           findingsTarget: latest.source?.findings.target ?? null,
         });
 
+  // What the latest review reads, so a review of another pull request says which.
+  const reviewing = useMemo(() => {
+    if (latest === null) return null;
+    const target = latest.source?.findings.target ?? null;
+    if (target?.kind === "pull-request") return `PR #${target.number}`;
+    if (target?.kind === "local") return localReviewScopeLabel(latest.scope);
+    const linked = resolveThreadCurrentPullRequestLink(
+      visibleThreadPullRequests(reviewer?.pullRequests ?? []),
+    );
+    return linked !== null && latest.scope === null
+      ? `PR #${linked.number}`
+      : localReviewScopeLabel(latest.scope);
+  }, [latest, reviewer?.pullRequests]);
+
   const pullRequest = useMemo(
     () =>
       canReviewPullRequest
@@ -108,13 +127,43 @@ export function AgentReviewBar(props: {
         : null,
     [canReviewPullRequest, shell?.pullRequests],
   );
-  const pullRequestNumber = pullRequest?.number ?? null;
+  const ownPullRequest = useMemo<ReviewablePullRequest | null>(
+    () =>
+      pullRequest === null
+        ? null
+        : {
+            host: pullRequest.host,
+            repository: pullRequest.repository,
+            number: pullRequest.number,
+            title: pullRequest.snapshot?.title ?? null,
+          },
+    [pullRequest],
+  );
+  // Any of the project's open pull requests can be reviewed from here, not only the chat's own.
+  const projectId = shell?.projectId ?? null;
+  const openList = useEnvironmentQuery(
+    canReviewPullRequest && projectId !== null
+      ? composerPullRequests.list({
+          environmentId,
+          input: { projectId, state: "open", limit: OPEN_PULL_REQUEST_LIMIT },
+        })
+      : null,
+  );
+  const openEntries = openList.data?.entries;
+  const openPullRequests = useMemo<ReadonlyArray<ReviewablePullRequest>>(
+    () =>
+      (openEntries ?? [])
+        .filter((entry) => entry.state === "open" && entry.projectId === projectId)
+        .map(({ host, repository, number, title }) => ({ host, repository, number, title })),
+    [openEntries, projectId],
+  );
   const { workingTree, branchChanges } = props.sections;
   const branchBase = branchChanges?.source?.baseRef ?? null;
   const branchChanged = sectionHasChanges(branchChanges) === true;
   const changes = useMemo(
     () => ({
-      pullRequestNumber,
+      pullRequest: ownPullRequest,
+      openPullRequests,
       dirty: sectionHasChanges(workingTree),
       branch: branchChanged
         ? {
@@ -128,7 +177,15 @@ export function AgentReviewBar(props: {
       canReviewLocal,
       canScope,
     }),
-    [branchBase, branchChanged, canReviewLocal, canScope, pullRequestNumber, workingTree],
+    [
+      branchBase,
+      branchChanged,
+      canReviewLocal,
+      canScope,
+      openPullRequests,
+      ownPullRequest,
+      workingTree,
+    ],
   );
   const choices = useMemo(() => agentReviewTargetChoices(changes), [changes]);
   const sectionId = props.selectedSection?.id ?? null;
@@ -154,21 +211,6 @@ export function AgentReviewBar(props: {
   const [pickedModel, setPickedModel] = useState<ModelSelection | null>(null);
   const modelSelection = pickedModel ?? shell?.modelSelection ?? null;
 
-  const request = useCallback(
-    (kind: AgentReviewTarget["kind"]): AgentReviewRequest | null => {
-      if (shell === null) return null;
-      if (kind === "local")
-        return { kind: "local", projectId: shell.projectId, sourceThreadId: threadId };
-      if (pullRequest === null) return null;
-      const { host, repository, number } = pullRequest;
-      return {
-        kind: "pull-request",
-        reference: { projectId: shell.projectId, host, repository, number },
-        sourceThreadId: threadId,
-      };
-    },
-    [pullRequest, shell, threadId],
-  );
   const openFindings = useCallback(
     (reviewThreadId: ThreadId) =>
       navigation.navigate("ThreadReviewFindings", {
@@ -179,27 +221,28 @@ export function AgentReviewBar(props: {
     [environmentId, navigation, threadId],
   );
   const startReview = useCallback(
-    async (kind: AgentReviewTarget["kind"], scope: LocalReviewScope | null) => {
-      const asked = request(kind);
-      if (asked === null) return;
+    async (chosen: AgentReviewTarget) => {
+      if (projectId === null) return;
+      const asked = agentReviewTargetRequest(chosen, { projectId, threadId });
+      const scope = chosen.kind === "local" ? chosen.scope : null;
       const started = await start(asked, { mode, modelSelection, focus: "", scope });
       if (started !== null) openFindings(started);
     },
-    [mode, modelSelection, openFindings, request, start],
+    [mode, modelSelection, openFindings, projectId, start, threadId],
   );
 
   const { commitToReview, onCommitTaken } = props;
   useEffect(() => {
     if (commitToReview === null) return;
     onCommitTaken();
-    void startReview("local", { kind: "commit", sha: commitToReview });
+    void startReview({ kind: "local", scope: { kind: "commit", sha: commitToReview } });
   }, [commitToReview, onCommitTaken, startReview]);
 
   if (!canReviewPullRequest && !canReviewLocal) return null;
   if (shell === null || isReviewer) return null;
 
   const canPickCommit = canScope;
-  const targetLabel = target === null ? null : agentReviewTargetLabel(target, pullRequestNumber);
+  const targetLabel = target === null ? null : agentReviewTargetLabel(target);
   const android = Platform.OS === "android";
   const actions: MenuAction[] = [
     {
@@ -224,7 +267,7 @@ export function AgentReviewBar(props: {
             subactions: [
               ...choices.map((choice) => ({
                 id: `target:${agentReviewTargetKey(choice)}`,
-                title: agentReviewTargetLabel(choice, pullRequestNumber),
+                title: agentReviewTargetLabel(choice),
                 state:
                   target !== null && agentReviewTargetKey(choice) === agentReviewTargetKey(target)
                     ? ("on" as const)
@@ -265,7 +308,7 @@ export function AgentReviewBar(props: {
             disabled={pending || target === null || modelSelection === null}
             onPress={() => {
               if (target === null) return;
-              void startReview(target.kind, target.kind === "local" ? target.scope : null);
+              void startReview(target);
             }}
           />
           <ControlPillMenu
@@ -309,6 +352,7 @@ export function AgentReviewBar(props: {
           <AgentReviewStatusRow
             environmentId={environmentId}
             review={latest}
+            reviewing={reviewing}
             onOpen={() => openFindings(latest.threadId)}
             onRetry={
               retryRequest === null
@@ -336,10 +380,15 @@ function lowerFirst(text: string): string {
   return text.length === 0 ? text : `${text[0]!.toLowerCase()}${text.slice(1)}`;
 }
 
-/** Where the latest review stands, in the words web uses; opens its findings. */
+/**
+ * The latest review as its own card: "Review agent", what it reads, and where it stands in the
+ * words web uses. Opens its findings, which fill in while it runs.
+ */
 function AgentReviewStatusRow(props: {
   readonly environmentId: EnvironmentId;
   readonly review: LatestAgentReview;
+  /** What it reads: "PR #48", "Branch vs origin/main". */
+  readonly reviewing: string | null;
   readonly onOpen: () => void;
   /** Null when the review cannot be asked for again from here. */
   readonly onRetry: (() => void) | null;
@@ -348,7 +397,8 @@ function AgentReviewStatusRow(props: {
   const { review } = props;
   const { progress } = review;
   const label = useAgentReviewLabel(props.environmentId, review.mode, review.modelSelection);
-  const now = useMinuteClock(progress.kind === "running");
+  const running = progress.kind === "running";
+  const now = useMinuteClock(running);
   const findings = review.source?.findings ?? null;
   const text =
     progress.kind === "done"
@@ -367,37 +417,56 @@ function AgentReviewStatusRow(props: {
           newer: false,
         })}${
           // The step web's progress line names while findings arrive: "Sent 2 findings so far".
-          progress.kind === "running" && progress.partial
-            ? ` · ${reviewFindingsSentText(findings)}`
-            : ""
+          running && progress.partial ? ` · ${reviewFindingsSentText(findings)}` : ""
         }`;
+  const title = running ? "Review agent running" : "Review agent";
   return (
-    <View className="flex-row items-center gap-1">
+    <View className="gap-2">
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel={`${title}${props.reviewing === null ? "" : `, ${props.reviewing}`}. ${text}`}
         accessibilityHint="Opens the review's findings."
         onPress={props.onOpen}
-        className="min-h-11 min-w-0 flex-1 flex-row items-center gap-2 rounded-xl px-2 active:bg-subtle"
+        className={cn(
+          "min-h-14 flex-row items-center gap-3 rounded-xl border px-3 py-2.5 active:opacity-70",
+          running
+            ? "border-adaptive-sky-600-400/40 bg-adaptive-sky-600-400/10"
+            : progress.kind === "failed"
+              ? "border-adaptive-rose-600-400/40 bg-adaptive-rose-600-400/10"
+              : "border-border bg-subtle",
+        )}
       >
-        <View
-          className={cn(
-            "size-2 rounded-full",
-            progress.kind === "running"
-              ? "bg-adaptive-sky-600-400"
-              : progress.kind === "failed"
-                ? "bg-adaptive-rose-600-400"
-                : "bg-foreground-muted",
+        <View className="size-5 items-center justify-center">
+          {running ? (
+            <ActivityIndicator size="small" colorClassName="accent-adaptive-sky-600-400" />
+          ) : (
+            <View
+              className={cn(
+                "size-2.5 rounded-full",
+                progress.kind === "failed" ? "bg-adaptive-rose-600-400" : "bg-foreground-muted",
+              )}
+            />
           )}
-        />
-        <Text
-          className={cn(
-            "min-w-0 flex-1 text-sm",
-            progress.kind === "failed" ? "text-adaptive-rose-700-300" : "text-foreground",
-          )}
-          numberOfLines={1}
-        >
-          {text}
-        </Text>
+        </View>
+        <View className="min-w-0 flex-1 gap-0.5">
+          <View className="flex-row items-center gap-1.5">
+            <Text className="shrink-0 text-sm font-t3-medium text-foreground">{title}</Text>
+            {props.reviewing !== null ? (
+              <Text className="min-w-0 shrink text-sm text-foreground-muted" numberOfLines={1}>
+                · {props.reviewing}
+              </Text>
+            ) : null}
+          </View>
+          <Text
+            className={cn(
+              "text-xs",
+              progress.kind === "failed" ? "text-adaptive-rose-700-300" : "text-foreground-muted",
+            )}
+            numberOfLines={2}
+          >
+            {text}
+          </Text>
+        </View>
         <SymbolView
           name="chevron.right"
           size={12}
@@ -406,12 +475,14 @@ function AgentReviewStatusRow(props: {
         />
       </Pressable>
       {progress.kind === "failed" && props.onRetry !== null ? (
-        <ControlPill
-          variant="pill"
-          label={props.retrying ? "Starting…" : "Try again"}
-          disabled={props.retrying}
-          onPress={props.onRetry}
-        />
+        <View className="flex-row justify-end">
+          <ControlPill
+            variant="pill"
+            label={props.retrying ? "Starting…" : "Try again"}
+            disabled={props.retrying}
+            onPress={props.onRetry}
+          />
+        </View>
       ) : null}
     </View>
   );

@@ -12,14 +12,90 @@ import {
 } from "../pullRequest/PullRequestAgentReviewDialog";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import {
+  Select,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ReviewScopeFields } from "./ReviewScopeFields";
 import type { LatestReviewStatus } from "./useReviewFindingsSource";
 
+/** Something a chat's review can read instead, as the form's "Review" menu offers it. */
+export interface ReviewStartChoice {
+  readonly key: string;
+  readonly label: string;
+  /** The chat's own work, or another of the project's open pull requests. */
+  readonly group: "chat" | "open";
+  readonly request: AgentReviewRequest;
+}
+
 export interface ReviewStartTarget {
   readonly environmentId: EnvironmentId;
+  /** What a review reads unless another of `choices` is picked. */
   readonly request: AgentReviewRequest;
   readonly onStarted: (started: StartedAgentReview) => void;
+  /** What else it can read; the first is `request`. A menu shows when there is more than one. */
+  readonly choices?: ReadonlyArray<ReviewStartChoice> | undefined;
+}
+
+const CHOICE_GROUPS = [
+  { group: "chat", label: "This chat" },
+  { group: "open", label: "Open pull requests" },
+] as const;
+
+/** The form's "Review" menu: the chat's pull request or changes, or another open pull request. */
+function ReviewTargetSelect({
+  choices,
+  value,
+  disabled,
+  onChange,
+}: {
+  choices: ReadonlyArray<ReviewStartChoice>;
+  value: string;
+  disabled: boolean;
+  onChange: (key: string) => void;
+}) {
+  const id = useId();
+  const labels = Object.fromEntries(choices.map((choice) => [choice.key, choice.label]));
+  return (
+    <div className="flex flex-col gap-2">
+      <span id={`${id}-target`} className="font-medium text-xs text-muted-foreground">
+        Review
+      </span>
+      <Select
+        items={labels}
+        value={value}
+        disabled={disabled}
+        onValueChange={(next) => {
+          if (typeof next === "string") onChange(next);
+        }}
+      >
+        <SelectTrigger aria-labelledby={`${id}-target`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectPopup alignItemWithTrigger={false}>
+          {CHOICE_GROUPS.map(({ group, label }) => {
+            const inGroup = choices.filter((choice) => choice.group === group);
+            return inGroup.length === 0 ? null : (
+              <SelectGroup key={group}>
+                <SelectGroupLabel>{label}</SelectGroupLabel>
+                {inGroup.map((choice) => (
+                  <SelectItem key={choice.key} value={choice.key}>
+                    <span className="truncate">{choice.label}</span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            );
+          })}
+        </SelectPopup>
+      </Select>
+    </div>
+  );
 }
 
 /**
@@ -29,15 +105,20 @@ export interface ReviewStartTarget {
  */
 export function ReviewStartForm({
   target,
-  rereview = null,
+  rereview: rereviewBasis = null,
 }: {
   target: ReviewStartTarget;
   rereview?: ReviewRereviewBasis | null;
 }) {
   const id = useId();
-  const form = useAgentReviewForm(target.environmentId, target.request);
+  const choices = target.choices ?? [];
+  const [pickedKey, setPickedKey] = useState<string | null>(null);
+  const picked = choices.find((choice) => choice.key === pickedKey) ?? choices[0] ?? null;
+  const form = useAgentReviewForm(target.environmentId, picked?.request ?? target.request);
+  // A re-review is of what the review read, the first choice; another one is a fresh review.
+  const rereview = picked === null || picked === choices[0] ? rereviewBasis : null;
   const [scope, setScope] = useState<"rereview" | "full">(() =>
-    rereview?.onlyChanges === true ? "rereview" : "full",
+    rereviewBasis?.onlyChanges === true ? "rereview" : "full",
   );
   return (
     <form
@@ -50,6 +131,14 @@ export function ReviewStartForm({
         });
       }}
     >
+      {choices.length > 1 && picked !== null ? (
+        <ReviewTargetSelect
+          choices={choices}
+          value={picked.key}
+          disabled={form.pending}
+          onChange={setPickedKey}
+        />
+      ) : null}
       {form.canScope && !(rereview !== null && scope === "rereview") ? (
         <ReviewScopeFields
           environmentId={target.environmentId}

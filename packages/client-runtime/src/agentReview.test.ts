@@ -17,6 +17,7 @@ import {
   agentReviewRetryRequest,
   agentReviewTargetChoices,
   agentReviewTargetLabel,
+  agentReviewTargetRequest,
   buildAgentReviewStart,
   canChooseLocalReviewScope,
   filterReviewCommits,
@@ -295,8 +296,14 @@ describe("reviewStatusText", () => {
 });
 
 describe("what a review of a chat's work reads", () => {
+  const pr = (number: number, title: string | null = null) => ({
+    host: "github.com",
+    repository: "acme/web",
+    number,
+    title,
+  });
   const changes = (overrides: Partial<AgentReviewChanges> = {}): AgentReviewChanges => ({
-    pullRequestNumber: null,
+    pullRequest: null,
     dirty: true,
     branch: { base: "origin/main" },
     canReviewLocal: true,
@@ -304,16 +311,14 @@ describe("what a review of a chat's work reads", () => {
     ...overrides,
   });
   const labels = (input: AgentReviewChanges) =>
-    agentReviewTargetChoices(input).map((target) =>
-      agentReviewTargetLabel(target, input.pullRequestNumber),
-    );
+    agentReviewTargetChoices(input).map((target) => agentReviewTargetLabel(target));
   const inferred = (section: Parameters<typeof inferAgentReviewTarget>[0], input = changes()) => {
     const target = inferAgentReviewTarget(section, input);
-    return target === null ? null : agentReviewTargetLabel(target, input.pullRequestNumber);
+    return target === null ? null : agentReviewTargetLabel(target);
   };
 
   it("offers only what has changes, and what the server can review", () => {
-    expect(labels(changes({ pullRequestNumber: 12 }))).toEqual([
+    expect(labels(changes({ pullRequest: pr(12) }))).toEqual([
       "This PR #12",
       "Current changes",
       "Branch vs origin/main",
@@ -323,9 +328,39 @@ describe("what a review of a chat's work reads", () => {
       "Current changes",
       "Branch vs its base",
     ]);
-    expect(labels(changes({ pullRequestNumber: 12, canReviewLocal: false }))).toEqual([
+    expect(labels(changes({ pullRequest: pr(12), canReviewLocal: false }))).toEqual([
       "This PR #12",
     ]);
+  });
+
+  it("offers the project's other open pull requests after the chat's own work", () => {
+    const open = [pr(12, "Own"), pr(9, "Fix the login race"), pr(8, null)];
+    expect(labels(changes({ pullRequest: pr(12), openPullRequests: open, dirty: false }))).toEqual([
+      "This PR #12",
+      "Branch vs origin/main",
+      "PR #9 · Fix the login race",
+      "PR #8",
+    ]);
+    // A chat without its own pull request still reviews its changes unless one is picked.
+    expect(inferred("branch-range", changes({ openPullRequests: open, dirty: false }))).toBe(
+      "Branch vs origin/main",
+    );
+    expect(inferred(null, changes({ openPullRequests: open, dirty: false, branch: null }))).toBe(
+      null,
+    );
+  });
+
+  it("cuts a long title short and reviews a picked pull request as the chat's agent", () => {
+    const long = pr(4, "A".repeat(80));
+    const [target] = agentReviewTargetChoices(
+      changes({ openPullRequests: [long], dirty: false, branch: null }),
+    );
+    expect(agentReviewTargetLabel(target!)).toBe(`PR #4 · ${"A".repeat(47)}…`);
+    expect(agentReviewTargetRequest(target!, { projectId: PROJECT_ID, threadId: CHAT })).toEqual({
+      kind: "pull-request",
+      reference: { projectId: PROJECT_ID, host: "github.com", repository: "acme/web", number: 4 },
+      sourceThreadId: CHAT,
+    });
   });
 
   it("leaves what to read to a server that cannot be told, or to a checkout not read yet", () => {
@@ -335,15 +370,15 @@ describe("what a review of a chat's work reads", () => {
   });
 
   it("reads the uncommitted changes from those or a turn's diff while the tree is dirty", () => {
-    const withPullRequest = changes({ pullRequestNumber: 12 });
+    const withPullRequest = changes({ pullRequest: pr(12) });
     expect(inferred("working-tree", withPullRequest)).toBe("Current changes");
     expect(inferred("turn", withPullRequest)).toBe("Current changes");
-    expect(inferred("turn", changes({ dirty: false, pullRequestNumber: 12 }))).toBe("This PR #12");
+    expect(inferred("turn", changes({ dirty: false, pullRequest: pr(12) }))).toBe("This PR #12");
     expect(inferred("turn", changes({ dirty: false }))).toBe("Branch vs origin/main");
   });
 
   it("reads what is committed from the branch diff: the pull request, else the branch", () => {
-    expect(inferred("branch-range", changes({ pullRequestNumber: 12 }))).toBe("This PR #12");
+    expect(inferred("branch-range", changes({ pullRequest: pr(12) }))).toBe("This PR #12");
     expect(inferred("branch-range")).toBe("Branch vs origin/main");
     // A diff with nothing in it falls to the other.
     expect(inferred("branch-range", changes({ branch: null }))).toBe("Current changes");
@@ -352,7 +387,7 @@ describe("what a review of a chat's work reads", () => {
 
   it("finds nothing to review in a clean checkout without a pull request", () => {
     expect(inferred("working-tree", changes({ dirty: false, branch: null }))).toBeNull();
-    expect(inferred(null, changes({ dirty: false, branch: null, pullRequestNumber: 3 }))).toBe(
+    expect(inferred(null, changes({ dirty: false, branch: null, pullRequest: pr(3) }))).toBe(
       "This PR #3",
     );
   });
@@ -396,7 +431,7 @@ describe("what a review of a chat's work reads", () => {
 
   it("names a picked commit by its short SHA", () => {
     expect(
-      agentReviewTargetLabel({ kind: "local", scope: { kind: "commit", sha: "a1b2c3d4e5" } }, null),
+      agentReviewTargetLabel({ kind: "local", scope: { kind: "commit", sha: "a1b2c3d4e5" } }),
     ).toBe("Commit a1b2c3d");
   });
 });
