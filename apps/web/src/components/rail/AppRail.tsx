@@ -87,9 +87,12 @@ const RailProjectButton = memo(function RailProjectButton(props: {
   const { project, needsYou, working } = props;
   const navigate = useNavigate();
   const projectColor = resolveProjectGroupColor(project);
-  // `contents` keeps the tile a direct rail item while handing it --project-accent for its ring.
+  // `contents` keeps the tile a direct rail item while handing it --project-accent for its fill.
   return (
-    <span className={cn("contents", projectColor && projectAccentClassName(projectColor))}>
+    <span
+      data-rail-colored={projectColor ? "" : undefined}
+      className={cn("contents", projectColor && projectAccentClassName(projectColor))}
+    >
       <RailButton
         label={railProjectLabel(project.displayName, { needsYou, working })}
         tooltip={project.displayName}

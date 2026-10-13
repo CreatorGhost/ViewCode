@@ -418,11 +418,29 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   [data-composer-banner-surface="attached"]::before {
   border-radius: 0;
 }
-/* The hidden-notices peek is a small tab on the tray, not a full-width strip. */
+/* The hidden-notices peek is a small labelled tab on top of the tray ("1 more"), so it
+   reads as notices waiting behind the front one rather than a stray blank shape. */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-banner-peek"] {
-  width: 40%;
-  height: 0.5rem;
+  width: fit-content;
+  height: 1.25rem;
+  padding-inline: 0.625rem;
   margin-inline: auto;
-  border: 0;
+  border: 1px solid var(--vc-hairline);
+  border-bottom: 0;
   border-radius: 8px 8px 0 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted-foreground);
+}
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-banner-peek"]
+  [data-peek-label] {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip-path: none;
+  clip: auto;
+  white-space: nowrap;
 }
