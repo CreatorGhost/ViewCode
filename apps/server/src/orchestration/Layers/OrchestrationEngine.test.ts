@@ -722,7 +722,13 @@ describe("OrchestrationEngine", () => {
           createdAt: now(),
         });
         for (const trigger of ["turn", "session"] as const)
-          for (const mode of ["auto", "manual", "manual-after-auto", "sidechat"] as const) {
+          for (const mode of [
+            "auto",
+            "manual",
+            "manual-after-auto",
+            "sidechat",
+            "archived-child",
+          ] as const) {
             const leadId = ThreadId.make(`lead-${mode}-${trigger}`);
             const childId = ThreadId.make(`child-${mode}-${trigger}`);
             for (const threadId of [leadId, childId])
@@ -744,6 +750,13 @@ describe("OrchestrationEngine", () => {
                       ...(mode === "sidechat" ? { kind: "sidechat" as const } : {}),
                     }
                   : {}),
+              });
+            // A stale client can still start a turn on an archived child; it must not wake the lead.
+            if (mode === "archived-child")
+              yield* engine.dispatch({
+                type: "thread.archive",
+                commandId: CommandId.make(`archive-${childId}`),
+                threadId: childId,
               });
             if (mode !== "manual")
               yield* engine.dispatch({
