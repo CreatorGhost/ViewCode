@@ -653,6 +653,8 @@ export function projectEvent(
                 ? { modelSelection: payload.modelSelection }
                 : {}),
               ...(payload.kind !== undefined ? { kind: payload.kind } : {}),
+              ...(payload.goal !== undefined ? { goal: payload.goal } : {}),
+              ...(payload.debugMode !== undefined ? { debugMode: payload.debugMode } : {}),
               ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
               ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
               ...(payload.activeOrderKey !== undefined

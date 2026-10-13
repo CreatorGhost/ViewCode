@@ -69,6 +69,17 @@ export const ProviderSessionStartInput = Schema.Struct({
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 
+/**
+ * ViewCode thread state a turn carries to the agent: the active goal and debug
+ * mode. Adapters deliver it as developer context where the provider has a
+ * channel for it, otherwise ahead of the user's text.
+ */
+export const ProviderTurnGuidance = Schema.Struct({
+  goal: Schema.optional(TrimmedNonEmptyString),
+  debug: Schema.optional(Schema.Struct({ playbookPath: Schema.NullOr(TrimmedNonEmptyString) })),
+});
+export type ProviderTurnGuidance = typeof ProviderTurnGuidance.Type;
+
 export const ProviderSendTurnInput = Schema.Struct({
   threadId: ThreadId,
   /** Internal recovery signal. Allows an empty turn only for adapters that
@@ -87,6 +98,7 @@ export const ProviderSendTurnInput = Schema.Struct({
   ),
   modelSelection: Schema.optional(ModelSelection),
   interactionMode: Schema.optional(ProviderInteractionMode),
+  guidance: Schema.optional(ProviderTurnGuidance),
 }).check(
   Schema.makeFilter((turn) => {
     const limit = providerSendTurnMaxInputChars(turn);

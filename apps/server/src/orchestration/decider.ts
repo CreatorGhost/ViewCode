@@ -51,6 +51,7 @@ import { projectEvent } from "./projector.ts";
 import { decidePullRequestWatch, withoutPullRequestWatch } from "./pullRequestWatch.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 import { THREAD_FORKED_ACTIVITY_KIND } from "./ThreadFork.ts";
+import { nextThreadGoal } from "./threadGoal.ts";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
@@ -1227,7 +1228,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         thread.branch !== command.expectedBranch
           ? thread.branch
           : command.branch;
+      if (command.goalPaused !== undefined && command.goal == null && thread.goal == null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread ${command.threadId} has no goal to ${command.goalPaused ? "pause" : "resume"}.`,
+        });
+      }
       const occurredAt = yield* nowIso;
+      const goal = nextThreadGoal(thread.goal ?? null, command, occurredAt);
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -1270,6 +1278,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { modelSelection: command.modelSelection }
             : {}),
           ...(command.kind !== undefined ? { kind: command.kind } : {}),
+          ...(goal !== undefined ? { goal } : {}),
+          ...(command.debugMode !== undefined ? { debugMode: command.debugMode } : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
           ...(command.linkedPullRequest !== undefined

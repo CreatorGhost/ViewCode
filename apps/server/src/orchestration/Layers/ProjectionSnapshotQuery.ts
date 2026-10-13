@@ -36,6 +36,7 @@ import {
   ThreadPullRequestStack,
   ThreadPullRequestWatch,
   type ThreadPullRequestLink,
+  ThreadGoal,
   ThreadKind,
 } from "@t3tools/contracts";
 import { legacyLinkedPullRequestOf } from "@t3tools/shared/threadPullRequests";
@@ -159,6 +160,8 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    goal: Schema.optional(Schema.NullOr(Schema.fromJsonString(ThreadGoal))),
+    debugMode: Schema.optional(Schema.NullOr(Schema.BooleanFromBit)),
     latestMessageText: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 );
@@ -509,6 +512,17 @@ export function threadKindField(kind: string | null | undefined): { readonly kin
   return isThreadKind(kind) ? { kind } : {};
 }
 
+/** The goal and debug mode, left off a thread that has neither. */
+function threadGoalFields(row: {
+  readonly goal?: ThreadGoal | null | undefined;
+  readonly debugMode?: boolean | null | undefined;
+}): Pick<OrchestrationThread, "goal" | "debugMode"> {
+  return {
+    ...(row.goal == null ? {} : { goal: row.goal }),
+    ...(row.debugMode === true ? { debugMode: true } : {}),
+  };
+}
+
 function mapThreadActivityRow(
   row: Schema.Schema.Type<typeof ProjectionThreadActivityDbRowSchema>,
 ): OrchestrationThreadActivity {
@@ -632,6 +646,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
           kind AS "kind",
+          goal_json AS "goal",
+          debug_mode AS "debugMode",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -690,6 +706,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
           kind AS "kind",
+          goal_json AS "goal",
+          debug_mode AS "debugMode",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -775,6 +793,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
           kind AS "kind",
+          goal_json AS "goal",
+          debug_mode AS "debugMode",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -1394,6 +1414,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
           kind AS "kind",
+          goal_json AS "goal",
+          debug_mode AS "debugMode",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -2500,6 +2522,7 @@ pending_approval_requests AS (
                 autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                 parentThreadId: row.parentThreadId ?? null,
                 ...threadKindField(row.kind),
+                ...threadGoalFields(row),
                 titleRegeneration: mapTitleRegeneration(row),
                 titleState: row.titleState,
                 deletedAt: row.deletedAt,
@@ -2749,6 +2772,7 @@ pending_approval_requests AS (
                   autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   parentThreadId: row.parentThreadId ?? null,
                   ...threadKindField(row.kind),
+                  ...threadGoalFields(row),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   deletedAt: row.deletedAt,
@@ -2913,6 +2937,7 @@ pending_approval_requests AS (
                         autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                         parentThreadId: row.parentThreadId ?? null,
                         ...threadKindField(row.kind),
+                        ...threadGoalFields(row),
                         titleRegeneration: mapTitleRegeneration(row),
                         titleState: row.titleState,
                         session: sessionByThread.get(row.threadId) ?? null,
@@ -3102,6 +3127,7 @@ pending_approval_requests AS (
                   autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   parentThreadId: row.parentThreadId ?? null,
                   ...threadKindField(row.kind),
+                  ...threadGoalFields(row),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   session: sessionByThread.get(row.threadId) ?? null,
@@ -3456,6 +3482,7 @@ pending_approval_requests AS (
         autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         parentThreadId: threadRow.value.parentThreadId ?? null,
         ...threadKindField(threadRow.value.kind),
+        ...threadGoalFields(threadRow.value),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
@@ -3762,6 +3789,7 @@ pending_approval_requests AS (
         autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         parentThreadId: threadRow.value.parentThreadId ?? null,
         ...threadKindField(threadRow.value.kind),
+        ...threadGoalFields(threadRow.value),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         deletedAt: null,

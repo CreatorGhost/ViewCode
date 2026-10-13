@@ -1491,6 +1491,17 @@ const makeWsRpcLayer = (
               // terminals and provider sessions under the reused thread id.
               createdThread = true;
               yield* threadDeletionReactor.drainThrough(created.sequence);
+              // A goal or debug mode picked on the draft applies from the first turn.
+              const { goal, debugMode } = bootstrap.createThread;
+              if (goal !== undefined || debugMode === true) {
+                yield* dispatchFromClient({
+                  type: "thread.meta.update",
+                  commandId: yield* serverCommandId("bootstrap-thread-goal"),
+                  threadId: command.threadId,
+                  ...(goal !== undefined ? { goal } : {}),
+                  ...(debugMode === true ? { debugMode } : {}),
+                });
+              }
               // Persist the send now rather than with the turn: the thread is
               // real from here on, so any client (or a reload) sees the message
               // while the worktree is still being prepared. The turn start

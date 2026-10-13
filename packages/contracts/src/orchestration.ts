@@ -848,6 +848,23 @@ export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 export const ThreadKind = Schema.Literal("sidechat");
 export type ThreadKind = typeof ThreadKind.Type;
 
+/** Longest goal ViewCode stores; it rides along with every turn while active. */
+export const THREAD_GOAL_MAX_CHARS = 2000;
+export const ThreadGoalObjective = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(THREAD_GOAL_MAX_CHARS),
+);
+
+/**
+ * ViewCode thread goal: an objective the user set that every turn is given
+ * while it is active. A paused goal stays on the thread but is not sent.
+ */
+export const ThreadGoal = Schema.Struct({
+  objective: ThreadGoalObjective,
+  pausedAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+});
+export type ThreadGoal = typeof ThreadGoal.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -904,6 +921,9 @@ export const OrchestrationThread = Schema.Struct({
   // full agents (own session, model and composer) nested under their parent.
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   kind: Schema.optional(Schema.NullOr(ThreadKind)),
+  // ViewCode goal and debug mode. Optional so older servers still decode.
+  goal: Schema.optional(Schema.NullOr(ThreadGoal)),
+  debugMode: Schema.optional(Schema.Boolean),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
@@ -979,6 +999,8 @@ export const OrchestrationThreadShell = Schema.Struct({
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   kind: Schema.optional(Schema.NullOr(ThreadKind)),
+  goal: Schema.optional(Schema.NullOr(ThreadGoal)),
+  debugMode: Schema.optional(Schema.Boolean),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   session: Schema.NullOr(OrchestrationSession),
@@ -1351,6 +1373,12 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   /** Null promotes a side chat to an ordinary thread. */
   kind: Schema.optional(Schema.NullOr(ThreadKind)),
+  /** Sets the goal's objective (null clears the goal). An edit keeps its pause. */
+  goal: Schema.optional(Schema.NullOr(ThreadGoalObjective)),
+  /** Pauses or resumes the current goal; with `goal`, the new one starts paused or not. */
+  goalPaused: Schema.optional(Schema.Boolean),
+  /** Evidence-first debug mode for the thread's turns. */
+  debugMode: Schema.optional(Schema.Boolean),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1504,6 +1532,9 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  // Set on a draft before its first send; older servers ignore them.
+  goal: Schema.optional(ThreadGoalObjective),
+  debugMode: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -2095,6 +2126,8 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   modelSelection: Schema.optional(ModelSelection),
   kind: Schema.optional(Schema.NullOr(ThreadKind)),
+  goal: Schema.optional(Schema.NullOr(ThreadGoal)),
+  debugMode: Schema.optional(Schema.Boolean),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // No longer produced; kept so persisted events from before
