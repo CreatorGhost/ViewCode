@@ -4365,7 +4365,8 @@ export default function Sidebar() {
                       (view.needsYou.length > 0 ||
                         view.active.length > 0 ||
                         view.settledCount > 0) ? (
-                        <ul role="group" className="flex flex-col gap-px pb-1">
+                        // Indented past the folder's chevron, so its chats sit under its icon.
+                        <ul role="group" className="ms-4.5 flex flex-col gap-px pb-1">
                           {view.needsYou.length > 0 ? (
                             <li className="list-none">
                               <SidebarNeedsYouGroupLabel count={view.needsYou.length} />
