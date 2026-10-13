@@ -731,4 +731,75 @@ describe("makeManagedServerProvider", () => {
       }
     }).pipe(Effect.provide(AlwaysRunTestLayer)),
   );
+  const timedOutSnapshot: ServerProvider = {
+    ...initialSnapshot,
+    status: "error",
+    auth: { status: "unknown" },
+    message: "Timed out while checking Codex app-server provider status.",
+  };
+
+  it.effect("retries an inconclusive startup probe soon instead of waiting for the interval", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const checkCalls = yield* Ref.make(0);
+        const firstCheckDone = yield* Deferred.make<void>();
+        const secondCheckDone = yield* Deferred.make<void>();
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.tap((count) =>
+              Deferred.succeed(count === 1 ? firstCheckDone : secondCheckDone, undefined).pipe(
+                Effect.ignore,
+              ),
+            ),
+            Effect.map((count) => (count === 1 ? timedOutSnapshot : refreshedSnapshot)),
+          ),
+          refreshInterval: "1 hour",
+        });
+
+        yield* Deferred.await(firstCheckDone);
+        yield* TestClock.adjust("15 seconds");
+        yield* Deferred.await(secondCheckDone);
+        yield* Effect.yieldNow;
+        assert.deepStrictEqual(yield* provider.getSnapshot, refreshedSnapshot);
+
+        // A conclusive answer ends the retries.
+        yield* TestClock.adjust("2 minutes");
+        yield* Effect.yieldNow;
+        assert.strictEqual(yield* Ref.get(checkCalls), 2);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(AlwaysRunTestLayer, TestClock.layer()))),
+  );
+
+  it.effect("stops retrying a startup probe that stays inconclusive", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const checkCalls = yield* Ref.make(0);
+        const firstCheckDone = yield* Deferred.make<void>();
+        yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCalls, (count) => count + 1).pipe(
+            Effect.tap(() => Deferred.succeed(firstCheckDone, undefined).pipe(Effect.ignore)),
+            Effect.as(timedOutSnapshot),
+          ),
+          refreshInterval: "1 hour",
+        });
+
+        yield* Deferred.await(firstCheckDone);
+        for (const step of ["15 seconds", "60 seconds", "10 minutes"] as const) {
+          yield* TestClock.adjust(step);
+          yield* Effect.yieldNow;
+        }
+        assert.strictEqual(yield* Ref.get(checkCalls), 3);
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(AlwaysRunTestLayer, TestClock.layer()))),
+  );
 });
