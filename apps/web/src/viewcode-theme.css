@@ -521,10 +521,13 @@ html[data-window-glass="true"] body {
   [data-app-rail-layout] [data-collapsible="offcanvas"] [data-slot="sidebar-container"] {
     left: calc(var(--sidebar-width) * -1) !important;
   }
-  /* Without traffic lights the toggle floats over the rail's empty top strip, so content
-     starts right after the rail. */
+  /* Without traffic lights the control group starts over the rail's top strip and runs past
+     it, so content measured from the rail's edge clears what overhangs. */
   html:not([data-macos-window-controls="visible"]) [data-app-rail-layout] {
-    --workspace-titlebar-content-left: 0.75rem !important;
+    --workspace-titlebar-content-left: calc(
+      var(--workspace-controls-left) + var(--workspace-titlebar-controls-width) +
+        var(--workspace-titlebar-control-gap) - var(--app-rail-width)
+    ) !important;
   }
 }
 
@@ -535,8 +538,9 @@ html[data-window-glass="true"] body {
  * geometry against them. The clearance edge is 12pt after the lights.
  *
  * The lights sit on one surface: the rail's 52px top strip and the sidebar's title row are
- * both the sidebar colour (the rail draws no divider). The toggle sits 12px past the
- * clearance edge and the title row's content after it. With the sidebar collapsed or shown
+ * both the sidebar colour (the rail draws no divider). The control group (toggle, back,
+ * forward) sits 12px past the clearance edge; the sidebar keeps its title row empty for it and
+ * puts the brand on the row below. With the sidebar collapsed or shown
  * as an overlay (rail only), the main column starts at the clearance edge rather than under
  * the lights, and the gap shows the same sidebar colour. Fullscreen hides the lights, the
  * attribute flips to "hidden", and the web layout above applies.
@@ -549,7 +553,7 @@ html[data-macos-window-controls="visible"] {
    row still has to clear the fixed toggle. */
 :root {
   --workspace-titlebar-content-left: calc(
-    var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +
+    var(--workspace-controls-left) + var(--workspace-titlebar-controls-width) +
       var(--workspace-titlebar-control-gap)
   );
 }
@@ -562,7 +566,7 @@ html[data-macos-window-controls="visible"] {
     [data-app-rail-layout]
     [data-slot="sidebar-container"] {
     --workspace-titlebar-content-left: calc(
-      var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +
+      var(--workspace-controls-left) + var(--workspace-titlebar-controls-width) +
         var(--workspace-titlebar-control-gap) - var(--app-rail-width)
     );
   }
@@ -571,7 +575,7 @@ html[data-macos-window-controls="visible"] {
     > [data-slot="sidebar-inset"] {
     margin-left: calc(var(--macos-window-controls-clearance) - var(--app-rail-width)) !important;
     --workspace-titlebar-content-left: calc(
-      var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +
+      var(--workspace-controls-left) + var(--workspace-titlebar-controls-width) +
         var(--workspace-titlebar-control-gap) - var(--macos-window-controls-clearance)
     );
   }

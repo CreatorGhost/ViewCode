@@ -9,7 +9,14 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
+import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
+import {
+  useCanGoBack,
+  useLocation,
+  useNavigate,
+  useParams,
+  useRouter,
+} from "@tanstack/react-router";
 
 import { isElectron } from "../env";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
@@ -19,6 +26,7 @@ import {
   shortcutLabelForCommand,
 } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
+import { nextHistoryReach } from "../lib/historyReach";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
@@ -67,6 +75,7 @@ import {
   useSidebar,
   useSidebarVisibility,
 } from "./ui/sidebar";
+import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
@@ -142,7 +151,7 @@ function SidebarControl() {
     // the panel), so the trigger mirrors it: both clusters sit one extra pixel
     // off their edge and the titlebar reads symmetric.
     <div
-      className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center"
+      className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center gap-1"
       data-sidebar-control=""
     >
       <Tooltip>
@@ -164,7 +173,79 @@ function SidebarControl() {
           Toggle main sidebar{shortcutLabel ? ` (${shortcutLabel})` : ""}
         </TooltipPopup>
       </Tooltip>
+      <HistoryArrows />
     </div>
+  );
+}
+
+/**
+ * Back and forward through the app's pages, beside the sidebar toggle from md up, so they stay
+ * in the title bar whether the sidebar is open or not. Their keyboard commands are handled by
+ * NavigationHistoryShortcuts.
+ */
+function HistoryArrows() {
+  const router = useRouter();
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const canGoBack = useCanGoBack();
+  const [position, setPosition] = useState(() => {
+    const index = router.history.location.state.__TSR_index;
+    return { index, reach: index };
+  });
+  useEffect(
+    () =>
+      router.history.subscribe(({ location, action }) => {
+        const index = location.state.__TSR_index;
+        setPosition((current) => ({
+          index,
+          reach: nextHistoryReach(current.reach, action.type, index),
+        }));
+      }),
+    [router.history],
+  );
+  const canGoForward = position.index < position.reach;
+  const arrows = [
+    {
+      command: "navigation.back",
+      label: "Go back",
+      Icon: ArrowLeftIcon,
+      enabled: canGoBack,
+      go: () => router.history.back(),
+    },
+    {
+      command: "navigation.forward",
+      label: "Go forward",
+      Icon: ArrowRightIcon,
+      enabled: canGoForward,
+      go: () => router.history.forward(),
+    },
+  ] as const;
+  return (
+    <span className="pointer-events-auto hidden items-center gap-0.5 [-webkit-app-region:no-drag] md:flex">
+      {arrows.map(({ command, label, Icon, enabled, go }) => {
+        const shortcut = shortcutLabelForCommand(keybindings, command);
+        return (
+          <Tooltip key={command}>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label={label}
+                  disabled={!enabled}
+                  onClick={go}
+                  size="icon-sm"
+                  variant="ghost"
+                />
+              }
+            >
+              <Icon className="size-4" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              {label}
+              {shortcut ? ` (${shortcut})` : ""}
+            </TooltipPopup>
+          </Tooltip>
+        );
+      })}
+    </span>
   );
 }
 

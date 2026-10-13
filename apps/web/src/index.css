@@ -117,6 +117,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --workspace-native-controls-inset: 0px;
   --workspace-titlebar-control-size: 1.75rem;
   --workspace-titlebar-control-gap: 0.75rem;
+  /* The title bar's fixed control group: the sidebar toggle, and from md up the back and
+     forward arrows beside it (AppSidebarLayout). Title content clears this width. */
+  --workspace-titlebar-controls-width: var(--workspace-titlebar-control-size);
   --workspace-titlebar-scroll-fade-height: 1.5rem;
   /* The prompt on phones: iOS zooms into any input under 16px on focus. */
   --font-size-prompt-touch: max(var(--font-size-prompt, 1rem), 16px);
@@ -128,6 +131,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
   @variant sm {
     --workspace-gutter: 1.25rem;
+  }
+
+  @variant md {
+    --workspace-titlebar-controls-width: calc(
+      var(--workspace-titlebar-control-size) * 3 + 0.375rem
+    );
   }
 
   @variant dark {

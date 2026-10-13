@@ -908,6 +908,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   column (the sidebar or main column starts after the rail), and with the sidebar
   collapsed or shown as an overlay the main column starts 12pt after the lights,
   because the rail alone is narrower than the three buttons.
+- The title bar is a native-style strip: lights, then one fixed group of the
+  sidebar toggle and back/forward arrows (`SidebarControl` in
+  `AppSidebarLayout.tsx`), so it stays put when the sidebar collapses. The sidebar
+  leaves its title row empty for it; "ViewCode" and New sit on the row below
+  (user decision, after Synara and Codex). Title content clears
+  `--workspace-titlebar-controls-width`, so widening the group means changing that
+  one variable. The browser hides its forward stack, so forward availability is
+  tracked from router history events (`lib/historyReach.ts`) and starts unavailable
+  after a reload.
 - The project tint follows only the project picked in the rail: with All, or a
   project without a colour, the sidebar stays neutral and the composer glow keeps
   the theme accent (user decision). It is `--project-accent` on a `display:
