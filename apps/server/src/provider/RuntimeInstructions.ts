@@ -49,8 +49,9 @@ For a data chart, mockup, image collage or layout Mermaid can't draw, and only w
  * Computer use goes through a CLI, not MCP, so it is offered even when the
  * session runs without ViewCode's MCP server. `viewcode-computer help` is the
  * manual; this block names the exact launcher path (the only form providers'
- * prompts are auto-approved in) and the focus rule. A policy refusal is never worked around;
- * a driver that cannot do the job may hand it to another agent's computer use (user decision).
+ * prompts are auto-approved in) and the focus rule. It is the default, not a lock-in: the user
+ * may ask for a provider's own computer use (Codex's, Claude's), directly or through a child
+ * agent, and an unusable driver hands off the same way (user decision).
  */
 export function computerUseGuidance(grant: ComputerUseGrant): string {
   const cli = shellCommandWord(grant.cli);
@@ -59,7 +60,7 @@ export function computerUseGuidance(grant: ComputerUseGrant): string {
       ? "This session may only observe (list windows, read their elements, take screenshots); input actions are unavailable."
       : "Input actions only work while your turn is running and may wait for the user to approve them. Refs (press, set-value, type --ref) act in the background without taking the user's focus: prefer them. By default, key, scroll, coordinate input and type --window bring the window to the front and take focus. Experimental background environments may refuse unsupported input instead: follow the help manual, inspect tookFocus and verify the intended result. Never retry a refusal by taking focus unless Show on screen permits it.";
   return `You can see and operate apps on the user's computer with the viewcode-computer CLI, run through your shell tool. Always invoke it by this absolute path, exactly as written: ${cli}. Run \`${cli} help\` before first use; its output is the manual. ${scope}
-Use viewcode-computer for desktop observation and control whenever it works; prefer it over other installed desktop or browser automation tools, skills or scripts (osascript, screencapture, cliclick, python screen tools, Playwright/Chromium skills). If it refuses an action by policy (the user declined, the app is blocked, or the session may only observe), tell the user what was refused and why, and do not work around it with any other tool. If it is unavailable or cannot reach what the task needs (no Accessibility access, the driver is down, or the window is not visible to it), say so in one line and you may hand the desktop work to another agent's computer use instead of stopping, for example a Codex child agent or the Codex CLI with its own computer use. Apps viewcode-computer never controls (password managers, System Settings, ViewCode itself) stay off-limits to every tool.`;
+viewcode-computer is the default for desktop work, not the only option. Prefer it over ad-hoc scripts (osascript, screencapture, cliclick, python screen tools). When the user asks for another computer use, such as Codex's or Claude's own, use that one: your own built-in computer-use tool if you have it, or a child agent on that provider (for example a Codex child agent for Codex's computer use). Do the same when viewcode-computer is unavailable or cannot reach what the task needs (no Accessibility access, the driver is down, the window is not visible to it): say so in one line, then switch instead of stopping. If the user declined an action through viewcode-computer, ask before doing it another way.`;
 }
 
 export function computerUseInstructions(grant: ComputerUseGrant): string {

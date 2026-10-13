@@ -102,12 +102,12 @@ describe("buildRuntimeInstructions", () => {
       expect(control).toContain(`\`${cli} help\``);
       expect(control).toContain("act in the background without taking the user's focus");
       expect(control).toContain("type --window bring the window to the front and take focus");
-      expect(control).toContain("Use viewcode-computer for desktop observation and control");
-      expect(control).toContain("Playwright/Chromium skills");
-      // A policy refusal is final; an unusable driver may hand the work to another agent.
-      expect(control).toContain("do not work around it with any other tool");
-      expect(control).toContain("another agent's computer use");
-      expect(control).toContain("stay off-limits to every tool");
+      // The default, not a lock-in: the user may pick a provider's own computer use.
+      expect(control).toContain("viewcode-computer is the default for desktop work");
+      expect(control).toContain("Codex's or Claude's own");
+      expect(control).toContain("a Codex child agent");
+      expect(control).toContain("ask before doing it another way");
+      expect(control).not.toContain("off-limits to every tool");
       expect(control).not.toContain("input actions are unavailable");
     }
     const observe = buildRuntimeInstructions({
