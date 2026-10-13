@@ -124,7 +124,14 @@ type McpTransportConfig = Pick<
   "endpoint" | "authorizationHeader" | "stdio"
 >;
 
-/** Claude Agent SDK `mcpServers` entry. */
+// The SDK passes `mcpServers` to the CLI as an inline `--mcp-config` argument,
+// and process arguments are readable by every local user. The credential
+// therefore travels in the child's environment (`claudeMcpEnvironment`), which
+// only its owner can read, and the CLI expands the `${VAR}` reference when it
+// connects.
+const CLAUDE_MCP_AUTHORIZATION_ENV = "T3_CODE_MCP_AUTHORIZATION";
+
+/** Claude Agent SDK `mcpServers` entry. Pair it with `claudeMcpEnvironment`. */
 export function claudeMcpServerConfig(config: McpTransportConfig) {
   return config.stdio
     ? {
@@ -136,8 +143,13 @@ export function claudeMcpServerConfig(config: McpTransportConfig) {
     : {
         type: "http" as const,
         url: config.endpoint,
-        headers: { Authorization: config.authorizationHeader },
+        headers: { Authorization: `\${${CLAUDE_MCP_AUTHORIZATION_ENV}}` },
       };
+}
+
+/** Environment the Claude CLI needs to expand `claudeMcpServerConfig`'s credential. */
+export function claudeMcpEnvironment(config: McpTransportConfig): Record<string, string> {
+  return config.stdio ? {} : { [CLAUDE_MCP_AUTHORIZATION_ENV]: config.authorizationHeader };
 }
 
 /** ACP `session/new` `mcpServers` entry (Cursor, Grok, Antigravity). */

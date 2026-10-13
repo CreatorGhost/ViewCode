@@ -342,6 +342,13 @@ describe("ClaudeAdapter with an enterprise-managed MCP config", () => {
         assert.deepEqual(options.mcpServers, {
           [McpProviderSession.MCP_SERVER_NAME]: McpProviderSession.claudeMcpServerConfig(mcp),
         });
+        // mcpServers becomes a CLI argument; the token travels only in the environment.
+        assert.deepEqual(options.mcpServers?.[McpProviderSession.MCP_SERVER_NAME], {
+          type: "http",
+          url: mcp.endpoint,
+          headers: { Authorization: "${T3_CODE_MCP_AUTHORIZATION}" },
+        });
+        assert.equal(options.env?.T3_CODE_MCP_AUTHORIZATION, "Bearer test-token");
         assert.equal(
           appendedInstructions(options),
           buildRuntimeInstructions({ harness: "Claude Code" }),
