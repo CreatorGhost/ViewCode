@@ -1,6 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
-  <rect width="1024" height="1024" rx="228" fill="#ffffff" />
-  <rect x="3" y="3" width="1018" height="1018" rx="225" stroke="#d4e1e3" stroke-width="6" />
+  <defs>
+    <radialGradient id="tileBg" cx="512" cy="430" r="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111a1f" />
+      <stop offset="1" stop-color="#090e11" />
+    </radialGradient>
+    <radialGradient id="tileGlow" cx="512" cy="530" r="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00c7d1" stop-opacity="0.24" />
+      <stop offset=".55" stop-color="#00c7d1" stop-opacity="0.084" />
+      <stop offset="1" stop-color="#00c7d1" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#tileBg)" />
+  <rect width="1024" height="1024" rx="228" fill="url(#tileGlow)" />
+  <rect x="2" y="2" width="1020" height="1020" rx="226" stroke="#ffffff" stroke-opacity=".06" stroke-width="4" />
   <svg x="104" y="265" width="816" height="530" viewBox="0 0 1000 650" fill="none">
     <defs>
       <linearGradient id="leftBase" x1="242" y1="598" x2="355" y2="494" gradientUnits="userSpaceOnUse">
@@ -10,8 +22,8 @@
         <stop offset="1" stop-color="#0098a8" />
       </linearGradient>
       <radialGradient id="leftShadow" cx="143" cy="356" r="176" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#004b5c" stop-opacity=".94" />
-        <stop offset=".42" stop-color="#005869" stop-opacity=".7" />
+        <stop stop-color="#004b5c" stop-opacity="0.45" />
+        <stop offset=".42" stop-color="#005869" stop-opacity="0.34" />
         <stop offset="1" stop-color="#006476" stop-opacity="0" />
       </radialGradient>
       <clipPath id="leftShape">
@@ -24,15 +36,15 @@
         <stop offset="1" stop-color="#00d9e2" />
       </linearGradient>
       <linearGradient id="rightBase" x1="78" y1="380" x2="346" y2="597" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#005760" />
-        <stop offset=".36" stop-color="#20343e" />
-        <stop offset="1" stop-color="#1e2a33" />
+        <stop stop-color="#3d7a82" />
+        <stop offset=".36" stop-color="#4b5f6a" />
+        <stop offset="1" stop-color="#41525d" />
       </linearGradient>
       <linearGradient id="rightFold" x1="300" y1="25" x2="72" y2="391" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#273a44" />
-        <stop offset=".72" stop-color="#1d2b35" />
-        <stop offset=".9" stop-color="#007882" />
-        <stop offset="1" stop-color="#00d5dd" />
+        <stop stop-color="#5a6e79" />
+        <stop offset=".72" stop-color="#45575f" />
+        <stop offset=".9" stop-color="#1f949d" />
+        <stop offset="1" stop-color="#00dde5" />
       </linearGradient>
       <linearGradient id="leftBranch" x1="425" y1="300" x2="474" y2="505" gradientUnits="userSpaceOnUse">
         <stop stop-color="#00bcc7" />
@@ -45,17 +57,17 @@
         <stop offset="1" stop-color="#005e6a" />
       </linearGradient>
       <radialGradient id="node0" cx="408" cy="205" r="86" gradientUnits="userSpaceOnUse">
-        <stop offset=".34" stop-color="#005664" />
+        <stop offset=".34" stop-color="#007987" />
         <stop offset=".76" stop-color="#078d9a" />
         <stop offset="1" stop-color="#00d4de" />
       </radialGradient>
       <radialGradient id="node1" cx="634" cy="253" r="82" gradientUnits="userSpaceOnUse">
-        <stop offset=".34" stop-color="#005664" />
+        <stop offset=".34" stop-color="#007987" />
         <stop offset=".76" stop-color="#078d9a" />
         <stop offset="1" stop-color="#00d4de" />
       </radialGradient>
       <radialGradient id="node2" cx="499" cy="567" r="82" gradientUnits="userSpaceOnUse">
-        <stop offset=".34" stop-color="#005664" />
+        <stop offset=".34" stop-color="#007987" />
         <stop offset=".76" stop-color="#078d9a" />
         <stop offset="1" stop-color="#00d4de" />
       </radialGradient>
@@ -70,6 +82,7 @@
       <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" fill="url(#rightBase)" />
       <path d="M184 278 C163 298 126 312 98 330 C54 356 55 397 84 430" fill="none" stroke="#00e3eb" stroke-width="16" opacity=".3" filter="url(#foldGlow)" />
       <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C163 298 126 312 98 330 C54 356 55 397 84 430 L48 399 C7 359 6 306 46 263 Z" fill="url(#rightFold)" />
+      <path d="M267 35 C289 12 326 10 348 33 C371 55 370 91 348 113 L184 278 C153 309 154 341 185 372 L348 535 C370 557 370 592 347 614 C324 637 289 635 266 612 L48 399 C7 359 6 306 46 263 Z" stroke="#b4d6dc" stroke-opacity="0.38" stroke-width="5" stroke-linejoin="round" fill="none" />
     </g>
     <path d="M408 270 V336 C408 421 489 424 490 499" stroke="url(#leftBranch)" stroke-width="64" fill="none" />
     <path d="M600 300 L550 357 C511 398 499 434 499 501" stroke="url(#rightBranch)" stroke-width="64" fill="none" />
@@ -77,4 +90,5 @@
     <path d="M713 246a79 79 0 1 0 -158 0a79 79 0 1 0 158 0M667 246a33 33 0 1 0 -66 0a33 33 0 1 0 66 0" fill="url(#node1)" fill-rule="evenodd" />
     <path d="M578 560a79 79 0 1 0 -158 0a79 79 0 1 0 158 0M531 560a32 32 0 1 0 -64 0a32 32 0 1 0 64 0" fill="url(#node2)" fill-rule="evenodd" />
   </svg>
+
 </svg>

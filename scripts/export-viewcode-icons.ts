@@ -8,6 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import sharp from "sharp";
+import { VIEWCODE_MARK } from "@t3tools/shared/viewcodeBrand";
 
 import { BRAND_ASSET_PATHS, resolveWebIconOverrides } from "./lib/brand-assets.ts";
 import { encodePngIco, WINDOWS_ICON_SIZES } from "./lib/icon-export.ts";
@@ -28,19 +29,27 @@ export async function renderViewCodeIcons(
 ) {
   const svg = source.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
   // Strip the tile while retaining the full emblem's placement and gradients.
-  const mark = svg.replace(/<rect\b[^>]*\brx="\d+"[^>]*\/>/g, "");
+  const tileRects = svg.match(/<rect\b[^>]*\brx="\d+"[^>]*\/>/g) ?? [];
+  const mark = tileRects.reduce((body, rect) => body.replace(rect, ""), svg);
+  // The tile's fills (not its hairline edge) without corners, for full-bleed surfaces.
+  const tileFills = tileRects.filter((rect) => !rect.includes("stroke="));
+  const square = tileFills.map((rect) => rect.replace(/\s+rx="\d+"/, "")).join("") + mark;
   const body = (source: string) =>
     source.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
   const placeMark = (source: string, compact = false) =>
     `<svg x="${compact ? 64 : 104}" y="${compact ? 220 : 265}" width="${compact ? 896 : 816}" height="${compact ? 582 : 530}" viewBox="0 0 1000 650" fill="none">${body(source)}</svg>`;
-  const flatTile = svg.replace(/<svg\b[\s\S]*<\/svg>/, placeMark(flatSource, true));
+  // Small sizes use the flat mark; on the dark tile its ">" takes the dark-theme slate.
+  const flatOnTile = flatSource.replace(
+    `fill="${VIEWCODE_MARK.slate}"`,
+    `fill="${VIEWCODE_MARK.darkSlate}"`,
+  );
+  const flatTile = svg.replace(/<svg\b[\s\S]*<\/svg>/, placeMark(flatOnTile, true));
   const rasterize = (body: string, size: number, opaque = false) => {
     const image = sharp(Buffer.from(canvas(1024, body))).resize(size, size);
     return (opaque ? image.flatten({ background: "#ffffff" }).removeAlpha() : image)
       .png()
       .toBuffer();
   };
-  const square = `<rect width="1024" height="1024" fill="#ffffff"/>${mark}`;
   const ios = await rasterize(square, 1024, true);
   const tile = await rasterize(svg, 1024);
   // Preserve the classic macOS 824px body inset 100px in a 1024px canvas.
@@ -78,10 +87,25 @@ export async function renderViewCodeIcons(
   const adaptive = (body: string) =>
     `<g transform="translate(512 512) scale(.6666667) translate(-512 -534)">${body}</g>`;
   const adaptiveMark = adaptive(mark);
+  // Oversized so the tile's gradients follow the emblem yet still bleed past the 108dp canvas.
+  const adaptiveBackground = adaptive(
+    tileFills
+      .map((rect) =>
+        rect.replace(
+          /width="1024" height="1024" rx="\d+"/,
+          'x="-300" y="-300" width="1624" height="1624"',
+        ),
+      )
+      .join("") + mark.replace(/<svg\b[\s\S]*<\/svg>/, ""),
+  );
   const adaptiveSilhouette = adaptive(placeMark(monochromeSource));
   outputs.set(
     "apps/mobile/assets/android-icon-foreground-prod.png",
     await rasterize(adaptiveMark, 432),
+  );
+  outputs.set(
+    "apps/mobile/assets/android-icon-background-prod.png",
+    await rasterize(adaptiveBackground, 432, true),
   );
   outputs.set(
     "apps/mobile/assets/android-icon-mark-prod.png",
@@ -93,7 +117,7 @@ export async function renderViewCodeIcons(
   );
   outputs.set(
     "apps/mobile/assets/android-splash-icon-prod.png",
-    await rasterize(`<rect width="1024" height="1024" fill="#ffffff"/>${adaptiveMark}`, 1152, true),
+    await rasterize(adaptiveBackground + adaptiveMark, 1152, true),
   );
   return outputs;
 }
