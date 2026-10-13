@@ -124,10 +124,12 @@ On web and desktop, the list also animates section changes made with thread acti
 preference. While dragging, rows follow the insertion gap without replaying a second transition
 after the drop.
 
-New threads appear above the active threads you have arranged. Settling clears a thread's active
-position, so using **Un-settle** returns it to the top. Pinning and snoozing preserve its active
-position until you move it again. Thread activity does not change the order. The settled shelf
-continues to use settlement time.
+New threads appear above the active threads you have arranged. Until you arrange the list, a
+thread you send a message to also moves to the top; once you have dragged or moved threads, they
+keep the positions you gave them. Settling clears a thread's active position, so using
+**Un-settle** returns it to the top. Pinning and snoozing preserve its active position until you
+move it again. An agent working in a thread does not change the order. The settled shelf continues
+to use settlement time.
 
 If dragging is unavailable for one environment, update the T3 Code server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
