@@ -1370,6 +1370,14 @@ html[data-theme-id] [data-chat-header] [data-toolbar-control] {
   color: var(--contrast-toolbar-control-foreground);
 }
 
+/* The page's fixed titlebar controls sit above sheets so they stay usable over page content,
+   but the phone sidebar sheet covers the page they act on: hide them while it is open (it is
+   only in the DOM then), so they never draw over its New button. The sidebar toggle is a
+   separate control and stays, so the sheet can still be closed. */
+body:has([data-slot="sidebar"][data-mobile="true"]) [data-workspace-titlebar-controls] {
+  visibility: hidden;
+}
+
 /* The panel layout toggles stay ghost: they render both inside the header and
    in the titlebar strip, so filling them would make them change appearance as
    the panel opens. They only take the themed foreground; hover and pressed
