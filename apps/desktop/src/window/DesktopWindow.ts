@@ -37,11 +37,13 @@ const TITLEBAR_HEIGHT = 40;
 // buttons are 14 points tall and do not scale with the renderer's zoom.
 const MACOS_WORKSPACE_TOPBAR_HEIGHT = 52;
 const MACOS_WINDOW_BUTTON_RADIUS = 7;
+// Centres the three buttons (52pt wide) over the 76px macOS app rail (viewcode-theme.css).
+const MACOS_WINDOW_BUTTON_X = 12;
 
 function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
   if (window.isDestroyed() || window.isFullScreen()) return;
   window.setWindowButtonPosition({
-    x: 16,
+    x: MACOS_WINDOW_BUTTON_X,
     y: Math.round(
       (MACOS_WORKSPACE_TOPBAR_HEIGHT * window.webContents.getZoomFactor()) / 2 -
         MACOS_WINDOW_BUTTON_RADIUS,
@@ -260,7 +262,7 @@ function getWindowTitleBarOptions(
     return {
       titleBarStyle: "hiddenInset",
       trafficLightPosition: {
-        x: 16,
+        x: MACOS_WINDOW_BUTTON_X,
         y: MACOS_WORKSPACE_TOPBAR_HEIGHT / 2 - MACOS_WINDOW_BUTTON_RADIUS,
       },
     };
