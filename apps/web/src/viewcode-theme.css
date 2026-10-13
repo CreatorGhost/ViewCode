@@ -826,7 +826,8 @@ html [data-app-rail] {
 [data-app-rail] button[data-rail-project]:hover {
   background-color: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
-[data-app-rail] button[data-rail-project][data-pressed] {
+/* Every lit rail button, the All projects one included, is the same soft neutral tile. */
+[data-app-rail] button[data-pressed] {
   background-color: color-mix(in srgb, var(--foreground) 10%, transparent);
 }
 @media (min-width: 48rem) {
