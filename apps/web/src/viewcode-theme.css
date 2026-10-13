@@ -828,12 +828,13 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
     transparent
   );
   color: var(--project-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--project-accent) 45%, transparent);
 }
 /*
  * The shell is one calm surface: title bar, rail and sidebar share the sidebar colour, and the
  * work area floats on it as one rounded panel (--vc-sheet-inset). A tinted panel, a darker rail
- * and a glowing tab read as forced (user decision); a project's colour stays on its folder badge
- * and the composer. The selected project is a soft neutral tile, the selected chat a soft neutral
+ * and a glowing tab read as forced (user decision); a project's colour stays on its folder badge,
+ * its rail tile and the composer. The selected project is a soft neutral tile, the selected chat a soft neutral
  * row.
  */
 html [data-app-rail] {
@@ -867,6 +868,21 @@ html [data-app-rail] {
   border-radius: 0 3px 3px 0;
   background-color: var(--foreground);
   box-shadow: none;
+}
+/* A coloured project keeps its colour on the rail: a faint fill of it always, a stronger one
+   and the edge bar in it when selected. A logo hides the colour inside the tile, so the fill is
+   what says which colour the project has. Projects without one stay neutral. */
+[data-rail-colored] button[data-rail-project] {
+  background-color: color-mix(in srgb, var(--project-accent) 12%, transparent);
+}
+[data-rail-colored] button[data-rail-project]:hover {
+  background-color: color-mix(in srgb, var(--project-accent) 18%, transparent);
+}
+[data-rail-colored] button[data-rail-project][data-pressed] {
+  background-color: color-mix(in srgb, var(--project-accent) 24%, transparent);
+}
+[data-rail-colored] button[data-rail-project][data-pressed]::before {
+  background-color: var(--project-accent);
 }
 /* A folder's sort order lives in its menu, in every theme; the row stays a name. */
 [data-folder-sort-label] {
