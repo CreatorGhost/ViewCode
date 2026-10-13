@@ -1,26 +1,23 @@
-import { useId, type SVGProps } from "react";
+import { VIEWCODE_MARK as mark } from "@t3tools/shared/viewcodeBrand";
+import type { SVGProps } from "react";
 
-/**
- * ViewCode's interlocked V mark, in `currentColor` (source: `assets/viewcode-mark.svg`).
- * The component keeps T3's name so upstream call sites merge cleanly.
- */
+import { useTheme } from "../hooks/useTheme";
+
+/** Flat code-bracket/git-branch emblem for small UI, keeping the upstream name. */
 export function T3Wordmark(props: SVGProps<SVGSVGElement>) {
-  const cutId = useId();
+  const { resolvedTheme } = useTheme();
   return (
-    <svg {...props} viewBox="250 232 524 572" xmlns="http://www.w3.org/2000/svg" fill="none">
-      <mask id={cutId} maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-        <rect width="1024" height="1024" fill="#fff" />
-        <path d="M706 300 L512 736" stroke="#000" strokeWidth="176" strokeLinecap="round" />
-      </mask>
-      <path
-        d="M318 300 L512 736"
-        stroke="currentColor"
-        strokeOpacity="0.55"
-        strokeWidth="124"
-        strokeLinecap="round"
-        mask={`url(#${cutId})`}
-      />
-      <path d="M706 300 L512 736" stroke="currentColor" strokeWidth="124" strokeLinecap="round" />
+    <svg {...props} viewBox={mark.viewBox} xmlns="http://www.w3.org/2000/svg" fill="none">
+      <path d={mark.bracketPath} fill={mark.teal} />
+      <g transform="translate(1000 0) scale(-1 1)">
+        <path d={mark.bracketPath} fill={resolvedTheme === "dark" ? mark.darkSlate : mark.slate} />
+      </g>
+      {mark.branchPaths.map((d) => (
+        <path key={d} d={d} stroke={mark.teal} strokeWidth={mark.branchStrokeWidth} />
+      ))}
+      {mark.ringPaths.map((d) => (
+        <path key={d} d={d} fill={mark.teal} fillRule="evenodd" />
+      ))}
     </svg>
   );
 }

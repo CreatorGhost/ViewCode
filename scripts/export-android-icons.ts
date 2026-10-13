@@ -22,7 +22,9 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import sharp from "sharp";
 
-type IconVariant = "dev" | "nightly" | "prod";
+import { renderProductionIcons } from "./export-viewcode-icons.ts";
+
+type IconVariant = "dev" | "nightly";
 
 // 108dp at xxxhdpi. Expo's prebuild derives every launcher density bucket from this.
 const ADAPTIVE_CANVAS = 432;
@@ -38,8 +40,6 @@ const WORDMARK_FRACTION = 0.48;
 const COMPOSER_CANVAS_PT = 1024;
 const SVG_DENSITY = 300;
 const OUTPUT_DIRECTORY = "apps/mobile/assets";
-// Production has no background artwork, so its splash composes onto the adaptive color.
-const PRODUCTION_BACKGROUND_COLOR = "#000000";
 
 export class AndroidIconRenderError extends Schema.TaggedError<AndroidIconRenderError>()(
   "AndroidIconRenderError",
@@ -82,18 +82,9 @@ const composite = (
     catch: (cause) => new AndroidIconRenderError({ layer, cause }),
   });
 
-const solidCanvas = (layer: string, size: number, background: string) =>
-  Effect.tryPromise({
-    try: () =>
-      sharp({ create: { width: size, height: size, channels: 4, background } })
-        .png()
-        .toBuffer(),
-    catch: (cause) => new AndroidIconRenderError({ layer, cause }),
-  });
-
 const readLayerSource = Effect.fn("androidIcons.readLayerSource")(function* (
   repositoryRoot: string,
-  variant: IconVariant,
+  variant: IconVariant | "prod",
   file: string,
 ) {
   const fs = yield* FileSystem.FileSystem;
@@ -192,8 +183,6 @@ const renderBackground = Effect.fn("androidIcons.renderBackground")(function* (
       return yield* renderDevelopmentBackground(repositoryRoot, size);
     case "nightly":
       return yield* renderNightlyBackground(repositoryRoot, size);
-    case "prod":
-      return yield* solidCanvas("prod-background", size, PRODUCTION_BACKGROUND_COLOR);
   }
 });
 
@@ -222,8 +211,13 @@ const exportAndroidIcons = Effect.gen(function* () {
     ],
     ["android-splash-icon-dev.png", yield* renderSplashIcon(repositoryRoot, "dev")],
     ["android-splash-icon-nightly.png", yield* renderSplashIcon(repositoryRoot, "nightly")],
-    ["android-splash-icon-prod.png", yield* renderSplashIcon(repositoryRoot, "prod")],
   ] as const;
+  const production = yield* renderProductionIcons(repositoryRoot);
+  for (const [file, contents] of production) {
+    if (!file.startsWith(`${OUTPUT_DIRECTORY}/`)) continue;
+    yield* fs.writeFile(path.join(repositoryRoot, file), contents);
+    yield* Console.log(`wrote ${file}`);
+  }
   for (const [name, contents] of outputs) {
     yield* fs.writeFile(path.join(repositoryRoot, OUTPUT_DIRECTORY, name), contents);
     yield* Console.log(`wrote ${OUTPUT_DIRECTORY}/${name}`);

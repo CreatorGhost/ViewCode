@@ -1049,15 +1049,21 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 
 ### Brand assets
 
-- The logo source is `assets/viewcode-icon.svg` (app tile) and
-  `assets/viewcode-mark.svg` (mark alone). The production PNG/ICO files under
-  `assets/prod/` and `apps/web/public/` are regenerated from it **in place,
-  under T3's file names**, so no code path changes and upstream merges only
-  conflict if upstream redraws its own icons (keep ours). macOS uses the
-  824px-on-1024 grid with a baked shadow; iOS and apple-touch are square (the
-  OS masks them). `.icns` is built from the PNG at package time. Dev builds
-  keep T3's blueprint icons in `assets/dev/`.
+- `assets/viewcode-icon.svg` is the approved production icon source;
+  `assets/viewcode-mark.svg` is the code-bracket and git-branch emblem alone. Production
+  exports come from `icons:export:production`; development and preview retain
+  their existing assets and Icon Composer path. Keep exported assets under T3's
+  file names so upstream merges preserve the paths. iOS and apple-touch exports
+  must be opaque and full bleed because the OS masks them. macOS uses the
+  824px-on-1024 grid with a baked shadow; `.icns` is built from the PNG at package
+  time. Android production layers are separate from development/preview so a
+  production redraw cannot replace those channels' artwork.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
+  Headers and small favicons use the flat rendition with larger node openings;
+  app icons keep the full gradients and folds. The flat right bracket is light
+  slate in dark appearances so it remains visible. Brand colors stay fixed
+  rather than following each theme's accent; Android silhouettes use the
+  separate monochrome source.
 - Generated worktree branches use `vc/` (`WORKTREE_BRANCH_PREFIX` in
   `packages/shared/src/git.ts`). Keep `t3code` in
   `LEGACY_WORKTREE_BRANCH_PREFIXES`: threads created before the rename sit on

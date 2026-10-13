@@ -15,6 +15,7 @@ import {
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
 import { Badge } from "../ui/badge";
+import { T3Wordmark } from "../T3Wordmark";
 import {
   SidebarFooter,
   SidebarMenu,
@@ -96,11 +97,12 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
     <Link
       aria-label="Go to threads"
       className={cn(
-        "relative z-10 hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+        "relative z-10 hidden h-7 w-fit min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
     >
+      <T3Wordmark className="h-5 w-auto shrink-0" aria-hidden />
       {/* Center the visible capitals, without the font's ascender/descender space. */}
       <span className="truncate text-sm font-semibold tracking-tight [text-box:trim-both_cap_alphabetic]">
         ViewCode
