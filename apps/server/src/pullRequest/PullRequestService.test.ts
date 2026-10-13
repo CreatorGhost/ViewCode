@@ -4134,6 +4134,50 @@ it.effect("asks on its own for a repository a search answered nothing for", () =
     );
   }),
 );
+it.effect(
+  "still reads alone a repository an earlier search showed, when an all listing is empty",
+  () =>
+    Effect.gen(function* () {
+      const separately: string[] = [];
+      const service = yield* makeService({
+        projects: [
+          project({ id: "p1", title: "web", workspaceRoot: "/a", repository: "acme/web" }),
+        ],
+        providers: [
+          fakeProvider("github", {
+            listChangeRequests: ({ repository }) => {
+              separately.push(repository);
+              return Effect.succeed({
+                items: [changeRequest(49, "2026-07-03T00:00:00Z")],
+                truncated: false,
+                continues: true,
+              });
+            },
+            // The open search shows the repository; the closed one comes back empty, which is also
+            // what a search that cannot see the repository's rows answers.
+            listChangeRequestsAcross: (input) =>
+              Effect.succeed({
+                items:
+                  input.state === "open"
+                    ? [batchedChangeRequest(1, "acme/web", "2026-07-02T00:00:00Z")]
+                    : [],
+                truncated: false,
+              }),
+          }),
+        ],
+      });
+
+      yield* service.list({ state: "open", involvement: "all" });
+      assert.deepStrictEqual(separately, []);
+      const result = yield* service.list({ state: "closed", involvement: "all" });
+
+      assert.deepStrictEqual(separately, ["acme/web"]);
+      assert.deepStrictEqual(
+        result.entries.map((entry) => entry.number),
+        [49],
+      );
+    }),
+);
 it.effect("reads the repositories one at a time when the search itself fails", () =>
   Effect.gen(function* () {
     const separately: string[] = [];

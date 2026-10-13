@@ -1142,12 +1142,13 @@ export const make = Effect.gen(function* () {
     };
   };
 
-  // A repository that has appeared in a host search is known to be indexed there. Empty
-  // authored/reviewing searches for that same repository are therefore real empty answers, not
-  // a reason to issue the two-command per-repository fallback again.
+  // A repository that has appeared in a host search, run as a given account, is known to be
+  // indexed there for that account. Empty authored/reviewing searches for that same repository
+  // are therefore real empty answers, not a reason to issue the two-command per-repository
+  // fallback again. Keyed by the account the search ran as: another account may not see it.
   const searchVisibleAt = new Map<string, number>();
-  const searchVisibilityKey = (host: string, repository: string) =>
-    `${host}\n${repository.trim().toLowerCase()}`;
+  const searchVisibilityKey = (host: string, account: string, repository: string) =>
+    `${host}\n${account.toLowerCase()}\n${repository.trim().toLowerCase()}`;
 
   const listUncached: PullRequestService["Service"]["list"] = (input) =>
     Effect.gen(function* () {
@@ -1392,7 +1393,7 @@ export const make = Effect.gen(function* () {
                 const held = rows.get(key);
                 if (held === undefined) rows.set(key, [item]);
                 else held.push(item);
-                searchVisibleAt.set(searchVisibilityKey(first.host, item.repository), now);
+                searchVisibleAt.set(searchVisibilityKey(first.host, viewer, item.repository), now);
               }
               // The oldest row of the whole slice, which is how far every repository in it has now
               // been read — including the ones that contributed nothing to it.
@@ -1417,10 +1418,17 @@ export const make = Effect.gen(function* () {
                     // keeps a search-invisible repository from disappearing on a busy host, at the
                     // price of one request per repository with nothing in the first slice — which
                     // run together, and only there.
+                    //
+                    // An earlier search having shown the repository only excuses the read for a
+                    // question that names the reader (Authored, Reviewing, `author:`), whose empty
+                    // answer is ordinary. An "all" listing's empty first slice is still read on
+                    // its own: an empty answer there is exactly what a search that cannot see the
+                    // repository's rows gives, and believing it drops open rows silently.
                     const lastVisible = searchVisibleAt.get(
-                      searchVisibilityKey(project.host, project.repository),
+                      searchVisibilityKey(project.host, viewer, project.repository),
                     );
                     const searchIsKnownVisible =
+                      queryNamesViewer &&
                       !page.truncated &&
                       lastVisible !== undefined &&
                       now - lastVisible <= Duration.toMillis(SEARCH_VISIBILITY_TTL);
