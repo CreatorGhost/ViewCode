@@ -321,12 +321,16 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
 
   yield* Effect.gen(function* () {
     let snapshot = yield* applySnapshot(initialSettings, { forceRefresh: true });
+    // A provider that opts out of re-probing (OpenCode, whose sign-in is often unknown by
+    // design) is left alone, and like interval refreshes a retry waits for status demand.
+    if (input.refreshOnInterval === false) return;
     for (const delay of STARTUP_RETRY_DELAYS) {
       if (!isInconclusiveProbe(snapshot)) return;
       yield* Effect.sleep(delay);
       // A refresh that landed meanwhile (settings change, interval, manual) may have settled it.
       const current = yield* Ref.get(snapshotStateRef);
       if (!isInconclusiveProbe(current.snapshot)) return;
+      if (!(yield* hasProviderStatusDemand)) return;
       snapshot = yield* refreshSnapshot();
     }
   }).pipe(Effect.ignoreCause({ log: true }), Effect.forkScoped);

@@ -558,9 +558,10 @@ html[data-window-glass="true"] body {
 
 /*
  * macOS traffic lights (lib/windowControlsOverlay.ts sets the attribute while they show).
- * DesktopWindow.ts places them at x 16: three 14pt buttons 6pt apart end at 70pt, and the
- * preload sets --desktop-window-controls-inset to 90pt in CSS px, so zoom never moves this
- * geometry against them. The clearance edge is 12pt after the lights.
+ * DesktopWindow.ts places them at x 12: three 14pt buttons 6pt apart end at 66pt, and the
+ * preload sets --desktop-window-controls-inset to 86pt in CSS px, so zoom never moves this
+ * geometry against them. The rail is that inset less 10px (76px at zoom 1), in px rather than rem
+ * so the interface font size never slides the toggle onto the buttons.
  *
  * The lights sit on one surface: the rail's 52px top strip and the sidebar's title row are
  * both the sidebar colour (the rail draws no divider). The control group (toggle, back,
@@ -571,7 +572,7 @@ html[data-window-glass="true"] body {
  * attribute flips to "hidden", and the web layout above applies.
  */
 html[data-macos-window-controls="visible"] {
-  --macos-app-rail-width: 4.75rem;
+  --macos-app-rail-width: calc(var(--desktop-window-controls-inset, 86px) - 10px);
   --macos-window-controls-clearance: calc(var(--desktop-window-controls-inset, 86px) - 8px);
   /* The toggle sits as close after the green button as a native Mac app's does (~19px to its
      glyph), not a wide gap away. */
@@ -894,8 +895,15 @@ html [data-app-rail] {
     background-color: var(--sidebar);
     background-image: var(--shell-tint-gradient);
   }
-  [data-project-tint] :is([data-app-rail], [data-slot="sidebar-inner"]) {
+  /* The sidebar is see-through over the wash. The rail keeps a fill, painting the same
+     viewport-anchored gradient, so a sidebar sliding under it never shows through. */
+  [data-project-tint] [data-slot="sidebar-inner"] {
     background-color: transparent;
+  }
+  [data-project-tint] [data-app-rail] {
+    background-color: var(--sidebar);
+    background-image: var(--shell-tint-gradient);
+    background-attachment: fixed;
   }
   [data-project-tint]
     :is([data-testid="sidebar-row"], [data-testid="sidebar-row-child"])[aria-current="page"] {

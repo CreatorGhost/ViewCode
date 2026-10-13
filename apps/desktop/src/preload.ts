@@ -41,7 +41,7 @@ if (clientPlatform === "darwin") {
   const syncWindowControlInset = () => {
     document.documentElement.style.setProperty(
       "--desktop-window-controls-inset",
-      // 12pt from the edge, 52pt of buttons, 22pt clear after them (DesktopWindow.ts).
+      // 12pt from the edge, 54pt of buttons, 20pt clear after them (DesktopWindow.ts).
       `${86 / webFrame.getZoomFactor()}px`,
     );
   };
