@@ -23,6 +23,7 @@ import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import { resolveSshAliasRemote } from "./sshAliasRemote.ts";
 import {
   carriesGitHubToken,
   gitHubCommandTarget,
@@ -635,17 +636,46 @@ export const make = Effect.gen(function* () {
           git(cwd, ["remote", "-v"]),
           git(cwd, ["config", "--get-regexp", "^remote\\..*\\.gh-resolved$"]),
         ]).pipe(
-          Effect.map(([remotes, resolved]) =>
+          Effect.flatMap(([remotes, resolved]) =>
             remotes.exitCode === 0
-              ? selectGitHubBaseRepository({
-                  remotes: remotes.stdout,
-                  resolved: resolved.exitCode === 0 ? resolved.stdout : "",
-                  host,
-                })
-              : null,
+              ? withSshAliasesResolved(cwd, remotes.stdout).pipe(
+                  Effect.map((remoteLines) =>
+                    selectGitHubBaseRepository({
+                      remotes: remoteLines,
+                      resolved: resolved.exitCode === 0 ? resolved.stdout : "",
+                      host,
+                    }),
+                  ),
+                )
+              : Effect.succeed(null),
           ),
           Effect.orElseSucceed(() => null),
         );
+
+  /**
+   * `git remote -v` output with every SSH config alias (`git@github.com-work:…`) resolved to its
+   * real host, which is what gh itself does before it picks a remote.
+   */
+  const withSshAliasesResolved = (cwd: string, remoteLines: string) =>
+    Effect.forEach(remoteLines.split("\n"), (line) => {
+      const match = /^(\S+\s+)(\S+)(\s+\((?:fetch|push)\))$/u.exec(line.trim());
+      if (!match) return Effect.succeed(line);
+      return resolveSshAliasRemote(match[2]!, (sshHost) =>
+        process
+          .run({
+            operation: "GitHubCli.sshConfig",
+            command: "ssh",
+            args: ["-G", sshHost],
+            cwd,
+            allowNonZeroExit: true,
+            timeoutMs: 5_000,
+          })
+          .pipe(
+            Effect.map((result) => (result.exitCode === 0 ? result.stdout : null)),
+            Effect.orElseSucceed(() => null),
+          ),
+      ).pipe(Effect.map((url) => `${match[1]}${url}${match[3]}`));
+    }).pipe(Effect.map((lines) => lines.join("\n")));
 
   /**
    * gh runs every command as its active account for the host. A machine signed in to several

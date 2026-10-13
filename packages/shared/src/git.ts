@@ -150,7 +150,16 @@ function azureDevOpsRepositoryKey(host: string, segments: ReadonlyArray<string>)
  * repositories as `github.com`, and only the web host has a pull request page or a gh account.
  */
 function canonicalRemoteHost(host: string): string {
-  return host === "ssh.github.com" ? "github.com" : host;
+  switch (host) {
+    case "ssh.github.com":
+      return "github.com";
+    case "altssh.gitlab.com":
+      return "gitlab.com";
+    case "altssh.bitbucket.org":
+      return "bitbucket.org";
+    default:
+      return host;
+  }
 }
 
 /**
@@ -178,7 +187,9 @@ export function normalizeGitRemoteUrl(value: string): string {
     }
   }
 
-  const scpStyleHostAndPath = /^[a-zA-Z0-9._-]+@([^:/\s]+):([^/\s]+(?:\/[^/\s]+)+)$/i.exec(
+  // The user is optional: `gitlab-work:group/app` takes it from the SSH config. A one-letter
+  // host would be a Windows drive.
+  const scpStyleHostAndPath = /^(?:[a-zA-Z0-9._-]+@)?([^:/\s]{2,}):([^/\s]+(?:\/[^/\s]+)+)$/i.exec(
     normalized,
   );
   const scpHost = scpStyleHostAndPath?.[1];

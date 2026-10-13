@@ -11,6 +11,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 
 import * as ProcessRunner from "../processRunner.ts";
+import { resolveSshAliasRemote, type SshConfigReader } from "../sourceControl/sshAliasRemote.ts";
 
 const DEFAULT_REPOSITORY_IDENTITY_CACHE_CAPACITY = 512;
 // Background sweeps resolve every project each minute. A long TTL keeps them
@@ -85,69 +86,16 @@ function buildRepositoryOrigin(
   return { canonicalKey: originKey, ...(displayName ? { displayName } : {}) };
 }
 
-// Hosts that are never an SSH alias, so their remotes need no `ssh -G` lookup.
-const WELL_KNOWN_REMOTE_HOSTS = new Set([
-  "github.com",
-  "ssh.github.com",
-  "gitlab.com",
-  "bitbucket.org",
-  "codeberg.org",
-  "ssh.dev.azure.com",
-]);
-
-/**
- * The host of an SSH remote (`git@host:owner/repo` or `ssh://[user@]host[:port]/owner/repo`),
- * or null for any other remote. Only plain host names are returned, so the value is safe to
- * hand to `ssh` as an argument.
- */
-export function sshRemoteHost(remoteUrl: string): string | null {
-  const url = remoteUrl.trim();
-  const host =
-    /^ssh:\/\/(?:[^@/\s]+@)?([^:/\s]+)(?::\d+)?\//i.exec(url)?.[1] ??
-    (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)
-      ? undefined
-      : /^(?:[^@:/\s]+@)?([^:/\s]+):(?!\/\/)/.exec(url)?.[1]);
-  return host && /^[a-z0-9][a-z0-9._-]*$/i.test(host) ? host : null;
-}
-
-/** The `hostname` line of `ssh -G <alias>` output: the real host an SSH alias points at. */
-export function parseSshConfigHostname(output: string): string | null {
-  const match = /^hostname\s+(\S+)\s*$/im.exec(output);
-  return match?.[1] ?? null;
-}
-
-/** The remote URL with its SSH host swapped for `to`; everything else is kept. */
-export function withSshRemoteHost(remoteUrl: string, from: string, to: string): string {
-  const url = remoteUrl.trim();
-  const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return /^ssh:\/\//i.test(url)
-    ? url.replace(new RegExp(`^(ssh://(?:[^@/\\s]+@)?)${escaped}(?=[:/])`, "i"), `$1${to}`)
-    : url.replace(new RegExp(`^((?:[^@:/\\s]+@)?)${escaped}(?=:)`, "i"), `$1${to}`);
-}
-
-/**
- * A remote under an SSH config alias (`git@github.com-work:owner/repo`, the usual way to use a
- * second key for a work account) names a host no forge or CLI knows. `ssh -G` prints the
- * effective config without connecting, so its `hostname` is the real host; the repository's
- * key and provider are read from the URL with that host. Unresolvable remotes are kept as is.
- */
-const resolveSshAliasRemote = Effect.fn("RepositoryIdentityResolver.resolveSshAlias")(function* (
-  remoteUrl: string,
-) {
-  const host = sshRemoteHost(remoteUrl);
-  if (host === null || WELL_KNOWN_REMOTE_HOSTS.has(host.toLowerCase())) return remoteUrl;
-  const processRunner = yield* ProcessRunner.ProcessRunner;
-  const result = yield* processRunner
-    .run({ command: "ssh", args: ["-G", host], timeoutBehavior: "timedOutResult" })
-    .pipe(Effect.option);
-  if (result._tag === "None" || result.value.code !== 0) return remoteUrl;
-  const hostname = parseSshConfigHostname(result.value.stdout);
-  return hostname &&
-    /^[a-z0-9][a-z0-9._-]*$/i.test(hostname) &&
-    hostname.toLowerCase() !== host.toLowerCase()
-    ? withSshRemoteHost(remoteUrl, host, hostname)
-    : remoteUrl;
-});
+/** `ssh -G <host>` through the process runner: the effective SSH config, read without connecting. */
+const readSshConfig =
+  (processRunner: ProcessRunner.ProcessRunner["Service"]): SshConfigReader =>
+  (host) =>
+    processRunner
+      .run({ command: "ssh", args: ["-G", host], timeoutBehavior: "timedOutResult" })
+      .pipe(
+        Effect.map((result) => (result.code === 0 ? result.stdout : null)),
+        Effect.orElseSucceed(() => null),
+      );
 
 function buildRepositoryIdentity(input: {
   readonly remoteName: string;
@@ -169,10 +117,12 @@ function buildRepositoryIdentity(input: {
 
   return {
     canonicalKey,
+    // Read for the host, provider and web links, never to run git (that goes by `remoteName`),
+    // so it carries the real host behind an SSH alias.
     locator: {
       source: "git-remote",
       remoteName: input.remoteName,
-      remoteUrl: input.remoteUrl,
+      remoteUrl: input.resolvedRemoteUrl,
     },
     rootPath: input.rootPath,
     ...(repositoryPath ? { displayName: repositoryPath } : {}),
@@ -225,7 +175,9 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
   const remotes = parseRemoteFetchUrls(remoteResult.value.stdout);
   const remote = pickPrimaryRemote(remotes);
   if (!remote) return null;
-  const resolvedRemoteUrl = yield* resolveSshAliasRemote(remote.remoteUrl);
+  // The repository and its provider are keyed on the real host behind an SSH config alias.
+  const sshConfig = readSshConfig(processRunner);
+  const resolvedRemoteUrl = yield* resolveSshAliasRemote(remote.remoteUrl, sshConfig);
   const originUrl = remotes.get("origin");
   return buildRepositoryIdentity({
     ...remote,
@@ -235,7 +187,7 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
         ? undefined
         : originUrl === remote.remoteUrl
           ? resolvedRemoteUrl
-          : yield* resolveSshAliasRemote(originUrl),
+          : yield* resolveSshAliasRemote(originUrl, sshConfig),
     rootPath: cacheKey,
   });
 });

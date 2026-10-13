@@ -26,6 +26,7 @@ import {
 import { ServerConfig } from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import { resolveSshAliasRemote, type SshConfigReader } from "./sshAliasRemote.ts";
 
 const PROVIDER_DETECTION_CACHE_CAPACITY = 2_048;
 // Detection probes several CLIs, so it must outlive one pass; a failure is retried sooner,
@@ -190,11 +191,13 @@ function selectProviderContext(
   remotes: ReadonlyArray<{
     readonly name: string;
     readonly url: string;
+    /** The URL with any SSH config alias resolved to its real host; the provider is read here. */
+    readonly resolvedUrl: string;
   }>,
 ): SourceControlProvider.SourceControlProviderContext | null {
   const candidates: Array<SourceControlProvider.SourceControlProviderContext> = [];
   for (const remote of remotes) {
-    const provider = detectSourceControlProviderFromRemoteUrl(remote.url);
+    const provider = detectSourceControlProviderFromRemoteUrl(remote.resolvedUrl);
     if (provider) {
       candidates.push({
         provider,
@@ -299,7 +302,27 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
               }),
           ),
         );
-        const context = selectProviderContext(remotes.remotes);
+        // `git@github.com-work:…` names its forge through the SSH config, not the URL.
+        const sshConfig: SshConfigReader = (host) =>
+          process
+            .run({
+              operation: "SourceControlProviderRegistry.sshConfig",
+              command: "ssh",
+              args: ["-G", host],
+              cwd,
+              allowNonZeroExit: true,
+              timeoutMs: 5_000,
+            })
+            .pipe(
+              Effect.map((result) => (result.exitCode === 0 ? result.stdout : null)),
+              Effect.orElseSucceed(() => null),
+            );
+        const resolvedRemotes = yield* Effect.forEach(remotes.remotes, (remote) =>
+          resolveSshAliasRemote(remote.url, sshConfig).pipe(
+            Effect.map((resolvedUrl) => ({ ...remote, resolvedUrl })),
+          ),
+        );
+        const context = selectProviderContext(resolvedRemotes);
 
         return yield* refineUnknownRemoteProvider({
           specs: discoverySpecs,

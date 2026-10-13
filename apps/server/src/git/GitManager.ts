@@ -69,6 +69,8 @@ import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import { resolveSshAliasRemote } from "../sourceControl/sshAliasRemote.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import { detectPrTemplate } from "../sourceControl/PrTemplateDetection.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
@@ -696,6 +698,7 @@ function toPullRequestHeadRemoteInfo(pr: {
 
 export const make = Effect.gen(function* () {
   const gitCore = yield* GitVcsDriver.GitVcsDriver;
+  const vcsProcess = yield* VcsProcess.VcsProcess;
   const sourceControlProviders = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const textGeneration = yield* TextGeneration.TextGeneration;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -1336,7 +1339,27 @@ export const make = Effect.gen(function* () {
       (yield* readConfigValueNullable(cwd, `remote.${preferredRemoteName}.url`)) ??
       (yield* readConfigValueNullable(cwd, "remote.origin.url"));
 
-    const provider = remoteUrl ? detectSourceControlProviderFromGitRemoteUrl(remoteUrl) : null;
+    // The provider of `git@github.com-work:…` is the forge its SSH config alias points at.
+    const resolvedRemoteUrl = remoteUrl
+      ? yield* resolveSshAliasRemote(remoteUrl, (host) =>
+          vcsProcess
+            .run({
+              operation: "GitManager.sshConfig",
+              command: "ssh",
+              args: ["-G", host],
+              cwd,
+              allowNonZeroExit: true,
+              timeoutMs: 5_000,
+            })
+            .pipe(
+              Effect.map((result) => (result.exitCode === 0 ? result.stdout : null)),
+              Effect.orElseSucceed(() => null),
+            ),
+        )
+      : null;
+    const provider = resolvedRemoteUrl
+      ? detectSourceControlProviderFromGitRemoteUrl(resolvedRemoteUrl)
+      : null;
     if (!remoteUrl || provider?.kind !== "unknown") return provider;
     const handle = yield* sourceControlProviders
       .resolveHandle({
