@@ -56,6 +56,55 @@ describe("mobile slash commands", () => {
     },
   );
 
+  it("offers ViewCode's /goal and /debug over a provider's own, and applies /debug and /default", () => {
+    const claude = {
+      driver: ProviderDriverKind.make("claudeAgent"),
+      slashCommands: [
+        { name: "goal", description: "Claude's own goal" },
+        { name: "debug", description: "Claude's own debug" },
+      ],
+    };
+    const items = buildComposerSlashCommandItems({
+      query: "",
+      atMessageStart: true,
+      hasThread: true,
+      allowInteractionMode: false,
+      offersThreadCommands: true,
+      selectedProviderStatus: claude,
+    });
+    expect(items.map((item) => `${item.type}:${item.label}`)).toEqual([
+      "slash-command:/model",
+      "slash-command:/default",
+      "slash-command:/goal",
+      "slash-command:/debug",
+    ]);
+    const pick = (label: string) => {
+      const item = items.find((candidate) => candidate.label === label);
+      if (!item) throw new Error(`Expected ${label}`);
+      return resolveComposerCommandSelection({
+        draftMessage: label,
+        trigger: { rangeStart: 0, rangeEnd: label.length },
+        item,
+        allowInteractionMode: true,
+        offersThreadCommands: true,
+      });
+    };
+    expect(pick("/debug")).toEqual({
+      text: "",
+      cursor: 0,
+      interactionMode: null,
+      threadCommand: "debug",
+    });
+    expect(pick("/default")).toEqual({
+      text: "",
+      cursor: 0,
+      interactionMode: "default",
+      threadCommand: "default",
+    });
+    // The objective follows /goal, so picking it only starts the command.
+    expect(pick("/goal")).toEqual({ text: "/goal ", cursor: 6, interactionMode: null });
+  });
+
   it("does not offer a native command inside the message", () => {
     expect(
       buildComposerSlashCommandItems({

@@ -34,6 +34,10 @@ import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
+import {
+  APP_OWNED_SLASH_COMMAND_NAMES,
+  THREAD_SLASH_COMMANDS,
+} from "@t3tools/client-runtime/threadGoal";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
@@ -58,6 +62,8 @@ export function buildComposerSlashCommandItems(input: {
   /** Whether T3 itself offers /usage-limits for the selected provider. */
   readonly offersUsageLimits?: boolean;
   readonly allowInteractionMode: boolean;
+  /** ViewCode's `/goal`, `/debug` and `/default` (a started thread only). */
+  readonly offersThreadCommands?: boolean;
   readonly selectedProviderStatus: Pick<
     ServerProvider,
     "driver" | "slashCommands" | "showInteractionModeToggle"
@@ -90,8 +96,24 @@ export function buildComposerSlashCommandItems(input: {
     },
   ] satisfies ComposerCommandItem[];
   const items: ComposerCommandItem[] = builtIn.filter(
-    (item) => item.command.includes(query) && (item.command === "model" || allowInteractionMode),
+    (item) =>
+      item.command.includes(query) &&
+      (item.command === "model" ||
+        allowInteractionMode ||
+        (item.command === "default" && input.offersThreadCommands === true)),
   );
+  if (input.offersThreadCommands) {
+    for (const { command, description } of THREAD_SLASH_COMMANDS) {
+      if (!command.includes(query)) continue;
+      items.push({
+        id: `cmd:${command}`,
+        type: "slash-command",
+        command,
+        label: `/${command}`,
+        description,
+      });
+    }
+  }
 
   // Providers expand commands only at the start of a message. T3 commands
   // change local state and do not have this restriction.
@@ -99,6 +121,12 @@ export function buildComposerSlashCommandItems(input: {
   for (const command of input.selectedProviderStatus?.slashCommands ?? []) {
     if (!command.name.toLowerCase().includes(query)) continue;
     if (command.name === "compact" && !input.hasCompactableConversation) continue;
+    if (
+      input.offersThreadCommands &&
+      APP_OWNED_SLASH_COMMAND_NAMES.has(command.name.toLowerCase())
+    ) {
+      continue;
+    }
     // T3's own limits command is answered by the thread composer; New Task has
     // nowhere to show it. A provider's same-named command is left alone.
     if (command.name === USAGE_LIMITS_COMMAND.name && input.offersUsageLimits && !input.hasThread) {
@@ -127,12 +155,26 @@ export function resolveComposerCommandSelection(input: {
   readonly trigger: Pick<ComposerTrigger, "rangeStart" | "rangeEnd">;
   readonly item: ComposerCommandItem;
   readonly allowInteractionMode: boolean;
+  readonly offersThreadCommands?: boolean;
 }): {
   readonly text: string;
   readonly cursor: number;
   readonly interactionMode: ProviderInteractionMode | null;
+  /** A ViewCode thread command to apply; the draft keeps none of it. */
+  readonly threadCommand?: "debug" | "default";
 } {
   const { draftMessage, trigger, item } = input;
+  if (
+    input.offersThreadCommands &&
+    item.type === "slash-command" &&
+    (item.command === "debug" || item.command === "default")
+  ) {
+    return {
+      ...replaceTextRange(draftMessage, trigger.rangeStart, trigger.rangeEnd, ""),
+      interactionMode: item.command === "default" && input.allowInteractionMode ? "default" : null,
+      threadCommand: item.command,
+    };
+  }
   if (
     input.allowInteractionMode &&
     item.type === "slash-command" &&
@@ -176,6 +218,7 @@ export function useComposerCommandMenu({
   onChangeDraftMessage,
   onUpdateInteractionMode,
   onUsageLimits,
+  onThreadCommand,
 }: {
   readonly draftMessage: string;
   readonly ownerKey: string | null;
@@ -193,6 +236,8 @@ export function useComposerCommandMenu({
   readonly onUpdateInteractionMode?: (mode: ProviderInteractionMode) => void;
   /** Picking /usage-limits is the action itself; the draft keeps nothing of it. */
   readonly onUsageLimits?: () => void;
+  /** Applies `/debug` or `/default`; set where ViewCode's thread commands are offered. */
+  readonly onThreadCommand?: (command: "debug" | "default") => void;
 }) {
   const [selection, setSelection] = useState(() => composerSelectionAtEnd(draftMessage));
   const previousOwnerKeyRef = useRef(ownerKey);
@@ -364,6 +409,7 @@ export function useComposerCommandMenu({
         hasCompactableConversation,
         offersUsageLimits,
         allowInteractionMode: onUpdateInteractionMode !== undefined,
+        offersThreadCommands: onThreadCommand !== undefined,
         selectedProviderStatus: selectedProviderStatus
           ? {
               ...selectedProviderStatus,
@@ -493,6 +539,7 @@ export function useComposerCommandMenu({
   }, [
     hasThread,
     hasCompactableConversation,
+    onThreadCommand,
     onUpdateInteractionMode,
     pathSearch.entries,
     pullRequestSearch.entries,
@@ -560,11 +607,15 @@ export function useComposerCommandMenu({
         allowInteractionMode:
           onUpdateInteractionMode !== undefined &&
           selectedProviderStatus?.showInteractionModeToggle !== false,
+        offersThreadCommands: onThreadCommand !== undefined,
       });
       setSelection({ start: result.cursor, end: result.cursor });
       onChangeDraftMessage(result.text);
       if (result.interactionMode !== null) {
         onUpdateInteractionMode?.(result.interactionMode);
+      }
+      if (result.threadCommand !== undefined) {
+        onThreadCommand?.(result.threadCommand);
       }
     },
     [
@@ -572,6 +623,7 @@ export function useComposerCommandMenu({
       ownerKey,
       items,
       onChangeDraftMessage,
+      onThreadCommand,
       onUpdateInteractionMode,
       onUsageLimits,
       selectedProviderStatus?.showInteractionModeToggle,

@@ -97,6 +97,8 @@ import { modelChipLabel, resolveProviderOptionDescriptors } from "../../lib/prov
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
 import { ComposerPopoverAnchor } from "./ComposerPopoverAnchor";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
+import { useThreadGoalActions } from "./useThreadGoalActions";
+import { isThreadGoalPaused, parseThreadSlashCommand } from "@t3tools/client-runtime/threadGoal";
 import {
   ComposerDictationCancelAction,
   ComposerDictationDraftContent,
@@ -350,6 +352,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     });
   };
   const { onSendMessage, onChangeDraftMessage, onShowUsageLimits } = props;
+  const interactionModeOffered = selectedProviderStatus?.showInteractionModeToggle !== false;
+  const threadGoal = useThreadGoalActions({
+    environmentId: props.environmentId,
+    thread: props.selectedThread,
+    ...(interactionModeOffered ? { onUpdateInteractionMode: props.onUpdateInteractionMode } : {}),
+  });
+  const { applyGoalAction, applyThreadCommand } = threadGoal;
   // T3 owns /usage-limits only where Limits has data for the selected provider;
   // elsewhere the name stays the provider's own and is sent through untouched.
   const usageLimitsOffered =
@@ -392,6 +401,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ? undefined
         : props.onUpdateInteractionMode,
     offersUsageLimits: usageLimitsOffered,
+    onThreadCommand: threadGoal.applyThreadCommand,
     // With attachments aboard the pick just inserts the text, so it sends as a prompt.
     onUsageLimits:
       usageLimitsOffered && props.draftAttachments.length === 0 ? openUsageLimits : undefined,
@@ -483,6 +493,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.keepsComposerExpanded]);
   const handleSend = useCallback(async () => {
     if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
+    // ViewCode's own thread commands change the thread; nothing is sent.
+    const threadCommand =
+      props.draftAttachments.length === 0 ? parseThreadSlashCommand(props.draftMessage) : null;
+    if (threadCommand) {
+      if (threadCommand.command === "goal") applyGoalAction(threadCommand.goal);
+      else applyThreadCommand(threadCommand.command);
+      onChangeDraftMessage("");
+      return;
+    }
     // Typed out in full rather than picked from the menu. Attachments mean the
     // user is sending a prompt, so those go through as usual.
     if (
@@ -515,6 +534,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.environmentLabel,
     props.selectedThread.id,
     props.selectedThread.title,
+    applyGoalAction,
+    applyThreadCommand,
     voiceInput.blocksSubmission,
   ]);
 
@@ -969,7 +990,25 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       onPickMedia={props.onPickDraftMedia}
                       onPickFiles={props.onPickDraftFiles}
                     />
-                    <View className="min-w-0 shrink">
+                    <View className="min-w-0 shrink flex-row items-center">
+                      {threadGoal.goal !== null ? (
+                        <ComposerInlineControl
+                          accessibilityLabel={`Goal: ${threadGoal.goal.objective}`}
+                          icon="target"
+                          label={isThreadGoalPaused(threadGoal.goal) ? "Paused" : "Goal"}
+                          onPress={threadGoal.openGoalActions}
+                        />
+                      ) : null}
+                      {threadGoal.debugMode ? (
+                        <ComposerInlineControl
+                          accessibilityLabel="Debug mode is on"
+                          accessibilityHint="Leave debug mode"
+                          icon="ant"
+                          label="Debug"
+                          selected
+                          onPress={threadGoal.confirmLeaveDebugMode}
+                        />
+                      ) : null}
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"
                         emphasized

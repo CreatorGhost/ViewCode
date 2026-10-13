@@ -28,6 +28,7 @@ import IconInbox from "@tabler/icons-react-native/IconInbox";
 import IconRobot from "@tabler/icons-react-native/IconRobot";
 import IconSend from "@tabler/icons-react-native/IconSend";
 import IconBrain from "@tabler/icons-react-native/IconBrain";
+import IconBug from "@tabler/icons-react-native/IconBug";
 import IconCamera from "@tabler/icons-react-native/IconCamera";
 import IconChartBar from "@tabler/icons-react-native/IconChartBar";
 import IconCheck from "@tabler/icons-react-native/IconCheck";
@@ -108,6 +109,7 @@ import IconStar from "@tabler/icons-react-native/IconStar";
 import IconStarFilled from "@tabler/icons-react-native/IconStarFilled";
 import IconStethoscope from "@tabler/icons-react-native/IconStethoscope";
 import IconSun from "@tabler/icons-react-native/IconSun";
+import IconTarget from "@tabler/icons-react-native/IconTarget";
 import IconTerminal2 from "@tabler/icons-react-native/IconTerminal2";
 import IconTextDecrease from "@tabler/icons-react-native/IconTextDecrease";
 import IconTextIncrease from "@tabler/icons-react-native/IconTextIncrease";
@@ -137,6 +139,7 @@ import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { withUniwind } from "uniwind";
 
 const ANDROID_ICON_BY_SF_SYMBOL = {
+  ant: IconBug,
   plusminus: IconPlusMinus,
   "git.pull-request.closed": IconGitPullRequestClosed,
   "git.pull-request.draft": IconGitPullRequestDraft,
@@ -257,6 +260,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   star: IconStar,
   "star.fill": IconStarFilled,
   "sun.max": IconSun,
+  target: IconTarget,
   "stop.fill": IconPlayerStopFilled,
   terminal: IconTerminal2,
   "text.alignleft": IconAlignLeft,
