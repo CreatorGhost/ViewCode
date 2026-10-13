@@ -901,25 +901,34 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   );
 
   it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
-    "turns Command Code on when cmd is on PATH without persisting the detected flag",
+    "turns a provider on when its CLI is on PATH without persisting the detected flag",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const binDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-command-code-path-" });
-        yield* fs.writeFileString(path.join(binDir, "cmd"), "#!/bin/sh\n");
-        yield* fs.chmod(path.join(binDir, "cmd"), 0o755);
+        const binDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-provider-cli-path-" });
+        const detected = { commandCode: "cmd", droid: "droid" } as const;
+        for (const binary of Object.values(detected)) {
+          yield* fs.writeFileString(path.join(binDir, binary), "#!/bin/sh\n");
+          yield* fs.chmod(path.join(binDir, binary), 0o755);
+        }
 
         yield* Effect.gen(function* () {
           const serverConfig = yield* ServerConfig.ServerConfig;
           const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
 
-          assert.isTrue((yield* serverSettings.getSettings).providers.commandCode.enabled);
+          const { providers } = yield* serverSettings.getSettings;
+          for (const provider of Object.keys(detected) as Array<keyof typeof detected>) {
+            assert.isTrue(providers[provider].enabled, provider);
+          }
           yield* serverSettings.updateSettings({ addProjectBaseDirectory: "~/Development" });
 
           const raw = yield* fs.readFileString(serverConfig.settingsPath);
           // @effect-diagnostics-next-line preferSchemaOverJson:off
-          assert.isUndefined(JSON.parse(raw).providers?.commandCode);
+          const persisted = JSON.parse(raw).providers ?? {};
+          for (const provider of Object.keys(detected)) {
+            assert.isUndefined(persisted[provider], provider);
+          }
         }).pipe(
           Effect.provide(makeServerSettingsLayer()),
           Effect.provideService(HostProcessEnvironment, { ...process.env, PATH: binDir }),

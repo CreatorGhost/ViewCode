@@ -9,6 +9,7 @@ const ONBOARDING_AGENT_DRIVERS: readonly ProviderDriverKind[] = [
   "opencode",
   "antigravity",
   "commandCode",
+  "droid",
 ].map((driver) => ProviderDriverKind.make(driver));
 
 /** Drivers the onboarding cards show: every enabled built-in provider, in display order. */

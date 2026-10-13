@@ -285,9 +285,29 @@ const PersistedOptionalProviderSettings = Schema.Struct({
       commandCode: Schema.optionalKey(
         Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) }),
       ),
+      droid: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
     }),
   ),
 });
+
+/**
+ * Providers that turn themselves on when their CLI is on PATH at startup; an
+ * explicit choice in settings (or on the provider instance) still wins.
+ */
+const PATH_DETECTED_PROVIDERS = ["commandCode", "droid"] as const;
+type PathDetectedProvider = (typeof PATH_DETECTED_PROVIDERS)[number];
+type ProvidersOnPath = Readonly<Record<PathDetectedProvider, boolean>>;
+
+/** The executable a path-detected provider runs, as PATH lookup should see it. */
+function pathDetectedBinary(
+  settings: ServerSettings,
+  provider: PathDetectedProvider,
+  platform: NodeJS.Platform,
+): string {
+  return provider === "commandCode"
+    ? resolveCommandCodeBinary(settings.providers.commandCode.binaryPath, platform)
+    : settings.providers[provider].binaryPath;
+}
 const decodePersistedOptionalProviderSettingsJsonExit = Schema.decodeUnknownExit(
   fromLenientJson(PersistedOptionalProviderSettings),
 );
@@ -299,7 +319,7 @@ function restoreUsedProviders(
     readonly providerName: string;
     readonly providerInstanceId: string | null;
   }>,
-  commandCodeOnPath: boolean,
+  providersOnPath: ProvidersOnPath,
 ): ServerSettings {
   const usedProviders = new Set(providerHistory.map(({ providerName }) => providerName));
   const usedProviderInstances = new Set(
@@ -336,12 +356,15 @@ function restoreUsedProviders(
         ...settings.providers.opencode,
         enabled: persisted.providers?.opencode?.enabled ?? usedProviders.has("opencode"),
       },
-      // Command Code turns itself on when its CLI is installed; an explicit
-      // choice in settings (or on the provider instance) still wins.
-      commandCode: {
-        ...settings.providers.commandCode,
-        enabled: persisted.providers?.commandCode?.enabled ?? commandCodeOnPath,
-      },
+      ...Object.fromEntries(
+        PATH_DETECTED_PROVIDERS.map((provider) => [
+          provider,
+          {
+            ...settings.providers[provider],
+            enabled: persisted.providers?.[provider]?.enabled ?? providersOnPath[provider],
+          },
+        ]),
+      ),
     },
     providerInstances,
   };
@@ -400,6 +423,7 @@ const PERSISTED_SERVER_SETTINGS_DEFAULTS = {
     grok: { ...DEFAULT_SERVER_SETTINGS.providers.grok, enabled: undefined },
     opencode: { ...DEFAULT_SERVER_SETTINGS.providers.opencode, enabled: undefined },
     commandCode: { ...DEFAULT_SERVER_SETTINGS.providers.commandCode, enabled: undefined },
+    droid: { ...DEFAULT_SERVER_SETTINGS.providers.droid, enabled: undefined },
   },
 };
 
@@ -595,26 +619,34 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  // Command Code's enabled flag detected from PATH on load, when the file did
-  // not set one. It is never written back, so installing or removing `cmd`
+  // Path-detected providers' enabled flags found on load, when the file did
+  // not set one. They are never written back, so installing or removing a CLI
   // later still changes the default.
-  let commandCodeDetectedEnabled: boolean | undefined;
+  let detectedEnabled: Partial<ProvidersOnPath> = {};
 
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (settings: ServerSettings) {
-      const defaults =
-        commandCodeDetectedEnabled === undefined
-          ? PERSISTED_SERVER_SETTINGS_DEFAULTS
-          : {
-              ...PERSISTED_SERVER_SETTINGS_DEFAULTS,
-              providers: {
-                ...PERSISTED_SERVER_SETTINGS_DEFAULTS.providers,
-                commandCode: {
-                  ...PERSISTED_SERVER_SETTINGS_DEFAULTS.providers.commandCode,
-                  enabled: commandCodeDetectedEnabled,
-                },
-              },
-            };
+      const defaults = {
+        ...PERSISTED_SERVER_SETTINGS_DEFAULTS,
+        providers: {
+          ...PERSISTED_SERVER_SETTINGS_DEFAULTS.providers,
+          ...Object.fromEntries(
+            PATH_DETECTED_PROVIDERS.flatMap((provider) =>
+              detectedEnabled[provider] === undefined
+                ? []
+                : [
+                    [
+                      provider,
+                      {
+                        ...PERSISTED_SERVER_SETTINGS_DEFAULTS.providers[provider],
+                        enabled: detectedEnabled[provider],
+                      },
+                    ],
+                  ],
+            ),
+          ),
+        },
+      };
       const sparseSettingsJson = yield* encodeServerSettingsJson(
         stripDefaultServerSettings(settings, defaults) ?? {},
       );
@@ -762,19 +794,23 @@ const make = Effect.gen(function* () {
             ),
           );
 
-    const commandCodeOnPath = yield* isCommandAvailable(
-      resolveCommandCodeBinary(
-        settings.providers.commandCode.binaryPath,
-        yield* HostProcessPlatform,
-      ),
+    const platform = yield* HostProcessPlatform;
+    const onPath = yield* Effect.forEach(PATH_DETECTED_PROVIDERS, (provider) =>
+      isCommandAvailable(pathDetectedBinary(settings, provider, platform)),
     ).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, pathService),
     );
-    commandCodeDetectedEnabled =
-      persisted.providers?.commandCode?.enabled === undefined ? commandCodeOnPath : undefined;
+    const providersOnPath = Object.fromEntries(
+      PATH_DETECTED_PROVIDERS.map((provider, index) => [provider, onPath[index] === true]),
+    ) as Record<PathDetectedProvider, boolean>;
+    detectedEnabled = Object.fromEntries(
+      PATH_DETECTED_PROVIDERS.filter(
+        (provider) => persisted.providers?.[provider]?.enabled === undefined,
+      ).map((provider) => [provider, providersOnPath[provider]]),
+    );
     const loaded = foldProviderInstanceEnabledFlags(
-      restoreUsedProviders(settings, persisted, providerHistory, commandCodeOnPath),
+      restoreUsedProviders(settings, persisted, providerHistory, providersOnPath),
     );
     const folded = yield* decideDefaultRuntimeMode(
       settingsFileTrusted ? foldLegacyProjectSettings(loaded, legacyProjectRows) : loaded,

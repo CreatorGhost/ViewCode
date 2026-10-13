@@ -92,6 +92,7 @@ export function effortBrandForDriver(driver: ProviderDriverKind | null | undefin
     case "grok":
     case "opencode":
     case "commandCode":
+    case "droid":
       return "silver";
     default:
       return "purple";

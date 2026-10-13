@@ -127,13 +127,14 @@ computer.
 | OpenCode     | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
 | Antigravity  | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
 | Command Code | Install [Command Code](https://commandcode.ai) (`npm i -g command-code`), then run `cmd login`.                                                           |
+| Droid        | Install [Droid](https://docs.factory.ai/cli/getting-started/quickstart), then run `droid` and log in, or set `FACTORY_API_KEY`.                           |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
 Cursor's executable is `cursor-agent`, although its login command is
 `agent login`. Codex connected through ChatGPT and Antigravity can use their
-managed runtimes without a `PATH` entry. Command Code is turned on automatically
-when `cmd` is on the server's `PATH`.
+managed runtimes without a `PATH` entry. Command Code and Droid are turned on
+automatically when `cmd` or `droid` is on the server's `PATH`.
 
 T3 Code warns when a provider version has known compatibility problems with your
 release. Check **Settings → Providers** on that environment for the recommended
@@ -154,8 +155,8 @@ base URL. Mark secret values as sensitive; after saving, T3 Code does not displa
 their original values.
 
 For provider-specific setup and accounts, see [Codex](./providers-codex.md),
-[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md), and
-[Antigravity](./providers-antigravity.md).
+[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md),
+[Antigravity](./providers-antigravity.md), and [Droid](./providers-droid.md).
 
 ## Next steps
 

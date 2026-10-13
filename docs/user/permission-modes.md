@@ -31,6 +31,9 @@ actions still require approval.
 Antigravity can still send native approval requests in **Full access**. It only offers remembered
 approvals for actions that support them.
 
+Droid uses its autonomy levels: **Supervised** auto-approves reads, **Auto-accept edits** uses
+low autonomy, **Auto** medium and **Full access** high, capped at what your organization allows.
+
 Command Code cannot ask for approval. Outside **Full access** it reads and answers, but its file
 edits and shell commands are blocked and show as declined; the access menu says so. Choose **Full
 access** for Command Code threads that should change files.

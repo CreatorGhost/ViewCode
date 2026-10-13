@@ -4,6 +4,7 @@ import {
   ClaudeAI,
   CommandCodeIcon,
   CursorIcon,
+  DroidIcon,
   GrokIcon,
   Icon,
   OpenAI,
@@ -18,6 +19,7 @@ export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>
   [ProviderDriverKind.make("grok")]: GrokIcon,
   [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
   [ProviderDriverKind.make("commandCode")]: CommandCodeIcon,
+  [ProviderDriverKind.make("droid")]: DroidIcon,
 };
 
 export type ModelEsque = {

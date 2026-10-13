@@ -40,6 +40,11 @@ export interface McpProviderSessionConfig {
    * stdio bridge instead of dialing `endpoint`, which no one listens on.
    */
   readonly stdio?: McpStdioLaunch;
+  /**
+   * Set on a TCP listener: the stdio bridge dialing `endpoint`, for agents
+   * that take only stdio MCP servers (see `acpStdioMcpServerConfig`).
+   */
+  readonly stdioBridge?: McpStdioLaunch;
   /** Capabilities the credential grants ("preview", "device", "computer"). */
   readonly capabilities: ReadonlySet<string>;
   /**
@@ -121,7 +126,7 @@ export const MCP_SERVER_NAME = "viewcode";
 
 type McpTransportConfig = Pick<
   McpProviderSessionConfig,
-  "endpoint" | "authorizationHeader" | "stdio"
+  "endpoint" | "authorizationHeader" | "stdio" | "stdioBridge"
 >;
 
 // The SDK passes `mcpServers` to the CLI as an inline `--mcp-config` argument,
@@ -167,6 +172,17 @@ export function acpMcpServerConfig(config: McpTransportConfig): EffectAcpSchema.
         url: config.endpoint,
         headers: [{ name: "Authorization", value: config.authorizationHeader }],
       };
+}
+
+/**
+ * ACP `mcpServers` entry for agents that take only stdio servers, whatever
+ * they advertise (Droid, Devin): the stdio bridge on either listener.
+ */
+export function acpStdioMcpServerConfig(
+  config: McpTransportConfig,
+): EffectAcpSchema.McpServer | undefined {
+  const launch = config.stdio ?? config.stdioBridge;
+  return launch ? acpMcpServerConfig({ ...config, stdio: launch }) : undefined;
 }
 
 /** OpenCode `mcp.add` config. */
