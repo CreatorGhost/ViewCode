@@ -841,7 +841,7 @@ html:root
    step darker than the sidebar, like a browser's tab strip, and the selected project is its
    active tab: a tile in the sidebar's own surface that runs into the sidebar, with curved
    corners where they meet, its outer edge lit in the project colour (AppRail hands each tile
-   its own --project-accent) or the theme accent. The others step back until hovered. Static:
+   its own --project-accent) or the theme accent. Static:
    no animation repaints any of it. */
 html [data-app-rail] {
   --rail-strip: color-mix(in srgb, var(--sidebar) 35%, black);
@@ -862,12 +862,23 @@ html [data-app-rail] > :first-child {
     var(--sidebar)
   );
 }
+/* On window glass the strip is a shade over the glass, below the title strip only, so the window
+   controls sit on one surface; a tinted shell keeps its tint over both. */
 html[data-window-glass="true"] [data-app-rail] {
   --rail-strip: transparent;
+  --rail-glass-shade: color-mix(in srgb, black 28%, transparent);
   background-image: linear-gradient(
-    color-mix(in srgb, black 28%, transparent),
-    color-mix(in srgb, black 28%, transparent)
+    transparent var(--workspace-topbar-height),
+    var(--rail-glass-shade) var(--workspace-topbar-height)
   );
+}
+html[data-window-glass="true"] [data-project-tint] [data-app-rail] {
+  background-image:
+    linear-gradient(
+      transparent var(--workspace-topbar-height),
+      var(--rail-glass-shade) var(--workspace-topbar-height)
+    ),
+    var(--shell-tint-gradient);
 }
 html[data-window-glass="true"] [data-app-rail] > :first-child {
   background-color: transparent !important;
@@ -938,15 +949,4 @@ html[data-window-glass="true"] [data-app-rail] button[data-rail-project][data-pr
         )
         bottom / var(--rail-tab-flare) var(--rail-tab-flare) no-repeat;
   }
-}
-[data-app-rail] button[data-rail-project] > :first-child {
-  transition:
-    opacity 150ms ease,
-    filter 150ms ease;
-}
-[data-app-rail]
-  button[data-rail-project]:not([data-pressed], :hover, :focus-visible)
-  > :first-child {
-  opacity: 0.6;
-  filter: saturate(0.7);
 }

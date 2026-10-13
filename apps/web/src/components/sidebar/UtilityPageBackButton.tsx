@@ -7,8 +7,9 @@ import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 
 /**
  * Back to the thread you came from, at the start of a utility page's header
- * (Settings, Usage, Pull Requests). Lives in the header so it stays visible when
- * the sidebar is collapsed; Escape does the same on Settings.
+ * (Settings, Usage, Pull Requests), on narrow screens only: from md up the title bar's back
+ * arrow does this, and two back buttons side by side read as two different places to go.
+ * Escape does the same on Settings.
  */
 export function UtilityPageBackButton() {
   const onUtilityPage = useLocation({
@@ -17,20 +18,22 @@ export function UtilityPageBackButton() {
   const navigateToMainApp = useNavigateToMainApp();
   if (!onUtilityPage) return null;
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost-muted"
-            size="icon-sm"
-            aria-label="Back"
-            onClick={() => void navigateToMainApp()}
-          />
-        }
-      >
-        <ArrowLeftIcon />
-      </TooltipTrigger>
-      <TooltipPopup side="bottom">Back</TooltipPopup>
-    </Tooltip>
+    <span className="flex md:hidden">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost-muted"
+              size="icon-sm"
+              aria-label="Back"
+              onClick={() => void navigateToMainApp()}
+            />
+          }
+        >
+          <ArrowLeftIcon />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">Back</TooltipPopup>
+      </Tooltip>
+    </span>
   );
 }

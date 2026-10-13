@@ -55,7 +55,11 @@ import ThreadSidebar from "./Sidebar";
 import { AppRail } from "./rail/AppRail";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
-import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
+import {
+  isSidebarUtilityPage,
+  MainAppLocationTracker,
+  useNavigateToMainApp,
+} from "./sidebar/mainAppLocation";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
 import {
@@ -187,6 +191,12 @@ function HistoryArrows() {
   const router = useRouter();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const canGoBack = useCanGoBack();
+  // A utility page (Settings, Usage, Pull Requests) opened with nothing behind it still goes back:
+  // to the app, which is what its own back button did before these arrows replaced it.
+  const onUtilityPage = useLocation({
+    select: (location) => isSidebarUtilityPage(location.pathname),
+  });
+  const navigateToMainApp = useNavigateToMainApp();
   const [position, setPosition] = useState(() => {
     const index = router.history.location.state.__TSR_index;
     return { index, reach: index };
@@ -208,8 +218,8 @@ function HistoryArrows() {
       command: "navigation.back",
       label: "Go back",
       Icon: ArrowLeftIcon,
-      enabled: canGoBack,
-      go: () => router.history.back(),
+      enabled: canGoBack || onUtilityPage,
+      go: () => (canGoBack ? router.history.back() : void navigateToMainApp()),
     },
     {
       command: "navigation.forward",
