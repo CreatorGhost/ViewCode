@@ -105,7 +105,12 @@ const readSshConfig =
   (processRunner: ProcessRunner.ProcessRunner["Service"]): SshConfigReader =>
   (host) =>
     processRunner
-      .run({ command: "ssh", args: ["-G", host], timeoutBehavior: "timedOutResult" })
+      .run({
+        command: "ssh",
+        args: ["-G", host],
+        timeout: "5 seconds",
+        timeoutBehavior: "timedOutResult",
+      })
       .pipe(
         Effect.map((result) => (result.code === 0 ? result.stdout : null)),
         Effect.orElseSucceed(() => null),

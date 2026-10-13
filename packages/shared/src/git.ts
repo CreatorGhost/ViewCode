@@ -189,7 +189,7 @@ export function normalizeGitRemoteUrl(value: string): string {
 
   // The user is optional: `gitlab-work:group/app` takes it from the SSH config. A one-letter
   // host would be a Windows drive.
-  const scpStyleHostAndPath = /^(?:[a-zA-Z0-9._-]+@)?([^:/\s]{2,}):([^/\s]+(?:\/[^/\s]+)+)$/i.exec(
+  const scpStyleHostAndPath = /^(?:[^@:/\s]+@)?([^@:/\s]{2,}):([^/\s]+(?:\/[^/\s]+)+)$/i.exec(
     normalized,
   );
   const scpHost = scpStyleHostAndPath?.[1];

@@ -62,7 +62,14 @@ export function withSshRemoteHost(remoteUrl: string, from: string, to: string): 
 export function followsSshHostname(host: string, hostname: string): boolean {
   if (!PLAIN_HOST.test(hostname) || hostname.toLowerCase() === host.toLowerCase()) return false;
   if (WELL_KNOWN_REMOTE_HOSTS.has(hostname.toLowerCase())) return true;
-  return !host.includes(".") && !IP_LITERAL.test(hostname);
+  if (IP_LITERAL.test(hostname)) return false;
+  // `github.acme.com-work` -> `github.acme.com`: the alias names its host and adds a suffix.
+  const lowerHost = host.toLowerCase();
+  const lowerName = hostname.toLowerCase();
+  if (lowerHost.length > lowerName.length && lowerHost.startsWith(lowerName)) {
+    return /^[-_]/.test(lowerHost.slice(lowerName.length));
+  }
+  return !host.includes(".");
 }
 
 /** Reads `ssh -G <host>` output, or null when ssh could not answer. */
@@ -84,7 +91,10 @@ export const resolveSshAliasRemote = Effect.fn("resolveSshAliasRemote")(function
   let cached = aliases.get(key);
   if (cached === undefined || now - cached.at > ALIAS_TTL_MS) {
     const output = yield* readSshConfig(host);
-    cached = { at: now, hostname: output === null ? null : parseSshConfigHostname(output) };
+    // A failed or timed-out read is not an answer: it is not kept, so the next read asks again.
+    if (output === null) return remoteUrl;
+    cached = { at: now, hostname: parseSshConfigHostname(output) };
+    aliases.delete(key);
     if (aliases.size >= 128) aliases.delete(aliases.keys().next().value!);
     aliases.set(key, cached);
   }

@@ -4,6 +4,8 @@ import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contrac
 import * as AzureDevOpsCli from "./AzureDevOpsCli.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
+  combinedAuthOutput,
+  firstSafeAuthLine,
   providerAuth,
   type SourceControlAuthProbeInput,
   type SourceControlCliDiscoverySpec,
@@ -19,11 +21,12 @@ function parseAzureAuth(input: SourceControlAuthProbeInput) {
   const account = input.stdout.trim().split(/\r?\n/)[0]?.trim();
 
   if (input.exitCode !== 0) {
+    // az's own line comes first: an expired token or a broken install says so there.
+    const azSays = firstSafeAuthLine(combinedAuthOutput(input));
     return providerAuth({
       status: "unknown",
       host: "dev.azure.com",
-      detail:
-        "No `az login` session. A personal access token from `az devops login` or AZURE_DEVOPS_EXT_PAT is used if one is set; otherwise run `az login` or `az devops login`.",
+      detail: `${azSays ? `${azSays} ` : ""}No \`az login\` session. A personal access token from \`az devops login\` or AZURE_DEVOPS_EXT_PAT is used if one is set; otherwise run \`az login\` or \`az devops login\`.`,
     });
   }
 

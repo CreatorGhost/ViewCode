@@ -1328,6 +1328,15 @@ export const make = Effect.gen(function* () {
                     : null,
               };
             }),
+            // Say why in the log: the page only shows "could not be read".
+            Effect.tapError((error) =>
+              Effect.logWarning("A repository's pull requests could not be read", {
+                repository: project.repository,
+                host: project.host,
+                error: error._tag,
+                detail: "message" in error ? String(error.message).slice(0, 500) : undefined,
+              }),
+            ),
             // One unreachable repository must not blank the page. A host-level failure is
             // already reported through `providers`, so it degrades the same way here.
             Effect.orElseSucceed((): RepositoryBatch => ({
@@ -1741,18 +1750,17 @@ export const make = Effect.gen(function* () {
               })
               .pipe(Effect.mapError(toPullRequestError("detail")), observeRead),
             viewerOf(project),
+            // Independent of the read, so it runs beside it rather than after.
+            project.api.signedInLogins === undefined
+              ? Effect.succeed([] as ReadonlyArray<string>)
+              : project.api.signedInLogins(project.host),
           ],
-          { concurrency: 2 },
+          { concurrency: 3 },
         ).pipe(
           // Who opened it is compared with the reader (own pull request, own remarks), so the
           // reader is the account this repository is read as, not just the host's active one.
-          Effect.flatMap(([read, viewer]) =>
-            Effect.all([
-              readerOf(project, viewer),
-              project.api.signedInLogins === undefined
-                ? Effect.succeed([] as ReadonlyArray<string>)
-                : project.api.signedInLogins(project.host),
-            ]).pipe(Effect.map(([reader, logins]) => [read, reader, logins] as const)),
+          Effect.flatMap(([read, viewer, logins]) =>
+            readerOf(project, viewer).pipe(Effect.map((reader) => [read, reader, logins] as const)),
           ),
           Effect.map(
             ([{ value: changeRequest, observedAt }, viewer, logins]): PullRequestDetail => ({

@@ -703,6 +703,8 @@ export const make = Effect.gen(function* () {
           cwd: globalThis.process.cwd(),
           // gh exits non-zero when any one account needs attention; the others are still listed.
           allowNonZeroExit: true,
+          // It checks each token online; a slow network must not hold a page open for long.
+          timeoutMs: 10_000,
         })
         .pipe(
           Effect.map((result) =>
@@ -835,11 +837,23 @@ export const make = Effect.gen(function* () {
           const found = yield* Effect.option(
             Cache.get(accountTokens, `${target.host}\0${account.account}`),
           );
-          if (Option.isNone(found)) continue;
+          if (Option.isNone(found)) {
+            yield* Effect.logWarning("Could not read a signed-in GitHub account's token", {
+              host: target.host,
+              login: account.account,
+            });
+            continue;
+          }
           token = found.value;
         }
         const exit = yield* Effect.exit(runAs(input, target.host, token));
-        if (Exit.isFailure(exit)) continue;
+        if (Exit.isFailure(exit)) {
+          yield* Effect.logDebug("GitHub read failed as another signed-in account", {
+            host: target.host,
+            login: account.account,
+          });
+          continue;
+        }
         const now = yield* Clock.currentTimeMillis;
         if (token === null) routes.delete(key);
         else
@@ -850,6 +864,10 @@ export const make = Effect.gen(function* () {
         login: null,
         token: null,
         expiresAt: (yield* Clock.currentTimeMillis) + NO_ACCOUNT_ROUTE_TTL_MS,
+      });
+      yield* Effect.logWarning("No signed-in GitHub account could read this", {
+        host: target.host,
+        tried: candidates.map((account) => account.account),
       });
       return yield* failure;
     });

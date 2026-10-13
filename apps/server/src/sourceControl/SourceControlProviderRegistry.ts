@@ -199,10 +199,11 @@ function selectProviderContext(
   for (const remote of remotes) {
     const provider = detectSourceControlProviderFromRemoteUrl(remote.resolvedUrl);
     if (provider) {
+      // The resolved URL: readers parse its host and repository (git goes by `remoteName`).
       candidates.push({
         provider,
         remoteName: remote.name,
-        remoteUrl: remote.url,
+        remoteUrl: remote.resolvedUrl,
       });
     }
   }

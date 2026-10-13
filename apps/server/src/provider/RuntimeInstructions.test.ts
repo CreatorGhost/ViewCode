@@ -106,8 +106,10 @@ describe("buildRuntimeInstructions", () => {
       expect(control).toContain("viewcode-computer is the default for desktop work");
       expect(control).toContain("Codex's or Claude's own");
       expect(control).toContain("a Codex child agent");
-      expect(control).toContain("ask before doing it another way");
-      expect(control).not.toContain("off-limits to every tool");
+      // A policy refusal is still never routed around without the user.
+      expect(control).toContain('A refusal by policy is not "cannot reach"');
+      expect(control).toContain("unless the user explicitly asks you to");
+      expect(control).toContain("Password managers stay off-limits to every tool");
       expect(control).not.toContain("input actions are unavailable");
     }
     const observe = buildRuntimeInstructions({

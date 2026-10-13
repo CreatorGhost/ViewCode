@@ -182,7 +182,7 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
               <ComposerBanner.Peek
                 ref={peekRef}
                 variant={firstStackedItem.variant}
-                aria-label="Show other notices"
+                aria-label={`Show ${stackedItems.length} more ${stackedItems.length === 1 ? "notice" : "notices"}`}
                 aria-expanded={stackExpanded}
                 aria-controls={expandedItemsId}
                 aria-hidden={stackExpanded || undefined}

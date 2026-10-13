@@ -35,27 +35,38 @@ export async function renderViewCodeIcons(
   const square = tileFills.map((rect) => rect.replace(/\s+rx="\d+"/, "")).join("") + mark;
   const body = (source: string) =>
     source.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
-  const placeMark = (source: string, compact = false) =>
-    `<svg x="${compact ? 64 : 192}" y="${compact ? 220 : 304}" width="${compact ? 896 : 640}" height="${compact ? 582 : 416}" viewBox="0 0 1000 650" fill="none">${body(source)}</svg>`;
-  // 32px and below enlarge the mark so the branch stays readable.
-  const flatTile = svg.replace(/<svg\b[\s\S]*<\/svg>/, placeMark(markSource, true));
+  // Centres the 1000x650 mark at `width` of the 1024 tile.
+  const placeMark = (source: string, width = 640) => {
+    const height = Math.round(width * 0.65);
+    return `<svg x="${(1024 - width) / 2}" y="${(1024 - height) / 2}" width="${width}" height="${height}" viewBox="0 0 1000 650" fill="none">${body(source)}</svg>`;
+  };
+  const withMark = (width: number) =>
+    svg.replace(/<svg\b[\s\S]*<\/svg>/, placeMark(markSource, width));
+  // 64px and below enlarge the mark so the branch stays readable.
+  const flatTile = withMark(896);
+  // Phone home screens draw the icon small, so the mark fills more of it. 760 keeps the
+  // 1000x650 mark inside Android's 66dp safe circle after the adaptive scale.
+  const MOBILE_MARK_WIDTH = 760;
+  const withMobileMark = (body: string) =>
+    body.replace(/<svg\b[\s\S]*<\/svg>/, placeMark(markSource, MOBILE_MARK_WIDTH));
   const rasterize = (body: string, size: number, opaque = false) => {
     const image = sharp(Buffer.from(canvas(1024, body))).resize(size, size);
     return (opaque ? image.flatten({ background: "#ffffff" }).removeAlpha() : image)
       .png()
       .toBuffer();
   };
-  const ios = await rasterize(square, 1024, true);
+  const ios = await rasterize(withMobileMark(square), 1024, true);
   const tile = await rasterize(svg, 1024);
-  // Preserve the classic macOS 824px body inset 100px in a 1024px canvas.
+  // Preserve the classic macOS 824px body inset 100px in a 1024px canvas. The inset already
+  // shrinks the tile, so the mark fills 80% of it to stay legible in Spotlight and Finder.
   const mac = await rasterize(
-    `<defs><filter id="shadow" x="-25%" y="-25%" width="150%" height="160%"><feGaussianBlur stdDeviation="12"/></filter></defs><rect x="100" y="112" width="824" height="824" rx="184" fill="black" opacity=".24" filter="url(#shadow)"/><g transform="translate(100 100) scale(.8046875)">${svg}</g>`,
+    `<defs><filter id="shadow" x="-25%" y="-25%" width="150%" height="160%"><feGaussianBlur stdDeviation="12"/></filter></defs><rect x="100" y="112" width="824" height="824" rx="184" fill="black" opacity=".24" filter="url(#shadow)"/><g transform="translate(100 100) scale(.8046875)">${withMark(820)}</g>`,
     1024,
   );
   const renditions = await Promise.all(
     WINDOWS_ICON_SIZES.map(async (size) => ({
       size,
-      contents: await rasterize(size <= 32 ? flatTile : svg, size),
+      contents: await rasterize(size <= 64 ? flatTile : svg, size),
     })),
   );
   const ico = encodePngIco(renditions);
@@ -68,7 +79,10 @@ export async function renderViewCodeIcons(
     [BRAND_ASSET_PATHS.productionWebFaviconIco, ico],
     [BRAND_ASSET_PATHS.productionWebFavicon16Png, await rasterize(flatTile, 16)],
     [BRAND_ASSET_PATHS.productionWebFavicon32Png, await rasterize(flatTile, 32)],
-    [BRAND_ASSET_PATHS.productionWebAppleTouchIconPng, await rasterize(square, 180, true)],
+    [
+      BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
+      await rasterize(withMobileMark(square), 180, true),
+    ],
   ]);
   for (const directory of ["apps/web/public", "apps/marketing/public"]) {
     for (const override of resolveWebIconOverrides("production", directory)) {
@@ -81,7 +95,7 @@ export async function renderViewCodeIcons(
   // 108dp at xxxhdpi.
   const adaptive = (body: string) =>
     `<g transform="translate(512 512) scale(.6666667) translate(-512 -512)">${body}</g>`;
-  const adaptiveMark = adaptive(mark);
+  const adaptiveMark = adaptive(withMobileMark(mark));
   // Oversized so the tile still bleeds past the 108dp canvas.
   const adaptiveBackground = adaptive(
     tileFills
@@ -93,7 +107,7 @@ export async function renderViewCodeIcons(
       )
       .join("") + mark.replace(/<svg\b[\s\S]*<\/svg>/, ""),
   );
-  const adaptiveSilhouette = adaptive(placeMark(monochromeSource));
+  const adaptiveSilhouette = adaptive(placeMark(monochromeSource, MOBILE_MARK_WIDTH));
   outputs.set(
     "apps/mobile/assets/android-icon-foreground-prod.png",
     await rasterize(adaptiveMark, 432),

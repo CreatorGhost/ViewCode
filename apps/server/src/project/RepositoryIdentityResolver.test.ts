@@ -448,7 +448,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolver SSH aliases", (it) => {
                 ? "user git\nhostname github.com\nport 22\n"
                 : input.args.includes("rev-parse")
                   ? "/repo\n"
-                  : "origin\tgit@github.com-work:Acme/app.git (fetch)\n",
+                  : "origin\tgit@github.com-identity-test:Acme/app.git (fetch)\n",
             stderr: "",
             code: ChildProcessSpawner.ExitCode(0),
             timedOut: false,

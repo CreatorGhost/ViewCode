@@ -879,6 +879,34 @@ export const make = Effect.gen(function* () {
     cwd: string,
     cloneUrls: { readonly url: string; readonly sshUrl: string },
   ) {
+    const sshConfig = readSshConfig(cwd);
+    // A remote that already points at the repository (an `upstream`, or a fork remote added
+    // before) is reused as written, so `ensureRemote` finds it instead of adding a twin.
+    const wantedKey = normalizeGitRemoteUrl(cloneUrls.url);
+    const remotes = yield* vcsProcess
+      .run({
+        operation: "GitManager.forkRemoteUrl.listRemotes",
+        command: "git",
+        args: ["remote", "-v"],
+        cwd,
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+      })
+      .pipe(
+        Effect.map((result) =>
+          result.exitCode === 0
+            ? result.stdout
+                .split("\n")
+                .map((line) => /^\S+\s+(\S+)\s+\(fetch\)$/u.exec(line.trim())?.[1])
+                .filter((url): url is string => url !== undefined)
+            : [],
+        ),
+        Effect.orElseSucceed((): ReadonlyArray<string> => []),
+      );
+    for (const remoteUrl of remotes) {
+      const resolved = yield* resolveSshAliasRemote(remoteUrl, sshConfig);
+      if (normalizeGitRemoteUrl(resolved) === wantedKey) return remoteUrl;
+    }
     const originRemoteUrl = yield* gitCore.readConfigValue(cwd, "remote.origin.url");
     if (!originRemoteUrl || !isSshRemoteUrl(originRemoteUrl)) return cloneUrls.url;
     const originHost = sshRemoteHost(originRemoteUrl);
@@ -886,8 +914,10 @@ export const make = Effect.gen(function* () {
     if (!originHost || !forkHost || originHost.toLowerCase() === forkHost.toLowerCase()) {
       return cloneUrls.sshUrl;
     }
-    const resolvedOrigin = yield* resolveSshAliasRemote(originRemoteUrl, readSshConfig(cwd));
-    return sshRemoteHost(resolvedOrigin)?.toLowerCase() === forkHost.toLowerCase()
+    // Compared on canonical web hosts, so an alias to ssh.github.com:443 still counts.
+    const hostOf = (url: string) => normalizeGitRemoteUrl(url).split("/")[0];
+    const resolvedOrigin = yield* resolveSshAliasRemote(originRemoteUrl, sshConfig);
+    return hostOf(resolvedOrigin) === hostOf(cloneUrls.sshUrl)
       ? withSshRemoteHost(cloneUrls.sshUrl, forkHost, originHost)
       : cloneUrls.sshUrl;
   });
@@ -1388,7 +1418,11 @@ export const make = Effect.gen(function* () {
     const handle = yield* sourceControlProviders
       .resolveHandle({
         cwd,
-        context: { provider, remoteName: preferredRemoteName, remoteUrl },
+        context: {
+          provider,
+          remoteName: preferredRemoteName,
+          remoteUrl: resolvedRemoteUrl ?? remoteUrl,
+        },
       })
       .pipe(Effect.orElseSucceed(() => null));
     return handle?.context?.provider ?? provider;

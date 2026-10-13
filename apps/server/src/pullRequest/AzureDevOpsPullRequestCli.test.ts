@@ -499,7 +499,7 @@ layer("AzureDevOpsPullRequestCli.layer", (it) => {
         "--resource",
         "me",
         "--api-version",
-        "7.1",
+        "7.1-preview.1",
         "--only-show-errors",
         "--output",
         "json",
