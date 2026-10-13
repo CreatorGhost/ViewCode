@@ -1049,13 +1049,15 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 
 ### Brand assets
 
-- `assets/viewcode-mark.svg` is the black and teal in-app mark;
-  `assets/viewcode-icon.svg` previews it on an app tile. Launcher, favicon and
-  splash exports still use the earlier off-white and amber mark pending app-icon
-  approval. Do not regenerate them as part of an in-app branding change. Keep
-  exported assets under T3's file names so upstream merges preserve the paths.
-  macOS uses the 824px-on-1024 grid with a baked shadow; iOS and apple-touch are
-  square because the OS masks them. `.icns` is built from the PNG at package time.
+- `assets/viewcode-icon.svg` is the approved production icon source;
+  `assets/viewcode-mark.svg` is the same black and teal mark alone. Production
+  exports come from `icons:export:production`; development and preview retain
+  their existing assets and Icon Composer path. Keep exported assets under T3's
+  file names so upstream merges preserve the paths. iOS and apple-touch exports
+  must be opaque and full bleed because the OS masks them. macOS uses the
+  824px-on-1024 grid with a baked shadow; `.icns` is built from the PNG at package
+  time. Android production layers are separate from development/preview so a
+  production redraw cannot replace those channels' artwork.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
   The black stroke gets a fine foreground outline in dark appearances; the teal
   stays the brand color rather than following each theme's accent.

@@ -13,7 +13,8 @@ import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { BRAND_ASSET_PATHS, DEVELOPMENT_PUBLIC_ICON_OVERRIDES } from "./lib/brand-assets.ts";
+import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import { renderProductionIcons } from "./export-viewcode-icons.ts";
 import { encodePngIco, readPngDimensions, WINDOWS_ICON_SIZES } from "./lib/icon-export.ts";
 
 const DESIGN_GENERATION = 26;
@@ -233,7 +234,7 @@ const ICON_VARIANTS = [
   },
   {
     label: "production",
-    source: BRAND_ASSET_PATHS.productionIconComposerProject,
+    source: "assets/viewcode-icon.svg",
     outputs: {
       ios: BRAND_ASSET_PATHS.productionIosIconPng,
       macos: BRAND_ASSET_PATHS.productionMacIconPng,
@@ -248,9 +249,11 @@ const ICON_VARIANTS = [
 ] as const satisfies ReadonlyArray<IconVariant>;
 
 const MACOS_EXPORT_CODEX_PROMPT = [
-  "Use [@Computer](plugin://computer-use@openai-bundled) and the Icon Composer app to export the three macOS app icons in this repository.",
+  "Use [@Computer](plugin://computer-use@openai-bundled) and the Icon Composer app to export the development and preview macOS app icons in this repository.",
   "For each project below, use Platform: macOS pre-Tahoe, Appearance: Default, Size: 1024pt, and Scale: 1×, then save the PNG to the exact destination:",
-  ...ICON_VARIANTS.map((variant) => `- ${variant.source} -> ${variant.outputs.macos}`),
+  ...ICON_VARIANTS.filter((variant) => variant.label !== "production").map(
+    (variant) => `- ${variant.source} -> ${variant.outputs.macos}`,
+  ),
   "Do not resize, composite, or otherwise post-process the exported PNGs.",
   "Verify every result is 1024×1024 and has the classic macOS safe area: an 824×824 opaque body inset 100px on every side, with only Icon Composer's native shadow extending beyond it.",
 ];
@@ -553,6 +556,7 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
   temporaryDirectory: string,
   variant: IconVariant,
 ) {
+  if (variant.label === "production") return yield* renderProductionIcons(repositoryRoot);
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const sourcePath = path.join(repositoryRoot, variant.source);
@@ -611,9 +615,11 @@ const logManualMacOsExportInstructions = Effect.fn("iconExport.logManualMacOsExp
   function* () {
     yield* Console.warn(
       [
-        "macOS icons require Icon Composer's GUI-only pre-Tahoe preset and were not changed.",
+        "Development and preview macOS icons require Icon Composer's GUI-only pre-Tahoe preset and were not changed.",
         "Export each source with Platform: macOS pre-Tahoe, Appearance: Default, Size: 1024pt, Scale: 1×:",
-        ...ICON_VARIANTS.map((variant) => `- ${variant.source} -> ${variant.outputs.macos}`),
+        ...ICON_VARIANTS.filter((variant) => variant.label !== "production").map(
+          (variant) => `- ${variant.source} -> ${variant.outputs.macos}`,
+        ),
         "See assets/README.md for the complete workflow.",
         "",
         "Copy/paste this prompt into Codex to perform the native exports:",
@@ -749,16 +755,6 @@ export const exportBrandIcons = Effect.fn("exportBrandIcons")(function* (checkOn
     for (const [relativePath, contents] of variantAssets) {
       generated.set(relativePath, contents);
     }
-  }
-
-  for (const override of DEVELOPMENT_PUBLIC_ICON_OVERRIDES) {
-    const sourceContents = generated.get(override.sourceRelativePath);
-    if (sourceContents === undefined) {
-      return yield* Effect.die(
-        new Error(`Generated development web icon is missing: ${override.sourceRelativePath}`),
-      );
-    }
-    generated.set(override.targetRelativePath, sourceContents);
   }
 
   if (checkOnly) {
