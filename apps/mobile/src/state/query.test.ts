@@ -2,7 +2,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const hooks = vi.hoisted(() => ({
   result: undefined as unknown,
@@ -13,6 +13,7 @@ const hooks = vi.hoisted(() => ({
 vi.mock("react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react")>()),
   use: () => hooks.registry,
+  useCallback: (callback: () => void) => callback,
   useEffect: (effect: () => void | (() => void)) => hooks.effects.push(effect),
 }));
 vi.mock("@effect/atom-react", () => ({
@@ -27,7 +28,10 @@ const atom = Atom.make(AsyncResult.initial<string, Error>());
 beforeEach(() => {
   hooks.effects = [];
   hooks.refresh.mockReset();
+  hooks.registry = AtomRegistry.make();
 });
+
+afterEach(() => hooks.registry?.dispose());
 
 describe("useEnvironmentQuery", () => {
   it("keeps a cancelled detail load pending without a load error", () => {
@@ -158,6 +162,77 @@ describe("useEnvironmentQuery", () => {
     } finally {
       unmount();
       registry.dispose();
+    }
+  });
+  it("stops retrying and surfaces an error when every attempt is interrupted", () => {
+    let reads = 0;
+    const query = Atom.make(
+      Effect.suspend(() => {
+        reads++;
+        return Effect.interrupt;
+      }),
+    );
+    const registry = hooks.registry!;
+    const unmount = registry.mount(query);
+    hooks.refresh.mockImplementation(() => registry.refresh(query));
+    try {
+      hooks.result = registry.get(query);
+      expect(useEnvironmentQuery(query)).toMatchObject({ error: null, isPending: true });
+      expect(useEnvironmentQuery(query)).toMatchObject({ error: null, isPending: true });
+      for (const effect of hooks.effects.splice(0)) effect();
+      hooks.result = registry.get(query);
+      const stopped = useEnvironmentQuery(query);
+      expect(stopped.isPending).toBe(false);
+      expect(stopped.error).toBeTruthy();
+      for (const effect of hooks.effects.splice(0)) effect();
+      expect(reads).toBe(2);
+      // Another subscriber cannot start the failed automatic recovery again.
+      expect(useEnvironmentQuery(query)).toMatchObject({ error: stopped.error, isPending: false });
+      for (const effect of hooks.effects.splice(0)) effect();
+      expect(reads).toBe(2);
+      stopped.refresh();
+      hooks.result = registry.get(query);
+      expect(useEnvironmentQuery(query)).toMatchObject({ error: null, isPending: true });
+      for (const effect of hooks.effects.splice(0)) effect();
+      hooks.result = registry.get(query);
+      expect(useEnvironmentQuery(query)).toMatchObject({ error: stopped.error, isPending: false });
+      for (const effect of hooks.effects.splice(0)) effect();
+      expect(reads).toBe(4);
+    } finally {
+      unmount();
+    }
+  });
+  it("allows recovery from a later interruption after a successful load", () => {
+    let reads = 0;
+    const query = Atom.make(
+      Effect.suspend(() => {
+        reads++;
+        return reads % 2 === 1 ? Effect.interrupt : Effect.succeed(`detail ${reads}`);
+      }),
+    );
+    const registry = hooks.registry!;
+    const unmount = registry.mount(query);
+    hooks.refresh.mockImplementation(() => registry.refresh(query));
+    try {
+      hooks.result = registry.get(query);
+      useEnvironmentQuery(query);
+      for (const effect of hooks.effects.splice(0)) effect();
+      hooks.result = registry.get(query);
+      expect(useEnvironmentQuery(query).data).toBe("detail 2");
+      for (const effect of hooks.effects.splice(0)) effect();
+      registry.refresh(query);
+      hooks.result = registry.get(query);
+      expect(useEnvironmentQuery(query)).toMatchObject({ error: null, isPending: true });
+      for (const effect of hooks.effects.splice(0)) effect();
+      hooks.result = registry.get(query);
+      expect(useEnvironmentQuery(query)).toMatchObject({
+        data: "detail 4",
+        error: null,
+        isPending: false,
+      });
+      expect(reads).toBe(4);
+    } finally {
+      unmount();
     }
   });
 });
