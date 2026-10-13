@@ -751,9 +751,9 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
  */
 :root {
   --shell-glow-color: var(--app-theme-accent, var(--ring));
-  --shell-tint-surface-top: 7%;
-  --shell-tint-surface-bottom: 3%;
-  --shell-tint-border: 22%;
+  --shell-tint-surface-top: 10%;
+  --shell-tint-surface-bottom: 4%;
+  --shell-tint-border: 35%;
   --shell-tint-selected-row: 14%;
   --shell-tint-guide: 30%;
   --shell-tint-rail-fill: 16%;
@@ -763,9 +763,9 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
   --shell-glow-far: 12%;
 }
 :root:not(.dark) {
-  --shell-tint-surface-top: 3.5%;
-  --shell-tint-surface-bottom: 1.5%;
-  --shell-tint-border: 15%;
+  --shell-tint-surface-top: 6%;
+  --shell-tint-surface-bottom: 2%;
+  --shell-tint-border: 25%;
   --shell-tint-selected-row: 9%;
   --shell-tint-guide: 20%;
   --shell-tint-rail-fill: 10%;
@@ -773,6 +773,10 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
   --shell-glow-border: 35%;
   --shell-glow-near: 16%;
   --shell-glow-far: 7%;
+}
+/* A selected project without a colour wears the theme accent. */
+[data-project-tint="accent"] {
+  --project-accent: var(--app-theme-accent, var(--ring));
 }
 [data-project-tint] {
   --shell-glow-color: var(--project-accent);
@@ -840,12 +844,12 @@ html:root
    its own --project-accent) or the theme accent. The others step back until hovered. Static:
    no animation repaints any of it. */
 html [data-app-rail] {
-  --rail-strip: color-mix(in srgb, var(--sidebar) 58%, black);
+  --rail-strip: color-mix(in srgb, var(--sidebar) 35%, black);
   background-color: var(--rail-strip);
   border-right-width: 0;
 }
 html:not(.dark) [data-app-rail] {
-  --rail-strip: color-mix(in srgb, var(--sidebar) 93%, black);
+  --rail-strip: color-mix(in srgb, var(--sidebar) 86%, black);
 }
 /* The title strip stays the sidebar's, so the window controls sit on one surface. */
 html [data-app-rail] > :first-child {
@@ -885,9 +889,8 @@ html[data-window-glass="true"] [data-app-rail] > :first-child {
   border-radius: 9px 0 0 9px;
   background-color: var(--rail-tab-fill);
   box-shadow:
-    inset 2px 0 0 var(--rail-tile-color),
-    -6px 0 16px -8px
-      color-mix(in srgb, var(--rail-tile-color) var(--shell-glow-border), transparent);
+    inset 3px 0 0 var(--rail-tile-color),
+    -4px 0 18px -4px color-mix(in srgb, var(--rail-tile-color) 70%, transparent);
 }
 /* The sidebar of a coloured project is tinted near its top; the tab matches it. */
 [data-project-tint] [data-app-rail] button[data-rail-project][data-pressed] {

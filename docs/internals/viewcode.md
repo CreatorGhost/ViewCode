@@ -966,6 +966,9 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   its active tab, like a browser's: the tile takes the sidebar's surface and runs
   into it with curved corners, its outer edge lit in the project colour or the
   theme accent (user decision: a ring on one button did not say where you are).
+  A selected project without a colour tints the left panel in the theme accent
+  (`data-project-tint="accent"`), so every project gets the same surround; the
+  tint strengths live in `packages/shared/src/shellTint.ts`.
   The rail's title strip keeps the sidebar colour so macOS window controls sit
   on one surface. The tab must match the sidebar's fill exactly, tint included,
   or a seam shows where they meet.

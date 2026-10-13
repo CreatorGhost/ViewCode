@@ -29,9 +29,9 @@ describe("resolveShellTintAlphas", () => {
   it("uses the design's values on dark sidebars and about half on light ones", () => {
     const dark = resolveShellTintAlphas(0.2);
     const light = resolveShellTintAlphas(0.97);
-    expect(dark.surfaceTop).toBe(0.07);
+    expect(dark.surfaceTop).toBe(0.1);
     expect(dark.selectedRow).toBe(0.14);
-    expect(light.surfaceTop).toBeCloseTo(0.035);
+    expect(light.surfaceTop).toBeCloseTo(0.06);
     expect(light.glowNear).toBeLessThan(dark.glowNear);
     // Lines keep more than half, so a pale project colour still draws the tree.
     expect(light.guide / dark.guide).toBeGreaterThan(0.6);
@@ -46,8 +46,8 @@ describe("resolveShellTintAlphas", () => {
 
   it("eases between the two for mid-grey sidebars", () => {
     const mid = resolveShellTintAlphas(0.55);
-    expect(mid.surfaceTop).toBeLessThan(0.07);
-    expect(mid.surfaceTop).toBeGreaterThan(0.035);
+    expect(mid.surfaceTop).toBeLessThan(0.1);
+    expect(mid.surfaceTop).toBeGreaterThan(0.06);
   });
 });
 
@@ -91,9 +91,9 @@ describe.each(THEMES)("$name pairs with the sidebar", ({ colors }) => {
     }
   });
 
-  it("tints visibly but subtly", () => {
+  it("tints visibly without overpowering the sidebar", () => {
     const distance = Math.hypot(...tinted.map((channel, index) => channel - sidebar[index]!));
     expect(distance).toBeGreaterThan(1.5);
-    expect(contrastRatio(tinted, sidebar)).toBeLessThan(1.2);
+    expect(contrastRatio(tinted, sidebar)).toBeLessThan(1.3);
   });
 });

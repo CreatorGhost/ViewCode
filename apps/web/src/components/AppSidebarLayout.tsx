@@ -300,9 +300,10 @@ function NavigationHistoryShortcuts() {
 }
 
 /**
- * The colour the shell takes while the rail shows one project that has a colour (and the
- * setting allows it), else null: the neutral sidebar and the theme accent's composer glow.
- * Set once as `--project-accent` on the shell root, so rows never re-render for it.
+ * The colour the shell takes while the rail shows one project (and the setting allows it): the
+ * project's colour, "accent" for a project without one (the theme accent, in CSS), else null for
+ * the neutral sidebar. Set once as `--project-accent` on the shell root, so rows never re-render
+ * for it.
  */
 function useActiveProjectTint() {
   const projectGroups = useSidebarProjectGroups();
@@ -312,10 +313,11 @@ function useActiveProjectTint() {
     () => projectGroups.find((group) => group.projectKey === scopeKey) ?? null,
     [projectGroups, scopeKey],
   );
-  return resolveShellTintColor({
+  const color = resolveShellTintColor({
     projectColor: scopedGroup ? resolveProjectGroupColor(scopedGroup) : null,
     followProjectColor,
   });
+  return color ?? (scopedGroup !== null && followProjectColor ? "accent" : null);
 }
 
 // Settings swaps the thread sidebar out of the tree. Keep the lightweight
@@ -396,7 +398,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>
       {/* Layout-free: carries the active project's colour to the rail, sidebar and composer. */}
       <div
-        className={cn("contents", projectTint && projectAccentClassName(projectTint))}
+        className={cn(
+          "contents",
+          projectTint && projectTint !== "accent" && projectAccentClassName(projectTint),
+        )}
         data-project-tint={projectTint ?? undefined}
       >
         <SidebarProvider

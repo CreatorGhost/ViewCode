@@ -28,9 +28,9 @@ export interface ShellTintAlphas {
 
 /** The design's values, drawn for a near-black sidebar. */
 const DARK_SURFACE: ShellTintAlphas = {
-  surfaceTop: 0.07,
-  surfaceBottom: 0.03,
-  border: 0.22,
+  surfaceTop: 0.1,
+  surfaceBottom: 0.04,
+  border: 0.35,
   selectedRow: 0.14,
   guide: 0.3,
   railFill: 0.16,
@@ -45,9 +45,9 @@ const DARK_SURFACE: ShellTintAlphas = {
  * keep two thirds, or a pale project colour would vanish from the edge and the tree.
  */
 const LIGHT_SURFACE: ShellTintAlphas = {
-  surfaceTop: 0.035,
-  surfaceBottom: 0.015,
-  border: 0.15,
+  surfaceTop: 0.06,
+  surfaceBottom: 0.02,
+  border: 0.25,
   selectedRow: 0.09,
   guide: 0.2,
   railFill: 0.1,
