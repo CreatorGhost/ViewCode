@@ -19,6 +19,7 @@ import {
   reviewRunState,
   reviewRunStatesEqual,
   reviewSourceCandidates,
+  startedReviewThreadIds,
   threadReviewCandidates,
 } from "../reviewFindings.ts";
 import { collectChildAgents } from "./childAgents.ts";
@@ -118,7 +119,14 @@ export function createLinkedReviewThreadsAtomFamily(input: {
       const candidates =
         asking === null
           ? reviewSourceCandidates({ threadId: null, pullRequests: keys, threads })
-          : threadReviewCandidates({ threadId: asking, pullRequests: keys, threads });
+          : threadReviewCandidates({
+              threadId: asking,
+              pullRequests: keys,
+              threads,
+              reviewThreadIds: startedReviewThreadIds(
+                get(input.activitiesAtom(scopeThreadRef(environmentId, asking))),
+              ),
+            });
       // By id rather than by activity, so two busy threads trading places is not a change.
       const next = [...candidates]
         .sort((left, right) => left.id.localeCompare(right.id))

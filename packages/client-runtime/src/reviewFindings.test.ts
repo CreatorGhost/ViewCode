@@ -10,6 +10,7 @@ import {
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import { AGENT_MESSAGE_SENT_ACTIVITY_KIND } from "@t3tools/shared/agentMessages";
 
 import {
   groupReviewFindingsBySeverity,
@@ -37,6 +38,7 @@ import {
   selectLatestReview,
   selectPullRequestReviewFindings,
   selectReviewFindingsSource,
+  startedReviewThreadIds,
   threadReviewCandidates,
   unsettledReviewFindingRatings,
 } from "./reviewFindings.ts";
@@ -568,6 +570,56 @@ describe("threadReviewCandidates", () => {
       "review",
       "linked",
     ]);
+  });
+});
+
+describe("startedReviewThreadIds", () => {
+  const sent = (toThreadId: string, review?: string) => ({
+    kind: AGENT_MESSAGE_SENT_ACTIVITY_KIND,
+    payload: {
+      messageId: `m-${toThreadId}`,
+      toThreadId,
+      toName: toThreadId,
+      body: "Look at it.",
+      replyExpected: true,
+      inReplyTo: null,
+      kind: "spawn",
+      delivery: "started",
+      ...(review ? { review } : {}),
+    },
+  });
+
+  it("lists the reviews a chat started, newest first, and none of its other agents", () => {
+    expect(
+      startedReviewThreadIds([sent("review-1", "deep"), sent("helper"), sent("review-2", "quick")]),
+    ).toEqual(["review-2", "review-1"]);
+  });
+
+  it("keeps an earlier review among the threads read after the chat starts many agents", () => {
+    const work = ThreadId.make("work");
+    const helpers = ["a", "b", "c", "d", "e", "f"].map((id, index) =>
+      shell(id, {
+        parentThreadId: work,
+        pullRequests: [],
+        updatedAt: `2026-08-0${index + 2}T00:00:00.000Z`,
+      }),
+    );
+    const candidates = threadReviewCandidates({
+      threadId: work,
+      pullRequests: [],
+      threads: [
+        shell("work", { pullRequests: [] }),
+        shell("review-1", {
+          parentThreadId: work,
+          pullRequests: [],
+          updatedAt: "2026-08-01T00:00:00.000Z",
+        }),
+        ...helpers,
+      ],
+      reviewThreadIds: [ThreadId.make("review-1")],
+    });
+    expect(candidates.map((candidate) => candidate.id)).toContain("review-1");
+    expect(candidates[1]?.id).toBe("review-1");
   });
 });
 

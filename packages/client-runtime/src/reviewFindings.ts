@@ -16,10 +16,14 @@ import {
   type ReviewFindingSeverity,
   type ReviewFindingsActivityPayload,
   type ReviewFindingsTarget,
-  type ThreadId,
+  ThreadId,
   type ThreadPullRequestKey,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import {
+  AGENT_MESSAGE_SENT_ACTIVITY_KIND,
+  readAgentMessageSentPayload,
+} from "@t3tools/shared/agentMessages";
 import * as Schema from "effect/Schema";
 import {
   type PostedReviewFinding,
@@ -185,6 +189,30 @@ export function reviewSourceCandidates<
  * linked to its pull requests (`reviewSourceCandidates`). Children come before linked threads, at
  * most `REVIEW_SOURCE_CANDIDATE_LIMIT` besides the thread itself.
  */
+/**
+ * The reviews a chat started (its sent-agent records marked as a review), newest first. The Review
+ * panel reads these before the chat's other agents, so continuing to work with agents never pushes
+ * an earlier review out of the panel.
+ */
+export function startedReviewThreadIds(
+  activities: ReadonlyArray<Pick<FindingsActivity, "kind" | "payload">>,
+): ReadonlyArray<ThreadId> {
+  const ids: ThreadId[] = [];
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index]!;
+    if (activity.kind !== AGENT_MESSAGE_SENT_ACTIVITY_KIND) continue;
+    const sent = readAgentMessageSentPayload(
+      activity.payload !== null && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : null,
+    );
+    if (sent?.kind !== "spawn" || sent.review === undefined) continue;
+    const id = ThreadId.make(sent.toThreadId);
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 export function threadReviewCandidates<
   T extends Pick<
     OrchestrationThreadShell,
@@ -194,8 +222,14 @@ export function threadReviewCandidates<
   readonly threadId: ThreadId;
   readonly pullRequests: ReadonlyArray<ThreadPullRequestKey>;
   readonly threads: ReadonlyArray<T>;
+  /** Reviews the chat started, newest first (`startedReviewThreadIds`); they are read first. */
+  readonly reviewThreadIds?: ReadonlyArray<ThreadId>;
 }): ReadonlyArray<T> {
   const self = input.threads.find((thread) => thread.id === input.threadId);
+  const reviewRank = (thread: T) => {
+    const rank = input.reviewThreadIds?.indexOf(thread.id) ?? -1;
+    return rank === -1 ? Number.POSITIVE_INFINITY : rank;
+  };
   const children = input.threads
     .filter(
       (thread) =>
@@ -203,7 +237,10 @@ export function threadReviewCandidates<
         thread.kind !== "sidechat" &&
         thread.archivedAt === null,
     )
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    .sort(
+      (left, right) =>
+        reviewRank(left) - reviewRank(right) || right.updatedAt.localeCompare(left.updatedAt),
+    );
   const linked = reviewSourceCandidates(input).filter((thread) => !children.includes(thread));
   return [
     ...(self === undefined ? [] : [self]),
