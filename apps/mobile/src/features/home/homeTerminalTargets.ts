@@ -91,3 +91,22 @@ export function findSelectedTerminalTarget(
     ) ?? null
   );
 }
+
+/** Most recently active projects the "Open terminal in…" menu lists. */
+export const HOME_TERMINAL_MENU_LIMIT = 8;
+
+/** The Home terminal button's label and hint, shared by the Android bar and the iOS header. */
+export function homeTerminalButtonAccessibility(
+  targets: ReadonlyArray<HomeTerminalTarget>,
+  selected: HomeTerminalTarget | null,
+) {
+  return {
+    label: selected ? `Open terminal in ${selected.projectTitle}` : "Open terminal in…",
+    hint:
+      targets.length === 0
+        ? "Disabled until a project has a thread, since terminals open inside a thread."
+        : selected
+          ? "Opens a terminal in the selected project's latest thread."
+          : "Chooses which project to open a terminal in.",
+  };
+}

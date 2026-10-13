@@ -13,7 +13,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-arrangement";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useMemo, type ReactNode } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
@@ -35,8 +35,8 @@ import { projectIconColorClassNames } from "../../lib/projectIcon";
 
 /**
  * One row's slice of its folder card. Rows are virtualized separately, so the
- * card is the sum of slices: side borders on every row, top border and radius
- * on the header, bottom border and radius on the last row.
+ * card is the sum of slices: the top radius on the header, the bottom radius
+ * on the last row.
  */
 export function HomeFolderCardSlice(props: {
   readonly edge: HomeFolderEdge | null | undefined;
@@ -44,30 +44,17 @@ export function HomeFolderCardSlice(props: {
 }) {
   const edge = props.edge;
   if (!edge) return <>{props.children}</>;
-  // Android: a borderless tonal card, so it is clear which folder a row belongs to.
-  if (Platform.OS === "android") {
-    return (
-      <View
-        className={cn(
-          "mx-3 overflow-hidden bg-card",
-          edge.first && "mt-3 rounded-t-3xl pt-1",
-          edge.last && "mb-1 rounded-b-3xl pb-2",
-        )}
-        // Slices are laid out apart; sub-pixel rounding leaves a hairline of
-        // screen between them. Reaching 1dp up keeps the card one surface.
-        style={edge.first ? undefined : { marginTop: -1, paddingTop: 1 }}
-      >
-        {props.children}
-      </View>
-    );
-  }
+  // A borderless tonal card per folder, so it is clear which folder a row belongs to.
   return (
     <View
       className={cn(
-        "mx-3 overflow-hidden border-x border-border-subtle bg-card",
-        edge.first && "mt-3 rounded-t-lg border-t",
-        edge.last && "mb-1 rounded-b-lg border-b pb-1",
+        "mx-3 overflow-hidden bg-card",
+        edge.first && "mt-3 rounded-t-3xl pt-1",
+        edge.last && "mb-1 rounded-b-3xl pb-2",
       )}
+      // Slices are laid out apart; sub-pixel rounding leaves a hairline of
+      // screen between them. Reaching 1dp up keeps the card one surface.
+      style={edge.first ? undefined : { marginTop: -1, paddingTop: 1 }}
     >
       {props.children}
     </View>
@@ -130,22 +117,13 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
     project.projectColor ??
     (project.projectIcon && "color" in project.projectIcon ? project.projectIcon.color : null);
   const accent = accentColor ? projectIconColorClassNames(accentColor) : null;
-  // Android lists folders as flat sections: the colour tints the label, not a band.
-  const sectionLabel = Platform.OS === "android";
+  // Folders read as flat sections of their card: the colour tints the label, not a band.
   return (
-    <View
-      className={cn(
-        "flex-row items-center pr-1",
-        sectionLabel ? "pl-6" : "pl-3",
-        !sectionLabel && props.expanded && "border-b border-border-subtle",
-        !sectionLabel && accent?.background,
-      )}
-    >
+    <View className="flex-row items-center pl-6 pr-1">
       {project.projectColor ? (
         <View
           className={cn(
-            "absolute top-2 bottom-2 w-[3px] rounded-full",
-            sectionLabel ? "left-3" : "left-0",
+            "absolute top-2 bottom-2 left-3 w-[3px] rounded-full",
             projectIconColorClassNames(project.projectColor).swatch,
           )}
         />
@@ -176,17 +154,12 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
             environmentId={project.environmentId}
             faviconPath={project.faviconPath}
             projectIcon={project.projectIcon}
-            size={sectionLabel ? 16 : 18}
+            size={16}
             projectTitle={props.title}
             workspaceRoot={project.workspaceRoot}
           />
           <Text
-            className={cn(
-              "shrink text-sm",
-              sectionLabel
-                ? ["font-t3-medium", accent?.text ?? "text-foreground-muted"]
-                : ["font-t3-bold", accent?.text ?? "text-foreground"],
-            )}
+            className={cn("shrink text-sm font-t3-medium", accent?.text ?? "text-foreground-muted")}
             numberOfLines={1}
           >
             {props.title}
@@ -253,8 +226,7 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
       accessibilityHint={`${props.expanded ? "Hides" : "Shows"} the agents this thread started.`}
       accessibilityState={{ expanded: props.expanded }}
       className={cn(
-        "min-h-[44px] flex-row items-center gap-1.5 pr-4",
-        Platform.OS === "android" ? "pl-6" : "pl-5",
+        "min-h-[44px] flex-row items-center gap-1.5 pl-6 pr-4",
         props.muted && "opacity-60",
       )}
       onPress={() => onToggle(leadKey)}
@@ -287,11 +259,7 @@ export const HomeFolderAgentGroupLabel = memo(function HomeFolderAgentGroupLabel
   return (
     <View
       accessibilityRole="header"
-      className={cn(
-        "flex-row items-center gap-1.5 pt-2 pb-1",
-        Platform.OS === "android" ? "pl-8" : "pl-6",
-        props.muted && "opacity-60",
-      )}
+      className={cn("flex-row items-center gap-1.5 pt-2 pb-1 pl-8", props.muted && "opacity-60")}
     >
       <View className={cn("size-1.5 rounded-full", AGENT_GROUP_DOT_CLASS[props.group])} />
       <Text className="text-xs font-t3-medium uppercase text-foreground-tertiary">
@@ -317,8 +285,7 @@ export const HomeFolderAgentsDoneRow = memo(function HomeFolderAgentsDoneRow(pro
       accessibilityHint={`${props.expanded ? "Hides" : "Shows"} the agents that finished.`}
       accessibilityState={{ expanded: props.expanded }}
       className={cn(
-        "min-h-[44px] flex-row items-center gap-1.5 pr-4",
-        Platform.OS === "android" ? "pl-8" : "pl-6",
+        "min-h-[44px] flex-row items-center gap-1.5 pl-8 pr-4",
         props.muted && "opacity-60",
       )}
       onPress={() => onToggle(leadKey)}
@@ -375,10 +342,7 @@ export const HomeFolderChildRow = memo(function HomeFolderChildRow(props: {
       className={cn("pr-4", props.muted && "opacity-60")}
     >
       <View
-        className={cn(
-          "min-h-[44px] flex-row items-center gap-2.5 border-l border-border-subtle py-1.5",
-          Platform.OS === "android" ? "ml-8" : "ml-6",
-        )}
+        className="ml-8 min-h-[44px] flex-row items-center gap-2.5 border-l border-border-subtle py-1.5"
         style={{ paddingLeft: 10 + props.depth * CHILD_INDENT }}
       >
         <View className={cn("size-2 rounded-full", AGENT_STATUS[props.status].dotClass)} />
@@ -424,10 +388,7 @@ export const HomeFolderSettledRow = memo(function HomeFolderSettledRow(props: {
       accessibilityLabel={`${props.count} settled ${props.count === 1 ? "thread" : "threads"}`}
       accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the settled threads.`}
       accessibilityState={{ expanded: props.expanded }}
-      className={cn(
-        "min-h-[44px] flex-row items-center gap-1.5",
-        Platform.OS === "android" ? "px-6" : "border-t border-border-subtle px-3",
-      )}
+      className="min-h-[44px] flex-row items-center gap-1.5 px-6"
       onPress={() => onToggle(folderKey)}
       style={pressedOpacity}
     >
@@ -455,10 +416,7 @@ export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: 
   readonly onChange: (value: HomeStatusFilter) => void;
 }) {
   return (
-    <View
-      className={cn("flex-row gap-2 pb-1 pt-2", Platform.OS === "android" ? "px-6" : "px-4")}
-      accessibilityRole="tablist"
-    >
+    <View className="flex-row gap-2 px-6 pb-1 pt-2" accessibilityRole="tablist">
       {STATUS_FILTER_OPTIONS.map((option) => {
         const selected = props.value === option.id;
         const count = props.counts[option.id];
@@ -473,13 +431,8 @@ export const HomeStatusFilterChips = memo(function HomeStatusFilterChips(props: 
             hitSlop={{ top: 7, bottom: 7, left: 4, right: 4 }}
             style={pressedOpacity}
             className={cn(
-              "flex-row items-center gap-1.5 px-3 py-1.5",
-              Platform.OS === "android" ? "rounded-full border" : "rounded-md",
-              selected
-                ? "border-foreground bg-foreground"
-                : Platform.OS === "android"
-                  ? "border-border-subtle bg-card"
-                  : "bg-row-hover",
+              "flex-row items-center gap-1.5 rounded-full border px-3 py-1.5",
+              selected ? "border-foreground bg-foreground" : "border-border-subtle bg-card",
             )}
           >
             <Text

@@ -25,11 +25,14 @@ export function CompactBrandTitle(
     readonly allowFontScaling?: boolean;
     readonly accessibilityLabel?: string;
     readonly showStageLabel?: boolean;
+    /** A smaller lockup for a title centred between iOS bar-button groups. */
+    readonly compact?: boolean;
   } = {},
 ) {
   const stageLabel = resolveMobileStageLabel(Constants.expoConfig?.extra?.appVariant);
   const titleOffset = brandTitleOffset();
   const { scale } = useAndroidControlSizing();
+  const size = props.compact ? 0.9 : 1;
 
   return (
     <View
@@ -40,11 +43,11 @@ export function CompactBrandTitle(
       className="flex-row items-center gap-1.5"
       style={[{ marginLeft: titleOffset }, Platform.OS === "android" && { gap: 5.25 * scale }]}
     >
-      <T3Wordmark height={Math.round(22 * scale)} />
+      <T3Wordmark height={Math.round(22 * size * scale)} />
       <Text
         allowFontScaling={props.allowFontScaling}
         className="font-t3-bold text-foreground"
-        style={{ fontSize: 21 * scale, letterSpacing: -0.5 * scale }}
+        style={{ fontSize: 21 * size * scale, letterSpacing: -0.5 * scale }}
       >
         ViewCode
       </Text>
