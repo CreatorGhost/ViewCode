@@ -10,6 +10,7 @@ import {
 } from "../layout/native-mail-search-toolbar";
 import { HomeFleetTitle } from "./HomePillToolbar";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
+import { HOME_TERMINAL_MENU_LIMIT, homeTerminalButtonAccessibility } from "./homeTerminalTargets";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
@@ -28,6 +29,45 @@ export function HomeHeader(props: HomeHeaderProps) {
   }, []);
   useHardwareKeyboardCommand("focusSearch", focusSearch);
   const filterMenu = buildHomeListFilterMenu(props);
+  const { onOpenTerminal, selectedTerminalTarget, terminalTargets } = props;
+  const terminalMenuTargets = terminalTargets.slice(0, HOME_TERMINAL_MENU_LIMIT);
+  const terminalAccessibility = homeTerminalButtonAccessibility(
+    terminalTargets,
+    selectedTerminalTarget,
+  );
+  // Terminals belong to a thread: a selected project opens its latest one, else a menu picks it.
+  const terminalItem = withNativeGlassHeaderItem(
+    selectedTerminalTarget || terminalMenuTargets.length === 0
+      ? {
+          accessibilityLabel: terminalAccessibility.label,
+          accessibilityHint: terminalAccessibility.hint,
+          disabled: terminalMenuTargets.length === 0,
+          icon: { name: "apple.terminal", type: "sfSymbol" } as const,
+          identifier: "home-terminal",
+          label: "",
+          onPress: () => {
+            if (selectedTerminalTarget) onOpenTerminal(selectedTerminalTarget);
+          },
+          type: "button" as const,
+        }
+      : {
+          accessibilityLabel: terminalAccessibility.label,
+          accessibilityHint: terminalAccessibility.hint,
+          icon: { name: "apple.terminal", type: "sfSymbol" } as const,
+          identifier: "home-terminal",
+          label: "",
+          menu: {
+            title: "Open terminal in…",
+            items: terminalMenuTargets.map((target) => ({
+              type: "action" as const,
+              label: target.projectTitle,
+              description: target.threadTitle,
+              onPress: () => onOpenTerminal(target),
+            })),
+          },
+          type: "menu" as const,
+        },
+  );
   const renderTitle = useCallback(
     () => <HomeFleetTitle onOpenEnvironments={props.onOpenEnvironments} />,
     [props.onOpenEnvironments],
@@ -36,7 +76,11 @@ export function HomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={filterMenu.items}
+        optionsVersion={[
+          filterMenu.items,
+          selectedTerminalTarget?.scopeKey ?? null,
+          terminalMenuTargets.map((target) => [target.scopeKey, target.threadId]),
+        ]}
         options={{
           // Keep UIKit's glass and scroll-edge behavior with a centered fleet title.
           headerShown: true,
@@ -54,6 +98,7 @@ export function HomeHeader(props: HomeHeaderProps) {
               type: "button",
             }),
           ],
+          // The first right item sits rightmost: Usage keeps Android's corner, the terminal sits inside it.
           unstable_headerRightItems: () => [
             withNativeGlassHeaderItem({
               accessibilityLabel: "Open usage",
@@ -63,6 +108,7 @@ export function HomeHeader(props: HomeHeaderProps) {
               onPress: props.onOpenUsage,
               type: "button",
             }),
+            terminalItem,
           ],
           // The keys below are set per-branch (not `undefined`) so a later
           // reapply cannot clobber options owned by NativeHeaderToolbar.

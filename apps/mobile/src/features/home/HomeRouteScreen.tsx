@@ -20,7 +20,11 @@ import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
 import { useAtomValueWhileVisible, useHomeRouteVisible } from "./home-route-visibility";
 import { useHomeThreadSelection } from "./home-thread-navigation";
-import { buildHomeTerminalTargets, findSelectedTerminalTarget } from "./homeTerminalTargets";
+import {
+  buildHomeTerminalTargets,
+  findSelectedTerminalTarget,
+  type HomeTerminalTarget,
+} from "./homeTerminalTargets";
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
@@ -112,19 +116,17 @@ export function HomeRouteScreen() {
       threads,
     ],
   );
-  // Android's bottom bar opens a terminal through a project's latest thread.
+  // Home's terminal button (Android's bottom bar, iOS's header) opens through a project's latest thread.
   const terminalTargets = useMemo(
     () =>
-      Platform.OS === "android"
-        ? buildHomeTerminalTargets({
-            scopes: buildHomeProjectScopes({
-              projects,
-              environmentId: selectedEnvironmentId,
-              projectGroupingMode: listOptions.projectGroupingMode,
-            }),
-            threads,
-          })
-        : [],
+      buildHomeTerminalTargets({
+        scopes: buildHomeProjectScopes({
+          projects,
+          environmentId: selectedEnvironmentId,
+          projectGroupingMode: listOptions.projectGroupingMode,
+        }),
+        threads,
+      }),
     [listOptions.projectGroupingMode, projects, selectedEnvironmentId, threads],
   );
   const selectedTerminalTarget = useMemo(
@@ -139,6 +141,12 @@ export function HomeRouteScreen() {
       setSelectedProjectKey(null);
     }
   }, [projectFilterOptions, selectedProjectKey]);
+
+  const openTerminal = (target: HomeTerminalTarget) =>
+    navigation.navigate("ThreadTerminal", {
+      environmentId: String(target.environmentId),
+      threadId: String(target.threadId),
+    });
 
   const homeHeaderProps: HomeHeaderProps = {
     environments,
@@ -166,6 +174,9 @@ export function HomeRouteScreen() {
     onSearchQueryChange: setSearchQuery,
     onStartNewTask: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
     onOpenPullRequests: () => navigation.navigate("PullRequests"),
+    terminalTargets,
+    selectedTerminalTarget,
+    onOpenTerminal: openTerminal,
   };
 
   // In split layouts the persistent sidebar IS the thread list — Home becomes
@@ -217,12 +228,7 @@ export function HomeRouteScreen() {
       onSearchQueryChange={setSearchQuery}
       terminalTargets={terminalTargets}
       selectedTerminalTarget={selectedTerminalTarget}
-      onOpenTerminal={(target) =>
-        navigation.navigate("ThreadTerminal", {
-          environmentId: String(target.environmentId),
-          threadId: String(target.threadId),
-        })
-      }
+      onOpenTerminal={openTerminal}
     >
       <>
         <HomeHeader {...homeHeaderProps} />

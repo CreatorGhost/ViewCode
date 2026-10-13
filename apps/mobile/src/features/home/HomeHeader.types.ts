@@ -3,6 +3,7 @@ import type {
   HomeListFilterMenuEnvironment,
   HomeListFilterMenuProject,
 } from "./home-list-filter-menu";
+import type { HomeTerminalTarget } from "./homeTerminalTargets";
 
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
@@ -22,4 +23,8 @@ export interface HomeHeaderProps {
   readonly onStartNewTask: () => void;
   /** ViewCode: iOS opens the pull request list from Home's scope row. */
   readonly onOpenPullRequests?: () => void;
+  /** iOS opens a terminal from Home's header; Android's bottom bar takes these directly. */
+  readonly terminalTargets: ReadonlyArray<HomeTerminalTarget>;
+  readonly selectedTerminalTarget: HomeTerminalTarget | null;
+  readonly onOpenTerminal: (target: HomeTerminalTarget) => void;
 }
