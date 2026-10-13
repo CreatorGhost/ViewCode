@@ -532,6 +532,14 @@ html[data-window-glass="true"] body {
   [data-app-rail-layout] {
     --app-rail-width: 3rem;
   }
+  /* The macOS window buttons need ~70px, more than the 48px rail: there the rail widens so they sit
+     above it, centred over its icons, and nothing (the panel included) starts under them. */
+  html[data-macos-window-controls="visible"] [data-app-rail-layout] {
+    --app-rail-width: 5rem;
+  }
+  html[data-macos-window-controls="visible"] [data-app-rail] {
+    width: var(--app-rail-width);
+  }
   [data-app-rail-layout] [data-slot="sidebar-container"] {
     left: var(--app-rail-width) !important;
   }
