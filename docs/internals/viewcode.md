@@ -154,12 +154,14 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ### Agent-to-agent messaging
 
-- Active unsettled child agents keep their lead out of automatic settlement.
-  Child turn starts and live session writes wake an automatically settled lead,
-  but preserve a manual settle. Both kinds project to `settledOverride: "settled"`,
+- Active unsettled descendants keep their ancestors out of automatic settlement.
+  Descendant turn starts and live session writes wake automatically settled ancestors
+  up to a manual settle, which stops the wake. Settled, archived and sidechat subtrees
+  do not participate in settlement checks. Walks are cycle-safe and bounded at 64 levels;
+  reaching that limit blocks automatic settlement. Both kinds project to
+  `settledOverride: "settled"`,
   so the engine checks the latest lifecycle event's server auto-settle provenance;
   timestamps are not a safe substitute after migration 046 or later metadata edits.
-  Side chats do not participate in this rule.
 
 - Every agents-toolkit tool carries the `viewcode_` prefix (as Traycer prefixes
   `traycer_*`). Codex has its own built-in `spawn_agent`; with the bare name the

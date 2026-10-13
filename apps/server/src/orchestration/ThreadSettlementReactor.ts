@@ -95,18 +95,20 @@ export const make = Effect.gen(function* () {
     if (!autoSettlementConfigured(settings)) {
       return;
     }
-    const snapshot = yield* readSweepSnapshot(snapshots, threadId ?? null, true);
+    const snapshot = yield* readSweepSnapshot(snapshots, threadId ?? null);
     const now = DateTime.formatIso(yield* DateTime.now);
     const projects = new Map(snapshot.projects.map((project) => [project.id, project]));
     // A merge rechecks all candidates, including branches that discovery has
     // not linked yet. Those lookups can still have cached the PR as open.
-    const childrenByParent = Map.groupBy(snapshot.threads, (thread) => thread.parentThreadId);
-    const childThreadsFor = (thread: (typeof snapshot.threads)[number]) =>
-      childrenByParent.get(thread.id) ?? [];
+    const agents =
+      threadId === undefined
+        ? snapshot.threads
+        : yield* snapshots.getSettlementDescendants(threadId);
+    const agentTree = Map.groupBy(agents, (thread) => thread.parentThreadId);
     const candidates = snapshot.threads.filter(
       (thread) =>
         (threadId === undefined || thread.id === threadId) &&
-        isAutoSettlementCandidate(thread, now, childThreadsFor(thread)),
+        isAutoSettlementCandidate(thread, now, agentTree),
     );
 
     // Return the thread when it still needs a pull request decision. A rejected
@@ -120,7 +122,7 @@ export const make = Effect.gen(function* () {
         const decisionNow = DateTime.formatIso(yield* DateTime.now);
         const settledAt = resolveAutoSettlementAt({
           thread,
-          childThreads: childThreadsFor(thread),
+          agentTree,
           pullRequest,
           now: decisionNow,
           autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,
@@ -141,6 +143,9 @@ export const make = Effect.gen(function* () {
       },
       (effect, thread) =>
         effect.pipe(
+          // A descendant can become active between the sweep and dispatch.
+          // The engine logs that expected race without a stack trace.
+          Effect.catchTags({ OrchestrationThreadSettleBlockedError: () => Effect.succeed(null) }),
           Effect.catchCauseIf(
             (cause) => !Cause.hasInterruptsOnly(cause),
             (cause) =>
@@ -224,7 +229,7 @@ export const make = Effect.gen(function* () {
         return (
           resolveAutoSettlementAt({
             thread,
-            childThreads: childThreadsFor(thread),
+            agentTree,
             pullRequest,
             now: decisionNow,
             autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,

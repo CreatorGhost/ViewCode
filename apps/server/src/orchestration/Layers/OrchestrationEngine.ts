@@ -2,7 +2,6 @@ import type {
   OrchestrationClientOrigin,
   OrchestrationEvent,
   OrchestrationReadModel,
-  OrchestrationThread,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -42,7 +41,10 @@ import {
   type OrchestrationDispatchError,
   type OrchestrationProjectorDecodeError,
 } from "../Errors.ts";
-import { threadHasActiveChildAgent } from "../ThreadSettlementPolicy.ts";
+import {
+  MAX_SETTLEMENT_AGENT_DEPTH,
+  threadHasActiveDescendantAgent,
+} from "../ThreadSettlementPolicy.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
@@ -259,17 +261,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               child.settledAt === null,
           )
         ) {
-          const children = yield* projectionSnapshotQuery.getShellSnapshot({
-            unsettledOnly: true,
-            parentThreadId: settlementCommand.threadId,
-          });
+          const descendants = yield* projectionSnapshotQuery.getSettlementDescendants(
+            settlementCommand.threadId,
+          );
           if (
-            threadHasActiveChildAgent(
+            threadHasActiveDescendantAgent(
               { id: settlementCommand.threadId },
-              children.threads,
+              Map.groupBy(descendants, (thread) => thread.parentThreadId),
               DateTime.formatIso(yield* DateTime.now),
             )
           ) {
+            yield* Effect.logDebug("descendant became active after automatic settlement sweep", {
+              threadId: settlementCommand.threadId,
+            });
             return yield* new OrchestrationThreadSettleBlockedError({
               threadId: settlementCommand.threadId,
             });
@@ -277,7 +281,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         }
         // Both kinds of settlement project to the same override. Timestamp
         // comparisons lose provenance after metadata edits and migration 046.
-        let automaticallySettledParent: OrchestrationThread | undefined;
+        const automaticallySettledAncestors: ThreadId[] = [];
         const activityCommand = envelope.command;
         if (
           activityCommand.type === "thread.turn.start" ||
@@ -285,20 +289,32 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             (activityCommand.session.status === "starting" ||
               activityCommand.session.status === "running"))
         ) {
-          const child = commandReadModel.threads.find(
-            (thread) => thread.id === activityCommand.threadId,
-          );
-          const parent =
-            child?.kind !== "sidechat" && child?.parentThreadId != null
-              ? commandReadModel.threads.find((thread) => thread.id === child.parentThreadId)
-              : undefined;
-          if (
-            parent?.settledOverride === "settled" &&
-            parent.archivedAt === null &&
-            parent.deletedAt === null &&
-            (yield* eventStore.isThreadAutomaticallySettled(parent.id))
-          ) {
-            automaticallySettledParent = parent;
+          const byId = new Map(commandReadModel.threads.map((thread) => [thread.id, thread]));
+          let child = byId.get(activityCommand.threadId);
+          const seen = new Set<ThreadId>([activityCommand.threadId]);
+          for (let depth = 0; depth < MAX_SETTLEMENT_AGENT_DEPTH; depth++) {
+            if (
+              child?.parentThreadId == null ||
+              child.kind === "sidechat" ||
+              child.archivedAt !== null ||
+              child.deletedAt !== null
+            )
+              break;
+            const parent = byId.get(child.parentThreadId);
+            if (
+              parent === undefined ||
+              seen.has(parent.id) ||
+              parent.kind === "sidechat" ||
+              parent.archivedAt !== null ||
+              parent.deletedAt !== null
+            )
+              break;
+            seen.add(parent.id);
+            if (parent.settledOverride === "settled") {
+              if (!(yield* eventStore.isThreadAutomaticallySettled(parent.id))) break;
+              automaticallySettledAncestors.push(parent.id);
+            }
+            child = parent;
           }
         }
 
@@ -312,7 +328,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
-          ...(automaticallySettledParent !== undefined ? { automaticallySettledParent } : {}),
+          automaticallySettledAncestors,
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
             : {}),

@@ -8,6 +8,37 @@ export interface SettlementPullRequest {
   readonly updatedAt?: string | null;
 }
 
+/** Bounds malformed or unexpectedly deep agent trees; reaching the cap blocks settlement. */
+export const MAX_SETTLEMENT_AGENT_DEPTH = 64;
+
+type QueuedTurnState = {
+  readonly latestUserMessageAt: OrchestrationThreadShell["latestUserMessageAt"];
+  readonly session: Pick<NonNullable<OrchestrationThreadShell["session"]>, "status"> | null;
+  readonly latestTurn: Pick<
+    NonNullable<OrchestrationThreadShell["latestTurn"]>,
+    "requestedAt" | "startedAt" | "completedAt"
+  > | null;
+};
+
+export type SettlementAgentState = QueuedTurnState &
+  Pick<
+    OrchestrationThreadShell,
+    | "id"
+    | "parentThreadId"
+    | "kind"
+    | "archivedAt"
+    | "settledOverride"
+    | "settledAt"
+    | "hasPendingApprovals"
+    | "hasPendingUserInput"
+    | "backgroundLiveness"
+  >;
+
+export type SettlementAgentTree = ReadonlyMap<
+  string | null | undefined,
+  ReadonlyArray<SettlementAgentState>
+>;
+
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
 
@@ -28,10 +59,7 @@ function latestTimestamp(values: ReadonlyArray<string | null | undefined>): stri
 /** A recent user message stays queued until a turn adopts its timestamp.
  * Absolute age bounds client clock skew in both directions and stops stale
  * pre-adoption data from blocking the thread forever. */
-export function threadHasQueuedTurnStart(
-  thread: Pick<OrchestrationThreadShell, "latestUserMessageAt" | "latestTurn" | "session">,
-  now: string,
-): boolean {
+export function threadHasQueuedTurnStart(thread: QueuedTurnState, now: string): boolean {
   if (thread.latestUserMessageAt === null || thread.session?.status === "error") return false;
   const messageAt = Date.parse(thread.latestUserMessageAt);
   const age = Date.parse(now) - messageAt;
@@ -68,7 +96,7 @@ function pullRequestSettles(
 
 export function resolveAutoSettlementAt(input: {
   readonly thread: OrchestrationThreadShell;
-  readonly childThreads?: ReadonlyArray<OrchestrationThreadShell>;
+  readonly agentTree?: SettlementAgentTree;
   readonly pullRequest: SettlementPullRequest | null;
   readonly now: string;
   readonly autoSettleAfterDays: number | null;
@@ -97,7 +125,7 @@ export function resolveAutoSettlementAt(input: {
             closedAt: latest.snapshot.closedAt ?? null,
           };
   }
-  if (!isAutoSettlementCandidate(thread, input.now, input.childThreads)) return null;
+  if (!isAutoSettlementCandidate(thread, input.now, input.agentTree)) return null;
   const activityAt = latestTimestamp([
     thread.latestUserMessageAt,
     thread.latestTurn?.requestedAt,
@@ -115,37 +143,52 @@ export function resolveAutoSettlementAt(input: {
     : null;
 }
 
-/** Unsettled child work keeps its lead visible; side chats have their own lifecycle. */
-export function threadHasActiveChildAgent(
+/** Unsettled descendant work keeps its lead visible; settled subtrees and side chats stop the walk. */
+export function threadHasActiveDescendantAgent(
   thread: Pick<OrchestrationThreadShell, "id">,
-  children: ReadonlyArray<OrchestrationThreadShell>,
+  agentTree: SettlementAgentTree,
   now: string,
 ): boolean {
-  return children.some(
-    (child) =>
-      child.parentThreadId === thread.id &&
-      child.kind !== "sidechat" &&
-      child.archivedAt === null &&
-      child.settledOverride !== "settled" &&
-      child.settledAt === null &&
-      (child.hasPendingApprovals ||
+  const seen = new Set<string>([thread.id]);
+  const queue = [{ id: thread.id, depth: 0 }];
+  for (let index = 0; index < queue.length; index++) {
+    const parent = queue[index]!;
+    for (const child of agentTree.get(parent.id) ?? []) {
+      if (
+        seen.has(child.id) ||
+        child.kind === "sidechat" ||
+        child.archivedAt !== null ||
+        child.settledOverride === "settled" ||
+        child.settledAt !== null
+      )
+        continue;
+      seen.add(child.id);
+      if (
+        child.hasPendingApprovals ||
         child.hasPendingUserInput ||
         child.session?.status === "starting" ||
         child.session?.status === "running" ||
         child.backgroundLiveness != null ||
-        threadHasQueuedTurnStart(child, now)),
-  );
+        threadHasQueuedTurnStart(child, now)
+      )
+        return true;
+      // Fail closed at the limit rather than hiding work beyond it.
+      if (parent.depth + 1 >= MAX_SETTLEMENT_AGENT_DEPTH) return true;
+      queue.push({ id: child.id, depth: parent.depth + 1 });
+    }
+  }
+  return false;
 }
 
 /** Cheap checks that run before any source control lookup. */
 export function isAutoSettlementCandidate(
   thread: OrchestrationThreadShell,
   now: string,
-  childThreads: ReadonlyArray<OrchestrationThreadShell> = [],
+  agentTree: SettlementAgentTree = new Map(),
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
   if (thread.autoSettleDisabledAt != null) return false;
-  if (threadHasActiveChildAgent(thread, childThreads, now)) return false;
+  if (threadHasActiveDescendantAgent(thread, agentTree, now)) return false;
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
   if (thread.session?.status === "starting" || thread.session?.status === "running") return false;
   if (thread.backgroundLiveness != null) return false;

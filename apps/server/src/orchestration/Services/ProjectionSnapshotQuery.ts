@@ -31,6 +31,8 @@ import * as Context from "effect/Context";
 import type * as Option from "effect/Option";
 import type * as Effect from "effect/Effect";
 
+import type { SettlementAgentState } from "../ThreadSettlementPolicy.ts";
+
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
 
 export interface ProjectionSnapshotCounts {
@@ -133,9 +135,12 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getShellSnapshot: (options?: {
     readonly unsettledOnly?: boolean;
-    /** Limit background settlement reads to the direct children of this thread. */
-    readonly parentThreadId?: ThreadId;
   }) => Effect.Effect<OrchestrationShellSnapshot, ProjectionRepositoryError>;
+
+  /** Read only settlement inputs for the unsettled agent subtree, without resolving projects. */
+  readonly getSettlementDescendants: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<SettlementAgentState>, ProjectionRepositoryError>;
 
   /**
    * Read archived thread shell summaries for the archive page.

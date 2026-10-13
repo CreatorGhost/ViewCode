@@ -326,12 +326,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
   userInputActivity,
-  automaticallySettledParent,
+  automaticallySettledAncestors = [],
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   readonly userInputActivity?: OrchestrationThreadActivity;
-  readonly automaticallySettledParent?: OrchestrationThread;
+  readonly automaticallySettledAncestors?: ReadonlyArray<ThreadId>;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandRejection | PlatformError.PlatformError,
@@ -1753,17 +1753,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // A snooze clears the same way — sending a message to a snoozed
       // thread is the user re-engaging, so the return ticket is spent.
       const lifecycleResetEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      if (automaticallySettledParent !== undefined) {
+      for (const ancestorId of automaticallySettledAncestors) {
         lifecycleResetEvents.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
-            aggregateId: automaticallySettledParent.id,
+            aggregateId: ancestorId,
             occurredAt: command.createdAt,
             commandId: command.commandId,
           })),
           type: "thread.unsettled",
           payload: {
-            threadId: automaticallySettledParent.id,
+            threadId: ancestorId,
             reason: "activity",
             updatedAt: command.createdAt,
           },
@@ -2188,17 +2188,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       const parentWakeEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      if (automaticallySettledParent !== undefined) {
+      for (const ancestorId of automaticallySettledAncestors) {
         parentWakeEvents.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
-            aggregateId: automaticallySettledParent.id,
+            aggregateId: ancestorId,
             occurredAt: command.createdAt,
             commandId: command.commandId,
           })),
           type: "thread.unsettled",
           payload: {
-            threadId: automaticallySettledParent.id,
+            threadId: ancestorId,
             reason: "activity",
             updatedAt: command.createdAt,
           },

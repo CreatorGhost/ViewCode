@@ -84,6 +84,8 @@ import {
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
 
+import { MAX_SETTLEMENT_AGENT_DEPTH } from "../ThreadSettlementPolicy.ts";
+
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationThread);
 const decodeImportedTranscriptsPayload = Schema.decodeUnknownOption(
@@ -216,10 +218,7 @@ const EventReplayStatsRowSchema = Schema.Struct({
   eventCount: Schema.Number,
   payloadBytes: Schema.Number,
 });
-const ActiveThreadRowsRequest = Schema.Struct({
-  unsettledOnly: Schema.Boolean,
-  parentThreadId: Schema.optional(ThreadId),
-});
+const ActiveThreadRowsRequest = Schema.Struct({ unsettledOnly: Schema.Boolean });
 const ProjectionThreadSearchRequest = Schema.Struct({
   pattern: Schema.String,
   limit: Schema.Int,
@@ -669,9 +668,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ? sql`AND threads.settled_at IS NULL AND threads.settled_override IS NOT 'settled'`
       : sql``;
 
-  const childThreadsFilter = (parentThreadId: string | undefined) =>
-    parentThreadId === undefined ? sql`` : sql`AND threads.parent_thread_id = ${parentThreadId}`;
-
   const listActiveThreadRows = SqlSchema.findAll({
     Request: ActiveThreadRowsRequest,
     Result: ProjectionThreadDbRowSchema,
@@ -725,7 +721,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE deleted_at IS NULL
           AND archived_at IS NULL
           ${unsettledThreadsFilter(request.unsettledOnly)}
-          ${childThreadsFilter(request.parentThreadId)}
         ORDER BY project_id ASC, created_at ASC, thread_id ASC
       `,
   });
@@ -899,7 +894,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE threads.deleted_at IS NULL
           AND threads.archived_at IS NULL
           ${unsettledThreadsFilter(request.unsettledOnly)}
-          ${childThreadsFilter(request.parentThreadId)}
         ORDER BY links.thread_id ASC, links.linked_at ASC, links.number ASC
       `,
   });
@@ -1031,7 +1025,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE threads.deleted_at IS NULL
           AND threads.archived_at IS NULL
           ${unsettledThreadsFilter(request.unsettledOnly)}
-          ${childThreadsFilter(request.parentThreadId)}
         ORDER BY sessions.thread_id ASC
       `,
   });
@@ -1128,7 +1121,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           AND threads.archived_at IS NULL
           AND threads.latest_turn_id IS NOT NULL
           ${unsettledThreadsFilter(request.unsettledOnly)}
-          ${childThreadsFilter(request.parentThreadId)}
         ORDER BY turns.thread_id ASC
       `,
   });
@@ -2810,9 +2802,86 @@ pending_approval_requests AS (
         }),
       );
 
+  const settlementDescendantRows = SqlSchema.findAll({
+    Request: ThreadId,
+    Result: Schema.Struct({
+      id: ThreadId,
+      parentThreadId: Schema.NullOr(ThreadId),
+      kind: Schema.NullOr(ThreadKind),
+      archivedAt: Schema.NullOr(IsoDateTime),
+      settledOverride: ProjectionThread.fields.settledOverride,
+      settledAt: Schema.NullOr(IsoDateTime),
+      pendingApprovals: Schema.Number,
+      pendingInput: Schema.Number,
+      sessionStatus: Schema.NullOr(ProjectionThreadSession.fields.status),
+      latestUserMessageAt: Schema.NullOr(IsoDateTime),
+      turnId: Schema.NullOr(TurnId),
+      requestedAt: Schema.NullOr(IsoDateTime),
+      startedAt: Schema.NullOr(IsoDateTime),
+      completedAt: Schema.NullOr(IsoDateTime),
+    }),
+    execute: (threadId) => sql`
+      WITH RECURSIVE descendants(thread_id, depth, path) AS (
+        SELECT ${threadId}, 0, json_array(${threadId})
+        UNION ALL
+        SELECT child.thread_id, parent.depth + 1, json_insert(parent.path, '$[#]', child.thread_id)
+        FROM descendants parent
+        JOIN projection_threads child ON child.parent_thread_id = parent.thread_id
+        WHERE parent.depth < ${MAX_SETTLEMENT_AGENT_DEPTH}
+          AND child.deleted_at IS NULL AND child.archived_at IS NULL
+          AND child.kind IS NOT 'sidechat'
+          AND child.settled_at IS NULL AND child.settled_override IS NOT 'settled'
+          AND NOT EXISTS (SELECT 1 FROM json_each(parent.path) WHERE value = child.thread_id)
+      )
+      SELECT threads.thread_id AS "id", threads.parent_thread_id AS "parentThreadId", threads.kind,
+        threads.archived_at AS "archivedAt", threads.settled_override AS "settledOverride", threads.settled_at AS "settledAt",
+        threads.pending_approval_count AS "pendingApprovals", threads.pending_user_input_count AS "pendingInput",
+        threads.latest_user_message_at AS "latestUserMessageAt", sessions.status AS "sessionStatus",
+        turns.turn_id AS "turnId", turns.requested_at AS "requestedAt", turns.started_at AS "startedAt", turns.completed_at AS "completedAt"
+      FROM descendants
+      JOIN projection_threads threads ON threads.thread_id = descendants.thread_id
+      LEFT JOIN projection_thread_sessions sessions ON sessions.thread_id = threads.thread_id
+      LEFT JOIN projection_turns turns ON turns.thread_id = threads.thread_id AND turns.turn_id = threads.latest_turn_id
+      WHERE descendants.depth > 0
+    `,
+  });
+  const getSettlementDescendants: ProjectionSnapshotQueryShape["getSettlementDescendants"] = (
+    threadId,
+  ) =>
+    settlementDescendantRows(threadId).pipe(
+      Effect.map((rows) =>
+        rows.map((row) => ({
+          id: row.id,
+          parentThreadId: row.parentThreadId,
+          kind: row.kind,
+          archivedAt: row.archivedAt,
+          settledOverride: row.settledOverride,
+          settledAt: row.settledAt,
+          hasPendingApprovals: row.pendingApprovals > 0,
+          hasPendingUserInput: row.pendingInput > 0,
+          latestUserMessageAt: row.latestUserMessageAt,
+          session: row.sessionStatus === null ? null : { status: row.sessionStatus },
+          latestTurn:
+            row.turnId === null || row.requestedAt === null
+              ? null
+              : {
+                  requestedAt: row.requestedAt,
+                  startedAt: row.startedAt,
+                  completedAt: row.completedAt,
+                },
+          backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(row.id),
+        })),
+      ),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getSettlementDescendants:query",
+          "ProjectionSnapshotQuery.getSettlementDescendants:decodeRows",
+        ),
+      ),
+    );
+
   const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = (options) => {
     const unsettledOnly = options?.unsettledOnly === true;
-    const parentThreadId = options?.parentThreadId;
     return sql
       .withTransaction(
         Effect.all([
@@ -2824,7 +2893,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
-          listActiveThreadRows({ unsettledOnly, parentThreadId }).pipe(
+          listActiveThreadRows({ unsettledOnly }).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listThreads:query",
@@ -2832,7 +2901,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
-          listActiveThreadSessionRows({ unsettledOnly, parentThreadId }).pipe(
+          listActiveThreadSessionRows({ unsettledOnly }).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:query",
@@ -2840,7 +2909,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
-          listActiveThreadPullRequestRows({ unsettledOnly, parentThreadId }).pipe(
+          listActiveThreadPullRequestRows({ unsettledOnly }).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listThreadPullRequests:query",
@@ -2848,7 +2917,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
-          listActiveLatestTurnRows({ unsettledOnly, parentThreadId }).pipe(
+          listActiveLatestTurnRows({ unsettledOnly }).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:query",
@@ -4007,6 +4076,7 @@ pending_approval_requests AS (
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,
+    getSettlementDescendants,
     listThreadsWithPullRequests,
     getArchivedShellSnapshot,
     getDeletedWorktreeThreads,

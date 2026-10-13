@@ -268,23 +268,12 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
       getShellSnapshot: (readOptions) =>
-        readOptions?.parentThreadId !== undefined
-          ? Ref.get(snapshots).pipe(
-              Effect.map((snapshot) => ({
-                ...snapshot,
-                threads: snapshot.threads.filter(
-                  (thread) =>
-                    thread.parentThreadId === readOptions.parentThreadId &&
-                    thread.archivedAt === null &&
-                    thread.settledOverride !== "settled" &&
-                    thread.settledAt === null,
-                ),
-              })),
-            )
-          : Ref.update(snapshotReadCount, (count) => count + 1).pipe(
-              Effect.andThen(Queue.offer(snapshotReads, null)),
-              Effect.andThen(options.getShellSnapshot?.(readOptions) ?? Ref.get(snapshots)),
-            ),
+        Ref.update(snapshotReadCount, (count) => count + 1).pipe(
+          Effect.andThen(Queue.offer(snapshotReads, null)),
+          Effect.andThen(options.getShellSnapshot?.(readOptions) ?? Ref.get(snapshots)),
+        ),
+      getSettlementDescendants: () =>
+        Ref.get(snapshots).pipe(Effect.map((snapshot) => snapshot.threads)),
       getSnapshotSequence: () =>
         Ref.get(snapshots).pipe(Effect.map(({ snapshotSequence }) => ({ snapshotSequence }))),
       getThreadShellById: (threadId) =>
@@ -394,7 +383,7 @@ describe("ThreadSettlementReactor", () => {
     assert.strictEqual(base, unrelated);
   });
 
-  it.effect("full and targeted sweeps leave leads with active children visible", () =>
+  it.effect("full and targeted sweeps leave leads with active grandchildren visible", () =>
     Effect.scoped(
       Effect.gen(function* () {
         yield* TestClock.setTime(Date.parse(NOW));
@@ -406,9 +395,13 @@ describe("ThreadSettlementReactor", () => {
             url: "https://example.test/owner/repository/pull/42",
           },
         });
-        const child = makeThread("child", { parentThreadId: lead.id, hasPendingUserInput: true });
+        const child = makeThread("child", { parentThreadId: lead.id });
+        const grandchild = makeThread("grandchild", {
+          parentThreadId: child.id,
+          hasPendingUserInput: true,
+        });
         const fixture = yield* makeHarness({
-          snapshot: makeSnapshot([lead, child]),
+          snapshot: makeSnapshot([lead, child, grandchild]),
           settings: {
             ...DEFAULT_SERVER_SETTINGS,
             sidebarAutoSettleAfterDays: 3,
@@ -452,7 +445,7 @@ describe("ThreadSettlementReactor", () => {
           assert.deepStrictEqual(yield* Ref.get(fixture.summaryCalls), []);
           yield* Ref.update(fixture.snapshots, (snapshot) => ({
             ...snapshot,
-            threads: [lead, { ...child, hasPendingUserInput: false }],
+            threads: [lead, child, { ...grandchild, hasPendingUserInput: false }],
           }));
           yield* publishLeadReady;
           yield* Queue.take(fixture.snapshotReads);
