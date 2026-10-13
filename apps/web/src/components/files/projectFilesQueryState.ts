@@ -226,3 +226,20 @@ export function useProjectFileQuery(
     refresh,
   };
 }
+
+const NO_ICON_CANDIDATES: ReadonlyArray<string> = [];
+
+/** Logo images the icon pickers offer for a project, best first; empty while loading or on failure. */
+export function useProjectIconCandidates(
+  environmentId: EnvironmentId,
+  cwd: string,
+  projectName: string,
+): { readonly paths: ReadonlyArray<string>; readonly isPending: boolean } {
+  const result = useAtomValue(
+    projectEnvironment.iconCandidates({ environmentId, input: { cwd, projectName } }),
+  );
+  return {
+    paths: Option.getOrNull(AsyncResult.value(result))?.paths ?? NO_ICON_CANDIDATES,
+    isPending: result.waiting,
+  };
+}

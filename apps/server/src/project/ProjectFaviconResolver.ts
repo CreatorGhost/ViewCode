@@ -19,15 +19,53 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
+import {
+  iconPathsFromProjectConfig,
+  iconPathsFromReadme,
+  iconPathsFromWebManifest,
+  isSkippedIconDirectory,
+  rankProjectIconPaths,
+} from "@t3tools/shared/projectIconCandidates";
+
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as T3ProjectFileLoader from "./T3ProjectFileLoader.ts";
 
-// Resolution probes 21 well-known paths plus 7 source files, so a miss
-// costs ~30 filesystem probes. AssetAccess resolves on every project-favicon
-// asset URL, and a project's icon does not move, so the answer is cached.
+// Resolution probes 21 well-known paths plus 7 source files, then the declared icons and a
+// bounded walk of the tree, so a miss costs a few hundred filesystem calls. AssetAccess resolves
+// on every project-favicon asset URL, and a project's icon does not move, so the answer is cached.
 const FAVICON_CACHE_CAPACITY = 512;
 const FAVICON_POSITIVE_CACHE_TTL = Duration.minutes(10);
-const FAVICON_NEGATIVE_CACHE_TTL = Duration.minutes(1);
+const FAVICON_NEGATIVE_CACHE_TTL = Duration.minutes(5);
+
+// Logo choices the icon pickers offer, best first.
+const ICON_CANDIDATE_LIMIT = 8;
+// The walk for logo-like images: deep enough for apps/web/public/favicon.svg and
+// src-tauri/icons/icon.png, bounded so a huge tree costs a fixed amount.
+const ICON_SCAN_MAX_DEPTH = 4;
+const ICON_SCAN_MAX_DIRECTORIES = 300;
+const ICON_SCAN_IMAGE_RE = /\.(?:svg|png|ico|webp|jpe?g)$/i;
+
+// Files that declare an icon outright: web manifests, package.json (VS Code "icon",
+// electron-builder "build.icon"), Expo's app.json, Tauri's config, and the README's logo.
+const ICON_MANIFEST_FILES = [
+  "site.webmanifest",
+  "manifest.json",
+  "manifest.webmanifest",
+  "public/site.webmanifest",
+  "public/manifest.json",
+  "public/manifest.webmanifest",
+  "static/site.webmanifest",
+  "static/manifest.json",
+  "app/manifest.json",
+  "web/manifest.json",
+] as const;
+const ICON_CONFIG_FILES = [
+  "package.json",
+  "app.json",
+  "src-tauri/tauri.conf.json",
+  "tauri.conf.json",
+] as const;
+const ICON_README_FILES = ["README.md", "readme.md", "Readme.md", ".github/README.md"] as const;
 
 function faviconCacheKey(cwd: string, faviconPath?: string): string {
   return `${faviconPath ?? ""}\0${cwd}`;
@@ -124,6 +162,15 @@ export class ProjectFaviconResolver extends Context.Service<
       cwd: string,
       faviconPath?: string,
     ) => Effect.Effect<string | null, ProjectFaviconResolutionError>;
+    /**
+     * Logo images a user may pick for the project, best first, as paths relative to the
+     * workspace root: the icon chosen automatically, then declared icons, then the most
+     * logo-like images in the tree.
+     */
+    readonly listCandidates: (
+      cwd: string,
+      projectName?: string,
+    ) => Effect.Effect<ReadonlyArray<string>, ProjectFaviconResolutionError>;
   }
 >()("t3/project/ProjectFaviconResolver") {}
 
@@ -269,6 +316,112 @@ export const make = Effect.gen(function* () {
       return null;
     }).pipe(Effect.scoped);
 
+  // Reads a small text file inside the workspace; a missing or unreadable file reads as absent,
+  // since these sources only add candidates and must never fail resolution.
+  const readOptionalSource = (projectCwd: string, relativePath: string) =>
+    workspacePaths.resolveRelativePathWithinRoot({ workspaceRoot: projectCwd, relativePath }).pipe(
+      Effect.flatMap((resolved) => fileSystem.readFileString(resolved.absolutePath)),
+      Effect.map((source) => (source.length > 512_000 ? null : source)),
+      Effect.orElseSucceed(() => null),
+    );
+
+  // Icons the project declares, relative to the workspace root and existing on disk, in order.
+  const findDeclaredIcons = Effect.fn("ProjectFaviconResolver.findDeclaredIcons")(function* (
+    projectCwd: string,
+  ): Effect.fn.Return<ReadonlyArray<string>, ProjectFaviconResolutionError> {
+    const sources = [
+      ...ICON_MANIFEST_FILES.map((file) => ({ file, read: iconPathsFromWebManifest })),
+      ...ICON_CONFIG_FILES.map((file) => ({ file, read: iconPathsFromProjectConfig })),
+      ...ICON_README_FILES.map((file) => ({ file, read: iconPathsFromReadme })),
+    ];
+    const declared = yield* Effect.forEach(
+      sources,
+      ({ file, read }) =>
+        readOptionalSource(projectCwd, file).pipe(
+          Effect.map((source) => {
+            if (source === null) return [];
+            const directory = path.dirname(file);
+            return read(source).map((reference) =>
+              directory === "." ? reference : path.join(directory, reference),
+            );
+          }),
+        ),
+      { concurrency: 8 },
+    );
+    const found: string[] = [];
+    for (const relativePath of new Set(declared.flat())) {
+      const existing = yield* findExistingFile(projectCwd, [relativePath], "workspace");
+      if (existing) found.push(path.relative(projectCwd, existing));
+    }
+    return found;
+  });
+
+  // Image files in a bounded breadth-first walk of the workspace, relative to its root. Skips
+  // dependencies, build output, tests and dot folders (isSkippedIconDirectory); only names
+  // without an extension are checked as folders, so the walk stays a readdir per folder.
+  const scanImageFiles = Effect.fn("ProjectFaviconResolver.scanImageFiles")(function* (
+    projectCwd: string,
+  ) {
+    const images: string[] = [];
+    let level: string[] = [""];
+    let visited = 0;
+    for (let depth = 0; depth <= ICON_SCAN_MAX_DEPTH && level.length > 0; depth += 1) {
+      const directories = level.slice(0, Math.max(0, ICON_SCAN_MAX_DIRECTORIES - visited));
+      visited += directories.length;
+      const listings = yield* Effect.forEach(
+        directories,
+        (relativeDirectory) =>
+          fileSystem.readDirectory(path.join(projectCwd, relativeDirectory)).pipe(
+            Effect.map((names) => ({ relativeDirectory, names })),
+            Effect.orElseSucceed(() => ({ relativeDirectory, names: [] as string[] })),
+          ),
+        { concurrency: 8 },
+      );
+      const next: string[] = [];
+      const maybeDirectories: string[] = [];
+      for (const { relativeDirectory, names } of listings) {
+        for (const name of names) {
+          const relativePath = relativeDirectory ? path.join(relativeDirectory, name) : name;
+          if (ICON_SCAN_IMAGE_RE.test(name)) images.push(relativePath);
+          else if ((!name.includes(".") || name === ".github") && !isSkippedIconDirectory(name)) {
+            maybeDirectories.push(relativePath);
+          }
+        }
+      }
+      if (depth === ICON_SCAN_MAX_DEPTH) break;
+      const kinds = yield* Effect.forEach(
+        maybeDirectories,
+        (relativePath) =>
+          fileSystem.stat(path.join(projectCwd, relativePath)).pipe(
+            Effect.map((stats) => (stats.type === "Directory" ? relativePath : null)),
+            Effect.orElseSucceed(() => null),
+          ),
+        { concurrency: 16 },
+      );
+      for (const directory of kinds) if (directory) next.push(directory);
+      level = next;
+    }
+    return images;
+  });
+
+  // The most logo-like images in the tree, existing and inside the workspace, best first.
+  const findRankedIcons = Effect.fn("ProjectFaviconResolver.findRankedIcons")(function* (
+    projectCwd: string,
+    projectName: string | undefined,
+  ): Effect.fn.Return<ReadonlyArray<string>, ProjectFaviconResolutionError> {
+    const images = yield* scanImageFiles(projectCwd);
+    const ranked = rankProjectIconPaths(
+      images.map((image) => image.split(path.sep).join("/")),
+      { projectName, limit: ICON_CANDIDATE_LIMIT },
+    );
+    const found: string[] = [];
+    for (const relativePath of ranked) {
+      const existing = yield* findExistingFile(projectCwd, [relativePath], "workspace");
+      if (existing) found.push(path.relative(projectCwd, existing));
+    }
+    return found;
+  });
+
   const resolvePathUncached = Effect.fn("ProjectFaviconResolver.resolvePathUncached")(function* (
     cwd: string,
     faviconPath?: string,
@@ -312,9 +465,18 @@ export const make = Effect.gen(function* () {
       return wellKnown;
     }
 
-    return yield* firstInOrder(ICON_SOURCE_FILES, (sourceFile) =>
+    const linked = yield* firstInOrder(ICON_SOURCE_FILES, (sourceFile) =>
       findIconFromSource(projectCwd, sourceFile),
     );
+    if (linked) {
+      return linked;
+    }
+
+    // Projects that keep their mark elsewhere: what they declare, then the most logo-like image.
+    const declared = yield* findDeclaredIcons(projectCwd);
+    const ranked = declared.length > 0 ? declared : yield* findRankedIcons(projectCwd, undefined);
+    const best = ranked[0];
+    return best === undefined ? null : path.join(projectCwd, best);
   });
 
   const faviconCache = yield* Cache.makeWith<string, string | null, ProjectFaviconResolutionError>(
@@ -363,7 +525,29 @@ export const make = Effect.gen(function* () {
     return yield* Cache.get(faviconCache, key);
   });
 
-  return ProjectFaviconResolver.of({ resolvePath });
+  const listCandidates: ProjectFaviconResolver["Service"]["listCandidates"] = Effect.fn(
+    "ProjectFaviconResolver.listCandidates",
+  )(function* (cwd, projectName) {
+    const projectCwd = yield* workspacePaths.normalizeWorkspaceRoot(cwd).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProjectFaviconResolutionError({
+            operation: "normalize-workspace",
+            workspaceRoot: cwd,
+            cause,
+          }),
+      ),
+    );
+    const automatic = yield* resolvePath(projectCwd);
+    const declared = yield* findDeclaredIcons(projectCwd);
+    const ranked = yield* findRankedIcons(projectCwd, projectName);
+    const candidates = new Set<string>();
+    if (automatic) candidates.add(path.relative(projectCwd, automatic));
+    for (const relativePath of [...declared, ...ranked]) candidates.add(relativePath);
+    return [...candidates].slice(0, ICON_CANDIDATE_LIMIT);
+  });
+
+  return ProjectFaviconResolver.of({ resolvePath, listCandidates });
 });
 
 export const layer = Layer.effect(ProjectFaviconResolver, make);

@@ -39,6 +39,7 @@ vi.mock("../files/projectFilesQueryState", () => ({
     isPending: false,
     matchedQuery: "",
   }),
+  useProjectIconCandidates: () => ({ paths: [], isPending: false }),
 }));
 
 vi.mock("../ui/toast", () => ({

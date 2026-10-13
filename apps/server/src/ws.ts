@@ -55,6 +55,7 @@ import {
   type ProjectFileFailure,
   type ProjectFileOperation,
   ProjectListEntriesError,
+  ProjectListIconCandidatesError,
   ProjectReadFileError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
@@ -147,6 +148,7 @@ import { issueAssetUrl } from "./assets/AssetAccess.ts";
 import { deletePendingAttachment, issueAttachmentUploadUrl } from "./assets/AttachmentUpload.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
+import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
@@ -621,6 +623,7 @@ const makeWsRpcLayer = (
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+      const projectFaviconResolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const canReplayPersistedRange = Effect.fnUntraced(function* (
         afterSequence: number,
@@ -3577,6 +3580,17 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsListIconCandidates]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListIconCandidates,
+            projectFaviconResolver.listCandidates(input.cwd, input.projectName).pipe(
+              Effect.map((paths) => ({ paths })),
+              Effect.mapError(
+                (cause) => new ProjectListIconCandidatesError({ cwd: input.cwd, cause }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.projectsSearchContents]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchContents,
@@ -3751,11 +3765,19 @@ const makeWsRpcLayer = (
                 // A cloned project exists before its files do. Clients ask again
                 // when the clone lands (see createProjectFaviconUrlAtomFamily).
                 const clone = yield* projectCloneTracker.get(project.value.id);
+                // The saved path is authoritative, except that an icon picker may preview another
+                // image inside the project (ProjectFaviconResolver.listCandidates) by naming it
+                // relative to the root. Absolute paths only ever come from the saved project.
+                const requestedPath = input.resource.path;
+                const faviconPath =
+                  requestedPath &&
+                  !path.isAbsolute(requestedPath) &&
+                  !/^[a-z]:/i.test(requestedPath)
+                    ? requestedPath
+                    : project.value.faviconPath;
                 return yield* issueAssetUrl({
                   resource: input.resource,
-                  ...(project.value.faviconPath
-                    ? { projectFaviconPath: project.value.faviconPath }
-                    : {}),
+                  ...(faviconPath ? { projectFaviconPath: faviconPath } : {}),
                   projectCheckoutPending:
                     clone !== null &&
                     clone.phase !== "done" &&

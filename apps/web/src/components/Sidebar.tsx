@@ -4443,6 +4443,17 @@ export default function Sidebar() {
               if (!open) setIconPickerGroup(null);
             }}
             onSelect={(icon) => saveProjectIcon(iconPickerGroup, icon)}
+            logos={{
+              environmentId: iconPickerGroup.environmentId,
+              cwd: iconPickerGroup.workspaceRoot,
+              savedPath: iconPickerGroup.faviconPath ?? null,
+              onSelect: (faviconPath) =>
+                void updateProjectGroup(
+                  iconPickerGroup,
+                  { faviconPath, projectIcon: null },
+                  `Could not change the logo for ${iconPickerGroup.displayName}`,
+                ),
+            }}
           />
         </Suspense>
       ) : null}

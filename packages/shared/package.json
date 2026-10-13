@@ -35,6 +35,10 @@
       "types": "./src/projectFavicon.ts",
       "import": "./src/projectFavicon.ts"
     },
+    "./projectIconCandidates": {
+      "types": "./src/projectIconCandidates.ts",
+      "import": "./src/projectIconCandidates.ts"
+    },
     "./model": {
       "types": "./src/model.ts",
       "import": "./src/model.ts"

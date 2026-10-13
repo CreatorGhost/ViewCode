@@ -60,6 +60,13 @@ export function createProjectEnvironmentAtoms<R, E>(
       tag: WS_METHODS.projectsSearchEntries,
       staleTimeMs: 15_000,
     }),
+    // Logo images the icon pickers offer; the tree changes rarely while a picker is open.
+    iconCandidates: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:icon-candidates",
+      tag: WS_METHODS.projectsListIconCandidates,
+      staleTimeMs: 60_000,
+      idleTtlMs: 5 * 60_000,
+    }),
     listEntries: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:projects:list-entries",
       tag: WS_METHODS.projectsListEntries,

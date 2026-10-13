@@ -206,6 +206,9 @@ import {
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
+  ProjectListIconCandidatesError,
+  ProjectListIconCandidatesInput,
+  ProjectListIconCandidatesResult,
   ProjectWriteFileError,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
@@ -350,6 +353,7 @@ export const WS_METHODS = {
   projectsReadFile: "projects.readFile",
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
+  projectsListIconCandidates: "projects.listIconCandidates",
   projectsWriteFile: "projects.writeFile",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
@@ -1218,6 +1222,12 @@ const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   error: Schema.Union([ProjectSearchEntriesError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsListIconCandidatesRpc = Rpc.make(WS_METHODS.projectsListIconCandidates, {
+  payload: ProjectListIconCandidatesInput,
+  success: ProjectListIconCandidatesResult,
+  error: Schema.Union([ProjectListIconCandidatesError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsSearchContentsRpc = Rpc.make(WS_METHODS.projectsSearchContents, {
   payload: ProjectSearchContentsInput,
   success: ProjectSearchContentsResult,
@@ -1868,6 +1878,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
+  WsProjectsListIconCandidatesRpc,
   WsProjectsEnsureScratchRpc,
   WsProjectsCreateNewRpc,
   WsProjectsWriteFileRpc,
