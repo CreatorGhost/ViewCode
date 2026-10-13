@@ -5,6 +5,7 @@ import { Pressable, View } from "react-native";
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
+import { CompactBrandTitle } from "../../components/CompactBrandTitle";
 import type { ControlPillMenu } from "../../components/ControlPill";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLayout";
@@ -98,13 +99,7 @@ export function HomePillToolbar(props: {
           onPress={props.onOpenSettings}
         />
         <View className="min-w-0 flex-1 items-center">
-          <Text
-            className="font-t3-bold text-foreground"
-            style={{ fontSize: 19 * scale }}
-            numberOfLines={1}
-          >
-            ViewCode
-          </Text>
+          <CompactBrandTitle showStageLabel={false} />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={subtitleText}

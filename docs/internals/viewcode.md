@@ -1049,15 +1049,16 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 
 ### Brand assets
 
-- The logo source is `assets/viewcode-icon.svg` (app tile) and
-  `assets/viewcode-mark.svg` (mark alone). The production PNG/ICO files under
-  `assets/prod/` and `apps/web/public/` are regenerated from it **in place,
-  under T3's file names**, so no code path changes and upstream merges only
-  conflict if upstream redraws its own icons (keep ours). macOS uses the
-  824px-on-1024 grid with a baked shadow; iOS and apple-touch are square (the
-  OS masks them). `.icns` is built from the PNG at package time. Dev builds
-  keep T3's blueprint icons in `assets/dev/`.
+- `assets/viewcode-mark.svg` is the black and teal in-app mark;
+  `assets/viewcode-icon.svg` previews it on an app tile. Launcher, favicon and
+  splash exports still use the earlier off-white and amber mark pending app-icon
+  approval. Do not regenerate them as part of an in-app branding change. Keep
+  exported assets under T3's file names so upstream merges preserve the paths.
+  macOS uses the 824px-on-1024 grid with a baked shadow; iOS and apple-touch are
+  square because the OS masks them. `.icns` is built from the PNG at package time.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
+  The black stroke gets a fine foreground outline in dark appearances; the teal
+  stays the brand color rather than following each theme's accent.
 - Generated worktree branches use `vc/` (`WORKTREE_BRANCH_PREFIX` in
   `packages/shared/src/git.ts`). Keep `t3code` in
   `LEGACY_WORKTREE_BRANCH_PREFIXES`: threads created before the rename sit on

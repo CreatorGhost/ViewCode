@@ -1,8 +1,9 @@
 # Brand icons
 
-**ViewCode:** every tracked icon export (macOS, iOS, universal, Windows and web, in all three
-channels) is the ViewCode mark from `viewcode-icon.svg`, and the development and nightly exports
-are copies of the production ones. The Icon Composer projects below still hold the inherited T3
+**ViewCode:** `viewcode-mark.svg` is the black and teal in-app mark. `viewcode-icon.svg` is a
+preview of that mark on an app-icon tile; the tracked launcher, favicon and splash exports still
+use the earlier off-white and amber mark until the new app icon is approved. The development
+and nightly exports are copies of the production ones. The Icon Composer projects below still hold the inherited T3
 mark, so do not run `vp run icons:export` until they are redrawn with the ViewCode mark: it would
 put the T3 logo back on the splash screen, the Dock and every favicon.
 

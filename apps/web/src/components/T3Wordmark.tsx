@@ -1,26 +1,46 @@
+import { VIEWCODE_MARK as mark } from "@t3tools/shared/viewcodeBrand";
 import { useId, type SVGProps } from "react";
 
-/**
- * ViewCode's interlocked V mark, in `currentColor` (source: `assets/viewcode-mark.svg`).
- * The component keeps T3's name so upstream call sites merge cleanly.
- */
+/** ViewCode's black and teal V. The upstream component name keeps call sites compatible. */
 export function T3Wordmark(props: SVGProps<SVGSVGElement>) {
   const cutId = useId();
   return (
-    <svg {...props} viewBox="250 232 524 572" xmlns="http://www.w3.org/2000/svg" fill="none">
-      <mask id={cutId} maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-        <rect width="1024" height="1024" fill="#fff" />
-        <path d="M706 300 L512 736" stroke="#000" strokeWidth="176" strokeLinecap="round" />
-      </mask>
+    <svg {...props} viewBox={mark.viewBox} xmlns="http://www.w3.org/2000/svg" fill="none">
+      <defs>
+        <mask id={cutId} maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+          <rect className="text-white" width="1024" height="1024" fill="currentColor" />
+          <path
+            className="text-black"
+            d={mark.rightPath}
+            stroke="currentColor"
+            strokeWidth={mark.cutStrokeWidth}
+            strokeLinecap="round"
+          />
+        </mask>
+      </defs>
+      <g mask={`url(#${cutId})`}>
+        {/* A fine edge keeps the black brand stroke legible on dark surfaces. */}
+        <path
+          className="hidden stroke-foreground dark:block"
+          d={mark.leftPath}
+          stroke="currentColor"
+          strokeOpacity="0.5"
+          strokeWidth={mark.outlineStrokeWidth}
+          strokeLinecap="round"
+        />
+        <path
+          d={mark.leftPath}
+          stroke={mark.black}
+          strokeWidth={mark.strokeWidth}
+          strokeLinecap="round"
+        />
+      </g>
       <path
-        d="M318 300 L512 736"
-        stroke="currentColor"
-        strokeOpacity="0.55"
-        strokeWidth="124"
+        d={mark.rightPath}
+        stroke={mark.teal}
+        strokeWidth={mark.strokeWidth}
         strokeLinecap="round"
-        mask={`url(#${cutId})`}
       />
-      <path d="M706 300 L512 736" stroke="currentColor" strokeWidth="124" strokeLinecap="round" />
     </svg>
   );
 }
