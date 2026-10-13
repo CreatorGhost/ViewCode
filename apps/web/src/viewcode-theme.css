@@ -587,8 +587,17 @@ html[data-macos-window-controls="visible"] {
  * with a short accent bar, and everything that is not the thread title steps back.
  */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
+  /* Titles at a reading size, like the calm desktop apps this shell follows. */
+  [data-app-sidebar] .text-row {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  /* The folder's sort order lives in its menu; the row stays a name. */
+  [data-folder-sort-label] {
+    display: none;
+  }
   [data-testid="sidebar-row"] {
-    height: 1.875rem; /* 30px, up from 28 */
+    height: 2rem; /* 32px */
     border-radius: var(--vc-row-radius);
     transition: background-color 120ms ease-out;
   }
@@ -625,10 +634,10 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   }
   /* Project headers: a small, spaced label rather than another row of equal weight. */
   [data-testid="sidebar-project-row"] {
-    height: 1.75rem;
-    margin-top: 0.375rem;
+    height: 2rem;
+    margin-top: 0.5rem;
     border-radius: var(--vc-row-radius);
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     letter-spacing: 0.01em;
     font-weight: 600;
   }
@@ -833,6 +842,11 @@ html [data-app-rail] {
     border-left: 1px solid var(--border);
     border-top-left-radius: 12px;
     pointer-events: none;
+  }
+  /* The title bar is one strip across the window: the main column's top bar takes the sidebar
+     colour too, and the work area starts below the hairline. */
+  html:not([data-window-glass="true"]) [data-app-rail-layout] [data-workspace-topbar] {
+    background-color: var(--sidebar);
   }
   [data-app-rail-layout] [data-slot="sidebar-inset"]::before {
     content: "";

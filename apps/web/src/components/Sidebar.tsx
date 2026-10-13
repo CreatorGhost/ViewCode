@@ -1638,7 +1638,10 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
           />
         ) : null}
         {props.expanded ? (
-          <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden">
+          <span
+            data-folder-sort-label=""
+            className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden"
+          >
             Sort: {FOLDER_SORT_ORDER_LABEL[props.sortOrder]}
           </span>
         ) : props.threadCount > 0 ? (
