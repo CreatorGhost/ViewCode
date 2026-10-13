@@ -6430,7 +6430,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         : null}
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
-          {props.agentsBar}
           {props.pinnedBannerItems?.map((item) => (
             <ComposerBannerStack key={item.id} items={[item]} />
           ))}
@@ -6439,6 +6438,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             className="relative z-0"
             items={bannerStackItems}
           />
+          {/* Below the notices, so a notice stack's peek tab sits on top of the column
+              instead of wedged between the agents strip and the front notice. */}
+          {props.agentsBar}
           {!activityStackItem && (shownSyncPhase || inlineTasksBadge) ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root data-chat-composer-activity-strip="true">

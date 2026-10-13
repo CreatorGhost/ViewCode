@@ -193,7 +193,12 @@ export function ComposerBannerStack({ className, items }: ComposerBannerStackPro
                   setStackExpanded(true);
                 }}
                 className={cn(stackExpanded && "pointer-events-none invisible opacity-0")}
-              />
+              >
+                {/* Hidden by default; themes that make the peek a labelled tab show it. */}
+                <span data-peek-label="" className="sr-only">
+                  {stackedItems.length} more
+                </span>
+              </ComposerBanner.Peek>
             ) : null}
             <div
               id={expandedItemsId}
