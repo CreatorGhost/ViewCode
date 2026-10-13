@@ -1540,6 +1540,26 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  /**
+   * The reader of one repository: the account the host CLI routed it to where several are signed
+   * in to the host (the only one that can see a private repository, say), else `viewer`, the
+   * host's own. Asked after a read, which is when a first routing is learnt. A pinned credential
+   * already names its reader.
+   */
+  const readerOf = (
+    project: SupportedProject,
+    viewer: string | null,
+  ): Effect.Effect<string | null> =>
+    routingCredential.pipe(
+      Effect.flatMap((credential) =>
+        credential !== null || project.api.accountFor === undefined
+          ? Effect.succeed(viewer)
+          : project.api
+              .accountFor({ host: project.host, repository: project.repository })
+              .pipe(Effect.map((routed) => routed ?? viewer)),
+      ),
+    );
+
   const routingIdentity: PullRequestService["Service"]["routingIdentity"] = Effect.fn(
     "PullRequestService.routingIdentity",
   )(function* (input) {
@@ -1723,6 +1743,11 @@ export const make = Effect.gen(function* () {
           ],
           { concurrency: 2 },
         ).pipe(
+          // Who opened it is compared with the reader (own pull request, own remarks), so the
+          // reader is the account this repository is read as, not just the host's active one.
+          Effect.flatMap(([read, viewer]) =>
+            readerOf(project, viewer).pipe(Effect.map((reader) => [read, reader] as const)),
+          ),
           Effect.map(([{ value: changeRequest, observedAt }, viewer]): PullRequestDetail => ({
             provider: project.api.kind,
             capabilities: project.api.capabilities,

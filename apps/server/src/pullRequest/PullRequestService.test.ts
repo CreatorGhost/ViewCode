@@ -1357,6 +1357,32 @@ it.effect("asks again as the account a repository's first read found", () =>
   }),
 );
 
+it.effect("names the account a repository is read as as the detail's reader", () =>
+  Effect.gen(function* () {
+    let routed: string | null = null;
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/w", repository: "acme/web" })],
+      providers: [
+        fakeProvider("github", {
+          accountFor: () => Effect.sync(() => routed),
+          // Only another signed-in account can see the repository; the read learns it.
+          getChangeRequest: () =>
+            Effect.sync(() => {
+              routed = "bilal-acme";
+              return hostedChangeRequest("Description");
+            }),
+        }),
+      ],
+    });
+    const detail = yield* service.detail({
+      projectId: "p1" as ProjectId,
+      repository: "acme/web",
+      number: 1,
+    });
+    assert.strictEqual(detail.viewer, "bilal-acme");
+  }),
+);
+
 it.effect("tries another workspace on the same host for the viewer", () =>
   Effect.gen(function* () {
     const service = yield* makeService({
