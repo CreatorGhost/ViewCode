@@ -247,21 +247,23 @@ function UsageRingWithCard({
               }
               onClick={() => void navigate({ to: "/usage" })}
               data-rail-usage-ring=""
-              className="inline-flex w-10 flex-col items-center gap-0.5 rounded-lg py-0.5 outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex w-10 flex-col items-center gap-1 rounded-lg py-1 outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-ring"
             />
           }
         >
           <UsageRing ring={ring} />
           {/* What's left of the tightest window, readable without hovering. An idle
-              account has no window yet, so it shows no number rather than a guess. */}
-          {ring.window === null ? null : (
-            <span
-              aria-hidden
-              className="font-medium text-2xs text-sidebar-foreground leading-none tabular-nums"
-            >
-              {formatUsedPercent(ring.remainingPercent)}
-            </span>
-          )}
+              account has no window yet, so it gets a muted dash rather than a guess,
+              which keeps every ring the same height. */}
+          <span
+            aria-hidden
+            className={cn(
+              "font-semibold text-xs leading-none tabular-nums",
+              ring.window === null ? "text-muted-foreground" : "text-sidebar-foreground",
+            )}
+          >
+            {ring.window === null ? "–" : formatUsedPercent(ring.remainingPercent)}
+          </span>
         </PreviewCardTrigger>
         <PreviewCardPopup side="right" align="end" sideOffset={10}>
           <UsageCardBody ring={ring} environmentId={environmentId} reset={reset} />

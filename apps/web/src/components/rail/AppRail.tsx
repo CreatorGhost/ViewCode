@@ -273,7 +273,7 @@ export const AppRail = memo(function AppRail() {
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-2.5 overflow-y-auto overscroll-contain py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {railVisible ? <RailProjectSwitcher /> : null}
       </div>
-      <div className="flex flex-col items-center gap-1.5 pb-2">
+      <div className="flex flex-col items-center gap-1 pb-2">
         {railEnvironmentId ? <RailUsageRings environmentId={railEnvironmentId} /> : null}
       </div>
       <div className="flex flex-col items-center gap-1">
