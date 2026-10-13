@@ -550,6 +550,9 @@ import {
 import { useAssetUrls } from "../assets/assetUrls";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import { recallableComposerPrompt } from "./chat/composerPromptHistory";
+import { parseThreadSlashCommand } from "@t3tools/client-runtime/threadGoal";
+import { ThreadGoalDialog } from "./chat/ThreadGoalDialog";
+import { useThreadGoalControls } from "./chat/useThreadGoalControls";
 
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_QUEUED_MESSAGES: QueuedComposerMessage[] = [];
@@ -4702,6 +4705,36 @@ export default function ChatView(props: ChatViewProps) {
     if (!interactionModeEnabled) return;
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode, interactionModeEnabled]);
+  const threadGoalControls = useThreadGoalControls({
+    threadKey: routeThreadKey,
+    environmentId: activeThread?.environmentId ?? null,
+    threadId: activeThread?.id ?? null,
+    isServerThread,
+    serverGoal: activeServerThread?.goal,
+    serverDebugMode: activeServerThread?.debugMode,
+    draftTarget: isLocalDraftThread ? composerDraftTarget : null,
+    draftGoal: draftThread?.goal,
+    draftDebugMode: draftThread?.debugMode,
+  });
+  const { setDebugMode: setThreadDebugMode } = threadGoalControls;
+  // What a draft's first send creates the thread with.
+  const draftGoalBootstrap = {
+    ...(isLocalDraftThread && draftThread?.goal ? { goal: draftThread.goal } : {}),
+    ...(isLocalDraftThread && draftThread?.debugMode ? { debugMode: true } : {}),
+  };
+  // `/debug` turns debug mode on; `/default` leaves both plan and debug mode.
+  const handleThreadSlashCommand = useCallback(
+    (command: "debug" | "default") => {
+      if (command === "debug") {
+        setThreadDebugMode(true);
+      } else {
+        handleInteractionModeChange("default");
+        setThreadDebugMode(false);
+      }
+      scheduleComposerFocus();
+    },
+    [handleInteractionModeChange, scheduleComposerFocus, setThreadDebugMode],
+  );
   const openProviderSetup = useCallback(
     (instanceId: ProviderInstanceId) => {
       void navigate({
@@ -7890,6 +7923,27 @@ export default function ChatView(props: ChatViewProps) {
       }
       return;
     }
+    // ViewCode's own thread commands change thread state; nothing is sent.
+    const threadSlashCommand =
+      multipleModelSelections === null &&
+      composerImages.length === 0 &&
+      composerFiles.length === 0 &&
+      sendableComposerTerminalContexts.length === 0 &&
+      composerPreviewAnnotations.length === 0 &&
+      composerReviewComments.length === 0
+        ? parseThreadSlashCommand(trimmed)
+        : null;
+    if (threadSlashCommand) {
+      if (threadSlashCommand.command === "goal") {
+        threadGoalControls.applyGoalAction(threadSlashCommand.goal);
+      } else {
+        handleThreadSlashCommand(threadSlashCommand.command);
+      }
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      return;
+    }
     // Providers without the legacy toggle receive their native commands unchanged.
     const standaloneSlashCommand =
       sendInteractionModeEnabled &&
@@ -8288,6 +8342,7 @@ export default function ChatView(props: ChatViewProps) {
                       modelSelection: target.selection,
                       runtimeMode,
                       interactionMode: target.interactionMode,
+                      ...draftGoalBootstrap,
                       branch: activeThreadBranch,
                       worktreePath: null,
                       createdAt: messageCreatedAt,
@@ -8623,6 +8678,7 @@ export default function ChatView(props: ChatViewProps) {
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode: sendInteractionMode,
+                      ...draftGoalBootstrap,
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
@@ -10046,6 +10102,8 @@ export default function ChatView(props: ChatViewProps) {
           <ChatHeader
             providerInstanceEntries={providerInstanceEntries}
             forkedFrom={workLogEntries.find((entry) => entry.forkedFrom)?.forkedFrom ?? null}
+            threadGoal={threadGoalControls.goal}
+            onEditThreadGoal={threadGoalControls.openEditor}
             {...(!supportsPullRequests || activeProjectRepository === null
               ? {}
               : { onOpenPullRequest: openProjectPullRequest })}
@@ -10424,6 +10482,9 @@ export default function ChatView(props: ChatViewProps) {
                             toggleInteractionMode={toggleInteractionMode}
                             handleRuntimeModeChange={handleRuntimeModeChange}
                             handleInteractionModeChange={handleInteractionModeChange}
+                            debugMode={threadGoalControls.debugMode}
+                            onDebugModeChange={threadGoalControls.setDebugMode}
+                            onThreadSlashCommand={handleThreadSlashCommand}
                             focusComposer={focusComposer}
                             scheduleComposerFocus={scheduleComposerFocus}
                             setThreadError={setThreadError}
@@ -10682,6 +10743,17 @@ export default function ChatView(props: ChatViewProps) {
             {rightPanelContent}
           </RightPanelTabs>
         </RightPanelSheet>
+      ) : null}
+
+      {threadGoalControls.editorOpen ? (
+        <ThreadGoalDialog
+          goal={threadGoalControls.goal}
+          canPause={isServerThread}
+          onSave={threadGoalControls.saveGoal}
+          onSetPaused={threadGoalControls.setGoalPaused}
+          onClear={threadGoalControls.clearGoal}
+          onClose={threadGoalControls.closeEditor}
+        />
       ) : null}
 
       <AlertDialog

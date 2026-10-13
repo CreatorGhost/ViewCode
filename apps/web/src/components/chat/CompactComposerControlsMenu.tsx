@@ -8,6 +8,7 @@ import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 import {
   Menu,
+  MenuCheckboxItem,
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
@@ -34,6 +35,8 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   hidden?: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  /** Set when the debug-mode control is hidden in this menu. */
+  debugMode?: { readonly on: boolean; readonly onChange: (debugMode: boolean) => void };
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const size = props.size ?? "sm";
@@ -79,6 +82,17 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
               <MenuRadioItem value="default">Chat</MenuRadioItem>
               <MenuRadioItem value="plan">Plan</MenuRadioItem>
             </MenuRadioGroup>
+            <MenuDivider />
+          </>
+        ) : null}
+        {props.debugMode ? (
+          <>
+            <MenuCheckboxItem
+              checked={props.debugMode.on}
+              onCheckedChange={props.debugMode.onChange}
+            >
+              Debug mode
+            </MenuCheckboxItem>
             <MenuDivider />
           </>
         ) : null}

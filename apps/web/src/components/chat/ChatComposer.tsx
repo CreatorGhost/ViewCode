@@ -952,6 +952,7 @@ import { toastManager } from "../ui/toast";
 import {
   FileIcon,
   BotIcon,
+  BugIcon,
   CircleAlertIcon,
   PencilRulerIcon,
   PlayIcon,
@@ -992,6 +993,10 @@ import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
+import {
+  APP_OWNED_SLASH_COMMAND_NAMES,
+  THREAD_SLASH_COMMANDS,
+} from "@t3tools/client-runtime/threadGoal";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useDelayedStatus } from "../../hooks/useDelayedStatus";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -1093,6 +1098,8 @@ function useRestingComposerControlsLayout(host: HTMLDivElement | null, useContro
 const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
+  debugMode: boolean;
+  onDebugModeChange: (debugMode: boolean) => void;
   runtimeMode: RuntimeMode;
   /** The selected provider's status: why a mode does less there, if it does. */
   runtimeModeLimits?: ProviderRuntimeModeLimits | null | undefined;
@@ -1150,6 +1157,35 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
       </Tooltip>
     </>
   ) : null;
+  // Shown only while on, beside the mode toggle; a click is the way out.
+  const debugModeControl = props.debugMode ? (
+    <>
+      <ComposerControlSeparator size={size} />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <ComposerControl
+              size={size}
+              className="shrink-0 whitespace-nowrap"
+              aria-pressed
+              type="button"
+              data-debug-mode="on"
+              onClick={() => props.onDebugModeChange(false)}
+              aria-label="Debug mode — click to leave"
+            />
+          }
+        >
+          <ComposerControlIcon icon={BugIcon} size={size} className="text-current opacity-100" />
+          <span data-composer-control-label className="sr-only sm:not-sr-only">
+            Debug
+          </span>
+        </TooltipTrigger>
+        <TooltipPopup side="top">
+          Debug mode: the agent reproduces and gathers evidence before fixing. Click to leave.
+        </TooltipPopup>
+      </Tooltip>
+    </>
+  ) : null;
 
   return (
     <>
@@ -1201,6 +1237,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
       </Tooltip>
 
       {interactionModeToggle}
+      {debugModeControl}
     </>
   );
 });
@@ -1498,6 +1535,11 @@ export interface ChatComposerProps {
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
+  /** ViewCode debug mode for this thread (or draft). */
+  debugMode: boolean;
+  onDebugModeChange: (debugMode: boolean) => void;
+  /** Applies a ViewCode thread command picked from the slash menu (`/debug`, `/default`). */
+  onThreadSlashCommand: (command: "debug" | "default") => void;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -1600,6 +1642,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     toggleInteractionMode,
     handleRuntimeModeChange,
     handleInteractionModeChange,
+    debugMode,
+    onDebugModeChange,
+    onThreadSlashCommand,
     focusComposer,
     scheduleComposerFocus,
     setThreadError,
@@ -2450,15 +2495,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 label: "/plan",
                 description: "Switch this thread into plan mode",
               },
-              {
-                id: "slash:default",
-                type: "slash-command",
-                command: "default",
-                label: "/default",
-                description: "Switch this thread back to normal build mode",
-              },
             ] as const)
           : []),
+        ...THREAD_SLASH_COMMANDS.map(
+          ({ command, description }) =>
+            ({
+              id: `slash:${command}`,
+              type: "slash-command",
+              command,
+              label: `/${command}`,
+              description,
+            }) as const,
+        ),
+        {
+          id: "slash:default",
+          type: "slash-command",
+          command: "default",
+          label: "/default",
+          description: "Switch this thread back to normal mode, out of plan and debug",
+        },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const slashMenuSkills = getProviderSkillsForSlashMenu(
         selectedProviderSkills,
@@ -2467,14 +2522,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const providerSlashCommandItems = getProviderSlashCommandsForSlashMenu(
         selectedProviderSlashCommands,
         slashMenuSkills,
-      ).map((command) => ({
-        id: `provider-slash-command:${selectedProvider}:${command.name}`,
-        type: "provider-slash-command" as const,
-        provider: selectedProvider,
-        command,
-        label: `/${command.name}`,
-        description: command.description ?? command.input?.hint ?? "Run provider command",
-      }));
+      )
+        .filter((command) => !APP_OWNED_SLASH_COMMAND_NAMES.has(command.name.toLowerCase()))
+        .map((command) => ({
+          id: `provider-slash-command:${selectedProvider}:${command.name}`,
+          type: "provider-slash-command" as const,
+          provider: selectedProvider,
+          command,
+          label: `/${command.name}`,
+          description: command.description ?? command.input?.hint ?? "Run provider command",
+        }));
       const query = composerTrigger.query.trim().toLowerCase();
       const skillItems = slashMenuSkills.map((skill) => ({
         id: `skill:${selectedProvider}:${skill.name}`,
@@ -3679,8 +3736,33 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           }
           return;
         }
-        if (!planModeUiEnabled) return;
-        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
+        if (item.command === "goal") {
+          // The objective follows the command; sending it sets the goal, and
+          // `/goal` alone opens the editor.
+          const replacement = "/goal ";
+          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+            snapshot.value,
+            trigger.rangeEnd,
+            replacement,
+          );
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            replacementRangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+          );
+          if (applied) {
+            setComposerHighlightedItemId(null);
+          }
+          return;
+        }
+        if (item.command === "debug" || item.command === "default") {
+          onThreadSlashCommand(item.command);
+        } else if (planModeUiEnabled) {
+          void handleInteractionModeChange("plan");
+        } else {
+          return;
+        }
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         });
@@ -5132,6 +5214,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         <ComposerFooterModeControls
           showInteractionModeToggle={planModeUiEnabled}
           interactionMode={interactionMode}
+          debugMode={debugMode}
+          onDebugModeChange={onDebugModeChange}
           runtimeMode={runtimeMode}
           runtimeModeLimits={selectedProviderStatus}
           size={composerControlsInStrip ? "xs" : "sm"}
@@ -5258,6 +5342,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             }
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
+            {...(hiddenRestingBlockIds.includes("mode")
+              ? { debugMode: { on: debugMode, onChange: onDebugModeChange } }
+              : {})}
           />
         </div>
       </>
@@ -7149,8 +7236,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       showAttach={showComposerAttachAction}
                       showInteractionModeToggle={planModeUiEnabled}
                       interactionMode={interactionMode}
+                      debugMode={debugMode}
                       onAttach={() => attachmentInputRef.current?.click()}
                       onToggleInteractionMode={toggleInteractionMode}
+                      onDebugModeChange={onDebugModeChange}
                     />
                   )}
                   {composerControlsInStrip ? null : composerControls}

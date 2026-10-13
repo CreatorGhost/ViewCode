@@ -1,5 +1,5 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
-import { PaperclipIcon, PencilRulerIcon, PlusIcon } from "lucide-react";
+import { BugIcon, PaperclipIcon, PencilRulerIcon, PlusIcon } from "lucide-react";
 import { memo } from "react";
 
 import { Menu, MenuCheckboxItem, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -16,11 +16,12 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
   showAttach: boolean;
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
+  debugMode: boolean;
   onAttach: () => void;
   onToggleInteractionMode: () => void;
+  onDebugModeChange: (debugMode: boolean) => void;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
-  if (!props.showAttach && !props.showInteractionModeToggle) return null;
   return (
     <Menu>
       <Tooltip>
@@ -39,7 +40,7 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
         >
           <ComposerControlIcon icon={PlusIcon} opticalSize="large" />
         </TooltipTrigger>
-        <TooltipPopup side="top">Attach files, plan mode</TooltipPopup>
+        <TooltipPopup side="top">Attach files, plan and debug mode</TooltipPopup>
       </Tooltip>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
         {props.showAttach ? (
@@ -59,6 +60,12 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
             </span>
           </MenuCheckboxItem>
         ) : null}
+        <MenuCheckboxItem checked={props.debugMode} onCheckedChange={props.onDebugModeChange}>
+          <span className="inline-flex items-center gap-2">
+            <BugIcon className="size-4" />
+            Debug mode
+          </span>
+        </MenuCheckboxItem>
       </MenuPopup>
     </Menu>
   );

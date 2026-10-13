@@ -3,7 +3,11 @@
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -45,6 +49,7 @@ import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  BugIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -69,6 +74,7 @@ import {
   SquareIcon,
   SquarePenIcon,
   SunIcon,
+  TargetIcon,
   TextSearchIcon,
   Undo2Icon,
   Columns2Icon,
@@ -225,6 +231,7 @@ import { ComposerHandleContext, useComposerHandleContext } from "../composerHand
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { THREAD_FIND_OPEN_EVENT } from "./chat/ThreadFindBar";
 import { REVIEW_FIX_UNDO_OPEN_EVENT } from "./chat/ReviewFixUndoDialog";
+import { openThreadGoalEditor, useUpdateThreadGoalState } from "./chat/threadGoal";
 import { reviewFixUndo } from "@t3tools/client-runtime/review-findings";
 import { useSplitActions } from "../splitView/useSplitView";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
@@ -775,6 +782,7 @@ function OpenCommandPaletteDialog(props: {
   const startProjectClone = useAtomCommand(sourceControlEnvironment.startProjectClone, {
     reportFailure: false,
   });
+  const updateThreadGoalState = useUpdateThreadGoalState();
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
     reportFailure: false,
   });
@@ -2120,6 +2128,31 @@ function OpenCommandPaletteDialog(props: {
       // The focused chat asks before reverting.
       run: async () => {
         window.dispatchEvent(new Event(REVIEW_FIX_UNDO_OPEN_EVENT));
+      },
+    });
+  }
+  if (activeThread !== null) {
+    const thread = activeThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:thread-goal",
+      searchTerms: ["goal", "objective", "keep working", "pause goal", "clear goal"],
+      title: thread.goal ? "Edit thread goal" : "Set thread goal",
+      icon: <TargetIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openThreadGoalEditor(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:debug-mode",
+      searchTerms: ["debug", "debug mode", "evidence", "reproduce", "default mode"],
+      title: thread.debugMode ? "Leave debug mode" : "Turn on debug mode",
+      icon: <BugIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        updateThreadGoalState(thread.environmentId, thread.id, {
+          debugMode: thread.debugMode !== true,
+        });
       },
     });
   }
