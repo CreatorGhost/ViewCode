@@ -21,7 +21,7 @@ export interface HomeHeaderProps {
   /** Subscription limits and usage-limit resumes. */
   readonly onOpenUsage: () => void;
   readonly onStartNewTask: () => void;
-  /** ViewCode: iOS opens the pull request list from Home's scope row. */
+  /** ViewCode: Home's scope row opens the pull request list on both platforms. */
   readonly onOpenPullRequests?: () => void;
   /** iOS opens a terminal from Home's header; Android's bottom bar takes these directly. */
   readonly terminalTargets: ReadonlyArray<HomeTerminalTarget>;

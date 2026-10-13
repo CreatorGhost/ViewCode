@@ -72,22 +72,24 @@ function HomeScopeMenu(props: {
   readonly children: (open?: () => void) => ReactNode;
   readonly preservesLabelWidth?: boolean;
 }) {
+  // Beside the pull request button the project pill keeps its label; the environment pill gives way.
+  const labelWidthStyle = props.preservesLabelWidth
+    ? ({ flexShrink: 0, maxWidth: "40%" } as const)
+    : undefined;
   if (Platform.OS === "android") {
     return (
       <AndroidAnchoredMenu
         actions={props.actions}
         onPressAction={props.onPressAction}
         className="min-w-0 shrink"
+        style={labelWidthStyle}
       >
         {props.children}
       </AndroidAnchoredMenu>
     );
   }
   return (
-    <View
-      className="min-w-0 shrink"
-      style={props.preservesLabelWidth ? { flexShrink: 0, maxWidth: "40%" } : undefined}
-    >
+    <View className="min-w-0 shrink" style={labelWidthStyle}>
       <ControlPillMenu actions={props.actions} onPressAction={props.onPressAction}>
         {props.children()}
       </ControlPillMenu>

@@ -14,6 +14,7 @@ export function HomeHeader(props: HomeHeaderProps) {
         {...scope}
         onOpenSettings={props.onOpenSettings}
         onOpenUsage={props.onOpenUsage}
+        onOpenPullRequests={props.onOpenPullRequests}
       />
     </>
   );
