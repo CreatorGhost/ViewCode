@@ -114,6 +114,7 @@ import {
   type PullRequestRowTarget,
 } from "../components/pullRequest/PullRequestRow";
 import { PullRequestsUnavailableState } from "../components/pullRequest/PullRequestsUnavailableState";
+import { PullRequestListUnreadableNotice } from "../components/pullRequest/PullRequestListUnreadableNotice";
 import { RightPanelTabs, type PullRequestTabStatusSeed } from "../components/RightPanelTabs";
 import {
   WorkspaceBreadcrumb,
@@ -1863,6 +1864,7 @@ function PullRequestsRouteView() {
         />
       ) : (
         <div className="space-y-3">
+          <PullRequestListUnreadableNotice unavailableProjects={unavailableProjectReasons} />
           {displayGroups.map((group) => (
             <div key={group.key} className="space-y-0.5">
               {showGroupHeaders ? (
