@@ -1,10 +1,13 @@
 # Brand icons
 
-**ViewCode:** the production icon comes from `viewcode-icon.svg`, using the same black and
-teal mark as `viewcode-mark.svg`. Run `vp run icons:export:production` to render production
+**ViewCode:** the production icon comes from `viewcode-icon.svg`: a white tile holding the
+code-bracket and git-branch emblem from `viewcode-mark.svg`. Large exports use its gradients
+and fold shading; headers and 16/32px favicons use `viewcode-mark-flat.svg`, with larger node
+openings so the branch stays readable. `viewcode-mark-monochrome.svg` supplies the single-color
+Android themed and notification emblem. Run `vp run icons:export:production` to render production
 mobile, desktop and web assets. iOS and apple-touch exports are full bleed and opaque; macOS
 keeps an 824px tile inset 100px on a 1024px canvas. Android gets a transparent foreground inside
-the adaptive safe zone, a solid background, and a single-color V for themed and notification icons.
+the adaptive safe zone, a solid background, and a single-color emblem for themed and notification icons.
 
 Development and preview retain their existing assets. Their Icon Composer projects below still
 contain the inherited T3 mark; do not regenerate those variants until their projects are redrawn.
@@ -75,4 +78,4 @@ comes from their Icon Composer layers. `vp run icons:export:android` renders bot
   the splash mask reproduces the launcher icon's framing.
 
 Rerun the export after changing a layer SVG. Production uses `android-icon-mark-prod.png` and
-`android-notification-icon-prod.png` as white V silhouettes; development and preview keep their existing monochrome and notification assets.
+`android-notification-icon-prod.png` as white emblem silhouettes; development and preview keep their existing monochrome and notification assets.

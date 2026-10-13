@@ -1050,7 +1050,7 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 ### Brand assets
 
 - `assets/viewcode-icon.svg` is the approved production icon source;
-  `assets/viewcode-mark.svg` is the same black and teal mark alone. Production
+  `assets/viewcode-mark.svg` is the code-bracket and git-branch emblem alone. Production
   exports come from `icons:export:production`; development and preview retain
   their existing assets and Icon Composer path. Keep exported assets under T3's
   file names so upstream merges preserve the paths. iOS and apple-touch exports
@@ -1059,8 +1059,11 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   time. Android production layers are separate from development/preview so a
   production redraw cannot replace those channels' artwork.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
-  The black stroke gets a fine foreground outline in dark appearances; the teal
-  stays the brand color rather than following each theme's accent.
+  Headers and small favicons use the flat rendition with larger node openings;
+  app icons keep the full gradients and folds. The flat right bracket is light
+  slate in dark appearances so it remains visible. Brand colors stay fixed
+  rather than following each theme's accent; Android silhouettes use the
+  separate monochrome source.
 - Generated worktree branches use `vc/` (`WORKTREE_BRANCH_PREFIX` in
   `packages/shared/src/git.ts`). Keep `t3code` in
   `LEGACY_WORKTREE_BRANCH_PREFIXES`: threads created before the rename sit on

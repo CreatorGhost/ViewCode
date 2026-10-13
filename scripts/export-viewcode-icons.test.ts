@@ -36,7 +36,7 @@ it.layer(NodeServices.layer)("ViewCode production icons", (it) => {
             .extract({ left: 0, top: 0, width: 1, height: 1 })
             .raw()
             .toBuffer();
-          assert.deepEqual([...corner], [22, 22, 20]);
+          assert.deepEqual([...corner], [255, 255, 255]);
         }
       });
     }),
@@ -63,6 +63,26 @@ it.layer(NodeServices.layer)("ViewCode production icons", (it) => {
           }
         }
         assert.isAbove(painted, 0);
+      });
+    }),
+  );
+
+  it.effect("preserves all three hollow git nodes in the monochrome emblem", () =>
+    Effect.gen(function* () {
+      const icons = yield* loadIcons;
+      yield* Effect.promise(async () => {
+        const image = icon(icons, "apps/mobile/assets/android-icon-mark-prod.png");
+        for (const [left, top] of [
+          [195, 186],
+          [247, 197],
+          [216, 269],
+        ]) {
+          const pixel = await sharp(image)
+            .extract({ left: left!, top: top!, width: 1, height: 1 })
+            .raw()
+            .toBuffer();
+          assert.equal(pixel[3], 0);
+        }
       });
     }),
   );
