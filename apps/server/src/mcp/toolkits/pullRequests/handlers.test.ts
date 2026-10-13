@@ -301,7 +301,23 @@ describe("pull request toolkit handlers", () => {
           findingsMode: "fix",
           fallbackModelSelection: { instanceId: "codex", model: "gpt-5" },
           linkSource: "agent",
+          // The reviewer runs as the asking agent's child.
+          sourceThreadId: THREAD_ID,
         },
+      ]);
+    }),
+  );
+
+  it.effect("passes what of the local changes to review", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      yield* harness.call("review_local_changes", {
+        scope: { kind: "branch", base: "origin/release" },
+      });
+      yield* harness.call("review_local_changes", { scope: { kind: "commit", sha: "abc1234" } });
+      expect(yield* Ref.get(harness.localReviews)).toMatchObject([
+        { scope: { kind: "branch", base: "origin/release" } },
+        { scope: { kind: "commit", sha: "abc1234" } },
       ]);
     }),
   );
@@ -371,6 +387,34 @@ describe("pull request toolkit handlers", () => {
                   url: "https://github.com/T3Tools/T3Code/pull/7",
                 },
               },
+            },
+          },
+        ]);
+      }),
+    );
+
+    it.effect("records findings sent while the review goes on as not complete", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ thread: makeThread([makeLink(7)]) });
+        const partial = yield* harness.call("submit_review_findings", {
+          ...report,
+          complete: false,
+        });
+        expect(partial.message).toContain("Keep reviewing");
+        const final = yield* harness.call("submit_review_findings", report);
+        expect(final.message).toContain("end your turn");
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          {
+            activity: {
+              summary: "Review so far: request changes, 1 finding",
+              payload: { complete: false },
+            },
+          },
+          // Without the flag the set is final, as every call was before it existed.
+          {
+            activity: {
+              summary: "Review: request changes, 1 finding",
+              payload: { complete: true },
             },
           },
         ]);

@@ -75,7 +75,7 @@ describe("generateHostSecret", () => {
 
 describe("settings.json edits", () => {
   it("adds and removes the relay entry and keeps everything else", () => {
-    const original = { providerSelection: "chosen", providers: { cursor: { enabled: true } } };
+    const original = { defaultRuntimeMode: "auto", providers: { cursor: { enabled: true } } };
     const added = withRelaySettings(original, "https://r.a.workers.dev");
     expect(added).toEqual({
       ...original,

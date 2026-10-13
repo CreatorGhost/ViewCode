@@ -28,7 +28,6 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
@@ -49,8 +48,6 @@ import * as ResetCreditCoordinator from "./Layers/resetCreditCoordinator.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import * as OpenCodeRuntime from "./opencodeRuntime.ts";
 import type { ProviderInstance } from "./ProviderDriver.ts";
-import { detectProviders } from "./providerLaunch.ts";
-import { applyProviderSelectionRules, makeChooseProvidersPatch } from "./providerSelection.ts";
 import * as ProviderInstanceRegistry from "./Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./Services/ProviderRegistry.ts";
 
@@ -71,7 +68,7 @@ const makeStubDir = (names: ReadonlyArray<string>) => {
 };
 
 /** Settings where every CLI provider points at an existing stub executable. */
-const stubbedSettings = (dir: string, selection: ServerSettings["providerSelection"]) =>
+const stubbedSettings = (dir: string) =>
   ({
     ...DEFAULT_SERVER_SETTINGS,
     providers: {
@@ -86,10 +83,9 @@ const stubbedSettings = (dir: string, selection: ServerSettings["providerSelecti
       opencode: { ...DEFAULT_SERVER_SETTINGS.providers.opencode, binaryPath: `${dir}/opencode` },
       commandCode: { ...DEFAULT_SERVER_SETTINGS.providers.commandCode, binaryPath: `${dir}/cmd` },
     },
-    ...(selection ? { providerSelection: selection } : {}),
   }) satisfies ServerSettings;
 
-/** In-memory settings service applying the same selection rules as the real one. */
+/** In-memory settings service applying patches like the real one. */
 const makeSettingsService = (initial: ServerSettings) =>
   Effect.gen(function* () {
     const ref = yield* Ref.make(initial);
@@ -101,11 +97,7 @@ const makeSettingsService = (initial: ServerSettings) =>
       updateSettings: (patch) =>
         Effect.gen(function* () {
           const current = yield* Ref.get(ref);
-          const next = applyProviderSelectionRules(
-            current,
-            patch,
-            applyServerSettingsPatch(current, patch),
-          );
+          const next = applyServerSettingsPatch(current, patch);
           yield* Ref.set(ref, next);
           yield* PubSub.publish(changes, next);
           return next;
@@ -216,51 +208,9 @@ const buildRegistry = (
     ),
   );
 
-describe("first-run provider selection", () => {
+describe("boot probes", () => {
   it.effect.skipIf(windowsHost)(
-    "launches nothing while pending, then probes only the chosen provider",
-    () =>
-      Effect.gen(function* () {
-        const dir = makeStubDir(["codex", "claude", "cursor-agent", "grok", "opencode", "cmd"]);
-        const claudeStub = `${dir}/claude`;
-        const claudeSpawned = yield* Deferred.make<void>();
-        const { spawner, spawned } = makeRecordingSpawner((command) =>
-          command === claudeStub ? Deferred.succeed(claudeSpawned, undefined) : Effect.void,
-        );
-        const settings = yield* makeSettingsService(stubbedSettings(dir, "pending"));
-        const scope = yield* Scope.make();
-        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-        const services = yield* Layer.build(buildRegistry(settings, spawner)).pipe(
-          Scope.provide(scope),
-        );
-
-        yield* Effect.gen(function* () {
-          const registry = yield* ProviderRegistry.ProviderRegistry;
-          // Boot probe, manual refresh-all, interval and workspace refresh.
-          const providers = yield* registry.refresh();
-          yield* TestClock.adjust("2 hours");
-          yield* registry.refresh();
-          yield* registry.refreshWorkspaceSnapshot({
-            instanceId: ProviderInstanceId.make("codex"),
-            cwd: process.cwd(),
-          });
-          assert.deepStrictEqual(spawned, []);
-          // Every provider is still listed, switched off, for the picker.
-          assert.isAtLeast(providers.length, 6);
-          assert.isTrue(providers.every((provider) => !provider.enabled));
-
-          yield* settings.updateSettings(
-            makeChooseProvidersPatch([ProviderDriverKind.make("claudeAgent")]),
-          );
-          yield* Deferred.await(claudeSpawned);
-          yield* registry.refresh();
-          assert.deepStrictEqual([...new Set(spawned)], [claudeStub]);
-        }).pipe(Effect.provide(services));
-      }),
-  );
-
-  it.effect.skipIf(windowsHost)(
-    "does not probe default-seeded settings until an explicit choice",
+    "probes the default-enabled providers of a fresh environment at boot",
     () =>
       Effect.gen(function* () {
         const dir = makeStubDir(["codex", "claude", "cursor-agent", "grok", "opencode", "cmd"]);
@@ -269,12 +219,10 @@ describe("first-run provider selection", () => {
         );
         const config = yield* ServerConfig.ServerConfig;
         const fs = yield* FileSystem.FileSystem;
-        // Older app writes include enabled defaults but have no choice marker.
+        // Only binary paths, as a first launch writes nothing about choices.
         yield* fs.writeFileString(
           config.settingsPath,
-          yield* encodeSettingsPatch({
-            providers: stubbedSettings(dir, undefined).providers,
-          }),
+          yield* encodeSettingsPatch({ providers: stubbedSettings(dir).providers }),
         );
         const settings = yield* ServerSettingsModule.ServerSettingsService;
         const claudeSpawned = yield* Deferred.make<void>();
@@ -288,17 +236,11 @@ describe("first-run provider selection", () => {
         );
         yield* Effect.gen(function* () {
           const registry = yield* ProviderRegistry.ProviderRegistry;
-          yield* registry.refresh();
-          yield* TestClock.adjust("2 hours");
-          yield* registry.refresh();
-          assert.deepStrictEqual(spawned, []);
-          assert.strictEqual((yield* settings.getSettings).providerSelection, "pending");
-          yield* settings.updateSettings(
-            makeChooseProvidersPatch([ProviderDriverKind.make("claudeAgent")]),
-          );
           yield* Deferred.await(claudeSpawned);
           yield* registry.refresh();
-          assert.deepStrictEqual([...new Set(spawned)], [`${dir}/claude`]);
+          // Codex and Claude are on by default; the others stay off.
+          assert.includeMembers([...new Set(spawned)], [`${dir}/codex`, `${dir}/claude`]);
+          assert.notInclude(spawned, `${dir}/cursor-agent`);
         }).pipe(Effect.provide(services));
       }).pipe(
         Effect.provide(
@@ -314,25 +256,6 @@ describe("first-run provider selection", () => {
           ),
         ),
       ),
-  );
-
-  it.effect.skipIf(windowsHost)("keeps today's behaviour for an environment already chosen", () =>
-    Effect.gen(function* () {
-      const dir = makeStubDir(["codex", "claude", "cursor-agent", "grok", "opencode", "cmd"]);
-      const { spawner, spawned } = makeRecordingSpawner(() => Effect.void);
-      const settings = yield* makeSettingsService(stubbedSettings(dir, "chosen"));
-      const scope = yield* Scope.make();
-      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-      const services = yield* Layer.build(buildRegistry(settings, spawner)).pipe(
-        Scope.provide(scope),
-      );
-      yield* Effect.gen(function* () {
-        const registry = yield* ProviderRegistry.ProviderRegistry;
-        yield* registry.refresh();
-        // Codex and Claude are on by default and get probed as before.
-        assert.includeMembers([...new Set(spawned)], [`${dir}/codex`, `${dir}/claude`]);
-      }).pipe(Effect.provide(services));
-    }),
   );
 });
 
@@ -367,9 +290,9 @@ describe("turning a provider off", () => {
         }),
       );
       const initial = {
-        ...stubbedSettings(dir, "chosen"),
+        ...stubbedSettings(dir),
         providers: {
-          ...stubbedSettings(dir, "chosen").providers,
+          ...stubbedSettings(dir).providers,
           codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, enabled: false },
         },
       } satisfies ServerSettings;
@@ -399,29 +322,6 @@ describe("turning a provider off", () => {
         assert.deepStrictEqual(spawned, [claudeStub]);
       }).pipe(Effect.scoped, Effect.provide(services));
     }),
-  );
-});
-
-describe("detectProviders", () => {
-  it.effect.skipIf(windowsHost)("reports found and missing executables without spawning", () =>
-    Effect.gen(function* () {
-      // No ChildProcessSpawner is provided at all: detection cannot spawn.
-      const dir = makeStubDir(["claude", "cursor-agent"]);
-      const detected = yield* detectProviders(stubbedSettings(dir, "pending"));
-      const byDriver = new Map(detected.map((entry) => [entry.driver, entry]));
-      assert.deepStrictEqual(byDriver.get(ProviderDriverKind.make("claudeAgent")), {
-        driver: ProviderDriverKind.make("claudeAgent"),
-        installed: true,
-        path: `${dir}/claude`,
-      });
-      assert.strictEqual(byDriver.get(ProviderDriverKind.make("cursor"))?.installed, true);
-      assert.deepStrictEqual(byDriver.get(ProviderDriverKind.make("codex")), {
-        driver: ProviderDriverKind.make("codex"),
-        installed: false,
-        path: null,
-      });
-      assert.strictEqual(detected.length, Object.keys(DEFAULT_SERVER_SETTINGS.providers).length);
-    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
 

@@ -552,11 +552,9 @@ function usePairingCode(endpointId: string) {
 }
 
 /**
- * Asks the desktop to call its own LAN address over HTTP, only when the user
- * clicks "Test this network". Never on open: on a managed Mac, security
- * software can read an app connecting to its own LAN address as network
- * reconnaissance and kill the whole process tree. Web and `npx t3` clients
- * have no desktop bridge and never offer it.
+ * Asks the desktop to call its own LAN address over HTTP: once for each
+ * address shown while the dialog is open, and again from "Test again". Web
+ * and `npx t3` clients have no desktop bridge and never offer it.
  */
 function useLanSelfTest(endpoint: PhoneEndpoint | undefined) {
   const check = window.desktopBridge?.checkLanReachability;
@@ -587,6 +585,13 @@ function useLanSelfTest(endpoint: PhoneEndpoint | undefined) {
     () => setRun((previous) => ({ url, id: (previous?.id ?? 0) + 1 })),
     [url],
   );
+  // The dialog mounts this only while open, so this runs once per open.
+  const autoTestedUrl = useRef<string | null>(null);
+  useEffect(() => {
+    if (!available || autoTestedUrl.current === url) return;
+    autoTestedUrl.current = url;
+    start();
+  }, [available, start, url]);
   const done = current !== null && settled?.id === current.id;
   return {
     available,
@@ -677,20 +682,21 @@ function ReadyBody({
           </div>
         )}
 
-        {lanWarning ? (
+        {lanTest.checking ? (
+          <p className="text-xs text-muted-foreground">
+            Checking that phones can reach this computer…
+          </p>
+        ) : lanWarning ? (
           <Alert variant="warning">
             <TriangleAlertIcon />
             <AlertDescription>{lanWarning}</AlertDescription>
           </Alert>
-        ) : lanTest.checking ? (
-          <p className="text-xs text-muted-foreground">
-            Checking that phones can reach this computer…
-          </p>
         ) : lanTest.result?.status === "ok" ? (
           <p className="text-xs text-muted-foreground">Phones on this network can reach it.</p>
-        ) : lanTest.available ? (
+        ) : null}
+        {lanTest.available && !lanTest.checking ? (
           <Button size="xs" variant="ghost" onClick={lanTest.start}>
-            Test this network
+            {lanTest.result === null ? "Test this network" : "Test again"}
           </Button>
         ) : null}
 

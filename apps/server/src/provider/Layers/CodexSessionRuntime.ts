@@ -9,6 +9,7 @@ import {
   type ProviderApprovalOption,
   type ProviderEvent,
   type ProviderInteractionMode,
+  type ProviderTurnGuidance,
   type ProviderRequestKind,
   type ProviderSession,
   type ProviderTurnStartResult,
@@ -45,6 +46,7 @@ import { expandHomePath } from "../../pathExpansion.ts";
 import {
   buildCodexAdditionalContext,
   buildCodexDeveloperInstructions,
+  codexTurnGuidanceContext,
   type T3CodeToolAvailability,
 } from "../CodexDeveloperInstructions.ts";
 const decodeV2TurnStartResponse = Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse);
@@ -205,6 +207,8 @@ export interface CodexSessionRuntimeSendTurnInput {
   readonly serviceTier?: CodexServiceTier | undefined;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort | undefined;
   readonly interactionMode?: ProviderInteractionMode;
+  /** The thread's goal and debug mode, sent as developer context. */
+  readonly guidance?: ProviderTurnGuidance;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -2605,7 +2609,7 @@ export const makeCodexSessionRuntime = (
           );
           const models = options.models ? yield* options.models : [];
           const modelName = models.find((model) => model.slug === normalizedModel)?.name;
-          const params = yield* buildTurnStartParams({
+          let params = yield* buildTurnStartParams({
             threadId: providerThreadId,
             runtimeMode: options.runtimeMode,
             ...(input.input ? { prompt: input.input } : {}),
@@ -2625,6 +2629,16 @@ export const makeCodexSessionRuntime = (
             computerUse: options.computerUse,
             browserCli: options.browserCli,
           });
+          const guidanceContext = codexTurnGuidanceContext(
+            input.guidance,
+            yield* Ref.get(lastAdditionalContextRef),
+          );
+          if (guidanceContext !== undefined) {
+            params = {
+              ...params,
+              additionalContext: { ...params.additionalContext, ...guidanceContext },
+            };
+          }
           yield* Ref.set(lastAdditionalContextRef, params.additionalContext);
           const rawResponse = yield* client.raw.request("turn/start", params);
           const response = yield* decodeV2TurnStartResponse(rawResponse).pipe(

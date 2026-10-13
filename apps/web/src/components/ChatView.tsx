@@ -219,7 +219,6 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
-import type { ReviewFixInChatRequest } from "./chat/ReviewFindingsView";
 import { ReviewPanel } from "./chat/ReviewPanel";
 import { REVIEW_FIX_UNDO_OPEN_EVENT, ReviewFixUndoDialog } from "./chat/ReviewFixUndoDialog";
 import { reviewFixUndo } from "@t3tools/client-runtime/review-findings";
@@ -252,7 +251,6 @@ import {
   WifiOffIcon,
 } from "lucide-react";
 import { cn, randomHex, randomUUID } from "~/lib/utils";
-import { projectAccentClassName } from "../projectIconColors";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import {
   decodeProjectScriptKeybindingRule,
@@ -310,6 +308,7 @@ import {
   beginBackgroundDraftSubmissionByRef,
   clearBackgroundDraftSubmissionByRef,
   composerDraftHasUserContent,
+  composerDraftNeedsServerReconcile,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -548,10 +547,11 @@ import {
   supportsServerUpdateThreadContinuation,
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
-import {
-  ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
-  recallableComposerPrompt,
-} from "./chat/composerPromptHistory";
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
+import { recallableComposerPrompt } from "./chat/composerPromptHistory";
+import { parseThreadSlashCommand } from "@t3tools/client-runtime/threadGoal";
+import { ThreadGoalDialog } from "./chat/ThreadGoalDialog";
+import { useThreadGoalControls } from "./chat/useThreadGoalControls";
 
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_QUEUED_MESSAGES: QueuedComposerMessage[] = [];
@@ -1652,6 +1652,45 @@ export default function ChatView(props: ChatViewProps) {
   const composerActiveProvider = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
+  // The thread's settings are what the next message uses. A model or mode
+  // picked here and not sent yet gives way when the thread changes elsewhere
+  // (another device, the server, an agent), and a new pick binds to the
+  // thread's current settings. Before paint, so the picker never shows a
+  // stale pick.
+  const serverModelSelection = activeServerThread?.modelSelection;
+  const serverRuntimeMode = activeServerThread?.runtimeMode;
+  const serverInteractionMode = activeServerThread?.interactionMode;
+  const serverThreadSettings = useMemo(
+    () =>
+      serverModelSelection && serverRuntimeMode && serverInteractionMode
+        ? {
+            modelSelection: serverModelSelection,
+            runtimeMode: serverRuntimeMode,
+            interactionMode: serverInteractionMode,
+          }
+        : null,
+    [serverInteractionMode, serverModelSelection, serverRuntimeMode],
+  );
+  const composerNeedsServerReconcile = useComposerDraftStore(
+    (store) =>
+      serverThreadSettings !== null &&
+      composerDraftNeedsServerReconcile(
+        store.getComposerDraft(composerDraftTarget),
+        serverThreadSettings,
+      ),
+  );
+  const reconcileComposerServerSettings = useComposerDraftStore(
+    (store) => store.reconcileServerThreadSettings,
+  );
+  useLayoutEffect(() => {
+    if (!composerNeedsServerReconcile || serverThreadSettings === null) return;
+    reconcileComposerServerSettings(composerDraftTarget, serverThreadSettings);
+  }, [
+    composerDraftTarget,
+    composerNeedsServerReconcile,
+    reconcileComposerServerSettings,
+    serverThreadSettings,
+  ]);
   const composerHasUnsentContent = useComposerDraftStore((store) =>
     composerDraftHasUserContent(store.getComposerDraft(composerDraftTarget)),
   );
@@ -2161,16 +2200,19 @@ export default function ChatView(props: ChatViewProps) {
   // stamped at the turn's completion time — not now/updatedAt — so it clears
   // exactly the completion the user is looking at: a wake or completion that
   // lands later still gets its signal (markThreadVisited never moves the
-  // timestamp backwards).
+  // timestamp backwards). A thread with no finished turn yet is stamped at its
+  // creation, so a first turn that finishes after the user leaves still shows
+  // as new; one never opened stays seen.
   useEffect(() => {
-    const completedAt = serverThread?.latestTurn?.completedAt;
-    if (!serverThread?.id || !completedAt) return;
+    const visitedAt = serverThread?.latestTurn?.completedAt ?? serverThread?.createdAt;
+    if (!serverThread?.id || !visitedAt) return;
     markThreadVisited(
       scopedThreadKey(scopeThreadRef(serverThread.environmentId, serverThread.id)),
-      completedAt,
+      visitedAt,
     );
   }, [
     markThreadVisited,
+    serverThread?.createdAt,
     serverThread?.environmentId,
     serverThread?.id,
     serverThread?.latestTurn?.completedAt,
@@ -2894,10 +2936,12 @@ export default function ChatView(props: ChatViewProps) {
     () =>
       resolveComposerProviderSelection({
         entries: providerInstanceEntries,
+        // The thread's selection is what its next turn runs on; the session
+        // still names the previous provider until that turn hands off.
         candidateInstanceIds: [
           selectedProviderByThreadId,
-          activeThread?.session?.providerInstanceId,
           activeThread?.modelSelection.instanceId,
+          activeThread?.session?.providerInstanceId,
           activeProjectDefaultModelSelection?.instanceId,
         ],
         lockedProvider,
@@ -4663,6 +4707,36 @@ export default function ChatView(props: ChatViewProps) {
     if (!interactionModeEnabled) return;
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode, interactionModeEnabled]);
+  const threadGoalControls = useThreadGoalControls({
+    threadKey: routeThreadKey,
+    environmentId: activeThread?.environmentId ?? null,
+    threadId: activeThread?.id ?? null,
+    isServerThread,
+    serverGoal: activeServerThread?.goal,
+    serverDebugMode: activeServerThread?.debugMode,
+    draftTarget: isLocalDraftThread ? composerDraftTarget : null,
+    draftGoal: draftThread?.goal,
+    draftDebugMode: draftThread?.debugMode,
+  });
+  const { setDebugMode: setThreadDebugMode } = threadGoalControls;
+  // What a draft's first send creates the thread with.
+  const draftGoalBootstrap = {
+    ...(isLocalDraftThread && draftThread?.goal ? { goal: draftThread.goal } : {}),
+    ...(isLocalDraftThread && draftThread?.debugMode ? { debugMode: true } : {}),
+  };
+  // `/debug` turns debug mode on; `/default` leaves both plan and debug mode.
+  const handleThreadSlashCommand = useCallback(
+    (command: "debug" | "default") => {
+      if (command === "debug") {
+        setThreadDebugMode(true);
+      } else {
+        handleInteractionModeChange("default");
+        setThreadDebugMode(false);
+      }
+      scheduleComposerFocus();
+    },
+    [handleInteractionModeChange, scheduleComposerFocus, setThreadDebugMode],
+  );
   const openProviderSetup = useCallback(
     (instanceId: ProviderInstanceId) => {
       void navigate({
@@ -5015,38 +5089,6 @@ export default function ChatView(props: ChatViewProps) {
       useRightPanelStore.getState().close(activeThreadRef);
     }
   }, [activeRightPanelSurface, activeThreadRef]);
-  // "Fix with agent" leaves the request in the composer for the reader to edit and send, so the
-  // chat has to be in view: a maximized panel steps back and a sheet closes.
-  const fixReviewFindingsInChat = useCallback(
-    (request: ReviewFixInChatRequest) => {
-      const store = useComposerDraftStore.getState();
-      // The chips' records go in first, so the text that refers to them finds them.
-      for (const comment of request.comments) {
-        store.addReviewComment(composerDraftTarget, comment, { appendReference: false });
-      }
-      const inserted =
-        composerRef.current?.insertTextAtEnd(request.prompt, { ensureLeadingBoundary: true }) ??
-        false;
-      if (!inserted) {
-        toastManager.add({
-          type: "warning",
-          title: "The composer is not ready",
-          description: "Try again once the connection or pending input is resolved.",
-        });
-        return;
-      }
-      if (shouldUseRightPanelSheet) closePreviewPanel();
-      else setMaximizedRightPanelThreadKey(null);
-      scheduleComposerFocus();
-    },
-    [
-      closePreviewPanel,
-      composerDraftTarget,
-      composerRef,
-      scheduleComposerFocus,
-      shouldUseRightPanelSheet,
-    ],
-  );
   const togglePreviewPanel = useCallback(() => {
     if (!activeThreadRef || !isPreviewSupportedInRuntime()) return;
     if (previewPanelOpen) {
@@ -5206,6 +5248,13 @@ export default function ChatView(props: ChatViewProps) {
     }
     useRightPanelStore.getState().toggleVisibility(activeThreadRef);
   }, [activeThreadRef, closePreviewPanel, rightPanelOpen]);
+  // A thread started for a link the OS opened shows its browser maximized, like a browser window.
+  useEffect(() => {
+    if (!canMaximizeRightPanel) return;
+    if (useRightPanelStore.getState().consumeMaximizeRequest(routeThreadRef)) {
+      setMaximizedRightPanelThreadKey(routeThreadKey);
+    }
+  }, [canMaximizeRightPanel, routeThreadKey, routeThreadRef]);
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel) return;
     setMaximizedRightPanelThreadKey((threadKey) =>
@@ -7876,6 +7925,27 @@ export default function ChatView(props: ChatViewProps) {
       }
       return;
     }
+    // ViewCode's own thread commands change thread state; nothing is sent.
+    const threadSlashCommand =
+      multipleModelSelections === null &&
+      composerImages.length === 0 &&
+      composerFiles.length === 0 &&
+      sendableComposerTerminalContexts.length === 0 &&
+      composerPreviewAnnotations.length === 0 &&
+      composerReviewComments.length === 0
+        ? parseThreadSlashCommand(trimmed)
+        : null;
+    if (threadSlashCommand) {
+      if (threadSlashCommand.command === "goal") {
+        threadGoalControls.applyGoalAction(threadSlashCommand.goal);
+      } else {
+        handleThreadSlashCommand(threadSlashCommand.command);
+      }
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      return;
+    }
     // Providers without the legacy toggle receive their native commands unchanged.
     const standaloneSlashCommand =
       sendInteractionModeEnabled &&
@@ -8274,6 +8344,7 @@ export default function ChatView(props: ChatViewProps) {
                       modelSelection: target.selection,
                       runtimeMode,
                       interactionMode: target.interactionMode,
+                      ...draftGoalBootstrap,
                       branch: activeThreadBranch,
                       worktreePath: null,
                       createdAt: messageCreatedAt,
@@ -8609,6 +8680,7 @@ export default function ChatView(props: ChatViewProps) {
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode: sendInteractionMode,
+                      ...draftGoalBootstrap,
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
@@ -9598,6 +9670,14 @@ export default function ChatView(props: ChatViewProps) {
   }, [cancelWorktreeSetup, draftId, routeThreadRef.environmentId, worktreeSetup]);
   const onSendRef = useRef(onSend);
   onSendRef.current = onSend;
+  const onCompactContextRef = useRef(onCompactContext);
+  onCompactContextRef.current = onCompactContext;
+  // Stable identities, so a panel toggle does not re-render the composer.
+  const onComposerSend = useCallback(
+    (...args: Parameters<typeof onSend>) => onSendRef.current(...args),
+    [],
+  );
+  const onComposerCompactContext = useCallback(() => onCompactContextRef.current(), []);
   // Resend once the cancelled dispatch has settled and the composer is free.
   // Every state that makes `onSend` bail and wait is part of the readiness
   // check, so the flag survives a reconnect, a reverting checkpoint, or a
@@ -9662,22 +9742,30 @@ export default function ChatView(props: ChatViewProps) {
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
+      // Read at call time so opening a panel does not re-render the timeline.
+      const diffOpen =
+        selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) ===
+        "diff";
       explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;
       useDiffPanelStore.getState().selectTurn(activeThreadRef, turnId, filePath);
       useRightPanelStore.getState().open(activeThreadRef, "diff");
       onDiffPanelOpen?.();
     },
-    [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
+    [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
   const onOpenWorkingTreeDiff = useCallback(
     (filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
+      // Read at call time so opening a panel does not re-render the timeline.
+      const diffOpen =
+        selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) ===
+        "diff";
       explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;
       useDiffPanelStore.getState().selectWorkingTreeFile(activeThreadRef, filePath);
       useRightPanelStore.getState().open(activeThreadRef, "diff");
       onDiffPanelOpen?.();
     },
-    [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen],
+    [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
   openWorkingTreeDiffRef.current = onOpenWorkingTreeDiff;
   // The revert handler is read from a ref at call-time so the callback
@@ -9886,12 +9974,7 @@ export default function ChatView(props: ChatViewProps) {
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "review" && isServerThread ? (
-      <ReviewPanel
-        key={activeThreadKey}
-        threadRef={activeThreadRef}
-        cwd={gitCwd ?? undefined}
-        onFixInChat={fixReviewFindingsInChat}
-      />
+      <ReviewPanel key={activeThreadKey} threadRef={activeThreadRef} cwd={gitCwd ?? undefined} />
     ) : renderedRightPanelSurface?.kind === "agents" ? (
       <AgentsPanel
         model={agentPanelModel}
@@ -10002,14 +10085,10 @@ export default function ChatView(props: ChatViewProps) {
         {/* Top bar */}
         <WorkspacePageHeader
           data-chat-header
-          data-project-accent={activeProject?.projectColor ? "" : undefined}
           electron={isElectron}
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
           // Pill chrome: every control in the top bar, and each button group, is a capsule.
-          className={cn(
-            "relative bg-background [--control-radius:9999px]",
-            activeProject?.projectColor && projectAccentClassName(activeProject.projectColor),
-          )}
+          className="relative bg-background [--control-radius:9999px]"
         >
           {isElectron && rightPanelControlsAtRoot ? (
             <span
@@ -10021,6 +10100,8 @@ export default function ChatView(props: ChatViewProps) {
           <ChatHeader
             providerInstanceEntries={providerInstanceEntries}
             forkedFrom={workLogEntries.find((entry) => entry.forkedFrom)?.forkedFrom ?? null}
+            threadGoal={threadGoalControls.goal}
+            onEditThreadGoal={threadGoalControls.openEditor}
             {...(!supportsPullRequests || activeProjectRepository === null
               ? {}
               : { onOpenPullRequest: openProjectPullRequest })}
@@ -10140,6 +10221,7 @@ export default function ChatView(props: ChatViewProps) {
                 }
                 routeThreadKey={displayedTimelineKey}
                 displayThreadKey={displayedTimelineKey}
+                paintOnly={paintOnlyDisplayedTimeline}
                 onOpenTurnDiff={paintOnlyDisplayedTimeline ? noopHeldTurnDiff : onOpenTurnDiff}
                 supportsConversationRollback={
                   !paintOnlyDisplayedTimeline && supportsConversationRollback
@@ -10376,8 +10458,8 @@ export default function ChatView(props: ChatViewProps) {
                             onPageScrollKeyDown={onComposerPageScrollKeyDown}
                             onPageScrollKeyUp={onComposerPageScrollKeyUp}
                             onPageScrollRelease={onComposerPageScrollRelease}
-                            onCompactContext={onCompactContext}
-                            onSend={onSend}
+                            onCompactContext={onComposerCompactContext}
+                            onSend={onComposerSend}
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}
@@ -10398,6 +10480,9 @@ export default function ChatView(props: ChatViewProps) {
                             toggleInteractionMode={toggleInteractionMode}
                             handleRuntimeModeChange={handleRuntimeModeChange}
                             handleInteractionModeChange={handleInteractionModeChange}
+                            debugMode={threadGoalControls.debugMode}
+                            onDebugModeChange={threadGoalControls.setDebugMode}
+                            onThreadSlashCommand={handleThreadSlashCommand}
                             focusComposer={focusComposer}
                             scheduleComposerFocus={scheduleComposerFocus}
                             setThreadError={setThreadError}
@@ -10656,6 +10741,17 @@ export default function ChatView(props: ChatViewProps) {
             {rightPanelContent}
           </RightPanelTabs>
         </RightPanelSheet>
+      ) : null}
+
+      {threadGoalControls.editorOpen ? (
+        <ThreadGoalDialog
+          goal={threadGoalControls.goal}
+          canPause={isServerThread}
+          onSave={threadGoalControls.saveGoal}
+          onSetPaused={threadGoalControls.setGoalPaused}
+          onClear={threadGoalControls.clearGoal}
+          onClose={threadGoalControls.closeEditor}
+        />
       ) : null}
 
       <AlertDialog

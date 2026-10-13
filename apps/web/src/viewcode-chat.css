@@ -313,7 +313,7 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
    runs on the compositor with no repaint, only while a turn runs, and stops
    under reduced motion. Animate nothing else here. */
 [data-composer-live-ring] {
-  --vc-live-ring: var(--app-theme-accent, var(--ring));
+  --vc-live-ring: var(--shell-glow-color);
   position: absolute;
   inset: 0;
   /* Behind the composer's content but above its surface. */
@@ -354,12 +354,19 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   animation-iteration-count: infinite;
 }
 /* The neon glow sits on the composer, not the ring: the ring's mask clips
-   anything drawn outside it. Static. */
+   anything drawn outside it. Static. Its colour is the shell's (the active
+   project's, else the theme accent; viewcode-theme.css) and its strength the
+   theme's pairing alphas (shared/shellTint.ts). Settings can turn it off. */
 [data-chat-composer-main-surface]:has(> [data-composer-live-ring]) {
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--app-theme-accent, var(--ring)) 35%, transparent),
-    0 0 18px -2px color-mix(in srgb, var(--app-theme-accent, var(--ring)) 45%, transparent),
-    0 0 48px -8px color-mix(in srgb, var(--app-theme-accent, var(--ring)) 35%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--shell-glow-color) var(--shell-glow-border, 45%), transparent),
+    0 0 18px -2px
+      color-mix(in srgb, var(--shell-glow-color) var(--shell-glow-near, 28%), transparent),
+    0 0 48px -8px
+      color-mix(in srgb, var(--shell-glow-color) var(--shell-glow-far, 12%), transparent);
+}
+html[data-composer-glow="off"] [data-chat-composer-main-surface]:has(> [data-composer-live-ring]) {
+  box-shadow: none;
 }
 @keyframes viewcode-live-ring {
   to {

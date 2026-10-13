@@ -12,7 +12,10 @@ import {
   useExistingThreadSettingsRoutePresentation,
 } from "../threads/ThreadSettingsSheet";
 
-/** Uses the thread composer's picker, with choices staged only for this side chat. */
+/**
+ * Uses the thread composer's picker, with choices staged only for what this picks for: a side
+ * chat by default, or another reuser such as an agent review naming itself in `title`.
+ */
 export function SidechatModelPicker(props: {
   readonly environmentId: EnvironmentId;
   readonly serverConfig: ServerConfig | null;
@@ -21,6 +24,9 @@ export function SidechatModelPicker(props: {
   readonly sessionInstanceId: string | null;
   readonly disabled: boolean;
   readonly onChange: (selection: ModelSelection) => void;
+  /** The settings sheet's title. */
+  readonly title?: string;
+  readonly accessibilityLabel?: string;
 }) {
   const navigation = useNavigation();
   const { present, clear } = useExistingThreadSettingsRoutePresentation();
@@ -46,6 +52,7 @@ export function SidechatModelPicker(props: {
   );
   const { environmentId, selection, runtimeMode, onChange, serverConfig, sessionInstanceId } =
     props;
+  const title = props.title ?? "Side chat model";
   const session = useMemo<ExistingThreadSettingsRouteSession>(
     () => ({
       ownerId,
@@ -58,9 +65,10 @@ export function SidechatModelPicker(props: {
       optionDescriptors,
       onUpdateOptionSelections: (options) => onChange({ ...selection, options }),
       runtimeMode,
-      title: "Side chat model",
+      title,
     }),
     [
+      title,
       ownerId,
       environmentId,
       selection,
@@ -86,7 +94,7 @@ export function SidechatModelPicker(props: {
 
   return (
     <ComposerInlineControl
-      accessibilityLabel="Side chat model and reasoning settings"
+      accessibilityLabel={props.accessibilityLabel ?? "Side chat model and reasoning settings"}
       disabled={props.disabled}
       emphasized
       renderIcon={(size) => (

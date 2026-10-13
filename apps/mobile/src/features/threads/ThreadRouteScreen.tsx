@@ -1,3 +1,4 @@
+import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
 import {
@@ -5,6 +6,7 @@ import {
   clearComposerDraftContent,
 } from "../../state/use-composer-drafts";
 import { useWorktreeSetup } from "./use-worktree-setup";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { ScreenHeaderButton } from "../../components/ScreenHeaderButton";
@@ -71,6 +73,7 @@ import {
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetailScreen";
+import { resolveComposerCheckout } from "./composerChrome";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { agentControlEnvironment } from "../../state/agentControl";
@@ -94,6 +97,8 @@ import {
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
+import { openThreadFromThread } from "./openThreadFromThread";
+import { useDetailBack } from "../../native/useDetailBack";
 
 function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -187,8 +192,6 @@ function ThreadHeader(
           layout.usesSplitView
             ? undefined
             : () => {
-                // A deep link or cold start has no previous route; Home is the way out.
-                // Read the history at press time: it changes without re-rendering this screen.
                 if (navigation.canGoBack()) navigation.goBack();
                 else navigation.dispatch(StackActions.replace("Home"));
               }
@@ -260,6 +263,7 @@ function ThreadUnavailableScreen(props: {
 }
 
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
+  useDetailBack("Home");
   const { state: workspaceState } = useWorkspaceState();
   const { connectionState } = useRemoteConnectionStatus();
   const { selectedThread } = useThreadSelection();
@@ -335,7 +339,7 @@ function ThreadRouteContent(
 ) {
   const { themeVariables } = useAppearancePreferences();
   const headerColor = themeVariables["--color-header"];
-  const { fileInspector, layout, panes, selectThread, showAuxiliaryPane, toggleAuxiliaryPane } =
+  const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
@@ -365,13 +369,14 @@ function ThreadRouteContent(
       },
     };
   }, [selectedThread, selectedThreadDetailState]);
-  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
   const composer = useThreadComposerState();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
   const navigation = useNavigation();
+  const openPullRequest = useOpenPullRequest();
   const params = props.route.params;
   const environmentIdRaw = firstRouteParam(params.environmentId);
   const environmentId = environmentIdRaw ? EnvironmentId.make(environmentIdRaw) : null;
@@ -470,6 +475,19 @@ function ThreadRouteContent(
         })
       : null,
   );
+  const selectedThreadBranch = selectedThread?.branch ?? null;
+  const gitStatusData = gitStatus.data ?? null;
+  const composerCheckout = useMemo(
+    () =>
+      selectedThreadCwd === null
+        ? null
+        : resolveComposerCheckout({
+            worktreePath: selectedThreadWorktreePath,
+            threadBranch: selectedThreadBranch,
+            gitStatus: gitStatusData,
+          }),
+    [gitStatusData, selectedThreadBranch, selectedThreadCwd, selectedThreadWorktreePath],
+  );
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: selectedThread?.environmentId ?? null,
     threadId: selectedThread?.id ?? null,
@@ -549,6 +567,17 @@ function ThreadRouteContent(
     openFilesInspector: handleOpenFilesInspector,
     toggleAuxiliaryPane,
   };
+  // Push, not navigate: navigate reuses this Thread route, so back would skip
+  // the parent thread.
+  const handleOpenAgentThread = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      openThreadFromThread(navigation, {
+        environmentId: String(thread.environmentId),
+        threadId: String(thread.id),
+      });
+    },
+    [navigation],
+  );
   const handleToggleInspector = useCallback(() => {
     const action = inspectorToggleActionRef.current;
     if (action.inspectorMode === null) {
@@ -990,7 +1019,11 @@ function ThreadRouteContent(
   };
   const renderThreadRouteBody = () => (
     <>
-      <GitActionProgressOverlay progress={gitActionProgress} onDismiss={dismissGitActionResult} />
+      <GitActionProgressOverlay
+        progress={gitActionProgress}
+        onDismiss={dismissGitActionResult}
+        onOpenPullRequest={openPullRequest}
+      />
 
       <View className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas">
         <ThreadDetailScreen
@@ -1071,7 +1104,9 @@ function ThreadRouteContent(
           onRemoveDraftImage={composer.onRemoveDraftImage}
           serverConfig={serverConfig}
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
-          onOpenAgentThread={selectThread}
+          onOpenAgentThread={handleOpenAgentThread}
+          composerCheckout={composerCheckout}
+          onOpenGit={handleOpenGitInspector}
           onSendMessage={composer.onSendMessage}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}

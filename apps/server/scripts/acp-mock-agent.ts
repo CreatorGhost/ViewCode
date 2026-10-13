@@ -15,6 +15,16 @@ import type * as AcpSchema from "effect-acp/schema";
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
 const antigravityProfile = process.env.T3_ACP_ANTIGRAVITY === "1";
+// Factory Droid: auth methods, no MCP capabilities, autonomy as a config option.
+const droidProfile = process.env.T3_ACP_DROID === "1";
+// Session setup answers -32000 until `authenticate` succeeds, like Droid without a login.
+const requireAuth = process.env.T3_ACP_REQUIRE_AUTH === "1";
+let authenticated = false;
+let currentAutonomy = "normal";
+// Devin: `http: false` MCP capabilities, mode and model as config options.
+const devinProfile = process.env.T3_ACP_DEVIN === "1";
+// Replays history after `session/load` has returned, as Devin can.
+const emitLateLoadReplay = process.env.T3_ACP_EMIT_LATE_LOAD_REPLAY === "1";
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
   process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
@@ -71,8 +81,12 @@ const permissionRequestCount = Math.max(
 );
 const sessionId = "mock-session-1";
 
-let currentModeId = antigravityProfile ? "default" : "ask";
-let currentModelId = antigravityProfile ? "gemini-test-low" : "default";
+let currentModeId = antigravityProfile ? "default" : devinProfile ? "accept-edits" : "ask";
+let currentModelId = antigravityProfile
+  ? "gemini-test-low"
+  : devinProfile
+    ? "swe-1-6-fast"
+    : "default";
 let parameterizedModelPicker = false;
 let currentReasoning = "medium";
 let currentContext = "272k";
@@ -118,6 +132,56 @@ process.once("exit", (code) => {
 });
 
 function configOptions(): ReadonlyArray<AcpSchema.SessionConfigOption> {
+  if (devinProfile) {
+    return [
+      {
+        id: "mode",
+        name: "Session Mode",
+        category: "mode",
+        type: "select",
+        currentValue: currentModeId,
+        options: ["accept-edits", "ask", "plan", "bypass"].map((value) => ({ value, name: value })),
+      },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: currentModelId,
+        options: [
+          { value: "swe-1-6-fast", name: "SWE-1.6 Fast" },
+          { value: "claude-opus-5-5-high", name: "Claude Opus 5.5 High" },
+        ],
+      },
+    ];
+  }
+  if (droidProfile) {
+    return [
+      {
+        id: "autonomy_level",
+        name: "Autonomy Level",
+        category: "mode",
+        type: "select",
+        currentValue: currentAutonomy,
+        // An org cap leaves out auto-high.
+        options: ["normal", "spec", "auto-low", "auto-medium"].map((value) => ({
+          value,
+          name: value,
+        })),
+      },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: currentModelId,
+        options: ["default", "claude-opus-5-5", "gpt-6-sol"].map((value) => ({
+          value,
+          name: value,
+        })),
+      },
+    ];
+  }
   if (antigravityProfile) {
     return [
       {
@@ -395,6 +459,29 @@ const program = Effect.gen(function* () {
       }
       parameterizedModelPicker =
         request.clientCapabilities?._meta?.parameterizedModelPicker === true;
+      if (devinProfile) {
+        return {
+          protocolVersion: 1,
+          agentInfo: { name: "affogato", version: "mock" },
+          agentCapabilities: {
+            loadSession: true,
+            mcpCapabilities: { http: false, sse: false },
+            promptCapabilities: { image: true, embeddedContext: true },
+          },
+          authMethods: [{ id: "devin-browser", name: "Log in with browser" }],
+        };
+      }
+      if (droidProfile) {
+        return {
+          protocolVersion: 1,
+          agentInfo: { name: "@factory/cli", version: "mock" },
+          agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {} } },
+          authMethods: [
+            { id: "device-pairing", name: "Login" },
+            { id: "factory-api-key", name: "Factory API Key" },
+          ],
+        };
+      }
       if (antigravityProfile) {
         return {
           protocolVersion: 1,
@@ -421,22 +508,36 @@ const program = Effect.gen(function* () {
   // Mirrors the real agent: the API key method reads GEMINI_API_KEY from the
   // process environment and rejects when it is missing.
   yield* agent.handleAuthenticate((request) =>
-    !antigravityProfile || request.methodId === "oauth-personal"
-      ? Effect.succeed({})
-      : request.methodId === "gemini-api-key" && process.env.GEMINI_API_KEY
+    droidProfile
+      ? request.methodId === "factory-api-key" && process.env.FACTORY_API_KEY
+        ? Effect.sync(() => {
+            authenticated = true;
+            return {};
+          })
+        : Effect.fail(AcpError.AcpRequestError.invalidParams("Mock Droid rejected auth."))
+      : !antigravityProfile || request.methodId === "oauth-personal"
         ? Effect.succeed({})
-        : Effect.fail(
-            AcpError.AcpRequestError.invalidParams(
-              `Mock Antigravity rejected auth method ${request.methodId}.`,
+        : request.methodId === "gemini-api-key" && process.env.GEMINI_API_KEY
+          ? Effect.succeed({})
+          : Effect.fail(
+              AcpError.AcpRequestError.invalidParams(
+                `Mock Antigravity rejected auth method ${request.methodId}.`,
+              ),
             ),
-          ),
   );
   if (antigravityProfile) {
     yield* agent.handleLogout(() => Effect.succeed({}));
   }
 
+  const requireAuthenticated = Effect.suspend(() =>
+    requireAuth && !authenticated
+      ? Effect.fail(AcpError.AcpRequestError.authRequired("Authentication required: log in."))
+      : Effect.void,
+  );
+
   yield* agent.handleCreateSession(() =>
     Effect.gen(function* () {
+      yield* requireAuthenticated;
       if (antigravityProfile) {
         yield* publishAntigravityCommands(sessionId);
       }
@@ -451,6 +552,7 @@ const program = Effect.gen(function* () {
 
   yield* agent.handleResumeSession((request) =>
     Effect.gen(function* () {
+      yield* requireAuthenticated;
       yield* agent.client.sessionUpdate({
         sessionId: request.sessionId,
         update: {
@@ -520,6 +622,22 @@ const program = Effect.gen(function* () {
       if (emitLoadReplay) {
         emitLoadReplayNotifications(requestedSessionId);
       }
+      if (emitLateLoadReplay) {
+        yield* Effect.sleep("20 millis").pipe(
+          Effect.andThen(
+            Effect.sync(() =>
+              writeJsonRpcNotification("session/update", {
+                sessionId: requestedSessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { type: "text", text: "late replay" },
+                },
+              }),
+            ),
+          ),
+          Effect.forkDetach,
+        );
+      }
       yield* agent.client.sessionUpdate({
         sessionId: requestedSessionId,
         update: {
@@ -569,6 +687,9 @@ const program = Effect.gen(function* () {
       }
       if (request.configId === "mode" && typeof request.value === "string") {
         currentModeId = request.value;
+      }
+      if (request.configId === "autonomy_level" && typeof request.value === "string") {
+        currentAutonomy = request.value;
       }
       if (request.configId === "model" && typeof request.value === "string") {
         currentModelId = request.value;

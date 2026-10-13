@@ -26,6 +26,31 @@ export const ProjectSearchEntriesInput = Schema.Struct({
 });
 export type ProjectSearchEntriesInput = typeof ProjectSearchEntriesInput.Type;
 
+export const ProjectListIconCandidatesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  // Lets an image named after the project rank as its logo.
+  projectName: Schema.optional(TrimmedString.check(Schema.isMaxLength(256))),
+});
+export type ProjectListIconCandidatesInput = typeof ProjectListIconCandidatesInput.Type;
+
+/** Logo images the user may pick for a project, best first, relative to its root. */
+export const ProjectListIconCandidatesResult = Schema.Struct({
+  paths: Schema.Array(TrimmedNonEmptyString),
+});
+export type ProjectListIconCandidatesResult = typeof ProjectListIconCandidatesResult.Type;
+
+export class ProjectListIconCandidatesError extends Schema.TaggedError<ProjectListIconCandidatesError>()(
+  "ProjectListIconCandidatesError",
+  {
+    cwd: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Could not look for logo images in ${this.cwd}.`;
+  }
+}
+
 export const ProjectEntry = Schema.Struct({
   path: TrimmedNonEmptyString,
   kind: ProjectEntryKind,

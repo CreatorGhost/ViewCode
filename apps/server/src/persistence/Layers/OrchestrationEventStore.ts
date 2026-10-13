@@ -121,6 +121,39 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 const makeEventStore = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
+  const latestThreadLifecycle = SqlSchema.findOneOption({
+    Request: Schema.String,
+    Result: Schema.Struct({
+      type: Schema.String,
+      actor: Schema.String,
+      commandId: Schema.NullOr(Schema.String),
+    }),
+    execute: (threadId) => sql`
+      SELECT event_type AS "type", actor_kind AS "actor", command_id AS "commandId"
+      FROM orchestration_events
+      WHERE aggregate_kind = 'thread' AND stream_id = ${threadId}
+        AND event_type IN ('thread.created', 'thread.settled', 'thread.unsettled')
+      ORDER BY sequence DESC LIMIT 1
+    `,
+  });
+  const isThreadAutomaticallySettled: OrchestrationEventStoreShape["isThreadAutomaticallySettled"] =
+    (threadId) =>
+      latestThreadLifecycle(threadId).pipe(
+        Effect.map(
+          (row) =>
+            Option.isSome(row) &&
+            row.value.type === "thread.settled" &&
+            row.value.actor === "server" &&
+            row.value.commandId?.startsWith("server:auto-settle:") === true,
+        ),
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "OrchestrationEventStore.isThreadAutomaticallySettled:query",
+            "OrchestrationEventStore.isThreadAutomaticallySettled:decodeRow",
+          ),
+        ),
+      );
+
   const appendEventRow = SqlSchema.findOne({
     Request: AppendEventRequestSchema,
     Result: OrchestrationEventPersistedRowSchema,
@@ -417,6 +450,7 @@ const makeEventStore = Effect.gen(function* () {
     );
 
   return {
+    isThreadAutomaticallySettled,
     append,
     readFromSequence,
     readAggregateRange,

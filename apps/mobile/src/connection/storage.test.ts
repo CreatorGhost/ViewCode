@@ -12,6 +12,15 @@ vi.mock("expo-secure-store", () => ({
   setItemAsync: vi.fn(),
 }));
 
+import {
+  BearerConnectionCredential,
+  BearerConnectionProfile,
+  BearerConnectionRegistration,
+  BearerConnectionTarget,
+} from "@t3tools/client-runtime/connection";
+import { catalogRoutes, registerConnectionInCatalog } from "@t3tools/client-runtime/platform";
+import { EnvironmentId } from "@t3tools/contracts";
+
 import { CONNECTION_CATALOG_KEY, LEGACY_CONNECTIONS_KEY, make } from "./catalog-store";
 import { MobileSecureStorage } from "../persistence/mobile-secure-storage";
 
@@ -122,6 +131,123 @@ describe("mobile connection catalog storage", () => {
       yield* catalog.update((document) => document);
       expect(memory.values.has(CONNECTION_CATALOG_KEY)).toBe(true);
       expect(memory.values.has(LEGACY_CONNECTIONS_KEY)).toBe(false);
+    }),
+  );
+
+  it.effect("keeps an environment's direct route when dropping its relay route", () =>
+    Effect.gen(function* () {
+      const memory = makeStorage({
+        [CONNECTION_CATALOG_KEY]: JSON.stringify({
+          schemaVersion: 1,
+          targets: [
+            {
+              _tag: "BearerConnectionTarget",
+              environmentId: "desk",
+              label: "Desk",
+              connectionId: "bearer:desk",
+            },
+            { _tag: "RelayConnectionTarget", environmentId: "desk", label: "Desk" },
+          ],
+          profiles: [],
+          credentials: [],
+          remoteDpopTokens: [],
+          disabledEnvironmentIds: ["desk"],
+        }),
+      });
+      const catalog = yield* make().pipe(
+        Effect.provideService(MobileSecureStorage, memory.storage),
+      );
+      const document = yield* catalog.read;
+
+      expect(document.targets.map((target) => target._tag)).toEqual(["BearerConnectionTarget"]);
+      expect(document.disabledEnvironmentIds).toEqual(["desk"]);
+    }),
+  );
+
+  // A phone paired before environments had several routes must keep working
+  // without pairing again, and learning a second address must not cost it its
+  // saved credential.
+  it.effect("migrates a catalog saved before routes existed without re-pairing", () =>
+    Effect.gen(function* () {
+      const environmentId = EnvironmentId.make("desk");
+      const memory = makeStorage({
+        [CONNECTION_CATALOG_KEY]: JSON.stringify({
+          schemaVersion: 1,
+          targets: [
+            {
+              _tag: "BearerConnectionTarget",
+              environmentId,
+              label: "Desk",
+              connectionId: "bearer:desk",
+            },
+          ],
+          profiles: [
+            {
+              _tag: "BearerConnectionProfile",
+              connectionId: "bearer:desk",
+              environmentId,
+              label: "Desk",
+              httpBaseUrl: "https://desk.tail1234.ts.net/",
+              wsBaseUrl: "wss://desk.tail1234.ts.net/",
+            },
+          ],
+          credentials: [
+            {
+              connectionId: "bearer:desk",
+              credential: { _tag: "BearerConnectionCredential", token: "saved-token" },
+            },
+          ],
+          remoteDpopTokens: [],
+        }),
+      });
+      const catalog = yield* make().pipe(
+        Effect.provideService(MobileSecureStorage, memory.storage),
+      );
+      const saved = yield* catalog.read;
+      expect(catalogRoutes(saved, environmentId).map((target) => target._tag)).toEqual([
+        "BearerConnectionTarget",
+      ]);
+
+      // A LAN route under the new per-address id joins the saved one.
+      const lan = new BearerConnectionTarget({
+        environmentId,
+        label: "Desk",
+        connectionId: "bearer:desk:http://192.168.1.10:3773",
+      });
+      const [legacy] = catalogRoutes(saved, environmentId);
+      yield* catalog.update((document) =>
+        registerConnectionInCatalog(
+          document,
+          new BearerConnectionRegistration({
+            target: lan,
+            profile: new BearerConnectionProfile({
+              connectionId: lan.connectionId,
+              environmentId,
+              label: "Desk",
+              httpBaseUrl: "http://192.168.1.10:3773/",
+              wsBaseUrl: "ws://192.168.1.10:3773/",
+            }),
+            credential: new BearerConnectionCredential({ token: "lan-token" }),
+          }),
+          [lan, legacy!],
+        ),
+      );
+
+      const reloaded = yield* make().pipe(
+        Effect.provideService(MobileSecureStorage, memory.storage),
+        Effect.flatMap((store) => store.read),
+      );
+      expect(
+        catalogRoutes(reloaded, environmentId).map((target) =>
+          target._tag === "BearerConnectionTarget" ? target.connectionId : target._tag,
+        ),
+      ).toEqual(["bearer:desk:http://192.168.1.10:3773", "bearer:desk"]);
+      expect(
+        reloaded.credentials.map((entry) => [entry.connectionId, entry.credential.token]),
+      ).toEqual([
+        ["bearer:desk", "saved-token"],
+        ["bearer:desk:http://192.168.1.10:3773", "lan-token"],
+      ]);
     }),
   );
 });

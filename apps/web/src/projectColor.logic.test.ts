@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  buildProjectColorLookup,
-  projectColorsUsedElsewhere,
-  resolveProjectGroupColor,
-} from "./projectColor.logic";
+import { projectColorsUsedElsewhere, resolveProjectGroupColor } from "./projectColor.logic";
 
 describe("resolveProjectGroupColor", () => {
   it("uses the folder's own colour, else a checkout's, else the default", () => {
@@ -29,18 +25,5 @@ describe("projectColorsUsedElsewhere", () => {
     ];
     expect([...projectColorsUsedElsewhere(groups, "a")].sort()).toEqual(["lime", "rose"]);
     expect([...projectColorsUsedElsewhere(groups, "d")].sort()).toEqual(["blue", "lime", "rose"]);
-  });
-});
-
-describe("buildProjectColorLookup", () => {
-  it("keys coloured projects by environment and id", () => {
-    const lookup = buildProjectColorLookup([
-      { environmentId: "local", id: "p1", projectColor: "blue" },
-      { environmentId: "remote", id: "p1", projectColor: null },
-      { environmentId: "remote", id: "p2", projectColor: "teal" },
-    ]);
-    expect(lookup.get("local:p1")).toBe("blue");
-    expect(lookup.has("remote:p1")).toBe(false);
-    expect(lookup.get("remote:p2")).toBe("teal");
   });
 });

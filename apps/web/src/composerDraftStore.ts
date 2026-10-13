@@ -37,6 +37,7 @@ import { DeepMutable } from "effect/Types";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
 import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
+import { readThreadPreviewState } from "./previewStateStore";
 import { resolveAppModelSelection, resolveAppModelSelectionForInstance } from "./modelSelection";
 import {
   DEFAULT_INTERACTION_MODE,
@@ -74,6 +75,13 @@ import { createDeferredStorage, createMemoryStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
+import {
+  ComposerSettingsBasis,
+  markComposerPicks,
+  reconcileComposerPicks,
+  type ComposerSettingKey,
+  type ComposerThreadSettings,
+} from "@t3tools/client-runtime/composer-settings-basis";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
@@ -252,6 +260,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   modelSelectionExplicit: Schema.optionalKey(Schema.Boolean),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  serverBasis: Schema.optionalKey(ComposerSettingsBasis),
 });
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
@@ -323,6 +332,8 @@ const PersistedDraftThreadState = Schema.Struct({
   worktreePath: Schema.NullOr(Schema.String),
   envMode: DraftThreadEnvModeSchema,
   startFromOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  debugMode: Schema.optionalKey(Schema.Boolean),
+  goal: Schema.optionalKey(Schema.String),
   promotedTo: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
@@ -403,6 +414,12 @@ export interface ComposerThreadDraftState {
   modelSelectionExplicit?: boolean;
   runtimeMode: RuntimeMode | null;
   interactionMode: ProviderInteractionMode | null;
+  /**
+   * The server thread settings the model and mode picks above were made
+   * against. A server thread's composer drops a pick once the thread holds
+   * something else (see `reconcileServerThreadSettings`).
+   */
+  serverBasis?: ComposerSettingsBasis;
 }
 
 /**
@@ -450,6 +467,9 @@ export interface DraftSessionState {
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
   startFromOrigin: boolean;
+  /** Debug mode and goal picked before the first send; the bootstrap applies them. */
+  debugMode?: boolean;
+  goal?: string;
   promotedTo?: ScopedThreadRef | null;
 }
 
@@ -555,6 +575,9 @@ interface ComposerDraftStoreState {
       startFromOrigin?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
+      debugMode?: boolean;
+      /** Null removes the draft's goal. */
+      goal?: string | null;
       environmentSelection?: "auto" | "manual";
       loadBalancedEnvironmentId?: EnvironmentId | null;
     },
@@ -595,6 +618,15 @@ interface ComposerDraftStoreState {
       | undefined,
   ) => void;
   applyStickyState: (threadRef: ComposerThreadTarget) => void;
+  /**
+   * Squares a server thread's draft picks with the thread's own settings, which
+   * the next message uses otherwise: picks made before the thread changed
+   * elsewhere (another client, the server, an agent) are dropped.
+   */
+  reconcileServerThreadSettings: (
+    threadRef: ComposerThreadTarget,
+    server: ComposerThreadSettings,
+  ) => void;
   setProviderModelOptions: (
     threadRef: ComposerThreadTarget,
     provider: ProviderDriverKind,
@@ -906,6 +938,54 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.runtimeMode === null &&
     draft.interactionMode === null
   );
+}
+
+function withServerBasis(
+  draft: ComposerThreadDraftState,
+  basis: ComposerSettingsBasis | undefined,
+): ComposerThreadDraftState {
+  const { serverBasis: _previous, ...rest } = draft;
+  return basis && Object.keys(basis).length > 0 ? { ...rest, serverBasis: basis } : rest;
+}
+
+/** A user pick: bound to the server value the thread's composer sees next. */
+function markPicked(
+  draft: ComposerThreadDraftState,
+  key: ComposerSettingKey,
+): ComposerThreadDraftState {
+  return withServerBasis(draft, markComposerPicks(draft.serverBasis, [key]));
+}
+
+/** A seeded or cleared setting: on a server thread it follows the thread. */
+function unmarkPicked(
+  draft: ComposerThreadDraftState,
+  key: ComposerSettingKey,
+): ComposerThreadDraftState {
+  if (draft.serverBasis?.[key] === undefined) return draft;
+  const { [key]: _removed, ...basis } = draft.serverBasis;
+  return withServerBasis(draft, basis);
+}
+
+function reconcileDraftPicks(draft: ComposerThreadDraftState, server: ComposerThreadSettings) {
+  return reconcileComposerPicks({
+    picked: [
+      ...(Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null
+        ? (["modelSelection"] as const)
+        : []),
+      ...(draft.runtimeMode !== null ? (["runtimeMode"] as const) : []),
+      ...(draft.interactionMode !== null ? (["interactionMode"] as const) : []),
+    ],
+    basis: draft.serverBasis,
+    server,
+  });
+}
+
+/** Whether `reconcileServerThreadSettings` would change this draft. */
+export function composerDraftNeedsServerReconcile(
+  draft: ComposerThreadDraftState | null | undefined,
+  server: ComposerThreadSettings,
+): boolean {
+  return draft != null && reconcileDraftPicks(draft, server) !== null;
 }
 
 function normalizeProviderDriverKind(value: unknown): ProviderDriverKind | null {
@@ -1478,6 +1558,16 @@ function getComposerDraftState(
   return state.draftsByThreadKey[threadKey] ?? null;
 }
 
+/**
+ * A draft holding an open page, such as one started for a link another app
+ * opened, is work in progress even with an empty composer.
+ */
+function draftThreadHasOpenPreview(draftThread: DraftThreadState | undefined): boolean {
+  if (draftThread === undefined) return false;
+  const ref = scopeThreadRef(draftThread.environmentId, draftThread.threadId);
+  return Object.keys(readThreadPreviewState(ref).sessions).length > 0;
+}
+
 function isComposerThreadKeyInUse(mappings: Record<string, string>, threadKey: string): boolean {
   return Object.values(mappings).includes(threadKey);
 }
@@ -1560,6 +1650,8 @@ function createDraftThreadState(
     envMode:
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
     startFromOrigin: nextStartFromOrigin,
+    ...(existingThread?.debugMode ? { debugMode: true } : {}),
+    ...(existingThread?.goal ? { goal: existingThread.goal } : {}),
     promotedTo: null,
   };
 }
@@ -1594,6 +1686,8 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.worktreePath === right.worktreePath &&
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
+    left.debugMode === right.debugMode &&
+    left.goal === right.goal &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
 }
@@ -2032,6 +2126,9 @@ function normalizePersistedDraftsByThreadId(
         : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
       ...(interactionMode ? { interactionMode } : {}),
+      ...(draftCandidate.serverBasis && typeof draftCandidate.serverBasis === "object"
+        ? { serverBasis: draftCandidate.serverBasis as DeepMutable<ComposerSettingsBasis> }
+        : {}),
     };
   }
 
@@ -2092,10 +2189,10 @@ export function partializeComposerDraftStoreState(
   state: ComposerDraftStoreState,
 ): PersistedComposerDraftStoreState {
   // Draft sessions worth persisting: mapped (a new-thread flow targets
-  // them), promoting (mid-send), or holding real user content (they back a
-  // sidebar row). Everything else is a zombie — and its composer blob must
-  // be dropped WITH it, or model/mode-only entries would persist forever
-  // keyed to a session that no longer exists.
+  // them), promoting (mid-send), holding real user content (they back a
+  // sidebar row), or holding an open page. Everything else is a zombie — and
+  // its composer blob must be dropped WITH it, or model/mode-only entries
+  // would persist forever keyed to a session that no longer exists.
   const mappedDraftKeys = new Set(
     Object.values(state.logicalProjectDraftThreadKeyByLogicalProjectKey),
   );
@@ -2105,7 +2202,8 @@ export function partializeComposerDraftStoreState(
         ([threadKey, draftThread]) =>
           mappedDraftKeys.has(threadKey) ||
           isDraftThreadPromoting(draftThread) ||
-          composerDraftHasUserContent(state.draftsByThreadKey[threadKey]),
+          composerDraftHasUserContent(state.draftsByThreadKey[threadKey]) ||
+          draftThreadHasOpenPreview(draftThread),
       )
       .map(([threadKey]) => threadKey),
   );
@@ -2196,6 +2294,9 @@ export function partializeComposerDraftStoreState(
         : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
+      ...(draft.serverBasis
+        ? { serverBasis: draft.serverBasis as DeepMutable<ComposerSettingsBasis> }
+        : {}),
     };
     persistedDraftsByThreadKey[threadKey] = persistedDraft;
   }
@@ -2462,6 +2563,7 @@ function toHydratedThreadDraft(
     ...(persistedDraft.modelSelectionExplicit ? { modelSelectionExplicit: true } : {}),
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
+    ...(persistedDraft.serverBasis ? { serverBasis: persistedDraft.serverBasis } : {}),
   };
 }
 
@@ -2487,6 +2589,8 @@ function toHydratedDraftThreadState(
     worktreePath: persistedDraftThread.worktreePath,
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
+    ...(persistedDraftThread.debugMode ? { debugMode: true } : {}),
+    ...(persistedDraftThread.goal ? { goal: persistedDraftThread.goal } : {}),
     ...(persistedDraftThread.environmentSelection
       ? { environmentSelection: persistedDraftThread.environmentSelection }
       : {}),
@@ -2696,7 +2800,8 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               !isDraftThreadPromoting(previousDraftThread) &&
               !composerDraftHasUserContent(
                 state.draftsByThreadKey[previousThreadKeyForLogicalProject],
-              )
+              ) &&
+              !draftThreadHasOpenPreview(previousDraftThread)
             ) {
               delete nextDraftThreadsByThreadKey[previousThreadKeyForLogicalProject];
               if (state.draftsByThreadKey[previousThreadKeyForLogicalProject] !== undefined) {
@@ -2790,6 +2895,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               envMode:
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
               startFromOrigin: nextStartFromOrigin,
+              ...((options.debugMode ?? existing.debugMode) ? { debugMode: true } : {}),
+              ...((options.goal === undefined ? existing.goal : options.goal)
+                ? { goal: (options.goal === undefined ? existing.goal : options.goal)! }
+                : {}),
               promotedTo: existing.promotedTo ?? null,
             };
             const isUnchanged =
@@ -2805,6 +2914,8 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.worktreePath === existing.worktreePath &&
               nextDraftThread.envMode === existing.envMode &&
               nextDraftThread.startFromOrigin === existing.startFromOrigin &&
+              nextDraftThread.debugMode === existing.debugMode &&
+              nextDraftThread.goal === existing.goal &&
               scopedThreadRefsEqual(nextDraftThread.promotedTo, existing.promotedTo);
             if (isUnchanged) {
               return state;
@@ -2966,11 +3077,14 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               return state;
             }
             const { modelSelectionExplicit: _modelSelectionExplicit, ...retained } = base;
-            const nextDraft: ComposerThreadDraftState = {
-              ...retained,
-              modelSelectionByProvider: nextMap,
-              activeProvider: stickyActiveProvider,
-            };
+            const nextDraft = unmarkPicked(
+              {
+                ...retained,
+                modelSelectionByProvider: nextMap,
+                activeProvider: stickyActiveProvider,
+              },
+              "modelSelection",
+            );
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
               delete nextDraftsByThreadKey[threadKey];
@@ -3035,6 +3149,40 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });
         },
+        reconcileServerThreadSettings: (threadRef, server) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const draft = state.draftsByThreadKey[threadKey];
+            if (!draft) {
+              return state;
+            }
+            const result = reconcileDraftPicks(draft, server);
+            if (result === null) {
+              return state;
+            }
+            let nextDraft = withServerBasis(draft, result.basis);
+            if (result.drop.includes("modelSelection")) {
+              const { modelSelectionExplicit: _explicit, ...rest } = nextDraft;
+              nextDraft = { ...rest, modelSelectionByProvider: {}, activeProvider: null };
+            }
+            if (result.drop.includes("runtimeMode")) {
+              nextDraft = { ...nextDraft, runtimeMode: null };
+            }
+            if (result.drop.includes("interactionMode")) {
+              nextDraft = { ...nextDraft, interactionMode: null };
+            }
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) {
+              delete nextDraftsByThreadKey[threadKey];
+            } else {
+              nextDraftsByThreadKey[threadKey] = nextDraft;
+            }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
         setModelSelection: (threadRef, modelSelection, opts) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) {
@@ -3076,12 +3224,16 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             // explicit; seeding writes leave it unset so future seeds can
             // replace it.
             const { modelSelectionExplicit: _previousExplicit, ...restBase } = base;
-            const nextDraft: ComposerThreadDraftState = {
+            const pickedDraft: ComposerThreadDraftState = {
               ...restBase,
               modelSelectionByProvider: nextMap,
               activeProvider: nextActiveProvider,
               ...(opts?.explicit === true ? { modelSelectionExplicit: true as const } : {}),
             };
+            const nextDraft =
+              opts?.explicit === true
+                ? markPicked(pickedDraft, "modelSelection")
+                : unmarkPicked(pickedDraft, "modelSelection");
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
               delete nextDraftsByThreadKey[threadKey];
@@ -3206,12 +3358,15 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             // Trait edits are user-driven intent: mark the selection explicit
             // so later seeds cannot silently replace the chosen options.
             const { modelSelectionExplicit: _previousExplicit, ...restBase } = base;
-            const nextDraft: ComposerThreadDraftState = {
-              ...restBase,
-              ...(options?.instanceId ? { activeProvider: instanceKey } : {}),
-              modelSelectionByProvider: nextMap,
-              modelSelectionExplicit: true,
-            };
+            const nextDraft = markPicked(
+              {
+                ...restBase,
+                ...(options?.instanceId ? { activeProvider: instanceKey } : {}),
+                modelSelectionByProvider: nextMap,
+                modelSelectionExplicit: true,
+              },
+              "modelSelection",
+            );
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
               delete nextDraftsByThreadKey[threadKey];
@@ -3245,10 +3400,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             if (base.runtimeMode === nextRuntimeMode) {
               return state;
             }
-            const nextDraft: ComposerThreadDraftState = {
-              ...base,
-              runtimeMode: nextRuntimeMode,
-            };
+            const nextDraft =
+              nextRuntimeMode === null
+                ? unmarkPicked({ ...base, runtimeMode: null }, "runtimeMode")
+                : markPicked({ ...base, runtimeMode: nextRuntimeMode }, "runtimeMode");
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
               delete nextDraftsByThreadKey[threadKey];
@@ -3274,10 +3429,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             if (base.interactionMode === nextInteractionMode) {
               return state;
             }
-            const nextDraft: ComposerThreadDraftState = {
-              ...base,
-              interactionMode: nextInteractionMode,
-            };
+            const nextDraft =
+              nextInteractionMode === null
+                ? unmarkPicked({ ...base, interactionMode: null }, "interactionMode")
+                : markPicked({ ...base, interactionMode: nextInteractionMode }, "interactionMode");
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
               delete nextDraftsByThreadKey[threadKey];

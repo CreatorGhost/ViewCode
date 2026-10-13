@@ -10,7 +10,9 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   USAGE_CONTRACT_VERSION,
   type EnvironmentId,
+  type UsageBucket,
   type UsageSummary,
+  type UsageProviderKind,
   type UsageSummaryInput,
 } from "@t3tools/contracts";
 import { needsCursorKeychainAccess, refreshUsage } from "@t3tools/client-runtime/state/usage";
@@ -79,9 +81,66 @@ export interface UsageView {
   readonly refresh: (input?: UsageSummaryInput) => Promise<void>;
 }
 
+/**
+ * Merges every environment that has answered. `keepBucket` narrows the merge,
+ * for example to one model; source ownership still applies, so the result
+ * matches that slice of the full merge. Session counts are per directory and
+ * are not narrowed.
+ */
+export function mergeAnsweredUsage(
+  environments: readonly EnvironmentUsageStatus[],
+  keepBucket?: (bucket: UsageBucket) => boolean,
+): MergedUsage {
+  const answered: EnvironmentUsage[] = environments.flatMap(({ environmentId, label, summary }) =>
+    summary === null
+      ? []
+      : [
+          {
+            environmentId,
+            label,
+            summary:
+              keepBucket === undefined
+                ? summary
+                : { ...summary, buckets: summary.buckets.filter(keepBucket) },
+          },
+        ],
+  );
+  return mergeUsage(answered, USAGE_CONTRACT_VERSION);
+}
+
+const NO_HIDDEN_PROVIDERS: ReadonlySet<UsageProviderKind> = new Set();
+
+/**
+ * Drops hidden providers' buckets and sources before merging, so totals,
+ * shares, and session counts all describe only the visible providers.
+ */
+function withoutProviders(
+  environments: readonly EnvironmentUsageStatus[],
+  hiddenProviders: ReadonlySet<UsageProviderKind>,
+): readonly EnvironmentUsageStatus[] {
+  if (hiddenProviders.size === 0) return environments;
+  return environments.map((environment) =>
+    environment.summary === null
+      ? environment
+      : {
+          ...environment,
+          summary: {
+            ...environment.summary,
+            buckets: environment.summary.buckets.filter(
+              (bucket) => !hiddenProviders.has(bucket.provider),
+            ),
+            sources: environment.summary.sources.filter(
+              (source) => !hiddenProviders.has(source.fingerprint.provider),
+            ),
+          },
+        },
+  );
+}
+
 export function useUsage(
   input: UsageSummaryInput,
   selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null = null,
+  hiddenProviders: ReadonlySet<UsageProviderKind> = NO_HIDDEN_PROVIDERS,
 ): UsageView {
   const windowKey = useMemo(
     () =>
@@ -126,20 +185,10 @@ export function useUsage(
     [selectedEnvironments, windowKey],
   );
 
-  const merged = useMemo(() => {
-    const answered: EnvironmentUsage[] = selectedEnvironments.flatMap((environment) =>
-      environment.summary === null
-        ? []
-        : [
-            {
-              environmentId: environment.environmentId,
-              label: environment.label,
-              summary: environment.summary,
-            },
-          ],
-    );
-    return mergeUsage(answered, USAGE_CONTRACT_VERSION);
-  }, [selectedEnvironments]);
+  const merged = useMemo(
+    () => mergeAnsweredUsage(withoutProviders(selectedEnvironments, hiddenProviders)),
+    [selectedEnvironments, hiddenProviders],
+  );
 
   const answeredCount = selectedEnvironments.filter(
     (environment) => environment.summary !== null,

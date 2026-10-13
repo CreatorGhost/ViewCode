@@ -1,8 +1,8 @@
 # Appearance and themes
 
 On web and desktop, open **Settings → Appearance** to choose a theme and follow the system
-appearance or stay in light or dark mode. To use different themes for light and dark mode, select
-the corresponding preview within each theme. Appearance preferences are saved separately on each
+appearance or stay in light or dark mode. To use different themes for light and dark mode, hover a
+theme and pick its sun (light) or moon (dark). Appearance preferences are saved separately on each
 device or browser.
 
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
@@ -11,15 +11,15 @@ Use **Change appearance** in the command palette to choose System, Light, or Dar
 the theme. **Cmd+Option+Shift+A** on macOS or **Ctrl+Alt+Shift+A** on Windows/Linux cycles through
 those modes. Customize these shortcuts under **Settings → Keybindings**.
 
-On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
-code, and terminal preferences. It does not follow environment themes or defaults.
+On mobile, open **Settings → Appearance**. Mobile offers the same built-in themes as desktop,
+starting with ViewCode Teal, plus the standard T3 Code palette. Tap a theme to use it, or tap
+its sun or moon to use it for light or dark mode only; a dark-only theme applies to dark mode.
+Mobile keeps its own theme, text, code, and terminal preferences and does not follow
+environment themes or defaults.
 
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
 your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
 can be selected separately for light and dark appearances.
-Android uses **Material You Layout** by default unless you have turned it off in Appearance.
-It changes shapes, spacing, and controls independently
-of the selected theme.
 
 ## Window transparency
 
@@ -28,6 +28,14 @@ window around the chat, tinted by your theme. Turn it off with **Window transpar
 **Settings → Appearance**; the change applies immediately. When **Reduce transparency** is on in
 your system settings, the window stays solid. The browser and other systems always use a solid
 background.
+
+## Project colour
+
+When you pick a single project in the rail and that project has a colour, the rail, the sidebar
+and the composer's glow while an agent works take on its colour, lightly enough to sit on any
+theme. With **All projects**, or a project without a colour, they use the theme's accent. In
+**Settings → Appearance → Project colour**, turn off **Colour the app with the active project**
+to keep the theme accent everywhere, or **Composer glow** to drop the glow.
 
 ## Motion
 

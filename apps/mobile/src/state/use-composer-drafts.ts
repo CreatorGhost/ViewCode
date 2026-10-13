@@ -19,6 +19,13 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useEffect } from "react";
+import {
+  ComposerSettingsBasis,
+  markComposerPicks,
+  reconcileComposerPicks,
+  type ComposerSettingKey,
+  type ComposerThreadSettings,
+} from "@t3tools/client-runtime/composer-settings-basis";
 import { Atom } from "effect/unstable/reactivity";
 
 import { writeFileAtomically } from "../lib/atomic-file";
@@ -329,6 +336,12 @@ export interface ComposerDraft {
   readonly modelSelection?: ModelSelection;
   readonly runtimeMode?: RuntimeMode;
   readonly interactionMode?: ProviderInteractionMode;
+  /**
+   * The thread settings the model and mode picks above were made against. A
+   * thread's composer drops a pick once the thread holds something else (see
+   * `reconcileComposerDraftWithThread`).
+   */
+  readonly serverBasis?: ComposerSettingsBasis;
   readonly workspaceSelection?: ComposerDraftWorkspaceSelection;
   /**
    * Set on new-task drafts only. The project is stored here rather than in
@@ -356,6 +369,8 @@ export interface ComposerDraftWorkspaceSelection {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin?: boolean;
+  /** Resolve and check out this PR when the queued task is sent. */
+  readonly pullRequestReference?: string;
 }
 
 export type ComposerDraftSettingsUpdate = Pick<
@@ -368,6 +383,7 @@ const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   startFromOrigin: Schema.optional(Schema.Boolean),
+  pullRequestReference: Schema.optional(Schema.String),
 });
 
 const ComposerDraftProjectSchema = Schema.Struct({
@@ -391,6 +407,7 @@ const ComposerDraftSchema = Schema.Struct({
   modelSelection: Schema.optional(ModelSelectionSchema),
   runtimeMode: Schema.optional(RuntimeModeSchema),
   interactionMode: Schema.optional(ProviderInteractionModeSchema),
+  serverBasis: Schema.optional(ComposerSettingsBasis),
   workspaceSelection: Schema.optional(ComposerDraftWorkspaceSelectionSchema),
   project: Schema.optional(ComposerDraftProjectSchema),
 });
@@ -1378,12 +1395,77 @@ export function updateComposerDraftSettings(
   settings: Partial<ComposerDraftSettingsUpdate>,
 ): void {
   updateComposerDrafts((current) => {
+    const existing = normalizeDraft(current[draftKey]);
+    // A thread draft's pick binds to the thread's settings when its composer
+    // next sees them. New-task drafts have no thread to follow.
+    const picked = (["modelSelection", "runtimeMode", "interactionMode"] as const).filter(
+      (key) => settings[key] !== undefined,
+    );
     const draft = {
-      ...normalizeDraft(current[draftKey]),
+      ...existing,
       ...settings,
+      ...(picked.length > 0 && !isNewTaskDraftKey(draftKey)
+        ? { serverBasis: markComposerPicks(existing.serverBasis, picked) }
+        : {}),
     };
     return withComposerDraft(current, draftKey, draft);
   });
+}
+
+function reconcileDraftPicks(draft: ComposerDraft, server: ComposerThreadSettings) {
+  return reconcileComposerPicks({
+    picked: (["modelSelection", "runtimeMode", "interactionMode"] as const).filter(
+      (key) => draft[key] !== undefined,
+    ),
+    basis: draft.serverBasis,
+    server,
+  });
+}
+
+/** Whether `reconcileComposerDraftWithThread` would change this draft. */
+export function composerDraftNeedsThreadReconcile(
+  draft: ComposerDraft | null | undefined,
+  server: ComposerThreadSettings,
+): boolean {
+  return draft != null && reconcileDraftPicks(draft, server) !== null;
+}
+
+/**
+ * Drops a thread draft's model and mode picks once the thread's own settings
+ * (what the next message uses otherwise) changed since they were picked, from
+ * another device, the server, an agent or this composer's own send.
+ */
+export function reconcileComposerDraftWithThreadState(
+  current: Record<string, ComposerDraft>,
+  draftKey: string,
+  server: ComposerThreadSettings,
+): Record<string, ComposerDraft> {
+  const existing = current[draftKey];
+  if (!existing) {
+    return current;
+  }
+  const result = reconcileDraftPicks(existing, server);
+  if (result === null) {
+    return current;
+  }
+  const keep = (key: ComposerSettingKey) => !result.drop.includes(key);
+  const { modelSelection, runtimeMode, interactionMode, serverBasis: _basis, ...rest } = existing;
+  return withComposerDraft(current, draftKey, {
+    ...rest,
+    ...(modelSelection !== undefined && keep("modelSelection") ? { modelSelection } : {}),
+    ...(runtimeMode !== undefined && keep("runtimeMode") ? { runtimeMode } : {}),
+    ...(interactionMode !== undefined && keep("interactionMode") ? { interactionMode } : {}),
+    ...(result.basis ? { serverBasis: result.basis } : {}),
+  });
+}
+
+export function reconcileComposerDraftWithThread(
+  draftKey: string,
+  server: ComposerThreadSettings,
+): void {
+  updateComposerDrafts((current) =>
+    reconcileComposerDraftWithThreadState(current, draftKey, server),
+  );
 }
 
 export function clearComposerDraftContentState(

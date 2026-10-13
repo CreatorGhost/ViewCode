@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { readDefaultMobileThemeVariables } from "./mobileTheme.test-support";
-import { getMobileThemeVariables, MOBILE_THEME_IDS, themeColorWithAlpha } from "./mobileTheme";
+import {
+  getMobileThemeAppearances,
+  getMobileThemeVariables,
+  MOBILE_THEME_IDS,
+  themeColorWithAlpha,
+} from "./mobileTheme";
 import { getMobileThemeRuntimeVariables } from "./mobileThemeVariables";
 
 describe("mobile theme runtime variables", () => {
@@ -26,7 +31,7 @@ describe("mobile theme runtime variables", () => {
   it.each(MOBILE_THEME_IDS)(
     "keeps %s colors on Android with an opaque Material frame",
     (themeId) => {
-      for (const appearance of ["light", "dark"] as const) {
+      for (const appearance of getMobileThemeAppearances(themeId)) {
         const base = getMobileThemeVariables(
           themeId === "material-you" ? "t3-code" : themeId,
           appearance,

@@ -185,6 +185,39 @@ export function projectIconColorClassNames(color: ProjectIconColor) {
   return PROJECT_ICON_COLOR_CLASSES[color];
 }
 
+/**
+ * A project colour as a native colour value, for drawing that cannot take a class (the
+ * composer glow's computed alphas). Mirrors web's `--project-accent`: Tailwind's 500 shade
+ * on light themes, 400 on dark ones.
+ */
+const PROJECT_ACCENT_COLORS: Record<
+  ProjectIconColor,
+  { readonly light: string; readonly dark: string }
+> = {
+  gray: { light: "#6a7282", dark: "#99a1af" },
+  red: { light: "#fb2c36", dark: "#ff6467" },
+  orange: { light: "#ff6900", dark: "#ff8904" },
+  amber: { light: "#fe9a00", dark: "#ffb900" },
+  yellow: { light: "#f0b100", dark: "#fdc700" },
+  lime: { light: "#7ccf00", dark: "#9ae600" },
+  green: { light: "#00c950", dark: "#05df72" },
+  emerald: { light: "#00bc7d", dark: "#00d492" },
+  teal: { light: "#00bba7", dark: "#00d5be" },
+  cyan: { light: "#00b8db", dark: "#00d3f2" },
+  sky: { light: "#00a6f4", dark: "#00bcff" },
+  blue: { light: "#2b7fff", dark: "#51a2ff" },
+  indigo: { light: "#615fff", dark: "#7c86ff" },
+  violet: { light: "#8e51ff", dark: "#a684ff" },
+  purple: { light: "#ad46ff", dark: "#c27aff" },
+  fuchsia: { light: "#e12afb", dark: "#ed6aff" },
+  pink: { light: "#f6339a", dark: "#fb64b6" },
+  rose: { light: "#ff2056", dark: "#ff637e" },
+};
+
+export function projectAccentColor(color: ProjectIconColor, appearance: "light" | "dark"): string {
+  return PROJECT_ACCENT_COLORS[color][appearance];
+}
+
 /** Every palette colour in web's picker order, for the project colour picker. */
 export const PROJECT_COLORS = Object.keys(
   PROJECT_ICON_COLOR_CLASSES,

@@ -39,10 +39,17 @@ type NativeStackOptionsWithToolbar = NativeStackNavigationOptions & {
 };
 
 function iconFromProp(icon: unknown): NativeStackHeaderIcon | undefined {
-  if (typeof icon !== "string") {
-    return undefined;
+  if (typeof icon === "string") return { type: "sfSymbol", name: icon as never };
+  if (
+    typeof icon === "object" &&
+    icon !== null &&
+    "type" in icon &&
+    icon.type === "image" &&
+    "source" in icon
+  ) {
+    return icon as NativeStackHeaderIcon;
   }
-  return { type: "sfSymbol", name: icon as never };
+  return undefined;
 }
 
 type ToolbarElementProps = Record<string, unknown> & { readonly children?: ReactNode };
@@ -134,7 +141,10 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
           : () => undefined,
       sharesBackground: !child.props.separateBackground,
       tintColor: child.props.tintColor as ColorValue | undefined,
-      variant: "plain",
+      variant:
+        child.props.variant === "done" || child.props.variant === "prominent"
+          ? child.props.variant
+          : "plain",
     };
   }
 
@@ -154,7 +164,10 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
       },
       sharesBackground: !child.props.separateBackground,
       tintColor: child.props.tintColor as ColorValue | undefined,
-      variant: "plain",
+      variant:
+        child.props.variant === "done" || child.props.variant === "prominent"
+          ? child.props.variant
+          : "plain",
     };
   }
 
@@ -225,11 +238,17 @@ function NativeHeaderToolbarRoot(props: {
 function NativeHeaderToolbarButton(_props: {
   readonly accessibilityLabel?: string;
   readonly disabled?: boolean;
-  readonly icon?: string;
+  readonly icon?: string | Extract<NativeStackHeaderIcon, { type: "image" }>;
   readonly label?: string;
   readonly onPress?: () => void;
   readonly separateBackground?: boolean;
   readonly tintColor?: ColorValue;
+  readonly variant?: "plain" | "done" | "prominent";
+  // Upstream sizes and identifies items on react-native-screens 5; ViewCode's
+  // native stack has no such fields, so these are accepted and ignored.
+  readonly identifier?: string;
+  readonly width?: number;
+  readonly height?: number;
 }) {
   return null;
 }
@@ -244,6 +263,12 @@ function NativeHeaderToolbarMenu(_props: {
   readonly separateBackground?: boolean;
   readonly tintColor?: ColorValue;
   readonly title?: string;
+  readonly variant?: "plain" | "done" | "prominent";
+  // Upstream sizes and identifies items on react-native-screens 5; ViewCode's
+  // native stack has no such fields, so these are accepted and ignored.
+  readonly identifier?: string;
+  readonly width?: number;
+  readonly height?: number;
 }) {
   return null;
 }

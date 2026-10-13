@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
@@ -80,6 +81,10 @@ import { useEnvironmentQuery } from "../../state/query";
 import { threadDevicePreviews } from "../devices/threadDevicePreviews";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import {
+  clearThreadComposerError,
+  threadComposerErrorsAtom,
+} from "../../state/thread-composer-error";
 import { useDelayedStatus } from "../../lib/useDelayedStatus";
 import type {
   PendingApproval,
@@ -88,6 +93,7 @@ import type {
   ThreadFeedEntry,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { ComposerErrorNotice } from "./ComposerErrorNotice";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -112,6 +118,8 @@ import {
   COMPOSER_TRANSITION_DURATION_MS,
   ThreadComposer,
 } from "./ThreadComposer";
+import { ComposerPopoverHost } from "./ComposerPopoverHost";
+import type { ComposerCheckout } from "./composerChrome";
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
@@ -140,6 +148,10 @@ export interface ThreadDetailScreenProps {
     | null;
   /** Opens one of this thread's child agents from the Active agents strip. */
   readonly onOpenAgentThread?: (thread: EnvironmentThreadShell) => void;
+  /** Where the thread works, for the strip under the composer; null hides it. */
+  readonly composerCheckout?: ComposerCheckout | null;
+  /** Opens the thread's git controls (from the checkout strip's branch). */
+  readonly onOpenGit?: () => void;
   /** A usage limit stopped the thread; null when it did not. */
   readonly usageResume?: {
     readonly text: string;
@@ -344,6 +356,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + IOS_NAV_BAR_HEIGHT;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  const composerError = useAtomValue(threadComposerErrorsAtom)[selectedThreadKey]?.message ?? null;
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
   const draftMessageRef = useRef(props.draftMessage);
   draftMessageRef.current = props.draftMessage;
@@ -377,9 +390,33 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   )
     ? 0
     : Math.max(insets.bottom, 12);
-  // While typing, the agents strip steps aside so the reply has room to see
-  // what it answers. Same platform split as the inset above.
+  // While typing, the bars glued to the composer (Active agents, checkout)
+  // step aside so the reply has room to see what it answers. Same platform
+  // split as the inset above.
   const composerKeyboardOpen = Platform.OS === "android" ? isKeyboardVisible : composerFocused;
+  // Memoised: the composer is memo'd, and this view re-renders on every streamed token.
+  const { onOpenAgentThread } = props;
+  const selectedThreadKind = props.selectedThread.kind;
+  const selectedThreadIdForAgents = props.selectedThread.id;
+  const selectedParentThreadId = props.selectedThread.parentThreadId ?? null;
+  const activeAgentsBar = useMemo(
+    () =>
+      selectedThreadKind !== "sidechat" && onOpenAgentThread ? (
+        <ActiveAgentsStrip
+          environmentId={props.environmentId}
+          threadId={selectedThreadIdForAgents}
+          parentThreadId={selectedParentThreadId}
+          onOpenThread={onOpenAgentThread}
+        />
+      ) : null,
+    [
+      onOpenAgentThread,
+      props.environmentId,
+      selectedParentThreadId,
+      selectedThreadIdForAgents,
+      selectedThreadKind,
+    ],
+  );
   const contentPresentationKind = props.contentPresentation.kind;
   // The raw sync status enters "synchronizing" on every full fetch, cached or
   // not. Whether messages are already on screen decides the pill label: no
@@ -534,6 +571,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   );
   const userInputCollapsed =
     activeUserInputRequestId !== null && collapsedUserInputRequestId === activeUserInputRequestId;
+  // A pending user-input request or a failed creation owns the composer slot.
+  const composerSlotHidden =
+    activeUserInputRequestId !== null || props.creationState?.kind === "failed";
   // The card's height RESERVES keyboard space at all times instead of
   // tracking the keyboard: transforms (the sticky translation) apply
   // same-frame on the UI thread while layout props lag a Yoga pass behind,
@@ -994,181 +1034,184 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
           style={{ position: "absolute", bottom: 0, left: 0, right: 0, top: 0 }}
           offset={{ closed: 0, opened: 0 }}
         >
-          {/* The fixed sticky host gives this bottom-anchored child a stable
+          <ComposerPopoverHost hidden={composerSlotHidden}>
+            {/* The fixed sticky host gives this bottom-anchored child a stable
               coordinate space. Its top and height can then animate together
               instead of the auto-sized host jumping to Yoga's destination. */}
-          <Animated.View
-            layout={COMPOSER_LAYOUT_TRANSITION}
-            pointerEvents="box-none"
-            style={[{ position: "absolute", bottom: 0, left: 0 }, composerWidthStyle]}
-          >
-            {/* No paddingTop here: the overlay's measured height becomes the
+            <Animated.View
+              layout={COMPOSER_LAYOUT_TRANSITION}
+              pointerEvents="box-none"
+              style={[{ position: "absolute", bottom: 0, left: 0 }, composerWidthStyle]}
+            >
+              {/* No paddingTop here: the overlay's measured height becomes the
                 list's bottom inset, so any padding above the pill/composer
                 pushes the resting content floor up by the same amount. */}
-            <View ref={composerOverlayRef} onLayout={onComposerLayout} className="w-full">
-              <FloatingWorkingControl
-                colorScheme={isDarkMode ? "dark" : "light"}
-                status={floatingStatus}
-                devicePreview={
-                  devicePreviews.length > 0
-                    ? { count: devicePreviews.length, onPress: openDevicePreview }
-                    : null
-                }
-                showScrollToEnd={showScrollToEndButton}
-                onScrollToEnd={handleScrollToEnd}
-              />
-              {/* Android's composer is an opaque panel; back the cards above it
+              <View ref={composerOverlayRef} onLayout={onComposerLayout} className="w-full">
+                <FloatingWorkingControl
+                  colorScheme={isDarkMode ? "dark" : "light"}
+                  status={floatingStatus}
+                  devicePreview={
+                    devicePreviews.length > 0
+                      ? { count: devicePreviews.length, onPress: openDevicePreview }
+                      : null
+                  }
+                  showScrollToEnd={showScrollToEndButton}
+                  onScrollToEnd={handleScrollToEnd}
+                />
+                {/* Android's composer is an opaque panel; back the cards above it
                   with the same surface so the feed never shows between them.
                   iOS keeps its gradient scrim. */}
-              <View className={Platform.OS === "android" ? "bg-screen" : undefined}>
-                <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
-                  {props.feedbackSubmissions.map((submission) => (
-                    <ComposerFeedback
-                      key={submission.id}
-                      submission={submission}
-                      onDismiss={() => props.onDismissFeedback(submission.id)}
-                    />
-                  ))}
-                  {usageLimitsReport && activeUserInputRequestId === null ? (
-                    <Animated.View
-                      className="shrink-0 px-4 pb-3"
-                      entering={FadeInDown.duration(220)}
-                      exiting={FadeOut.duration(140)}
-                    >
-                      <ComposerUsageLimits
-                        report={usageLimitsReport}
-                        environmentId={props.environmentId}
-                        onClose={dismissUsageLimits}
+                <View className={Platform.OS === "android" ? "bg-screen" : undefined}>
+                  <View className="w-full self-center" style={{ maxWidth: contentMaxWidth }}>
+                    {props.feedbackSubmissions.map((submission) => (
+                      <ComposerFeedback
+                        key={submission.id}
+                        submission={submission}
+                        onDismiss={() => props.onDismissFeedback(submission.id)}
                       />
-                    </Animated.View>
-                  ) : null}
-                  {props.selectedThread.kind !== "sidechat" &&
-                  props.onOpenAgentThread &&
-                  activeUserInputRequestId === null &&
-                  !composerKeyboardOpen ? (
-                    <ActiveAgentsStrip
-                      environmentId={props.environmentId}
-                      threadId={props.selectedThread.id}
-                      parentThreadId={props.selectedThread.parentThreadId ?? null}
-                      onOpenThread={props.onOpenAgentThread}
-                    />
-                  ) : null}
-                  {props.usageResume ? (
-                    <Animated.View
-                      className="shrink-0 px-4 pb-3"
-                      entering={FadeInDown.duration(220)}
-                      exiting={FadeOut.duration(140)}
-                    >
-                      <UsageResumeCard {...props.usageResume} />
-                    </Animated.View>
-                  ) : null}
-                  {props.creationState?.kind === "failed" ? (
-                    <Animated.View
-                      className="shrink-0 px-4"
-                      style={{ paddingBottom: composerBottomInset }}
-                      entering={FadeInDown.duration(220)}
-                      exiting={FadeOut.duration(140)}
-                    >
-                      <ThreadCreationFailedCard
-                        reason={props.creationState.reason}
-                        onEditTask={props.creationState.onEditTask}
-                      />
-                    </Animated.View>
-                  ) : null}
-                  {props.activePendingApproval || props.activePendingUserInput ? (
-                    <Animated.View
-                      className="shrink-0 gap-3 px-4 pb-3"
-                      // The questionnaire replaces the composer, so it must pad
-                      // the home indicator the composer normally covers.
-                      style={
-                        activeUserInputRequestId !== null
-                          ? { paddingBottom: composerBottomInset }
-                          : undefined
-                      }
-                      entering={FadeInDown.duration(220)}
-                      exiting={FadeOut.duration(140)}
-                    >
-                      {props.activePendingApproval ? (
-                        <PendingApprovalCard
-                          approval={props.activePendingApproval}
-                          respondingApprovalId={props.respondingApprovalId}
-                          onRespond={props.onRespondToApproval}
+                    ))}
+                    {composerError !== null ? (
+                      <Animated.View
+                        className="shrink-0"
+                        entering={FadeInDown.duration(180)}
+                        exiting={FadeOut.duration(120)}
+                      >
+                        <ComposerErrorNotice
+                          message={composerError}
+                          onDismiss={() => clearThreadComposerError(selectedThreadKey)}
                         />
-                      ) : null}
-                      {props.activePendingUserInput ? (
-                        <PendingUserInputCard
-                          pendingUserInput={props.activePendingUserInput}
-                          maxHeight={pendingUserInputMaxHeight}
-                          collapsed={userInputCollapsed}
-                          onToggleCollapsed={handleToggleUserInputCollapsed}
-                          onStopThread={props.onStopThread}
-                          cardProgress={userInputCardProgress}
-                          cardCoverage={userInputCardCoverage}
-                          onInputFocusChange={handleOwnedInputFocusChange}
-                          drafts={props.activePendingUserInputDrafts}
-                          answers={props.activePendingUserInputAnswers}
-                          respondingUserInputId={props.respondingUserInputId}
-                          onSelectOption={props.onSelectUserInputOption}
-                          onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
-                          onSubmit={props.onSubmitUserInput}
-                          onDismiss={props.onDismissUserInput}
+                      </Animated.View>
+                    ) : null}
+                    {usageLimitsReport && activeUserInputRequestId === null ? (
+                      <Animated.View
+                        className="shrink-0 px-4 pb-3"
+                        entering={FadeInDown.duration(220)}
+                        exiting={FadeOut.duration(140)}
+                      >
+                        <ComposerUsageLimits
+                          report={usageLimitsReport}
+                          environmentId={props.environmentId}
+                          onClose={dismissUsageLimits}
                         />
-                      ) : null}
-                    </Animated.View>
-                  ) : null}
+                      </Animated.View>
+                    ) : null}
+                    {props.usageResume ? (
+                      <Animated.View
+                        className="shrink-0 px-4 pb-3"
+                        entering={FadeInDown.duration(220)}
+                        exiting={FadeOut.duration(140)}
+                      >
+                        <UsageResumeCard {...props.usageResume} />
+                      </Animated.View>
+                    ) : null}
+                    {props.creationState?.kind === "failed" ? (
+                      <Animated.View
+                        className="shrink-0 px-4"
+                        style={{ paddingBottom: composerBottomInset }}
+                        entering={FadeInDown.duration(220)}
+                        exiting={FadeOut.duration(140)}
+                      >
+                        <ThreadCreationFailedCard
+                          reason={props.creationState.reason}
+                          onEditTask={props.creationState.onEditTask}
+                        />
+                      </Animated.View>
+                    ) : null}
+                    {props.activePendingApproval || props.activePendingUserInput ? (
+                      <Animated.View
+                        className="shrink-0 gap-3 px-4 pb-3"
+                        // The questionnaire replaces the composer, so it must pad
+                        // the home indicator the composer normally covers.
+                        style={
+                          activeUserInputRequestId !== null
+                            ? { paddingBottom: composerBottomInset }
+                            : undefined
+                        }
+                        entering={FadeInDown.duration(220)}
+                        exiting={FadeOut.duration(140)}
+                      >
+                        {props.activePendingApproval ? (
+                          <PendingApprovalCard
+                            approval={props.activePendingApproval}
+                            respondingApprovalId={props.respondingApprovalId}
+                            onRespond={props.onRespondToApproval}
+                          />
+                        ) : null}
+                        {props.activePendingUserInput ? (
+                          <PendingUserInputCard
+                            pendingUserInput={props.activePendingUserInput}
+                            maxHeight={pendingUserInputMaxHeight}
+                            collapsed={userInputCollapsed}
+                            onToggleCollapsed={handleToggleUserInputCollapsed}
+                            onStopThread={props.onStopThread}
+                            cardProgress={userInputCardProgress}
+                            cardCoverage={userInputCardCoverage}
+                            onInputFocusChange={handleOwnedInputFocusChange}
+                            drafts={props.activePendingUserInputDrafts}
+                            answers={props.activePendingUserInputAnswers}
+                            respondingUserInputId={props.respondingUserInputId}
+                            onSelectOption={props.onSelectUserInputOption}
+                            onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
+                            onSubmit={props.onSubmitUserInput}
+                            onDismiss={props.onDismissUserInput}
+                          />
+                        ) : null}
+                      </Animated.View>
+                    ) : null}
+                  </View>
                 </View>
-              </View>
 
-              {/* Hidden (not unmounted) while a user-input request owns the
+                {/* Hidden (not unmounted) while a user-input request owns the
                 composer slot, so composer drafts and editor state survive.
                 A rejected creation has no thread to send to; the failure card
                 owns the slot instead. */}
-              <View
-                style={
-                  activeUserInputRequestId !== null || props.creationState?.kind === "failed"
-                    ? { display: "none" }
-                    : undefined
-                }
-              >
-                <ThreadComposer
-                  editorRef={composerEditorRef}
-                  draftMessage={props.draftMessage}
-                  draftAttachments={props.draftAttachments}
-                  placeholder="Ask or run a command…"
-                  contentMaxWidth={contentMaxWidth}
-                  connectionState={props.connectionStateLabel}
-                  environmentLabel={props.environmentLabel}
-                  selectedThread={props.selectedThread}
-                  hasCompactableConversation={hasCompactableConversation && !props.isCompacting}
-                  serverConfig={props.serverConfig}
-                  queueCount={props.selectedThreadQueueCount}
-                  environmentId={props.environmentId}
-                  projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
-                  // Follow-ups typed during setup wait in the draft: queueing
-                  // them against a thread id the server may still reject
-                  // would strand them in the outbox.
-                  sendBlockedReason={
-                    props.creationState?.kind === "preparing" ? "Starting the task…" : null
-                  }
-                  bottomInset={composerBottomInset}
-                  onChangeDraftMessage={props.onChangeDraftMessage}
-                  onPickDraftMedia={props.onPickDraftMedia}
-                  onPickDraftFiles={props.onPickDraftFiles}
-                  onNativePasteImages={props.onNativePasteImages}
-                  onNativePasteText={props.onNativePasteText}
-                  onRemoveDraftImage={props.onRemoveDraftImage}
-                  onStopThread={props.onStopThread}
-                  onSendMessage={handleSendMessage}
-                  onShowUsageLimits={showUsageLimits}
-                  onUpdateModelSelection={props.onUpdateThreadModelSelection}
-                  onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
-                  onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
-                  onExpandedChange={setComposerExpanded}
-                  onEditorFocusChange={handleComposerFocusChange}
-                />
+                <View style={composerSlotHidden ? { display: "none" } : undefined}>
+                  <ThreadComposer
+                    editorRef={composerEditorRef}
+                    hidden={composerSlotHidden}
+                    draftMessage={props.draftMessage}
+                    draftAttachments={props.draftAttachments}
+                    placeholder="Ask or run a command…"
+                    contentMaxWidth={contentMaxWidth}
+                    connectionState={props.connectionStateLabel}
+                    environmentLabel={props.environmentLabel}
+                    selectedThread={props.selectedThread}
+                    hasCompactableConversation={hasCompactableConversation && !props.isCompacting}
+                    serverConfig={props.serverConfig}
+                    queueCount={props.selectedThreadQueueCount}
+                    environmentId={props.environmentId}
+                    projectCwd={props.threadCwd ?? props.projectWorkspaceRoot}
+                    // Follow-ups typed during setup wait in the draft: queueing
+                    // them against a thread id the server may still reject
+                    // would strand them in the outbox.
+                    sendBlockedReason={
+                      props.creationState?.kind === "preparing" ? "Starting the task…" : null
+                    }
+                    bottomInset={composerBottomInset}
+                    onChangeDraftMessage={props.onChangeDraftMessage}
+                    onPickDraftMedia={props.onPickDraftMedia}
+                    onPickDraftFiles={props.onPickDraftFiles}
+                    onNativePasteImages={props.onNativePasteImages}
+                    onNativePasteText={props.onNativePasteText}
+                    onRemoveDraftImage={props.onRemoveDraftImage}
+                    onStopThread={props.onStopThread}
+                    onSendMessage={handleSendMessage}
+                    onShowUsageLimits={showUsageLimits}
+                    onUpdateModelSelection={props.onUpdateThreadModelSelection}
+                    onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
+                    onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
+                    onExpandedChange={setComposerExpanded}
+                    onEditorFocusChange={handleComposerFocusChange}
+                    // The glued bars step aside while the keyboard is up so the
+                    // draft keeps the room; the composer's own toolbar stays.
+                    topAccessory={composerKeyboardOpen ? null : activeAgentsBar}
+                    checkout={composerKeyboardOpen ? null : (props.composerCheckout ?? null)}
+                    onPressCheckoutBranch={props.onOpenGit}
+                  />
+                </View>
               </View>
-            </View>
-          </Animated.View>
+            </Animated.View>
+          </ComposerPopoverHost>
         </KeyboardStickyView>
       ) : null}
     </View>

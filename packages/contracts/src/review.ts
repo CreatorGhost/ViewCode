@@ -6,6 +6,12 @@ import { VcsError } from "./vcs.ts";
 export const ReviewDiffPreviewInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   baseRef: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * The end of the branch range instead of HEAD: `baseRef...headRef`, such as one commit's
+   * `<sha>^...<sha>`. Older servers ignore it and diff against HEAD; clients send it only to
+   * servers advertising `localAgentReviewScope`.
+   */
+  headRef: Schema.optional(TrimmedNonEmptyString),
   ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
   file: Schema.optionalKey(
     Schema.Struct({
@@ -68,3 +74,40 @@ export type ReviewDiffPreviewResult = typeof ReviewDiffPreviewResult.Type;
 
 export const ReviewDiffPreviewError = Schema.Union([VcsError, GitCommandError]);
 export type ReviewDiffPreviewError = typeof ReviewDiffPreviewError.Type;
+
+/** At most this many commits are listed for a reader to pick one to review. */
+export const REVIEW_LIST_COMMITS_MAX = 50;
+
+/**
+ * The latest commits of a checkout, for picking one to review (`LocalReviewScope` "commit").
+ * Only for servers advertising `localAgentReviewScope`.
+ */
+export const ReviewListCommitsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  /** Default and most: `REVIEW_LIST_COMMITS_MAX`. */
+  limit: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: REVIEW_LIST_COMMITS_MAX })),
+  ),
+});
+export type ReviewListCommitsInput = typeof ReviewListCommitsInput.Type;
+
+export const ReviewCommit = Schema.Struct({
+  sha: TrimmedNonEmptyString,
+  shortSha: TrimmedNonEmptyString,
+  subject: Schema.String,
+  author: Schema.String,
+  /** ISO 8601, for clients to show as a relative date. */
+  committedAt: Schema.String,
+});
+export type ReviewCommit = typeof ReviewCommit.Type;
+
+export const ReviewListCommitsResult = Schema.Struct({
+  /** Newest first, from HEAD. */
+  commits: Schema.Array(ReviewCommit),
+  /**
+   * The branch a branch review diffs against when none is named (the remote's default branch,
+   * such as `origin/main`); null when the checkout has none.
+   */
+  base: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ReviewListCommitsResult = typeof ReviewListCommitsResult.Type;

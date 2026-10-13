@@ -7,7 +7,11 @@ import {
   type OrchestrationThreadShell,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { type SettlementPullRequest, resolveAutoSettlementAt } from "./ThreadSettlementPolicy.ts";
+import {
+  MAX_SETTLEMENT_AGENT_DEPTH,
+  type SettlementPullRequest,
+  resolveAutoSettlementAt,
+} from "./ThreadSettlementPolicy.ts";
 
 const NOW = "2026-08-28T12:00:00.000Z";
 const makeThread = (
@@ -50,6 +54,100 @@ const decide = (
   }) !== null;
 
 describe("resolveAutoSettlementAt", () => {
+  it.each(["starting", "running", "approval", "input", "queued", "background"] as const)(
+    "keeps a lead active while its child has %s work",
+    (work) => {
+      const lead = makeThread();
+      const child = makeThread({
+        id: ThreadId.make("child"),
+        parentThreadId: lead.id,
+        ...(work === "starting" || work === "running"
+          ? {
+              session: {
+                threadId: ThreadId.make("child"),
+                status: work,
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: null,
+                lastError: null,
+                updatedAt: NOW,
+              },
+            }
+          : {}),
+        hasPendingApprovals: work === "approval",
+        hasPendingUserInput: work === "input",
+        latestUserMessageAt: work === "queued" ? NOW : lead.latestUserMessageAt,
+        backgroundLiveness: work === "background" ? "working" : null,
+      });
+      const decideWithChild = (candidate: OrchestrationThreadShell) =>
+        resolveAutoSettlementAt({
+          thread: lead,
+          agentTree: Map.groupBy([candidate], (thread) => thread.parentThreadId),
+          pullRequest: { state: "merged", mergedAt: NOW },
+          now: NOW,
+          autoSettleAfterDays: 3,
+          autoSettleOnMerge: true,
+        });
+      expect(decideWithChild(child)).toBeNull();
+      for (const ignored of [
+        { kind: "sidechat" as const },
+        { archivedAt: NOW },
+        { settledOverride: "settled" as const, settledAt: NOW },
+        { parentThreadId: ThreadId.make("other") },
+      ])
+        expect(decideWithChild({ ...child, ...ignored })).not.toBeNull();
+    },
+  );
+
+  it("keeps a lead active through an idle child while a grandchild works", () => {
+    const lead = makeThread();
+    const child = makeThread({ id: ThreadId.make("child"), parentThreadId: lead.id });
+    const grandchild = makeThread({
+      id: ThreadId.make("grandchild"),
+      parentThreadId: child.id,
+      hasPendingApprovals: true,
+    });
+    const resolve = (agents: ReadonlyArray<OrchestrationThreadShell>) =>
+      resolveAutoSettlementAt({
+        thread: lead,
+        agentTree: Map.groupBy(agents, (thread) => thread.parentThreadId),
+        pullRequest: { state: "merged", mergedAt: NOW },
+        now: NOW,
+        autoSettleAfterDays: 3,
+        autoSettleOnMerge: true,
+      });
+    expect(resolve([child, grandchild])).toBeNull();
+    for (const boundary of [
+      { kind: "sidechat" as const },
+      { settledOverride: "settled" as const, settledAt: NOW },
+      { archivedAt: NOW },
+    ]) {
+      expect(resolve([{ ...child, ...boundary }, grandchild])).not.toBeNull();
+    }
+  });
+
+  it("bounds cyclic and deeply nested settlement walks", () => {
+    const lead = makeThread();
+    const child = makeThread({ id: ThreadId.make("child"), parentThreadId: lead.id });
+    const resolve = (agents: ReadonlyArray<OrchestrationThreadShell>) =>
+      resolveAutoSettlementAt({
+        thread: lead,
+        agentTree: Map.groupBy(agents, (thread) => thread.parentThreadId),
+        pullRequest: { state: "merged", mergedAt: NOW },
+        now: NOW,
+        autoSettleAfterDays: 3,
+        autoSettleOnMerge: true,
+      });
+    expect(resolve([child, { ...lead, parentThreadId: child.id }])).not.toBeNull();
+    const deep = Array.from({ length: MAX_SETTLEMENT_AGENT_DEPTH + 2 }, (_, index) =>
+      makeThread({
+        id: ThreadId.make(`depth-${index}`),
+        parentThreadId: index === 0 ? lead.id : ThreadId.make(`depth-${index - 1}`),
+      }),
+    );
+    expect(resolve(deep)).toBeNull();
+  });
+
   it("returns the last activity time for persisted settlement", () => {
     expect(
       resolveAutoSettlementAt({

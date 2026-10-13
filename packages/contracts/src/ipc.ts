@@ -1174,7 +1174,11 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
  * A System Settings pane the app can deep-link to. The identifier crosses IPC
  * rather than a URL, so the renderer can only reach these known destinations.
  */
-export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
+export const SystemSettingsPaneSchema = Schema.Literals([
+  "full-disk-access",
+  "accessibility",
+  "screen-recording",
+]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
 export interface DesktopBridge {
@@ -1317,6 +1321,14 @@ export interface DesktopBridge {
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
   /** Present when the desktop shell accepts `t3 app` activation requests. */
+  /**
+   * Web links the OS opens with T3 Code as the default browser (macOS). The
+   * renderer reports when it listens; links queue in the main process until then.
+   */
+  webLinks?: {
+    setReady: (ready: boolean) => Promise<void>;
+    onOpen: (listener: (url: string) => void) => () => void;
+  };
   appActivation?: {
     setReady: (ready: boolean) => Promise<void>;
     complete: (response: DesktopAppActivationResponse) => Promise<void>;

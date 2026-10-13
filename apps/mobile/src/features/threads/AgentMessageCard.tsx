@@ -1,4 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
+import { formatReviewDuration, formatReviewElapsed } from "@t3tools/client-runtime/agent-review";
+import { reviewProgress } from "@t3tools/client-runtime/review-findings";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   SPAWNED_AGENT_STATUS_LABEL,
@@ -8,10 +10,11 @@ import {
   spawnedAgentElapsedRange,
   spawnedAgentTaskTitle,
 } from "@t3tools/client-runtime/state/child-agents";
-import { ThreadId, type EnvironmentId } from "@t3tools/contracts";
+import { type AgentReviewMode, ThreadId, type EnvironmentId } from "@t3tools/contracts";
 import type { AgentMessageEnvelope, AgentMessageSentPayload } from "@t3tools/shared/agentMessages";
 import { useNavigation } from "@react-navigation/native";
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { openThreadFromThread } from "./openThreadFromThread";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import * as Haptics from "expo-haptics";
 import { Pressable, View, type ColorValue } from "react-native";
 
@@ -22,8 +25,15 @@ import { cn } from "../../lib/cn";
 import { useThreadShell } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { resolveHomeAgentModelLabel } from "../home/homeFolderList";
+import {
+  agentReviewModeLabel,
+  useMinuteClock,
+  useReviewerRun,
+} from "../review/agent/useAgentReviews";
+import { useReviewThreadFindings } from "../review/findings/useReviewThreadFindings";
 import type { AgentChatterHeaderEntry } from "./agentChatter";
 import { ThreadDisclosureChevron } from "./thread-work-log";
+import { useVisibleSecondClock } from "./use-visible-second-clock";
 
 /**
  * An agent-to-agent message as one line: "to"/"from" icon, the agent's name
@@ -66,7 +76,7 @@ function AgentMessageRow(props: {
           className="max-w-[45%] shrink-0"
           hitSlop={6}
           onPress={() =>
-            navigation.navigate("Thread", {
+            openThreadFromThread(navigation, {
               environmentId: props.environmentId,
               threadId: props.threadId,
             })
@@ -216,16 +226,79 @@ const STATUS_DOT_CLASS: Record<SpawnedAgentRowStatus, string> = {
   idle: "bg-foreground-muted",
 };
 
-/**
- * A child agent this thread started, on one line like web: provider icon with
- * a status dot, "name: task · status" and elapsed time. Tap opens the agent;
- * the chevron shows its instructions.
- */
+/** A review started from this chat, shown in place of a plain agent row's name and status. */
+interface SpawnedReview {
+  /** "Deep review". */
+  readonly label: string;
+  /** Its reviewer or an agent it started is at work (`reviewRunState`). */
+  readonly running: boolean;
+  /** It sent its final findings (`reviewProgress`). */
+  readonly done: boolean;
+  readonly onOpen: () => void;
+}
+
 function SpawnedAgentRow(props: {
   readonly sent: AgentMessageSentPayload;
   readonly environmentId: EnvironmentId;
 }) {
+  return props.sent.review === undefined ? (
+    <AgentRow {...props} review={null} />
+  ) : (
+    <ReviewAgentRow {...props} mode={props.sent.review} />
+  );
+}
+
+/**
+ * A review this chat started, as its agent row: named for its depth, running while it or any
+ * agent it started works (a reviewer is idle between its agents' answers), timed from its start,
+ * and opening its findings rather than the reviewer's chat.
+ */
+function ReviewAgentRow(props: {
+  readonly sent: AgentMessageSentPayload;
+  readonly environmentId: EnvironmentId;
+  readonly mode: AgentReviewMode;
+}) {
   const { sent, environmentId } = props;
+  const navigation = useNavigation();
+  const ref = useMemo(
+    () => scopeThreadRef(environmentId, ThreadId.make(sent.toThreadId)),
+    [environmentId, sent.toThreadId],
+  );
+  const { shell, source } = useReviewThreadFindings(ref);
+  const { run } = useReviewerRun(environmentId, shell);
+  // Read as its findings screen reads it: a review that sent its final findings is done, even if
+  // its reviewer's session errored afterwards (a server restart while its last turn wrapped up).
+  const progress =
+    run === null ? null : reviewProgress({ run, findings: source?.findings ?? null });
+  const chatId = shell?.parentThreadId ?? null;
+  const review = useMemo<SpawnedReview>(
+    () => ({
+      label: agentReviewModeLabel(props.mode),
+      running: progress?.kind === "running",
+      done: progress?.kind === "done",
+      onOpen: () =>
+        navigation.navigate("ThreadReviewFindings", {
+          environmentId,
+          threadId: sent.toThreadId,
+          ...(chatId === null ? {} : { fromThreadId: chatId }),
+        }),
+    }),
+    [chatId, environmentId, navigation, progress?.kind, props.mode, sent.toThreadId],
+  );
+  return <AgentRow sent={sent} environmentId={environmentId} review={review} />;
+}
+
+/**
+ * A child agent this thread started, on one line like web: provider icon with
+ * a status dot, "name: task · status" and elapsed time. Tap opens the agent
+ * (a review's findings); the chevron shows its instructions.
+ */
+function AgentRow(props: {
+  readonly sent: AgentMessageSentPayload;
+  readonly environmentId: EnvironmentId;
+  readonly review: SpawnedReview | null;
+}) {
+  const { sent, environmentId, review } = props;
   const navigation = useNavigation();
   const [expanded, setExpanded] = useState(false);
   const ref = useMemo(
@@ -238,13 +311,37 @@ function SpawnedAgentRow(props: {
   const provider = serverConfigs
     .get(environmentId)
     ?.providers.find((candidate) => candidate.instanceId === instanceId);
-  const status = resolveSpawnedAgentRowStatus(shell, sent.delivery);
-  const range = spawnedAgentElapsedRange(shell);
-  const live = status === "running" && range !== null && range.endMs === null;
-  const nowMs = useSecondTicker(live);
-  const name = shell?.title.trim() || sent.toName.trim() || "Agent";
-  const task = spawnedAgentTaskTitle(sent);
+  const status: SpawnedAgentRowStatus | null =
+    review?.running === true
+      ? "running"
+      : review?.done === true
+        ? "done"
+        : resolveSpawnedAgentRowStatus(shell, sent.delivery);
+  const lastTurn = spawnedAgentElapsedRange(shell);
+  const live = status === "running" && lastTurn !== null && lastTurn.endMs === null;
+  const nowMs = useVisibleSecondClock(live && review === null);
+  // A review's time is the whole review's, in the words its findings use: how long so far by the
+  // minute while it runs, how long it took once it is over.
+  const reviewNowMs = useMinuteClock(review?.running === true);
+  const elapsed =
+    review === null
+      ? lastTurn !== null && (lastTurn.endMs !== null || live)
+        ? formatAgentElapsed((lastTurn.endMs ?? nowMs) - lastTurn.startMs)
+        : null
+      : shell === null || lastTurn === null
+        ? null
+        : review.running || lastTurn.endMs === null
+          ? formatReviewElapsed(reviewNowMs - Date.parse(shell.createdAt))
+          : formatReviewDuration(lastTurn.endMs - Date.parse(shell.createdAt));
+  const name = review?.label ?? (shell?.title.trim() || sent.toName.trim() || "Agent");
+  const task = review === null ? spawnedAgentTaskTitle(sent) : null;
   const modelLabel = shell ? resolveHomeAgentModelLabel(serverConfigs, shell) : null;
+  const statusLabel =
+    status === null
+      ? null
+      : review !== null && status === "running"
+        ? "Reviewing"
+        : SPAWNED_AGENT_STATUS_LABEL[status];
   return (
     <View className="mb-3">
       <View className="flex-row items-center gap-2.5">
@@ -265,32 +362,34 @@ function SpawnedAgentRow(props: {
         </View>
         <Pressable
           accessibilityRole="link"
-          accessibilityHint="Opens that agent's thread."
+          accessibilityHint={
+            review === null ? "Opens that agent's thread." : "Opens the review's findings."
+          }
           className="min-w-0 flex-1 active:opacity-70"
           disabled={!shell}
-          onPress={() =>
-            navigation.navigate("Thread", { environmentId, threadId: sent.toThreadId })
+          onPress={
+            review?.onOpen ??
+            (() => openThreadFromThread(navigation, { environmentId, threadId: sent.toThreadId }))
           }
         >
           <Text className="text-sm text-foreground" numberOfLines={1}>
             <Text className="font-t3-medium">{task ? `${name}:` : name}</Text>
             {task ? ` ${task}` : ""}
-            {status ? (
+            {review !== null && modelLabel ? ` · ${modelLabel}` : ""}
+            {statusLabel ? (
               <Text
                 className={cn(
                   "text-foreground-muted",
                   status === "failed" && "text-adaptive-rose-600-400",
                 )}
               >
-                {` · ${SPAWNED_AGENT_STATUS_LABEL[status]}`}
+                {` · ${statusLabel}`}
               </Text>
             ) : null}
           </Text>
         </Pressable>
-        {range && (range.endMs !== null || live) ? (
-          <Text className="shrink-0 text-xs text-foreground-tertiary">
-            {formatAgentElapsed((range.endMs ?? nowMs) - range.startMs)}
-          </Text>
+        {elapsed !== null ? (
+          <Text className="shrink-0 text-xs text-foreground-tertiary">{elapsed}</Text>
         ) : null}
         <Pressable
           accessibilityRole="button"
@@ -312,6 +411,19 @@ function SpawnedAgentRow(props: {
               {[provider?.displayName ?? null, modelLabel].filter(Boolean).join(" · ")}
             </Text>
           ) : null}
+          {review !== null && shell ? (
+            <Pressable
+              accessibilityRole="link"
+              accessibilityHint="Opens the reviewer's own chat."
+              hitSlop={6}
+              onPress={() =>
+                openThreadFromThread(navigation, { environmentId, threadId: sent.toThreadId })
+              }
+              className="self-start active:opacity-70"
+            >
+              <Text className="text-xs text-foreground underline">View agent</Text>
+            </Pressable>
+          ) : null}
           <Text selectable className="text-sm text-foreground">
             {sent.body.trim()}
           </Text>
@@ -319,15 +431,4 @@ function SpawnedAgentRow(props: {
       ) : null}
     </View>
   );
-}
-
-/** Now, refreshed once a second while `active`; frozen otherwise. */
-function useSecondTicker(active: boolean): number {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => clearInterval(id);
-  }, [active]);
-  return nowMs;
 }

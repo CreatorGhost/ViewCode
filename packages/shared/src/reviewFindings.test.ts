@@ -19,6 +19,7 @@ import {
   fencedCode,
   postedReviewFindings,
   readReviewFindings,
+  reviewFindingIdentity,
   recentRatedReviewFindings,
   reviewCommentableLines,
   reviewFindingRatings,
@@ -105,6 +106,10 @@ describe("fencedCode", () => {
   it("keeps indentation and outgrows backticks in the code", () => {
     expect(fencedCode("  const a = 1;\n", "src/a.ts")).toBe("```ts\n  const a = 1;\n```");
     expect(fencedCode("const s = ````;", "Makefile")).toBe("`````\nconst s = ````;\n`````");
+  });
+
+  it("drops blank lines around the code, which read as an empty block", () => {
+    expect(fencedCode("\n\n  const a = 1;\n\n", "src/a.ts")).toBe("```ts\n  const a = 1;\n```");
   });
 });
 
@@ -363,6 +368,59 @@ describe("buildReviewFromFindings", () => {
     expect(review.comments).toEqual([]);
     expect(review.placements).toEqual([{ key: "finding:0", placement: "body" }]);
     expect(review.body).toBe(reviewFindingCommentBody(onLine, "body"));
+  });
+});
+
+describe("postedReviewFindings across a review's sets", () => {
+  const finding = (title: string, line: number) => ({
+    severity: "important",
+    confidence: 90,
+    path: "src/retry.ts",
+    line,
+    title,
+    detail: "Detail.",
+  });
+  const set = (id: string, findings: ReadonlyArray<ReturnType<typeof finding>>) => ({
+    id,
+    kind: "viewcode.review.findings",
+    payload: {
+      verdict: "request-changes",
+      mergeConfidence: 2,
+      reviewEffort: 2,
+      findings,
+      needsChecking: [],
+      target: { kind: "pull-request", host: "github.com", repository: "o/r", number: 7, url: "u" },
+    },
+  });
+  const postedFrom = (findingsActivityId: string, key: string) => ({
+    kind: "viewcode.review.posted",
+    payload: {
+      findingsActivityId,
+      verdict: "comment",
+      url: "https://github.com/o/r/pull/7",
+      findings: [{ key, placement: "inline" }],
+    },
+  });
+
+  it("marks a finding posted from the findings so far as posted in the final set", () => {
+    const activities = [
+      set("partial", [finding("Retry never stops", 12)]),
+      postedFrom("partial", "finding:0"),
+      // The final set adds a finding before it and words the title a little differently.
+      set("final", [finding("Missing timeout", 3), finding("retry  never STOPS", 12)]),
+    ];
+    const posted = postedReviewFindings(activities, "final");
+    expect([...posted.keys()]).toEqual(["finding:1"]);
+    expect(reviewFindingIdentity(finding("Retry never stops", 12))).toBe(
+      reviewFindingIdentity(finding(" retry never  stops ", 12)),
+    );
+    // Another line is another finding.
+    expect(
+      postedReviewFindings(
+        [...activities, set("moved", [finding("Retry never stops", 13)])],
+        "moved",
+      ).size,
+    ).toBe(0);
   });
 });
 

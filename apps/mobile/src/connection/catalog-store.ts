@@ -48,16 +48,26 @@ interface CatalogStore {
   ) => Effect.Effect<void, ConnectionTransientError>;
 }
 
-/** T3 Connect relay entries have no transport here; they would show as broken connections. */
+/**
+ * T3 Connect relay routes have no transport here; they would show as broken
+ * connections. Only the relay route goes: an environment that is also saved
+ * over a direct address keeps that route.
+ */
 function withoutRelayTargets(catalog: ConnectionCatalogDocumentType) {
   const relay = catalog.targets.filter((target) => target._tag === "RelayConnectionTarget");
   if (relay.length === 0) return null;
-  const ids = new Set(relay.map((target) => target.environmentId));
+  const relayIds = new Set(relay.map((target) => target.environmentId));
+  const targets = catalog.targets.filter((target) => target._tag !== "RelayConnectionTarget");
+  const remaining = new Set(targets.map((target) => target.environmentId));
   return {
     ...catalog,
-    targets: catalog.targets.filter((target) => !ids.has(target.environmentId)),
-    remoteDpopTokens: catalog.remoteDpopTokens.filter((token) => !ids.has(token.environmentId)),
-    disabledEnvironmentIds: catalog.disabledEnvironmentIds.filter((id) => !ids.has(id)),
+    targets,
+    remoteDpopTokens: catalog.remoteDpopTokens.filter(
+      (token) => !relayIds.has(token.environmentId),
+    ),
+    disabledEnvironmentIds: catalog.disabledEnvironmentIds.filter(
+      (id) => !relayIds.has(id) || remaining.has(id),
+    ),
   };
 }
 

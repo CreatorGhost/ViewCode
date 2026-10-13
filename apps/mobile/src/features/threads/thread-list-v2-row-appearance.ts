@@ -2,10 +2,21 @@ import type { ViewStyle } from "react-native";
 import type { MobileThemeVariables } from "../../lib/mobileTheme";
 
 export const THREAD_LIST_V2_MONO_FONT = "Menlo";
-export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-5 py-2.5";
-export const THREAD_LIST_V2_ROW_DIVIDERS = true;
-export const THREAD_LIST_V2_PROVIDER_LEADS_TITLE = false;
-export const THREAD_LIST_V2_META_ICONS = false;
+// Row layout matches Android's (thread-list-v2-row-appearance.android.ts): ViewCode's
+// clean list on every platform, with no hairlines and the provider glyph before the title.
+export const THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME = "px-6 py-2.5";
+export const THREAD_LIST_V2_ROW_DIVIDERS = false;
+export const THREAD_LIST_V2_PROVIDER_LEADS_TITLE = true;
+export const THREAD_LIST_V2_META_ICONS = true;
+export const THREAD_LIST_V2_SIDEBAR_ROW_STYLE = {
+  borderRadius: 12,
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+} satisfies ViewStyle;
+export const THREAD_LIST_V2_SIDEBAR_ROW_CONTAINER_STYLE = {
+  borderRadius: 12,
+  overflow: "hidden",
+} satisfies ViewStyle;
 
 export const selectedThreadRowColors = {
   foregroundClassName: "text-thread-selected-foreground",
@@ -29,11 +40,11 @@ export function getThreadListV2RowAppearance(
   const style: ViewStyle | undefined = sidebarPane
     ? {
         backgroundColor: selected ? selectedBackgroundColor : theme["--color-drawer"],
-        borderRadius: 12,
+        borderRadius: THREAD_LIST_V2_SIDEBAR_ROW_STYLE.borderRadius,
       }
     : undefined;
   const swipeContainerStyle: ViewStyle | undefined = sidebarPane
-    ? { borderRadius: 12, overflow: "hidden" }
+    ? THREAD_LIST_V2_SIDEBAR_ROW_CONTAINER_STYLE
     : undefined;
 
   return {
@@ -54,7 +65,7 @@ export function getThreadListV2RowAppearance(
       ? "accent-drawer-foreground-muted"
       : "accent-foreground-tertiary",
     style,
-    cardStyle: sidebarPane ? { ...style, paddingHorizontal: 12, paddingVertical: 10 } : undefined,
+    cardStyle: sidebarPane ? { ...style, ...THREAD_LIST_V2_SIDEBAR_ROW_STYLE } : undefined,
     swipeContainerStyle,
     swipeBackgroundColor:
       theme[sidebarPane ? "--color-drawer" : inFolderCard ? "--color-card" : "--color-screen"],

@@ -512,7 +512,7 @@ function ProjectDetail({
           />
           <SettingsRow
             title="Project color"
-            description="Marks this project on its tabs, top bar and rail button. A dot marks colors other projects use."
+            description="Marks this project in the sidebar and on its rail button. A dot marks colors other projects use."
             resetAction={
               projectColor !== null ? (
                 <SettingResetButton
@@ -590,6 +590,12 @@ function ProjectDetail({
             open
             onOpenChange={setIconPickerOpen}
             onSelect={(icon) => void setProjectIcon({ faviconPath: null, projectIcon: icon })}
+            logos={{
+              environmentId: representative.environmentId,
+              cwd: representative.workspaceRoot,
+              savedPath: representative.faviconPath ?? null,
+              onSelect: (faviconPath) => void setProjectIcon({ faviconPath, projectIcon: null }),
+            }}
           />
         </Suspense>
       ) : null}

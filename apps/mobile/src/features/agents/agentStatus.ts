@@ -40,3 +40,19 @@ export function sortAgentsByStatus<T>(agents: ReadonlyArray<T>, rankOf: (agent: 
       .map((entry) => entry.agent)
   );
 }
+
+/**
+ * The Active agents bar's muted summary: what the tree is doing ("2 working · 1 paused"),
+ * or how many agents sit idle when nothing runs, is held or waits.
+ */
+export function activeAgentsSummaryText(
+  summary: { readonly running: number; readonly paused: number; readonly queued: number },
+  agentCount: number,
+): string {
+  const parts = [
+    summary.running > 0 ? `${summary.running} working` : null,
+    summary.paused > 0 ? `${summary.paused} paused` : null,
+    summary.queued > 0 ? `${summary.queued} queued` : null,
+  ].filter((part) => part !== null);
+  return parts.length > 0 ? parts.join(" · ") : `${agentCount} idle`;
+}

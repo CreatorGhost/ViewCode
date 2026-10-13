@@ -21,6 +21,7 @@ const THEME_PREVIEW_ROLES = [
   "accent",
   "messageSurface",
   "messageAction",
+  "text",
 ] as const;
 type ThemePreviewRole = (typeof THEME_PREVIEW_ROLES)[number];
 type ThemeCardPreview = {
@@ -44,6 +45,7 @@ const STANDARD_THEME_PREVIEW_COLORS: Record<
     surface: "#ffffff",
     accentSurface: "#f4f4f5",
     messageSurface: "#e4e4e7",
+    text: "#27272a",
     ...SHARED_STANDARD_THEME_PREVIEW_COLORS.light,
   },
   dark: {
@@ -51,6 +53,7 @@ const STANDARD_THEME_PREVIEW_COLORS: Record<
     surface: "#121212",
     accentSurface: "#27272a",
     messageSurface: "#27272a",
+    text: "#e4e4e7",
     ...SHARED_STANDARD_THEME_PREVIEW_COLORS.dark,
   },
 };
@@ -89,6 +92,7 @@ export function getThemeCardDefinition(theme: ThemeDefinition): ThemeCardDefinit
           accent: colors.accent,
           messageSurface: colors.messageSurface,
           messageAction: colors.messageAction,
+          text: colors.text,
         },
       };
     }),
@@ -159,36 +163,42 @@ export function ThemePreviewCircle({
 }
 
 /**
- * A theme card's light and dark balls. Clicking a ball assigns that theme to
- * that half of the appearance mix; assigned balls carry a ring and a sun or
- * moon badge.
+ * Sun and moon over a two-appearance theme card's preview: each assigns the theme to that half
+ * of the appearance mix. They show on hover or focus, and stay while the theme owns a half,
+ * marking which.
  */
-export function ThemePreviewCircles({
+export function ThemeModePicks({
   label,
   activeModes,
   onSelectMode,
-  previews,
 }: {
   label: string;
   activeModes: ReadonlyArray<ThemeMode>;
   onSelectMode: (mode: ThemeMode) => void;
-  previews: ThemeCardDefinition["previews"];
 }) {
+  const anyPicked = activeModes.some((mode) => mode !== "system");
   return (
-    <div className="flex min-h-16 items-center justify-center gap-2.5 px-3 pt-3">
-      {previews.map((preview) => {
-        const mode = preview.mode;
+    <div
+      className={cn(
+        "absolute right-1 bottom-1 flex gap-0.5 transition-opacity group-focus-within/theme-card:opacity-100 group-hover/theme-card:opacity-100",
+        anyPicked ? "opacity-100" : "opacity-0",
+      )}
+    >
+      {(["light", "dark"] as const).map((mode) => {
         const isPicked = activeModes.includes(mode);
+        const Icon = mode === "light" ? SunIcon : MoonIcon;
         return (
           <Tooltip key={mode}>
             <TooltipTrigger
               render={
                 <button
-                  aria-label={`Use ${label} ${mode} mode`}
+                  aria-label={`Use ${label} for ${mode} mode only`}
                   aria-pressed={isPicked}
                   className={cn(
-                    "relative flex size-[68px] shrink-0 transform-gpu cursor-pointer items-center justify-center rounded-full p-1 outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
-                    isPicked && "hover:scale-100",
+                    "flex size-5 cursor-pointer items-center justify-center rounded-full border outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    isPicked
+                      ? "border-transparent bg-foreground text-background"
+                      : "border-border/70 bg-background/80 text-muted-foreground hover:text-foreground",
                   )}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -196,26 +206,7 @@ export function ThemePreviewCircles({
                   }}
                   type="button"
                 >
-                  <ThemePreviewCircle colors={preview.colors} mode={mode} />
-                  {isPicked ? (
-                    <>
-                      <span
-                        aria-hidden
-                        className="pointer-events-none absolute inset-0 rounded-full"
-                        style={{ boxShadow: "inset 0 0 0 2px var(--ring)" }}
-                      />
-                      <span
-                        aria-hidden
-                        className="pointer-events-none absolute bottom-0.5 right-0.5 flex size-5 items-center justify-center rounded-full border border-border/70 bg-background text-foreground shadow-sm"
-                      >
-                        {mode === "light" ? (
-                          <SunIcon className="size-3" />
-                        ) : (
-                          <MoonIcon className="size-3" />
-                        )}
-                      </span>
-                    </>
-                  ) : null}
+                  <Icon className="size-3" />
                 </button>
               }
             />
@@ -226,5 +217,27 @@ export function ThemePreviewCircles({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A one-appearance theme's mark over its preview: the moon (or sun) it is for, filled while the
+ * theme holds that half. Picking such a theme in the other mode changes nothing on screen, so
+ * this is its feedback.
+ */
+export function ThemeOnlyBadge({ mode, picked }: { mode: ThemeAppearance; picked: boolean }) {
+  const Icon = mode === "light" ? SunIcon : MoonIcon;
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute right-1 bottom-1 inline-flex h-5 items-center gap-1 rounded-full border px-1.5 text-2xs font-medium",
+        picked
+          ? "border-transparent bg-foreground text-background"
+          : "border-border/70 bg-background/80 text-muted-foreground",
+      )}
+    >
+      <Icon aria-hidden className="size-3" />
+      {mode === "light" ? "Light only" : "Dark only"}
+    </span>
   );
 }

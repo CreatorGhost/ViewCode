@@ -36,6 +36,7 @@ import {
   ThreadPullRequestStack,
   ThreadPullRequestWatch,
   type ThreadPullRequestLink,
+  ThreadGoal,
   ThreadKind,
 } from "@t3tools/contracts";
 import { legacyLinkedPullRequestOf } from "@t3tools/shared/threadPullRequests";
@@ -82,6 +83,8 @@ import {
   type ProjectionThreadPullRequests,
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
+
+import { MAX_SETTLEMENT_AGENT_DEPTH } from "../ThreadSettlementPolicy.ts";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationThread);
@@ -159,6 +162,8 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    goal: Schema.optional(Schema.NullOr(Schema.fromJsonString(ThreadGoal))),
+    debugMode: Schema.optional(Schema.NullOr(Schema.BooleanFromBit)),
     latestMessageText: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 );
@@ -509,6 +514,17 @@ export function threadKindField(kind: string | null | undefined): { readonly kin
   return isThreadKind(kind) ? { kind } : {};
 }
 
+/** The goal and debug mode, left off a thread that has neither. */
+function threadGoalFields(row: {
+  readonly goal?: ThreadGoal | null | undefined;
+  readonly debugMode?: boolean | null | undefined;
+}): Pick<OrchestrationThread, "goal" | "debugMode"> {
+  return {
+    ...(row.goal == null ? {} : { goal: row.goal }),
+    ...(row.debugMode === true ? { debugMode: true } : {}),
+  };
+}
+
 function mapThreadActivityRow(
   row: Schema.Schema.Type<typeof ProjectionThreadActivityDbRowSchema>,
 ): OrchestrationThreadActivity {
@@ -632,6 +648,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
           kind AS "kind",
+          goal_json AS "goal",
+          debug_mode AS "debugMode",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -690,6 +708,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
           kind AS "kind",
+          goal_json AS "goal",
+          debug_mode AS "debugMode",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -775,6 +795,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
           kind AS "kind",
+          goal_json AS "goal",
+          debug_mode AS "debugMode",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -1394,6 +1416,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           auto_settle_disabled_at AS "autoSettleDisabledAt",
           parent_thread_id AS "parentThreadId",
           kind AS "kind",
+          goal_json AS "goal",
+          debug_mode AS "debugMode",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -2500,6 +2524,7 @@ pending_approval_requests AS (
                 autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                 parentThreadId: row.parentThreadId ?? null,
                 ...threadKindField(row.kind),
+                ...threadGoalFields(row),
                 titleRegeneration: mapTitleRegeneration(row),
                 titleState: row.titleState,
                 deletedAt: row.deletedAt,
@@ -2749,6 +2774,7 @@ pending_approval_requests AS (
                   autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   parentThreadId: row.parentThreadId ?? null,
                   ...threadKindField(row.kind),
+                  ...threadGoalFields(row),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   deletedAt: row.deletedAt,
@@ -2775,6 +2801,84 @@ pending_approval_requests AS (
           return toPersistenceSqlError("ProjectionSnapshotQuery.getCommandReadModel:query")(error);
         }),
       );
+
+  const settlementDescendantRows = SqlSchema.findAll({
+    Request: ThreadId,
+    Result: Schema.Struct({
+      id: ThreadId,
+      parentThreadId: Schema.NullOr(ThreadId),
+      kind: Schema.NullOr(ThreadKind),
+      archivedAt: Schema.NullOr(IsoDateTime),
+      settledOverride: ProjectionThread.fields.settledOverride,
+      settledAt: Schema.NullOr(IsoDateTime),
+      pendingApprovals: Schema.Number,
+      pendingInput: Schema.Number,
+      sessionStatus: Schema.NullOr(ProjectionThreadSession.fields.status),
+      latestUserMessageAt: Schema.NullOr(IsoDateTime),
+      turnId: Schema.NullOr(TurnId),
+      requestedAt: Schema.NullOr(IsoDateTime),
+      startedAt: Schema.NullOr(IsoDateTime),
+      completedAt: Schema.NullOr(IsoDateTime),
+    }),
+    execute: (threadId) => sql`
+      WITH RECURSIVE descendants(thread_id, depth, path) AS (
+        SELECT ${threadId}, 0, json_array(${threadId})
+        UNION ALL
+        SELECT child.thread_id, parent.depth + 1, json_insert(parent.path, '$[#]', child.thread_id)
+        FROM descendants parent
+        JOIN projection_threads child ON child.parent_thread_id = parent.thread_id
+        WHERE parent.depth < ${MAX_SETTLEMENT_AGENT_DEPTH}
+          AND child.deleted_at IS NULL AND child.archived_at IS NULL
+          AND child.kind IS NOT 'sidechat'
+          AND child.settled_at IS NULL AND child.settled_override IS NOT 'settled'
+          AND NOT EXISTS (SELECT 1 FROM json_each(parent.path) WHERE value = child.thread_id)
+      )
+      SELECT threads.thread_id AS "id", threads.parent_thread_id AS "parentThreadId", threads.kind,
+        threads.archived_at AS "archivedAt", threads.settled_override AS "settledOverride", threads.settled_at AS "settledAt",
+        threads.pending_approval_count AS "pendingApprovals", threads.pending_user_input_count AS "pendingInput",
+        threads.latest_user_message_at AS "latestUserMessageAt", sessions.status AS "sessionStatus",
+        turns.turn_id AS "turnId", turns.requested_at AS "requestedAt", turns.started_at AS "startedAt", turns.completed_at AS "completedAt"
+      FROM descendants
+      JOIN projection_threads threads ON threads.thread_id = descendants.thread_id
+      LEFT JOIN projection_thread_sessions sessions ON sessions.thread_id = threads.thread_id
+      LEFT JOIN projection_turns turns ON turns.thread_id = threads.thread_id AND turns.turn_id = threads.latest_turn_id
+      WHERE descendants.depth > 0
+    `,
+  });
+  const getSettlementDescendants: ProjectionSnapshotQueryShape["getSettlementDescendants"] = (
+    threadId,
+  ) =>
+    settlementDescendantRows(threadId).pipe(
+      Effect.map((rows) =>
+        rows.map((row) => ({
+          id: row.id,
+          parentThreadId: row.parentThreadId,
+          kind: row.kind,
+          archivedAt: row.archivedAt,
+          settledOverride: row.settledOverride,
+          settledAt: row.settledAt,
+          hasPendingApprovals: row.pendingApprovals > 0,
+          hasPendingUserInput: row.pendingInput > 0,
+          latestUserMessageAt: row.latestUserMessageAt,
+          session: row.sessionStatus === null ? null : { status: row.sessionStatus },
+          latestTurn:
+            row.turnId === null || row.requestedAt === null
+              ? null
+              : {
+                  requestedAt: row.requestedAt,
+                  startedAt: row.startedAt,
+                  completedAt: row.completedAt,
+                },
+          backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(row.id),
+        })),
+      ),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getSettlementDescendants:query",
+          "ProjectionSnapshotQuery.getSettlementDescendants:decodeRows",
+        ),
+      ),
+    );
 
   const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = (options) => {
     const unsettledOnly = options?.unsettledOnly === true;
@@ -2913,6 +3017,7 @@ pending_approval_requests AS (
                         autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                         parentThreadId: row.parentThreadId ?? null,
                         ...threadKindField(row.kind),
+                        ...threadGoalFields(row),
                         titleRegeneration: mapTitleRegeneration(row),
                         titleState: row.titleState,
                         session: sessionByThread.get(row.threadId) ?? null,
@@ -3102,6 +3207,7 @@ pending_approval_requests AS (
                   autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   parentThreadId: row.parentThreadId ?? null,
                   ...threadKindField(row.kind),
+                  ...threadGoalFields(row),
                   titleRegeneration: mapTitleRegeneration(row),
                   titleState: row.titleState,
                   session: sessionByThread.get(row.threadId) ?? null,
@@ -3456,6 +3562,7 @@ pending_approval_requests AS (
         autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         parentThreadId: threadRow.value.parentThreadId ?? null,
         ...threadKindField(threadRow.value.kind),
+        ...threadGoalFields(threadRow.value),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
@@ -3762,6 +3869,7 @@ pending_approval_requests AS (
         autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         parentThreadId: threadRow.value.parentThreadId ?? null,
         ...threadKindField(threadRow.value.kind),
+        ...threadGoalFields(threadRow.value),
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         titleState: threadRow.value.titleState,
         deletedAt: null,
@@ -3968,6 +4076,7 @@ pending_approval_requests AS (
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,
+    getSettlementDescendants,
     listThreadsWithPullRequests,
     getArchivedShellSnapshot,
     getDeletedWorktreeThreads,

@@ -62,6 +62,7 @@ vi.mock("electron", async () => {
   return {
     app: {
       getPath: () => "/Applications/T3 Code (Nightly).app/Contents/MacOS/T3 Code",
+      getName: () => "ViewCode",
     },
     nativeImage: { createFromPath: mocks.createFromPath },
     BrowserWindow: class extends MockWindow {},
@@ -168,7 +169,7 @@ it("does not open for a permission already granted", async () => {
 });
 it("does not show a helper with a missing packaged icon", async () => {
   mocks.createFromPath.mockReturnValueOnce({ isEmpty: () => true });
-  await expect(open()).rejects.toThrow("packaged T3 Code icon is missing");
+  await expect(open()).rejects.toThrow("packaged app icon is missing");
   expect(windows).toHaveLength(0);
 });
 it("cleans up when the helper page fails to load", async () => {

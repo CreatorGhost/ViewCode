@@ -17,9 +17,9 @@ const TRANSPARENT = "#00000000";
 // Windows 11 22H2, the first build where DWM system backdrops are settable.
 const MIN_WINDOWS_MICA_BUILD = 22_621;
 
-/** The window colour when glass is off: `--vc-window` (droppy-look.md §3.1). */
+/** The window colour before the page paints, when glass is off: the default dark theme's sidebar. */
 export function opaqueWindowBackground(dark: boolean): string {
-  return dark ? "#1F1F21" : "#EDEDEF";
+  return dark ? "#161614" : "#EDEDEF";
 }
 
 export function resolveWindowGlassMaterial(

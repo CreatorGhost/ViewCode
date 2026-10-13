@@ -53,7 +53,7 @@ export function describeComputerUseApprovals(approvals: ComputerUseApprovals): s
     : COMPUTER_USE_APPROVALS_DESCRIPTION;
 }
 
-const MACOS_ACCESSIBILITY_GUIDANCE =
+export const MACOS_ACCESSIBILITY_GUIDANCE =
   "Grant Accessibility to ViewCode in System Settings → Privacy & Security → Accessibility, then check again.";
 
 /**

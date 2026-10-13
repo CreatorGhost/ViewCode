@@ -123,6 +123,7 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
+import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import {
   OrchestrationCommandInvariantError,
@@ -904,6 +905,9 @@ const buildAppUnderTest = (options?: {
           }),
           Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({
             resolveTargets: () => Effect.succeed([]),
+          }),
+          Layer.mock(DirectEndpoints.DirectEndpoints)({
+            resolve: () => Effect.succeed([]),
           }),
         ),
       ),

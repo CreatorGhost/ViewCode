@@ -4,7 +4,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommand,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { MessageId, type ScopedThreadRef } from "@t3tools/contracts";
 import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import { applyClaudePromptEffortPrefix } from "@t3tools/shared/model";
 
@@ -31,7 +31,7 @@ import {
 } from "../ChatView.logic";
 import { toastManager } from "../ui/toast";
 import { fileAttachmentCapabilityBlockReason } from "./composerAttachmentFiles";
-import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "./composerPromptHistory";
+import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 
 async function run<W, A, E>(command: AtomCommand<W, A, E>, input: W): Promise<A> {
   const result = await runAtomCommand(appAtomRegistry, command, input, { reportFailure: false });
@@ -181,7 +181,8 @@ export async function sendQueuedMessage(
       input: {
         threadId,
         message: {
-          messageId: newMessageId(),
+          messageId:
+            message.messageId === undefined ? newMessageId() : MessageId.make(message.messageId),
           role: "user",
           text:
             context !== undefined && !inlineContext

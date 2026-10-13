@@ -8,6 +8,7 @@ import {
   nativeMarkdownDocumentRuns,
   nativeMarkdownListItemBlocks,
   nativeMarkdownNodePosition,
+  nativeMarkdownPlainText,
 } from "./nativeMarkdownText";
 import { NativeMarkdownSelectableText } from "./NativeMarkdownSelectableText";
 import type {
@@ -539,6 +540,67 @@ function NativeList(props: {
   );
 }
 
+/** Set inside a quote: a nested quote is copied with its parent, not on its own. */
+const InsideQuoteContext = createContext(false);
+
+/** A quoted block, often a drafted message, with its own copy button like the web's. */
+function NativeBlockquote(props: {
+  readonly node: MarkdownNode;
+  readonly skills: ReadonlyArray<SelectableMarkdownSkill>;
+  readonly textStyle: NativeMarkdownTextStyle;
+  readonly highlightCode: MarkdownCodeHighlighter;
+  readonly onLinkPress?: (href: string) => void;
+  readonly depth: number;
+  readonly compact?: boolean;
+}) {
+  const nested = useContext(InsideQuoteContext);
+  const copyText = useMemo(
+    () => (nested ? "" : nativeMarkdownPlainText(props.node)),
+    [nested, props.node],
+  );
+  return (
+    <View
+      style={{
+        borderLeftColor: props.textStyle.quoteMarkerColor,
+        borderLeftWidth: 2,
+        marginVertical: props.compact ? 4 : 0,
+        paddingLeft: 11,
+        paddingVertical: 2,
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 6,
+      }}
+    >
+      <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
+        <InsideQuoteContext.Provider value>
+          {(props.node.children ?? []).map((child, index) => (
+            <NativeMarkdownBlock
+              key={nodeKey(child, index)}
+              node={child}
+              skills={props.skills}
+              textStyle={props.textStyle}
+              highlightCode={props.highlightCode}
+              onLinkPress={props.onLinkPress}
+              depth={props.depth}
+              compact
+            />
+          ))}
+        </InsideQuoteContext.Provider>
+      </View>
+      {nested ? null : (
+        <CopyTextButton
+          accessibilityLabel="Copy quote"
+          text={copyText}
+          tintColor={props.textStyle.mutedColor}
+          copiedTintColor={props.textStyle.linkColor}
+          buttonSize={28}
+          iconSize={13}
+        />
+      )}
+    </View>
+  );
+}
+
 export function NativeMarkdownBlock(props: {
   readonly node: MarkdownNode;
   readonly skills: ReadonlyArray<SelectableMarkdownSkill>;
@@ -604,29 +666,15 @@ export function NativeMarkdownBlock(props: {
       );
     case "blockquote":
       return (
-        <View
-          style={{
-            borderLeftColor: props.textStyle.quoteMarkerColor,
-            borderLeftWidth: 2,
-            marginVertical: props.compact ? 4 : 0,
-            paddingLeft: 11,
-            paddingVertical: 2,
-            gap: 6,
-          }}
-        >
-          {(props.node.children ?? []).map((child, index) => (
-            <NativeMarkdownBlock
-              key={nodeKey(child, index)}
-              node={child}
-              skills={props.skills}
-              textStyle={props.textStyle}
-              highlightCode={props.highlightCode}
-              onLinkPress={props.onLinkPress}
-              depth={depth}
-              compact
-            />
-          ))}
-        </View>
+        <NativeBlockquote
+          node={props.node}
+          skills={props.skills}
+          textStyle={props.textStyle}
+          highlightCode={props.highlightCode}
+          onLinkPress={props.onLinkPress}
+          depth={depth}
+          compact={props.compact}
+        />
       );
     case "list":
       return (

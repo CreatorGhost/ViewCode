@@ -1,4 +1,4 @@
-import type { ProviderInteractionMode } from "@t3tools/contracts";
+import type { ProviderInteractionMode, ProviderTurnGuidance } from "@t3tools/contracts";
 import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
 import type { ComputerUseGrant } from "../mcp/McpProviderSession.ts";
 import {
@@ -8,6 +8,7 @@ import {
   VIEWCODE_DIAGRAMS_GUIDANCE,
   VIEWCODE_DRAFTS_GUIDANCE,
 } from "./RuntimeInstructions.ts";
+import { DEBUG_GUIDANCE_TAG, GOAL_GUIDANCE_TAG, renderTurnGuidance } from "./turnGuidance.ts";
 
 const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `## ViewCode collaborative browser
 
@@ -245,5 +246,39 @@ export function buildCodexAdditionalContext(
       ? { viewcode_browser: { kind: "application", value: BROWSER_CLI_GUIDANCE } }
       : {}),
     ...(tools ? { viewcode_tools: { kind: "application", value: tools } } : {}),
+  };
+}
+
+type CodexAdditionalContext = Record<string, V2TurnStartParams__AdditionalContextEntry>;
+
+/**
+ * The goal and debug-mode entries of a turn's `additionalContext`. Both are always present once a
+ * turn carries guidance, with an "off" value when unset: Codex keeps an entry it was sent in the
+ * conversation and resends only a changed value, so leaving a cleared goal out would let the old
+ * one stand, even across a session restart. A turn without guidance (a server continuation) keeps
+ * the previous turn's entries.
+ */
+export function codexTurnGuidanceContext(
+  guidance: ProviderTurnGuidance | undefined,
+  previous: CodexAdditionalContext | undefined,
+): CodexAdditionalContext | undefined {
+  if (guidance === undefined) {
+    const kept = Object.fromEntries(
+      Object.entries(previous ?? {}).filter(
+        ([key]) => key === GOAL_GUIDANCE_TAG || key === DEBUG_GUIDANCE_TAG,
+      ),
+    );
+    return Object.keys(kept).length === 0 ? undefined : kept;
+  }
+  const rendered = renderTurnGuidance(guidance);
+  return {
+    [GOAL_GUIDANCE_TAG]: {
+      kind: "application",
+      value: rendered[GOAL_GUIDANCE_TAG] ?? "No goal is set for this thread.",
+    },
+    [DEBUG_GUIDANCE_TAG]: {
+      kind: "application",
+      value: rendered[DEBUG_GUIDANCE_TAG] ?? "Debug mode is off for this thread.",
+    },
   };
 }

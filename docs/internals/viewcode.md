@@ -7,31 +7,41 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ## Where the ViewCode code lives
 
-| Feature                                  | Main files                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mid-chat model/provider switch + handoff | `apps/server/src/orchestration/Handoff.ts`, `orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`)                                                                                                                                                                                                                                                                                                                                   |
-| Child agents                             | `parentThreadId` on threads (contracts `orchestration.ts`, migration `055_ProjectionThreadsParentThreadId`), web `components/agents/*`, tree client-runtime `state/threadTree.ts`                                                                                                                                                                                                                                                                     |
-| Side chats (quick questions)             | `kind: "sidechat"` on threads (migration `057_ProjectionThreadsKind`), server `orchestration/sidechatExpiry.ts`, `SidechatExpiryReactor.ts`, `ProviderCommandReactor.ts` (`sidechatOf`), web `components/chat/SidechatDock.tsx`, `SidechatHost.tsx`, `sidechatDockStore.ts`                                                                                                                                                                           |
-| Agent-to-agent messaging                 | `apps/server/src/agents/AgentMessaging.ts`, `agents/searchHistory.ts`, MCP toolkit `apps/server/src/mcp/toolkits/agents/`, envelope in `packages/shared/src/agentMessages.ts`                                                                                                                                                                                                                                                                         |
-| Command Code provider                    | `apps/server/src/provider/commandCodeCli.ts`, `Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`, `Layers/commandCodeUsageLimits.ts`                                                                                                                                                                                                                                                                                                            |
-| Desktop local mode (no TCP port)         | `apps/server/src/socketListener.ts`, `mcp/McpStdioBridge.ts`, desktop `backend/DesktopLocalBackend*.ts`, web `lib/desktopBackendWebSocket.ts`                                                                                                                                                                                                                                                                                                         |
-| Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                                                                                                                                                                                                                                                                                 |
-| Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, `T3CodeHistory.ts`, web `components/agentSessions/`                                                                                                                                                                                                                                                                       |
-| Phone notifications (Expo push)          | `apps/server/src/notifications/`, contracts `pushNotifications.ts`, mobile `features/agent-awareness/directPush*.ts` and `useDirectPushRegistration.ts`                                                                                                                                                                                                                                                                                               |
-| Computer use (agents drive the desktop)  | `apps/server/src/computerUse/` (`ComputerUseService.ts` gate, `ComputerUseCli.ts` CLI + manual, `Xa11yDriverCore.ts` driver), contracts `computerUse.ts`, web `settings/ComputerUseSetting.tsx`                                                                                                                                                                                                                                                       |
-| Browser CLI (no MCP)                     | `apps/server/src/browserCli/` (`BrowserCli.ts` CLI + manual, `BrowserCliRoute.ts` runs the preview handlers), `mcp/toolkits/preview/handlers.ts`                                                                                                                                                                                                                                                                                                      |
-| Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME` and `VIEWCODE_TEAL_THEME`, the web-only default; `isViewCodeThemeId` names the glass themes), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids); `apps/web/src/viewcodeLookMigration.ts` runs two one-time moves to the teal default (upstream themes, then plain `viewcode`) that share one Undo target, the original look |
-| Project colors                           | `projectColor` on projects (contracts `orchestration.ts`, migration `058_ProjectionProjectColor`), web `projectColor.logic.ts`, `components/ProjectColorPicker.tsx`, `--project-accent` from `projectIconColors.ts` (the chat top bar draws it with `background-image` in `index.css` because themes and glass override its `background-color`), mobile `lib/projectIcon.ts`                                                                          |
+| Feature                                  | Main files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mid-chat model/provider switch + handoff | `apps/server/src/orchestration/Handoff.ts`, `orchestration/Layers/ProviderCommandReactor.ts` (`takeHandoffPrelude`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Child agents                             | `parentThreadId` on threads (contracts `orchestration.ts`, migration `055_ProjectionThreadsParentThreadId`), web `components/agents/*`, tree client-runtime `state/threadTree.ts`                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Side chats (quick questions)             | `kind: "sidechat"` on threads (migration `057_ProjectionThreadsKind`), server `orchestration/sidechatExpiry.ts`, `SidechatExpiryReactor.ts`, `ProviderCommandReactor.ts` (`sidechatOf`), web `components/chat/SidechatDock.tsx`, `SidechatHost.tsx`, `sidechatDockStore.ts`                                                                                                                                                                                                                                                                                                                 |
+| Agent-to-agent messaging                 | `apps/server/src/agents/AgentMessaging.ts`, `agents/searchHistory.ts`, MCP toolkit `apps/server/src/mcp/toolkits/agents/`, envelope in `packages/shared/src/agentMessages.ts`                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Command Code provider                    | `apps/server/src/provider/commandCodeCli.ts`, `Layers/CommandCode*.ts`, `Drivers/CommandCodeDriver.ts`, `Layers/commandCodeUsageLimits.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ACP agents without extensions            | `apps/server/src/provider/Layers/AcpAgentAdapter.ts`, `acp/DroidAcpSupport.ts`, `acp/DevinAcpSupport.ts`, `Layers/DroidProvider.ts`, `Layers/DevinProvider.ts`, `textGeneration/AcpTextGeneration.ts`                                                                                                                                                                                                                                                                                                                                                                                       |
+| Pi provider                              | `apps/server/src/provider/piRpc.ts`, `piRpcConnection.ts`, `piExtension.ts`, `Layers/PiAdapter.ts`, `Layers/PiProvider.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Desktop local mode (no TCP port)         | `apps/server/src/socketListener.ts`, `mcp/McpStdioBridge.ts`, desktop `backend/DesktopLocalBackend*.ts`, web `lib/desktopBackendWebSocket.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Composer model/effort picker, usage ring | web `components/chat/ComposerModelEffortPicker.tsx`, `composerModelEffort.logic.ts`, `ComposerUsageLimitsPopover.tsx`, `composerUsageLimits.logic.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Session import (picker, nesting, titles) | `apps/server/src/project/AgentSessionScanner.ts` (`classifyAgentSession`, `codexSessionOrigin`), `AgentSessionImporter.ts`, `T3CodeHistory.ts`, web `components/agentSessions/`                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Phone notifications (Expo push)          | `apps/server/src/notifications/`, contracts `pushNotifications.ts`, mobile `features/agent-awareness/directPush*.ts` and `useDirectPushRegistration.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Computer use (agents drive the desktop)  | `apps/server/src/computerUse/` (`ComputerUseService.ts` gate, `ComputerUseCli.ts` CLI + manual, `Xa11yDriverCore.ts` driver), contracts `computerUse.ts`, web `settings/ComputerUseSetting.tsx`                                                                                                                                                                                                                                                                                                                                                                                             |
+| Browser CLI (no MCP)                     | `apps/server/src/browserCli/` (`BrowserCli.ts` CLI + manual, `BrowserCliRoute.ts` runs the preview handlers), `mcp/toolkits/preview/handlers.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME` and `VIEWCODE_TEAL_THEME`, the default on every client; `isViewCodeThemeId` names the glass themes; mobile registers `WEB_BUILT_IN_THEMES` as Uniwind themes, translucent roles flattened in `apps/mobile/src/lib/mobileTheme.ts`), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids); `apps/web/src/viewcodeLookMigration.ts` runs two one-time moves to the teal default (upstream themes, then plain `viewcode`) that share one Undo target, the original look |
+| Thread goal and debug mode               | `goal`/`debugMode` on threads (contracts `orchestration.ts`, migration `059_ProjectionThreadsGoalDebugMode`, `orchestration/threadGoal.ts`), server `provider/turnGuidance.ts`, `review/DebugPlaybook.ts`, `orchestration/ThreadGoals.ts` + MCP `mcp/toolkits/goal/`, client-runtime `threadGoal.ts`, web `chat/useThreadGoalControls.ts`, mobile `threads/useThreadGoalActions.ts`                                                                                                                                                                                                         |
+| Project colors                           | `projectColor` on projects (contracts `orchestration.ts`, migration `058_ProjectionProjectColor`), web `projectColor.logic.ts`, `components/ProjectColorPicker.tsx`, `--project-accent` from `projectIconColors.ts` (the chat top bar draws it with `background-image` in `index.css` because themes and glass override its `background-color`), mobile `lib/projectIcon.ts`                                                                                                                                                                                                                |
+| Sidebar (folders, agent groups, strip)   | web `components/Sidebar.tsx`, `sidebar/SidebarAttentionStrip.tsx`, `sidebar/SidebarNewMenu.tsx`, client-runtime `state/threadArrangement.ts` (groups, sort, counts) and `state/threadTree.ts`, mobile `features/home/homeFolderList.ts`; title strip and project tint in `viewcode-theme.css`, tint strengths in shared `shellTint.ts`                                                                                                                                                                                                                                                      |
 
 ## Decisions
 
 ### Staying mergeable with upstream
 
-- ViewCode tracks upstream T3 Code by merging it. Features live in new files
+- ViewCode takes upstream T3 Code work by `git cherry-pick -x` (or a hand
+  port naming the upstream PR) since upstream moved orchestration to v2;
+  never merge `upstream/main`. Features live in new files
   and hook into upstream code with small edits; theming goes through tokens
   and `components/ui` variants; contracts only gain optional fields; upstream
   features are hidden behind flags rather than deleted. Details and current
   hot spots: [`docs/NEXT_AGENT.md`](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
+- Newest upstream PR picked: #15925 (`e24ea1d28`, 2026-10-13).
+- Migration ids from 55 on are ViewCode's own (upstream's are its V2 schema).
+  `runMigrations` refuses a ledger that recorded other names there, such as a
+  T3 Code sharing `T3CODE_HOME`, so renumbering them needs a ledger rewrite.
 - Where upstream shipped its own version of a ViewCode feature, ViewCode's
   stays and upstream's is folded in or hidden:
   - Chat width: upstream's `chatWidth` (comfortable/wide/full) reused our key,
@@ -78,6 +88,17 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   whole request; the server decides the handoff. Clients only label it, from
   the continuation group of `session.providerInstanceId`, not of the staged
   selection. Upstream merges that bring the lock back must drop it again.
+- A thread's `modelSelection`, `runtimeMode` and `interactionMode` are what its
+  next turn uses, and every client sees them change. A composer's pick is only
+  an unsent intent kept in its local draft, so it records the thread value it
+  was made against (`serverBasis`, `client-runtime/composerSettingsBasis.ts`)
+  and gives way once the thread holds anything else: a switch made on the
+  phone, by an agent or by this composer's own send. Without that, a stale
+  desktop pick outranked a switch made on the phone and its next send handed
+  the thread back. Picks saved without a basis (older builds) follow the
+  thread. For the same reason the composer prefers the thread's instance to
+  `session.providerInstanceId`, which names the old provider until the
+  handoff turn runs.
 - A handoff's "from" model is never read from `thread.modelSelection`: the
   client saves the new selection (`thread.meta.update`) before the turn, so
   once the live session is gone (idle reaper, restart) that field already
@@ -132,6 +153,15 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   is in the transcript file only.
 
 ### Agent-to-agent messaging
+
+- Active unsettled descendants keep their ancestors out of automatic settlement.
+  Descendant turn starts and live session writes wake automatically settled ancestors
+  up to a manual settle, which stops the wake. Settled, archived and sidechat subtrees
+  do not participate in settlement checks. Walks are cycle-safe and bounded at 64 levels;
+  reaching that limit blocks automatic settlement. Both kinds project to
+  `settledOverride: "settled"`,
+  so the engine checks the latest lifecycle event's server auto-settle provenance;
+  timestamps are not a safe substitute after migration 046 or later metadata edits.
 
 - Every agents-toolkit tool carries the `viewcode_` prefix (as Traycer prefixes
   `traycer_*`). Codex has its own built-in `spawn_agent`; with the bare name the
@@ -476,12 +506,23 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   itself, so the review thread is an ordinary linked thread on the user's default permissions for
   new threads. Clients pick the model (they own the "Automatic" default); the MCP tool falls back
   to the calling thread's model. Gated by the `pullRequestAgentReview` capability.
+- A review asked for from a chat (`sourceThreadId`; the MCP tools always pass the caller) is that
+  chat's child agent (`parentThreadId`), and the chat gets the record a spawn leaves
+  (`viewcode.agent-message.sent`, `kind: "spawn"`, plus `review: <mode>`), so the transcript, the
+  agents bar, archive cascades and mobile treat it as one of the chat's agents with no new surface.
+  Nothing is routed back: the reviewer's answer is not a reply, the findings reach the chat through
+  its Review panel. Only the pull request page starts a top-level review. Older servers ignore
+  `sourceThreadId` and start a top-level one, which clients still find through the link.
 - A review of local changes (`PullRequestAgentReview.startLocal`, `review.startLocal`,
   `review_local_changes`, capability `localAgentReview`) is the same launch without a link: the
   review thread gets the source thread's branch and worktree (the project's workspace without
   one), because the reviewer reads the checkout rather than a host, and is only told not to change
-  it. What to diff (uncommitted changes, else the branch against its base) is decided by the
-  reviewer from the checkout, not by the server at start.
+  it. What to diff is `scope` (uncommitted, branch against a base, one commit; capability
+  `localAgentReviewScope`, since an older server would silently review the default); without one
+  the reviewer decides from the checkout (uncommitted changes, else the branch against its base).
+  `review.listCommits` (same project-root guard as the diff preview) gives clients the commits to
+  pick from and the base a branch review defaults to. Building a start request and the progress
+  wording are client-runtime's (`agentReview.ts`), so web and mobile send the same thing.
 - A re-review (`incremental` with `basedOn`, capability `incrementalAgentReview`) names the
   earlier findings by thread and activity, never by commit: the server reads that activity, refuses
   findings of another target, writes them to `<stateDir>/review-previous/<activityId>.json` for
@@ -498,6 +539,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Findings arrive twice on purpose: the written report for the reader, and `submit_review_findings`
   for the app, recorded as a `viewcode.review.findings` activity. Activities are append-only, so a
   re-review replaces the set only by coming later: clients render the latest one and skip the rest.
+  The playbooks ask for the findings verified so far with `complete: false` while the review works
+  (a deep review takes 10 to 20 minutes), then the final set; `complete` is on the payload and its
+  absence means final, which every set before it was.
 - Whether findings are fixes or review comments (`mode` on that payload; absent reads as fix) is
   decided by the server when they are recorded: comment when the pull request's author is not the
   account it is read as (`PullRequestAgentReview.authorship`), fix when either is unknown, since
@@ -514,36 +558,54 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   environment, never `gh auth switch`), and refused when GitHub answers as someone else, which a
   `GH_TOKEN` in the server's environment would cause.
 - Findings live in the web Review panel (a right-panel surface) and the pull request detail's Review
-  tab, both one view (`ReviewFindingsView`), not in the transcript. Mobile has a findings screen
-  (`features/review/findings/`) opened from the transcript's findings row and the Android pull
-  request screen: a list by severity with no diff, since a phone has no room to read findings
-  under their lines. Which set a thread or pull request shows, and the read of linked threads, are
+  tab, both one view (`ReviewSurface`), not in the transcript. Mobile has a findings screen
+  (`features/review/findings/`): a list by severity with no diff, since a phone has no room to
+  read findings under their lines. Mobile starts reviews from a bar at the top of Review changes
+  (`features/review/agent/`) rather than a form: what it reads is inferred from the diff on screen
+  (`inferAgentReviewTarget` in client-runtime's `agentReview.ts`), and a start goes straight to the
+  findings screen, which shows the review's state while it is not done. Which set a thread or pull
+  request shows, and the read of linked threads, are
   client-runtime's (`reviewFindings.ts`, `state/reviewFindings.ts`) so both clients agree. Thread
-  shells carry no activities, so a thread without findings of its own, or the pull request detail,
-  finds a linked review by subscribing to the activities of up to five threads linked to the same
-  pull request, and only while that panel or detail is open. A review still under way is
-  recognised by the title the server gives its thread (`pullRequestReviewTitle` and
-  `localReviewTitle`, read back by `reviewThreadMode`); change one and change the other. A local
-  review has no link, so a thread without a pull request finds one only by that title on the same
-  project, branch and worktree (`localReviewSourceCandidates`): a renamed local review drops out of
-  the panel of the thread whose changes it read, though its own panel still shows it. Starting a
-  review from the pull request detail (or the Android pull request screen) stays there. From a
-  thread working on the pull request, Fix with agent writes an editable request into that thread's
-  composer; it never sends.
-- Fix from the review thread itself goes to another session: an existing one through the client's
-  own queue for that thread (web's composer queue, in memory, sends now, at the next tool boundary,
-  or at turn end for providers that cannot steer; mobile's thread outbox), because the server has
-  no queue for user turns and inventing one would fork that behaviour. Only a new session is a
-  server method (`ReviewFixThread.start`, `review.startFixThread`), which checks the pull request
-  out into a worktree, reusing an existing checkout only when no non-archived session there is
-  running or has an active turn. Which findings were sent where or dismissed is client memory only.
-- Undoing fixes (`ReviewFixThread.undo`, `review.undoFixes`, capability `reviewFixUndo`) is the
-  chat's own `thread.checkpoint.revert`, to the turn count a hidden `viewcode.review.fix-started`
-  activity recorded before the session's first turn (always 0: only new sessions get one). It is
-  not recognised from the message text, and a fix sent through the composer to an existing session
-  cannot be undone this way, because a turn start has no field to mark it. The revert takes back
-  every turn since, and restores files only where the reactor allows it: a fix's unshared worktree.
-  A shared checkout fails with the chat's usual reason.
+  shells carry no activities, so a view subscribes to the activities of the thread itself, its
+  child agents and up to five threads linked to the same pull request (`threadReviewCandidates`;
+  the pull request page only the linked ones), and only while the panel or detail is open. A
+  child's review counts whatever it reviewed; a linked thread's only when it is about this pull
+  request.
+- A review thread is recognised by its `viewcode.review.started` record, never its title; the
+  record also carries the mode, focus and scope, which is what Try again repeats. A shell field or a
+  new `ThreadKind` would have been cheaper to read, but older clients fail to decode an unknown
+  literal. Where the latest review stands is `reviewRunState` + `reviewProgress`: running while the
+  reviewer or any agent under it is in flight or has agent messages queued (`agents.control`; a
+  lead ends its turn after spawning and is woken by each answer, so an idle lead is not a
+  finished review); once the whole tree is idle with nothing queued, failed (the turn or session
+  errored, with `lastError`) or ended, unless its final findings are in. An agent that finished
+  without answering therefore ends the review rather than leaving it running. The answer's hop
+  from a finished agent to its idle lead is not queued, so the bar can read "ended" for that
+  instant.
+- Fix with agent never picks a session: it sends the request into a chat as the reader's own
+  message, through the web composer's queue (`queuedMessageStore`, drained by the root
+  `QueuedMessageSender` whether or not the chat is on screen) or mobile's thread outbox, so a
+  working chat takes it at its next stopping point exactly as a typed message would. The panel
+  beside a chat, or the chat mobile's findings screen was opened from, uses that chat.
+  Seen from the reviewer itself, or from the pull request page (`selectReviewFixChat`), it is the
+  chat the review was started from (its parent), else the chat most recently working on what was
+  reviewed (`reviewFixCandidates`, which never offers child agents or side chats: a reviewer's
+  lenses are linked to the pull request too); only with no chat at all does a new one open, on the
+  reviewed checkout, with the request in its draft for the reader to send (a draft has no thread to
+  queue for). The queued message carries its own `messageId`, which the finding's "Sent to …" link
+  uses to scroll that chat's timeline to it (`timelineMessageFocusStore`); whether a finding was
+  fixed or skipped is the agent's answer there, not tracked state.
+- The reader's marks on findings (dismissed, sent to a chat) are client memory keyed by review
+  thread and `reviewFindingIdentity` (path, lines, title), and the server's posted records are
+  matched by the same identity across a review's sets (`postedReviewFindings`), because a review
+  now sends several: keyed by set, a finding posted from the early set was unposted in the final
+  one and Post all posted it twice. Post all also waits for the final set. No client uses
+  `review.startFixThread` any more; it stays for older clients.
+- Undoing a fix sent into a chat is the chat's own rewind (Edit from here), since it is an ordinary
+  turn there. `ReviewFixThread.undo` (`review.undoFixes`, capability `reviewFixUndo`) remains for
+  sessions `review.startFixThread` started: `thread.checkpoint.revert` to the turn count a hidden
+  `viewcode.review.fix-started` activity recorded before the session's first turn. It restores
+  files only where the reactor allows it (a fix's unshared worktree).
 - Ratings are not (`ReviewFindingRatings.rate`, `review.rateFinding`, capability
   `reviewFindingRatings`): each is a hidden `viewcode.review.rating` activity on the review thread,
   outside any turn, carrying the finding's title, severity, path and rule and the project, so every
@@ -605,6 +667,44 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - `openSideChat(parentRef, prefill?)` (`sidechatDockStore.ts`) is the hook for
   other code, such as a selection toolbar's "Ask in side chat".
 
+### Thread goal and debug mode
+
+- Both are thread state set through `thread.meta.update` (`goal` objective or null,
+  `goalPaused`, `debugMode`), so every client, the MCP tools and a draft's bootstrap use one
+  path and they survive a handoff for free. The reactor reads them from the thread on every
+  turn (`turnGuidanceForThread`) and sends them as `ProviderSendTurnInput.guidance`; a paused
+  goal is not sent. Child agents and forks do not inherit either.
+- Debug mode is a separate flag, not an `interactionMode` value. `interactionMode` is a closed
+  literal older clients fail to decode, it is sent with every turn from the composer's local
+  pick (`serverBasis`), and Codex passes it straight through as its collaboration mode, so
+  `"debug"` would have needed a decision in every adapter and both composers. As a flag it
+  reaches every adapter through one guidance path, and it combines with plan mode.
+- Delivery is decided at the adapter boundary. Codex (`developerTurnGuidance`) gets
+  `viewcode_goal` and `viewcode_debug_mode` `additionalContext` entries, always both once a
+  turn carries guidance, with an "off" value when unset: Codex keeps what it was sent and only
+  resends a changed value, so omitting a cleared goal would let the old one stand, including
+  after an idle-reaped session resumes. Every other adapter (Claude, Cursor, Grok, OpenCode,
+  Antigravity, Command Code) gets tagged blocks ahead of the user's text from
+  `ProviderService.sendTurn` (`withTurnGuidancePrelude`), skipped when the message opens with a
+  slash command (the provider must see the command first) or when it would exceed the input
+  limit. Claude's system prompt is fixed at spawn, so a per-turn change could not go there
+  without a restart.
+- Upstream's native `/goal` (Codex `thread/goal/*`, Claude's Stop-hook evaluator) is not used.
+  Both are autonomous continuation loops the provider owns: Codex starts its own follow-up
+  turns and Claude holds a turn open until its evaluator passes. ViewCode v1 maps one
+  `sendTurn` to one turn, and agent-message replies, usage resume, Stop-as-pause and PR wakes
+  key on that; upstream needed run holds and Stop-pauses-goal on v2 to make it safe. Native
+  state also lives in the provider session, which a handoff replaces, and only two of seven
+  providers have it. So
+  ViewCode owns `/goal` everywhere and hides the providers' own `/goal` and `/debug` from the
+  slash menus (`APP_OWNED_SLASH_COMMAND_NAMES`).
+- The debug method lives in a playbook (`<stateDir>/review-playbooks/debug-mode.md`) written
+  on use like the review playbooks; each turn carries only the short note and its path.
+- `viewcode_get_goal` / `viewcode_set_goal` act on the caller's own thread, behind the
+  `agents` capability. The set tool's description carries Synara's guardrail (only a goal the
+  user stated, never inferred; no pause or clear unasked); it is the only guard, as with any
+  agent tool.
+
 ### Command Code
 
 - Headless CLI adapter (`cmd -p --output-format json`, `--resume <id>`). Its stdin
@@ -624,10 +724,21 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   remaining monthly credits, not a plan-price table; five-hour and weekly caps
   come from `windowLimits`. Logs contain key source and request statuses, never keys.
 
+### Pi
+
+- Pi has no ACP mode, so it runs on its own JSONL RPC (`pi --mode rpc`), one process per thread. Pi stores the session; the session file from `get_state` is the resume cursor (`--session <file>`). A turn ends only on `agent_settled`; `agent_end` closes one run, and retries, compaction and queued steers can follow it. A message sent mid-turn is a native `steer`, so Pi reports `supportsTurnSteering: true`. RPC mode has no `/compact`, so ViewCode's compaction command runs RPC `compact`.
+- ViewCode's tools and approvals come in through one extension the server writes to `<stateDir>/pi/viewcode-extension.mjs` and loads with `--extension` (`piExtension.ts`). It reads its config from the environment, so credentials never touch disk: `pi.registerMcpServer` adds ViewCode's MCP server (needs Pi 0.99, the minimum), and outside Full access a `tool_call` hook asks through `ctx.ui.confirm`, which arrives as an `extension_ui_request` the adapter turns into an approval. Pi has no permission system of its own, so this hook is the only gate; the mode is fixed per process and a mode change restarts it with the session file.
+- The health check runs a throwaway `pi --mode rpc --no-session` for models, commands and skills; it passes `--no-mcp` only from Pi 1.0.4, because older Pi rejects unknown flags.
+
 ### ACP and the ViewCode MCP server
 
+- ACP agents with no protocol extensions of their own (Droid, Devin) share `Layers/AcpAgentAdapter.ts`; a provider supplies only its spawn, sign-in and config-option mapping, and gets approvals, events, resume, MCP attachment and runtime instructions. They report `supportsTurnSteering: false` and refuse a second prompt mid-turn, because ACP agents differ on what one does. Agents with extensions (Cursor, Grok, Antigravity) keep their own adapters.
+- Droid keeps its own login, so `authMethodId` is optional in `AcpSessionRuntime`: Droid sends `factory-api-key` only when `FACTORY_API_KEY` is set (as Grok does with its key) and otherwise relies on the login `droid` stored. Device pairing needs a terminal, so ViewCode never starts it. Reacting to an auth-required answer instead does not work: a real agent's JSON-RPC error response reaches the runtime as a defect with only its message (effect-acp decodes plain error responses as dies, and the mock agent, which effect-acp also serves, hides that), so the code -32000 is gone. In ACP mode Droid ignores `-m`/`--auto`; model and autonomy are its `model` and `autonomy_level` config options, set per turn and capped at the org's maximum.
+- Devin needs no `authenticate` at all: its ACP server uses the login `devin auth login` stored or `WINDSURF_API_KEY`, and only offers a browser method. Without either, `session/new` still succeeds and prompts fail, so the health check (`devin models list`, which needs a login) is where a missing sign-in shows. `--model` takes fuzzy family names at launch; mid-session changes pick the matching `model` config value (`matchDevinModelValue`). Devin can replay a loaded session's history after `session/load` returns, so a resumed session waits for updates to go quiet (`loadReplayQuiet`) and the adapter drops output that arrives outside a turn.
+- Droid advertises no MCP transport and Devin `http: false`, so both only take stdio servers. On a TCP listener the MCP credential also carries `stdioBridge`, the stdio bridge started with `--url <endpoint>`; `acpStdioMcpServerConfig` hands an agent that bridge on either listener.
+- Command Code, Droid, Devin and Pi turn on when their CLI is on `PATH` at startup unless settings say otherwise (`PATH_DETECTED_PROVIDERS` in `serverSettings.ts`); the detected flag is never written back.
 - An ACP agent that does not advertise the configured MCP transport (`mcpCapabilities.http` absent or false, for the HTTP config used without a stdio bridge) still starts: `AcpSessionRuntime` logs a warning with the provider and drops that server, so the chat works without ViewCode agent tools. Never fail `initialize` over it.
-- A chat that ends up without ViewCode tools must not start silently (OB8). When ViewCode drops the server (unsupported transport) or never issues an MCP session, the Cursor, Grok and Antigravity adapters emit a `runtime.warning` (`viewcodeToolsUnavailableWarning` in `AcpMcpDiagnostics.ts`), which the existing work log renders. When the server was sent but the agent loads no tools anyway (Cursor Enterprise blocks every MCP server by team policy), ACP gives no cheap signal: `session/new` confirms a session, not a tool inventory, and `cursor-agent mcp list` is an extra spawn that is risky on managed machines. So the `<viewcode_agents>` block in `RuntimeInstructions.ts` tells the agent to say plainly that the tools are missing, name the likely cause and offer sidebar child agents, instead of falling back silently.
+- A chat that ends up without ViewCode tools must not start silently (OB8). When ViewCode drops the server (unsupported transport) or never issues an MCP session, the Cursor, Grok, Antigravity and shared ACP adapters emit a `runtime.warning` (`viewcodeToolsUnavailableWarning` in `AcpMcpDiagnostics.ts`), which the existing work log renders. When the server was sent but the agent loads no tools anyway (Cursor Enterprise blocks every MCP server by team policy), ACP gives no cheap signal: `session/new` confirms a session, not a tool inventory, and `cursor-agent mcp list` is an extra spawn that is risky on managed machines. So the `<viewcode_agents>` block in `RuntimeInstructions.ts` tells the agent to say plainly that the tools are missing, name the likely cause and offer sidebar child agents, instead of falling back silently.
 - Claude Code with an enterprise MCP config (`managed-mcp.json`, paths in `Drivers/ClaudeEnterprisePolicy.ts`) exits 1 at startup on any client-supplied MCP server ("You cannot dynamically configure MCP servers when an enterprise MCP config is present"), which used to kill every Claude turn. The managed config is the organization's security control: ViewCode **respects it and never routes around it** (no project `.mcp.json`, settings files, env vars or edits to the managed file). `ClaudeAdapter` starts without `mcpServers` when the file exists, when the `runWithoutViewCodeTools` instance setting is on, or after the CLI refused once on that instance (remembered for the server's lifetime; the refusal triggers one relaunch of the same session without MCP that resends the unstarted prompts, and only that exact stderr does). Such sessions get instructions without the PR-linking and agents blocks, and a `runtime.warning` whose detail is `ViewcodeToolsUnavailableDetail`; clients turn the latest one into the thread notice (`client-runtime/viewcodeTools.ts`). Unmanaged machines get byte-identical options and no notice. The supported fix for such users is their IT adding ViewCode's server to the managed config.
 - A provider CLI that exits on its own is reported as that exit, attributed to the process and carrying its stderr ("Claude Code exited (code 1): …", last ~2KB, redacted; `provider/providerProcessExit.ts`), in the runtime error, the failed turn and the top-level log line. A request that merely touched the dead process (Claude's `setPermissionMode` is usually first) waits for the stream to settle and fails with that exit instead of "`turn/setPermissionMode` failed". ACP adapters already attach stderr to `AcpProcessExitedError`.
 - The MCP endpoint is announced on `127.0.0.1` even on a wildcard bind, on purpose (`mcp/McpSessionRegistry.ts`, `getHttpMcpEndpointHost`). Provider subprocesses are local, and MCP never crosses remote connections or tunnels, so "MCP unreachable from remote" is expected, not a bug.
@@ -658,11 +769,12 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Network access relaunches the app on TCP for phone pairing; turning it off
   returns to socket-only. `pnpm dev:desktop` is development mode and always
   uses a Vite port.
-- The Same Wi-Fi LAN self-test (`checkLanReachability`) runs only when the user
-  clicks "Test this network", never on dialog open, and dials loopback before
-  the LAN address. On a managed Mac, Cortex XDR read an ad-hoc-signed app
-  connecting to its own LAN address as reconnaissance and killed the whole
-  process tree, parent terminal included. Keep it an explicit action.
+- The Same Wi-Fi LAN self-test (`checkLanReachability`) runs once per shown
+  address each time Connect phone opens, with "Test again" for a re-run, and
+  dials loopback before the LAN address so a dead server is not reported as a
+  firewall block. Endpoint security on a managed Mac once killed the app for
+  this self-connection; ViewCode no longer targets such machines
+  ([managed-macos.md](../operations/managed-macos.md)).
 - Connect phone (`web/src/components/connectPhone/`) is the user-facing path to
   that toggle, and every mode ends in a pairing QR the stock T3 Code app scans
   (no phone sign-in). Modes come from `resolveConnectModes`: Same Wi-Fi and Quick
@@ -671,9 +783,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   (PATH, then fixed install paths such as the Mac app's bundled CLI, which never
   joins PATH; never a spawn; `knownTailscaleExecutablePaths` in `packages/tailscale`
   is shared with the spawns, which fall back the same way), whose "Turn on"
-  reuses `setTailscaleServeEnabled`, and whose launch-time opt-in
-  (`tailscaleAutoServe`) defaults off because managed laptops' security software
-  kills tailscaled. The dialog does not offer upstream's hosted T3 Connect tunnel:
+  reuses `setTailscaleServeEnabled`. Launch turns Serve on when the CLI is found and
+  `tailscale status` shows a tailnet name (`tailscaleAutoServe`, default on, persisted
+  only as `false`); turning Serve off also sets it false, so ViewCode never turns Serve
+  back on after the user turned it off. Pairing still gates every phone. The dialog
+  does not offer upstream's hosted T3 Connect tunnel:
   Quick connect does that job on the user's own account, and a third choice only
   confused people. T3 Connect's server side (`cloud/`) is untouched and still
   reachable from Settings → Connections in builds that configure it.
@@ -751,8 +865,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   `t3code://`, env var names) stay for upstream merges. `lib/runtime.ts` still
   provides a disabled `ManagedRelayClient` and `connection/platform.ts` an empty
   `CloudSession`, because the shared `client-runtime` layers require those
-  services. Saved relay-managed connections are dropped when the old connection
-  document is migrated. **Merge cost:** upstream edits to the deleted
+  services. Client-runtime keeps upstream's relay route kind for web and desktop;
+  mobile never creates one and drops only an environment's relay route (not the
+  environment) when it loads the catalog. **Merge cost:** upstream edits to the deleted
   `apps/mobile/src/features/cloud/`, `CloudEnvironmentRows`, `SettingsAuthRouteScreen`
   or `agent-awareness/remoteRegistration.ts` conflict as modify/delete; delete them
   again. Take ours for `app.config.ts`, `pnpm-workspace.yaml` (no `@clerk/expo`) and
@@ -782,6 +897,83 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   reduced motion. Anything wider or always-on needs a maintainer's sign-off.
 - Compact names drop the "Claude " prefix ("Opus 5.5"); the provider is shown
   beside them. Handoff is shown once per provider list, not on every row.
+
+### Sidebar
+
+- The shape is fixed by the user: rail, project folders, chats, each chat's agents.
+  Do not regroup by time. Grouping, sorting and the attention counts live in
+  client-runtime `threadArrangement.ts` so web and mobile arrange a folder alike.
+- An agent's group comes from `resolveSpawnedAgentRowStatus`, the status its row in
+  the lead's chat shows; an agent with no session and no turn is done, not working.
+  `sortChatAgents` and `flattenChatRows` must use the same group rule, or a group
+  splits into two runs with two labels. Mobile passes one that counts a paused
+  agent as Needs you, since it waits for Resume.
+- Labels appear only when a chat's agents span more than one group, and Done folds
+  only beside other groups: a chat whose agents are all done already folds them
+  behind its own disclosure, and a second fold costs a click for nothing. Done opens
+  for the open agent, a folder search and a strip filter.
+- The attention strip counts each thread once (needs you, then working, then new).
+  New is `hasUnseenCompletion`: a thread never opened counts as seen, so a fresh
+  install does not light up its history. The counts are one memo in the sidebar;
+  rows never subscribe, and a row gets its agent counts as four numbers so memoised
+  rows only re-render when their own counts move. A strip filter keeps matches and
+  the chats above them, not a matching chat's other agents
+  (`selectThreadTreeSearchMatches` with `includeDescendants: false`).
+- Folder sort is per logical project key: web keeps it in `uiStateStore`
+  (`folderSortOrderById`, the default stored as no entry), mobile for the session
+  like its other folder state. Recent and Name are plain orders, so they drop the
+  Needs you section on top.
+- macOS traffic lights: `main.tsx` marks `<html data-macos-window-controls>` from
+  the desktop bridge (`hidden` in fullscreen), and the layout is CSS keyed on it,
+  so a browser previews it by setting the attribute. Do not move the offsets back
+  into React state. Title row content is measured from the left edge of its own
+  column (the sidebar or main column starts after the rail), and with the sidebar
+  collapsed or shown as an overlay the main column starts 12pt after the lights,
+  because the rail alone is narrower than the three buttons.
+- The title bar is a native-style strip: lights, then one fixed group of the
+  sidebar toggle and back/forward arrows (`SidebarControl` in
+  `AppSidebarLayout.tsx`), so it stays put when the sidebar collapses. The sidebar
+  leaves its title row empty for it; "ViewCode" and New sit on the row below
+  (user decision, after Synara and Codex). Title content clears
+  `--workspace-titlebar-controls-width`, so widening the group means changing that
+  one variable. The browser hides its forward stack, so forward availability is
+  tracked from router history events (`lib/historyReach.ts`) and starts unavailable
+  after a reload.
+- The project tint follows only the project picked in the rail: with All, or a
+  project without a colour, the sidebar stays neutral and the composer glow keeps
+  the theme accent (user decision). It is `--project-accent` on a `display:
+contents` wrapper around the shell, since `components/ui` takes no dynamic
+  classes; nothing re-renders when it changes. Layer strengths come from
+  `shellTint.ts` per theme, written beside the palette by `themePalette.ts`; its
+  test holds every built-in theme to readable contrast under the tint, so a new
+  theme must pass it. The composer change is limited to the glow's colour and
+  alphas; the halo can be turned off, the running light cannot.
+- Mobile's thread composer wears the same glow (`features/threads/composerChrome.ts`):
+  the thread's project colour, else the theme accent (`--color-focus`), with the
+  `shellTint.ts` alphas; mobile has neither setting. Android cannot draw a coloured
+  shadow on every version and React Native has no conic gradient, so the halo is
+  stacked rings and the running light is SVG wedges drawn once and spun with a
+  Reanimated transform under an opaque cover (nothing repaints per frame; off under
+  reduced motion and while another screen covers the thread). The Active agents bar
+  and the checkout strip are glued to the composer and step aside while the
+  keyboard is up.
+- Project colour lives on the left panel only: rail tiles, folder badges, the
+  sidebar tint, the selected row and the composer glow. The top bar and the
+  tabs carry none (user decision: a coloured header read as a second layer).
+  The ViewCode default is pure-black neutrals with the content flush beside the
+  sidebar, not Droppy's inset sheet (`--vc-sheet-inset`, user decision).
+- The rail is a strip a step darker than the sidebar and the selected project is
+  its active tab, like a browser's: the tile takes the sidebar's surface and runs
+  into it with curved corners, its outer edge lit in the project colour or the
+  theme accent (user decision: a ring on one button did not say where you are).
+  A selected project without a colour tints the left panel in the theme accent
+  (`data-project-tint="accent"`), so every project gets the same surround; the
+  tint strengths live in `packages/shared/src/shellTint.ts`.
+  The rail's title strip keeps the sidebar colour so macOS window controls sit
+  on one surface. The tab must match the sidebar's fill exactly, tint included,
+  or a seam shows where they meet.
+- Provider usage rings, Settings, Pull Requests and Connect phone stay at the
+  bottom of the rail (user decision); the sidebar has no footer of its own.
 
 ### Account usage
 
@@ -876,15 +1068,21 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 
 ### Brand assets
 
-- The logo source is `assets/viewcode-icon.svg` (app tile) and
-  `assets/viewcode-mark.svg` (mark alone). The production PNG/ICO files under
-  `assets/prod/` and `apps/web/public/` are regenerated from it **in place,
-  under T3's file names**, so no code path changes and upstream merges only
-  conflict if upstream redraws its own icons (keep ours). macOS uses the
-  824px-on-1024 grid with a baked shadow; iOS and apple-touch are square (the
-  OS masks them). `.icns` is built from the PNG at package time. Dev builds
-  keep T3's blueprint icons in `assets/dev/`.
+- `assets/viewcode-icon.svg` is the approved production icon source;
+  `assets/viewcode-mark.svg` is the code-bracket and git-branch emblem alone. Production
+  exports come from `icons:export:production`; development and preview retain
+  their existing assets and Icon Composer path. Keep exported assets under T3's
+  file names so upstream merges preserve the paths. iOS and apple-touch exports
+  must be opaque and full bleed because the OS masks them. macOS uses the
+  824px-on-1024 grid with a baked shadow; `.icns` is built from the PNG at package
+  time. Android production layers are separate from development/preview so a
+  production redraw cannot replace those channels' artwork.
 - In the UI the mark is `T3Wordmark.tsx` (T3's name kept for the same reason).
+  Headers and small favicons use the flat rendition with larger node openings;
+  app icons keep the full gradients and folds. The flat right bracket is light
+  slate in dark appearances so it remains visible. Brand colors stay fixed
+  rather than following each theme's accent; Android silhouettes use the
+  separate monochrome source.
 - Generated worktree branches use `vc/` (`WORKTREE_BRANCH_PREFIX` in
   `packages/shared/src/git.ts`). Keep `t3code` in
   `LEGACY_WORKTREE_BRANCH_PREFIXES`: threads created before the rename sit on
@@ -945,6 +1143,55 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 - Utterances stay under 250 characters: Chromium's `speechSynthesis` cuts off
   or stalls long ones, and drops events for utterances it garbage-collects, so
   the queue stays referenced until it ends.
+
+### Mobile features taken from upstream after the v2 split
+
+- Upstream mobile work after `024d49520` is taken commit by commit
+  (`cherry picked from` or `Ported from upstream <sha>` in each commit body).
+  v2-only parts are dropped or rebuilt on v1: the latest-thought row reads v1
+  `role === "reasoning"` messages (`lib/threadActivity.ts`), and Home holds
+  `threadShellsAtom` (there is no `navigationThreadShellsAtom`).
+- Opening another thread from inside a Thread goes through
+  `openThreadFromThread`: it pushes, because the Thread route has no `getId`
+  and `navigate` would swap params so Back skips the parent, and it pops back
+  to a thread already below so chat ↔ agent hops don't pile up history.
+- Home keeps its thread list frozen while a Thread covers it
+  (`home-route-visibility.ts`); new Home subscriptions that change often go
+  through `useAtomValueWhileVisible`. Timers use `useVisibleSecondClock`.
+- A send failure is shown per thread above the composer
+  (`state/thread-composer-error.ts`). ViewCode send paths (handoff, agent
+  messaging) report message errors with `setThreadComposerError`, not the
+  global connection banner.
+- Dictation is owned by `VoiceInputProvider` at the app root so it survives
+  navigation. It must record through `useVoiceRecorder`, or Android loses its
+  SpeechRecognizer path (`AndroidSpeechRecorder`). The edge pill has no live
+  waveform on purpose (it repainted every 80 ms). `App.tsx` holds the
+  navigation ref the pill uses to return to its thread.
+- One environment can have several routes. In the catalog, an environment's
+  targets are its routes in order; bearer ids are per address
+  (`bearer:<env>:<origin>`) and old `bearer:<env>` ids stay valid, so saved
+  phones need no re-pairing. The server advertises private IPv4 and tailnet
+  addresses in its config (`environment/DirectEndpoints.ts`), never in socket
+  mode (`listenPath`), where host and port are nominal. A learned LAN route is
+  plain HTTP and reuses the paired token, so a phone paired over Tailscale
+  sends it unencrypted on the home Wi-Fi once Network access is on. Mobile
+  has no route reordering.
+- Pull requests use upstream's `features/pull-requests` and `features/workspace`;
+  ViewCode's old `features/pullRequests` screen is gone and its agent review
+  lives in `PullRequestAgentReview.tsx`. Every entry point (Git sheet, Open PR,
+  the git toast) goes through `useOpenPullRequest` and passes the chat's
+  `threadId`, so a review started there runs as that chat's agent.
+- Mobile Home stays the chat list on Android and iOS, including the split-view
+  sidebar. Pull requests open as a `PullRequests` stack route from Settings;
+  iOS also keeps its Home header entry. PRs and chats retain ordinary stack
+  history, so Back returns to the list or chat they were opened from, with a
+  list fallback for cold links. `v5-workspace-context`, `native-layout-metrics`
+  and `ScrollViewMarker` remain stand-ins for upstream's Screens 5 pieces.
+- PR write actions check `orchestration:operate`, the scope ViewCode's server
+  enforces, not upstream's split scopes.
+- `@t3tools/mobile-markdown-text` is installed as a copy, not a link: after
+  editing `apps/mobile/modules/t3-markdown-text`, run `pnpm install` before
+  tsc or Metro see it.
 
 ## Traps (things that cost hours)
 

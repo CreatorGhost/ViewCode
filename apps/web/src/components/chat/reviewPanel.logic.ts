@@ -1,4 +1,4 @@
-import type { ReviewFindingEntry } from "@t3tools/client-runtime/review-findings";
+import type { ReviewFindingEntry, ReviewFindingKey } from "@t3tools/client-runtime/review-findings";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { fencedCode, type PostedReviewFinding } from "@t3tools/shared/reviewFindings";
 
@@ -104,14 +104,19 @@ function reviewFindingChip(activityId: string, entry: ReviewFindingEntry): Revie
   };
 }
 
+/**
+ * One finding's body in a fix request: the suggested fix first, since a sent message folds after
+ * a dozen lines and a fix below a long detail read as an empty code block there; then the detail.
+ */
 function findingBody(entry: ReviewFindingEntry): ReadonlyArray<string> {
   const { finding } = entry;
-  const parts = [finding.detail];
-  if (entry.needsChecking) parts.push("The reviewer could not settle this one.");
-  if (finding.rule) parts.push(`Rule: ${finding.rule}`);
+  const parts: string[] = [];
   if (finding.suggestedFix) {
     parts.push(`Suggested fix:\n\n${fencedCode(finding.suggestedFix, finding.path)}`);
   }
+  parts.push(finding.detail);
+  if (entry.needsChecking) parts.push("The reviewer could not settle this one.");
+  if (finding.rule) parts.push(`Rule: ${finding.rule}`);
   return parts;
 }
 
@@ -151,4 +156,44 @@ export function reviewFindingsFixPrompt(input: {
     ].join("\n\n"),
     comments,
   };
+}
+
+/**
+ * The finding the panel goes to on its own: the first, once the change is read (until then every
+ * finding sits under General, which is not where it stays), once only, and never after the
+ * reader scrolled somewhere of their own.
+ */
+export function firstFindingToReveal(input: {
+  readonly order: ReadonlyArray<ReviewFindingKey>;
+  readonly diffPending: boolean;
+  readonly revealed: boolean;
+  readonly readerScrolled: boolean;
+}): ReviewFindingKey | null {
+  if (input.revealed || input.diffPending || input.readerScrolled) return null;
+  return input.order[0] ?? null;
+}
+
+/**
+ * Whether a newer set of the same review goes to its first issue again: only when the panel went
+ * to the first one on its own and the reader has neither stepped nor scrolled since, so the card in
+ * view and the counter stay on the same issue.
+ */
+export function revealFirstAgain(input: {
+  readonly autoRevealed: boolean;
+  readonly readerNavigated: boolean;
+  readonly readerScrolled: boolean;
+}): boolean {
+  return input.autoRevealed && !input.readerNavigated && !input.readerScrolled;
+}
+
+/**
+ * Whether a file shows folded to one row: files with findings open and the rest fold, each until
+ * the reader toggles it.
+ */
+export function reviewFileCollapsed(
+  fileKey: string,
+  filesWithFindings: ReadonlySet<string>,
+  toggledFiles: ReadonlySet<string>,
+): boolean {
+  return filesWithFindings.has(fileKey) === toggledFiles.has(fileKey);
 }

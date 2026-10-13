@@ -81,16 +81,16 @@ export function useReviewSections(input: {
       reviewCache.turnDiffById,
     ],
   );
-  const selectedSection = useMemo(
-    () =>
-      reviewSections.find((section) => section.id === reviewCache.selectedSectionId) ??
-      reviewSections[0] ??
-      null,
-    [reviewCache.selectedSectionId, reviewSections],
-  );
   const fallbackSectionId = useMemo(
     () => getDefaultReviewSectionId(reviewSections),
     [reviewSections],
+  );
+  const selectedSection = useMemo(
+    () =>
+      reviewSections.find((section) => section.id === reviewCache.selectedSectionId) ??
+      reviewSections.find((section) => section.id === fallbackSectionId) ??
+      null,
+    [fallbackSectionId, reviewCache.selectedSectionId, reviewSections],
   );
   const selectedSectionIdExists = useMemo(
     () =>
@@ -103,6 +103,7 @@ export function useReviewSections(input: {
   useEffect(() => {
     if (
       reviewSections.length > 0 &&
+      !diffPreview.isPending &&
       reviewCache.threadKey &&
       (!reviewCache.selectedSectionId || !selectedSectionIdExists)
     ) {
@@ -110,6 +111,7 @@ export function useReviewSections(input: {
     }
   }, [
     fallbackSectionId,
+    diffPreview.isPending,
     reviewCache.selectedSectionId,
     reviewCache.threadKey,
     reviewSections.length,

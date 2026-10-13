@@ -2,10 +2,11 @@ import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { useNavigation } from "@react-navigation/native";
 import { useEffect, useMemo, useState } from "react";
-import { Platform, useWindowDimensions } from "react-native";
+import { Platform } from "react-native";
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects } from "../../state/entities";
+import { environmentThreadShells } from "../../state/threads";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -17,20 +18,28 @@ import { AndroidHomeFabLayout } from "./AndroidHomeFab";
 import { HomeScreen } from "./HomeScreen";
 import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
+import { useAtomValueWhileVisible, useHomeRouteVisible } from "./home-route-visibility";
 import { useHomeThreadSelection } from "./home-thread-navigation";
-import { buildHomeTerminalTargets, findSelectedTerminalTarget } from "./homeTerminalTargets";
+import {
+  buildHomeTerminalTargets,
+  findSelectedTerminalTarget,
+  type HomeTerminalTarget,
+} from "./homeTerminalTargets";
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
-import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
+import { HomeScopeFilters } from "./HomeScopeFilters";
+import type { HomeHeaderProps } from "./HomeHeader.types";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
 export function HomeRouteScreen() {
-  const { width: windowWidth } = useWindowDimensions();
   const { layout, panes } = useAdaptiveWorkspaceLayout();
   const projects = useProjects();
-  const threads = useThreadShells();
+  // Streaming turns rewrite thread shells many times a second. While a Thread
+  // covers Home, rebuilding this list is invisible work.
+  const visible = useHomeRouteVisible();
+  const threads = useAtomValueWhileVisible(environmentThreadShells.threadShellsAtom, visible);
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
@@ -107,19 +116,17 @@ export function HomeRouteScreen() {
       threads,
     ],
   );
-  // Android's bottom bar opens a terminal through a project's latest thread.
+  // Home's terminal button (Android's bottom bar, iOS's header) opens through a project's latest thread.
   const terminalTargets = useMemo(
     () =>
-      Platform.OS === "android"
-        ? buildHomeTerminalTargets({
-            scopes: buildHomeProjectScopes({
-              projects,
-              environmentId: selectedEnvironmentId,
-              projectGroupingMode: listOptions.projectGroupingMode,
-            }),
-            threads,
-          })
-        : [],
+      buildHomeTerminalTargets({
+        scopes: buildHomeProjectScopes({
+          projects,
+          environmentId: selectedEnvironmentId,
+          projectGroupingMode: listOptions.projectGroupingMode,
+        }),
+        threads,
+      }),
     [listOptions.projectGroupingMode, projects, selectedEnvironmentId, threads],
   );
   const selectedTerminalTarget = useMemo(
@@ -134,6 +141,43 @@ export function HomeRouteScreen() {
       setSelectedProjectKey(null);
     }
   }, [projectFilterOptions, selectedProjectKey]);
+
+  const openTerminal = (target: HomeTerminalTarget) =>
+    navigation.navigate("ThreadTerminal", {
+      environmentId: String(target.environmentId),
+      threadId: String(target.threadId),
+    });
+
+  const homeHeaderProps: HomeHeaderProps = {
+    environments,
+    projects: projectFilterOptions,
+    searchQuery,
+    selectedEnvironmentId,
+    selectedProjectKey,
+    onEnvironmentChange: setSelectedEnvironmentId,
+    onProjectChange: setSelectedProjectKey,
+    onOpenEnvironments: () =>
+      navigation.navigate("SettingsSheet", {
+        screen: "SettingsContent",
+        params: { screen: "SettingsEnvironments" },
+      }),
+    onOpenSettings: () =>
+      navigation.navigate("SettingsSheet", {
+        screen: "SettingsContent",
+        params: { screen: "Settings" },
+      }),
+    onOpenUsage: () =>
+      navigation.navigate("SettingsSheet", {
+        screen: "SettingsContent",
+        params: { screen: "SettingsUsage" },
+      }),
+    onSearchQueryChange: setSearchQuery,
+    onStartNewTask: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
+    onOpenPullRequests: () => navigation.navigate("PullRequests"),
+    terminalTargets,
+    selectedTerminalTarget,
+    onOpenTerminal: openTerminal,
+  };
 
   // In split layouts the persistent sidebar IS the thread list — Home becomes
   // an empty detail pane so selecting a thread never transitions layouts.
@@ -184,62 +228,15 @@ export function HomeRouteScreen() {
       onSearchQueryChange={setSearchQuery}
       terminalTargets={terminalTargets}
       selectedTerminalTarget={selectedTerminalTarget}
-      onOpenTerminal={(target) =>
-        navigation.navigate("ThreadTerminal", {
-          environmentId: String(target.environmentId),
-          threadId: String(target.threadId),
-        })
-      }
+      onOpenTerminal={openTerminal}
     >
       <>
-        {/* Restore the header after leaving split view; screen options are
-            shallow-merged. The brand slot also doubles as the connection
-            status surface while an environment reconnects. */}
-        <NativeStackScreenOptions
-          optionsVersion={windowWidth}
-          options={{
-            ...getConnectionAwareBrandHeaderOptions({
-              headerWidth: windowWidth,
-              onOpenEnvironments: () =>
-                navigation.navigate("SettingsSheet", {
-                  screen: "SettingsContent",
-                  params: { screen: "SettingsEnvironments" },
-                }),
-            }),
-            headerShown: true,
-          }}
-        />
-        <HomeHeader
-          environments={environments}
-          projects={projectFilterOptions}
-          searchQuery={searchQuery}
-          selectedEnvironmentId={selectedEnvironmentId}
-          selectedProjectKey={selectedProjectKey}
-          onEnvironmentChange={setSelectedEnvironmentId}
-          onProjectChange={setSelectedProjectKey}
-          onOpenEnvironments={() =>
-            navigation.navigate("SettingsSheet", {
-              screen: "SettingsContent",
-              params: { screen: "SettingsEnvironments" },
-            })
-          }
-          onOpenSettings={() =>
-            navigation.navigate("SettingsSheet", {
-              screen: "SettingsContent",
-              params: { screen: "Settings" },
-            })
-          }
-          onOpenUsage={() =>
-            navigation.navigate("SettingsSheet", {
-              screen: "SettingsContent",
-              params: { screen: "SettingsUsage" },
-            })
-          }
-          onSearchQueryChange={setSearchQuery}
-          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
-        />
+        <HomeHeader {...homeHeaderProps} />
 
         <HomeScreen
+          listHeaderContent={
+            Platform.OS === "ios" ? <HomeScopeFilters {...homeHeaderProps} /> : undefined
+          }
           catalogState={catalogState}
           environments={environments}
           onAddConnection={() =>

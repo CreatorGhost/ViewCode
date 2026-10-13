@@ -4,8 +4,11 @@ import {
   CodexSettings,
   CommandCodeSettings,
   CursorSettings,
+  DevinSettings,
+  DroidSettings,
   GrokSettings,
   OpenCodeSettings,
+  PiSettings,
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import type * as Schema from "effect/Schema";
@@ -14,10 +17,13 @@ import {
   ClaudeAI,
   CommandCodeIcon,
   CursorIcon,
+  DevinIcon,
+  DroidIcon,
   GrokIcon,
   type Icon,
   OpenAI,
   OpenCodeIcon,
+  PiIcon,
 } from "../Icons";
 
 type ProviderSettingsSchema = {
@@ -90,6 +96,27 @@ const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
     icon: CommandCodeIcon,
     badgeLabel: "Early Access",
     settingsSchema: CommandCodeSettings,
+  },
+  {
+    value: ProviderDriverKind.make("droid"),
+    label: "Droid",
+    icon: DroidIcon,
+    badgeLabel: "Early Access",
+    settingsSchema: DroidSettings,
+  },
+  {
+    value: ProviderDriverKind.make("devin"),
+    label: "Devin",
+    icon: DevinIcon,
+    badgeLabel: "Early Access",
+    settingsSchema: DevinSettings,
+  },
+  {
+    value: ProviderDriverKind.make("pi"),
+    label: "Pi",
+    icon: PiIcon,
+    badgeLabel: "Early Access",
+    settingsSchema: PiSettings,
   },
 ];
 

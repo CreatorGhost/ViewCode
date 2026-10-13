@@ -34,10 +34,9 @@ export interface DesktopSettings {
   readonly tailscaleServePort: number;
   /**
    * ViewCode: turn Tailscale Serve on at launch when the Tailscale CLI is
-   * installed. Absent means off, and it stays off unless the user opts in
-   * (security software on managed laptops kills tailscaled).
+   * installed. On by default; turning Serve off turns this off too.
    */
-  readonly tailscaleAutoServe?: true;
+  readonly tailscaleAutoServe: boolean;
   readonly updateChannel: DesktopUpdateChannel;
   readonly updateChannelConfiguredByUser: boolean;
   // Was a "local" | "wsl" swap mode in an earlier iteration of the WSL
@@ -87,6 +86,7 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   serverExposureMode: "local-only",
   tailscaleServeEnabled: false,
   tailscaleServePort: DEFAULT_TAILSCALE_SERVE_PORT,
+  tailscaleAutoServe: true,
   updateChannel: "latest",
   updateChannelConfiguredByUser: false,
   wslBackendEnabled: false,
@@ -247,7 +247,7 @@ function normalizeDesktopSettingsDocument(
       parsed.serverExposureMode === "network-accessible" ? "network-accessible" : "local-only",
     tailscaleServeEnabled: parsed.tailscaleServeEnabled === true,
     tailscaleServePort: normalizeTailscaleServePort(parsed.tailscaleServePort),
-    ...(parsed.tailscaleAutoServe === true ? { tailscaleAutoServe: true as const } : {}),
+    tailscaleAutoServe: parsed.tailscaleAutoServe !== false,
     updateChannel: updateChannelConfiguredByUser
       ? Option.getOrElse(parsedUpdateChannel, () => defaultSettings.updateChannel)
       : defaultSettings.updateChannel,
@@ -286,8 +286,8 @@ function toDesktopSettingsDocument(
   if (settings.tailscaleServePort !== defaults.tailscaleServePort) {
     document.tailscaleServePort = settings.tailscaleServePort;
   }
-  if (settings.tailscaleAutoServe === true) {
-    document.tailscaleAutoServe = true;
+  if (settings.tailscaleAutoServe !== defaults.tailscaleAutoServe) {
+    document.tailscaleAutoServe = settings.tailscaleAutoServe;
   }
   if (settings.updateChannel !== defaults.updateChannel) {
     document.updateChannel = settings.updateChannel;
@@ -352,21 +352,19 @@ function setTailscaleServe(
     onNone: () => settings.tailscaleServePort,
     onSome: normalizeTailscaleServePort,
   });
-  const automatic =
-    input.automatic ?? (input.enabled ? settings.tailscaleAutoServe === true : false);
+  const automatic = input.automatic ?? (input.enabled ? settings.tailscaleAutoServe : false);
   if (
     settings.tailscaleServeEnabled === input.enabled &&
     settings.tailscaleServePort === port &&
-    (settings.tailscaleAutoServe === true) === automatic
+    settings.tailscaleAutoServe === automatic
   ) {
     return settings;
   }
-  const { tailscaleAutoServe: _previous, ...rest } = settings;
   return {
-    ...rest,
+    ...settings,
     tailscaleServeEnabled: input.enabled,
     tailscaleServePort: port,
-    ...(automatic ? { tailscaleAutoServe: true as const } : {}),
+    tailscaleAutoServe: automatic,
   };
 }
 

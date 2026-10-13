@@ -19,6 +19,11 @@ export const ReviewFindingsFeedCard = memo(function ReviewFindingsFeedCard(props
 }) {
   const navigation = useNavigation();
   const issues = props.findings.findings.length + props.findings.needsChecking.length;
+  // Findings sent while the review works have no verdict yet.
+  const summary =
+    props.findings.complete === false
+      ? `Reviewing… ${issues} so far`
+      : `${REVIEW_VERDICT_LABELS[props.findings.verdict]} · ${issues} ${issues === 1 ? "issue" : "issues"}`;
   return (
     <Pressable
       accessibilityRole="button"
@@ -35,8 +40,7 @@ export const ReviewFindingsFeedCard = memo(function ReviewFindingsFeedCard(props
       <Text className="text-sm font-t3-medium text-foreground">Review findings</Text>
       <View className="min-w-0 flex-1 flex-row items-center gap-1.5">
         <Text className="shrink text-sm text-foreground-muted" numberOfLines={1}>
-          {REVIEW_VERDICT_LABELS[props.findings.verdict]} · {issues}{" "}
-          {issues === 1 ? "issue" : "issues"}
+          {summary}
         </Text>
       </View>
       <SymbolView name="chevron.right" size={12} tintColor={props.iconColor} type="monochrome" />

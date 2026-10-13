@@ -95,6 +95,10 @@
       "types": "./src/providerSkills.ts",
       "default": "./src/providerSkills.ts"
     },
+    "./threadGoal": {
+      "types": "./src/threadGoal.ts",
+      "default": "./src/threadGoal.ts"
+    },
     "./voice-input": {
       "types": "./src/voice-input/index.ts",
       "default": "./src/voice-input/index.ts"
@@ -102,6 +106,10 @@
     "./relay": {
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
+    },
+    "./composer-settings-basis": {
+      "types": "./src/composerSettingsBasis.ts",
+      "default": "./src/composerSettingsBasis.ts"
     },
     "./usage-resume": {
       "types": "./src/usageResume.ts",
@@ -207,6 +215,10 @@
       "types": "./src/state/relayDiscovery.ts",
       "default": "./src/state/relayDiscovery.ts"
     },
+    "./agent-review": {
+      "types": "./src/agentReview.ts",
+      "default": "./src/agentReview.ts"
+    },
     "./review-findings": {
       "types": "./src/reviewFindings.ts",
       "default": "./src/reviewFindings.ts"
@@ -270,6 +282,10 @@
     "./state/thread-tree": {
       "types": "./src/state/threadTree.ts",
       "default": "./src/state/threadTree.ts"
+    },
+    "./state/thread-arrangement": {
+      "types": "./src/state/threadArrangement.ts",
+      "default": "./src/state/threadArrangement.ts"
     },
     "./state/thread-search": {
       "types": "./src/state/threadSearch.ts",

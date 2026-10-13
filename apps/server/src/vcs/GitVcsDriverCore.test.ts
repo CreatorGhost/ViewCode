@@ -1500,6 +1500,34 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("reads one commit's change when the range names its end", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "a.txt", "first\n");
+        yield* git(cwd, ["add", "a.txt"]);
+        yield* git(cwd, ["commit", "-m", "add a"]);
+        const reviewed = yield* git(cwd, ["rev-parse", "HEAD"]);
+        yield* writeTextFile(cwd, "b.txt", "later\n");
+        yield* git(cwd, ["add", "b.txt"]);
+        yield* git(cwd, ["commit", "-m", "add b"]);
+
+        const preview = yield* driver.getReviewDiffPreview({
+          cwd,
+          baseRef: `${reviewed}^`,
+          headRef: reviewed,
+        });
+        const range = preview.sources.find((source) => source.kind === "branch-range")!;
+        // Only that commit: not the one after it, which HEAD would include.
+        assert.deepStrictEqual(
+          range.files?.map((file) => file.path),
+          ["a.txt"],
+        );
+        assert.strictEqual(range.headRef, reviewed);
+      }),
+    );
+
     it.effect("honors whitespace filtering for worktree and branch previews", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
@@ -1685,6 +1713,26 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
 
         assert.include(diff, "-# test");
         assert.include(diff, "+# tracked change");
+      }),
+    );
+
+    it.effect("skips indexing thousands of untracked files and reports the diff incomplete", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* Effect.forEach(
+          Array.from({ length: 5_001 }, (_, index) => `bulk/${index}.txt`),
+          (file) => writeTextFile(cwd, file, "x\n"),
+          { concurrency: 32, discard: true },
+        );
+        yield* writeTextFile(cwd, "README.md", "changed\n");
+
+        const preview = yield* driver.getReviewDiffPreview({ cwd });
+        const workingTree = preview.sources.find((source) => source.kind === "working-tree")!;
+        assert.isTrue(workingTree.truncated);
+        assert.include(workingTree.diff, "+changed");
+        assert.notInclude(workingTree.diff, "bulk/0.txt");
       }),
     );
 

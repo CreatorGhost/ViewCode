@@ -943,6 +943,67 @@ function appendDocumentBlock(
   }
 }
 
+/**
+ * Plain text of a block for the clipboard, such as a drafted message in a quote:
+ * blocks on their own lines, list markers kept, inline formatting dropped.
+ */
+export function nativeMarkdownPlainText(node: MarkdownNode): string {
+  const children = node.children ?? [];
+  switch (node.type) {
+    case "soft_break":
+    case "line_break":
+      return "\n";
+    case "code_block":
+      return nodeTextContent(node).replace(/\n$/, "");
+    case "code_inline":
+      return nodeTextContent(node);
+    case "text":
+    case "math_inline":
+      return textNodeContent(nodeTextContent(node));
+    case "html_inline":
+    case "html_block":
+      return inlineHtmlText(nodeTextContent(node));
+    case "link": {
+      // Same shape as the web's plain-text copy: the label, then an external URL.
+      const label = children.map(nativeMarkdownPlainText).join("");
+      const href = node.href ?? "";
+      if (!/^https?:\/\//i.test(href)) return label;
+      return !label || label === href ? href : `${label} (${href})`;
+    }
+    case "list":
+      return children
+        .map((item, index) => {
+          const marker =
+            item.type === "task_list_item"
+              ? item.checked
+                ? "☑"
+                : "☐"
+              : node.ordered
+                ? `${(node.start ?? 1) + index}.`
+                : "-";
+          return `${marker} ${nativeMarkdownPlainText(item).replaceAll("\n", "\n   ")}`;
+        })
+        .join("\n");
+    case "list_item":
+    case "task_list_item":
+      // Tight lists carry inline nodes directly; group them so a line stays one line.
+      return nativeMarkdownListItemBlocks(node).map(nativeMarkdownPlainText).join("\n");
+    case "table":
+    case "table_head":
+    case "table_body":
+      return children.map(nativeMarkdownPlainText).join("\n");
+    case "table_row":
+      return children
+        .map((cell) => nativeMarkdownPlainText(cell).replace(/\s+/g, " ").trim())
+        .join(" | ");
+    case "document":
+    case "blockquote":
+      return children.map(nativeMarkdownPlainText).join("\n\n");
+    default:
+      return node.content ?? children.map(nativeMarkdownPlainText).join("");
+  }
+}
+
 function containsRichBlock(node: MarkdownNode): boolean {
   if (
     node.type === "code_block" ||
@@ -1064,4 +1125,102 @@ export function nativeMarkdownDocumentRuns(
     }
   }
   return decorateMentionRuns(decorateSkillRuns(runs, skills));
+}
+
+const HTML_TAG = /<!--[\s\S]*?-->|<\/?[a-z](?:[^>"']|"[^"]*"|'[^']*')*>/gi;
+
+function attribute(tag: string, name: string): string | null {
+  const attributes = /([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
+  for (const match of tag.matchAll(attributes)) {
+    if (match[1]?.toLowerCase() === name) {
+      return decodeHtmlEntities(match[2] ?? match[3] ?? match[4] ?? "");
+    }
+  }
+  return null;
+}
+
+/** Called only for parsed HTML nodes, so Markdown code examples keep their literal tags. */
+export function markdownHtmlContent(content: string): string {
+  // An HTML block such as <details> can also contain Markdown fences and code spans.
+  const codeRanges: Array<{ start: number; end: number }> = [];
+  const delimiters = [...content.matchAll(/`+|~{3,}/g)];
+  for (let index = 0; index < delimiters.length; index += 1) {
+    const opening = delimiters[index]!;
+    const lineStart = content.lastIndexOf("\n", opening.index - 1) + 1;
+    const fenced =
+      opening[0].length >= 3 && /^ {0,3}$/.test(content.slice(lineStart, opening.index));
+    if (opening[0][0] === "~" && !fenced) continue;
+    let closingIndex = -1;
+    for (let candidate = index + 1; candidate < delimiters.length; candidate += 1) {
+      const closing = delimiters[candidate]!;
+      if (!fenced && closing[0] === opening[0]) {
+        closingIndex = candidate;
+        break;
+      }
+      if (!fenced || closing[0][0] !== opening[0][0] || closing[0].length < opening[0].length)
+        continue;
+      const start = content.lastIndexOf("\n", closing.index - 1) + 1;
+      const nextLine = content.indexOf("\n", closing.index);
+      const end = nextLine === -1 ? content.length : nextLine;
+      if (
+        /^ {0,3}$/.test(content.slice(start, closing.index)) &&
+        /^\s*$/.test(content.slice(closing.index + closing[0].length, end))
+      ) {
+        closingIndex = candidate;
+        break;
+      }
+    }
+    if (closingIndex === -1) {
+      if (fenced) codeRanges.push({ start: opening.index, end: content.length });
+      continue;
+    }
+    const closing = delimiters[closingIndex]!;
+    codeRanges.push({ start: opening.index, end: closing.index + closing[0].length });
+    index = closingIndex;
+  }
+  return content.replace(HTML_TAG, (tag, offset: number) => {
+    if (codeRanges.some((range) => offset >= range.start && offset < range.end)) return tag;
+    if (tag.startsWith("<!--")) return "";
+    if (/^<img\b/i.test(tag)) {
+      const src = attribute(tag, "src");
+      if (!src) return "";
+      const alt = (attribute(tag, "alt") ?? "").replace(/[\\[\]]/g, "\\$&");
+      const href = src.replace(/</g, "%3C").replace(/>/g, "%3E").replace(/\n/g, "");
+      return `![${alt}](<${href}>)`;
+    }
+    if (/^<summary\b/i.test(tag)) return "\n\n**";
+    if (/^<\/summary\s*>/i.test(tag)) return "**\n\n";
+    if (/^<br\b/i.test(tag)) return "  \n";
+    if (/^<\/?(?:p|div|details)\b/i.test(tag)) return "\n\n";
+    return "";
+  });
+}
+
+export function nativeMarkdownWithHtml(
+  document: MarkdownNode,
+  parse: (content: string) => MarkdownNode,
+): MarkdownNode {
+  const withoutOffsets = (node: MarkdownNode): MarkdownNode => {
+    const { beg: _beg, end: _end, children, ...rest } = node;
+    return { ...rest, ...(children ? { children: children.map(withoutOffsets) } : {}) };
+  };
+  const transform = (node: MarkdownNode): MarkdownNode[] => {
+    if (node.type === "html_block" || node.type === "html_inline") {
+      const content = markdownHtmlContent(node.content ?? "");
+      if (!content.trim())
+        return /^<br\b/i.test(node.content ?? "") ? [{ type: "line_break" }] : [];
+      // Fragment offsets restart at zero, so they cannot identify chunks in the parent document.
+      const children = (parse(content).children ?? []).map(withoutOffsets);
+      return node.type === "html_inline"
+        ? children.flatMap((child) =>
+            child.type === "paragraph" ? (child.children ?? []) : [child],
+          )
+        : children;
+    }
+    if (!node.children) return [node];
+    const children = node.children.flatMap(transform);
+    if (node.type === "paragraph" && children.length === 0) return [];
+    return [{ ...node, children }];
+  };
+  return { ...document, children: (document.children ?? []).flatMap(transform) };
 }

@@ -464,7 +464,12 @@ export function buildReviewSectionItems(input: {
 export function getDefaultReviewSectionId(
   sections: ReadonlyArray<ReviewSectionItem>,
 ): string | null {
-  return sections[0]?.id ?? null;
+  const workingTree = sections.find((section) => section.kind === "working-tree");
+  const branch = sections.find((section) => section.kind === "branch-range");
+  if (workingTree?.isLoading || workingTree?.diff?.trim() || workingTree?.files?.length) {
+    return workingTree.id;
+  }
+  return branch?.id ?? workingTree?.id ?? sections[0]?.id ?? null;
 }
 
 export function buildReviewParsedDiff(

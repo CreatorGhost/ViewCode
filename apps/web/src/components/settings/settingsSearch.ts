@@ -294,6 +294,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["fold tool calls commands work summary worked for transcript"],
   },
   {
+    id: "project-color-tint",
+    title: "Colour the app with the active project",
+    to: "/settings/appearance",
+    searchTerms: ["project color colour tint sidebar accent"],
+  },
+  {
+    id: "composer-glow",
+    title: "Composer glow",
+    to: "/settings/appearance",
+    searchTerms: ["glow halo composer running working light accent"],
+  },
+  {
     id: "header-actions",
     title: "Actions and Git in the top bar",
     to: "/settings/appearance",
@@ -433,7 +445,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "provider-update-checks",
     title: "Provider update checks",
     to: "/settings/general",
-    searchTerms: ["installed cli versions newer available codex claude cursor grok opencode"],
+    searchTerms: [
+      "installed cli versions newer available codex claude cursor grok opencode droid pi",
+    ],
     scope: "environment-defaults",
   },
   {
@@ -610,7 +624,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Providers",
     to: "/settings/providers",
     searchTerms: [
-      "agents cli codex claude cursor grok opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color custom favorite hidden auto compact",
+      "agents cli codex claude cursor grok opencode antigravity droid factory devin windsurf pi google sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color custom favorite hidden auto compact",
     ],
   },
   {

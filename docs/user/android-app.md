@@ -56,6 +56,21 @@ wait in a collapsed **Settled · N** row at the bottom of their folder. Search
 looks through every folder, settled threads and agents included, and opens
 whatever hides a match. **+** on a folder starts a new task in that project.
 
+## Pull requests
+
+Open them from **Settings → Projects & threads → Pull requests**. The list
+covers every connected computer; filter it by computer, project, state or your involvement, or search.
+
+A pull request opens on **Overview** (checks, reviewers, conflicts, merge and
+changed files), **Activity** (comments and review threads you can reply to and
+resolve) and **Commits**. Open a changed file to read its diff, mark it viewed
+or leave line comments; comments stay drafts until you submit a review.
+**Work on PR** and the helpers (explain, address feedback, resolve conflicts,
+watch) continue in a chat with the pull request attached; a new chat prepares a
+worktree on its branch when you send the first message. **Review with agent**
+starts an agent review whose findings appear on the pull request. A pull request
+opened from a chat's Git sheet returns to that chat on Back.
+
 ## Managing agents
 
 Long-press an agent row for **Stop agent**, **Resume agent** or **Discard held

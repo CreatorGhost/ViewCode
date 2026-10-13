@@ -160,6 +160,8 @@ import { REVIEW_VERDICT_BADGES } from "./ReviewFindingsView";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { resolveAgentToolkitToolName } from "./agentTimeline.logic";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
+import { rememberedSpawnDisclosures } from "./SpawnedAgentRows.logic";
+import { useTimelineMessageFocusStore } from "../../timelineMessageFocusStore";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useAtomValue } from "@effect/atom-react";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
@@ -450,6 +452,8 @@ interface MessagesTimelineProps {
    * projection and list extraData — do not remount on this value.
    */
   displayThreadKey?: string;
+  /** The rows are a held snapshot of the previous thread while the next one loads. */
+  paintOnly?: boolean;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   supportsConversationRollback: boolean;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
@@ -524,6 +528,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   undeliveredMessages,
   routeThreadKey,
   displayThreadKey,
+  paintOnly = false,
   onOpenTurnDiff,
   supportsConversationRollback,
   onRevertToTurnCount,
@@ -586,7 +591,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const previousLatestTurnRef = useRef(latestTurn);
   // The list stays mounted across thread switches. Its first end pins on the
   // new thread must snap, not glide, even if that thread is mid-turn.
-  const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(null);
+  const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(listIdentityKey);
   let paintedExpandedTurnIds = expandedTurnIds;
   let paintedExpandedWorkGroupIds = expandedWorkGroupIds;
   let paintedExpandedSpawnEntryIds = expandedSpawnEntryIds;
@@ -663,34 +668,59 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, [settlingListIdentity]);
 
+  // A toggle made at the end keeps the end in view while rows re-measure.
+  // Anywhere else, the toggled row holds its place.
+  const disclosurePinsEndRef = useRef(false);
+  const disclosureCollapsedRef = useRef(false);
+  const pinDisclosureToEnd = useCallback(() => {
+    if (!disclosurePinsEndRef.current) return;
+    const element = listRef.current?.getScrollableNode();
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [listRef]);
+
+  // Settles two frames after the last toggle, or after the last row resize
+  // while pinned to the end, since tool output can render a few frames late.
+  const scheduleDisclosureSettle = useCallback(() => {
+    if (disclosureSettleFrameRef.current !== null) {
+      cancelAnimationFrame(disclosureSettleFrameRef.current);
+    }
+    if (disclosureSettleSecondFrameRef.current !== null) {
+      cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
+    }
+    disclosureSettleFrameRef.current = requestAnimationFrame(() => {
+      pinDisclosureToEnd();
+      disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
+        pinDisclosureToEnd();
+        disclosurePinsEndRef.current = false;
+        disclosureAnchorKeyRef.current = null;
+        setDisclosureToggleSettling(false);
+        disclosureSettleFrameRef.current = null;
+        disclosureSettleSecondFrameRef.current = null;
+        // Wait for row measurement and the disclosure click's blur check.
+        // Closing output can reveal the end without a scroll event.
+        if (
+          disclosureCollapsedRef.current &&
+          resolveTimelineIsAtEnd(listRef.current?.getState()) === true
+        ) {
+          onToolOutputCollapsedAtEnd?.();
+        }
+      });
+    });
+  }, [listRef, onToolOutputCollapsedAtEnd, pinDisclosureToEnd]);
+
   const suspendEndScrollMaintenanceForDisclosure = useCallback(
     (anchorKey: string, collapsed = false) => {
       disclosureAnchorKeyRef.current = anchorKey;
+      disclosureCollapsedRef.current = collapsed;
+      disclosurePinsEndRef.current = resolveTimelineIsAtEnd(listRef.current?.getState()) === true;
       setDisclosureToggleSettling(true);
-      if (disclosureSettleFrameRef.current !== null) {
-        cancelAnimationFrame(disclosureSettleFrameRef.current);
-      }
-      if (disclosureSettleSecondFrameRef.current !== null) {
-        cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
-      }
-      disclosureSettleFrameRef.current = requestAnimationFrame(() => {
-        disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
-          disclosureAnchorKeyRef.current = null;
-          setDisclosureToggleSettling(false);
-          disclosureSettleFrameRef.current = null;
-          disclosureSettleSecondFrameRef.current = null;
-          // Wait for row measurement and the disclosure click's blur check.
-          // Closing output can reveal the end without a scroll event.
-          if (collapsed && resolveTimelineIsAtEnd(listRef.current?.getState()) === true) {
-            onToolOutputCollapsedAtEnd?.();
-          }
-        });
-      });
+      scheduleDisclosureSettle();
     },
-    [listRef, onToolOutputCollapsedAtEnd],
+    [listRef, scheduleDisclosureSettle],
   );
 
   const shouldRestoreVisibleContentPosition = useCallback((row: MessagesTimelineRow) => {
+    if (disclosurePinsEndRef.current) return false;
     const disclosureAnchorKey = disclosureAnchorKeyRef.current;
     return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
   }, []);
@@ -850,6 +880,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+  // Another surface asked to show one of this chat's messages (a review fix sent here).
+  const messageFocus = useTimelineMessageFocusStore((state) =>
+    state.request?.threadKey === routeThreadKey ? state.request : null,
+  );
+  useEffect(() => {
+    if (messageFocus === null) return;
+    const index = rows.findIndex(
+      (row) => row.kind === "message" && row.message.id === messageFocus.messageId,
+    );
+    // Still queued: the request waits for the message to go out.
+    if (index === -1) return;
+    onManualNavigation();
+    void listRef.current?.scrollToIndex({ index, animated: true, viewOffset: 80 });
+    useTimelineMessageFocusStore.getState().settle(messageFocus.nonce);
+  }, [listRef, messageFocus, onManualNavigation, rows]);
   const restoreRowIndex =
     restoringThreadPosition && rememberedPosition?.atEnd === false
       ? rows.findIndex((row) => row.id === rememberedPosition.rowId)
@@ -1044,6 +1089,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onContentOverflowChange(measureContentOverflow());
     });
   }, [measureContentOverflow, onContentOverflowChange]);
+  const handleItemSizeChanged = useCallback(() => {
+    if (disclosurePinsEndRef.current) {
+      queueMicrotask(pinDisclosureToEnd);
+      scheduleDisclosureSettle();
+    }
+    reportContentOverflow();
+  }, [pinDisclosureToEnd, reportContentOverflow, scheduleDisclosureSettle]);
   useEffect(() => cancelContentOverflowFrame, [cancelContentOverflowFrame]);
   // The list's own layout effects have already run here, so estimated row
   // positions are in place. Reporting before the first paint lets a thread
@@ -1060,25 +1112,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (restoringThreadPosition || state?.data !== rows) return;
     const isAtEnd = resolveTimelineIsAtEnd(state);
     const position = state?.data?.length ? resolveWorkGroupScrollAnchor(state) : undefined;
-    if (position && state && isAtEnd !== undefined) {
+    if (position && state && isAtEnd !== undefined && !paintOnly) {
       const index = state.indexByKey(position.rowId);
       const row = index === undefined ? undefined : state.elementAtIndex(index);
       const element = listRef.current?.getScrollableNode();
       if (row && element) {
-        rememberTimelinePosition(listIdentityKey, {
-          ...position,
-          // DOM geometry includes the header and the virtualizer's layout adjustment.
-          offsetWithinRow: element.getBoundingClientRect().top - row.getBoundingClientRect().top,
-          scrollOffset: element.scrollTop,
-          atEnd: isAtEnd,
-          disclosures: {
-            turns: paintedExpandedTurnIds,
-            workGroups: paintedExpandedWorkGroupIds,
-            spawnEntries: paintedExpandedSpawnEntryIds,
-            reasoningMessages: paintedExpandedReasoningMessageIds,
-            workGroupState: workGroupViewState,
+        rememberTimelinePosition(
+          listIdentityKey,
+          {
+            ...position,
+            // DOM geometry includes the header and the virtualizer's layout adjustment.
+            offsetWithinRow: element.getBoundingClientRect().top - row.getBoundingClientRect().top,
+            scrollOffset: element.scrollTop,
+            atEnd: isAtEnd,
+            disclosures: {
+              turns: paintedExpandedTurnIds,
+              workGroups: paintedExpandedWorkGroupIds,
+              spawnEntries: rememberedSpawnDisclosures(paintedExpandedSpawnEntryIds),
+              reasoningMessages: paintedExpandedReasoningMessageIds,
+              workGroupState: workGroupViewState,
+            },
           },
-        });
+          liveFollowEnabled && !anchoredEndSpace,
+        );
       }
     }
     if (isAtEnd !== undefined && !citationPositioning) {
@@ -1128,6 +1184,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     workGroupViewState,
     rows,
     listIdentityKey,
+    liveFollowEnabled,
+    anchoredEndSpace,
+    paintOnly,
     restoringThreadPosition,
     listRef,
     minimapItems,
@@ -1140,6 +1199,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const frame = requestAnimationFrame(handleScroll);
     return () => cancelAnimationFrame(frame);
   }, [handleScroll, rows.length]);
+
+  const savedLiveFollowEnabledRef = useRef(liveFollowEnabled);
+  useLayoutEffect(() => {
+    const wasFollowing = savedLiveFollowEnabledRef.current;
+    savedLiveFollowEnabledRef.current = liveFollowEnabled;
+    if (wasFollowing && !liveFollowEnabled) handleScroll();
+  }, [handleScroll, liveFollowEnabled]);
 
   useEffect(() => {
     if (!timelineViewportElement) {
@@ -1362,7 +1428,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             }
             maintainScrollAtEndThreshold={1}
             onScroll={handleScroll}
-            onItemSizeChanged={reportContentOverflow}
+            onItemSizeChanged={handleItemSizeChanged}
             className={cn(
               "scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
               topFadeEnabled && "topbar-scroll-fade",

@@ -483,7 +483,13 @@ const make = Effect.gen(function* () {
       requireThread(PullRequestListFailedError).pipe(Effect.map(listThreadPullRequests)),
     watch_pull_request: (input) => setWatching(input, true),
     unwatch_pull_request: (input) => setWatching(input, false),
-    submit_review_findings: ({ target: requested, mode: requestedMode, previous, ...report }) =>
+    submit_review_findings: ({
+      target: requested,
+      mode: requestedMode,
+      previous,
+      complete,
+      ...report
+    }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(ReviewFindingsFailedError);
         const target = reviewFindingsTarget(thread, requested);
@@ -516,6 +522,8 @@ const make = Effect.gen(function* () {
             ? { incremental: true, basedOn: started.basedOn }
             : {}),
           ...(previous === undefined ? {} : { previous }),
+          // A set sent while the review goes on, which a later call replaces.
+          complete: complete ?? true,
         };
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         const count = report.findings.length;
@@ -530,7 +538,7 @@ const make = Effect.gen(function* () {
               id: EventId.make(yield* crypto.randomUUIDv4.pipe(Effect.orDie)),
               tone: "info",
               kind: REVIEW_FINDINGS_ACTIVITY_KIND,
-              summary: `Review: ${VERDICT_LABELS[report.verdict]}, ${count} ${count === 1 ? "finding" : "findings"}`,
+              summary: `${complete === false ? "Review so far" : "Review"}: ${VERDICT_LABELS[report.verdict]}, ${count} ${count === 1 ? "finding" : "findings"}`,
               payload,
               turnId: thread.session?.activeTurnId ?? null,
               createdAt,
@@ -549,7 +557,9 @@ const make = Effect.gen(function* () {
           findings: count,
           needsChecking: report.needsChecking.length,
           message:
-            "Recorded and shown to the reader under your report. Don't repeat the findings; end your turn.",
+            complete === false
+              ? "Recorded and shown to the reader as the findings so far. Keep reviewing; each later call passes the whole set so far, and the last one, after your report, leaves out complete."
+              : "Recorded and shown to the reader under your report. Don't repeat the findings; end your turn.",
         };
       }),
     post_review_findings: (input) =>
@@ -592,7 +602,7 @@ const make = Effect.gen(function* () {
           headMoved: result.headMoved ?? false,
         };
       }),
-    review_local_changes: ({ mode, focus }) =>
+    review_local_changes: ({ mode, focus, scope }) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(PullRequestReviewFailedError);
         return yield* reviews.startLocal({
@@ -600,6 +610,7 @@ const make = Effect.gen(function* () {
           sourceThreadId: thread.id,
           mode,
           focus,
+          scope,
           fallbackModelSelection: thread.modelSelection,
         });
       }),
@@ -621,6 +632,7 @@ const make = Effect.gen(function* () {
           // A user who never set a default model gets a reviewer like the agent that asked.
           fallbackModelSelection: thread.modelSelection,
           linkSource: "agent",
+          sourceThreadId: thread.id,
         });
         return { ...target, threadId: started.threadId, title: started.title };
       }),

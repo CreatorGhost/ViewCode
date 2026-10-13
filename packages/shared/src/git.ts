@@ -146,6 +146,14 @@ function azureDevOpsRepositoryKey(host: string, segments: ReadonlyArray<string>)
 }
 
 /**
+ * GitHub's SSH-over-443 endpoint (`ssh://git@ssh.github.com:443/owner/repo`) serves the same
+ * repositories as `github.com`, and only the web host has a pull request page or a gh account.
+ */
+function canonicalRemoteHost(host: string): string {
+  return host === "ssh.github.com" ? "github.com" : host;
+}
+
+/**
  * Normalize a git remote URL into a stable comparison key.
  */
 export function normalizeGitRemoteUrl(value: string): string {
@@ -162,7 +170,7 @@ export function normalizeGitRemoteUrl(value: string): string {
       if (url.hostname && repositorySegments.length > 1) {
         return (
           azureDevOpsRepositoryKey(url.hostname, repositorySegments) ??
-          `${url.hostname}/${repositorySegments.join("/")}`
+          `${canonicalRemoteHost(url.hostname)}/${repositorySegments.join("/")}`
         );
       }
     } catch {
@@ -176,7 +184,10 @@ export function normalizeGitRemoteUrl(value: string): string {
   const scpHost = scpStyleHostAndPath?.[1];
   const scpPath = scpStyleHostAndPath?.[2];
   if (scpHost && scpPath) {
-    return azureDevOpsRepositoryKey(scpHost, scpPath.split("/")) ?? `${scpHost}/${scpPath}`;
+    return (
+      azureDevOpsRepositoryKey(scpHost, scpPath.split("/")) ??
+      `${canonicalRemoteHost(scpHost)}/${scpPath}`
+    );
   }
 
   return normalized;

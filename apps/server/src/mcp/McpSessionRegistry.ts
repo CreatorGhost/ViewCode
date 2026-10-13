@@ -116,11 +116,14 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       ? `unix:${httpServer.address.path}`
       : `${httpOrigin}${BROWSER_CLI_ROUTE_PATH}`;
   // A socket listener has no URL a provider can dial, so providers launch the
-  // stdio bridge, which forwards to `/mcp` over the same socket.
-  const stdioBridge =
+  // stdio bridge, which forwards to `/mcp` over the same socket. On TCP the
+  // bridge dials the endpoint, for agents that take only stdio MCP servers.
+  const isSocketListener = httpServer.address._tag === "UnixPathAddress";
+  const stdioBridge = yield* McpStdioBridgeLaunch.resolveMcpStdioBridgeLaunch(
     httpServer.address._tag === "UnixPathAddress"
-      ? yield* McpStdioBridgeLaunch.resolveMcpStdioBridgeLaunch(httpServer.address.path)
-      : undefined;
+      ? { socketPath: httpServer.address.path }
+      : { url: endpoint },
+  );
 
   const hashToken = (token: string) =>
     crypto
@@ -141,13 +144,17 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       yield* Effect.annotateCurrentSpan({
         threadId: request.threadId,
         providerInstanceId: request.providerInstanceId,
-        transport: stdioBridge ? "stdio" : "http",
+        transport: isSocketListener ? "stdio" : "http",
         capabilities: [...request.capabilities],
       });
       const issuedAt = yield* currentTimeMillis;
       const providerSessionId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
       const rawToken = yield* crypto.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
+      const bridgeLaunch = {
+        ...stdioBridge,
+        env: { ...stdioBridge.env, [MCP_STDIO_BRIDGE_TOKEN_ENV]: rawToken },
+      };
       const scope: McpInvocationContext.McpInvocationScope = {
         environmentId,
         threadId: ThreadId.make(request.threadId),
@@ -174,17 +181,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           computerUseEndpoint,
           browserEndpoint,
           authorizationHeader: `Bearer ${rawToken}`,
-          ...(stdioBridge
-            ? {
-                stdio: {
-                  ...stdioBridge,
-                  env: {
-                    ...stdioBridge.env,
-                    [MCP_STDIO_BRIDGE_TOKEN_ENV]: rawToken,
-                  },
-                },
-              }
-            : {}),
+          ...(isSocketListener ? { stdio: bridgeLaunch } : { stdioBridge: bridgeLaunch }),
           capabilities: scope.capabilities,
         },
       };

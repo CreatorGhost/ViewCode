@@ -34,6 +34,9 @@ import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handler
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { AgentsToolkitHandlersLive } from "./toolkits/agents/handlers.ts";
 import { AgentsToolkit } from "./toolkits/agents/tools.ts";
+import { GoalToolkitHandlersLive } from "./toolkits/goal/handlers.ts";
+import { GoalToolkit } from "./toolkits/goal/tools.ts";
+import * as ThreadGoals from "../orchestration/ThreadGoals.ts";
 import { HtmlToolkitHandlersLive } from "./toolkits/html/handlers.ts";
 import { HtmlToolkit } from "./toolkits/html/tools.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
@@ -656,6 +659,11 @@ export const AgentsToolkitRegistrationLive = McpServer.toolkit(AgentsToolkit).pi
   Layer.provide(AgentsToolkitHandlersLive),
 );
 
+export const GoalToolkitRegistrationLive = McpServer.toolkit(GoalToolkit).pipe(
+  Layer.provide(GoalToolkitHandlersLive),
+  Layer.provide(ThreadGoals.layer),
+);
+
 export const HtmlToolkitRegistrationLive = McpServer.toolkit(HtmlToolkit).pipe(
   Layer.provide(HtmlToolkitHandlersLive),
   Layer.provide(HtmlRender.layer),
@@ -685,6 +693,7 @@ export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
   AgentsToolkitRegistrationLive,
+  GoalToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
   HtmlToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

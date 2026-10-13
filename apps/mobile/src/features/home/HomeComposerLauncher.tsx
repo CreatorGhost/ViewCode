@@ -17,13 +17,14 @@ import { useAndroidControlSizing } from "../../components/useAndroidControlSizin
 import { cn } from "../../lib/cn";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
-import type { HomeTerminalTarget } from "./homeTerminalTargets";
+import {
+  HOME_TERMINAL_MENU_LIMIT,
+  homeTerminalButtonAccessibility,
+  type HomeTerminalTarget,
+} from "./homeTerminalTargets";
 
 /** Unscaled list clearance under the bar: its height plus the gaps around it. */
 export const HOME_COMPOSER_CLEARANCE = 72;
-
-/** Most recently active projects the terminal menu lists. */
-const TERMINAL_MENU_LIMIT = 8;
 
 const FLOATING_SHADOW = {
   elevation: 4,
@@ -79,7 +80,7 @@ function TerminalButton(props: {
   readonly onOpen: (target: HomeTerminalTarget) => void;
 }) {
   const { onOpen, targets } = props;
-  const menuTargets = useMemo(() => targets.slice(0, TERMINAL_MENU_LIMIT), [targets]);
+  const menuTargets = useMemo(() => targets.slice(0, HOME_TERMINAL_MENU_LIMIT), [targets]);
   const actions = useMemo<MenuAction[]>(
     () =>
       menuTargets.map((target) => ({
@@ -99,20 +100,13 @@ function TerminalButton(props: {
     [menuTargets, onOpen],
   );
   const { selected } = props;
+  const accessibility = homeTerminalButtonAccessibility(targets, selected);
   return (
     <AndroidAnchoredMenu title="Open terminal in…" actions={actions} onPressAction={handleAction}>
       {(open) => (
         <RoundBarButton
-          accessibilityLabel={
-            selected ? `Open terminal in ${selected.projectTitle}` : "Open terminal in…"
-          }
-          accessibilityHint={
-            targets.length === 0
-              ? "Disabled until a project has a thread, since terminals open inside a thread."
-              : selected
-                ? "Opens a terminal in the selected project's latest thread."
-                : "Chooses which project to open a terminal in."
-          }
+          accessibilityLabel={accessibility.label}
+          accessibilityHint={accessibility.hint}
           icon="terminal"
           disabled={targets.length === 0}
           onPress={selected ? () => onOpen(selected) : open}

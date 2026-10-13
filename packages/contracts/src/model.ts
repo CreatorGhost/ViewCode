@@ -167,6 +167,12 @@ export const ANTIGRAVITY_DEFAULT_MODEL = "antigravity-default";
 export const DEFAULT_TEXT_GENERATION_REASONING_EFFORT = "low";
 /** Let the Command Code CLI use its own configured model. Never passed as `--model`. */
 export const COMMAND_CODE_DEFAULT_MODEL = "default";
+/** Keep the model Droid picks from its own settings. Never sent to ACP. */
+export const DROID_DEFAULT_MODEL = "default";
+/** Keep the model Devin is configured with. Never passed as `--model`. */
+export const DEVIN_DEFAULT_MODEL = "default";
+/** Keep the model from Pi's own settings. Never sent as `set_model`. */
+export const PI_DEFAULT_MODEL = "default";
 
 export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, string>> = {
   [CODEX_DRIVER_KIND]: DEFAULT_MODEL,
@@ -177,6 +183,9 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
   [ProviderDriverKind.make("antigravity")]: ANTIGRAVITY_DEFAULT_MODEL,
   [ProviderDriverKind.make("commandCode")]: COMMAND_CODE_DEFAULT_MODEL,
+  [ProviderDriverKind.make("droid")]: DROID_DEFAULT_MODEL,
+  [ProviderDriverKind.make("devin")]: DEVIN_DEFAULT_MODEL,
+  [ProviderDriverKind.make("pi")]: PI_DEFAULT_MODEL,
 };
 
 /** Per-provider text generation model defaults. */
@@ -226,4 +235,7 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [GROK_DRIVER_KIND]: "Grok",
   [OPENCODE_DRIVER_KIND]: "OpenCode",
   [ProviderDriverKind.make("commandCode")]: "Command Code",
+  [ProviderDriverKind.make("droid")]: "Droid",
+  [ProviderDriverKind.make("devin")]: "Devin",
+  [ProviderDriverKind.make("pi")]: "Pi",
 };

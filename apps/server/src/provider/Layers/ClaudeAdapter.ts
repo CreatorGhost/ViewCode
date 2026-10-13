@@ -28,6 +28,10 @@ import {
 import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import { observedClaudeCacheTtlSeconds } from "@t3tools/shared/claudePromptCache";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import {
+  IMAGE_DIMENSIONS_HEADER_BYTES,
+  readImageDimensions,
+} from "@t3tools/shared/imageDimensions";
 import { describeClaudeApiRetry } from "./claudeApiRetry.ts";
 import { isClaudeUsageLimit } from "./claudeUsageLimitRule.ts";
 import { type ClaudeScopedLimitNames, claudeRateLimitEventToUpdate } from "./claudeUsageLimits.ts";
@@ -642,7 +646,7 @@ function terminalResultError(
     case "prompt_too_long":
       return "Claude stopped: the prompt exceeds the model's context window.";
     case "image_error":
-      return "Claude stopped: an image in the conversation could not be processed.";
+      return "Claude stopped: an image in this chat is one Claude cannot read, and it stays in the conversation. Fork from a message before it, or start a new chat, to continue.";
     case "model_error":
       return "Claude stopped: the model returned an error.";
     default:
@@ -1641,6 +1645,23 @@ function buildUserMessage(input: {
   } as SDKUserMessage;
 }
 
+/**
+ * Claude rejects an image over 5 MB encoded, and once a request holds more than 20 images, one
+ * longer than 2000 px on either side. Long agent sessions pass 20 easily, so the stricter bound
+ * applies to every inline image. Headers that can't be read are left to Claude.
+ */
+const CLAUDE_INLINE_IMAGE_MAX_BYTES = 3_750_000;
+const CLAUDE_INLINE_IMAGE_MAX_EDGE = 2000;
+
+export function fitsClaudeInlineImage(bytes: Uint8Array): boolean {
+  if (bytes.byteLength > CLAUDE_INLINE_IMAGE_MAX_BYTES) return false;
+  const dimensions = readImageDimensions(bytes.subarray(0, IMAGE_DIMENSIONS_HEADER_BYTES));
+  return (
+    dimensions === null ||
+    Math.max(dimensions.width, dimensions.height) <= CLAUDE_INLINE_IMAGE_MAX_EDGE
+  );
+}
+
 function buildClaudeImageContentBlock(input: {
   readonly mimeType: string;
   readonly bytes: Uint8Array;
@@ -1716,6 +1737,16 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
           }),
       ),
     );
+
+    if (!fitsClaudeInlineImage(bytes)) {
+      // Inlined, it would fail this turn and every later one, since the session keeps it. The
+      // prompt already carries the saved path, and Claude's Read tool shrinks images to fit.
+      sdkContent.push({
+        type: "text",
+        text: `[Image "${attachment.name}" is too large to show inline. Open it from its saved path with the Read tool.]`,
+      });
+      continue;
+    }
 
     sdkContent.push(
       buildClaudeImageContentBlock({
@@ -5238,7 +5269,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         canUseTool,
         onUserDialog,
         supportedDialogKinds: ["resume_return"],
-        env: McpProviderSession.withAgentDeviceEnvironment(claudeEnvironment, mcpSession),
+        env: {
+          ...McpProviderSession.withAgentDeviceEnvironment(claudeEnvironment, mcpSession),
+          ...(mcpSession && toolsUnavailable === undefined
+            ? McpProviderSession.claudeMcpEnvironment(mcpSession)
+            : {}),
+        },
         additionalDirectories,
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         ...(mcpSession && toolsUnavailable === undefined

@@ -323,11 +323,17 @@ export const openSystemSettings = DesktopIpc.makeIpcMethod({
     const shell = yield* ElectronShell.ElectronShell;
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     if (environment.platform !== "darwin") return false;
+    // Accessibility first asks macOS itself: its own prompt is what adds the app to the list,
+    // with a button straight to the pane. Nothing more to do once it is granted.
+    if (pane === "accessibility" && Electron.systemPreferences.isTrustedAccessibilityClient(true)) {
+      return true;
+    }
     const owner = Electron.BrowserWindow.getFocusedWindow();
     const opened = yield* shell.openSystemSettings(pane);
     if (opened && environment.isPackaged) {
       const permissions = yield* MacPermissions.MacPermissions;
-      const isGranted = yield* safariPermissionCheck;
+      // Full Disk Access is only observable through what it unlocks; the others report directly.
+      const isGranted = pane === "full-disk-access" ? yield* safariPermissionCheck : undefined;
       yield* permissions.showHelper(pane, owner, isGranted);
     }
     return opened;
@@ -428,9 +434,14 @@ export const checkSystemPermission = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.CHECK_SYSTEM_PERMISSION_CHANNEL,
   payload: SystemSettingsPaneSchema,
   result: Schema.Boolean,
-  handler: Effect.fn("desktop.ipc.window.checkSystemPermission")(function* () {
+  handler: Effect.fn("desktop.ipc.window.checkSystemPermission")(function* (pane) {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     if (environment.platform !== "darwin") return false;
+    if (pane === "accessibility")
+      return Electron.systemPreferences.isTrustedAccessibilityClient(false);
+    if (pane === "screen-recording") {
+      return Electron.systemPreferences.getMediaAccessStatus("screen") === "granted";
+    }
     const check = yield* safariPermissionCheck;
     return yield* Effect.promise(check);
   }),

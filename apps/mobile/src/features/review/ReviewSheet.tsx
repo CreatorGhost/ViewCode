@@ -2,7 +2,6 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { ScreenHeader } from "../../components/ScreenHeader";
-import type { ScreenHeaderMenuItem } from "../../components/ScreenHeader.types";
 import type { ReviewSectionItem } from "./reviewModel";
 import { useReviewHeaderPresentation } from "./useReviewHeaderPresentation";
 import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
@@ -31,6 +30,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
+import { SegmentedControl } from "../../components/SegmentedControl";
+import { ControlPillMenu } from "../../components/ControlPillMenu";
 import { SymbolView } from "../../components/AppSymbol";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
@@ -67,31 +68,18 @@ import { resolveReviewAvailability } from "./reviewAvailability";
 import { resolveSelectedReviewFileId } from "./reviewPaneSelection";
 import { buildReviewSectionMenu } from "./review-section-menu";
 import { reportShowcaseSceneRendered } from "../showcase/showcaseRenderSignal";
+import { AgentReviewBar } from "./agent/AgentReviewBar";
 
 function ReviewHeader(
   props: Parameters<typeof useReviewHeaderPresentation>[0] & {
     readonly iconColor: string;
-    readonly sectionMenu: ReturnType<typeof buildReviewSectionMenu>;
     readonly showSectionToolbar: boolean;
     readonly showChangedFilesToggle: boolean;
-    readonly onSelectSection: (sectionId: string) => void;
     readonly onReturnToThread: () => void;
   },
 ) {
   const { panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const presentation = useReviewHeaderPresentation(props);
-  const sectionAction = (
-    section: ReviewSectionItem | null,
-    title: string,
-  ): ScreenHeaderMenuItem => ({
-    id: section ? `section:${section.id}` : `unavailable:${title}`,
-    title,
-    disabled: section === null,
-    selected: section !== null && section.id === props.selectedSection?.id,
-    onPress: () => {
-      if (section) props.onSelectSection(section.id);
-    },
-  });
   return (
     <ScreenHeader
       title={presentation.title}
@@ -116,38 +104,12 @@ function ReviewHeader(
       }
       menus={[
         ...(presentation.gitMenu ? [presentation.gitMenu] : []),
-        ...(props.showSectionToolbar
+        ...(props.showSectionToolbar && presentation.refreshAction
           ? [
               {
-                title: "Select diff",
+                title: "Review options",
                 icon: presentation.menuIcon,
-                items: [
-                  {
-                    id: "sections",
-                    inline: true,
-                    items: [
-                      sectionAction(props.sectionMenu.workingTree, "Working tree"),
-                      sectionAction(props.sectionMenu.branchChanges, "Branch changes"),
-                      sectionAction(props.sectionMenu.latestTurn, "Latest turn"),
-                    ],
-                  },
-                  ...(props.sectionMenu.turns.length > 0
-                    ? [
-                        {
-                          id: "turns",
-                          title: "Turn",
-                          items: props.sectionMenu.turns.map((section) => ({
-                            id: `section:${section.id}`,
-                            title: section.title,
-                            subtitle: section.subtitle ?? undefined,
-                            selected: section.id === props.selectedSection?.id,
-                            onPress: () => props.onSelectSection(section.id),
-                          })),
-                        },
-                      ]
-                    : []),
-                  ...(presentation.refreshAction ? [presentation.refreshAction] : []),
-                ],
+                items: [presentation.refreshAction],
               },
             ]
           : []),
@@ -158,6 +120,61 @@ function ReviewHeader(
 
 const REVIEW_HEADER_SPACING = 0;
 const SHOWCASE_ENABLED = process.env.EXPO_PUBLIC_SHOWCASE === "1";
+
+function ReviewScopePicker(props: {
+  readonly sections: ReturnType<typeof buildReviewSectionMenu>;
+  readonly selectedSection: ReviewSectionItem | null;
+  readonly onSelect: (sectionId: string) => void;
+}) {
+  const { sections, selectedSection, onSelect } = props;
+  const options = [
+    ...(sections.workingTree ? [{ value: "working-tree", label: "Uncommitted" }] : []),
+    ...(sections.branchChanges ? [{ value: "branch-range", label: "Branch" }] : []),
+    ...(sections.latestTurn ? [{ value: "turn", label: "History" }] : []),
+  ];
+  const description =
+    selectedSection?.kind === "working-tree"
+      ? "Current edits, including staged and new files."
+      : selectedSection?.kind === "branch-range"
+        ? `Committed changes against ${sections.branchChanges?.source?.baseRef ?? "the base branch"}. Uncommitted edits are separate.`
+        : "One request and the agent's response, not the whole branch.";
+  return (
+    <View className="gap-2 px-4 py-3">
+      <SegmentedControl
+        options={options}
+        selected={selectedSection?.kind ?? options[0]?.value ?? "working-tree"}
+        role="tab"
+        onSelect={(kind) => {
+          const section =
+            kind === "working-tree"
+              ? sections.workingTree
+              : kind === "branch-range"
+                ? sections.branchChanges
+                : sections.latestTurn;
+          if (section) onSelect(section.id);
+        }}
+      />
+      {selectedSection?.kind === "turn" ? (
+        <ControlPillMenu
+          title="Review history"
+          actions={sections.turns.map((section) => ({
+            id: section.id,
+            title: section.title,
+            subtitle: section.subtitle ?? undefined,
+            state: section.id === selectedSection.id ? "on" : "off",
+          }))}
+          onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+        >
+          <View className="min-h-11 flex-row items-center justify-between rounded-2xl bg-card px-4">
+            <Text className="font-t3-medium text-sm text-foreground">{selectedSection.title}</Text>
+            <SymbolView name="chevron.down" size={12} tintColorClassName="accent-icon" />
+          </View>
+        </ControlPillMenu>
+      ) : null}
+      <Text className="text-xs leading-normal text-foreground-muted">{description}</Text>
+    </View>
+  );
+}
 
 const ReviewNotice = memo(function ReviewNotice(props: { readonly notice: string }) {
   return (
@@ -444,6 +461,8 @@ function ReviewFileNavigator({
 type ReviewSheetProps = StaticScreenProps<{
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  /** A commit the commit sheet picked for the agent review bar to review. */
+  readonly reviewCommit?: string;
 }>;
 
 export function ReviewSheet(props: ReviewSheetProps) {
@@ -644,6 +663,10 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const handleRetryEnvironment = useCallback(() => {
     void retryEnvironment(environmentId);
   }, [environmentId, retryEnvironment]);
+  const takeReviewCommit = useCallback(
+    () => navigation.setParams({ reviewCommit: undefined }),
+    [navigation],
+  );
   const handleReturnToThread = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -713,7 +736,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   ]
     .filter(Boolean)
     .join(" · ");
-  const headerTitleText = selectedSection?.title ?? "Review changes";
+  const headerTitleText = "Review changes";
 
   return (
     <>
@@ -725,17 +748,30 @@ export function ReviewSheet(props: ReviewSheetProps) {
         androidSubtitle={androidHeaderSubtitle}
         iconColor={headerIcon}
         selectedThreadCwd={selectedThreadCwd}
-        sectionMenu={sectionMenu}
         selectedSection={selectedSection}
         showSectionToolbar={showSectionToolbar}
         showChangedFilesToggle={showChangedFilesToggle}
         onRefresh={handlePullToRefresh}
-        onSelectSection={selectSection}
         onReturnToThread={handleReturnToThread}
       />
 
       <MaterialScreenContent>
         <View className="flex-1 bg-sheet android:bg-sheet-solid">
+          <AgentReviewBar
+            environmentId={environmentId}
+            threadId={threadId}
+            sections={sectionMenu}
+            selectedSection={selectedSection}
+            commitToReview={props.route.params.reviewCommit ?? null}
+            onCommitTaken={takeReviewCommit}
+          />
+          {showSectionToolbar && reviewSections.length > 0 ? (
+            <ReviewScopePicker
+              sections={sectionMenu}
+              selectedSection={selectedSection}
+              onSelect={selectSection}
+            />
+          ) : null}
           {showConnectionNotice ? (
             <View className="flex-1" style={{ paddingTop: topContentInset }}>
               <EnvironmentConnectionNotice
@@ -860,14 +896,24 @@ export function ReviewSheet(props: ReviewSheetProps) {
                       : "border-b border-border bg-card px-4 py-5"
                   }
                 >
-                  <Text className="text-sm font-t3-bold text-foreground">No changes</Text>
+                  <Text className="text-sm font-t3-bold text-foreground">
+                    {selectedSection.kind === "turn"
+                      ? "No changes in this exchange"
+                      : selectedSection.kind === "working-tree"
+                        ? "No uncommitted changes"
+                        : "No committed branch changes"}
+                  </Text>
                   <Text
                     className={cn(
                       "text-xs leading-normal text-foreground-muted",
                       Platform.OS === "android" && "mt-2 text-center",
                     )}
                   >
-                    {selectedSection.subtitle ?? "This diff is empty."}
+                    {selectedSection.kind === "turn"
+                      ? "Check Uncommitted or Branch to review the rest of your work."
+                      : selectedSection.kind === "working-tree"
+                        ? "Check Branch for changes that have already been committed."
+                        : "Check Uncommitted for edits that have not been committed yet."}
                   </Text>
                 </View>
               ) : parsedDiff.kind === "raw" ? (

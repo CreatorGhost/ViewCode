@@ -2821,6 +2821,58 @@ layer("GitHubPullRequestCli.layer", (it) => {
       const error = yield* Effect.flip(cli.getViewerLogin({ cwd: "/w", host: "github.com" }));
 
       assert.strictEqual(error._tag, "GitHubViewerLoginUnavailableError");
+      if (error._tag !== "GitHubViewerLoginUnavailableError") return;
+      expect({ host: error.host, stage: error.stage }).toEqual({
+        host: "github.com",
+        stage: "empty-token",
+      });
+      expect(error.detail).toContain("gh auth login --hostname github.com");
+    }),
+  );
+
+  it.effect("names the host gh has no account for, without what gh printed", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockReturnValueOnce(
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: "/w",
+            cause: new Error("no oauth token found for github.com-work: secret-stderr"),
+          }),
+        ),
+      );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+
+      const error = yield* Effect.flip(cli.getViewerLogin({ cwd: "/w", host: "github.com-work" }));
+
+      assert.strictEqual(error._tag, "GitHubViewerLoginUnavailableError");
+      if (error._tag !== "GitHubViewerLoginUnavailableError") return;
+      expect(error.stage).toBe("auth-token");
+      expect(error.detail).toContain("signed in to github.com-work");
+      expect(error.detail).toContain("SSH alias");
+      expect(String(error)).not.toContain("secret-stderr");
+      expect(error.detail).not.toContain("secret-stderr");
+    }),
+  );
+
+  it.effect("reports a missing gh as missing rather than as no account", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockReturnValueOnce(
+        Effect.fail(
+          new GitHubCli.GitHubCliUnavailableError({
+            command: "gh",
+            cwd: "/w",
+            cause: new Error("spawn gh ENOENT"),
+          }),
+        ),
+      );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+
+      const error = yield* Effect.flip(
+        cli.getViewerLogin({ cwd: "/w", host: "github.missing-tool.test" }),
+      );
+
+      assert.strictEqual(error._tag, "GitHubCliUnavailableError");
     }),
   );
 
@@ -2875,6 +2927,7 @@ layer("GitHubPullRequestCli.layer", (it) => {
         );
       const failure = yield* cli.getRoutingIdentity(input).pipe(Effect.flip);
       expect(failure._tag).toBe("GitHubViewerLoginUnavailableError");
+      expect(failure).toMatchObject({ stage: "api-user", host: "github.identity-cache.test" });
       expect(String(failure)).not.toContain("test-credential-b");
       expect(callAt(4).env).toMatchObject({
         GH_ENTERPRISE_TOKEN: "test-credential-b",

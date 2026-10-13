@@ -1,3 +1,6 @@
+import type { ReviewFixInChatRequest } from "../chat/ReviewFindingsView";
+import { resolveReviewFixChat, useSendReviewFixToChat } from "../chat/reviewFixChat";
+import type { ReviewFixDestination } from "../chat/reviewFixSentStore";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
@@ -77,7 +80,7 @@ import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
 import { buildPhysicalToLogicalProjectKeyMap } from "~/sidebarProjectGrouping";
-import { useProjects, useServerConfigs } from "~/state/entities";
+import { readThreadShell, useProjects, useServerConfigs } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
@@ -985,7 +988,13 @@ export function PullRequestDetailPanel({
   }, [detailUrl]);
   const review = usePullRequestReviewFindings(actingEnvironmentId, reviewPullRequest);
   const showReviewTab = useCallback(() => setTab("review"), []);
-  const onReviewStarted = useReviewStartedHandler(actingEnvironmentId, showReviewTab);
+  // Beside a chat, a review started here is that chat's agent and shows in its Review panel.
+  const reviewSourceChat =
+    context === "thread" && threadRef !== null && threadRef.environmentId === actingEnvironmentId
+      ? threadRef
+      : null;
+  const onReviewStarted = useReviewStartedHandler(reviewSourceChat, showReviewTab);
+  const sendReviewFixToChat = useSendReviewFixToChat();
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId: actingEnvironmentId,
     cwd: checkoutRoot,
@@ -1346,6 +1355,58 @@ export function PullRequestDetailPanel({
     );
   };
 
+  /**
+   * Fix with agent from the Review tab: sent into the chat beside the panel; without one, into the
+   * chat the review was started from or the chat most recently working on this pull request; only
+   * with none of those a new chat on the pull request's checkout, with the request in its message
+   * box. Never a choice of sessions.
+   */
+  const fixReviewFindings = async (
+    request: ReviewFixInChatRequest,
+  ): Promise<ReviewFixDestination | null> => {
+    if (attachTarget !== null && typeof attachTarget === "object") {
+      const title = readThreadShell(attachTarget)?.title ?? "this chat";
+      return sendReviewFixToChat(
+        actingEnvironmentId,
+        { kind: "thread", ref: attachTarget, title },
+        request,
+      );
+    }
+    const task = { prompt: request.prompt, reviewComments: request.comments };
+    if (attachTarget !== null) {
+      // A chat not started yet has no thread to send to: the reader sends it.
+      writeTaskToComposer(attachTarget, task);
+      toastManager.add({
+        type: "success",
+        title: "Added to the message box",
+        description: "Read the fix request over, then send.",
+      });
+      return null;
+    }
+    const source = review.source;
+    const chat =
+      source === null
+        ? null
+        : resolveReviewFixChat({
+            environmentId: actingEnvironmentId,
+            reviewThreadId: source.threadId,
+            projectId: actingProjectId,
+            target: source.findings.target,
+          });
+    if (chat?.kind === "thread") return sendReviewFixToChat(actingEnvironmentId, chat, request);
+    await startHandoff("review-fix", task);
+    return null;
+  };
+  // One identity for the Review tab, whose findings view redraws every annotation when it changes.
+  const latestFixReviewFindings = useRef(fixReviewFindings);
+  useLayoutEffect(() => {
+    latestFixReviewFindings.current = fixReviewFindings;
+  });
+  const stableFixReviewFindings = useCallback(
+    (request: ReviewFixInChatRequest) => latestFixReviewFindings.current(request),
+    [],
+  );
+
   const askAboutPullRequest = () => {
     if (!detail) return;
     void startAsk("ask", {
@@ -1482,7 +1543,7 @@ export function PullRequestDetailPanel({
       ? detail === null || detail.capabilities.diff
       : item.value === "review"
         ? (detail === null || reviewPullRequest !== null) &&
-          (canStartAgentReview || review.source !== null || review.running !== null)
+          (canStartAgentReview || review.source !== null || review.review !== null)
         : true,
   );
   // The Code tab can be opened while the detail is still on its way, and the detail may then say
@@ -1698,6 +1759,7 @@ export function PullRequestDetailPanel({
         <PullRequestAgentReviewDialog
           environmentId={actingEnvironmentId}
           reference={reviewReference}
+          sourceThreadId={reviewSourceChat?.threadId}
           number={detail.number}
           onStarted={onReviewStarted}
           onClose={() => setAgentReviewOpen(false)}
@@ -2868,11 +2930,14 @@ export function PullRequestDetailPanel({
                   <PullRequestReviewTab
                     environmentId={actingEnvironmentId}
                     reference={reviewReference}
+                    sourceThreadId={reviewSourceChat?.threadId}
                     review={review}
                     canStart={canStartAgentReview}
                     threadRef={threadRef}
                     cwd={checkoutRoot ?? undefined}
+                    host={reviewPullRequest?.host ?? null}
                     onStarted={onReviewStarted}
+                    onFixInChat={stableFixReviewFindings}
                   />
                 </Suspense>
               </div>

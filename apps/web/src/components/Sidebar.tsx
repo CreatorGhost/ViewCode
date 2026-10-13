@@ -20,6 +20,24 @@ import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
+import {
+  AGENT_STATUS_GROUP_LABEL,
+  countAgentGroups,
+  countSidebarAttention,
+  DEFAULT_FOLDER_SORT_ORDER,
+  FOLDER_SORT_ORDER_LABEL,
+  FOLDER_SORT_ORDERS,
+  flattenChatRows,
+  hasUnseenCompletion as hasUnseenTurnCompletion,
+  resolveAgentStatusGroup,
+  resolveSidebarAttention,
+  sortChatAgents,
+  sortFolderChats,
+  type AgentGroupCounts,
+  type AgentStatusGroup,
+  type FolderSortOrder,
+  type SidebarAttentionFilter,
+} from "@t3tools/client-runtime/state/thread-arrangement";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   parseScopedThreadKey,
@@ -36,6 +54,7 @@ import {
 } from "@t3tools/contracts";
 import {
   ArchiveIcon,
+  CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
@@ -185,8 +204,7 @@ import {
 } from "./sidebar/sidebarFolderSections.logic";
 import {
   buildSidebarThreadTree,
-  collectVisibleSidebarThreadKeys,
-  flattenSidebarThreadNode,
+  selectThreadTreeSearchMatches,
   sidebarAutoExpandedLeadKeys,
   sidebarThreadAncestorKeys,
   type SidebarThreadRowEntry,
@@ -230,6 +248,8 @@ import { SidebarProjectHoverCard } from "./sidebar/SidebarProjectHoverCard";
 import { threadStatusLabel } from "./sidebar/sidebarHoverCard.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarAttentionStrip } from "./sidebar/SidebarAttentionStrip";
+import { SidebarNewMenu } from "./sidebar/SidebarNewMenu";
 import { useSwitchProjectScope } from "./sidebar/useSwitchProjectScope";
 import { useSidebarProjectGroups } from "./sidebar/useSidebarProjectGroups";
 import { useUpdateProjectGroup } from "./sidebar/useUpdateProjectGroup";
@@ -253,7 +273,7 @@ import {
 const ROW_INSET_PX = 8;
 const ICON_SLOT_PX = 20;
 const CONNECTOR_CLASS_NAME =
-  "pointer-events-none absolute border-dotted border-sidebar-foreground/30";
+  "pointer-events-none absolute border-dotted border-sidebar-foreground/30 [[data-project-tint]_&]:border-(--sidebar-guide)";
 
 function connectorLeftPx(level: number): number {
   return ROW_INSET_PX + ICON_SLOT_PX / 2 + (level - 1) * ICON_SLOT_PX;
@@ -301,11 +321,75 @@ function physicalProjectKeyOf(thread: Pick<EnvironmentThreadShell, "environmentI
   return `${thread.environmentId}:${thread.projectId}` as const;
 }
 
-// Child agents read in the order they were spawned.
-function sortChildThreads(threads: readonly EnvironmentThreadShell[]) {
-  return threads.toSorted(
-    (left, right) =>
-      left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+function parentThreadKeyOf(
+  thread: Pick<EnvironmentThreadShell, "environmentId" | "parentThreadId">,
+): string | null {
+  return thread.parentThreadId
+    ? scopedThreadKey(scopeThreadRef(thread.environmentId, thread.parentThreadId))
+    : null;
+}
+
+// An agent's dot: one static colour per group, never animated.
+const AGENT_DOT_CLASS_NAME: Record<AgentStatusGroup, string> = {
+  working: "bg-info",
+  "needs-you": "bg-warning-foreground",
+  failed: "rounded-[1px] bg-destructive-foreground",
+  done: "bg-sidebar-muted-foreground/45",
+};
+
+function AgentStatusDot(props: { group: AgentStatusGroup }) {
+  return (
+    <span
+      role="img"
+      aria-label={AGENT_STATUS_GROUP_LABEL[props.group]}
+      data-agent-status={props.group}
+      className={cn("size-1.5 shrink-0 rounded-full", AGENT_DOT_CLASS_NAME[props.group])}
+    />
+  );
+}
+
+// What an agent row's trailing text says: how long it has run, what it waits
+// for, or how long ago it finished.
+function agentTimeLabel(thread: SidebarThreadSummary, group: AgentStatusGroup): string {
+  if (group === "needs-you") return thread.hasPendingApprovals ? "approval" : "question";
+  const turn = thread.latestTurn;
+  if (group === "working") {
+    const started = turn?.startedAt ?? turn?.requestedAt ?? null;
+    return started ? compactSidebarTimeLabel(formatRelativeTimeLabel(started)) : "starting";
+  }
+  return formatRelativeTimeLabel(turn?.completedAt ?? thread.updatedAt);
+}
+
+function agentSummaryLabel(counts: AgentGroupCounts): string {
+  const parts = [
+    counts.working > 0 ? `${counts.working} working` : null,
+    counts["needs-you"] > 0 ? `${counts["needs-you"]} need you` : null,
+    counts.failed > 0 ? `${counts.failed} failed` : null,
+    counts.done > 0 ? `${counts.done} done` : null,
+  ];
+  return parts.filter((part) => part !== null).join(", ");
+}
+
+/** A folded chat's agents at a glance: "◐ 4 ● 1 ✓ 13", zero groups left out. */
+function AgentGroupSummary(props: { counts: AgentGroupCounts }) {
+  const { counts } = props;
+  return (
+    <span aria-hidden className="flex items-center gap-1.5 tabular-nums">
+      {(["working", "needs-you", "failed"] as const).map((group) =>
+        counts[group] > 0 ? (
+          <span key={group} className="inline-flex items-center gap-1">
+            <span className={cn("size-1.5 rounded-full", AGENT_DOT_CLASS_NAME[group])} />
+            {counts[group]}
+          </span>
+        ) : null,
+      )}
+      {counts.done > 0 ? (
+        <span className="inline-flex items-center gap-0.5">
+          <CheckIcon className="size-2.5" />
+          {counts.done}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -799,6 +883,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   descendantCount: number;
   /** Child agents below this thread that are still working. */
   workingDescendantCount: number;
+  /** Agents below this thread by status group, for the folded summary. */
+  agentsWorking: number;
+  agentsNeedYou: number;
+  agentsFailed: number;
+  agentsDone: number;
   childrenExpanded: boolean;
   onToggleChildren: (threadKey: string) => void;
   isPinned: boolean;
@@ -919,6 +1008,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
   const isRunning = thread.session?.status === "running" && thread.session.activeTurnId != null;
+  // Child agents read by their group in the chat: a static dot and the time that matters.
+  const agentGroup = isChild ? resolveAgentStatusGroup(thread) : null;
+  const agentCounts = useMemo<AgentGroupCounts>(
+    () => ({
+      working: props.agentsWorking,
+      "needs-you": props.agentsNeedYou,
+      failed: props.agentsFailed,
+      done: props.agentsDone,
+    }),
+    [props.agentsDone, props.agentsFailed, props.agentsNeedYou, props.agentsWorking],
+  );
+  // A chat with agents gets a second line: their counts by group, and its branch.
+  const hasAgentLine = !isChild && props.descendantCount > 0;
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
@@ -1128,6 +1230,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // going, so folding them away never reads as the work being done.
   const childrenWorkingHidden = !props.childrenExpanded && props.workingDescendantCount > 0;
   const leadingBadge =
+    (agentGroup !== null ? <AgentStatusDot group={agentGroup} /> : null) ??
     threadStatusGlyph(status, isChild ? "xs" : "sm") ??
     (childrenWorkingHidden ? (
       <Spinner size={isChild ? "xs" : "sm"} tone="info" aria-label="Child agents working" />
@@ -1229,7 +1332,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             style={rowStyle}
             className={cn(
               rowSurfaceBaseClassName,
-              isChild ? "h-6 text-xs" : "h-7 pl-2",
+              isChild ? "h-6 text-xs" : hasAgentLine ? "flex-wrap gap-y-0.5 py-1 pl-2" : "h-7 pl-2",
               props.isActive
                 ? "bg-sidebar-foreground/12 text-sidebar-foreground"
                 : isSelected
@@ -1265,6 +1368,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         >
           {leadingBadge}
         </span>
+        {agentGroup !== null && driverKind ? (
+          <ProviderInstanceIcon
+            driverKind={driverKind}
+            displayName={
+              providerEntry?.displayName ?? thread.session?.providerName ?? modelInstanceId
+            }
+            accentColor={providerEntry?.accentColor}
+            showBadge={false}
+            iconClassName="size-3 shrink-0 opacity-70"
+          />
+        ) : null}
         {title}
         {draftIndicator}
         {isRegeneratingTitle ? (
@@ -1278,21 +1392,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             aria-label={
               props.childrenExpanded
                 ? "Collapse child agents"
-                : props.workingDescendantCount > 0
-                  ? `Expand child agents, ${props.workingDescendantCount} of ${props.descendantCount} working`
-                  : "Expand child agents"
+                : `Expand child agents, ${agentSummaryLabel(agentCounts)}`
             }
             onClick={handleToggleChildrenClick}
             onDoubleClick={(event) => event.stopPropagation()}
             className="inline-flex h-5 shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-0.5 text-2xs text-sidebar-muted-foreground hover:text-sidebar-foreground"
           >
-            {props.childrenExpanded ? null : (
-              <span className={cn("tabular-nums", props.workingDescendantCount > 0 && "text-info")}>
-                {props.workingDescendantCount > 0
-                  ? `${props.workingDescendantCount} of ${props.descendantCount} working`
-                  : `${props.descendantCount} ${props.descendantCount === 1 ? "agent" : "agents"}`}
-              </span>
-            )}
             <ChevronRightIcon
               aria-hidden
               className={cn("size-3 transition-transform", props.childrenExpanded && "rotate-90")}
@@ -1318,13 +1423,28 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               className="size-3 text-sidebar-muted-foreground"
             />
           ) : null}
-          {isChild ? null : (
+          {agentGroup !== null ? (
+            <span
+              className={cn(
+                "text-2xs tabular-nums",
+                agentGroup === "needs-you"
+                  ? "text-warning-foreground"
+                  : agentGroup === "failed"
+                    ? "text-destructive-foreground"
+                    : "text-sidebar-muted-foreground",
+              )}
+            >
+              {agentTimeLabel(thread, agentGroup)}
+            </span>
+          ) : (
             <span className="text-2xs text-sidebar-muted-foreground tabular-nums">
               {props.settled ? settledTimeLabel(thread) : threadTimeLabel(thread)}
             </span>
           )}
         </span>
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover/sidebar-row:flex group-focus-visible/sidebar-row:flex group-has-[:focus-visible]/sidebar-row:flex">
+        {/* Collapsed rather than display:none, so Tab can reach the actions: hidden ones are not
+            focusable, and they hide the moment focus leaves the previous control. */}
+        <span className="flex w-0 shrink-0 items-center gap-0.5 overflow-hidden opacity-0 group-hover/sidebar-row:w-auto group-hover/sidebar-row:opacity-100 group-focus-visible/sidebar-row:w-auto group-focus-visible/sidebar-row:opacity-100 group-has-[:focus-visible]/sidebar-row:w-auto group-has-[:focus-visible]/sidebar-row:opacity-100">
           {hasUnsentDraft ? (
             <SidebarRowAction label="Discard draft" onClick={handleDiscardDraftClick}>
               <XIcon className="size-3" />
@@ -1347,6 +1467,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           </SidebarRowAction>
         </span>
         {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
+        {hasAgentLine ? (
+          // The chat's agents at a glance, and the branch they work on, under the title.
+          <span
+            data-sidebar-row-agents=""
+            className="flex min-w-0 basis-full items-center gap-2 pl-6.5 text-2xs text-sidebar-muted-foreground"
+          >
+            <AgentGroupSummary counts={agentCounts} />
+            {thread.branch ? (
+              <span className="ml-auto min-w-0 truncate text-branch">{thread.branch}</span>
+            ) : null}
+          </span>
+        ) : null}
       </TooltipTrigger>
       <SidebarThreadTooltip
         thread={thread}
@@ -1379,6 +1511,11 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
   >;
   /** This folder's search field is open. */
   searching: boolean;
+  /** Named on the row while it is open ("Sort: Status"). */
+  sortOrder: FolderSortOrder;
+  /** Top-level chats waiting on the user, and working (themselves or through an agent). */
+  needsYouCount: number;
+  workingCount: number;
   onToggle: (group: SidebarProjectSnapshot) => void;
   onToggleSearch: (group: SidebarProjectSnapshot) => void;
   onNewThread: (group: SidebarProjectSnapshot) => void;
@@ -1444,6 +1581,11 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
   );
   const FolderGlyph = props.expanded ? FolderOpenIcon : FolderIcon;
   const projectColor = resolveProjectGroupColor(group);
+  const folderColorClassName = projectColor
+    ? "text-(--project-accent)"
+    : projectIconColorClassName(deriveProjectIdentity(group.title).color);
+  // The badge shows the project's logo, saved or found; without one, its tinted folder.
+  const automaticIcon = !group.projectIcon && !group.faviconPath;
   return (
     <SidebarProjectHoverCard group={group} threadCount={props.threadCount}>
       <div
@@ -1460,33 +1602,32 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
         onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
       >
-        {projectColor ? (
-          <span
-            aria-hidden
-            className={cn(
-              "pointer-events-none absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-(--project-accent)",
-              projectAccentClassName(projectColor),
-            )}
-          />
-        ) : null}
+        <ChevronRightIcon
+          aria-hidden
+          className={cn(
+            "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+            props.expanded && "rotate-90",
+          )}
+        />
         <button
           type="button"
           aria-label={`Change icon and color for ${group.displayName}`}
           onClick={handleChooseIconClick}
           onKeyDown={(event) => event.stopPropagation()}
-          className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm hover:bg-sidebar-foreground/8"
-        >
-          {group.projectIcon || group.faviconPath ? (
-            <ProjectFavicon project={group} className="size-3.5" />
-          ) : (
-            <FolderGlyph
-              aria-hidden
-              className={cn(
-                "size-3.5",
-                projectIconColorClassName(deriveProjectIdentity(group.title).color),
-              )}
-            />
+          data-sidebar-folder-badge=""
+          data-colored={projectColor ? "" : undefined}
+          className={cn(
+            "flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm hover:bg-sidebar-foreground/8",
+            projectColor && projectAccentClassName(projectColor),
           )}
+        >
+          <ProjectFavicon
+            project={group}
+            className={automaticIcon ? cn("size-3.5", folderColorClassName) : "size-3.5"}
+            bareMonogram={!!projectColor}
+            fallbackIcon={FolderGlyph}
+            iconFallback={automaticIcon}
+          />
         </button>
         <span className="min-w-0 flex-1 truncate">{group.displayName}</span>
         {props.showEnvironment ? (
@@ -1496,12 +1637,28 @@ const SidebarProjectFolderRow = memo(function SidebarProjectFolderRow(props: {
             machineByEnvironmentId={props.machineByEnvironmentId}
           />
         ) : null}
-        {!props.expanded && props.threadCount > 0 ? (
+        {props.expanded ? (
+          <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden">
+            Sort: {FOLDER_SORT_ORDER_LABEL[props.sortOrder]}
+          </span>
+        ) : props.threadCount > 0 ? (
+          // A closed folder says what is inside and what is happening there.
           <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground tabular-nums group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden">
-            {props.threadCount}
+            {props.threadCount} {props.threadCount === 1 ? "chat" : "chats"}
+            {props.needsYouCount > 0 ? (
+              <span className="text-warning-foreground">
+                {" "}
+                · {props.needsYouCount} {props.needsYouCount === 1 ? "needs" : "need"} you
+              </span>
+            ) : null}
+            {props.workingCount > 0 ? (
+              <span className="text-info"> · {props.workingCount} working</span>
+            ) : null}
           </span>
         ) : null}
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover/sidebar-row:flex group-focus-visible/sidebar-row:flex group-has-[:focus-visible]/sidebar-row:flex">
+        {/* Collapsed rather than display:none, so Tab can reach the actions: hidden ones are not
+            focusable, and they hide the moment focus leaves the previous control. */}
+        <span className="flex w-0 shrink-0 items-center gap-0.5 overflow-hidden opacity-0 group-hover/sidebar-row:w-auto group-hover/sidebar-row:opacity-100 group-focus-visible/sidebar-row:w-auto group-focus-visible/sidebar-row:opacity-100 group-has-[:focus-visible]/sidebar-row:w-auto group-has-[:focus-visible]/sidebar-row:opacity-100">
           <SidebarRowAction
             label={
               props.searching
@@ -1589,6 +1746,70 @@ const SidebarNeedsYouGroupLabel = memo(function SidebarNeedsYouGroupLabel(props:
         Needs you · <span className="tabular-nums">{props.count}</span>
       </span>
     </div>
+  );
+});
+
+/**
+ * The label above one status group of a chat's agents ("Working", "Needs you", "Failed").
+ * The connector runs through it, so the agent tree stays one line.
+ */
+const SidebarAgentGroupLabel = memo(function SidebarAgentGroupLabel(props: {
+  group: AgentStatusGroup;
+}) {
+  return (
+    <div
+      data-testid="sidebar-agent-group"
+      className="relative flex h-5 items-end pb-0.5 pl-7 text-3xs font-medium tracking-wide text-sidebar-muted-foreground uppercase select-none"
+    >
+      <span
+        aria-hidden
+        className={cn(CONNECTOR_CLASS_NAME, "inset-y-0 border-l")}
+        style={{ left: connectorLeftPx(1) }}
+      />
+      {AGENT_STATUS_GROUP_LABEL[props.group]}
+    </div>
+  );
+});
+
+/** "Done (N)": a chat's finished agents, folded by default, newest first when open. */
+const SidebarDoneGroupRow = memo(function SidebarDoneGroupRow(props: {
+  leadKey: string;
+  count: number;
+  expanded: boolean;
+  onToggle: (leadKey: string) => void;
+}) {
+  const { leadKey, onToggle } = props;
+  const handleClick = useCallback(() => onToggle(leadKey), [leadKey, onToggle]);
+  return (
+    <button
+      type="button"
+      aria-expanded={props.expanded}
+      data-testid="sidebar-agent-done-group"
+      data-thread-selection-safe
+      onClick={handleClick}
+      className={cn(
+        rowSurfaceBaseClassName,
+        "h-6 pl-7 text-2xs text-sidebar-muted-foreground hover:bg-sidebar-foreground/6 hover:text-sidebar-foreground",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          CONNECTOR_CLASS_NAME,
+          "top-0 border-l",
+          props.expanded ? "bottom-0" : "h-1/2",
+        )}
+        style={{ left: connectorLeftPx(1) }}
+      />
+      <ChevronRightIcon
+        aria-hidden
+        className={cn("size-3 shrink-0", props.expanded && "rotate-90")}
+      />
+      <span className="min-w-0 flex-1 truncate">
+        Done (<span className="tabular-nums">{props.count}</span>)
+      </span>
+      <span className="shrink-0 text-3xs">newest first</span>
+    </button>
   );
 });
 
@@ -1794,6 +2015,8 @@ const ProjectIconPickerDialog = lazy(() =>
 );
 
 type ProjectMenuAction =
+  | "sort"
+  | `sort:${FolderSortOrder}`
   | "new-thread"
   | "copy-path"
   | "import-sessions"
@@ -1811,6 +2034,9 @@ export default function Sidebar() {
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
+  const folderSortOrderById = useUiStateStore((store) => store.folderSortOrderById);
+  const setFolderSortOrder = useUiStateStore((store) => store.setFolderSortOrder);
+  const threadLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
   const {
     pinThread,
     confirmAndUnpinThread,
@@ -2128,6 +2354,45 @@ export default function Sidebar() {
       ),
     [scopedProjectKeys, threads],
   );
+  // The smart strip: one pass over the listed threads, re-run only when a shell or a
+  // visit changes. Rows never subscribe to it.
+  const isThreadUnseen = useCallback(
+    (thread: EnvironmentThreadShell) =>
+      hasUnseenTurnCompletion({
+        latestTurn: thread.latestTurn,
+        lastVisitedAt: threadLastVisitedAtById[threadKeyOf(thread)],
+      }),
+    [threadLastVisitedAtById],
+  );
+  const attentionCounts = useMemo(
+    () => countSidebarAttention(visibleThreads, isThreadUnseen),
+    [isThreadUnseen, visibleThreads],
+  );
+  const [attentionFilter, setAttentionFilter] = useState<SidebarAttentionFilter | null>(null);
+  // A strip filter keeps the matching chats and agents and the chats they sit in, not
+  // their other agents, and opens every fold on the way.
+  const attentionSelection = useMemo(
+    () =>
+      attentionFilter === null
+        ? null
+        : selectThreadTreeSearchMatches({
+            threads: visibleThreads,
+            threadKeyOf,
+            parentKeyOf: parentThreadKeyOf,
+            matches: (thread) =>
+              resolveSidebarAttention(thread, isThreadUnseen) === attentionFilter,
+            includeDescendants: false,
+          }),
+    [attentionFilter, isThreadUnseen, visibleThreads],
+  );
+  const listedThreads = useMemo(
+    () =>
+      attentionSelection === null
+        ? visibleThreads
+        : visibleThreads.filter((thread) => attentionSelection.keys.has(threadKeyOf(thread))),
+    [attentionSelection, visibleThreads],
+  );
+
   // Threads on servers without settlement support never classify as settled:
   // they could not be un-settled from here.
   const settledThreadKeys = useMemo(() => {
@@ -2159,17 +2424,21 @@ export default function Sidebar() {
     readonly assignedKeys: ReadonlyMap<string, string>;
   } | null>(null);
 
+  // Each folder's own order for its chats and their agents (Status by default).
+  const folderSortOfThread = useCallback(
+    (thread: EnvironmentThreadShell): FolderSortOrder =>
+      folderSortOrderById[folderKeyByPhysicalProjectKey.get(physicalProjectKeyOf(thread)) ?? ""] ??
+      DEFAULT_FOLDER_SORT_ORDER,
+    [folderKeyByPhysicalProjectKey, folderSortOrderById],
+  );
   const tree = useMemo(
     () =>
       buildSidebarThreadTree({
         projects: scopedProjectGroup ? [scopedProjectGroup] : projectGroups,
-        threads: visibleThreads,
+        threads: listedThreads,
         projectKeyOf: (group) => group.projectKey,
         threadKeyOf,
-        parentKeyOf: (thread) =>
-          thread.parentThreadId
-            ? scopedThreadKey(scopeThreadRef(thread.environmentId, thread.parentThreadId))
-            : null,
+        parentKeyOf: parentThreadKeyOf,
         folderKeyOf: (thread) =>
           folderKeyByPhysicalProjectKey.get(physicalProjectKeyOf(thread)) ?? "",
         isPinned: (thread) =>
@@ -2184,18 +2453,29 @@ export default function Sidebar() {
                 getId: threadKeyOf,
               });
         },
-        sortRoots: (roots) => sortThreads(roots, sidebarThreadSortOrder),
-        sortChildren: sortChildThreads,
+        sortRoots: (roots) => {
+          const order = roots[0] ? folderSortOfThread(roots[0]) : DEFAULT_FOLDER_SORT_ORDER;
+          return order === "status"
+            ? sortThreads(roots, sidebarThreadSortOrder)
+            : sortFolderChats(roots, order);
+        },
+        // Siblings share a project, so the first names the folder for all of them.
+        sortChildren: (children) =>
+          sortChatAgents(
+            children,
+            children[0] ? folderSortOfThread(children[0]) : DEFAULT_FOLDER_SORT_ORDER,
+          ),
         isWorking: isSidebarThreadWorking,
       }),
     [
       folderKeyByPhysicalProjectKey,
+      folderSortOfThread,
+      listedThreads,
       optimisticPinnedOrder,
       projectGroups,
       scopedProjectGroup,
       settledThreadKeys,
       sidebarThreadSortOrder,
-      visibleThreads,
     ],
   );
   const treeRef = useRef(tree);
@@ -2213,14 +2493,18 @@ export default function Sidebar() {
               partitionSidebarFolderNodes(folder.nodes, {
                 isSettled: (thread) => settledThreadKeys.has(threadKeyOf(thread)),
                 isLive: isSidebarThreadLive,
-                needsUser: isSidebarThreadWaitingOnUser,
+                // Recent and Name are plain orders: no Needs you group on top.
+                needsUser:
+                  (folderSortOrderById[folder.key] ?? DEFAULT_FOLDER_SORT_ORDER) === "status"
+                    ? isSidebarThreadWaitingOnUser
+                    : () => false,
                 settledAtMs: (thread) =>
                   firstValidTimestampMs(resolveSettledThreadTimestamp(thread)),
               }),
             ] as const,
         ),
       ),
-    [settledThreadKeys, tree.folders],
+    [folderSortOrderById, settledThreadKeys, tree.folders],
   );
 
   // Folder expansion persists with the other project preferences; child-agent
@@ -2438,8 +2722,9 @@ export default function Sidebar() {
   const isThreadExpanded = useCallback(
     (threadKey: string) =>
       searchExpandedThreadKeys.has(threadKey) ||
+      attentionSelection?.keys.has(threadKey) === true ||
       (threadExpansionOverrides.get(threadKey) ?? autoExpandedLeadKeys.has(threadKey)),
-    [autoExpandedLeadKeys, searchExpandedThreadKeys, threadExpansionOverrides],
+    [attentionSelection, autoExpandedLeadKeys, searchExpandedThreadKeys, threadExpansionOverrides],
   );
   // Rows get a stable toggle; it reads the current state through a ref.
   const isThreadExpandedRef = useRef(isThreadExpanded);
@@ -2448,6 +2733,56 @@ export default function Sidebar() {
     const expanded = isThreadExpandedRef.current(threadKey);
     setThreadExpansionOverrides((current) => new Map(current).set(threadKey, !expanded));
   }, []);
+  // A chat's Done group folds by default. A chevron click overrides that for the session;
+  // opening a finished agent, a folder search or a strip filter opens it.
+  const [doneExpansionOverrides, setDoneExpansionOverrides] = useState<
+    ReadonlyMap<string, boolean>
+  >(() => new Map());
+  const routeDoneLeadKey = useMemo(() => {
+    if (routeThreadKey === null) return null;
+    const ancestors = sidebarThreadAncestorKeys(tree, routeThreadKey);
+    if (ancestors.length === 0) return null;
+    const agent = threadByKey.get(ancestors.length === 1 ? routeThreadKey : ancestors.at(-2)!);
+    return agent && resolveAgentStatusGroup(agent) === "done" ? ancestors.at(-1)! : null;
+  }, [routeThreadKey, threadByKey, tree]);
+  const isDoneExpanded = useCallback(
+    (leadKey: string) =>
+      attentionFilter !== null ||
+      folderSearchResult !== null ||
+      (doneExpansionOverrides.get(leadKey) ?? leadKey === routeDoneLeadKey),
+    [attentionFilter, doneExpansionOverrides, folderSearchResult, routeDoneLeadKey],
+  );
+  // Changes only with the Done state, so only Done rows see a new callback.
+  const toggleDoneGroup = useCallback(
+    (leadKey: string) =>
+      setDoneExpansionOverrides((current) =>
+        new Map(current).set(leadKey, !isDoneExpanded(leadKey)),
+      ),
+    [isDoneExpanded],
+  );
+  // One chat and its open agents in render order, with status groups under Status.
+  const chatRowsOf = useCallback(
+    (node: SidebarThreadTreeNode<EnvironmentThreadShell>) =>
+      flattenChatRows(node, {
+        isExpanded: isThreadExpanded,
+        groupOf: folderSortOfThread(node.thread) === "status" ? resolveAgentStatusGroup : null,
+        isDoneExpanded,
+      }),
+    [folderSortOfThread, isDoneExpanded, isThreadExpanded],
+  );
+  // Per chat (and agent with agents of its own), its agents by group. Rows get the four
+  // numbers, so a memoized row re-renders only when its own counts move.
+  const agentCountsByKey = useMemo(() => {
+    const counts = new Map<string, AgentGroupCounts>();
+    const visit = (node: SidebarThreadTreeNode<EnvironmentThreadShell>) => {
+      if (node.children.length === 0) return;
+      counts.set(node.key, countAgentGroups(node, resolveAgentStatusGroup));
+      node.children.forEach(visit);
+    };
+    tree.pinned.forEach(visit);
+    for (const folder of tree.folders) folder.nodes.forEach(visit);
+    return counts;
+  }, [tree]);
   const routeRootKey = useMemo(
     () =>
       routeThreadKey === null
@@ -2471,7 +2806,8 @@ export default function Sidebar() {
       const searched = folderSearchResult?.folderKey === folderKey ? folderSearchResult : null;
       const settledOpen = searched
         ? searched.settledHasMatch
-        : projectExpandedById[settledGroupPreferenceKey(folderKey)] === true;
+        : attentionFilter !== null ||
+          projectExpandedById[settledGroupPreferenceKey(folderKey)] === true;
       const settled = searched?.settled ?? sections.settled;
       views.set(folderKey, {
         needsYou: searched?.needsYou ?? sections.needsYou,
@@ -2483,24 +2819,26 @@ export default function Sidebar() {
       });
     }
     return views;
-  }, [folderSearchResult, folderSectionsByKey, projectExpandedById, routeRootKey]);
+  }, [attentionFilter, folderSearchResult, folderSectionsByKey, projectExpandedById, routeRootKey]);
 
   // Rendered rows top to bottom: keyboard traversal, jump shortcuts, and
   // shift-range selection all follow what the user sees.
-  const orderedThreadKeys = useMemo(
-    () =>
-      collectVisibleSidebarThreadKeys(
-        tree,
-        (folder) => {
-          const view = folderViewByKey.get(folder.key);
-          return (folderExpandedByKey.get(folder.key) ?? true) && view
-            ? [...view.needsYou, ...view.active, ...view.settled]
-            : [];
-        },
-        isThreadExpanded,
-      ),
-    [folderExpandedByKey, folderViewByKey, isThreadExpanded, tree],
-  );
+  const orderedThreadKeys = useMemo(() => {
+    const keys: string[] = [];
+    const push = (nodes: readonly SidebarThreadTreeNode<EnvironmentThreadShell>[]) => {
+      for (const node of nodes) {
+        for (const row of chatRowsOf(node)) if (row.kind === "thread") keys.push(row.key);
+      }
+    };
+    push(tree.pinned);
+    for (const folder of tree.folders) {
+      const view = folderViewByKey.get(folder.key);
+      if ((folderExpandedByKey.get(folder.key) ?? true) && view) {
+        push([...view.needsYou, ...view.active, ...view.settled]);
+      }
+    }
+    return keys;
+  }, [chatRowsOf, folderExpandedByKey, folderViewByKey, tree]);
   const orderedThreadKeysRef = useRef(orderedThreadKeys);
   orderedThreadKeysRef.current = orderedThreadKeys;
   // handleNewThread is inherently unstable (depends on the projects list).
@@ -3352,6 +3690,17 @@ export default function Sidebar() {
           api.contextMenu.show<ProjectMenuAction>(
             [
               { id: "new-thread", label: "New thread", icon: "message-square-plus" },
+              {
+                id: "sort",
+                label: "Sort chats and agents",
+                children: FOLDER_SORT_ORDERS.map((order) => ({
+                  id: `sort:${order}` as const,
+                  label: FOLDER_SORT_ORDER_LABEL[order],
+                  checked:
+                    (useUiStateStore.getState().folderSortOrderById[group.projectKey] ??
+                      DEFAULT_FOLDER_SORT_ORDER) === order,
+                })),
+              },
               { id: "copy-path", label: "Copy path" },
               { id: "project-icon", label: "Change icon and color…" },
               { id: "project-color", label: "Project color…" },
@@ -3378,6 +3727,15 @@ export default function Sidebar() {
         );
         if (clicked._tag === "Failure") return;
         switch (clicked.value) {
+          case "sort:status":
+          case "sort:recent":
+          case "sort:name":
+            setFolderSortOrder(
+              group.projectKey,
+              FOLDER_SORT_ORDERS.find((order) => clicked.value === `sort:${order}`) ??
+                DEFAULT_FOLDER_SORT_ORDER,
+            );
+            return;
           case "new-thread":
             createThreadInProject(group);
             return;
@@ -3412,7 +3770,7 @@ export default function Sidebar() {
         }
       })();
     },
-    [copyPathToClipboard, createThreadInProject, openProjectSettings],
+    [copyPathToClipboard, createThreadInProject, openProjectSettings, setFolderSortOrder],
   );
 
   // Folder icon and color: the same picker as Project settings, saved on every
@@ -3531,7 +3889,17 @@ export default function Sidebar() {
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
-  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
+  const paletteShortcutLabel = shortcutLabelForCommand(keybindings, "commandPalette.toggle");
+  // "New folder" creates a Git project from a name, on servers that keep a folder for those.
+  const newFolderAvailable = environments.some(
+    (environment) =>
+      environment.connection.phase === "connected" &&
+      environment.serverConfig?.newProjectsRoot != null,
+  );
+  const openNewFolder = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    openCommandPalette({ open: "new-project" });
+  }, [isMobile, setOpenMobile]);
 
   const renderThreadRow = (
     entry: SidebarThreadRowEntry<EnvironmentThreadShell>,
@@ -3541,6 +3909,7 @@ export default function Sidebar() {
     const { node } = entry;
     const thread = node.thread;
     const threadKey = node.key;
+    const agentCounts = agentCountsByKey.get(threadKey);
     return (
       <SidebarThreadRow
         key={threadKey}
@@ -3550,6 +3919,10 @@ export default function Sidebar() {
         guides={entry.guides.map((continues) => (continues ? "1" : "0")).join("")}
         descendantCount={node.descendantCount}
         workingDescendantCount={node.workingDescendantCount}
+        agentsWorking={agentCounts?.working ?? 0}
+        agentsNeedYou={agentCounts?.["needs-you"] ?? 0}
+        agentsFailed={agentCounts?.failed ?? 0}
+        agentsDone={agentCounts?.done ?? 0}
         childrenExpanded={isThreadExpanded(threadKey)}
         onToggleChildren={toggleThreadChildren}
         isPinned={thread.pinnedAt != null}
@@ -3594,7 +3967,7 @@ export default function Sidebar() {
     sortable?: SortableNodeBag,
     settled = false,
   ) => {
-    const rows = flattenSidebarThreadNode(node, isThreadExpanded);
+    const rows = chatRowsOf(node);
     return (
       <li
         key={node.key}
@@ -3612,8 +3985,19 @@ export default function Sidebar() {
         {/* Always a nested list, so expanding child agents never remounts the parent row. */}
         <ul role="group" className="flex flex-col">
           {rows.map((entry) => (
-            <li key={entry.node.key} className="list-none">
-              {renderThreadRow(entry, sortable, settled)}
+            <li key={entry.key} className="list-none">
+              {entry.kind === "thread" ? (
+                renderThreadRow(entry.row, sortable, settled)
+              ) : entry.kind === "group" ? (
+                <SidebarAgentGroupLabel group={entry.group} />
+              ) : (
+                <SidebarDoneGroupRow
+                  leadKey={entry.leadKey}
+                  count={entry.count}
+                  expanded={entry.expanded}
+                  onToggle={toggleDoneGroup}
+                />
+              )}
             </li>
           ))}
         </ul>
@@ -3621,172 +4005,196 @@ export default function Sidebar() {
     );
   };
 
+  // Project scope for phones, where the rail is hidden. Anchored to the search field.
+  const projectScopePicker = (
+    <Combobox
+      items={projectScopeItems}
+      filteredItems={filteredProjectScopeItems}
+      autoHighlight
+      itemToStringLabel={(item) => item.label}
+      isItemEqualToValue={(a, b) => a.value === b.value}
+      open={projectScopeMenuState.open}
+      onOpenChange={(open) => {
+        if (open) suppressNextScopeChangeRef.current = false;
+        dispatchProjectScopeMenu({ type: "open-changed", open });
+      }}
+      onItemHighlighted={(item) => {
+        highlightedProjectScopeKeyRef.current = item?.value ?? null;
+      }}
+      value={selectedProjectScopeItem}
+      onValueChange={(item) => {
+        if (suppressNextScopeChangeRef.current) {
+          suppressNextScopeChangeRef.current = false;
+          return;
+        }
+        if (!item) return;
+        const group =
+          item.value === "all"
+            ? null
+            : projectGroups.find((project) => project.projectKey === item.value);
+        if (group === undefined) setProjectScopeKey(item.value);
+        else switchProject(group);
+      }}
+    >
+      <ComboboxTrigger
+        render={
+          <SidebarHeaderIconButton
+            label={
+              scopedProjectGroup
+                ? `Filter threads by project: ${scopedProjectGroup.displayName}`
+                : "Filter threads by project"
+            }
+          />
+        }
+      >
+        {scopedProjectGroup ? (
+          // Wrapped so the button's direct-child svg color rule cannot override
+          // a project's own icon color.
+          <span className="flex shrink-0">
+            <ProjectFavicon project={scopedProjectGroup} className="size-4" />
+          </span>
+        ) : (
+          <FolderIcon className="size-4" />
+        )}
+      </ComboboxTrigger>
+      <ComboboxPopup
+        align="start"
+        // Anchored to the search field, not the 28px trigger.
+        anchor={headerSearchRef}
+        className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
+      >
+        <ComboboxSearchInput
+          aria-label="Search projects"
+          placeholder="Search projects..."
+          value={projectScopeMenuState.query}
+          onKeyDown={(event) => {
+            if (
+              event.defaultPrevented ||
+              event.nativeEvent.isComposing ||
+              event.ctrlKey ||
+              event.altKey ||
+              event.metaKey ||
+              (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
+            ) {
+              return;
+            }
+            // Combobox items use virtual focus: keyboard events
+            // stay on this input, not on the highlighted option.
+            const scopeKey = highlightedProjectScopeKeyRef.current;
+            const project = scopeKey ? projectGroupByScopeKey.get(scopeKey) : null;
+            if (project) handleProjectSettings(event, project);
+          }}
+          onChange={(event) =>
+            dispatchProjectScopeMenu({
+              type: "query-changed",
+              query: event.target.value,
+            })
+          }
+        />
+        <ComboboxEmpty>No matching projects.</ComboboxEmpty>
+        <ComboboxList>
+          {(item: (typeof projectScopeItems)[number]) => {
+            const project = projectGroupByScopeKey.get(item.value) ?? null;
+            return (
+              <ComboboxItem
+                key={item.value}
+                hideIndicator
+                value={item}
+                onContextMenu={(event) => {
+                  if (project) handleProjectSettings(event, project);
+                }}
+              >
+                {project ? (
+                  <ProjectFavicon project={project} className="size-4 shrink-0" />
+                ) : (
+                  <FolderIcon className="size-4 shrink-0" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                {project && showProjectEnvironments ? (
+                  <ProjectEnvironmentBadge
+                    group={project}
+                    primaryEnvironmentId={primaryEnvironmentId}
+                    machineByEnvironmentId={environmentMachineById}
+                  />
+                ) : null}
+                {project ? (
+                  <Button
+                    size="icon-xs"
+                    variant="ghost-muted"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    title={`Project settings for ${project.displayName}`}
+                    className="ml-auto"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      void handleProjectSettings(event, project);
+                    }}
+                  >
+                    <SettingsIcon className="size-3.5" />
+                  </Button>
+                ) : null}
+              </ComboboxItem>
+            );
+          }}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
+  );
+
   // Every project renders a folder, so the list is only empty without projects.
   const hasAnyRows =
     tree.folders.length > 0 || tree.pinned.length > 0 || visibleDraftSessionCount > 0;
 
   return (
     <>
-      <SidebarChromeHeader isElectron={isElectron} />
+      <SidebarChromeHeader
+        isElectron={isElectron}
+        actions={
+          <>
+            {/* The rail is the project filter beside the sidebar; phones have no rail. */}
+            {projectGroups.length > 0 ? (
+              <div className="md:hidden">{projectScopePicker}</div>
+            ) : null}
+            <SidebarNewMenu
+              onNewChat={handleNewThreadClick}
+              newChatDisabled={projects.length === 0}
+              newChatShortcutLabel={newThreadShortcutLabel}
+              onNewFolder={newFolderAvailable ? openNewFolder : null}
+              onAddProject={openAddProjectCommandPalette}
+            />
+          </>
+        }
+      />
       <SidebarContent
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
-            <SidebarThreadHeader
-              searchFieldRef={headerSearchRef}
-              hasProjects={projectGroups.length > 0}
-              projectScope={
-                <Combobox
-                  items={projectScopeItems}
-                  filteredItems={filteredProjectScopeItems}
-                  autoHighlight
-                  itemToStringLabel={(item) => item.label}
-                  isItemEqualToValue={(a, b) => a.value === b.value}
-                  open={projectScopeMenuState.open}
-                  onOpenChange={(open) => {
-                    if (open) suppressNextScopeChangeRef.current = false;
-                    dispatchProjectScopeMenu({ type: "open-changed", open });
-                  }}
-                  onItemHighlighted={(item) => {
-                    highlightedProjectScopeKeyRef.current = item?.value ?? null;
-                  }}
-                  value={selectedProjectScopeItem}
-                  onValueChange={(item) => {
-                    if (suppressNextScopeChangeRef.current) {
-                      suppressNextScopeChangeRef.current = false;
-                      return;
-                    }
-                    if (!item) return;
-                    const group =
-                      item.value === "all"
-                        ? null
-                        : projectGroups.find((project) => project.projectKey === item.value);
-                    if (group === undefined) setProjectScopeKey(item.value);
-                    else switchProject(group);
-                  }}
-                >
-                  <ComboboxTrigger
-                    render={
-                      <SidebarHeaderIconButton
-                        label={
-                          scopedProjectGroup
-                            ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
-                        }
-                      />
-                    }
-                  >
-                    {scopedProjectGroup ? (
-                      // Wrapped so the button's direct-child svg color rule cannot override
-                      // a project's own icon color.
-                      <span className="flex shrink-0">
-                        <ProjectFavicon project={scopedProjectGroup} className="size-4" />
-                      </span>
-                    ) : (
-                      <FolderIcon className="size-4" />
-                    )}
-                  </ComboboxTrigger>
-                  <ComboboxPopup
-                    align="start"
-                    // Anchored to the search field, not the 28px trigger.
-                    anchor={headerSearchRef}
-                    className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
-                  >
-                    <ComboboxSearchInput
-                      aria-label="Search projects"
-                      placeholder="Search projects..."
-                      value={projectScopeMenuState.query}
-                      onKeyDown={(event) => {
-                        if (
-                          event.defaultPrevented ||
-                          event.nativeEvent.isComposing ||
-                          event.ctrlKey ||
-                          event.altKey ||
-                          event.metaKey ||
-                          (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
-                        ) {
-                          return;
-                        }
-                        // Combobox items use virtual focus: keyboard events
-                        // stay on this input, not on the highlighted option.
-                        const scopeKey = highlightedProjectScopeKeyRef.current;
-                        const project = scopeKey ? projectGroupByScopeKey.get(scopeKey) : null;
-                        if (project) handleProjectSettings(event, project);
-                      }}
-                      onChange={(event) =>
-                        dispatchProjectScopeMenu({
-                          type: "query-changed",
-                          query: event.target.value,
-                        })
-                      }
-                    />
-                    <ComboboxEmpty>No matching projects.</ComboboxEmpty>
-                    <ComboboxList>
-                      {(item: (typeof projectScopeItems)[number]) => {
-                        const project = projectGroupByScopeKey.get(item.value) ?? null;
-                        return (
-                          <ComboboxItem
-                            key={item.value}
-                            hideIndicator
-                            value={item}
-                            onContextMenu={(event) => {
-                              if (project) handleProjectSettings(event, project);
-                            }}
-                          >
-                            {project ? (
-                              <ProjectFavicon project={project} className="size-4 shrink-0" />
-                            ) : (
-                              <FolderIcon className="size-4 shrink-0" />
-                            )}
-                            <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
-                            {project && showProjectEnvironments ? (
-                              <ProjectEnvironmentBadge
-                                group={project}
-                                primaryEnvironmentId={primaryEnvironmentId}
-                                machineByEnvironmentId={environmentMachineById}
-                              />
-                            ) : null}
-                            {project ? (
-                              <Button
-                                size="icon-xs"
-                                variant="ghost-muted"
-                                tabIndex={-1}
-                                aria-hidden="true"
-                                title={`Project settings for ${project.displayName}`}
-                                className="ml-auto"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => {
-                                  void handleProjectSettings(event, project);
-                                }}
-                              >
-                                <SettingsIcon className="size-3.5" />
-                              </Button>
-                            ) : null}
-                          </ComboboxItem>
-                        );
-                      }}
-                    </ComboboxList>
-                  </ComboboxPopup>
-                </Combobox>
-              }
-              onNewProject={openAddProjectCommandPalette}
-              onNewThread={handleNewThreadClick}
-              newThreadDisabled={projects.length === 0}
-              newThreadShortcutLabel={newThreadShortcutLabel}
-              newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
-              showNewThreadInProjectHint={projectGroups.length > 1}
-              searchInputRef={threadSearchInputRef}
-              searchQuery={threadSearchQuery}
-              onSearchQueryChange={(value) => {
-                setThreadSearchQuery(value);
-                setActiveSearchResultIndex(0);
-              }}
-              onSearchKeyDown={handleThreadSearchKeyDown}
-              isSearching={isSearchingThreads}
-              searchResultCount={threadSearchResults.length}
-              activeSearchResultIndex={activeSearchResultIndex}
-              onClearSearch={clearThreadSearch}
-            />
+            <div className="flex flex-col gap-2">
+              <SidebarThreadHeader
+                searchFieldRef={headerSearchRef}
+                paletteShortcutLabel={paletteShortcutLabel}
+                searchInputRef={threadSearchInputRef}
+                searchQuery={threadSearchQuery}
+                onSearchQueryChange={(value) => {
+                  setThreadSearchQuery(value);
+                  setActiveSearchResultIndex(0);
+                }}
+                onSearchKeyDown={handleThreadSearchKeyDown}
+                isSearching={isSearchingThreads}
+                searchResultCount={threadSearchResults.length}
+                activeSearchResultIndex={activeSearchResultIndex}
+                onClearSearch={clearThreadSearch}
+              />
+              {isSearchingThreads ? null : (
+                <SidebarAttentionStrip
+                  needsYou={attentionCounts["needs-you"]}
+                  working={attentionCounts.working}
+                  fresh={attentionCounts.new}
+                  active={attentionFilter}
+                  onChange={setAttentionFilter}
+                />
+              )}
+            </div>
           </SidebarGroup>
         }
       >
@@ -3864,13 +4272,15 @@ export default function Sidebar() {
                   presentational while preserving every descendant control.
                   The sidebar's navigation landmark carries the "Threads" name. */}
               <ul role="presentation" className="flex flex-col gap-px">
-                <SidebarDraftBlock
-                  key="draft-sessions"
-                  projectDisplayNameByKey={projectDisplayNameByKey}
-                  scopedProjectKeys={scopedProjectKeys}
-                  routeDraftId={routeDraftIdForRows}
-                  onNavigateToDraft={navigateToDraft}
-                />
+                {attentionFilter === null ? (
+                  <SidebarDraftBlock
+                    key="draft-sessions"
+                    projectDisplayNameByKey={projectDisplayNameByKey}
+                    scopedProjectKeys={scopedProjectKeys}
+                    routeDraftId={routeDraftIdForRows}
+                    onNavigateToDraft={navigateToDraft}
+                  />
+                ) : null}
                 {tree.pinned.length > 0 ? (
                   <>
                     <DndContext
@@ -3908,6 +4318,16 @@ export default function Sidebar() {
                   const view = folderViewByKey.get(folder.key);
                   const sections = folderSectionsByKey.get(folder.key);
                   const searching = folderSearch?.folderKey === folder.key;
+                  // A strip filter lists only folders holding a match.
+                  if (
+                    attentionFilter !== null &&
+                    (view?.needsYou.length ?? 0) +
+                      (view?.active.length ?? 0) +
+                      (view?.settledCount ?? 0) ===
+                      0
+                  ) {
+                    return null;
+                  }
                   return (
                     <li key={folder.key} className="list-none">
                       <SidebarProjectFolderRow
@@ -3920,6 +4340,15 @@ export default function Sidebar() {
                         primaryEnvironmentId={primaryEnvironmentId}
                         machineByEnvironmentId={environmentMachineById}
                         searching={searching}
+                        sortOrder={folderSortOrderById[folder.key] ?? DEFAULT_FOLDER_SORT_ORDER}
+                        needsYouCount={sections?.needsYou.length ?? 0}
+                        workingCount={
+                          sections?.active.filter(
+                            (node) =>
+                              node.thread.session?.status === "running" ||
+                              node.workingDescendantCount > 0,
+                          ).length ?? 0
+                        }
                         onToggle={toggleProjectFolder}
                         onToggleSearch={toggleFolderSearch}
                         onNewThread={createThreadInProject}
@@ -3939,7 +4368,8 @@ export default function Sidebar() {
                       (view.needsYou.length > 0 ||
                         view.active.length > 0 ||
                         view.settledCount > 0) ? (
-                        <ul role="group" className="flex flex-col gap-px pb-1">
+                        // Indented past the folder's chevron, so its chats sit under its icon.
+                        <ul role="group" className="ms-4.5 flex flex-col gap-px pb-1">
                           {view.needsYou.length > 0 ? (
                             <li className="list-none">
                               <SidebarNeedsYouGroupLabel count={view.needsYou.length} />
@@ -3976,6 +4406,14 @@ export default function Sidebar() {
               </ul>
             </TooltipProvider>
           )}
+          {!isSearchingThreads && attentionFilter !== null && orderedThreadKeys.length === 0 ? (
+            <p
+              role="status"
+              className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
+            >
+              Nothing here right now
+            </p>
+          ) : null}
           {!isSearchingThreads && !hasAnyRows ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (
@@ -4008,6 +4446,17 @@ export default function Sidebar() {
               if (!open) setIconPickerGroup(null);
             }}
             onSelect={(icon) => saveProjectIcon(iconPickerGroup, icon)}
+            logos={{
+              environmentId: iconPickerGroup.environmentId,
+              cwd: iconPickerGroup.workspaceRoot,
+              savedPath: iconPickerGroup.faviconPath ?? null,
+              onSelect: (faviconPath) =>
+                void updateProjectGroup(
+                  iconPickerGroup,
+                  { faviconPath, projectIcon: null },
+                  `Could not change the logo for ${iconPickerGroup.displayName}`,
+                ),
+            }}
           />
         </Suspense>
       ) : null}

@@ -117,6 +117,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --workspace-native-controls-inset: 0px;
   --workspace-titlebar-control-size: 1.75rem;
   --workspace-titlebar-control-gap: 0.75rem;
+  /* The title bar's fixed control group: the sidebar toggle, and from md up the back and
+     forward arrows beside it (AppSidebarLayout). Title content clears this width. */
+  --workspace-titlebar-controls-width: var(--workspace-titlebar-control-size);
   --workspace-titlebar-scroll-fade-height: 1.5rem;
   /* The prompt on phones: iOS zooms into any input under 16px on focus. */
   --font-size-prompt-touch: max(var(--font-size-prompt, 1rem), 16px);
@@ -128,6 +131,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
   @variant sm {
     --workspace-gutter: 1.25rem;
+  }
+
+  @variant md {
+    --workspace-titlebar-controls-width: calc(
+      var(--workspace-titlebar-control-size) * 3 + 0.375rem
+    );
   }
 
   @variant dark {
@@ -234,6 +243,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-diff-deletion-foreground: var(--diff-deletion-foreground);
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
+  --color-branch: var(--branch);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-ring: var(--ring);
   --color-input: var(--contrast-input);
@@ -580,7 +590,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     transparent 100%
   );
   mask-repeat: no-repeat;
-  animation: live-activity-focus 2.2s linear infinite;
+  animation: live-activity-focus 2.2s steps(30) infinite;
   animation-play-state: var(--visible-animation-state, paused);
   will-change: var(--visible-animation-will-change, auto);
 
@@ -593,7 +603,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 @utility live-activity-focus-counter {
   width: 100%;
-  animation: live-activity-focus-counter 2.2s linear infinite;
+  animation: live-activity-focus-counter 2.2s steps(30) infinite;
   animation-play-state: var(--visible-animation-state, paused);
   will-change: var(--visible-animation-will-change, auto);
 
@@ -1079,6 +1089,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --destructive-foreground: var(--error-foreground);
   --info: var(--color-blue-500);
   --info-foreground: var(--color-blue-700);
+  /* A git branch name where it labels work (the sidebar's chat rows). */
+  --branch: var(--color-violet-600);
   --success: var(--color-emerald-500);
   --success-foreground: var(--color-emerald-700);
   --warning: var(--color-amber-500);
@@ -1133,6 +1145,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     --border: --alpha(var(--color-white) / 6%);
     --input: --alpha(var(--color-white) / 8%);
     --info-foreground: var(--color-blue-400);
+    --branch: var(--color-violet-300);
     --success-foreground: var(--color-emerald-400);
     --warning-foreground: var(--color-amber-400);
     --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
@@ -1352,17 +1365,6 @@ html[data-theme-id] [data-chat-header] {
   color: var(--contrast-toolbar-foreground);
 }
 
-/* Project colour (`--project-accent`, set by projectAccentClassName): a 2px top line and a
-   faint tint so the user sees which project they are in. Image and shadow, not
-   background-color, so theme toolbar fills and window glass still apply underneath. */
-[data-chat-header][data-project-accent] {
-  background-image: linear-gradient(
-    color-mix(in oklab, var(--project-accent) 7%, transparent),
-    color-mix(in oklab, var(--project-accent) 7%, transparent)
-  );
-  box-shadow: inset 0 2px 0 var(--project-accent);
-}
-
 html[data-theme-id] [data-chat-header] [data-slot="button"],
 html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"],
 html[data-theme-id] [data-chat-header] [data-toolbar-control] {
@@ -1370,6 +1372,14 @@ html[data-theme-id] [data-chat-header] [data-toolbar-control] {
   background-color: var(--toolbar-control);
   border-color: var(--contrast-toolbar-border);
   color: var(--contrast-toolbar-control-foreground);
+}
+
+/* The page's fixed titlebar controls sit above sheets so they stay usable over page content,
+   but the phone sidebar sheet covers the page they act on: hide them while it is open (it is
+   only in the DOM then), so they never draw over its New button. The sidebar toggle is a
+   separate control and stays, so the sheet can still be closed. */
+body:has([data-slot="sidebar"][data-mobile="true"]) [data-workspace-titlebar-controls] {
+  visibility: hidden;
 }
 
 /* The panel layout toggles stay ghost: they render both inside the header and

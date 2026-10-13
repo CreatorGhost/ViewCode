@@ -34,8 +34,13 @@ export function ProjectFavicon(input: {
   project: ProjectFaviconProject;
   className?: string | undefined;
   fallbackIcon?: ComponentType<{ className?: string }>;
+  /** A monogram without its own tinted square, for a surface that is already a tile (the rail). */
+  bareMonogram?: boolean | undefined;
+  /** Without a logo, `fallbackIcon` rather than the project's monogram. */
+  iconFallback?: boolean | undefined;
 }) {
   const { project } = input;
+  const fallbackName = input.iconFallback ? undefined : project.title;
   const src = useAtomValue(
     projectFaviconUrlAtom({
       environmentId: project.environmentId,
@@ -49,6 +54,7 @@ export function ProjectFavicon(input: {
         text={project.projectIcon.text}
         color={project.projectIcon.color}
         className={input.className}
+        bare={input.bareMonogram}
       />
     );
   }
@@ -87,7 +93,8 @@ export function ProjectFavicon(input: {
       <ProjectFaviconFallback
         className={input.className}
         icon={FallbackIcon}
-        projectName={project.title}
+        projectName={fallbackName}
+        bareMonogram={input.bareMonogram}
       />
     );
   }
@@ -104,7 +111,8 @@ export function ProjectFavicon(input: {
       src={src}
       className={input.className}
       fallbackIcon={FallbackIcon}
-      fallbackProjectName={project.title}
+      fallbackProjectName={fallbackName}
+      bareMonogram={input.bareMonogram}
     />
   );
 }
@@ -114,16 +122,23 @@ function ProjectFaviconFallback({
   icon: Icon,
   emoji,
   projectName,
+  bareMonogram,
 }: {
   readonly className?: string | undefined;
   readonly icon: ComponentType<{ className?: string }>;
   readonly emoji?: string | undefined;
   readonly projectName?: string | undefined;
+  readonly bareMonogram?: boolean | undefined;
 }) {
   if (projectName && projectName.trim().length > 0) {
     const identity = deriveProjectIdentity(projectName);
     return (
-      <ProjectMonogram text={identity.monogram} color={identity.color} className={className} />
+      <ProjectMonogram
+        text={identity.monogram}
+        color={identity.color}
+        className={className}
+        bare={bareMonogram}
+      />
     );
   }
 
@@ -149,11 +164,13 @@ function ProjectFaviconImage({
   className,
   fallbackIcon: FallbackIcon,
   fallbackProjectName,
+  bareMonogram,
 }: {
   readonly src: string;
   readonly className?: string | undefined;
   readonly fallbackIcon: ComponentType<{ className?: string }>;
   readonly fallbackProjectName?: string | undefined;
+  readonly bareMonogram?: boolean | undefined;
 }) {
   const [displayedSrc, setDisplayedSrc] = useState<string | null>(() =>
     src.startsWith("data:image/") ? src : null,
@@ -170,6 +187,7 @@ function ProjectFaviconImage({
           className={className}
           icon={FallbackIcon}
           projectName={fallbackProjectName}
+          bareMonogram={bareMonogram}
         />
       ) : null}
       {displayedSrc ? (

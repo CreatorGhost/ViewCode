@@ -100,7 +100,16 @@ export const make = Effect.gen(function* () {
     const projects = new Map(snapshot.projects.map((project) => [project.id, project]));
     // A merge rechecks all candidates, including branches that discovery has
     // not linked yet. Those lookups can still have cached the PR as open.
-    const candidates = snapshot.threads.filter((thread) => isAutoSettlementCandidate(thread, now));
+    const agents =
+      threadId === undefined
+        ? snapshot.threads
+        : yield* snapshots.getSettlementDescendants(threadId);
+    const agentTree = Map.groupBy(agents, (thread) => thread.parentThreadId);
+    const candidates = snapshot.threads.filter(
+      (thread) =>
+        (threadId === undefined || thread.id === threadId) &&
+        isAutoSettlementCandidate(thread, now, agentTree),
+    );
 
     // Return the thread when it still needs a pull request decision. A rejected
     // dispatch skips it for this snapshot instead of retrying through a lookup.
@@ -113,6 +122,7 @@ export const make = Effect.gen(function* () {
         const decisionNow = DateTime.formatIso(yield* DateTime.now);
         const settledAt = resolveAutoSettlementAt({
           thread,
+          agentTree,
           pullRequest,
           now: decisionNow,
           autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,
@@ -133,6 +143,9 @@ export const make = Effect.gen(function* () {
       },
       (effect, thread) =>
         effect.pipe(
+          // A descendant can become active between the sweep and dispatch.
+          // The engine logs that expected race without a stack trace.
+          Effect.catchTags({ OrchestrationThreadSettleBlockedError: () => Effect.succeed(null) }),
           Effect.catchCauseIf(
             (cause) => !Cause.hasInterruptsOnly(cause),
             (cause) =>
@@ -216,6 +229,7 @@ export const make = Effect.gen(function* () {
         return (
           resolveAutoSettlementAt({
             thread,
+            agentTree,
             pullRequest,
             now: decisionNow,
             autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,

@@ -1,4 +1,4 @@
-import { isWindowsPlatform } from "./utils";
+import { isMacPlatform, isWindowsPlatform } from "./utils";
 
 const WCO_CLASS_NAME = "wco";
 const ELECTRON_CLASS_NAME = "electron";
@@ -62,5 +62,33 @@ export function syncDocumentElectronPlatformClasses(platform: string): () => voi
   document.documentElement.classList.add(...classNames);
   return () => {
     document.documentElement.classList.remove(...classNames);
+  };
+}
+
+/**
+ * The macOS traffic lights sit over the window's top-left corner. Marks the
+ * root with `data-macos-window-controls="visible"` while they show (out of
+ * fullscreen) so CSS keeps that corner clear (viewcode-theme.css). Setting the
+ * attribute by hand in a plain browser previews the desktop layout.
+ */
+export function syncDocumentMacosWindowControls(
+  platform: string,
+  bridge: Pick<
+    NonNullable<Window["desktopBridge"]>,
+    "getWindowFullscreenState" | "onWindowFullscreenStateChange"
+  > | null,
+): () => void {
+  if (typeof document === "undefined" || !isMacPlatform(platform)) {
+    return () => {};
+  }
+  const root = document.documentElement;
+  const update = (fullscreen: boolean) => {
+    root.dataset.macosWindowControls = fullscreen ? "hidden" : "visible";
+  };
+  update(bridge?.getWindowFullscreenState?.() ?? false);
+  const unsubscribe = bridge?.onWindowFullscreenStateChange?.(update);
+  return () => {
+    unsubscribe?.();
+    delete root.dataset.macosWindowControls;
   };
 }

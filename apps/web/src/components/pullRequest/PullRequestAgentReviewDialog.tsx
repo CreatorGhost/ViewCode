@@ -1,4 +1,11 @@
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import {
+  type AgentReviewChoices,
+  type AgentReviewRequest,
+  buildAgentReviewStart,
+  canChooseLocalReviewScope,
+  localReviewScopeReady,
+} from "@t3tools/client-runtime/agent-review";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -7,19 +14,20 @@ import {
   AGENT_REVIEW_MODES,
   type AgentReviewMode,
   type EnvironmentId,
+  type LocalReviewScope,
   type ModelSelection,
-  type ProjectId,
   type PullRequestRef,
   type PullRequestStartReviewResult,
   type ReviewBasedOnInput,
+  type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { useNavigate } from "@tanstack/react-router";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useCallback, useId, useMemo, useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useRightPanelStore } from "../../rightPanelStore";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
   applyProviderInstanceSettings,
@@ -27,7 +35,7 @@ import {
   resolveDefaultProviderModelSelection,
   sortProviderInstanceEntries,
 } from "../../providerInstances";
-import { useProject } from "../../state/entities";
+import { useProject, useServerConfigs, useThreadShell } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { pullRequestEnvironment } from "../../state/pullRequests";
 import { reviewEnvironment } from "../../state/review";
@@ -48,14 +56,52 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
+import { readReviewStartPreference, writeReviewStartPreference } from "./reviewStartPreference";
+
+export type { AgentReviewChoices, AgentReviewRequest };
+
+/** A review that started, and how thorough it is, for what the start says to the reader. */
+export type StartedAgentReview = PullRequestStartReviewResult & { readonly mode: AgentReviewMode };
 
 /**
- * What an agent review reads: a pull request, or the local changes of a thread's checkout
- * (servers advertising `localAgentReview`).
+ * Starts an agent review with given choices: `start` reports a failure itself and resolves to the
+ * new review thread, or null. Shared by the start form and a failed review's Try again.
  */
-export type AgentReviewRequest =
-  | { readonly kind: "pull-request"; readonly reference: PullRequestRef }
-  | { readonly kind: "local"; readonly projectId: ProjectId; readonly sourceThreadId: ThreadId };
+export function useStartAgentReview(
+  environmentId: EnvironmentId | null,
+  request: AgentReviewRequest | null,
+) {
+  const startReview = useAtomCommand(pullRequestEnvironment.startReview, { reportFailure: false });
+  const startLocalReview = useAtomCommand(reviewEnvironment.startLocal, { reportFailure: false });
+  const [pending, setPending] = useState(false);
+  const configs = useServerConfigs();
+  const capabilities =
+    environmentId === null ? undefined : configs.get(environmentId)?.environment.capabilities;
+  const canScope = request !== null && canChooseLocalReviewScope(request, capabilities);
+  const start = async (choices: AgentReviewChoices): Promise<StartedAgentReview | null> => {
+    if (pending || environmentId === null || request === null) return null;
+    setPending(true);
+    const call = buildAgentReviewStart(request, choices, { canScope });
+    const result =
+      call.method === "pullRequests.startReview"
+        ? await startReview({ environmentId, input: call.input })
+        : await startLocalReview({ environmentId, input: call.input });
+    setPending(false);
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Could not start the review",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+      return null;
+    }
+    return { ...result.value, mode: choices.mode };
+  };
+  return { pending, canScope, start };
+}
 
 /**
  * The choices an agent review starts from: how thorough, with which model (the project's default
@@ -64,8 +110,7 @@ export type AgentReviewRequest =
  * only what changed since those findings.
  */
 export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentReviewRequest) {
-  const startReview = useAtomCommand(pullRequestEnvironment.startReview, { reportFailure: false });
-  const startLocalReview = useAtomCommand(reviewEnvironment.startLocal, { reportFailure: false });
+  const starter = useStartAgentReview(environmentId, request);
   const settings = useEnvironmentSettings(environmentId);
   const projectId =
     request.kind === "pull-request" ? request.reference.projectId : request.projectId;
@@ -93,49 +138,43 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
       getCustomModelOptionsByInstance(settings, providers, selection?.instanceId, selection?.model),
     [providers, selection?.instanceId, selection?.model, settings],
   );
-  const [mode, setMode] = useState<AgentReviewMode>("quick");
+  // The form opens on the depth and "What to review" last started on this device.
+  const [remembered] = useState(readReviewStartPreference);
+  const [mode, setMode] = useState<AgentReviewMode>(remembered.mode);
   const [focus, setFocus] = useState("");
-  const [pending, setPending] = useState(false);
-
-  const start = async (
-    basedOn?: ReviewBasedOnInput,
-  ): Promise<PullRequestStartReviewResult | null> => {
-    if (pending) return null;
-    setPending(true);
-    const trimmedFocus = focus.trim();
-    const choices = {
+  // What of the local changes to read; null leaves it to the reviewer (uncommitted, else branch).
+  const [scope, setScope] = useState<LocalReviewScope | null>(remembered.scope);
+  const { pending } = starter;
+  const { canScope } = starter;
+  const scopeReady = !canScope || localReviewScopeReady(scope);
+  // The checkout a local review reads, whose commits and base the scope choices offer.
+  const sourceThread = useThreadShell(
+    request.kind === "local" ? scopeThreadRef(environmentId, request.sourceThreadId) : null,
+  );
+  const checkoutCwd =
+    request.kind === "local"
+      ? (sourceThread?.worktreePath ?? project?.workspaceRoot ?? null)
+      : null;
+  const start = async (basedOn?: ReviewBasedOnInput) => {
+    const started = await starter.start({
       mode,
-      ...(selection ? { modelSelection: selection } : {}),
-      ...(trimmedFocus ? { focus: trimmedFocus } : {}),
-      ...(basedOn ? { incremental: true, basedOn } : {}),
-    };
-    const result =
-      request.kind === "pull-request"
-        ? await startReview({ environmentId, input: { ...request.reference, ...choices } })
-        : await startLocalReview({
-            environmentId,
-            input: {
-              projectId: request.projectId,
-              sourceThreadId: request.sourceThreadId,
-              ...choices,
-            },
-          });
-    setPending(false);
-    if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Could not start the review",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-      }
-      return null;
+      modelSelection: selection,
+      focus,
+      basedOn,
+      scope: canScope ? scope : null,
+    });
+    if (started !== null) {
+      writeReviewStartPreference({ mode, scope: canScope ? scope : remembered.scope });
     }
-    return result.value;
+    return started;
   };
 
   return {
+    /** Whether a review of local changes can be told what to read. */
+    canScope,
+    scope,
+    setScope,
+    checkoutCwd,
     entries,
     modelOptions,
     selection,
@@ -145,7 +184,7 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
     focus,
     setFocus,
     pending,
-    canStart: !pending && selection !== null,
+    canStart: !pending && selection !== null && scopeReady,
     start,
   };
 }
@@ -159,13 +198,16 @@ export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
   return (
     <div className="flex flex-col gap-4">
       <RadioGroup
-        aria-label="Review mode"
+        aria-labelledby={`${id}-depth`}
         value={form.mode}
         onValueChange={(value) => {
           const next = AGENT_REVIEW_MODES.find((entry) => entry.mode === value);
           if (next) form.setMode(next.mode);
         }}
       >
+        <span id={`${id}-depth`} className="font-medium text-xs text-muted-foreground">
+          Depth
+        </span>
         {AGENT_REVIEW_MODES.map((entry) => (
           <label
             key={entry.mode}
@@ -214,33 +256,40 @@ export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
 }
 
 /**
- * What starting a review from the pull request page does: the reader stays, a toast offers the
- * review's chat, and `onShow` brings the Review tab forward, where its findings will appear.
+ * Says a review started and where it shows: in the chat it was started from (as one of its
+ * agents, findings in the Review panel), or in the pull request's Review tab. Nothing navigates.
+ */
+export function announceReviewStarted(
+  started: StartedAgentReview,
+  where: "chat" | "pull-request",
+): void {
+  const label = AGENT_REVIEW_MODES.find((entry) => entry.mode === started.mode)?.label ?? "Review";
+  toastManager.add({
+    type: "success",
+    title: `${label} started`,
+    description:
+      where === "chat"
+        ? "Progress shows in this chat, findings in the Review panel as the review finds them."
+        : "Findings appear in the Review tab as the review finds them.",
+  });
+}
+
+/**
+ * What starting a review from the pull request detail does: beside a chat, the reviewer is that
+ * chat's agent and the chat's Review panel opens; on the pull request page, `onShow` brings the
+ * Review tab forward. The reader stays where they are either way.
  */
 export function useReviewStartedHandler(
-  environmentId: EnvironmentId,
+  besideChat: ScopedThreadRef | null,
   onShow: () => void,
-): (started: PullRequestStartReviewResult) => void {
-  const navigate = useNavigate();
+): (started: StartedAgentReview) => void {
   return useCallback(
-    (started: PullRequestStartReviewResult) => {
-      onShow();
-      toastManager.add({
-        type: "success",
-        title: "Review started",
-        description: "Its findings appear in the Review tab when it is done.",
-        actionProps: {
-          children: "Open chat",
-          onClick: () => {
-            void navigate({
-              to: "/$environmentId/$threadId",
-              params: { environmentId, threadId: started.threadId },
-            });
-          },
-        },
-      });
+    (started: StartedAgentReview) => {
+      if (besideChat !== null) useRightPanelStore.getState().open(besideChat, "review");
+      else onShow();
+      announceReviewStarted(started, besideChat !== null ? "chat" : "pull-request");
     },
-    [environmentId, navigate, onShow],
+    [besideChat, onShow],
   );
 }
 
@@ -253,17 +302,24 @@ export function useReviewStartedHandler(
 export function PullRequestAgentReviewDialog({
   environmentId,
   reference,
+  sourceThreadId,
   number,
   onStarted,
   onClose,
 }: {
   environmentId: EnvironmentId;
   reference: PullRequestRef;
+  /** The chat the detail sits beside, whose agent the reviewer becomes. */
+  sourceThreadId?: ThreadId | undefined;
   number: number;
-  onStarted: (started: PullRequestStartReviewResult) => void;
+  onStarted: (started: StartedAgentReview) => void;
   onClose: () => void;
 }) {
-  const form = useAgentReviewForm(environmentId, { kind: "pull-request", reference });
+  const form = useAgentReviewForm(environmentId, {
+    kind: "pull-request",
+    reference,
+    sourceThreadId,
+  });
 
   const start = async () => {
     const started = await form.start();

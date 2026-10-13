@@ -1156,13 +1156,6 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
-    // ViewCode first-run provider choice: a filesystem-only lookup, and the
-    // one-time choice (later changes go through updateSettings).
-    detectProviders: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:detect-providers",
-      tag: WS_METHODS.serverDetectProviders,
-      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
-    }),
     // A command, not a query atom: what the server's machine can do right now
     // (driver, OS permission) must never be served from a cache.
     getComputerUseStatus: createEnvironmentRpcCommand(runtime, {
@@ -1175,12 +1168,6 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:get-computer-use-activity",
       tag: WS_METHODS.serverGetComputerUseActivity,
       concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
-    }),
-    chooseProviders: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:choose-providers",
-      tag: WS_METHODS.serverChooseProviders,
-      scheduler: configScheduler,
-      concurrency: configConcurrency,
     }),
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",

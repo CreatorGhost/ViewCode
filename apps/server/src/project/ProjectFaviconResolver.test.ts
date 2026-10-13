@@ -50,6 +50,73 @@ const makeResolverWithFileSystem = (fileSystem: FileSystem.FileSystem) =>
   );
 
 it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
+  describe("listCandidates", () => {
+    it.effect("lists the automatic icon first, then the other logos, relative to the root", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "public/favicon.svg", "<svg>favicon</svg>");
+        yield* writeTextFile(cwd, "assets/logo-dark.png", "png");
+        yield* writeTextFile(cwd, "src-tauri/icons/icon.png", "png");
+        yield* writeTextFile(cwd, "src/assets/react.svg", "<svg>react</svg>");
+        yield* writeTextFile(cwd, "tests/fixtures/favicon.ico", "ico");
+
+        const candidates = yield* resolver.listCandidates(cwd);
+        expect(candidates[0]).toBe(path.join("public", "favicon.svg"));
+        expect(candidates).toContain(path.join("assets", "logo-dark.png"));
+        expect(candidates).toContain(path.join("src-tauri", "icons", "icon.png"));
+        expect(candidates).not.toContain(path.join("src", "assets", "react.svg"));
+        expect(candidates).not.toContain(path.join("tests", "fixtures", "favicon.ico"));
+      }),
+    );
+
+    it.effect("offers one tile per image, and nothing through a link that leaves the project", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const parent = yield* makeTempDir;
+        const cwd = path.join(parent, "app");
+        yield* writeTextFile(cwd, "brand/logo.svg", "<svg>logo</svg>");
+        yield* writeTextFile(cwd, "src-tauri/icons/32x32.png", "png");
+        yield* writeTextFile(cwd, "src-tauri/icons/128x128.png", "png");
+        yield* writeTextFile(parent, "other/app/icon.svg", "<svg>other</svg>");
+        // A loop back into the project, and a link out of it.
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.symlink(path.join(cwd, "brand"), path.join(cwd, "brand", "again"));
+        yield* fileSystem.symlink(path.join(parent, "other"), path.join(cwd, "outside"));
+
+        const candidates = yield* resolver.listCandidates(cwd);
+        expect(candidates).toEqual([
+          path.join("brand", "logo.svg"),
+          path.join("src-tauri", "icons", "128x128.png"),
+        ]);
+      }),
+    );
+
+    it.effect("uses an image named after the project's folder", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const parent = yield* makeTempDir;
+        const cwd = path.join(parent, "slicerninja");
+        yield* writeTextFile(cwd, "assets/slicerninja.png", "png");
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(path.join(cwd, "assets", "slicerninja.png"));
+      }),
+    );
+
+    it.effect("returns nothing for a project without images", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "src/index.ts", "export {};");
+
+        expect(yield* resolver.listCandidates(cwd)).toEqual([]);
+      }),
+    );
+  });
+
   describe("resolvePath", () => {
     it.effect("serves repeated resolves from cache instead of re-walking candidates", () =>
       Effect.gen(function* () {
@@ -104,10 +171,38 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         yield* writeTextFile(cwd, "favicon.svg", "<svg>favicon</svg>");
         expect(yield* resolver.resolvePath(cwd)).toBeNull();
 
-        yield* TestClock.adjust(Duration.minutes(2));
+        yield* TestClock.adjust(Duration.minutes(6));
 
         expect(yield* resolver.resolvePath(cwd)).not.toBeNull();
       }).pipe(Effect.provide(TestClock.layer())),
+    );
+
+    it.effect("finds a monorepo app's favicon when the well-known paths miss", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "apps/web/src/assets/hero.png", "hero");
+        yield* writeTextFile(cwd, "apps/web/public/favicon.svg", "<svg>web</svg>");
+        yield* writeTextFile(cwd, "node_modules/pkg/logo.svg", "<svg>dependency</svg>");
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(
+          path.join(cwd, "apps", "web", "public", "favicon.svg"),
+        );
+      }),
+    );
+
+    it.effect("uses the logo a README shows before guessing from file names", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "README.md", '<img src="docs/brand/mark.svg" alt="Logo">\n');
+        yield* writeTextFile(cwd, "docs/brand/mark.svg", "<svg>mark</svg>");
+        yield* writeTextFile(cwd, "static/icon.png", "png");
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(path.join(cwd, "docs", "brand", "mark.svg"));
+      }),
     );
 
     it.effect("prefers well-known favicon files", () =>

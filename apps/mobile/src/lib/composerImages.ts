@@ -345,7 +345,7 @@ export async function pickComposerFiles(input: {
  * Longest edge kept when a photo has to be re-encoded. Matches the web composer's
  * MAX_DIMENSION so every client hands providers the same resolution.
  */
-const PHOTO_MAX_EDGE = 2048;
+const PHOTO_MAX_EDGE = 2000;
 const PHOTO_JPEG_QUALITY = 0.85;
 
 /**
@@ -514,15 +514,17 @@ export async function pickComposerMedia(input: {
     } catch {
       sourceBytes = null;
     }
-    // Originals the provider can read and that fit the cap pass through byte for byte so
-    // transparency and animation survive. Everything else (HEIC/HEIF, oversized JPEGs,
-    // unmeasurable sources) is rendered to a bounded JPEG off the JS thread.
+    // Originals the provider can read and that fit the cap and PHOTO_MAX_EDGE pass through byte
+    // for byte so transparency and animation survive. Everything else (HEIC/HEIF, oversized or
+    // very long images, unmeasurable sources) is rendered to a bounded JPEG off the JS thread.
     const originalMimeType =
       mimeType !== undefined &&
       isProviderSendTurnSupportedImageMimeType(mimeType) &&
       sourceBytes !== null &&
       sourceBytes > 0 &&
-      sourceBytes <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES
+      sourceBytes <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES &&
+      // A picker that reports no size leaves NaN here, which counts as within the edge.
+      !(Math.max(asset.width, asset.height) > PHOTO_MAX_EDGE)
         ? mimeType
         : null;
 

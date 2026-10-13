@@ -16,10 +16,12 @@ phone will reach it, and scan the code from the app's **Add environment**.
   [Quick connect](#quick-connect).
 - **Same Wi-Fi.** Choose **Turn on and restart** if asked; ViewCode restarts once
   and reopens on the code. Works only on the same network.
-- **Anywhere · Tailscale.** Shown only when Tailscale is installed on this computer. **Turn on Tailscale** enables
-  Tailscale HTTPS and restarts once. Works wherever your phone is on your tailnet.
-  **Settings → Connections** can turn it on at every launch; that is off by
-  default because some security software stops Tailscale.
+- **Anywhere · Tailscale.** Shown only when Tailscale is installed on this computer. When
+  Tailscale is signed in, the desktop app turns on Tailscale HTTPS at launch, so the
+  phone only needs to scan the code. If it is not on yet, **Turn on Tailscale** enables
+  it and restarts once. Works wherever your phone is on your tailnet; phones still
+  have to pair. To stop it starting at launch, turn off **Turn on Tailscale phone
+  access at launch** in **Settings → Connections**, or turn Tailscale HTTPS off there.
 
 Each code works once for five minutes; choose **New code** for another phone. Keep
 the computer awake and ViewCode running. **Turn off local network access** in the
@@ -151,6 +153,35 @@ for each new device; you do not need the original token to reconnect. Links
 created in Settings can only be copied from the client that created them while
 its Connections page stays open. If you leave or reload that page, create
 another link to share.
+
+### Reach one machine several ways
+
+A machine can have more than one route: LAN, Tailscale, a public URL, SSH, or
+T3 Connect. To add one, choose **Add route** in the machine's route list, or
+next to it in the T3 Connect list. Pairing the same machine again over another
+address also adds a route instead of a second machine. A new route is placed by
+speed, in that order. On web and desktop you can reorder routes at any time.
+
+While connected through T3 Connect or a paired address, T3 Code also learns the
+machine's current LAN and Tailscale addresses and adds them as routes, so
+pairing once over Tailscale, Quick connect, or T3 Connect is enough to use the
+LAN at home. When the
+machine's LAN address changes, for example after it joins another Wi-Fi network,
+the learned route follows it. The machine must allow network access for its LAN
+address to be learned. A learned route cannot be removed; it goes away with the route it was learned through, or when the machine stops
+reporting that address.
+
+T3 Code connects over the first route that answers. Away from home, a LAN
+address that does not answer is checked briefly and skipped. It is only tried
+again, after the other routes, if none of them connect. While connected over a
+later route, T3 Code checks the earlier ones when your network changes, when you
+return to the app, and every minute, and moves back as soon as one works.
+
+On web and desktop, select the route count under the machine's name in
+**Settings → Connections** to see its routes. Drag a route to change the order,
+or remove it. On mobile, open the machine under **Settings → Environments** to
+see its routes and the one in use, or remove one. Signing out of T3 Connect removes only that route; a machine
+you can still reach another way stays saved.
 
 ### Balance new threads across machines
 

@@ -1,9 +1,16 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo, useRef } from "react";
 import { Link } from "@tanstack/react-router";
-import { BotIcon, ChevronDownIcon } from "lucide-react";
-import { ThreadId } from "@t3tools/contracts";
+import { BotIcon, ChevronDownIcon, ListChecksIcon } from "lucide-react";
+import { AGENT_REVIEW_MODES, ThreadId } from "@t3tools/contracts";
+import {
+  latestReviewFindingsSource,
+  reviewProgress,
+  reviewRunState,
+} from "@t3tools/client-runtime/review-findings";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  collectChildAgents,
   SPAWNED_AGENT_STATUS_LABEL,
   type SpawnedAgentRowStatus,
   formatAgentElapsed,
@@ -15,10 +22,15 @@ import type { AgentMessageSentPayload } from "@t3tools/shared/agentMessages";
 import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
 import { useServerConfigs, useThreadShell, useThreadShells } from "../../state/entities";
+import { useRightPanelStore } from "../../rightPanelStore";
+import { useAgentControl } from "../../state/agentControl";
+import { environmentThreadDetails } from "../../state/threads";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { cn } from "~/lib/utils";
 import type { AgentMessageRenderContext } from "./AgentMessageCard";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import { spawnedAgentsOpenKey } from "./SpawnedAgentRows.logic";
+import { ReviewAgentList, ReviewElapsed, ReviewWorkLine } from "./ReviewProgress";
 
 const STATUS_DOT_CLASS: Record<SpawnedAgentRowStatus, string> = {
   running: "bg-success",
@@ -39,7 +51,6 @@ const STATUS_TEXT_CLASS: Partial<Record<SpawnedAgentRowStatus, string>> = {
 
 /** Disclosure keys, kept in the timeline's spawn-row state so they survive virtualization. */
 export const spawnedAgentDetailsKey = (messageId: string) => `agent-spawn:${messageId}`;
-export const spawnedAgentsCollapsedKey = (rowId: string) => `agent-spawns-collapsed:${rowId}`;
 
 /**
  * Child agents this thread started, one line each: provider icon with a
@@ -67,15 +78,15 @@ export function SpawnedAgentRows(props: {
       </div>
     ) : null;
   }
-  const collapsedKey = spawnedAgentsCollapsedKey(rowId);
-  const collapsed = expandedKeys.has(collapsedKey);
+  const openKey = spawnedAgentsOpenKey(rowId);
+  const collapsed = !expandedKeys.has(openKey);
   return (
     <div className="mx-auto w-full max-w-chat">
       <SpawnedAgentsGroupHeader
         spawns={spawns}
         context={context}
         collapsed={collapsed}
-        onToggle={() => onToggle(collapsedKey, !collapsed)}
+        onToggle={() => onToggle(openKey, collapsed)}
       />
       {collapsed ? null : (
         <div className="ms-3 border-border/60 border-s ps-1">
@@ -114,6 +125,16 @@ function useSpawnedAgent(sent: AgentMessageSentPayload, context: AgentMessageRen
 }
 
 function SpawnedAgentRow(props: {
+  sent: AgentMessageSentPayload;
+  context: AgentMessageRenderContext;
+  expanded: boolean;
+  onToggle: (key: string, expanded: boolean) => void;
+}) {
+  if (props.sent.review !== undefined) return <ReviewAgentRow {...props} />;
+  return <PlainSpawnedAgentRow {...props} />;
+}
+
+function PlainSpawnedAgentRow(props: {
   sent: AgentMessageSentPayload;
   context: AgentMessageRenderContext;
   expanded: boolean;
@@ -196,6 +217,144 @@ function SpawnedAgentRow(props: {
             ]
               .filter((part): part is string => Boolean(part))
               .join(" · ")}
+          </span>
+          <ChatMarkdown
+            className="text-foreground"
+            text={sent.body}
+            cwd={context.markdownCwd}
+            threadRef={context.threadRef ?? undefined}
+            lineBreaks
+            skills={context.skills}
+            headingLevelOffset={3}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A review started from this chat, as one compact block: "Deep review · GPT-6.1 · Running" with
+ * its time, and while it works its current step and the agents it started. Its findings are in
+ * the Review panel, which "Show findings" opens beside the chat; the reviewer's own chat opens
+ * only from the details.
+ */
+function ReviewAgentRow(props: {
+  sent: AgentMessageSentPayload;
+  context: AgentMessageRenderContext;
+  expanded: boolean;
+  onToggle: (key: string, expanded: boolean) => void;
+}) {
+  const { sent, context, expanded, onToggle } = props;
+  const { ref, shell, provider, modelLabel, status: rowStatus } = useSpawnedAgent(sent, context);
+  const threads = useThreadShells();
+  const control = useAgentControl(context.environmentId);
+  const activities = useAtomValue(environmentThreadDetails.activitiesAtom(ref));
+  const progress = useMemo(() => {
+    if (shell === null) return null;
+    const agents = collectChildAgents(threads, {
+      environmentId: context.environmentId,
+      threadId: shell.id,
+    }).map((agent) => agent.thread);
+    const queued = (threadId: string) => control.get(threadId)?.queued ?? 0;
+    const findings =
+      latestReviewFindingsSource({ id: shell.id, title: shell.title, activities: activities ?? [] })
+        ?.findings ?? null;
+    return reviewProgress({ run: reviewRunState(shell, agents, queued), findings });
+  }, [activities, context.environmentId, control, shell, threads]);
+  const running = progress?.kind === "running";
+  // The reviewer waits between turns for its agents' answers; it is still reviewing then. One that
+  // sent its final findings is done, as its panel says, even if its session errored afterwards.
+  const status: SpawnedAgentRowStatus | null = running
+    ? "running"
+    : progress?.kind === "done"
+      ? "done"
+      : rowStatus;
+  const mode = AGENT_REVIEW_MODES.find((entry) => entry.mode === sent.review)?.label ?? "Review";
+  // The whole review, from its start to its reviewer's last turn, in the panel's words.
+  const lastTurn = spawnedAgentElapsedRange(shell);
+  const threadRef = context.threadRef;
+  return (
+    <div data-agent-message-id={sent.messageId}>
+      <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-accent/40">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted">
+          {provider ? (
+            <ProviderInstanceIcon
+              driverKind={provider.driver}
+              displayName={provider.displayName ?? provider.instanceId}
+              iconClassName="size-3.5"
+              {...(status
+                ? {
+                    statusDotClassName: cn(
+                      STATUS_DOT_CLASS[status],
+                      status === "running" && "motion-safe:animate-status-pulse",
+                    ),
+                  }
+                : {})}
+              indicatorBackground="var(--background)"
+            />
+          ) : (
+            <ListChecksIcon aria-hidden className="size-3.5 text-muted-foreground" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm">
+          <span className="font-medium text-foreground">{mode}</span>
+          {modelLabel ? <span className="text-foreground"> · {modelLabel}</span> : null}
+          {status ? (
+            <span className={cn("text-muted-foreground", STATUS_TEXT_CLASS[status])}>
+              {" "}
+              · {running ? "Reviewing" : SPAWNED_AGENT_STATUS_LABEL[status]}
+            </span>
+          ) : null}
+        </span>
+        {shell && lastTurn ? (
+          <ReviewElapsed startedAt={shell.createdAt} endMs={running ? null : lastTurn.endMs} />
+        ) : null}
+        {threadRef ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            onClick={() => useRightPanelStore.getState().open(threadRef, "review")}
+          >
+            Show findings
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost-muted"
+          aria-expanded={expanded}
+          aria-label={expanded ? "Hide the review's details" : "Show the review's details"}
+          onClick={() => onToggle(spawnedAgentDetailsKey(sent.messageId), !expanded)}
+        >
+          <ChevronDownIcon
+            aria-hidden
+            className={cn("size-3.5 transition-transform", expanded && "rotate-180")}
+          />
+        </Button>
+      </div>
+      {running && shell ? (
+        <div className="ms-8 mb-1 flex flex-col gap-0.5 text-muted-foreground text-xs">
+          <ReviewWorkLine environmentId={context.environmentId} threadId={shell.id} />
+          <ReviewAgentList environmentId={context.environmentId} threadId={shell.id} />
+        </div>
+      ) : null}
+      {expanded ? (
+        <div className="ms-10 me-2 mb-2 flex flex-col gap-1 text-sm">
+          <span className="flex items-center gap-2 text-muted-foreground text-xs">
+            {[provider?.displayName ?? null, shell?.title ?? sent.toName]
+              .filter((part): part is string => Boolean(part))
+              .join(" · ")}
+            {shell ? (
+              <Link
+                to="/$environmentId/$threadId"
+                params={buildThreadRouteParams(ref)}
+                className="text-foreground hover:underline"
+              >
+                View agent
+              </Link>
+            ) : null}
           </span>
           <ChatMarkdown
             className="text-foreground"

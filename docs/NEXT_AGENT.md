@@ -65,6 +65,10 @@ keep that cheap.
   by hand. Moving onto v2 is its own project: upstream v2 has its own
   provider switch and context handoff (`ProviderSwitchService`,
   `ContextHandoffService`) that ViewCode's handoff would be rebuilt on.
+  Mobile work up to upstream `0e7346ccd` (2026-10-12) was reviewed; what was
+  taken is listed in
+  [viewcode.md](internals/viewcode.md#mobile-features-taken-from-upstream-after-the-v2-split)
+  and findable with `git log --grep "cherry picked from" --grep "Ported from upstream"`.
   Add the remote with
   `git remote add upstream https://github.com/pingdotgg/t3code && git fetch upstream`.
 - New behaviour goes in **new files** (`apps/server/src/agents/`,

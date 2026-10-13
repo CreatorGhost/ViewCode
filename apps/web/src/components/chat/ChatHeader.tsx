@@ -3,6 +3,7 @@ import {
   type EditorId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
+  type ThreadGoal,
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -54,6 +55,7 @@ import { useSplitPaneActions } from "../../splitView/SplitPaneContext";
 import { SplitPaneControls } from "../../splitView/SplitPaneControls";
 import { ReviewHeaderButton } from "./ReviewHeaderButton";
 import { SidechatHeaderButton } from "./SidechatHeaderButton";
+import { ThreadGoalChip } from "./ThreadGoalChip";
 
 interface ChatHeaderProps {
   providerInstanceEntries: ReadonlyArray<ProviderInstanceEntry>;
@@ -63,6 +65,9 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   /** ViewCode: the thread this one was forked from, shown as a link chip. */
   forkedFrom?: { threadId: string; title: string } | null;
+  /** ViewCode: the thread's goal, shown as a chip that opens its editor. */
+  threadGoal?: ThreadGoal | null;
+  onEditThreadGoal?: () => void;
   /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
@@ -134,6 +139,8 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   forkedFrom,
+  threadGoal,
+  onEditThreadGoal,
   isServerThread,
   activeProject,
   openInCwd,
@@ -475,6 +482,9 @@ export const ChatHeader = memo(function ChatHeader({
           <GitForkIcon aria-hidden="true" className="size-3 shrink-0" />
           <span className="truncate">Forked from {forkedFrom.title}</span>
         </Link>
+      ) : null}
+      {threadGoal && onEditThreadGoal ? (
+        <ThreadGoalChip goal={threadGoal} onEdit={onEditThreadGoal} />
       ) : null}
       <div
         ref={headerActionsRef}

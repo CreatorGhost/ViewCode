@@ -645,6 +645,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             autoSettleDisabledAt: null,
             parentThreadId: event.payload.parentThreadId ?? null,
             kind: event.payload.kind ?? null,
+            goal: null,
+            debugMode: null,
             titleRegenerationRequestId: null,
             titleRegenerationStartedAt: null,
             latestUserMessageAt: null,
@@ -850,6 +852,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { modelSelection: event.payload.modelSelection }
               : {}),
             ...(event.payload.kind !== undefined ? { kind: event.payload.kind } : {}),
+            ...(event.payload.goal !== undefined ? { goal: event.payload.goal } : {}),
+            ...(event.payload.debugMode !== undefined
+              ? { debugMode: event.payload.debugMode }
+              : {}),
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }

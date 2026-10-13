@@ -1,4 +1,5 @@
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
+import { isGlassEffectAPIAvailable } from "expo-glass-effect";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAtomValue } from "@effect/atom-react";
@@ -21,7 +22,13 @@ import {
   hasProviderUsageLimits,
   isUsageLimitsCommand,
 } from "@t3tools/shared/usageLimits";
-import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
+import type { MenuAction } from "@react-native-menu/menu";
+import {
+  StackActions,
+  useFocusEffect,
+  useIsFocused,
+  useNavigation,
+} from "@react-navigation/native";
 import type { ReactNode } from "react";
 import {
   memo,
@@ -33,7 +40,17 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { Alert, Keyboard, Platform, Pressable, View, type ViewStyle } from "react-native";
+import {
+  Alert,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+  type ViewStyle,
+} from "react-native";
+import Svg, { Path } from "react-native-svg";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import {
   composerAttachmentUploadBlockReason,
@@ -41,21 +58,30 @@ import {
   composerAttachmentUploadsAtom,
 } from "../../state/composer-attachment-uploads";
 import Animated, {
+  cancelAnimation,
+  Easing,
   FadeIn,
   FadeOut,
   type LayoutAnimationFunction,
   ReduceMotion,
+  type SharedValue,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { themeColorWithAlpha } from "../../lib/mobileTheme";
+import { flattenThemeColor, themeColorWithAlpha } from "../../lib/mobileTheme";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import {
+  getComposerDraftSnapshot,
+  composerDraftsAtom,
+  setComposerDraftText,
   composerContextImportsAtom,
   countComposerDraftAttachmentsAfterSelection,
 } from "../../state/use-composer-drafts";
+import { appAtomRegistry } from "../../state/atom-registry";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject } from "../../state/entities";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
@@ -76,6 +102,7 @@ import {
   ComposerToolbarRow,
 } from "../../components/ComposerToolbar";
 import { ProviderIcon } from "../../components/ProviderIcon";
+import { ControlPillMenu } from "../../components/ControlPill";
 import {
   composerStripAttachments,
   type DraftComposerAttachment,
@@ -91,7 +118,18 @@ import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import { modelChipLabel, resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
+import { ComposerPopoverAnchor } from "./ComposerPopoverAnchor";
+import { ComposerCheckoutStrip } from "./ComposerCheckoutStrip";
+import {
+  liveRingWedges,
+  resolveComposerGlowPaint,
+  type ComposerCheckout,
+  type ComposerGlowPaint,
+} from "./composerChrome";
+import { RUNTIME_MODE_CHOICES } from "./thread-settings-options";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
+import { useThreadGoalActions } from "./useThreadGoalActions";
+import { isThreadGoalPaused, parseThreadSlashCommand } from "@t3tools/client-runtime/threadGoal";
 import {
   ComposerDictationCancelAction,
   ComposerDictationDraftContent,
@@ -129,6 +167,8 @@ export interface ThreadComposerProps {
   readonly placeholder: string;
   readonly contentMaxWidth?: number;
   readonly bottomInset?: number;
+  /** The composer is mounted but hidden (a question card owns its slot): no running light. */
+  readonly hidden?: boolean;
   readonly connectionState: RemoteClientConnectionState;
   readonly environmentLabel: string | null;
   readonly selectedThread: OrchestrationThreadShell;
@@ -156,6 +196,11 @@ export interface ThreadComposerProps {
   readonly onExpandedChange?: (expanded: boolean) => void;
   /** Fires on editor focus/blur; hosts use it to vet stale keyboard state. */
   readonly onEditorFocusChange?: (focused: boolean) => void;
+  /** A bar glued to the composer's top edge (the Active agents bar). */
+  readonly topAccessory?: ReactNode;
+  /** Where the thread works, shown in a strip glued under the composer; null hides it. */
+  readonly checkout?: ComposerCheckout | null;
+  readonly onPressCheckoutBranch?: () => void;
 }
 
 /**
@@ -204,11 +249,28 @@ const COMPOSER_ATTACHMENT_ENTERING =
 
 const AnimatedGlassSurface = Animated.createAnimatedComponent(GlassSurface);
 
+// The composer surface draws native Liquid Glass here (GlassSurface), which an opaque cover would hide.
+const COMPOSER_USES_LIQUID_GLASS = Platform.OS === "ios" && isGlassEffectAPIAvailable();
+
+/** The glow the composer wears while the thread's turn runs. */
+export interface ComposerSurfaceGlow {
+  readonly paint: ComposerGlowPaint;
+  /** The composer's fill made opaque: it covers the running light inside a 2px band. */
+  readonly cover: string;
+  /**
+   * Whether the light circles the edge. Off while the composer is hidden (a question card owns
+   * its slot) and over iOS Liquid Glass, whose see-through surface the opaque cover would flatten
+   * for the whole turn; the edge and halo still show there.
+   */
+  readonly running: boolean;
+}
+
 export function ComposerSurface(props: {
   readonly children: ReactNode;
   readonly style: ViewStyle;
   /** Morphs between the compact and expanded composer layouts. */
   readonly animateLayout?: boolean;
+  readonly glow?: ComposerSurfaceGlow | null;
 }) {
   const colors = useUniwindTheme();
   const targetBorderRadius =
@@ -227,50 +289,205 @@ export function ComposerSurface(props: {
     borderRadius: animatedBorderRadius.value,
   }));
   const layoutTransition = shouldAnimate ? COMPOSER_LAYOUT_TRANSITION : undefined;
+  const glow = props.glow ?? null;
 
   // Each native frame follows the same transition. Animating only the outer
   // clip leaves the glass and content at their final height on the first frame.
+  // The unclipped wrapper is always there (never only while glowing) so the
+  // composer's content never remounts when a turn starts.
   return (
-    <Animated.View
-      className={
-        Platform.OS === "android" ? undefined : "shadow-[0_6px_28px] shadow-adaptive-black-a15-a35"
-      }
-      layout={layoutTransition}
-      style={[
-        animatedShapeStyle,
-        {
-          overflow: "hidden",
-        },
-      ]}
-    >
-      <AnimatedGlassSurface
-        chrome="none"
-        fallbackColor={colors["--color-composer-surface"]}
-        fallbackClassName="border border-composer-border"
-        glassEffectStyle="regular"
-        // The composer is a passive material containing interactive controls.
-        // Keep native glass out of the interactive content's layout path.
-        pointerEvents="none"
-        tintColor="transparent"
-        layout={layoutTransition}
-        style={[{ position: "absolute", inset: 0 }, animatedShapeStyle]}
-      >
-        {null}
-      </AnimatedGlassSurface>
+    <Animated.View layout={layoutTransition}>
+      {/* The halo: rings outside the edge, fading outward. Static, so they cost
+          nothing per frame. */}
+      {glow
+        ? glow.paint.halo.map((band) => (
+            <Animated.View
+              key={band.offset}
+              layout={layoutTransition}
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: -band.offset,
+                right: -band.offset,
+                bottom: -band.offset,
+                left: -band.offset,
+                borderRadius: targetBorderRadius + band.offset,
+                borderWidth: band.width,
+                borderColor: band.color,
+              }}
+            />
+          ))
+        : null}
       <Animated.View
-        collapsable={false}
+        className={
+          Platform.OS === "android"
+            ? undefined
+            : "shadow-[0_6px_28px] shadow-adaptive-black-a15-a35"
+        }
         layout={layoutTransition}
-        style={[props.style, animatedShapeStyle]}
+        style={[
+          animatedShapeStyle,
+          {
+            overflow: "hidden",
+          },
+        ]}
       >
-        {props.children}
+        <AnimatedGlassSurface
+          chrome="none"
+          fallbackColor={colors["--color-composer-surface"]}
+          fallbackClassName="border border-composer-border"
+          glassEffectStyle="regular"
+          // The composer is a passive material containing interactive controls.
+          // Keep native glass out of the interactive content's layout path.
+          pointerEvents="none"
+          tintColor="transparent"
+          layout={layoutTransition}
+          style={[{ position: "absolute", inset: 0 }, animatedShapeStyle]}
+        >
+          {null}
+        </AnimatedGlassSurface>
+        {glow?.running ? (
+          <ComposerLiveRing
+            color={glow.paint.color}
+            cover={glow.cover}
+            borderRadius={animatedBorderRadius}
+            layoutTransition={layoutTransition}
+          />
+        ) : null}
+        <Animated.View
+          collapsable={false}
+          layout={layoutTransition}
+          style={[props.style, animatedShapeStyle]}
+        >
+          {props.children}
+        </Animated.View>
+        {glow ? (
+          <Animated.View
+            layout={layoutTransition}
+            pointerEvents="none"
+            style={[
+              { position: "absolute", inset: 0, borderWidth: 1, borderColor: glow.paint.border },
+              animatedShapeStyle,
+            ]}
+          />
+        ) : null}
       </Animated.View>
     </Animated.View>
   );
 }
 
+const LIVE_RING_PERIOD_MS = 3200;
+const LIVE_RING_BAND = 2;
+
+/** One wedge of the unit circle, clockwise from the top, for a `-1 -1 2 2` viewBox. */
+function liveRingWedgePath(from: number, to: number): string {
+  const point = (degrees: number) => {
+    const radians = (degrees * Math.PI) / 180;
+    return `${Math.sin(radians).toFixed(4)} ${(-Math.cos(radians)).toFixed(4)}`;
+  };
+  return `M0 0 L${point(from)} A1 1 0 0 1 ${point(to)} Z`;
+}
+
+/**
+ * Web's "Agent live" light, circling the composer's edge while a turn runs: a
+ * conic sweep drawn once as SVG wedges and spun with a Reanimated transform on
+ * the UI thread, under an opaque cover that leaves a 2px band. Nothing is
+ * redrawn per frame. Off under reduced motion (the static glow remains) and
+ * paused while another screen covers the thread.
+ */
+function ComposerLiveRing(props: {
+  readonly color: string;
+  readonly cover: string;
+  readonly borderRadius: SharedValue<number>;
+  readonly layoutTransition: LayoutAnimationFunction | undefined;
+}) {
+  const reducedMotion = useReducedMotion();
+  const screenIsFocused = useIsFocused();
+  const [size, setSize] = useState<{ readonly width: number; readonly height: number } | null>(
+    null,
+  );
+  const rotation = useSharedValue(0);
+  const { borderRadius } = props;
+  const spins = !reducedMotion && screenIsFocused && size !== null;
+
+  useEffect(() => {
+    if (!spins) return;
+    rotation.value = withRepeat(
+      withTiming(rotation.value + 360, {
+        duration: LIVE_RING_PERIOD_MS,
+        easing: Easing.linear,
+        reduceMotion: ReduceMotion.Never,
+      }),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(rotation);
+  }, [rotation, spins]);
+
+  const spinStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+  const coverStyle = useAnimatedStyle(() => ({
+    borderRadius: Math.max(0, borderRadius.value - LIVE_RING_BAND),
+  }));
+  const wedges = useMemo(() => liveRingWedges(props.color), [props.color]);
+  const onLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setSize((current) =>
+      current?.width === width && current.height === height ? current : { width, height },
+    );
+  }, []);
+
+  if (reducedMotion) return null;
+  // Large enough that the sweep reaches every corner of the composer.
+  const radius = size ? Math.ceil(Math.hypot(size.width, size.height) / 2) + LIVE_RING_BAND : 0;
+  return (
+    <>
+      <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={onLayout}>
+        {size ? (
+          <Animated.View
+            style={[
+              {
+                position: "absolute",
+                left: size.width / 2 - radius,
+                top: size.height / 2 - radius,
+                width: radius * 2,
+                height: radius * 2,
+              },
+              spinStyle,
+            ]}
+          >
+            <Svg width={radius * 2} height={radius * 2} viewBox="-1 -1 2 2">
+              {wedges.map((wedge) => (
+                <Path
+                  key={wedge.from}
+                  d={liveRingWedgePath(wedge.from, wedge.to)}
+                  fill={wedge.color}
+                />
+              ))}
+            </Svg>
+          </Animated.View>
+        ) : null}
+      </View>
+      <Animated.View
+        layout={props.layoutTransition}
+        pointerEvents="none"
+        style={[
+          {
+            position: "absolute",
+            inset: LIVE_RING_BAND,
+            backgroundColor: props.cover,
+          },
+          coverStyle,
+        ]}
+      />
+    </>
+  );
+}
+
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
   const project = useProject(scopeProjectRef(props.environmentId, props.selectedThread.projectId));
-  const { themeVariables: materialTheme } = useAppearancePreferences();
+  const { themeVariables: materialTheme, themeAppearance } = useAppearancePreferences();
   const composerPanel = materialTheme["--color-composer-panel"];
   const navigation = useNavigation();
   const foregroundColor = useUniwindTheme()["--color-foreground"];
@@ -298,10 +515,42 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     () => composerStripAttachments(props.draftAttachments),
     [props.draftAttachments],
   );
-  const showStopAction =
-    !hasContent &&
-    (props.selectedThread.session?.status === "running" ||
-      props.selectedThread.session?.status === "starting");
+  const isTurnRunning =
+    props.selectedThread.session?.status === "running" ||
+    props.selectedThread.session?.status === "starting";
+  const showStopAction = !hasContent && isTurnRunning;
+  const projectColor = project?.projectColor ?? null;
+  const glowAccent = materialTheme["--color-focus"];
+  const glowSurface = materialTheme["--color-screen"];
+  const composerSurfaceColor = materialTheme["--color-composer-surface"];
+  const glow = useMemo<ComposerSurfaceGlow | null>(
+    () =>
+      isTurnRunning
+        ? {
+            paint: resolveComposerGlowPaint({
+              projectColor,
+              appearance: themeAppearance,
+              accentColor: glowAccent,
+              surfaceColor: glowSurface,
+            }),
+            // Matches GlassBackdrop's fill: opaque on Android, over the screen on iOS.
+            cover:
+              Platform.OS === "android"
+                ? themeColorWithAlpha(composerSurfaceColor, 1)
+                : flattenThemeColor(composerSurfaceColor, glowSurface),
+            running: !props.hidden && !COMPOSER_USES_LIQUID_GLASS,
+          }
+        : null,
+    [
+      composerSurfaceColor,
+      glowAccent,
+      glowSurface,
+      isTurnRunning,
+      projectColor,
+      props.hidden,
+      themeAppearance,
+    ],
+  );
 
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
   const attachmentsUploading =
@@ -345,6 +594,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     });
   };
   const { onSendMessage, onChangeDraftMessage, onShowUsageLimits } = props;
+  const interactionModeOffered = selectedProviderStatus?.showInteractionModeToggle !== false;
+  const threadGoal = useThreadGoalActions({
+    environmentId: props.environmentId,
+    thread: props.selectedThread,
+    ...(interactionModeOffered ? { onUpdateInteractionMode: props.onUpdateInteractionMode } : {}),
+  });
+  const { applyGoalAction, applyThreadCommand } = threadGoal;
   // T3 owns /usage-limits only where Limits has data for the selected provider;
   // elsewhere the name stays the provider's own and is sent through untouched.
   const usageLimitsOffered =
@@ -387,15 +643,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ? undefined
         : props.onUpdateInteractionMode,
     offersUsageLimits: usageLimitsOffered,
+    onThreadCommand: threadGoal.applyThreadCommand,
     // With attachments aboard the pick just inserts the text, so it sends as a prompt.
     onUsageLimits:
       usageLimitsOffered && props.draftAttachments.length === 0 ? openUsageLimits : undefined,
   });
   const voiceInput = useVoiceInputController({
     ownerKey: composerOwnerKey,
-    draftMessage: props.draftMessage,
+    label: props.selectedThread.title || "Untitled thread",
+    thread: { environmentId: props.environmentId, threadId: props.selectedThread.id },
+    readDraftMessage: () => getComposerDraftSnapshot(composerOwnerKey).text,
+    subscribeToDraftChanges: (onChange) => appAtomRegistry.subscribe(composerDraftsAtom, onChange),
     selection: composerMenu.selection,
-    onChangeDraftMessage: props.onChangeDraftMessage,
+    onChangeDraftMessage: (text) => setComposerDraftText(composerOwnerKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
   });
   const voicePresentation = resolveVoiceComposerPresentation(
@@ -475,6 +735,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.keepsComposerExpanded]);
   const handleSend = useCallback(async () => {
     if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
+    // ViewCode's own thread commands change the thread; nothing is sent.
+    const threadCommand =
+      props.draftAttachments.length === 0 ? parseThreadSlashCommand(props.draftMessage) : null;
+    if (threadCommand) {
+      if (threadCommand.command === "goal") applyGoalAction(threadCommand.goal);
+      else applyThreadCommand(threadCommand.command);
+      onChangeDraftMessage("");
+      return;
+    }
     // Typed out in full rather than picked from the menu. Attachments mean the
     // user is sending a prompt, so those go through as usual.
     if (
@@ -507,6 +776,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.environmentLabel,
     props.selectedThread.id,
     props.selectedThread.title,
+    applyGoalAction,
+    applyThreadCommand,
     voiceInput.blocksSubmission,
   ]);
 
@@ -569,6 +840,28 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     settingsRoutePresentation.present(settingsRouteSession);
     settingsSheetPresentation.open();
   }, [settingsRoutePresentation.present, settingsRouteSession, settingsSheetPresentation.open]);
+
+  // ── Access (runtime mode) chip ───────────────────────────
+  const runtimeModeLabel =
+    RUNTIME_MODE_CHOICES.find((choice) => choice.mode === currentRuntimeMode)?.label ??
+    currentRuntimeMode;
+  const runtimeModeActions = useMemo<MenuAction[]>(
+    () =>
+      RUNTIME_MODE_CHOICES.map((choice) => ({
+        id: choice.mode,
+        title: choice.label,
+        state: choice.mode === currentRuntimeMode ? "on" : "off",
+      })),
+    [currentRuntimeMode],
+  );
+  const { onUpdateRuntimeMode } = props;
+  const onPressRuntimeModeAction = useCallback(
+    ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      const choice = RUNTIME_MODE_CHOICES.find((candidate) => candidate.mode === nativeEvent.event);
+      if (choice && choice.mode !== currentRuntimeMode) onUpdateRuntimeMode(choice.mode);
+    },
+    [currentRuntimeMode, onUpdateRuntimeMode],
+  );
 
   useEffect(() => {
     if (settingsSheetPresentation.isActive) {
@@ -640,7 +933,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         {!voiceInput.isBusy &&
         composerMenu.trigger &&
         (composerMenu.items.length > 0 || composerMenu.trigger.kind === "pull-request") ? (
-          <View className="absolute inset-x-0 bottom-full z-10 mb-2">
+          <ComposerPopoverAnchor>
             <ComposerCommandPopover
               items={composerMenu.items}
               triggerKind={composerMenu.trigger.kind}
@@ -648,7 +941,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               error={composerMenu.error}
               onSelect={composerMenu.onSelect}
             />
-          </View>
+          </ComposerPopoverAnchor>
         ) : null}
 
         {selectedProviderStatus?.compatibilityAdvisory?.message &&
@@ -678,11 +971,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           </Pressable>
         ) : null}
 
+        {props.topAccessory ? (
+          // Above the glow's halo, like the checkout strip below: the glow
+          // wraps the composer around its glued bars, not over them.
+          <Animated.View layout={COMPOSER_LAYOUT_TRANSITION} style={{ zIndex: 1 }}>
+            {props.topAccessory}
+          </Animated.View>
+        ) : null}
         <ComposerSurface
+          glow={glow}
           style={
             isExpanded
               ? {
-                  borderRadius: 26,
+                  borderRadius: 22,
                   minHeight: 140,
                   overflow: "hidden" as const,
                   paddingBottom: 6,
@@ -691,7 +992,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               : {
                   // Keep the numeric radius close to the expanded card so the
                   // shape morph stays bounded while rendering as a capsule.
-                  borderRadius: 27,
+                  borderRadius: 24,
                   overflow: "hidden" as const,
                   paddingVertical: 2,
                 }
@@ -953,7 +1254,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     onDismissError={voiceInput.cancel}
                   />
                 ) : (
-                  <View className="min-w-0 flex-1 flex-row items-center justify-between">
+                  <View className="min-w-0 flex-1 flex-row items-center">
                     <ComposerAttachmentButton
                       supportsFiles={Boolean(
                         props.serverConfig?.environment.capabilities.fileAttachments,
@@ -961,10 +1262,28 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       onPickMedia={props.onPickDraftMedia}
                       onPickFiles={props.onPickDraftFiles}
                     />
-                    <View className="min-w-0 shrink">
+                    <ControlPillMenu
+                      accessible
+                      accessibilityLabel={`Access: ${runtimeModeLabel}`}
+                      accessibilityRole="button"
+                      actions={runtimeModeActions}
+                      onPressAction={onPressRuntimeModeAction}
+                      style={{ flexShrink: 1 }}
+                    >
+                      <ComposerInlineControl
+                        accessibilityLabel={`Access: ${runtimeModeLabel}`}
+                        dense
+                        icon="shield"
+                        label={runtimeModeLabel}
+                        maxWidth={128}
+                        showChevron={false}
+                        tone={currentRuntimeMode === "full-access" ? "warning" : undefined}
+                      />
+                    </ControlPillMenu>
+                    <View className="min-w-0 shrink flex-row items-center">
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"
-                        emphasized
+                        filled
                         renderIcon={(size) => (
                           <ProviderIcon provider={currentModelOption?.providerDriver} size={size} />
                         )}
@@ -976,6 +1295,24 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         maxWidth="100%"
                         onPress={openSettings}
                       />
+                      {threadGoal.goal !== null ? (
+                        <ComposerInlineControl
+                          accessibilityLabel={`Goal: ${threadGoal.goal.objective}`}
+                          icon="target"
+                          label={isThreadGoalPaused(threadGoal.goal) ? "Paused" : "Goal"}
+                          onPress={threadGoal.openGoalActions}
+                        />
+                      ) : null}
+                      {threadGoal.debugMode ? (
+                        <ComposerInlineControl
+                          accessibilityLabel="Debug mode is on"
+                          accessibilityHint="Leave debug mode"
+                          icon="ant"
+                          label="Debug"
+                          selected
+                          onPress={threadGoal.confirmLeaveDebugMode}
+                        />
+                      ) : null}
                     </View>
                   </View>
                 )}
@@ -1009,6 +1346,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             </ComposerDictationToolbar>
           </Animated.View>
         </ComposerSurface>
+        {props.checkout ? (
+          <ComposerCheckoutStrip
+            checkout={props.checkout}
+            onPressBranch={props.onPressCheckoutBranch}
+          />
+        ) : null}
       </Animated.View>
 
       <VideoPreviewModal source={previewVideo} onRequestClose={closePreview} />

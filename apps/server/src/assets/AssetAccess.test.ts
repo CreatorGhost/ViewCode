@@ -1292,6 +1292,7 @@ describe("AssetAccess", () => {
       });
       const resolver = ProjectFaviconResolver.ProjectFaviconResolver.of({
         resolvePath: () => Effect.fail(resolutionCause),
+        listCandidates: () => Effect.succeed([]),
       });
 
       const error = yield* issueAssetUrl({

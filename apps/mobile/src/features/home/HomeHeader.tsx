@@ -8,7 +8,9 @@ import {
   createNativeMailSearchToolbarItem,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
+import { HomeFleetTitle } from "./HomePillToolbar";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
+import { HOME_TERMINAL_MENU_LIMIT, homeTerminalButtonAccessibility } from "./homeTerminalTargets";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
@@ -27,15 +29,77 @@ export function HomeHeader(props: HomeHeaderProps) {
   }, []);
   useHardwareKeyboardCommand("focusSearch", focusSearch);
   const filterMenu = buildHomeListFilterMenu(props);
+  const { onOpenTerminal, selectedTerminalTarget, terminalTargets } = props;
+  const terminalMenuTargets = terminalTargets.slice(0, HOME_TERMINAL_MENU_LIMIT);
+  const terminalAccessibility = homeTerminalButtonAccessibility(
+    terminalTargets,
+    selectedTerminalTarget,
+  );
+  // Terminals belong to a thread: a selected project opens its latest one, else a menu picks it.
+  const terminalItem = withNativeGlassHeaderItem(
+    selectedTerminalTarget || terminalMenuTargets.length === 0
+      ? {
+          accessibilityLabel: terminalAccessibility.label,
+          accessibilityHint: terminalAccessibility.hint,
+          disabled: terminalMenuTargets.length === 0,
+          icon: { name: "apple.terminal", type: "sfSymbol" } as const,
+          identifier: "home-terminal",
+          label: "",
+          onPress: () => {
+            if (selectedTerminalTarget) onOpenTerminal(selectedTerminalTarget);
+          },
+          type: "button" as const,
+        }
+      : {
+          accessibilityLabel: terminalAccessibility.label,
+          accessibilityHint: terminalAccessibility.hint,
+          icon: { name: "apple.terminal", type: "sfSymbol" } as const,
+          identifier: "home-terminal",
+          label: "",
+          menu: {
+            title: "Open terminal in…",
+            items: terminalMenuTargets.map((target) => ({
+              type: "action" as const,
+              label: target.projectTitle,
+              description: target.threadTitle,
+              onPress: () => onOpenTerminal(target),
+            })),
+          },
+          type: "menu" as const,
+        },
+  );
+  const renderTitle = useCallback(
+    () => <HomeFleetTitle onOpenEnvironments={props.onOpenEnvironments} />,
+    [props.onOpenEnvironments],
+  );
 
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={filterMenu.items}
+        optionsVersion={[
+          filterMenu.items,
+          selectedTerminalTarget?.scopeKey ?? null,
+          terminalMenuTargets.map((target) => [target.scopeKey, target.threadId]),
+        ]}
         options={{
-          // Static header config (glass, title, fonts) lives in Stack.tsx
-          // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
+          // Keep UIKit's glass and scroll-edge behavior with a centered fleet title.
+          headerShown: true,
+          headerTitleAlign: "center",
+          unstable_navigationItemStyle: undefined,
+          headerTitle: renderTitle,
           headerTintColor: iconColor,
+          unstable_headerLeftItems: () => [
+            withNativeGlassHeaderItem({
+              accessibilityLabel: "Open settings",
+              icon: { name: "gearshape", type: "sfSymbol" } as const,
+              identifier: "home-settings",
+              label: "",
+              onPress: props.onOpenSettings,
+              type: "button",
+            }),
+            // Beside Settings, so each side holds a two-button capsule and the brand title stays centred.
+            terminalItem,
+          ],
           unstable_headerRightItems: () => [
             withNativeGlassHeaderItem({
               accessibilityLabel: "Open usage",
@@ -43,14 +107,6 @@ export function HomeHeader(props: HomeHeaderProps) {
               identifier: "home-usage",
               label: "",
               onPress: props.onOpenUsage,
-              type: "button",
-            }),
-            withNativeGlassHeaderItem({
-              accessibilityLabel: "Open settings",
-              icon: { name: "ellipsis", type: "sfSymbol" } as const,
-              identifier: "home-settings",
-              label: "",
-              onPress: props.onOpenSettings,
               type: "button",
             }),
           ],

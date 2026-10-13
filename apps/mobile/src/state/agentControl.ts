@@ -31,6 +31,20 @@ const agentControlByThreadKeyAtom = Atom.family((environmentKey: string) =>
   }).pipe(Atom.withLabel(`mobile-agent-control:${environmentKey}`)),
 );
 
+/**
+ * One environment's paused agents and queued agent messages by thread id;
+ * empty until the server answers, and on servers without agent control.
+ */
+export const environmentAgentControlAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get): ReadonlyMap<string, AgentControlState> => {
+    const result = get(agentControlEnvironment.control({ environmentId, input: {} }));
+    const states = Option.getOrUndefined(AsyncResult.value(result));
+    return states === undefined || states.length === 0
+      ? EMPTY
+      : new Map(states.map((state) => [String(state.threadId), state]));
+  }).pipe(Atom.withLabel(`mobile-agent-control-environment:${environmentId}`)),
+);
+
 export function useAgentControlByThreadKey(
   environmentIds: Iterable<EnvironmentId>,
 ): ReadonlyMap<string, AgentControlState> {

@@ -4,9 +4,8 @@
 #   ./build.sh            pull, install, build, open the desktop app
 #   ./build.sh --no-pull  build what is checked out
 #   ./build.sh --web      run server + web UI in dev mode instead (open the printed URL)
-#   ./build.sh --managed  for locked-down machines: chooses Claude and Cursor
-#                         (the onboarding provider choice is marked made), so
-#                         ViewCode never launches Codex, OpenCode, Grok,
+#   ./build.sh --managed  for locked-down machines: enables only Claude and
+#                         Cursor, so ViewCode never launches Codex, OpenCode, Grok,
 #                         Antigravity or Command Code
 #                         (docs/operations/managed-mode-plan.md)
 #   ./build.sh --relay    set up "Quick connect" first: deploys a small relay Worker
@@ -215,7 +214,7 @@ if [ "$managed" = 1 ]; then
       if (lenient(text) !== text) console.log("Note: comments in " + file + " are not kept.");
     }
     const chosen = new Set(["claudeAgent", "cursor"]);
-    const drivers = ["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity", "commandCode"];
+    const drivers = ["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity", "commandCode", "droid", "devin", "pi"];
     settings.providers = settings.providers ?? {};
     for (const driver of drivers)
       settings.providers[driver] = { ...settings.providers[driver], enabled: chosen.has(driver) };
@@ -226,8 +225,6 @@ if [ "$managed" = 1 ]; then
       instance.enabled = chosen.has(instance.driver);
       if (instance.config && typeof instance.config === "object") delete instance.config.enabled;
     }
-    // The first-run provider choice is made: no picker, nothing else probed.
-    settings.providerSelection = "chosen";
     settings.defaultAutoPull = false;
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");

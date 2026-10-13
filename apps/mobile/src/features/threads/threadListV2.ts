@@ -142,13 +142,15 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** The active order shared by web and native: new/reopened rows, then the
-    saved arrangement. Activity does not move a thread. */
+/** The active order shared by web and native: new, reopened and
+    just-messaged rows, then the saved arrangement. Agent activity does not
+    move a thread. */
 export function sortThreadsForListV2<
   T extends {
     readonly id: string;
     readonly createdAt: string;
     readonly unsettledAt?: string | null | undefined;
+    readonly latestUserMessageAt?: string | null | undefined;
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
   },
@@ -494,6 +496,32 @@ export function buildThreadListV2ListItems(input: {
   });
 }
 
+// Streams update a few unsettled rows, so most rebuilds classify the same
+// settled shells in the same order. Shells are immutable and the settled sort
+// reads only their own fields, so an element-identical input has an identical
+// output. One entry keeps memory bounded; callers with different scopes (Home
+// and the split-view sidebar) just recompute.
+let lastSettledInput: ReadonlyArray<EnvironmentThreadShell> = [];
+let lastSettledOutput: ReadonlyArray<EnvironmentThreadShell> = [];
+
+function sortSettledThreadsReusingLast(
+  settled: ReadonlyArray<EnvironmentThreadShell>,
+): ReadonlyArray<EnvironmentThreadShell> {
+  if (settled.length === lastSettledInput.length) {
+    let same = true;
+    for (let index = 0; index < settled.length; index += 1) {
+      if (settled[index] !== lastSettledInput[index]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return lastSettledOutput;
+  }
+  lastSettledInput = settled;
+  lastSettledOutput = sortSettledThreads(settled);
+  return lastSettledOutput;
+}
+
 /**
  * Partitions visible threads into the active card block (saved order) and
  * the settled recency tail, matching the web v2 list.
@@ -613,17 +641,18 @@ export function buildThreadListV2Items(input: {
       : orderedSnoozed.filter(
           (thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey,
         );
-  const orderedSettled = sortSettledThreads(settled);
+  const orderedSettled = sortSettledThreadsReusingLast(settled);
   const settledLimit = input.settledLimit ?? Number.POSITIVE_INFINITY;
-  const pagedSettled =
+  const limitedSettled =
     orderedSettled.length > settledLimit ? orderedSettled.slice(0, settledLimit) : orderedSettled;
   const selectedSettled =
     selectedThreadKey === null
       ? undefined
       : orderedSettled
-          .slice(pagedSettled.length)
+          .slice(limitedSettled.length)
           .find((thread) => `${thread.environmentId}:${thread.id}` === selectedThreadKey);
-  if (selectedSettled !== undefined) pagedSettled.push(selectedSettled);
+  const pagedSettled =
+    selectedSettled === undefined ? limitedSettled : [...limitedSettled, selectedSettled];
   const visibleSettled =
     input.settledShelfExpanded !== false
       ? pagedSettled

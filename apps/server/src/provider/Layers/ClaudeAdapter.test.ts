@@ -379,6 +379,16 @@ const sendCompletedClaudeTurn = (
     return turn;
   });
 
+/** The first 24 bytes of a PNG: enough for its header to give the size. */
+function pngHeader(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(24);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
+}
+
 describe("ClaudeAdapterLive", () => {
   it.effect("returns validation error for non-claude provider on startSession", () => {
     const harness = makeHarness();
@@ -1008,6 +1018,58 @@ describe("ClaudeAdapterLive", () => {
           type: "text",
           text: "What's in this image?",
         },
+      ]);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("leaves an image Claude would reject to its saved path", () => {
+    const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "claude-attachments-"));
+    const harness = makeHarness({
+      cwd: "/tmp/project-claude-large-attachment",
+      baseDir,
+    });
+    return Effect.gen(function* () {
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => NodeFS.rmSync(baseDir, { recursive: true, force: true })),
+      );
+
+      const adapter = yield* ClaudeAdapter;
+      const { attachmentsDir } = yield* ServerConfig;
+
+      const attachment = {
+        type: "image" as const,
+        id: "thread-claude-attachment-42345678-1234-1234-1234-123456789abc",
+        name: "montage.png",
+        mimeType: "image/png",
+        sizeBytes: 24,
+      };
+      const attachmentPath = NodePath.join(attachmentsDir, attachmentRelativePath(attachment)!);
+      NodeFS.mkdirSync(NodePath.dirname(attachmentPath), { recursive: true });
+      NodeFS.writeFileSync(attachmentPath, pngHeader(1200, 3000));
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "What's in this image?",
+        attachments: [attachment],
+      });
+
+      const promptMessage = yield* Effect.promise(() =>
+        readFirstPromptMessage(harness.getLastCreateQueryInput()),
+      );
+      assert.deepEqual(promptMessage?.message.content, [
+        {
+          type: "text",
+          text: '[Image "montage.png" is too large to show inline. Open it from its saved path with the Read tool.]',
+        },
+        { type: "text", text: "What's in this image?" },
       ]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),

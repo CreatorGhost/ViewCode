@@ -25,17 +25,14 @@ import type {
 } from "@t3tools/contracts";
 import { PREFERRED_DEFAULT_CODEX_MODELS, ServerSettingsError } from "@t3tools/contracts";
 
-import {
-  codexModelFamily,
-  createModelCapabilities,
-  readCustomModelEntries,
-} from "@t3tools/shared/model";
+import { codexModelFamily, createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
 import {
   AUTH_PROBE_TIMEOUT_MS,
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
+  providerModelsFromSettings,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
@@ -274,26 +271,8 @@ function appendCustomCodexModels(
   models: ReadonlyArray<ServerProviderModel>,
   customModels: ReadonlyArray<CustomModelSetting>,
 ): ReadonlyArray<ServerProviderModel> {
-  if (customModels.length === 0) {
-    return models;
-  }
-
-  const seen = new Set(models.map((model) => model.slug));
   const fallbackCapabilities = models.find((model) => model.capabilities)?.capabilities ?? null;
-  const customEntries: ServerProviderModel[] = [];
-  for (const entry of readCustomModelEntries(customModels)) {
-    if (seen.has(entry.slug)) {
-      continue;
-    }
-    seen.add(entry.slug);
-    customEntries.push({
-      slug: entry.slug,
-      name: entry.name,
-      isCustom: true,
-      capabilities: entry.capabilities ?? fallbackCapabilities,
-    });
-  }
-  return customEntries.length === 0 ? models : [...models, ...customEntries];
+  return providerModelsFromSettings(models, customModels, fallbackCapabilities);
 }
 
 function parseCodexSkillsListResponse(

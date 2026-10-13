@@ -60,6 +60,11 @@ export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return useAtomValue(environmentThreadShells.threadShellsAtom);
 }
 
+/** Upstream's name for the shells navigation surfaces read; ViewCode has one shell list. */
+export function useNavigationThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
+  return useThreadShells();
+}
+
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {
   return useAtomValue(ref === null ? EMPTY_PROJECT_ATOM : environmentProjects.projectAtom(ref));
 }

@@ -52,6 +52,9 @@ export interface ProviderAdapterCapabilities {
   readonly promptlessTurnContinuation?: boolean;
   /** False when native conversation history cannot be rewound. */
   readonly supportsConversationRollback?: boolean;
+  /** The adapter delivers a turn's `guidance` itself, as developer context.
+      Omitted means `ProviderService` puts it ahead of the user's text. */
+  readonly developerTurnGuidance?: boolean;
 }
 
 export interface ProviderThreadTurnSnapshot {

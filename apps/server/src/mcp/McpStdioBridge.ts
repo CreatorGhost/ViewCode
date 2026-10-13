@@ -1,14 +1,16 @@
 // @effect-diagnostics nodeBuiltinImport:off - runs before and outside the Effect runtime; must start fast.
 /**
  * A stdio MCP server that forwards every message to the T3 Code server's
- * streamable-HTTP `/mcp` endpoint over a Unix socket or named pipe.
+ * streamable-HTTP `/mcp` endpoint over a Unix socket or named pipe, or over
+ * loopback HTTP.
  *
  * Providers normally reach `/mcp` by URL. A server that listens on a socket
  * has no URL a provider can dial, so providers launch this bridge instead:
  * `node mcp-stdio-bridge.mjs --socket <path>` with the provider-scoped bearer
- * credential in `T3_MCP_BEARER_TOKEN`. It speaks newline-delimited JSON-RPC on
- * stdin/stdout, the MCP stdio transport, and keeps no state beyond the MCP
- * session id the server hands back.
+ * credential in `T3_MCP_BEARER_TOKEN`. Agents that take only stdio MCP servers
+ * (Droid, Devin) launch it with `--url <endpoint>` on a TCP listener. It speaks
+ * newline-delimited JSON-RPC on stdin/stdout, the MCP stdio transport, and
+ * keeps no state beyond the MCP session id the server hands back.
  *
  * Plain Node on purpose: providers start one bridge per session, so it must
  * start fast and must not load the server bundle.
@@ -18,14 +20,16 @@ import * as NodeReadline from "node:readline";
 
 export const MCP_STDIO_BRIDGE_TOKEN_ENV = "T3_MCP_BEARER_TOKEN";
 
-export interface McpStdioBridgeOptions {
-  readonly socketPath: string;
+/** Where the bridge reaches `/mcp`: a socket or named pipe, or an `http:` URL. */
+export type McpStdioBridgeTarget = { readonly socketPath: string } | { readonly url: string };
+
+export type McpStdioBridgeOptions = McpStdioBridgeTarget & {
   readonly token: string;
   readonly input: NodeJS.ReadableStream;
   readonly output: NodeJS.WritableStream;
-  /** Endpoint path on the server. */
+  /** Endpoint path on the server, for a socket target. */
   readonly path?: string;
-}
+};
 
 type JsonRpcId = string | number;
 
@@ -74,9 +78,23 @@ export const takeSseEvents = (
   return { events, rest };
 };
 
+/** `node:http` request target plus the `host` header for a bridge target. */
+const requestDestination = (options: McpStdioBridgeOptions) => {
+  if ("socketPath" in options) {
+    return { socketPath: options.socketPath, path: options.path ?? "/mcp", host: "localhost" };
+  }
+  const url = new URL(options.url);
+  return {
+    hostname: url.hostname.replace(/^\[|\]$/g, ""),
+    port: Number(url.port || 80),
+    path: `${url.pathname}${url.search}`,
+    host: url.host,
+  };
+};
+
 /** Runs the bridge until `input` ends and every forwarded request settles. */
 export const runMcpStdioBridge = (options: McpStdioBridgeOptions): Promise<void> => {
-  const endpointPath = options.path ?? "/mcp";
+  const destination = requestDestination(options);
   let sessionId: string | undefined;
   let protocolVersion: string | undefined;
   const inFlight = new Set<Promise<void>>();
@@ -138,13 +156,13 @@ export const runMcpStdioBridge = (options: McpStdioBridgeOptions): Promise<void>
   const forward = (message: unknown, body: string) =>
     new Promise<void>((resolve) => {
       if (isInitializeRequest(message)) pendingInitializeId = message.id;
+      const { host, ...where } = destination;
       const request = NodeHttp.request(
         {
-          socketPath: options.socketPath,
-          path: endpointPath,
+          ...where,
           method: "POST",
           headers: {
-            host: "localhost",
+            host,
             "content-type": "application/json",
             accept: "application/json, text/event-stream",
             authorization: `Bearer ${options.token}`,
@@ -221,21 +239,26 @@ export const runMcpStdioBridge = (options: McpStdioBridgeOptions): Promise<void>
   });
 };
 
-/** Parses `--socket <path>` (or `--socket=<path>`) from bridge arguments. */
+/** Parses `--socket <path>` or `--url <http url>` (also `--flag=value`) from bridge arguments. */
 export const parseMcpStdioBridgeArgs = (
   args: ReadonlyArray<string>,
-): { readonly socketPath: string } | { readonly error: string } => {
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]!;
-    if (arg === "--socket") {
-      const value = args[index + 1];
-      if (value) return { socketPath: value };
-    } else if (arg.startsWith("--socket=")) {
-      const value = arg.slice("--socket=".length);
-      if (value) return { socketPath: value };
+): McpStdioBridgeTarget | { readonly error: string } => {
+  const valueOf = (flag: string) => {
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index]!;
+      if (arg === flag && args[index + 1]) return args[index + 1];
+      if (arg.startsWith(`${flag}=`) && arg.length > flag.length + 1) {
+        return arg.slice(flag.length + 1);
+      }
     }
-  }
-  return { error: "Usage: mcp-stdio-bridge --socket <path>" };
+    return undefined;
+  };
+  const socketPath = valueOf("--socket");
+  if (socketPath) return { socketPath };
+  const url = valueOf("--url");
+  // The bridge sends the bearer credential, so it only speaks plain loopback HTTP.
+  if (url && URL.canParse(url) && new URL(url).protocol === "http:") return { url };
+  return { error: "Usage: mcp-stdio-bridge --socket <path> | --url <http url>" };
 };
 
 /** Entry point shared by the standalone script and the executable's subcommand. */
@@ -251,7 +274,7 @@ export const runMcpStdioBridgeMain = async (args: ReadonlyArray<string>): Promis
     return 2;
   }
   await runMcpStdioBridge({
-    socketPath: parsed.socketPath,
+    ...parsed,
     token,
     input: process.stdin,
     output: process.stdout,

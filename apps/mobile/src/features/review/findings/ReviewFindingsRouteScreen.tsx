@@ -1,22 +1,48 @@
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import {
+  type AgentReviewChoices,
+  type AgentReviewRequest,
+  agentReviewRetryRequest,
+  localReviewScopeLabel,
+  reviewedChangeLabel,
+  reviewFindingsSentText,
+  reviewStatusText,
+  reviewStopPlan,
+} from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   groupReviewFindingsBySeverity,
+  reviewFindingsInFileOrder,
+  reviewIssueOrder,
   type ReviewFindingEntry,
+  reviewFindingIdentity,
+  reviewFindingMarksByKey,
+  reviewFixAllMode,
+  reviewPostAllWaits,
+  type ReviewProgress,
+  reviewProgress,
+  reviewRunWithErrors,
 } from "@t3tools/client-runtime/review-findings";
+import {
+  type ChildAgentEntry,
+  resolveSpawnedAgentRowStatus,
+  SPAWNED_AGENT_STATUS_LABEL,
+  spawnedAgentElapsedRange,
+} from "@t3tools/client-runtime/state/child-agents";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  type AgentReviewMode,
   EnvironmentId,
   type ReviewFindingRating,
-  type ReviewFindingsTarget,
+  type ReviewFindingsActivityPayload,
   type ReviewVerdict,
   ThreadId,
 } from "@t3tools/contracts";
 import {
-  buildReviewFixMessage,
   REVIEW_FINDING_SEVERITY_LABELS,
   REVIEW_VERDICT_LABELS,
   reviewFindingsMode,
@@ -27,14 +53,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { type AppSymbolName, SymbolView } from "../../../components/AppSymbol";
 import { AppText as Text } from "../../../components/AppText";
+import { ControlPill } from "../../../components/ControlPill";
 import { EmptyState } from "../../../components/EmptyState";
 import { MaterialScreenContent } from "../../../components/MaterialScreenContent";
 import { ScreenHeader } from "../../../components/ScreenHeader";
 import { cn } from "../../../lib/cn";
-import { scopedThreadKey } from "../../../lib/scopedEntities";
 import { tryOpenExternalUrl } from "../../../lib/openExternalUrl";
 import { relativeTime } from "../../../lib/time";
-import { useEnvironmentServerConfig } from "../../../state/entities";
+import { useEnvironmentServerConfig, useThreadShells } from "../../../state/entities";
 import { reviewEnvironment } from "../../../state/review";
 import {
   reviewFindingsCardKey,
@@ -43,19 +69,26 @@ import {
   useSentReviewFindings,
 } from "../../../state/review-findings";
 import { useAtomCommand } from "../../../state/use-atom-command";
-import { mergeComposerDraftContent } from "../../../state/use-composer-drafts";
+import { useAgentControlActions } from "../../agents/useAgentControlActions";
+import {
+  useAgentReviewLabel,
+  useMinuteClock,
+  useReviewerRun,
+  useStartAgentReview,
+} from "../agent/useAgentReviews";
 import {
   REVIEW_SEVERITY_PRESENTATION,
   type ReviewFindingAction,
   ReviewFindingRow,
 } from "./ReviewFindingRow";
+import { useReviewFix } from "./useReviewFix";
 import { useReviewThreadFindings } from "./useReviewThreadFindings";
 
 type ReviewFindingsRouteParams = {
   readonly environmentId: string;
   /** The review thread whose findings these are. */
   readonly threadId: string;
-  /** The thread the reader came from, when it is not the review: fixes go to its composer. */
+  /** The chat the reader came from, when it is not the review: fixes are sent into it. */
   readonly fromThreadId?: string;
 };
 
@@ -73,9 +106,6 @@ const VERDICT_CHIP: Record<ReviewVerdict, { readonly className: string; readonly
   },
 };
 
-function targetLabel(target: ReviewFindingsTarget): string {
-  return target.kind === "pull-request" ? `PR #${target.number}` : "Local changes";
-}
 
 function SummaryRow(props: {
   readonly icon: AppSymbolName;
@@ -97,9 +127,11 @@ function SummaryRow(props: {
 }
 
 /**
- * An agent review's latest findings on a phone: what the reviewer concluded, then the findings
- * by severity, each opening to its detail and suggested fix. No diff here, unlike web: a phone
- * has no room to read findings under their lines, so each says where it is instead.
+ * An agent review's latest findings on a phone: where the review stands while it is not done
+ * (running, failed or ended), what the reviewer concluded, then the findings by severity, each
+ * opening to its detail and suggested fix. No diff here, unlike web: a phone has no room to read
+ * findings under their lines, so each says where it is instead. Findings sent while the review
+ * works show as they arrive.
  */
 export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFindingsRouteParams>) {
   const navigation = useNavigation();
@@ -110,37 +142,83 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
     () => scopeThreadRef(environmentId, reviewThreadId),
     [environmentId, reviewThreadId],
   );
-  const { source, entries, posted, ratings, loading } = useReviewThreadFindings(reviewRef);
+  const {
+    shell: reviewer,
+    source,
+    entries,
+    posted,
+    ratings,
+    loading,
+    started,
+    activities,
+  } = useReviewThreadFindings(reviewRef);
   const serverConfig = useEnvironmentServerConfig(environmentId);
   const canRate = serverConfig?.environment.capabilities.reviewFindingRatings === true;
-  const cardKey = reviewFindingsCardKey(environmentId, source?.activityId ?? "");
-  const dismissed = useDismissedReviewFindings(cardKey);
-  const sent = useSentReviewFindings(cardKey);
-  const [showDismissed, setShowDismissed] = useState(false);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const findings = source?.findings ?? null;
+  const { run, agents } = useReviewerRun(environmentId, reviewer);
+  // Only a review thread has a run to tell; an older one without its start record reads as done.
+  // One that stopped after a provider error failed, whatever turns ran after it.
+  const progress =
+    started === null || run === null
+      ? null
+      : reviewProgress({ run: reviewRunWithErrors(run, activities), findings });
+  const stillReviewing = progress?.kind === "running";
+  // A review just asked for may reach this phone before its thread or its start record does.
+  const waiting = loading || reviewer === null || (started === null && run?.kind === "running");
 
+  // The reader's marks belong to the review, by finding identity, so they hold when its next set
+  // of findings arrives.
+  const cardKey = reviewFindingsCardKey(environmentId, reviewThreadId);
+  const dismissedByIdentity = useDismissedReviewFindings(cardKey);
+  const sentByIdentity = useSentReviewFindings(cardKey);
+  const dismissed = useMemo(
+    () => reviewFindingMarksByKey(entries, dismissedByIdentity),
+    [dismissedByIdentity, entries],
+  );
+  const sent = useMemo(
+    () => reviewFindingMarksByKey(entries, sentByIdentity),
+    [entries, sentByIdentity],
+  );
+  const [showDismissed, setShowDismissed] = useState(false);
+  // By identity too, so a finding stays open when the next set arrives; null until findings show.
+  const [expanded, setExpanded] = useState<ReadonlySet<string> | null>(null);
+
+  // Most severe first, each severity in file order, as web lists issues; Fix all follows it too.
+  const ordered = useMemo(() => {
+    const byKey = new Map(entries.map((entry) => [entry.key, entry] as const));
+    return reviewIssueOrder(
+      [],
+      reviewFindingsInFileOrder(entries).map((entry) => ({ entry })),
+    ).flatMap((key) => byKey.get(key) ?? []);
+  }, [entries]);
   const dismissedCount = entries.filter((entry) => dismissed[entry.key]).length;
-  const openEntries = entries.filter((entry) => !dismissed[entry.key]);
+  const openEntries = ordered.filter((entry) => !dismissed[entry.key]);
   const groups = useMemo(
     () =>
       groupReviewFindingsBySeverity(
-        showDismissed ? entries : entries.filter((entry) => !dismissed[entry.key]),
+        showDismissed ? ordered : ordered.filter((entry) => !dismissed[entry.key]),
       ),
-    [dismissed, entries, showDismissed],
+    [dismissed, ordered, showDismissed],
   );
+  // The first open finding opens by itself when findings first show, as web goes to it.
+  const firstOpen = groups[0]?.entries[0] ?? null;
+  if (expanded === null && firstOpen !== null) {
+    setExpanded(new Set([reviewFindingIdentity(firstOpen.finding)]));
+  }
 
   const toggleExpanded = useCallback(
     (entry: ReviewFindingEntry) =>
       setExpanded((current) => {
-        const next = new Set(current);
-        if (!next.delete(entry.key)) next.add(entry.key);
+        const identity = reviewFindingIdentity(entry.finding);
+        const next = new Set(current ?? []);
+        if (!next.delete(identity)) next.add(identity);
         return next;
       }),
     [],
   );
   const dismiss = useCallback(
     (entry: ReviewFindingEntry, value: boolean) =>
-      setReviewFindingDismissed(cardKey, entry.key, value),
+      setReviewFindingDismissed(cardKey, reviewFindingIdentity(entry.finding), value),
     [cardKey],
   );
   const rateFinding = useAtomCommand(reviewEnvironment.rateFinding, { reportFailure: false });
@@ -174,57 +252,38 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
     });
   }, []);
 
-  const findings = source?.findings ?? null;
   const verdictChip = findings ? VERDICT_CHIP[findings.verdict] : null;
-  const reviewTitle = source?.threadTitle ?? "";
 
-  // Fixing happens in the chat the reader came from, as a request they edit and send themselves;
-  // the review thread itself does not fix (reviewers do not), so from there it picks a session.
+  // Fixing is a message sent into the chat the reader came from, else the chat the review
+  // belongs to (`useReviewFix`): no dialog, and the reader stays here.
   const fromThreadId = route.params.fromThreadId;
   const chatThreadId =
     fromThreadId !== undefined && fromThreadId !== reviewThreadId
       ? ThreadId.make(fromThreadId)
       : null;
-  const fix = useCallback(
-    (selection: ReadonlyArray<ReviewFindingEntry>) => {
-      if (selection.length === 0 || findings === null) return;
-      if (chatThreadId === null) {
-        navigation.navigate("ThreadReviewFindingsFix", {
-          environmentId,
-          threadId: reviewThreadId,
-          keys: selection.map((entry) => entry.key).join(","),
-        });
-        return;
-      }
-      const text = buildReviewFixMessage({
-        reviewTitle,
-        target: findings.target,
-        findings: selection.map((entry) => ({
-          finding: entry.finding,
-          needsChecking: entry.needsChecking,
-        })),
-      });
-      mergeComposerDraftContent(scopedThreadKey(environmentId, chatThreadId), {
-        text,
-        attachments: [],
-      }).then(
-        () =>
-          navigation.dispatch(
-            StackActions.popTo("Thread", { environmentId, threadId: chatThreadId }),
-          ),
-        (error: unknown) =>
-          Alert.alert(
-            "Could not write the request",
-            error instanceof Error ? error.message : "The message box could not be updated.",
-          ),
-      );
-    },
-    [chatThreadId, environmentId, findings, navigation, reviewThreadId, reviewTitle],
-  );
+  const { fix } = useReviewFix({
+    environmentId,
+    reviewThreadId,
+    reviewTitle: source?.threadTitle ?? "",
+    fromThreadId: chatThreadId,
+    target: findings?.target ?? null,
+  });
   const fixAction = useMemo<ReviewFindingAction>(
-    () => ({ label: "Fix with agent", icon: "hammer", run: (entry) => fix([entry]) }),
+    () => ({ label: "Fix with agent", icon: "hammer", run: (entry) => void fix([entry]) }),
     [fix],
   );
+  const fixAll = () => {
+    if (reviewFixAllMode(openEntries.length) === "send") {
+      void fix(openEntries);
+      return;
+    }
+    navigation.navigate("ThreadReviewFindingsFix", {
+      environmentId,
+      threadId: reviewThreadId,
+      keys: openEntries.map((entry) => entry.key).join(","),
+      ...(chatThreadId === null ? {} : { fromThreadId: chatThreadId }),
+    });
+  };
 
   // Somebody else's pull request: findings are posted to it as review comments, not fixed, and
   // only ever behind the post sheet's own tap.
@@ -259,47 +318,133 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
   );
   const unposted = openEntries.filter((entry) => !posted.has(entry.key));
   const tickedKeys = unposted.filter((entry) => ticks.has(entry.key)).map((entry) => entry.key);
-  const primary: { label: string; icon: AppSymbolName; run: () => void } | null = commentMode
+  // A review still at work may change or drop what it sent so far: Post all waits for it.
+  const postAllWaits = reviewPostAllWaits({
+    commentMode,
+    tickedCount: tickedKeys.length,
+    stillReviewing,
+  });
+  const primary: {
+    label: string;
+    icon: AppSymbolName;
+    disabled: boolean;
+    run: () => void;
+  } | null = commentMode
     ? unposted.length === 0
       ? null
       : tickedKeys.length > 0
         ? {
             label: `Post selected (${tickedKeys.length})`,
             icon: "text.bubble",
+            disabled: false,
             run: () => startPost(tickedKeys),
           }
         : {
-            label: `Post all (${unposted.length})`,
+            label: postAllWaits ? "Wait for the review to finish" : `Post all (${unposted.length})`,
             icon: "text.bubble",
+            disabled: postAllWaits,
             run: () => startPost(unposted.map((entry) => entry.key)),
           }
     : openEntries.length > 0
-      ? { label: "Fix all", icon: "hammer", run: () => fix(openEntries) }
+      ? { label: "Fix all", icon: "hammer", disabled: false, run: fixAll }
       : null;
   const footerHeight =
     primary === null ? 0 : FOOTER_BUTTON_HEIGHT + 12 + Math.max(insets.bottom, 16);
+  const issueCount =
+    findings === null ? 0 : findings.findings.length + findings.needsChecking.length;
+
+  // Try again repeats the review as it was asked for, as the same chat's agent.
+  const retryRequest =
+    reviewer === null || started === null
+      ? null
+      : agentReviewRetryRequest({
+          reviewer,
+          scope: started.scope,
+          findingsTarget: findings?.target ?? null,
+        });
+  const retry =
+    retryRequest === null || reviewer === null || started === null
+      ? null
+      : {
+          request: retryRequest,
+          choices: {
+            mode: started.mode ?? "quick",
+            modelSelection: reviewer.modelSelection,
+            focus: started.focus ?? "",
+            scope: started.scope,
+          },
+        };
+  // What was reviewed, as web's header names it: "PR #12", "Branch vs origin/main", "Commit 7523ce0".
+  const changeLabel =
+    source !== null
+      ? reviewedChangeLabel(source.findings.target, source.scope, null)
+      : started?.scope
+        ? localReviewScopeLabel(started.scope)
+        : null;
+  const statusBlock =
+    progress !== null && progress.kind !== "done" && reviewer !== null && started !== null ? (
+      <ReviewStatusBlock
+        environmentId={environmentId}
+        reviewer={reviewer}
+        mode={started.mode ?? "quick"}
+        progress={progress}
+        agents={agents}
+        findings={findings}
+        onViewAgent={() =>
+          navigation.navigate("Thread", { environmentId, threadId: reviewThreadId })
+        }
+        retry={retry}
+        onRetried={(threadId) =>
+          navigation.dispatch(
+            StackActions.replace("ThreadReviewFindings", {
+              environmentId,
+              threadId,
+              ...(fromThreadId === undefined ? {} : { fromThreadId }),
+            }),
+          )
+        }
+      />
+    ) : null;
 
   return (
     <View className={Platform.OS === "android" ? "flex-1 bg-header" : "flex-1 bg-screen"}>
       <ScreenHeader
         title="Review findings"
-        subtitle={findings ? targetLabel(findings.target) : undefined}
+        subtitle={changeLabel ?? undefined}
         onBack={() => navigation.goBack()}
         sidebar={false}
       />
       <MaterialScreenContent>
         {findings === null || source === null || verdictChip === null ? (
-          <View className="flex-1 items-center justify-center bg-screen px-8">
-            {loading ? (
-              <ActivityIndicator colorClassName="accent-icon-muted" />
-            ) : (
-              <EmptyState
-                variant="plain"
-                title="No findings"
-                detail="This thread has not submitted review findings."
-              />
-            )}
-          </View>
+          statusBlock !== null ? (
+            <ScrollView
+              className="flex-1 bg-screen"
+              contentInsetAdjustmentBehavior="automatic"
+              contentContainerStyle={{
+                paddingHorizontal: 16,
+                paddingBottom: Math.max(insets.bottom, 16) + 24,
+              }}
+            >
+              {statusBlock}
+              {progress?.kind === "running" ? (
+                <Text className="mt-5 px-1 text-[15px] text-foreground-muted">
+                  Findings show here as the reviewer verifies them.
+                </Text>
+              ) : null}
+            </ScrollView>
+          ) : (
+            <View className="flex-1 items-center justify-center bg-screen px-8">
+              {waiting ? (
+                <ActivityIndicator colorClassName="accent-icon-muted" />
+              ) : (
+                <EmptyState
+                  variant="plain"
+                  title="No findings"
+                  detail="This thread has not submitted review findings."
+                />
+              )}
+            </View>
+          )
         ) : (
           <View className="flex-1 bg-screen">
             <ScrollView
@@ -310,22 +455,29 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
                 paddingBottom: Math.max(footerHeight, Math.max(insets.bottom, 16)) + 24,
               }}
             >
+              {statusBlock}
               <View className="mt-3 rounded-[22px] bg-grouped-card px-4 py-1.5">
-                <SummaryRow icon="checklist" label="Verdict">
-                  <View className="flex-row">
-                    <View className={cn("rounded-full px-3 py-1", verdictChip.className)}>
-                      <Text className={cn("text-sm font-t3-bold", verdictChip.text)}>
-                        {REVIEW_VERDICT_LABELS[findings.verdict]}
+                {findings.complete === false ? null : (
+                  <>
+                    <SummaryRow icon="checklist" label="Verdict">
+                      <View className="flex-row">
+                        <View className={cn("rounded-full px-3 py-1", verdictChip.className)}>
+                          <Text className={cn("text-sm font-t3-bold", verdictChip.text)}>
+                            {REVIEW_VERDICT_LABELS[findings.verdict]}
+                          </Text>
+                        </View>
+                      </View>
+                    </SummaryRow>
+                    <SummaryRow icon="checkmark.circle" label="Merge confidence">
+                      <Text className="text-[15px] text-foreground">
+                        {findings.mergeConfidence}/5
                       </Text>
-                    </View>
-                  </View>
-                </SummaryRow>
-                <SummaryRow icon="checkmark.circle" label="Merge confidence">
-                  <Text className="text-[15px] text-foreground">{findings.mergeConfidence}/5</Text>
-                </SummaryRow>
-                <SummaryRow icon="clock" label="Review effort">
-                  <Text className="text-[15px] text-foreground">{findings.reviewEffort}/5</Text>
-                </SummaryRow>
+                    </SummaryRow>
+                    <SummaryRow icon="clock" label="Review effort">
+                      <Text className="text-[15px] text-foreground">{findings.reviewEffort}/5</Text>
+                    </SummaryRow>
+                  </>
+                )}
                 <SummaryRow
                   icon={findings.target.kind === "pull-request" ? "arrow.triangle.pull" : "folder"}
                   label="Target"
@@ -333,7 +485,7 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
                   <Text className="text-[15px] text-foreground" numberOfLines={1}>
                     {findings.target.kind === "pull-request"
                       ? `${findings.target.repository} #${findings.target.number}`
-                      : "Local changes"}
+                      : changeLabel}
                   </Text>
                 </SummaryRow>
                 <SummaryRow icon="person.crop.circle" label="Reviewed by">
@@ -360,9 +512,11 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
 
               <View className="mt-5 flex-row items-center gap-2 px-1">
                 <Text className="flex-1 text-[15px] text-foreground-muted">
-                  {openEntries.length === 0
-                    ? "No issues found"
-                    : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"} found`}
+                  {stillReviewing
+                    ? `Still reviewing — ${issueCount} so far`
+                    : openEntries.length === 0
+                      ? "No issues"
+                      : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"}`}
                 </Text>
                 {dismissedCount > 0 ? (
                   <Pressable
@@ -398,7 +552,7 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
                           {index > 0 ? <View className="ml-4 h-px bg-border-subtle" /> : null}
                           <ReviewFindingRow
                             entry={entry}
-                            expanded={expanded.has(entry.key)}
+                            expanded={expanded?.has(reviewFindingIdentity(entry.finding)) === true}
                             dismissed={dismissed[entry.key] === true}
                             rating={ratings.get(entry.key)}
                             canRate={canRate}
@@ -427,8 +581,13 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
               >
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityState={{ disabled: primary.disabled }}
+                  disabled={primary.disabled}
                   onPress={primary.run}
-                  className="flex-row items-center justify-center gap-2.5 rounded-full bg-foreground active:opacity-70"
+                  className={cn(
+                    "flex-row items-center justify-center gap-2.5 rounded-full bg-foreground active:opacity-70",
+                    primary.disabled && "opacity-50",
+                  )}
                   style={{ height: FOOTER_BUTTON_HEIGHT }}
                 >
                   <SymbolView name={primary.icon} size={20} tintColorClassName="accent-screen" />
@@ -441,6 +600,141 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
           </View>
         )}
       </MaterialScreenContent>
+    </View>
+  );
+}
+
+/**
+ * Where a review that is not done stands, above its findings: while it runs, how long, at what
+ * depth and on which model, and the agents it started, with View agent and Stop; once it stopped
+ * without its final findings, why, with Try again. Stop stops the reviewer and its own agents
+ * only: the chat it belongs to is in the same agent tree.
+ */
+function ReviewStatusBlock(props: {
+  readonly environmentId: EnvironmentId;
+  readonly reviewer: EnvironmentThreadShell;
+  readonly mode: AgentReviewMode;
+  readonly progress: Exclude<ReviewProgress, { readonly kind: "done" }>;
+  readonly agents: ReadonlyArray<ChildAgentEntry<EnvironmentThreadShell>>;
+  /** The findings it sent so far, if any. */
+  readonly findings: ReviewFindingsActivityPayload | null;
+  readonly onViewAgent: () => void;
+  readonly retry: {
+    readonly request: AgentReviewRequest;
+    readonly choices: AgentReviewChoices;
+  } | null;
+  readonly onRetried: (threadId: ThreadId) => void;
+}) {
+  const { environmentId, reviewer, progress, agents } = props;
+  const label = useAgentReviewLabel(environmentId, props.mode, reviewer.modelSelection);
+  const now = useMinuteClock(progress.kind === "running");
+  const actions = useAgentControlActions();
+  const { start, pending } = useStartAgentReview(environmentId);
+  const [stopping, setStopping] = useState(false);
+  const endMs = spawnedAgentElapsedRange(reviewer)?.endMs ?? null;
+  const text = reviewStatusText({
+    progress,
+    label,
+    elapsedMs: now - Date.parse(reviewer.createdAt),
+    // Once it is over, how long it took ("took 3 min").
+    durationMs: endMs === null ? null : endMs - Date.parse(reviewer.createdAt),
+    newer: false,
+  });
+  // Under it, while findings arrive the step web names ("Sent 2 findings so far"); once the
+  // review stopped, what it was.
+  const detail =
+    progress.kind === "running"
+      ? props.findings === null
+        ? null
+        : reviewFindingsSentText(props.findings)
+      : label;
+  const threads = useThreadShells();
+  // Stopped for good, as web stops it (`reviewStopPlan`): the reviewer and its working agents,
+  // then discard for its agents and the reviewer so nothing is left paused. The chat it belongs to
+  // is in the same agent tree and is never touched.
+  const stop = async () => {
+    setStopping(true);
+    const plan = reviewStopPlan(threads, { environmentId, threadId: reviewer.id });
+    for (const id of plan.stop) await actions.stop({ environmentId, id }, "thread");
+    for (const id of plan.discard) await actions.discard({ environmentId, id }, "thread");
+    setStopping(false);
+  };
+  return (
+    <View
+      accessibilityRole="summary"
+      className="mt-3 gap-2 rounded-[22px] bg-grouped-card px-4 py-3"
+    >
+      <View className="flex-row items-center gap-2">
+        <View
+          className={cn(
+            "size-2 rounded-full",
+            progress.kind === "running"
+              ? "bg-adaptive-sky-600-400"
+              : progress.kind === "failed"
+                ? "bg-adaptive-rose-600-400"
+                : "bg-foreground-muted",
+          )}
+        />
+        <Text
+          className={cn(
+            "min-w-0 flex-1 text-[15px]",
+            progress.kind === "failed" ? "text-adaptive-rose-700-300" : "text-foreground",
+          )}
+        >
+          {text}
+        </Text>
+      </View>
+      {detail !== null ? (
+        <Text className="pl-4 text-[13px] text-foreground-muted" numberOfLines={1}>
+          {detail}
+        </Text>
+      ) : null}
+      {progress.kind === "running" && agents.length > 0 ? (
+        <View className="gap-1 pl-4">
+          {agents.map((agent) => {
+            const status = resolveSpawnedAgentRowStatus(agent.thread, "started");
+            return (
+              <Text key={agent.thread.id} className="text-[13px] text-foreground" numberOfLines={1}>
+                {agent.thread.title}
+                {status === null ? null : (
+                  <Text
+                    className={cn(
+                      "text-[13px] text-foreground-muted",
+                      status === "failed" && "text-adaptive-rose-700-300",
+                    )}
+                  >
+                    {` · ${SPAWNED_AGENT_STATUS_LABEL[status].toLowerCase()}`}
+                  </Text>
+                )}
+              </Text>
+            );
+          })}
+        </View>
+      ) : null}
+      <View className="flex-row flex-wrap gap-2 pt-1">
+        <ControlPill variant="pill" label="View agent" onPress={props.onViewAgent} />
+        {progress.kind === "running" ? (
+          <ControlPill
+            variant="pill"
+            label={stopping ? "Stopping…" : "Stop"}
+            disabled={stopping}
+            onPress={() => void stop()}
+          />
+        ) : props.retry !== null ? (
+          <ControlPill
+            variant="pill"
+            label={pending ? "Starting…" : "Try again"}
+            disabled={pending}
+            onPress={() => {
+              const { retry } = props;
+              if (retry === null) return;
+              void start(retry.request, retry.choices).then((threadId) => {
+                if (threadId !== null) props.onRetried(threadId);
+              });
+            }}
+          />
+        ) : null}
+      </View>
     </View>
   );
 }

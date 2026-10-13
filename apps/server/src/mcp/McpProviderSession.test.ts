@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   acpMcpServerConfig,
+  claudeMcpEnvironment,
   claudeMcpServerConfig,
   codexMcpConfigArgs,
   mergeAgentCliEnvironments,
@@ -74,11 +75,14 @@ describe("provider MCP transport config", () => {
   };
 
   it("dials the URL when the server has a TCP port", () => {
+    // mcpServers becomes a CLI argument, readable by every local user; the
+    // credential may only travel in the child's environment.
     expect(claudeMcpServerConfig(http)).toEqual({
       type: "http",
       url: http.endpoint,
-      headers: { Authorization: "Bearer secret" },
+      headers: { Authorization: "${T3_CODE_MCP_AUTHORIZATION}" },
     });
+    expect(claudeMcpEnvironment(http)).toEqual({ T3_CODE_MCP_AUTHORIZATION: "Bearer secret" });
     expect(acpMcpServerConfig(http)).toEqual({
       type: "http",
       name: "viewcode",

@@ -8,6 +8,17 @@ export const THREAD_LIST_V2_ROW_DIVIDERS = false;
 export const THREAD_LIST_V2_PROVIDER_LEADS_TITLE = true;
 /** Synara-style meta line: an icon leads the machine and the branch. */
 export const THREAD_LIST_V2_META_ICONS = true;
+export const THREAD_LIST_V2_SIDEBAR_ROW_STYLE = {
+  borderRadius: 20,
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+} satisfies ViewStyle;
+export const THREAD_LIST_V2_SIDEBAR_ROW_CONTAINER_STYLE = {
+  borderRadius: 20,
+  overflow: "hidden",
+  marginHorizontal: 8,
+  marginVertical: 2,
+} satisfies ViewStyle;
 
 export const selectedThreadRowColors = {
   foregroundClassName: "text-thread-selected-foreground",
@@ -58,7 +69,7 @@ export function getThreadListV2RowAppearance(
       ? "accent-drawer-foreground-muted"
       : "accent-foreground-tertiary",
     style,
-    cardStyle: sidebarPane ? { ...style, paddingHorizontal: 12, paddingVertical: 10 } : style,
+    cardStyle: sidebarPane ? { ...style, ...THREAD_LIST_V2_SIDEBAR_ROW_STYLE } : style,
     swipeContainerStyle,
     swipeBackgroundColor: backgroundColor,
     providerIconSurfaceColor: selected ? selectedBackgroundColor : backgroundColor,

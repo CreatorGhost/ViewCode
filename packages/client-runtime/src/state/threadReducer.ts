@@ -283,6 +283,8 @@ export function applyThreadDetailEvent(
             ? { modelSelection: event.payload.modelSelection }
             : {}),
           ...(event.payload.kind !== undefined ? { kind: event.payload.kind } : {}),
+          ...(event.payload.goal !== undefined ? { goal: event.payload.goal } : {}),
+          ...(event.payload.debugMode !== undefined ? { debugMode: event.payload.debugMode } : {}),
           ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
           ...(event.payload.worktreePath !== undefined
             ? { worktreePath: event.payload.worktreePath }

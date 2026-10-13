@@ -51,6 +51,7 @@ import { projectEvent } from "./projector.ts";
 import { decidePullRequestWatch, withoutPullRequestWatch } from "./pullRequestWatch.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 import { THREAD_FORKED_ACTIVITY_KIND } from "./ThreadFork.ts";
+import { nextThreadGoal } from "./threadGoal.ts";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
@@ -325,10 +326,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
   userInputActivity,
+  automaticallySettledAncestors = [],
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   readonly userInputActivity?: OrchestrationThreadActivity;
+  readonly automaticallySettledAncestors?: ReadonlyArray<ThreadId>;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandRejection | PlatformError.PlatformError,
@@ -1227,7 +1230,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         thread.branch !== command.expectedBranch
           ? thread.branch
           : command.branch;
+      if (command.goalPaused !== undefined && command.goal == null && thread.goal == null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread ${command.threadId} has no goal to ${command.goalPaused ? "pause" : "resume"}.`,
+        });
+      }
       const occurredAt = yield* nowIso;
+      const goal = nextThreadGoal(thread.goal ?? null, command, occurredAt);
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -1270,6 +1280,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { modelSelection: command.modelSelection }
             : {}),
           ...(command.kind !== undefined ? { kind: command.kind } : {}),
+          ...(goal !== undefined ? { goal } : {}),
+          ...(command.debugMode !== undefined ? { debugMode: command.debugMode } : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
           ...(command.linkedPullRequest !== undefined
@@ -1741,6 +1753,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // A snooze clears the same way — sending a message to a snoozed
       // thread is the user re-engaging, so the return ticket is spent.
       const lifecycleResetEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+      for (const ancestorId of automaticallySettledAncestors) {
+        lifecycleResetEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: ancestorId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.unsettled",
+          payload: {
+            threadId: ancestorId,
+            reason: "activity",
+            updatedAt: command.createdAt,
+          },
+        });
+      }
       if (targetThread.settledOverride !== null) {
         lifecycleResetEvents.push({
           ...(yield* withEventBase({
@@ -2159,6 +2187,23 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           session: command.session,
         },
       };
+      const parentWakeEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+      for (const ancestorId of automaticallySettledAncestors) {
+        parentWakeEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: ancestorId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.unsettled",
+          payload: {
+            threadId: ancestorId,
+            reason: "activity",
+            updatedAt: command.createdAt,
+          },
+        });
+      }
       // Only a session coming alive is activity worth waking a settled thread
       // for — status writes like ready/stopped/error arrive after the fact and
       // must not fight a user's explicit settle. Snooze is deliberately NOT
@@ -2171,7 +2216,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command.session.status === "starting" || command.session.status === "running";
       // Real activity resets ANY override (settled wakes, active unpins).
       if (thread.settledOverride === null || !isSessionActivity) {
-        return sessionSetEvent;
+        return parentWakeEvents.length > 0
+          ? [...parentWakeEvents, sessionSetEvent]
+          : sessionSetEvent;
       }
       const unsettledEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
@@ -2187,7 +2234,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: command.createdAt,
         },
       };
-      return [unsettledEvent, sessionSetEvent];
+      return [...parentWakeEvents, unsettledEvent, sessionSetEvent];
     }
 
     case "thread.message.assistant.delta":

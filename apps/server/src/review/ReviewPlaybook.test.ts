@@ -20,7 +20,13 @@ describe("ensureReviewPlaybook", () => {
         const text = yield* fs.readFileString(target);
         expect(text).toBe(reviewPlaybookMarkdown(mode));
         expect(text).toContain(`# ViewCode ${label}`);
+        // Findings reach the reader while the review goes on, then as one final set.
+        expect(text).toContain("`complete: false`");
+        expect(text).toContain("once more without `complete`");
       }
+      // Agents a review starts carry short, whole names the user can read in their chat.
+      expect(reviewPlaybookMarkdown("deep")).toContain('"Review: tests"');
+      expect(reviewPlaybookMarkdown("security")).toContain('"Audit: injection"');
 
       // An older release's text is replaced, not trusted.
       const quick = yield* ensureReviewPlaybook({ stateDir, mode: "quick" });

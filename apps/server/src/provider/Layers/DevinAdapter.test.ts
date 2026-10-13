@@ -1,0 +1,240 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
+
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+
+import {
+  DevinSettings,
+  EnvironmentId,
+  ProviderInstanceId,
+  ThreadId,
+  type ProviderRuntimeEvent,
+} from "@t3tools/contracts";
+
+import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
+import { devinModeId, matchDevinModelValue, parseDevinModelList } from "../acp/DevinAcpSupport.ts";
+import { makeDevinAdapter } from "./DevinAdapter.ts";
+import { readDevinModelsProbe } from "./DevinProvider.ts";
+
+const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
+const mockAgentPath = NodePath.join(__dirname, "../../../scripts/acp-mock-agent.ts");
+const decodeDevinSettings = Schema.decodeSync(DevinSettings);
+const instanceId = ProviderInstanceId.make("devin");
+
+async function makeMockDevin(extraEnv: Record<string, string> = {}) {
+  const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "devin-acp-mock-"));
+  const requestLogPath = NodePath.join(directory, "requests.ndjson");
+  const argvLogPath = NodePath.join(directory, "argv.log");
+  const binaryPath = writeFakeCli({
+    directory,
+    name: "fake-devin",
+    env: { T3_ACP_DEVIN: "1", T3_ACP_REQUEST_LOG_PATH: requestLogPath, ...extraEnv },
+    source: execScriptSource({ scriptPath: mockAgentPath, argvLogPath }),
+  });
+  return { binaryPath, requestLogPath, argvLogPath };
+}
+
+async function readRequests(filePath: string) {
+  const raw = await NodeFSP.readFile(filePath, "utf8");
+  return raw
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as { method?: string; params?: Record<string, unknown> });
+}
+
+const makeAdapter = (binaryPath: string) =>
+  makeDevinAdapter(decodeDevinSettings({ binaryPath }), { instanceId }).pipe(Effect.orDie);
+
+const testLayer = ServerConfig.layerTest(process.cwd(), {
+  prefix: "t3code-devin-adapter-test-",
+}).pipe(Layer.provideMerge(NodeServices.layer));
+
+it("matches a model slug to the value Devin advertises", () => {
+  const option = {
+    id: "model",
+    name: "Model",
+    type: "select" as const,
+    currentValue: "swe-1-6-fast",
+    options: [
+      { value: "swe-1-6-fast", name: "SWE-1.6 Fast" },
+      { value: "claude-opus-5-5-high", name: "Claude Opus 5.5 High" },
+    ],
+  };
+  assert.equal(matchDevinModelValue(option, "swe-1-6-fast"), "swe-1-6-fast");
+  assert.equal(matchDevinModelValue(option, "Claude Opus 5.5 High"), "claude-opus-5-5-high");
+  // A family slug from `devin models list` picks its first variant.
+  assert.equal(matchDevinModelValue(option, "claude-opus-5-5"), "claude-opus-5-5-high");
+  assert.isUndefined(matchDevinModelValue(option, "gpt-6"));
+});
+
+it("maps permission and interaction modes to Devin's session modes", () => {
+  assert.equal(
+    devinModeId({ runtimeMode: "approval-required", interactionMode: undefined }),
+    "accept-edits",
+  );
+  assert.equal(devinModeId({ runtimeMode: "full-access", interactionMode: undefined }), "bypass");
+  assert.equal(devinModeId({ runtimeMode: "full-access", interactionMode: "plan" }), "plan");
+});
+
+it("reads sign-in state and model families from `devin models list`", () => {
+  const signedIn = readDevinModelsProbe({
+    code: 0,
+    stderr: "",
+    stdout: JSON.stringify({
+      families: [
+        {
+          family_uid: "claude-opus-5-5",
+          family_label: "Claude Opus 5.5",
+          variants: [{ model_uid: "claude-opus-5-5-high", label: "High" }],
+        },
+        { family_uid: "swe-1-6", family_label: "SWE-1.6" },
+      ],
+    }),
+  });
+  assert.equal(signedIn.auth.status, "authenticated");
+  assert.deepStrictEqual(
+    signedIn.models.map((model) => [model.slug, model.name]),
+    [
+      ["claude-opus-5-5", "Claude Opus 5.5"],
+      ["swe-1-6", "SWE-1.6"],
+    ],
+  );
+  const signedOut = readDevinModelsProbe({
+    code: 1,
+    stdout: "",
+    stderr: "Error: Not logged in. Run `devin auth login` to authenticate.",
+  });
+  assert.equal(signedOut.auth.status, "unauthenticated");
+  assert.deepStrictEqual(parseDevinModelList("not json"), []);
+});
+
+it.layer(testLayer)("DevinAdapter", (it) => {
+  it.effect(
+    "launches with the picked model, hands over ViewCode tools over stdio and sets modes",
+    () =>
+      Effect.gen(function* () {
+        const { binaryPath, requestLogPath, argvLogPath } = yield* Effect.promise(() =>
+          makeMockDevin(),
+        );
+        const adapter = yield* makeAdapter(binaryPath);
+        const threadId = ThreadId.make("devin-start");
+        McpProviderSession.setMcpProviderSession({
+          environmentId: EnvironmentId.make("test-environment"),
+          threadId,
+          providerInstanceId: instanceId,
+          providerSessionId: "test-session",
+          endpoint: "http://127.0.0.1:1234/mcp",
+          authorizationHeader: "Bearer test-token",
+          stdioBridge: { command: "node", args: ["bridge.mjs"], env: {} },
+          capabilities: new Set(),
+        });
+        yield* adapter
+          .startSession({
+            threadId,
+            cwd: process.cwd(),
+            runtimeMode: "full-access",
+            modelSelection: { instanceId, model: "claude-opus-5-5" },
+          })
+          .pipe(
+            Effect.ensuring(
+              Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
+            ),
+          );
+        yield* adapter.sendTurn({ threadId, input: "plan it", interactionMode: "plan" });
+        yield* adapter.stopSession(threadId);
+
+        const argv = yield* Effect.promise(() => NodeFSP.readFile(argvLogPath, "utf8"));
+        assert.equal(argv.trim(), ["acp", "--model", "claude-opus-5-5"].join("\t"));
+        const requests = yield* Effect.promise(() => readRequests(requestLogPath));
+        assert.deepStrictEqual(
+          requests.find((request) => request.method === "session/new")?.params?.mcpServers,
+          [{ name: "viewcode", command: "node", args: ["bridge.mjs"], env: [] }],
+        );
+        assert.isFalse(requests.some((request) => request.method === "authenticate"));
+        assert.deepStrictEqual(
+          requests
+            .filter((request) => request.method === "session/set_config_option")
+            .map((request) => [request.params?.configId, request.params?.value]),
+          [
+            ["model", "claude-opus-5-5-high"],
+            ["mode", "bypass"],
+            ["mode", "plan"],
+          ],
+        );
+        assert.deepStrictEqual(adapter.compaction, { type: "slash-command", command: "/compact" });
+      }),
+  );
+
+  it.effect("warns when the chat starts without ViewCode tools", () =>
+    Effect.gen(function* () {
+      const { binaryPath } = yield* Effect.promise(() => makeMockDevin());
+      const adapter = yield* makeAdapter(binaryPath);
+      const events: Array<ProviderRuntimeEvent> = [];
+      const eventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.sync(() => void events.push(event)),
+      ).pipe(Effect.forkChild);
+      const threadId = ThreadId.make("devin-no-tools");
+      yield* adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      yield* adapter.stopSession(threadId);
+      yield* Fiber.interrupt(eventsFiber);
+      assert.isTrue(events.some((event) => event.type === "runtime.warning"));
+    }),
+  );
+});
+
+// Real clock: a resumed session waits for Devin's post-load replay to go quiet.
+it.layer(testLayer, { excludeTestServices: true })("DevinAdapter resume", (it) => {
+  it.effect("resumes with session/load and keeps the history Devin replays afterwards out", () =>
+    Effect.gen(function* () {
+      const { binaryPath, requestLogPath } = yield* Effect.promise(() =>
+        makeMockDevin({ T3_ACP_EMIT_LATE_LOAD_REPLAY: "1", T3_ACP_PROMPT_DELAY_MS: "300" }),
+      );
+      const adapter = yield* makeAdapter(binaryPath);
+      const threadId = ThreadId.make("devin-resume");
+      const deltas: Array<string> = [];
+      const eventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.sync(() => {
+          if (event.type === "content.delta") deltas.push(event.payload.delta);
+        }),
+      ).pipe(Effect.forkChild);
+      const first = yield* adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      yield* adapter.stopSession(threadId);
+      yield* adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+        resumeCursor: first.resumeCursor,
+      });
+      yield* adapter.sendTurn({ threadId, input: "hello" });
+      yield* adapter.stopSession(threadId);
+      yield* Fiber.interrupt(eventsFiber);
+
+      const requests = yield* Effect.promise(() => readRequests(requestLogPath));
+      assert.equal(
+        requests.find((request) => request.method === "session/load")?.params?.sessionId,
+        "mock-session-1",
+      );
+      assert.isAbove(deltas.length, 0);
+      assert.notInclude(deltas.join(""), "late replay");
+    }),
+  );
+});

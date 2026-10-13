@@ -3,6 +3,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./viewcodeBrand": {
+      "types": "./src/viewcodeBrand.ts",
+      "import": "./src/viewcodeBrand.ts"
+    },
+    "./githubMarkdownLinks": {
+      "types": "./src/githubMarkdownLinks.ts",
+      "import": "./src/githubMarkdownLinks.ts"
+    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"
@@ -23,9 +31,17 @@
       "types": "./src/themePreview.ts",
       "import": "./src/themePreview.ts"
     },
+    "./shellTint": {
+      "types": "./src/shellTint.ts",
+      "import": "./src/shellTint.ts"
+    },
     "./projectFavicon": {
       "types": "./src/projectFavicon.ts",
       "import": "./src/projectFavicon.ts"
+    },
+    "./projectIconCandidates": {
+      "types": "./src/projectIconCandidates.ts",
+      "import": "./src/projectIconCandidates.ts"
     },
     "./model": {
       "types": "./src/model.ts",
@@ -414,6 +430,9 @@
     "@t3tools/contracts": "workspace:*",
     "effect": "catalog:",
     "jose": "catalog:",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
     "yaml": "catalog:"
   },
   "devDependencies": {

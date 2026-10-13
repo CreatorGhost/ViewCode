@@ -64,8 +64,7 @@ import { terminalEnvironment } from "../../state/terminal";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { connectPairing } from "../../connection/onboarding";
 import { getProviderSummary } from "../settings/providerStatus";
-import { ProviderChoiceStep, useProviderSelectionViews } from "./ProviderChoiceStep";
-import { resolveOnboardingAgentDrivers } from "../../onboarding/providerChoice.logic";
+import { resolveOnboardingAgentDrivers } from "../../onboarding/onboardingAgents.logic";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { ChatGptWelcomeCoordinator } from "../settings/ChatGptWelcomeCoordinator";
 import { AddManagedCodexAccountDialog, CodexSetupSection } from "../settings/CodexSetupSection";
@@ -648,22 +647,6 @@ function AgentsStep({
   readonly onContinue: () => void;
 }) {
   const { environments } = useEnvironments();
-  const selectionViews = useProviderSelectionViews(environmentIds);
-  // What was chosen on this screen, so the cards follow the choice before the
-  // settings stream echoes it back.
-  const [justChosen, setJustChosen] = useState<
-    ReadonlyMap<EnvironmentId, readonly ProviderDriverKind[]>
-  >(() => new Map());
-  const awaitingChoice = environmentIds.filter(
-    (environmentId, index) => selectionViews[index] === "pending" && !justChosen.has(environmentId),
-  );
-  const handleChosen = (environmentId: EnvironmentId, enabled: readonly ProviderDriverKind[]) => {
-    const next = new Map(justChosen).set(environmentId, enabled);
-    setJustChosen(next);
-    // Nothing to set up when every computer went without agents.
-    const done = awaitingChoice.every((id) => id === environmentId);
-    if (done && environmentIds.every((id) => next.get(id)?.length === 0)) onContinue();
-  };
   return (
     <StepShell
       title="Connect your agents"
@@ -671,39 +654,24 @@ function AgentsStep({
     >
       <ScrollArea scrollFade className="mt-5 h-auto max-h-[min(32rem,55dvh)]">
         <div className="space-y-5 pr-3">
-          {environmentIds.map((environmentId, index) => {
-            const machineLabel =
-              environments.find((environment) => environment.environmentId === environmentId)
-                ?.label ?? "Computer";
-            // Until settings arrive the choice is unknown; wait rather than
-            // mount the cards, which re-probe providers.
-            if (selectionViews[index] === "unknown") return null;
-            return awaitingChoice.includes(environmentId) ? (
-              <ProviderChoiceStep
-                key={environmentId}
-                environmentId={environmentId}
-                machineLabel={machineLabel}
-                onChosen={(enabled) => handleChosen(environmentId, enabled)}
-              />
-            ) : (
-              <ConnectedAgentsStep
-                key={environmentId}
-                environmentId={environmentId}
-                machineLabel={machineLabel}
-                justChosen={justChosen.get(environmentId)}
-              />
-            );
-          })}
+          {environmentIds.map((environmentId) => (
+            <ConnectedAgentsStep
+              key={environmentId}
+              environmentId={environmentId}
+              machineLabel={
+                environments.find((environment) => environment.environmentId === environmentId)
+                  ?.label ?? "Computer"
+              }
+            />
+          ))}
         </div>
       </ScrollArea>
-      {awaitingChoice.length === 0 ? (
-        <div className="mt-6 flex justify-end">
-          <Button autoFocus onClick={onContinue}>
-            Continue
-            <ArrowRightIcon className="size-3.5" />
-          </Button>
-        </div>
-      ) : null}
+      <div className="mt-6 flex justify-end">
+        <Button autoFocus onClick={onContinue}>
+          Continue
+          <ArrowRightIcon className="size-3.5" />
+        </Button>
+      </div>
     </StepShell>
   );
 }
@@ -711,12 +679,9 @@ function AgentsStep({
 function ConnectedAgentsStep({
   environmentId,
   machineLabel,
-  justChosen,
 }: {
   readonly environmentId: EnvironmentId;
   readonly machineLabel: string;
-  /** Drivers just chosen on this screen; the server is already probing them. */
-  readonly justChosen?: readonly ProviderDriverKind[] | undefined;
 }) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -733,17 +698,14 @@ function ConnectedAgentsStep({
 
   // Re-probe on entry so freshly installed CLIs show up without a manual
   // refresh; harmless when nothing changed (single-flighted per environment).
-  // Skipped right after the choice: the server probes the chosen agents itself.
-  const skipEntryRefresh = justChosen !== undefined;
   useEffect(() => {
-    if (skipEntryRefresh) return;
     void refreshProviders({ environmentId, input: {} });
-  }, [environmentId, refreshProviders, skipEntryRefresh]);
+  }, [environmentId, refreshProviders]);
 
   const byDriver = useMemo(() => selectOnboardingProvidersByDriver(providers), [providers]);
 
   // Codex can hold several ChatGPT accounts, one row each.
-  const primaryAgents = resolveOnboardingAgentDrivers(providers, justChosen).flatMap((driver) => {
+  const primaryAgents = resolveOnboardingAgentDrivers(providers).flatMap((driver) => {
     const instances =
       driver === "codex" ? providers?.filter((provider) => provider.driver === driver) : undefined;
     return instances?.length
@@ -787,7 +749,7 @@ function ConnectedAgentsStep({
       <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
       {primaryAgents.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          {providers === null && justChosen === undefined
+          {providers === null
             ? "Checking agents..."
             : "No agents enabled. Turn agents on in Settings, Providers."}
         </p>

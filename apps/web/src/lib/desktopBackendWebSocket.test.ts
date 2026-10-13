@@ -3,6 +3,24 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { DesktopBackendWebSocket, installDesktopBackendWebSocket } from "./desktopBackendWebSocket";
 
+// The Electron renderer has CloseEvent; Node 22, which runs these tests, does not.
+if (typeof globalThis.CloseEvent === "undefined") {
+  vi.stubGlobal(
+    "CloseEvent",
+    class CloseEvent extends Event {
+      readonly code: number;
+      readonly reason: string;
+      readonly wasClean: boolean;
+      constructor(type: string, init: CloseEventInit = {}) {
+        super(type, init);
+        this.code = init.code ?? 0;
+        this.reason = init.reason ?? "";
+        this.wasClean = init.wasClean ?? false;
+      }
+    },
+  );
+}
+
 const makeBridge = () => {
   const opened: Array<{
     url: string;

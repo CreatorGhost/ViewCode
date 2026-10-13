@@ -8,6 +8,7 @@ import {
   ReviewCommitSha,
   ThreadId,
   type AgentReviewMode,
+  type LocalReviewScope,
   type ModelSelection,
   type OrchestrationCommand,
   type ProjectId,
@@ -23,6 +24,10 @@ import {
   type SourceControlProviderKind,
   type ThreadPullRequestLinkSource,
 } from "@t3tools/contracts";
+import {
+  AGENT_MESSAGE_SENT_ACTIVITY_KIND,
+  type AgentMessageSentPayload,
+} from "@t3tools/shared/agentMessages";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { readReviewFindings, reviewStyleKey } from "@t3tools/shared/reviewFindings";
@@ -117,6 +122,8 @@ export interface PullRequestAgentReviewInput {
   readonly basedOn?: ReviewBasedOnInput | undefined;
   /** "manual" when a user asked for the review, "agent" when an agent did. */
   readonly linkSource: ThreadPullRequestLinkSource;
+  /** The chat the review was asked for from, which the reviewer runs as a child agent of. */
+  readonly sourceThreadId?: ThreadId | undefined;
 }
 
 /**
@@ -125,6 +132,7 @@ export interface PullRequestAgentReviewInput {
  */
 export interface LocalAgentReviewInput {
   readonly projectId: ProjectId;
+  /** The chat whose checkout to review; the reviewer runs as its child agent. */
   readonly sourceThreadId?: ThreadId | undefined;
   /** Absent: a quick review. */
   readonly mode?: AgentReviewMode | undefined;
@@ -134,6 +142,8 @@ export interface LocalAgentReviewInput {
   readonly focus?: string | undefined;
   readonly incremental?: boolean | undefined;
   readonly basedOn?: ReviewBasedOnInput | undefined;
+  /** Absent: the uncommitted changes, or the branch when there are none. */
+  readonly scope?: LocalReviewScope | undefined;
 }
 
 /** Who opened a pull request and who it is read as; null where the host could not say. */
@@ -156,7 +166,8 @@ export function reviewFindingsModeFor(authorship: PullRequestAuthorship): Review
 /**
  * Starts an agent review of a pull request in a new thread on the reference's project. The thread
  * is an ordinary one: linked to the pull request, titled after it, and running the user's default
- * permissions for new threads, so the user can keep talking to the reviewer afterwards.
+ * permissions for new threads, so the user can keep talking to the reviewer afterwards. Asked for
+ * from a chat, it is that chat's child agent, shown in it like one the chat's agent spawned.
  */
 export class PullRequestAgentReview extends Context.Service<
   PullRequestAgentReview,
@@ -315,19 +326,55 @@ export function buildPullRequestReviewPrompt(input: {
   return lines.join("\n");
 }
 
-export function localReviewTitle(mode: AgentReviewMode, branch: string | null): string {
-  return `${TITLE_PREFIXES[mode]}: local changes${branch === null ? "" : ` on ${branch}`}`;
+/**
+ * The title of a review of local changes: what it reads when the reader chose ("Deep review:
+ * branch vs origin/main", "Review: commit 7523ce0", "Security audit: uncommitted changes"), else
+ * the checkout's local changes.
+ */
+export function localReviewTitle(
+  mode: AgentReviewMode,
+  branch: string | null,
+  scope?: LocalReviewScope | undefined,
+): string {
+  const prefix = TITLE_PREFIXES[mode];
+  switch (scope?.kind) {
+    case undefined:
+      return `${prefix}: local changes${branch === null ? "" : ` on ${branch}`}`;
+    case "uncommitted":
+      return `${prefix}: uncommitted changes`;
+    case "branch":
+      return `${prefix}: branch vs ${scope.base ?? "its base"}`;
+    case "commit":
+      return `${prefix}: commit ${scope.sha.slice(0, 7)}`;
+  }
 }
 
 /**
  * The first message of a review of local changes: the mode, where the checkout is, what to diff
  * and where the playbook is.
  */
+/** What a review of local changes is told to read, in its first message. */
+export function localReviewScopeLine(scope: LocalReviewScope | undefined): string {
+  switch (scope?.kind) {
+    case undefined:
+      return "Review the uncommitted changes there: `git status`, `git diff HEAD` and the untracked files (`git ls-files --others --exclude-standard`). If there are none, review the branch against the branch it was made from instead (`git diff <base>...HEAD`, with <base> the remote's default branch), and say which of the two you reviewed.";
+    case "uncommitted":
+      return "Review the uncommitted changes there, and only those: `git status`, `git diff HEAD` and the untracked files (`git ls-files --others --exclude-standard`).";
+    case "branch":
+      return scope.base === undefined
+        ? "Review the branch against the branch it was made from: `git diff <base>...HEAD`, with <base> the remote's default branch. Leave out uncommitted changes."
+        : `Review the branch against \`${scope.base}\`: \`git diff ${scope.base}...HEAD\`. Leave out uncommitted changes.`;
+    case "commit":
+      return `Review commit ${scope.sha} and only that commit: \`git show ${scope.sha}\`.`;
+  }
+}
+
 export function buildLocalReviewPrompt(input: {
   readonly mode: AgentReviewMode;
   readonly playbookPath: string;
   readonly cwd: string;
   readonly branch: string | null;
+  readonly scope?: LocalReviewScope | undefined;
   readonly focus?: string | undefined;
   readonly reReview?: ReReview | undefined;
   readonly ratedFindingsPath?: string | null | undefined;
@@ -335,7 +382,7 @@ export function buildLocalReviewPrompt(input: {
   const lines = [
     `${reviewModeLabel(input.mode)} of the local changes in ${input.cwd}${input.branch === null ? "" : ` on branch ${input.branch}`}.`,
     "",
-    "Review the uncommitted changes there: `git status`, `git diff HEAD` and the untracked files (`git ls-files --others --exclude-standard`). If there are none, review the branch against the branch it was made from instead (`git diff <base>...HEAD`, with <base> the remote's default branch), and say which of the two you reviewed.",
+    localReviewScopeLine(input.scope),
     "",
     `Read the review playbook at ${input.playbookPath} and follow it for these changes. Do not change my working tree, index or branch, and post nothing to the host.`,
   ];
@@ -345,6 +392,12 @@ export function buildLocalReviewPrompt(input: {
   lines.push(...ratedFindingsLines(input.ratedFindingsPath));
   lines.push("", `When you call ${SUBMIT_REVIEW_FINDINGS_TOOL}, pass target "local".`);
   return lines.join("\n");
+}
+
+/** The focus a review was asked for, as recorded with its start for a retry to ask again. */
+function reviewFocus(focus: string | undefined): { readonly focus?: string } {
+  const trimmed = focus?.trim();
+  return trimmed ? { focus: trimmed } : {};
 }
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -417,10 +470,14 @@ const make = Effect.gen(function* () {
 
   /**
    * Creates the review thread, records what the review started on and sends the first message.
-   * A pull request review is linked to the pull request in between.
+   * A pull request review is linked to the pull request in between. Asked for from a chat, the
+   * reviewer is its child agent and the chat records it the way it records an agent it spawned,
+   * so its transcript shows the review in its place.
    */
   const launch = Effect.fn("PullRequestAgentReview.launch")(function* (input: {
     readonly projectId: ProjectId;
+    readonly parentThreadId: ThreadId | null;
+    readonly mode: AgentReviewMode;
     readonly title: string;
     readonly modelSelection: ModelSelection;
     readonly runtimeMode: RuntimeMode;
@@ -452,6 +509,7 @@ const make = Effect.gen(function* () {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         branch: input.branch,
         worktreePath: input.worktreePath,
+        ...(input.parentThreadId === null ? {} : { parentThreadId: input.parentThreadId }),
         createdAt,
       })
       .pipe(Effect.mapError(failure("create-thread")));
@@ -468,23 +526,50 @@ const make = Effect.gen(function* () {
     yield* recordReviewStarted(threadId, input.started, createdAt).pipe(
       Effect.mapError(failure("record-start")),
     );
+    const messageId = MessageId.make(yield* uuid);
     yield* engine
       .dispatch({
         type: "thread.turn.start",
         commandId: CommandId.make(`server:pr-review-turn:${threadId}`),
         threadId,
-        message: {
-          messageId: MessageId.make(yield* uuid),
-          role: "user",
-          text: input.text,
-          attachments: [],
-        },
+        message: { messageId, role: "user", text: input.text, attachments: [] },
         modelSelection,
         runtimeMode,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         createdAt,
       })
       .pipe(Effect.mapError(failure("start-turn")));
+    if (input.parentThreadId !== null) {
+      // Nothing is sent back to the chat: the findings reach it through the Review panel.
+      const spawned: AgentMessageSentPayload = {
+        messageId,
+        toThreadId: threadId,
+        toName: input.title,
+        body: input.text,
+        replyExpected: false,
+        inReplyTo: null,
+        kind: "spawn",
+        delivery: "started",
+        review: input.mode,
+      };
+      yield* engine
+        .dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make(`server:review-spawned:${threadId}`),
+          threadId: input.parentThreadId,
+          activity: {
+            id: EventId.make(yield* uuid),
+            tone: "info",
+            kind: AGENT_MESSAGE_SENT_ACTIVITY_KIND,
+            summary: `Started ${input.title}`,
+            payload: spawned,
+            turnId: null,
+            createdAt,
+          },
+          createdAt,
+        })
+        .pipe(Effect.ignoreCause({ log: true }));
+    }
     return { threadId, title: input.title };
   });
 
@@ -582,33 +667,33 @@ const make = Effect.gen(function* () {
     return { path: target, basedOn: recorded };
   });
 
+  /** The chat a review was asked for from, which must be on the review's project. */
+  const readSourceThread = Effect.fn("PullRequestAgentReview.readSourceThread")(function* (
+    projectId: ProjectId,
+    sourceThreadId: ThreadId | undefined,
+  ) {
+    if (sourceThreadId === undefined) return null;
+    const source = yield* snapshots
+      .getThreadShellById(sourceThreadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new PullRequestAgentReviewError({ stage: "source-thread", projectId, cause }),
+        ),
+      );
+    if (Option.isNone(source) || source.value.projectId !== projectId) {
+      return yield* new PullRequestAgentReviewError({ stage: "source-thread", projectId });
+    }
+    return source.value;
+  });
+
   const startLocal = Effect.fn("PullRequestAgentReview.startLocal")(function* (
     input: LocalAgentReviewInput,
   ) {
     const mode = input.mode ?? "quick";
     const { project, defaults, modelSelection } = yield* resolveDefaults(input);
-    let branch: string | null = null;
-    let worktreePath: string | null = null;
-    if (input.sourceThreadId !== undefined) {
-      const source = yield* snapshots.getThreadShellById(input.sourceThreadId).pipe(
-        Effect.mapError(
-          (cause) =>
-            new PullRequestAgentReviewError({
-              stage: "source-thread",
-              projectId: input.projectId,
-              cause,
-            }),
-        ),
-      );
-      if (Option.isNone(source) || source.value.projectId !== input.projectId) {
-        return yield* new PullRequestAgentReviewError({
-          stage: "source-thread",
-          projectId: input.projectId,
-        });
-      }
-      branch = source.value.branch;
-      worktreePath = source.value.worktreePath;
-    }
+    const source = yield* readSourceThread(input.projectId, input.sourceThreadId);
+    const branch = source?.branch ?? null;
+    const worktreePath = source?.worktreePath ?? null;
     const playbookPath = yield* writePlaybook(input.projectId, mode);
     const previous =
       input.incremental === true && input.basedOn !== undefined
@@ -622,15 +707,23 @@ const make = Effect.gen(function* () {
     // The same checkout as the thread whose changes these are; the reviewer only reads it.
     return yield* launch({
       projectId: input.projectId,
-      title: localReviewTitle(mode, branch),
+      parentThreadId: source?.id ?? null,
+      mode,
+      title: localReviewTitle(mode, branch, input.scope),
       modelSelection,
       runtimeMode: defaults.defaultRuntimeMode,
       branch,
       worktreePath,
-      started: previous === undefined ? {} : { incremental: true, basedOn: previous.basedOn },
+      started: {
+        mode,
+        ...reviewFocus(input.focus),
+        ...(input.scope === undefined ? {} : { scope: input.scope }),
+        ...(previous === undefined ? {} : { incremental: true, basedOn: previous.basedOn }),
+      },
       text: buildLocalReviewPrompt({
         mode,
         playbookPath,
+        scope: input.scope,
         cwd: worktreePath ?? project.workspaceRoot,
         branch,
         focus: input.focus,
@@ -651,6 +744,7 @@ const make = Effect.gen(function* () {
       fallbackModelSelection: input.fallbackModelSelection,
     });
 
+    const source = yield* readSourceThread(reference.projectId, input.sourceThreadId);
     const summary = yield* pullRequests.summary(reference);
     // The key the detail view looks linked threads up by, so the review shows up there.
     const parsedUrl = parseChangeRequestUrl(summary.url);
@@ -704,6 +798,8 @@ const make = Effect.gen(function* () {
 
     return yield* launch({
       projectId: reference.projectId,
+      parentThreadId: source?.id ?? null,
+      mode,
       title: pullRequestReviewTitle(mode, summary),
       modelSelection,
       runtimeMode: defaults.defaultRuntimeMode,
@@ -712,6 +808,8 @@ const make = Effect.gen(function* () {
       worktreePath: null,
       link: { ...key, url: summary.url, source: input.linkSource },
       started: {
+        mode,
+        ...reviewFocus(input.focus),
         ...(detail.headSha === undefined ? {} : { headSha: detail.headSha }),
         ...(previous === undefined ? {} : { incremental: true, basedOn: previous.basedOn }),
       },

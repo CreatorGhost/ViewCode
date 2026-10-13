@@ -32,6 +32,10 @@ export const REVIEW_FINDING_MAX_RULE_CHARS = 200;
 /** Leaves room in a host's 65,536-character review for findings that have no line to sit on. */
 export const REVIEW_POST_MAX_OVERALL_COMMENT_CHARS = 10_000;
 
+/** How thorough an agent review is: one pass, several agents, or a security audit. */
+export const AgentReviewMode = Schema.Literals(["quick", "deep", "security"]);
+export type AgentReviewMode = typeof AgentReviewMode.Type;
+
 export const ReviewFindingSeverity = Schema.Literals(["blocker", "important", "nit", "question"]);
 export type ReviewFindingSeverity = typeof ReviewFindingSeverity.Type;
 
@@ -113,6 +117,26 @@ export type ReviewFindingsMode = typeof ReviewFindingsMode.Type;
 export const ReviewCommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{7,64}$/i));
 export type ReviewCommitSha = typeof ReviewCommitSha.Type;
 
+/** A git ref a review of local changes diffs against, as the reader names it. */
+export const ReviewBaseRef = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(200),
+  Schema.isPattern(/^[A-Za-z0-9._/@{}^~-]+$/),
+  Schema.makeFilter((ref) => !ref.startsWith("-") || "A ref cannot start with a dash."),
+);
+
+/**
+ * What a review of local changes reads: the uncommitted changes, the branch against a base (its
+ * remote's default branch when none is named), or one commit. Absent: the uncommitted changes, or
+ * the branch when there are none, as the reviewer finds them. Only for servers advertising
+ * `localAgentReviewScope`; older ones ignore it and review the default.
+ */
+export const LocalReviewScope = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("uncommitted") }),
+  Schema.Struct({ kind: Schema.Literal("branch"), base: Schema.optional(ReviewBaseRef) }),
+  Schema.Struct({ kind: Schema.Literal("commit"), sha: ReviewCommitSha }),
+]);
+export type LocalReviewScope = typeof LocalReviewScope.Type;
+
 /**
  * Which earlier findings a re-review starts from, as the reader's client names them: the review
  * thread and its findings activity. The server reads the rest, the commit included, itself.
@@ -157,6 +181,11 @@ export const ReviewFindingsActivityPayload = Schema.Struct({
   basedOn: Schema.optional(ReviewBasedOn),
   /** How the earlier findings fared, as the re-review reported it. */
   previous: Schema.optional(ReviewPreviousSummary),
+  /**
+   * false: the findings verified so far, sent while the review goes on; a later set replaces
+   * them. Absent on findings from before it existed, which were always the final set.
+   */
+  complete: Schema.optional(Schema.Boolean),
 });
 export type ReviewFindingsActivityPayload = typeof ReviewFindingsActivityPayload.Type;
 
@@ -239,6 +268,14 @@ export type ReviewStartFixThreadResult = typeof ReviewStartFixThreadResult.Type;
 export const REVIEW_STARTED_ACTIVITY_KIND = "viewcode.review.started";
 
 export const ReviewStartedActivityPayload = Schema.Struct({
+  /**
+   * What was asked for, so clients tell a review thread from others and can start it again.
+   * Absent on reviews from before it was recorded.
+   */
+  mode: Schema.optional(AgentReviewMode),
+  focus: Schema.optional(Schema.String),
+  /** What a review of local changes was asked to read. */
+  scope: Schema.optional(LocalReviewScope),
   headSha: Schema.optional(ReviewCommitSha),
   incremental: Schema.optional(Schema.Boolean),
   basedOn: Schema.optional(ReviewBasedOn),

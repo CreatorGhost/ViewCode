@@ -36,16 +36,3 @@ export function projectColorsUsedElsewhere(
   }
   return used;
 }
-
-/** Each project's colour by `environmentId:projectId`, for surfaces that mix projects (tabs). */
-export function buildProjectColorLookup(
-  projects: ReadonlyArray<ColoredProject & { readonly environmentId: string; readonly id: string }>,
-): ReadonlyMap<string, ProjectIconColor> {
-  const lookup = new Map<string, ProjectIconColor>();
-  for (const project of projects) {
-    if (project.projectColor != null) {
-      lookup.set(`${project.environmentId}:${project.id}`, project.projectColor);
-    }
-  }
-  return lookup;
-}

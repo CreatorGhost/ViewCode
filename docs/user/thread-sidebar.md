@@ -13,6 +13,10 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
+The **New** menu at the top of the sidebar starts a **New chat** (Shift-click it to start in
+the current project), a **New folder** (a new Git project from a name, on servers set up for
+that), or **Add project** for an existing folder or a clone.
+
 ### Start without a project
 
 A thread does not need a project. To start one without a project, click **or
@@ -47,7 +51,9 @@ On web and desktop, a slim rail at the far left stays visible even when the thre
 is collapsed. Its top lists your projects: click one to show only its threads in the sidebar
 and open your work there (the thread you last viewed in it, else its most recent thread, else a
 new thread). Picking a project from the sidebar's project menu does the same. Click **All
-projects** to show everything again. An amber count marks a project with
+projects** to show everything again. While one project with a colour is shown, the rail,
+the sidebar, the open thread's row and the composer's glow take on that colour; turn this off
+in **Settings → Appearance → Project colour**. An amber count marks a project with
 threads waiting for your approval or input, and a small dot one with threads working. Its
 bottom holds one ring per enabled provider account in the environment of the open thread
 (your local environment when no thread is open). A ring shows how much of that
@@ -118,10 +124,12 @@ On web and desktop, the list also animates section changes made with thread acti
 preference. While dragging, rows follow the insertion gap without replaying a second transition
 after the drop.
 
-New threads appear above the active threads you have arranged. Settling clears a thread's active
-position, so using **Un-settle** returns it to the top. Pinning and snoozing preserve its active
-position until you move it again. Thread activity does not change the order. The settled shelf
-continues to use settlement time.
+New threads appear above the active threads you have arranged. Until you arrange the list, a
+thread you send a message to also moves to the top; once you have dragged or moved threads, they
+keep the positions you gave them. Settling clears a thread's active position, so using
+**Un-settle** returns it to the top. Pinning and snoozing preserve its active position until you
+move it again. An agent working in a thread does not change the order. The settled shelf continues
+to use settlement time.
 
 If dragging is unavailable for one environment, update the T3 Code server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
@@ -156,10 +164,21 @@ Threads waiting on your approval or input gather under **Needs you · N** at the
 project, together with their lead thread and its other agents, and return to their usual place
 once you answer. Pinned threads stay in the pinned list.
 
-Child agents fold under their lead thread, which shows how many there are and how many are
-working. They open while you are in that thread or one of its agents, and when an agent needs
-your approval or input; moving to another thread folds them again. Click the count to open or
-close them yourself.
+Child agents fold under their lead thread, which shows how many are working, need you, failed
+or are done. They open while you are in that thread or one of its agents, and when an agent
+needs your approval or input; moving to another thread folds them again. Click the counts to
+open or close them yourself. An open thread lists its agents under **Working**, **Needs you**
+and **Failed**, newest first, with finished ones folded under **Done (N)**; each shows how long
+it has run, what it is waiting for, or when it finished.
+
+To order a project's threads and agents differently, open the project's menu and choose **Sort
+chats and agents**: **Status** (the default, described above), **Recent** (latest activity
+first) or **Name**. The sidebar remembers the choice per project. On mobile, long-press the
+project's header to pick one.
+
+Under the search field, a row counts the threads and agents that **need you**, are
+**working**, or finished since you last opened them (**new**). Click one to show only those, with
+the threads they belong to, and **Clear** to show everything again.
 
 To keep one thread out of the settled shelf no matter how long it sits idle, open its menu,
 choose **Auto-settle behavior**, and pick **Disabled**. The current option is checked. Pick
@@ -191,7 +210,8 @@ To search one project, hover its folder in the sidebar and choose the search ico
 narrows that project's threads, including settled threads and child agents, by title, pull
 request, or message text, and opens the Settled row when a match is inside it. Press `Escape`
 or the close button to clear the search. The search field at the top of the sidebar still
-searches every project, settled threads included.
+searches every project, settled threads included, and the shortcut at its end opens the
+command palette.
 
 On web and desktop, open the command palette with `Cmd/Ctrl+K` to search threads
 across connected environments. Message search starts after two characters and

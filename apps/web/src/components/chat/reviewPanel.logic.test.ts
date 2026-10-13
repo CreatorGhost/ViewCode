@@ -1,10 +1,16 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { reviewFindingEntries } from "@t3tools/client-runtime/review-findings";
+import { reviewFindingEntries, reviewIssueOrder } from "@t3tools/client-runtime/review-findings";
 import { describe, expect, it } from "vite-plus/test";
 
 import { reviewCommentContextReference } from "../../lib/composerContextRecords";
 import { formatInlineContextReference } from "../../lib/composerContextReferences";
-import { placeReviewFindings, reviewFindingsFixPrompt } from "./reviewPanel.logic";
+import {
+  firstFindingToReveal,
+  placeReviewFindings,
+  reviewFileCollapsed,
+  reviewFindingsFixPrompt,
+  revealFirstAgain,
+} from "./reviewPanel.logic";
 
 describe("placeReviewFindings", () => {
   // Only the hunk ranges matter here; the viewer fills the rest in when it renders.
@@ -46,6 +52,16 @@ describe("placeReviewFindings", () => {
     });
     const { general, placed } = placeReviewFindings(entries, files);
     expect(general.map((entry) => entry.key)).toEqual(["finding:3", "finding:4", "finding:5"]);
+    // All nits here: General first, then the diff in reading order.
+    expect(reviewIssueOrder(general, placed)).toEqual([
+      "finding:3",
+      "finding:4",
+      "finding:5",
+      "check:0",
+      "finding:2",
+      "finding:1",
+      "finding:0",
+    ]);
     expect(
       placed.map(({ entry, fileKey, startLine, lineNumber }) => [
         entry.key,
@@ -105,8 +121,9 @@ describe("reviewFindingsFixPrompt", () => {
       [
         `Verify this issue exists and fix it: ${chip}`,
         "**Stale label**",
-        "The label keeps the old count.",
+        // The fix comes before the detail, so the folded message shows it.
         "Suggested fix:\n\n```ts\nconst label = String(count);\n```",
+        "The label keeps the old count.",
       ].join("\n\n"),
     );
   });
@@ -119,5 +136,52 @@ describe("reviewFindingsFixPrompt", () => {
     expect(prompt).toContain("1. [a.ts L12 to L14]");
     expect(prompt).toContain("2. [README.md file](t3-context://v1/review-comment/");
     expect(prompt).toContain("The reviewer could not settle this one.");
+  });
+});
+
+describe("firstFindingToReveal", () => {
+  const order = ["check:0", "finding:1"] as const;
+  it("goes to the first finding once the change is read, once, unless the reader scrolled", () => {
+    const reveal = (input: Partial<Parameters<typeof firstFindingToReveal>[0]>) =>
+      firstFindingToReveal({
+        order,
+        diffPending: false,
+        revealed: false,
+        readerScrolled: false,
+        ...input,
+      });
+    expect(reveal({})).toBe("check:0");
+    expect(reveal({ diffPending: true })).toBeNull();
+    expect(reveal({ revealed: true })).toBeNull();
+    expect(reveal({ readerScrolled: true })).toBeNull();
+    expect(reveal({ order: [] })).toBeNull();
+  });
+});
+
+describe("revealFirstAgain", () => {
+  it("goes to the new first issue only when the panel went to the last one on its own", () => {
+    const again = (input: Partial<Parameters<typeof revealFirstAgain>[0]>) =>
+      revealFirstAgain({
+        autoRevealed: true,
+        readerNavigated: false,
+        readerScrolled: false,
+        ...input,
+      });
+    expect(again({})).toBe(true);
+    // The reader stepped or scrolled: the counter follows what they chose instead.
+    expect(again({ readerNavigated: true })).toBe(false);
+    expect(again({ readerScrolled: true })).toBe(false);
+    expect(again({ autoRevealed: false })).toBe(false);
+  });
+});
+
+describe("reviewFileCollapsed", () => {
+  it("folds files without findings and opens those with, each until toggled", () => {
+    const withFindings = new Set(["a"]);
+    expect(reviewFileCollapsed("a", withFindings, new Set())).toBe(false);
+    expect(reviewFileCollapsed("b", withFindings, new Set())).toBe(true);
+    // Show all files toggles every file without findings open.
+    expect(reviewFileCollapsed("b", withFindings, new Set(["b"]))).toBe(false);
+    expect(reviewFileCollapsed("a", withFindings, new Set(["a"]))).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { MOBILE_PALETTE_UNIWIND_THEME_NAMES } from "./mobileTheme";
 import {
   createMobileThemeRuntimeOperations,
   getMobileUniwindThemeName,
@@ -20,6 +21,7 @@ describe("mobileThemeRuntime", () => {
 
   it("maps custom palettes and appearances to registered themes", () => {
     expect(getMobileUniwindThemeName("t3-chat", "dark")).toBe("t3-chat-dark");
+    expect(getMobileUniwindThemeName("viewcode-teal", "light")).toBe("viewcode-teal-light");
   });
 
   it("hydrates text variables and clears the native appearance override", () => {
@@ -28,8 +30,11 @@ describe("mobileThemeRuntime", () => {
       (operation) => operation.kind === "update-text-variables",
     );
 
-    expect(variableOperations).toHaveLength(14);
-    expect(variableOperations.at(-1)?.themeName).toBe("instrument-dark");
+    expect(variableOperations.map((operation) => operation.themeName)).toEqual([
+      "light",
+      "dark",
+      ...MOBILE_PALETTE_UNIWIND_THEME_NAMES,
+    ]);
     expect(operations.at(-1)).toEqual({
       kind: "set-appearance-mode",
       appearance: "light",
@@ -68,11 +73,11 @@ describe("mobileThemeRuntime", () => {
       baseFontSize: 18,
     });
 
-    expect(operations).toHaveLength(14);
+    expect(operations).toHaveLength(2 + MOBILE_PALETTE_UNIWIND_THEME_NAMES.length);
     expect(operations.every((operation) => operation.kind === "update-text-variables")).toBe(true);
     expect(operations.at(-1)).toMatchObject({
       kind: "update-text-variables",
-      themeName: "instrument-dark",
+      themeName: "viewcode-matrix-dark",
     });
   });
 

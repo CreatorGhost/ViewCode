@@ -1089,7 +1089,16 @@ export const makeDriverCore = (api: Xa11yApi, options: DriverCoreOptions) => {
       if (errorName(error) === "PermissionDeniedError") {
         return { available: true, accessibility: "denied", reason: STATUS_MESSAGES.denied };
       }
-      return { available: false, accessibility: "unknown", reason: STATUS_MESSAGES.unavailable };
+      // Name what failed, so "not available" is something the reader can act on.
+      const detail =
+        error instanceof Error && error.message
+          ? `${error.name}: ${error.message}`
+          : errorName(error);
+      return {
+        available: false,
+        accessibility: "unknown",
+        reason: `${STATUS_MESSAGES.unavailable} (${detail.slice(0, 160)})`,
+      };
     }
   };
 

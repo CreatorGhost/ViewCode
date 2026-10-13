@@ -96,6 +96,8 @@ import {
   ReviewDiffPreviewError,
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
+  ReviewListCommitsInput,
+  ReviewListCommitsResult,
 } from "./review.ts";
 import {
   LearnedReviewStyle,
@@ -204,6 +206,9 @@ import {
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
+  ProjectListIconCandidatesError,
+  ProjectListIconCandidatesInput,
+  ProjectListIconCandidatesResult,
   ProjectWriteFileError,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
@@ -304,7 +309,6 @@ import {
   ViewCodeRelaySetupError,
   ViewCodeRelaySetupStartInput,
 } from "./remoteAccess.ts";
-import { ChooseProvidersInput, DetectProvidersResult } from "./providerChoice.ts";
 import {
   AgentControlError,
   AgentControlInput,
@@ -349,6 +353,7 @@ export const WS_METHODS = {
   projectsReadFile: "projects.readFile",
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
+  projectsListIconCandidates: "projects.listIconCandidates",
   projectsWriteFile: "projects.writeFile",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
@@ -403,6 +408,7 @@ export const WS_METHODS = {
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
+  reviewListCommits: "review.listCommits",
   reviewStartFixThread: "review.startFixThread",
   reviewStartLocal: "review.startLocal",
   reviewPostFindings: "review.postFindings",
@@ -458,8 +464,6 @@ export const WS_METHODS = {
   serverRemoveKeybinding: "server.removeKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
-  serverDetectProviders: "server.detectProviders",
-  serverChooseProviders: "server.chooseProviders",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
@@ -768,20 +772,6 @@ const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
 
 const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
   payload: Schema.Struct({ patch: ServerSettingsPatch }),
-  success: ServerSettings,
-  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
-});
-
-// ViewCode: filesystem-only lookup of every built-in provider CLI.
-const WsServerDetectProvidersRpc = Rpc.make(WS_METHODS.serverDetectProviders, {
-  payload: Schema.Struct({}),
-  success: DetectProvidersResult,
-  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
-});
-
-// ViewCode: enable exactly these providers and lift the first-run gate.
-const WsServerChooseProvidersRpc = Rpc.make(WS_METHODS.serverChooseProviders, {
-  payload: ChooseProvidersInput,
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
@@ -1232,6 +1222,12 @@ const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   error: Schema.Union([ProjectSearchEntriesError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsListIconCandidatesRpc = Rpc.make(WS_METHODS.projectsListIconCandidates, {
+  payload: ProjectListIconCandidatesInput,
+  success: ProjectListIconCandidatesResult,
+  error: Schema.Union([ProjectListIconCandidatesError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsSearchContentsRpc = Rpc.make(WS_METHODS.projectsSearchContents, {
   payload: ProjectSearchContentsInput,
   success: ProjectSearchContentsResult,
@@ -1431,6 +1427,13 @@ const WsReviewGetDiffPreviewRpc = Rpc.make(WS_METHODS.reviewGetDiffPreview, {
 const WsReviewGetDiffFileContentsRpc = Rpc.make(WS_METHODS.reviewGetDiffFileContents, {
   payload: ReviewDiffFileContentsInput,
   success: ReviewDiffFileContentsResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
+/** Only send to environments advertising `localAgentReviewScope`. */
+const WsReviewListCommitsRpc = Rpc.make(WS_METHODS.reviewListCommits, {
+  payload: ReviewListCommitsInput,
+  success: ReviewListCommitsResult,
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
@@ -1803,8 +1806,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRemoveKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
-  WsServerDetectProvidersRpc,
-  WsServerChooseProvidersRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,
@@ -1877,6 +1878,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
+  WsProjectsListIconCandidatesRpc,
   WsProjectsEnsureScratchRpc,
   WsProjectsCreateNewRpc,
   WsProjectsWriteFileRpc,
@@ -1905,6 +1907,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
+  WsReviewListCommitsRpc,
   WsReviewStartFixThreadRpc,
   WsReviewStartLocalRpc,
   WsReviewRateFindingRpc,

@@ -40,6 +40,11 @@ export interface McpProviderSessionConfig {
    * stdio bridge instead of dialing `endpoint`, which no one listens on.
    */
   readonly stdio?: McpStdioLaunch;
+  /**
+   * Set on a TCP listener: the stdio bridge dialing `endpoint`, for agents
+   * that take only stdio MCP servers (see `acpStdioMcpServerConfig`).
+   */
+  readonly stdioBridge?: McpStdioLaunch;
   /** Capabilities the credential grants ("preview", "device", "computer"). */
   readonly capabilities: ReadonlySet<string>;
   /**
@@ -121,10 +126,17 @@ export const MCP_SERVER_NAME = "viewcode";
 
 type McpTransportConfig = Pick<
   McpProviderSessionConfig,
-  "endpoint" | "authorizationHeader" | "stdio"
+  "endpoint" | "authorizationHeader" | "stdio" | "stdioBridge"
 >;
 
-/** Claude Agent SDK `mcpServers` entry. */
+// The SDK passes `mcpServers` to the CLI as an inline `--mcp-config` argument,
+// and process arguments are readable by every local user. The credential
+// therefore travels in the child's environment (`claudeMcpEnvironment`), which
+// only its owner can read, and the CLI expands the `${VAR}` reference when it
+// connects.
+const CLAUDE_MCP_AUTHORIZATION_ENV = "T3_CODE_MCP_AUTHORIZATION";
+
+/** Claude Agent SDK `mcpServers` entry. Pair it with `claudeMcpEnvironment`. */
 export function claudeMcpServerConfig(config: McpTransportConfig) {
   return config.stdio
     ? {
@@ -136,8 +148,13 @@ export function claudeMcpServerConfig(config: McpTransportConfig) {
     : {
         type: "http" as const,
         url: config.endpoint,
-        headers: { Authorization: config.authorizationHeader },
+        headers: { Authorization: `\${${CLAUDE_MCP_AUTHORIZATION_ENV}}` },
       };
+}
+
+/** Environment the Claude CLI needs to expand `claudeMcpServerConfig`'s credential. */
+export function claudeMcpEnvironment(config: McpTransportConfig): Record<string, string> {
+  return config.stdio ? {} : { [CLAUDE_MCP_AUTHORIZATION_ENV]: config.authorizationHeader };
 }
 
 /** ACP `session/new` `mcpServers` entry (Cursor, Grok, Antigravity). */
@@ -155,6 +172,17 @@ export function acpMcpServerConfig(config: McpTransportConfig): EffectAcpSchema.
         url: config.endpoint,
         headers: [{ name: "Authorization", value: config.authorizationHeader }],
       };
+}
+
+/**
+ * ACP `mcpServers` entry for agents that take only stdio servers, whatever
+ * they advertise (Droid, Devin): the stdio bridge on either listener.
+ */
+export function acpStdioMcpServerConfig(
+  config: McpTransportConfig,
+): EffectAcpSchema.McpServer | undefined {
+  const launch = config.stdio ?? config.stdioBridge;
+  return launch ? acpMcpServerConfig({ ...config, stdio: launch }) : undefined;
 }
 
 /** OpenCode `mcp.add` config. */

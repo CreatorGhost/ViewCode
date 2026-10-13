@@ -534,6 +534,10 @@ export const ClientSettingsSchema = Schema.Struct({
   collapseFinishedTurns: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // ViewCode: the chat top bar's project actions and Git buttons (off keeps it quiet).
   headerActionsVisible: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // ViewCode: the sidebar and composer glow take the active project's colour (off: theme accent).
+  projectColorTint: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // ViewCode: the glow around the composer while a turn runs.
+  composerGlow: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // ViewCode: read aloud voice (null is the default natural voice) and speed.
   readAloudVoice: Schema.NullOr(ReadAloudVoice).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -980,6 +984,81 @@ export const CommandCodeSettings = makeProviderSettingsSchema(
 );
 export type CommandCodeSettings = typeof CommandCodeSettings.Type;
 
+export const DroidSettings = makeProviderSettingsSchema(
+  {
+    // Off unless the server finds `droid` on PATH at startup (see serverSettings).
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("droid").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the Factory Droid CLI (`droid`).",
+        providerSettingsForm: { placeholder: "droid", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(CustomModelSetting).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath"],
+  },
+);
+export type DroidSettings = typeof DroidSettings.Type;
+
+export const DevinSettings = makeProviderSettingsSchema(
+  {
+    // Off unless the server finds `devin` on PATH at startup (see serverSettings).
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("devin").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the Devin CLI (`devin`).",
+        providerSettingsForm: { placeholder: "devin", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(CustomModelSetting).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath"],
+  },
+);
+export type DevinSettings = typeof DevinSettings.Type;
+
+export const PiSettings = makeProviderSettingsSchema(
+  {
+    // Off unless the server finds `pi` on PATH at startup (see serverSettings).
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("pi").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the Pi coding agent (`pi`).",
+        providerSettingsForm: { placeholder: "pi", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(CustomModelSetting).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath"],
+  },
+);
+export type PiSettings = typeof PiSettings.Type;
+
 /**
  * A read-only quota source outside this environment's provider CLIs. The
  * only kind today is a CLIProxyAPI hub, whose management API reports the
@@ -1193,9 +1272,6 @@ export const StorageCleanupSettings = Schema.Struct({
   logsAfterDays: StorageRetentionDays.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
-
-export const ProviderSelectionState = Schema.Literals(["pending", "chosen"]);
-export type ProviderSelectionState = typeof ProviderSelectionState.Type;
 
 export const ServerSettings = Schema.Struct({
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -1427,6 +1503,9 @@ export const ServerSettings = Schema.Struct({
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     antigravity: AntigravitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     commandCode: CommandCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    droid: DroidSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    devin: DevinSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    pi: PiSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
   // are `ProviderInstanceConfig` envelopes. The driver-specific config blob
@@ -1455,17 +1534,6 @@ export const ServerSettings = Schema.Struct({
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  /**
-   * ViewCode: whether the user has chosen which providers this environment
-   * may run. `"pending"` (a fresh install) means no provider is probed or
-   * launched until the choice is made (`server.chooseProviders`, or turning
-   * one on in Settings). Absent means the file predates the choice and needs
-   * migration: the server decides and persists it when settings load, so
-   * clients always see a value. Persisted explicitly because sparse settings
-   * files drop defaults. Server-side so a second browser or the phone cannot
-   * bypass it.
-   */
-  providerSelection: Schema.optionalKey(ProviderSelectionState),
   /**
    * ViewCode Quick connect: dial out to the user's own relay Worker so the
    * phone can reach this computer. `url` is the relay's https origin, written
@@ -1629,6 +1697,24 @@ const CommandCodeSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 
+const DroidSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
+});
+
+const DevinSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
+});
+
+const PiSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
+});
+
 const OpenCodeSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -1758,6 +1844,9 @@ export const ServerSettingsPatch = Schema.Struct({
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
       antigravity: Schema.optionalKey(AntigravitySettingsPatch),
       commandCode: Schema.optionalKey(CommandCodeSettingsPatch),
+      droid: Schema.optionalKey(DroidSettingsPatch),
+      devin: Schema.optionalKey(DevinSettingsPatch),
+      pi: Schema.optionalKey(PiSettingsPatch),
     }),
   ),
   // Whole-map replacement for the new instance config. Patching individual
@@ -1777,8 +1866,6 @@ export const ServerSettingsPatch = Schema.Struct({
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),
   ),
-  /** Closes a pending provider selection; prefer `server.chooseProviders`. */
-  providerSelection: Schema.optionalKey(Schema.Literal("chosen")),
   /**
    * Clients send only the switch. `url` is written by the server's Quick
    * connect setup (`null` clears it); the settings RPC drops it from clients.
@@ -1883,6 +1970,8 @@ export const ClientSettingsPatch = Schema.Struct({
   chatWidth: Schema.optionalKey(ChatWidth),
   collapseFinishedTurns: Schema.optionalKey(Schema.Boolean),
   headerActionsVisible: Schema.optionalKey(Schema.Boolean),
+  projectColorTint: Schema.optionalKey(Schema.Boolean),
+  composerGlow: Schema.optionalKey(Schema.Boolean),
   readAloudVoice: Schema.optionalKey(Schema.NullOr(ReadAloudVoice)),
   readAloudRate: Schema.optionalKey(ReadAloudRate),
 });

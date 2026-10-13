@@ -31,6 +31,12 @@ export function ComposerInlineControl(props: {
   readonly accessibilityLabel?: string;
   readonly disabled?: boolean;
   readonly emphasized?: boolean;
+  /** Draws the control as an accent-tinted pill (the thread composer's model chip). */
+  readonly filled?: boolean;
+  /** Smaller label and padding, for chips that share a crowded toolbar row. */
+  readonly dense?: boolean;
+  /** Warning colours the icon and label (the composer's Full access chip). */
+  readonly tone?: "warning";
   readonly icon?: ComponentProps<typeof SymbolView>["name"];
   readonly renderIcon?: (size: number) => ReactNode;
   readonly label: string;
@@ -42,19 +48,15 @@ export function ComposerInlineControl(props: {
   readonly showChevron?: boolean;
 }) {
   const { scale, smallIconSize } = useAndroidControlSizing();
-  return (
-    <Pressable
-      accessibilityLabel={props.accessibilityLabel ?? props.label}
-      accessibilityHint={props.accessibilityHint}
-      accessibilityRole={props.static ? undefined : "button"}
-      accessibilityState={
-        props.static ? undefined : { disabled: props.disabled, selected: props.selected }
-      }
-      className="h-11 flex-row items-center gap-2 rounded-xl px-2 active:bg-subtle"
-      disabled={props.disabled || props.static}
-      onPress={props.onPress}
-      style={{ maxWidth: props.maxWidth ?? 190, opacity: props.disabled ? 0.45 : 1 }}
-    >
+  const strong = props.emphasized || props.selected || props.filled;
+  const iconTintClassName =
+    props.tone === "warning"
+      ? "accent-warning-foreground"
+      : strong
+        ? "accent-icon"
+        : "accent-icon-muted";
+  const content = (
+    <>
       {props.renderIcon ? (
         <View
           className="size-4 shrink-0 items-center justify-center"
@@ -66,16 +68,19 @@ export function ComposerInlineControl(props: {
         <SymbolView
           name={props.icon}
           size={smallIconSize}
-          tintColorClassName={
-            props.emphasized || props.selected ? "accent-icon" : "accent-icon-muted"
-          }
+          tintColorClassName={iconTintClassName}
           type="monochrome"
         />
       ) : null}
       <Text
         className={cn(
-          "shrink text-sm font-t3-medium",
-          props.emphasized || props.selected ? "text-foreground" : "text-foreground-muted",
+          "shrink font-t3-medium",
+          props.filled || props.dense ? "text-xs" : "text-sm",
+          props.tone === "warning"
+            ? "text-warning-foreground"
+            : strong
+              ? "text-foreground"
+              : "text-foreground-muted",
         )}
         numberOfLines={1}
       >
@@ -85,11 +90,42 @@ export function ComposerInlineControl(props: {
         <SymbolView
           name={props.chevronDirection === "right" ? "chevron.right" : "chevron.down"}
           size={Math.round(10 * scale)}
-          tintColorClassName={
-            props.emphasized || props.selected ? "accent-icon" : "accent-icon-muted"
-          }
+          tintColorClassName={props.filled ? "accent-icon-muted" : iconTintClassName}
           type="monochrome"
         />
+      )}
+    </>
+  );
+  return (
+    <Pressable
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      accessibilityHint={props.accessibilityHint}
+      accessibilityRole={props.static ? undefined : "button"}
+      accessibilityState={
+        props.static ? undefined : { disabled: props.disabled, selected: props.selected }
+      }
+      className={
+        props.filled
+          ? "h-11 flex-row items-center px-0.5"
+          : cn(
+              "h-11 flex-row items-center rounded-xl active:bg-subtle",
+              props.dense ? "gap-1.5 px-1.5" : "gap-2 px-2",
+            )
+      }
+      disabled={props.disabled || props.static}
+      onPress={props.onPress}
+      style={({ pressed }) => ({
+        maxWidth: props.maxWidth ?? 190,
+        opacity: props.disabled ? 0.45 : props.filled && pressed ? 0.7 : 1,
+      })}
+    >
+      {props.filled ? (
+        // The pill is drawn inside the 44pt row so the touch target stays full height.
+        <View className="h-8 shrink flex-row items-center gap-1.5 rounded-full bg-focus/15 px-3">
+          {content}
+        </View>
+      ) : (
+        content
       )}
     </Pressable>
   );
@@ -233,7 +269,7 @@ export function ComposerActionButton(props: {
   readonly variant?: "primary" | "danger";
 }) {
   const { scale, smallIconSize } = useAndroidControlSizing();
-  const circleSize = Math.round(30 * scale);
+  const circleSize = Math.round(32 * scale);
   return (
     <Pressable
       accessibilityLabel={props.accessibilityLabel}
@@ -247,11 +283,12 @@ export function ComposerActionButton(props: {
         style={{ width: circleSize, height: circleSize }}
         className={cn(
           "items-center justify-center rounded-full",
+          // Send reads as web's: neutral grey with nothing to send, the foreground when ready.
           props.variant === "danger"
             ? "bg-danger"
             : props.disabled
-              ? "bg-primary/15"
-              : "bg-primary",
+              ? "bg-subtle-strong"
+              : "bg-foreground",
         )}
       >
         <SymbolView
@@ -259,7 +296,11 @@ export function ComposerActionButton(props: {
           size={smallIconSize}
           weight="semibold"
           tintColorClassName={
-            props.variant === "danger" ? "accent-danger-foreground" : "accent-primary-foreground"
+            props.variant === "danger"
+              ? "accent-danger-foreground"
+              : props.disabled
+                ? "accent-icon-subtle"
+                : "accent-screen"
           }
           type="monochrome"
         />

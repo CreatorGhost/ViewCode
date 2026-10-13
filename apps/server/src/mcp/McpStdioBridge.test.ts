@@ -205,13 +205,49 @@ describe("MCP stdio bridge", () => {
     expect(takeSseEvents(`${first.rest}wo\r\n\r\n`)).toEqual({ events: ["two"], rest: "" });
   });
 
-  it("reads the socket argument", () => {
+  it("reads the socket or URL argument", () => {
     expect(parseMcpStdioBridgeArgs(["--socket", "/tmp/a.sock"])).toEqual({
       socketPath: "/tmp/a.sock",
     });
     expect(parseMcpStdioBridgeArgs(["--socket=\\\\.\\pipe\\t3"])).toEqual({
       socketPath: "\\\\.\\pipe\\t3",
     });
+    expect(parseMcpStdioBridgeArgs(["--url", "http://127.0.0.1:3773/mcp"])).toEqual({
+      url: "http://127.0.0.1:3773/mcp",
+    });
+    // The bridge sends the credential, so it never dials anything but plain HTTP.
+    expect(parseMcpStdioBridgeArgs(["--url", "https://example.com/mcp"])).toHaveProperty("error");
     expect(parseMcpStdioBridgeArgs([])).toHaveProperty("error");
+  });
+
+  it("forwards to a loopback HTTP endpoint for stdio-only agents", async () => {
+    const seen: Array<{ url: string; authorization: string | undefined }> = [];
+    const server = NodeHttp.createServer((request, response) => {
+      seen.push({ url: request.url ?? "", authorization: request.headers.authorization });
+      request.resume();
+      request.on("end", () => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(`{"jsonrpc":"2.0","id":1,"result":{}}`);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const { port } = server.address() as { port: number };
+
+    const output = new NodeStream.PassThrough();
+    let written = "";
+    output.setEncoding("utf8");
+    output.on("data", (chunk: string) => (written += chunk));
+    await runMcpStdioBridge({
+      url: `http://127.0.0.1:${port}/mcp`,
+      token: "secret",
+      input: NodeStream.Readable.from([
+        `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })}\n`,
+      ]),
+      output,
+    });
+
+    expect(seen).toEqual([{ url: "/mcp", authorization: "Bearer secret" }]);
+    expect(JSON.parse(written.trim())).toMatchObject({ id: 1, result: {} });
   });
 });

@@ -901,25 +901,34 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   );
 
   it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
-    "turns Command Code on when cmd is on PATH without persisting the detected flag",
+    "turns a provider on when its CLI is on PATH without persisting the detected flag",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const binDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-command-code-path-" });
-        yield* fs.writeFileString(path.join(binDir, "cmd"), "#!/bin/sh\n");
-        yield* fs.chmod(path.join(binDir, "cmd"), 0o755);
+        const binDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-provider-cli-path-" });
+        const detected = { commandCode: "cmd", droid: "droid", devin: "devin", pi: "pi" } as const;
+        for (const binary of Object.values(detected)) {
+          yield* fs.writeFileString(path.join(binDir, binary), "#!/bin/sh\n");
+          yield* fs.chmod(path.join(binDir, binary), 0o755);
+        }
 
         yield* Effect.gen(function* () {
           const serverConfig = yield* ServerConfig.ServerConfig;
           const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
 
-          assert.isTrue((yield* serverSettings.getSettings).providers.commandCode.enabled);
+          const { providers } = yield* serverSettings.getSettings;
+          for (const provider of Object.keys(detected) as Array<keyof typeof detected>) {
+            assert.isTrue(providers[provider].enabled, provider);
+          }
           yield* serverSettings.updateSettings({ addProjectBaseDirectory: "~/Development" });
 
           const raw = yield* fs.readFileString(serverConfig.settingsPath);
           // @effect-diagnostics-next-line preferSchemaOverJson:off
-          assert.isUndefined(JSON.parse(raw).providers?.commandCode);
+          const persisted = JSON.parse(raw).providers ?? {};
+          for (const provider of Object.keys(detected)) {
+            assert.isUndefined(persisted[provider], provider);
+          }
         }).pipe(
           Effect.provide(makeServerSettingsLayer()),
           Effect.provideService(HostProcessEnvironment, { ...process.env, PATH: binDir }),
@@ -1137,8 +1146,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         automaticGitFetchInterval: 10_000,
         // A fresh install starts new threads in Auto, written so it stays decided.
         defaultRuntimeMode: "auto",
-        // ViewCode: a fresh environment waits for the first-run provider choice.
-        providerSelection: "pending",
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
@@ -1148,10 +1155,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverConfig = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      yield* fileSystem.writeFileString(
-        serverConfig.settingsPath,
-        '{"providerSelection":"chosen"}',
-      );
+      yield* fileSystem.writeFileString(serverConfig.settingsPath, "{}");
 
       const settings = yield* serverSettings.getSettings;
       assert.equal(settings.defaultRuntimeMode, "full-access");
@@ -1216,7 +1220,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
       const original =
-        '{"providerInstances":{"codex_personal":{"driver":"codex","environment":[{"name":"API_TOKEN","value":"inline-test-token","sensitive":true}],"config":{}}},"providerSelection":"chosen","defaultRuntimeMode":"full-access"}';
+        '{"providerInstances":{"codex_personal":{"driver":"codex","environment":[{"name":"API_TOKEN","value":"inline-test-token","sensitive":true}],"config":{}}},"defaultRuntimeMode":"full-access"}';
       yield* fs.writeFileString(config.settingsPath, original);
       const error = yield* Effect.flip(
         service.updateSettings({

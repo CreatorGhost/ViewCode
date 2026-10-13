@@ -5,21 +5,30 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import type {
-  ProviderInstanceId,
-  PushNotificationCategories,
-  SidebarProjectGroupingMode,
+import {
+  AgentReviewMode,
+  type ProviderInstanceId,
+  type PullRequestMergeMethod,
+  type PushNotificationCategories,
+  type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
-import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
+import {
+  normalizeMobileThemeId,
+  type MobileThemeId,
+  type MobileThemeMode,
+} from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
 
 const PREFERENCES_KEY = "t3code.preferences";
 const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
+const isAgentReviewMode = Schema.is(AgentReviewMode);
 
 export interface Preferences {
+  readonly pullRequestHideTestFiles?: boolean;
+  readonly pullRequestMergeMethod?: PullRequestMergeMethod;
   readonly liveActivitiesEnabled?: boolean;
   readonly themeId?: MobileThemeId;
   readonly lightThemeId?: MobileThemeId;
@@ -46,6 +55,8 @@ export interface Preferences {
   /** Fresh keys reset both shelves to collapsed when users update. */
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  /** How thorough Find issues reviews on this device, as last picked. */
+  readonly agentReviewMode?: AgentReviewMode;
   /**
    * Notifications sent by each connected computer through Expo push. Absent
    * until the user first touches the setting; read through
@@ -96,6 +107,8 @@ export class MobilePreferencesStore extends Context.Service<
 
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
+    pullRequestHideTestFiles?: boolean;
+    pullRequestMergeMethod?: PullRequestMergeMethod;
     liveActivitiesEnabled?: boolean;
     themeId?: MobileThemeId;
     lightThemeId?: MobileThemeId;
@@ -114,29 +127,35 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    agentReviewMode?: AgentReviewMode;
     directPush?: Preferences["directPush"];
   } = {};
+
+  if (typeof parsed.pullRequestHideTestFiles === "boolean") {
+    preferences.pullRequestHideTestFiles = parsed.pullRequestHideTestFiles;
+  }
+
+  if (
+    parsed.pullRequestMergeMethod === "squash" ||
+    parsed.pullRequestMergeMethod === "merge" ||
+    parsed.pullRequestMergeMethod === "rebase"
+  ) {
+    preferences.pullRequestMergeMethod = parsed.pullRequestMergeMethod;
+  }
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;
   }
-  if (
-    typeof parsed.themeId === "string" &&
-    (MOBILE_THEME_IDS as readonly string[]).includes(parsed.themeId)
-  ) {
-    preferences.themeId = parsed.themeId as MobileThemeId;
+  // A theme that no longer exists (Instrument, say) reads as the initial theme, not as no choice:
+  // an unset half would fall back to the other stored theme instead.
+  if (typeof parsed.themeId === "string") {
+    preferences.themeId = normalizeMobileThemeId(parsed.themeId);
   }
-  if (
-    typeof parsed.lightThemeId === "string" &&
-    (MOBILE_THEME_IDS as readonly string[]).includes(parsed.lightThemeId)
-  ) {
-    preferences.lightThemeId = parsed.lightThemeId as MobileThemeId;
+  if (typeof parsed.lightThemeId === "string") {
+    preferences.lightThemeId = normalizeMobileThemeId(parsed.lightThemeId);
   }
-  if (
-    typeof parsed.darkThemeId === "string" &&
-    (MOBILE_THEME_IDS as readonly string[]).includes(parsed.darkThemeId)
-  ) {
-    preferences.darkThemeId = parsed.darkThemeId as MobileThemeId;
+  if (typeof parsed.darkThemeId === "string") {
+    preferences.darkThemeId = normalizeMobileThemeId(parsed.darkThemeId);
   }
   if (
     parsed.themeMode === "system" ||
@@ -193,6 +212,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
+  }
+  if (isAgentReviewMode(parsed.agentReviewMode)) {
+    preferences.agentReviewMode = parsed.agentReviewMode;
   }
   if (
     typeof parsed.directPush === "object" &&

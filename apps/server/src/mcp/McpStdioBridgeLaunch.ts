@@ -3,22 +3,24 @@ import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 
 import type { McpStdioLaunch } from "./McpProviderSession.ts";
+import type { McpStdioBridgeTarget } from "./McpStdioBridge.ts";
 
 /**
- * The command a provider runs to reach `/mcp` over `socketPath`. Uses the
+ * The command a provider runs to reach `/mcp` at `target`. Uses the
  * server's own runtime: the npm bundle and the desktop app run the sibling
  * `mcp-stdio-bridge` script under this process's Node (Electron runs as Node
  * with `ELECTRON_RUN_AS_NODE`), and the single executable hosts the bridge as a
  * hidden subcommand of itself. The caller adds the credential to `env`.
  */
 export const resolveMcpStdioBridgeLaunch = Effect.fn("McpStdioBridge.resolveLaunch")(function* (
-  socketPath: string,
+  target: McpStdioBridgeTarget,
 ) {
-  const socketArgs = ["--socket", socketPath];
+  const targetArgs =
+    "socketPath" in target ? ["--socket", target.socketPath] : ["--url", target.url];
   if (yield* HostProcessIsExecutable) {
     return {
       command: process.execPath,
-      args: ["__mcp-stdio-bridge", ...socketArgs],
+      args: ["__mcp-stdio-bridge", ...targetArgs],
       env: {},
     } satisfies McpStdioLaunch;
   }
@@ -33,7 +35,7 @@ export const resolveMcpStdioBridgeLaunch = Effect.fn("McpStdioBridge.resolveLaun
     .pipe(Effect.orDie);
   return {
     command: process.execPath,
-    args: [scriptPath, ...socketArgs],
+    args: [scriptPath, ...targetArgs],
     env: { ELECTRON_RUN_AS_NODE: "1" },
   } satisfies McpStdioLaunch;
 });

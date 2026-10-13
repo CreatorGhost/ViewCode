@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { deriveProjectIdentity } from "../../projectIdentity";
 import { ProjectMonogram } from "../ProjectMonogram";
 import {
@@ -29,6 +30,7 @@ import {
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { ProjectLogoChoices } from "./ProjectLogoChoices";
 
 const DEFAULT_ICON: IconName = "folder-code";
 const isMonogramText = Schema.is(ProjectMonogramText);
@@ -46,12 +48,20 @@ export function ProjectIconPickerDialog({
   open,
   onOpenChange,
   onSelect,
+  logos,
 }: {
   readonly current: ProjectIconOverride | null;
   readonly projectName: string;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly onSelect: (icon: ProjectIconOverride) => void;
+  /** Offers the project's own logos above the icon choices; picking one applies at once. */
+  readonly logos?: {
+    readonly environmentId: EnvironmentId;
+    readonly cwd: string;
+    readonly savedPath: string | null;
+    readonly onSelect: (path: string) => void;
+  };
 }) {
   const automatic = deriveProjectIdentity(projectName);
   const [mode, setMode] = useState<ProjectIconOverride["kind"]>(current?.kind ?? "lucide");
@@ -103,9 +113,26 @@ export function ProjectIconPickerDialog({
       <DialogPopup className="w-full sm:w-[32rem]">
         <DialogHeader>
           <DialogTitle>Choose project icon</DialogTitle>
-          <DialogDescription>Choose an icon, emoji, or monogram.</DialogDescription>
+          <DialogDescription>
+            {logos
+              ? "Use a logo from the project, or choose an icon, emoji, or monogram."
+              : "Choose an icon, emoji, or monogram."}
+          </DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex min-h-0 flex-col">
+          {logos ? (
+            <ProjectLogoChoices
+              environmentId={logos.environmentId}
+              cwd={logos.cwd}
+              projectName={projectName}
+              showsLogo={current === null}
+              savedPath={logos.savedPath}
+              onSelect={(path) => {
+                logos.onSelect(path);
+                onOpenChange(false);
+              }}
+            />
+          ) : null}
           <ToggleGroup
             aria-label="Icon type"
             variant="segmented"

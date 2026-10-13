@@ -15,6 +15,7 @@
 - [Visual replies](./user/html-renders.md)
 - [Import browser sessions](./user/browser-import.md)
 - [Agent browser](./user/agent-browser.md)
+- [Use ViewCode as your default browser](./user/default-browser.md)
 - [Devices](./user/devices.md)
 - [Computer use](./user/computer-use.md)
 - [Usage and limits](./user/usage.md)
@@ -23,7 +24,7 @@
 - [ViewCode Android app](./user/android-app.md)
 - [Running in the background](./user/background-service.md)
 - [Updating T3 Code](./user/updating.md)
-- Provider guides: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md) · [OpenCode](./user/providers-opencode.md) · [Antigravity](./user/providers-antigravity.md)
+- Provider guides: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md) · [OpenCode](./user/providers-opencode.md) · [Antigravity](./user/providers-antigravity.md) · [Droid](./user/providers-droid.md) · [Devin](./user/providers-devin.md) · [Pi](./user/providers-pi.md)
 
 ---
 

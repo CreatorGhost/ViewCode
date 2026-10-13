@@ -1,5 +1,12 @@
 # Running ViewCode on a managed (EDR-protected) Mac
 
+> **ViewCode no longer targets managed machines.** Three defaults that existed
+> only for this laptop were lifted: the first-run provider gate (installed
+> providers are probed at boot again), the click-only Same Wi-Fi test (it runs
+> when Connect phone opens) and Tailscale Serve being off at launch (now on when
+> Tailscale is signed in). What respects an organisation's policy files stays.
+> The report below is kept as a record.
+
 Field report from a locked-down company laptop, checked against ViewCode's
 source. Specifics that identify the machine, user or tenant (names, prevention
 IDs) are deliberately left out; keep it that way, this repository is public.
@@ -34,9 +41,9 @@ the corporate network. The measurements were made on upstream T3 Code at
 | Behaviour                                                                                            | Where                                                                                                                                                                                  | ViewCode status                                                                                                                                                                                                                                |
 | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Interactive login shell (`$SHELL -ilc`) to read `PATH`, run twice per launch (desktop main + server) | `packages/shared/src/shell.ts` (`-ilc`), `apps/server/src/os-jank.ts` (`hydratePosixPath`), desktop `app/DesktopApp.ts`                                                                | Same as upstream. ~1s each on the critical path. Not the EDR trigger                                                                                                                                                                           |
-| Every provider probed concurrently                                                                   | `apps/server/src/provider/Layers/ProviderRegistry.ts` (`loadProviders`, `concurrency: "unbounded"`); more in `providerSnapshot.ts`, `providerMaintenanceRunner.ts`, `CodexProvider.ts` | Only enabled instances after provider selection; pending selection blocks probes, including Command Code (`cmd`)                                                                                                                               |
+| Every provider probed concurrently                                                                   | `apps/server/src/provider/Layers/ProviderRegistry.ts` (`loadProviders`, `concurrency: "unbounded"`); more in `providerSnapshot.ts`, `providerMaintenanceRunner.ts`, `CodexProvider.ts` | Only enabled instances; installed default-on providers are probed at boot, as upstream                                                                                                                                                         |
 | Providers that aren't installed are still exec'd                                                     | per-driver health checks                                                                                                                                                               | The launch guard resolves the executable first and refuses to spawn a missing binary                                                                                                                                                           |
-| Turning a provider off                                                                               | Settings → Providers → switch on each card (`ProviderInstanceCard.tsx`, writes `instance.enabled`; server `resolveEntryEnabled` makes an explicit `false` win)                         | The card switch controls each instance. Fresh environments require a provider choice before probing; managed setup records that choice explicitly                                                                                              |
+| Turning a provider off                                                                               | Settings → Providers → switch on each card (`ProviderInstanceCard.tsx`, writes `instance.enabled`; server `resolveEntryEnabled` makes an explicit `false` win)                         | The card switch controls each instance; `./build.sh --managed` writes the switches before first launch                                                                                                                                         |
 | TCP listener on `127.0.0.1:3773`                                                                     | server                                                                                                                                                                                 | **Not in ViewCode desktop by default**: it listens on a Unix socket (`socketListener.ts`). Only with Settings → Connections → Network access on, or `./build.sh --web`                                                                         |
 | Telemetry                                                                                            | `apps/server/src/telemetry/AnalyticsService.ts`                                                                                                                                        | **Off by default in ViewCode.** But `getTelemetryIdentifier` still runs at service construction regardless, reading `~/.codex/auth.json` and `~/.claude.json` to hash an id (`Identify.ts`). Credential files are read even with telemetry off |
 | Entitlements                                                                                         | `apps/desktop` packaging, `apps/server/resources/cli-entitlements.plist`                                                                                                               | Not re-checked here. Upstream grants `allow-unsigned-executable-memory`, `disable-library-validation` (app) and more for the CLI; only `allow-jit` is known to be required                                                                     |
@@ -96,7 +103,6 @@ exception, or touches the EDR.
 
    ```json
    {
-     "providerSelection": "chosen",
      "providers": {
        "codex": { "enabled": false },
        "claudeAgent": { "enabled": true },
@@ -110,9 +116,7 @@ exception, or touches the EDR.
    ```
 
    Keys: `codex`, `claudeAgent`, `cursor`, `grok`, `opencode`, `antigravity`,
-   `commandCode` (`providers` in `packages/contracts/src/settings.ts`). The
-   explicit `providerSelection` marker records this operator's choice; enabled
-   flags alone are not proof that someone chose them. Leave
+   `commandCode` (`providers` in `packages/contracts/src/settings.ts`). Leave
    on only what is installed and allowed; `opencode` is ad-hoc signed and the
    prime suspect.
 

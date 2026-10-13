@@ -55,6 +55,7 @@ import {
   type ProjectFileFailure,
   type ProjectFileOperation,
   ProjectListEntriesError,
+  ProjectListIconCandidatesError,
   ProjectReadFileError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
@@ -126,13 +127,7 @@ import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner
 import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
-import { AntigravityInstallation } from "./provider/AntigravityInstallation.ts";
 import { VoiceModelStore } from "./voiceModels/VoiceModelStore.ts";
-import { detectProviders } from "./provider/providerLaunch.ts";
-import {
-  isProviderSelectionPending,
-  makeChooseProvidersPatch,
-} from "./provider/providerSelection.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -153,6 +148,7 @@ import { issueAssetUrl } from "./assets/AssetAccess.ts";
 import { deletePendingAttachment, issueAttachmentUploadUrl } from "./assets/AttachmentUpload.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
+import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
@@ -176,6 +172,7 @@ import {
   listImportableAgentSessions,
 } from "./project/AgentSessionImporter.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
+import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
@@ -598,6 +595,7 @@ const makeWsRpcLayer = (
       const viewCodeRelaySetup = yield* ViewCodeRelaySetup.ViewCodeRelaySetup;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
+      const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
@@ -618,7 +616,6 @@ const makeWsRpcLayer = (
       const providerAuth = yield* ProviderAuthService;
       const providerInstances = yield* ProviderInstanceRegistry;
       const providerInstallation = yield* makeProviderInstallation();
-      const antigravityInstallation = yield* AntigravityInstallation;
       const voiceModels = yield* VoiceModelStore;
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
@@ -626,6 +623,7 @@ const makeWsRpcLayer = (
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+      const projectFaviconResolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const canReplayPersistedRange = Effect.fnUntraced(function* (
         afterSequence: number,
@@ -1496,6 +1494,17 @@ const makeWsRpcLayer = (
               // terminals and provider sessions under the reused thread id.
               createdThread = true;
               yield* threadDeletionReactor.drainThrough(created.sequence);
+              // A goal or debug mode picked on the draft applies from the first turn.
+              const { goal, debugMode } = bootstrap.createThread;
+              if (goal !== undefined || debugMode === true) {
+                yield* dispatchFromClient({
+                  type: "thread.meta.update",
+                  commandId: yield* serverCommandId("bootstrap-thread-goal"),
+                  threadId: command.threadId,
+                  ...(goal !== undefined ? { goal } : {}),
+                  ...(debugMode === true ? { debugMode } : {}),
+                });
+              }
               // Persist the send now rather than with the turn: the thread is
               // real from here on, so any client (or a reload) sees the message
               // while the worktree is still being prepared. The turn start
@@ -2153,6 +2162,7 @@ const makeWsRpcLayer = (
             remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
               remoteOpenTargets.resolveTargets(),
             ),
+            directEndpoints: yield* resolveAvailableEditorsForConfig(directEndpoints.resolve()),
             observability: {
               logsDirectoryPath: config.logsDir,
               localTracingEnabled: true,
@@ -3015,32 +3025,6 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
-        [WS_METHODS.serverDetectProviders]: (_input) =>
-          observeRpcEffect(
-            WS_METHODS.serverDetectProviders,
-            serverSettings.getSettings.pipe(
-              Effect.flatMap(detectProviders),
-              Effect.map((providers) => ({ providers })),
-              Effect.provideService(AntigravityInstallation, antigravityInstallation),
-            ),
-            { "rpc.aggregate": "server" },
-          ),
-        [WS_METHODS.serverChooseProviders]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverChooseProviders,
-            // An initial choice only: a closed selection is returned as is, so
-            // a stale onboarding screen cannot overwrite later changes. The
-            // settings change reconciles the registry, which probes the
-            // newly enabled instances once.
-            serverSettings.getSettings.pipe(
-              Effect.filterOrElse(
-                (current) => !isProviderSelectionPending(current),
-                () => serverSettings.updateSettings(makeChooseProvidersPatch(input.enabled)),
-              ),
-              Effect.map(ServerSettings.redactServerSettingsForClient),
-            ),
-            { "rpc.aggregate": "server" },
-          ),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverDiscoverSourceControl,
@@ -3218,6 +3202,7 @@ const makeWsRpcLayer = (
           findingsMode,
           incremental,
           basedOn,
+          sourceThreadId,
           ...reference
         }) =>
           observeRpcEffect(
@@ -3232,6 +3217,7 @@ const makeWsRpcLayer = (
                 findingsMode,
                 incremental,
                 basedOn,
+                sourceThreadId,
                 linkSource: "manual",
               }),
             ).pipe(
@@ -3594,6 +3580,17 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsListIconCandidates]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListIconCandidates,
+            projectFaviconResolver.listCandidates(input.cwd, input.projectName).pipe(
+              Effect.map((paths) => ({ paths })),
+              Effect.mapError(
+                (cause) => new ProjectListIconCandidatesError({ cwd: input.cwd, cause }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.projectsSearchContents]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchContents,
@@ -3768,11 +3765,19 @@ const makeWsRpcLayer = (
                 // A cloned project exists before its files do. Clients ask again
                 // when the clone lands (see createProjectFaviconUrlAtomFamily).
                 const clone = yield* projectCloneTracker.get(project.value.id);
+                // The saved path is authoritative, except that an icon picker may preview another
+                // image inside the project (ProjectFaviconResolver.listCandidates) by naming it
+                // relative to the root. Absolute paths only ever come from the saved project.
+                const requestedPath = input.resource.path;
+                const faviconPath =
+                  requestedPath &&
+                  !path.isAbsolute(requestedPath) &&
+                  !/^[a-z]:/i.test(requestedPath)
+                    ? requestedPath
+                    : project.value.faviconPath;
                 return yield* issueAssetUrl({
                   resource: input.resource,
-                  ...(project.value.faviconPath
-                    ? { projectFaviconPath: project.value.faviconPath }
-                    : {}),
+                  ...(faviconPath ? { projectFaviconPath: faviconPath } : {}),
                   projectCheckoutPending:
                     clone !== null &&
                     clone.phase !== "done" &&
@@ -3956,6 +3961,10 @@ const makeWsRpcLayer = (
           ),
         [WS_METHODS.reviewGetDiffPreview]: (input) =>
           observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
+            "rpc.aggregate": "review",
+          }),
+        [WS_METHODS.reviewListCommits]: (input) =>
+          observeRpcEffect(WS_METHODS.reviewListCommits, review.listCommits(input), {
             "rpc.aggregate": "review",
           }),
         [WS_METHODS.reviewGetDiffFileContents]: (input) =>

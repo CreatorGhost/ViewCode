@@ -44,8 +44,9 @@ export const AssetResource = Schema.Union([
   }),
   Schema.TaggedStruct("project-favicon", {
     cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
-    // A cache-key hint only. The server reads the authoritative path from the
-    // project projection before it issues the signed URL.
+    // The saved path is read from the project projection before the server issues the signed
+    // URL. A path relative to `cwd` is honoured, so an icon picker can preview other images in
+    // the project; an absolute one is only a cache-key hint.
     path: Schema.optional(ProjectFaviconPath),
   }),
   Schema.TaggedStruct("native-app-icon", {

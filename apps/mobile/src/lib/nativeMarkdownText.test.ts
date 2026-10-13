@@ -6,6 +6,7 @@ import {
   nativeMarkdownDocumentChunks,
   nativeMarkdownDocumentRuns,
   nativeMarkdownListItemBlocks,
+  nativeMarkdownPlainText,
   nativeMarkdownTextRuns,
   nativeMarkdownWithAuthoredWindowsPaths,
   nativeMarkdownWithPreservedSoftBreaks,
@@ -1340,5 +1341,89 @@ describe("pull request chip status", () => {
         sectionId: "pull-request:1",
       }).accent,
     ).toBe("#7079e4");
+  });
+});
+
+describe("nativeMarkdownPlainText", () => {
+  it("copies a drafted quote with its line breaks and list markers", () => {
+    const text = (content: string): MarkdownNode => ({ type: "text", content });
+    const quote: MarkdownNode = {
+      type: "blockquote",
+      children: [
+        {
+          type: "paragraph",
+          children: [
+            text("Hi "),
+            { type: "bold", children: [text("team")] },
+            { type: "soft_break" },
+            text("Quick update:"),
+          ],
+        },
+        {
+          type: "list",
+          ordered: true,
+          start: 1,
+          children: [
+            { type: "list_item", children: [{ type: "paragraph", children: [text("Shipped")] }] },
+            { type: "list_item", children: [{ type: "paragraph", children: [text("Next")] }] },
+          ],
+        },
+      ],
+    };
+    expect(nativeMarkdownPlainText(quote)).toBe("Hi team\nQuick update:\n\n1. Shipped\n2. Next");
+  });
+
+  it("keeps tight list lines, checklist state, tables, links and decoded text", () => {
+    const text = (content: string): MarkdownNode => ({ type: "text", content });
+    const cell = (content: string): MarkdownNode => ({
+      type: "table_cell",
+      children: [text(content)],
+    });
+    const quote: MarkdownNode = {
+      type: "blockquote",
+      children: [
+        {
+          type: "list",
+          children: [
+            // MD4C omits the paragraph wrapper inside tight lists.
+            {
+              type: "task_list_item",
+              checked: true,
+              children: [
+                text("Hello "),
+                { type: "bold", children: [text("team")] },
+                text(" today"),
+              ],
+            },
+            { type: "task_list_item", checked: false, children: [text("Pending")] },
+          ],
+        },
+        {
+          type: "table",
+          children: [
+            {
+              type: "table_head",
+              children: [{ type: "table_row", children: [cell("Name"), cell("Amount")] }],
+            },
+            {
+              type: "table_body",
+              children: [{ type: "table_row", children: [cell("Alice"), cell("100")] }],
+            },
+          ],
+        },
+        {
+          type: "paragraph",
+          children: [
+            text("AT&amp;T "),
+            { type: "html_inline", content: "<br>" },
+            text("See "),
+            { type: "link", href: "https://example.com/report", children: [text("the report")] },
+          ],
+        },
+      ],
+    };
+    expect(nativeMarkdownPlainText(quote)).toBe(
+      "☑ Hello team today\n☐ Pending\n\nName | Amount\nAlice | 100\n\nAT&T \nSee the report (https://example.com/report)",
+    );
   });
 });

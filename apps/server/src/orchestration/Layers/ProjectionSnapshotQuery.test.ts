@@ -31,6 +31,7 @@ import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { encodeThreadDetailPageCursor } from "../threadDetailCursor.ts";
 import { projectThreadDetailSnapshot } from "../ActivityPayloadProjection.ts";
+import { MAX_SETTLEMENT_AGENT_DEPTH } from "../ThreadSettlementPolicy.ts";
 import { readSweepSnapshot } from "../ThreadPullRequestReactor.ts";
 import { makeSqlStatementCounter } from "../../../integration/SqlStatementCounter.integration.ts";
 
@@ -3671,6 +3672,100 @@ it.effect(
       assert.deepStrictEqual(threads, expected);
       assert.strictEqual(counter.count(), 1);
       assert.deepStrictEqual(resolved, []);
+    }).pipe(Effect.provide(layer));
+  },
+);
+
+it.effect(
+  "reads narrow descendant settlement state without resolving projects, bounding cycles and pruning inactive subtrees",
+  () => {
+    const layer = OrchestrationProjectionSnapshotQueryLive.pipe(
+      Layer.provideMerge(ThreadBackgroundLiveness.layer),
+      Layer.provide(ThreadPlanProgress.layer),
+      Layer.provide(
+        Layer.succeed(RepositoryIdentityResolver.RepositoryIdentityResolver, {
+          resolve: () => Effect.die("descendant settlement must not resolve repository identities"),
+        }),
+      ),
+      Layer.provideMerge(SqlitePersistenceMemory),
+    );
+    return Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const query = yield* ProjectionSnapshotQuery;
+      const background = yield* ThreadBackgroundLiveness.ThreadBackgroundLivenessService;
+      const timestamp = "2026-09-01T00:00:00Z";
+      // These JSON fields deliberately cannot be decoded by a shell/project read.
+      yield* sql`INSERT INTO projection_projects(project_id, title, workspace_root, scripts_json, created_at, updated_at)
+      VALUES ('p', 'Project', '/project', 'invalid-json', ${timestamp}, ${timestamp})`;
+      const add = (id: string, parent: string | null) => sql`
+      INSERT INTO projection_threads(thread_id, parent_thread_id, project_id, title, model_selection_json,
+        runtime_mode, interaction_mode, created_at, updated_at)
+      VALUES (${id}, ${parent}, 'p', ${id}, 'invalid-json', 'full-access', 'default', ${timestamp}, ${timestamp})`;
+      yield* add("lead", null);
+      yield* add("idle", "lead");
+      yield* add("working", "idle");
+      yield* add("unrelated", null);
+      for (const boundary of ["settled", "archived", "sidechat", "deleted"] as const) {
+        yield* add(boundary, "lead");
+        yield* add(`${boundary}-child`, boundary);
+        if (boundary === "settled")
+          yield* sql`UPDATE projection_threads SET settled_override = 'settled', settled_at = ${timestamp} WHERE thread_id = ${boundary}`;
+        if (boundary === "archived")
+          yield* sql`UPDATE projection_threads SET archived_at = ${timestamp} WHERE thread_id = ${boundary}`;
+        if (boundary === "deleted")
+          yield* sql`UPDATE projection_threads SET deleted_at = ${timestamp} WHERE thread_id = ${boundary}`;
+        if (boundary === "sidechat")
+          yield* sql`UPDATE projection_threads SET kind = 'sidechat' WHERE thread_id = ${boundary}`;
+      }
+      yield* sql`UPDATE projection_threads SET latest_turn_id = 'turn', latest_user_message_at = ${timestamp},
+      pending_approval_count = 1, pending_user_input_count = 1 WHERE thread_id = 'working'`;
+      yield* sql`INSERT INTO projection_turns(thread_id, turn_id, state, requested_at, started_at, checkpoint_files_json)
+      VALUES ('working', 'turn', 'running', ${timestamp}, ${timestamp}, '[]')`;
+      yield* sql`INSERT INTO projection_thread_sessions(thread_id, status, provider_name, updated_at)
+      VALUES ('working', 'running', 'codex', ${timestamp})`;
+      background.recordTaskLiveness({
+        threadId: "working",
+        taskId: "task",
+        taskType: "subagent",
+        status: undefined,
+        kind: "started",
+      });
+      const descendants = yield* query.getSettlementDescendants(ThreadId.make("lead"));
+      assert.deepStrictEqual(descendants.map((thread) => thread.id).toSorted(), [
+        "idle",
+        "working",
+      ]);
+      assert.deepStrictEqual(
+        descendants.find((thread) => thread.id === "working"),
+        {
+          id: ThreadId.make("working"),
+          parentThreadId: ThreadId.make("idle"),
+          kind: null,
+          archivedAt: null,
+          settledOverride: null,
+          settledAt: null,
+          hasPendingApprovals: true,
+          hasPendingUserInput: true,
+          latestUserMessageAt: timestamp,
+          session: { status: "running" },
+          latestTurn: { requestedAt: timestamp, startedAt: timestamp, completedAt: null },
+          backgroundLiveness: "working",
+        },
+      );
+      yield* sql`UPDATE projection_threads SET parent_thread_id = 'working' WHERE thread_id = 'lead'`;
+      assert.deepStrictEqual(
+        yield* query.getSettlementDescendants(ThreadId.make("lead")),
+        descendants,
+      );
+      yield* add("deep-root", null);
+      for (let index = 0; index < MAX_SETTLEMENT_AGENT_DEPTH + 2; index++)
+        yield* add(`deep-${index}`, index === 0 ? "deep-root" : `deep-${index - 1}`);
+      const bounded = yield* query.getSettlementDescendants(ThreadId.make("deep-root"));
+      assert.strictEqual(bounded.length, MAX_SETTLEMENT_AGENT_DEPTH);
+      assert.strictEqual(
+        bounded.some((thread) => thread.id === `deep-${MAX_SETTLEMENT_AGENT_DEPTH}`),
+        false,
+      );
     }).pipe(Effect.provide(layer));
   },
 );

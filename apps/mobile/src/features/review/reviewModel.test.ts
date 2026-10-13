@@ -109,7 +109,7 @@ describe("buildReviewSectionItems", () => {
       isLoading: false,
       diff: expect.stringContaining("loaded.ts"),
     });
-    expect(getDefaultReviewSectionId(items)).toBe("turn:2");
+    expect(getDefaultReviewSectionId(items)).toBe("git:working-tree");
   });
 
   it("shows dirty worktree while git preview is loading", () => {
@@ -132,6 +132,44 @@ describe("buildReviewSectionItems", () => {
       }),
     ]);
     expect(getDefaultReviewSectionId(items)).toBe("git:working-tree");
+  });
+
+  it("defaults to branch changes when the working tree is clean, even after an empty turn", () => {
+    const items = buildReviewSectionItems({
+      checkpoints: [
+        makeCheckpoint({
+          turnId: TurnId.make("reply-only"),
+          checkpointTurnCount: 51,
+          completedAt: "2026-10-11T00:00:00.000Z",
+        }),
+      ],
+      gitSections: [
+        {
+          id: "working-tree",
+          kind: "working-tree",
+          title: "Dirty worktree",
+          baseRef: "HEAD",
+          headRef: null,
+          diff: "",
+          diffHash: "clean",
+          truncated: false,
+        },
+        {
+          id: "branch-range",
+          kind: "branch-range",
+          title: "Against dev",
+          baseRef: "dev",
+          headRef: "feature",
+          diff: "diff --git a/a.ts b/a.ts",
+          diffHash: "branch",
+          truncated: false,
+        },
+      ],
+      turnDiffById: { "turn:51": "" },
+      loadingTurnIds: {},
+      loadingGitSections: false,
+    });
+    expect(getDefaultReviewSectionId(items)).toBe("git:branch-range");
   });
 });
 

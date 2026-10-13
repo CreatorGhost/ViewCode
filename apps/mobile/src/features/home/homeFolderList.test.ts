@@ -2,7 +2,7 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -114,6 +114,10 @@ function describeRows(items: readonly HomeFolderListItem[]): string[] {
         return `agents ${item.agentCount}${item.expanded ? " open" : ""}${item.muted ? " muted" : ""}`;
       case "folder-child":
         return `${"  ".repeat(item.depth)}child ${item.thread.id} ${item.status}`;
+      case "folder-agent-group":
+        return `[${item.group}]`;
+      case "folder-agents-done":
+        return `[done ${item.count}${item.expanded ? " open" : ""}]`;
       case "folder-settled":
         return `settled ${item.count}${item.expanded ? " open" : ""}`;
       case "v2-pending":
@@ -320,7 +324,9 @@ describe("agent control on the folder list", () => {
       "folder App (1)",
       "lead lead",
       "agents 2 open",
+      "[working]",
       "  child worker working",
+      "[needs-you]",
       "  child paused paused",
     ]);
     const agentsRow = list.items.find((item) => item.type === "folder-agents");
@@ -421,5 +427,72 @@ describe("folder cards", () => {
     const last = items.at(-1);
     expect(last?.type).toBe("folder-settled");
     expect(last && "folderEdge" in last ? last.folderEdge?.last : undefined).toBe(true);
+  });
+});
+
+describe("agent groups and folder sort", () => {
+  const minute = (value: number) => `2026-06-02T10:${String(value).padStart(2, "0")}:00.000Z`;
+  const turn = (state: "running" | "completed", start: number) => ({
+    turnId: TurnId.make(`turn-${start}`),
+    state,
+    requestedAt: minute(start),
+    startedAt: minute(start),
+    completedAt: state === "completed" ? minute(start + 1) : null,
+    assistantMessageId: null,
+  });
+  const threads = [
+    thread("lead", "app"),
+    child("zeta", "lead", { session: sessionWith("running"), latestTurn: turn("running", 5) }),
+    child("asks", "lead", { hasPendingUserInput: true, latestTurn: turn("running", 4) }),
+    child("old", "lead", { session: sessionWith("ready"), latestTurn: turn("completed", 1) }),
+    child("new", "lead", { session: sessionWith("ready"), latestTurn: turn("completed", 8) }),
+  ];
+  const appKey = scopes[0]!.key;
+  const listWith = (options: {
+    readonly expandedDone?: boolean;
+    readonly sortOrders?: ReadonlyMap<string, "status" | "recent" | "name">;
+  }) =>
+    buildHomeFolderList({
+      threads,
+      scopes,
+      projectScoped: false,
+      pendingTasks: [],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+      collapsedFolderKeys: new Set(),
+      expandedLeadKeys: new Set([`${ENV}:lead`]),
+      expandedDoneLeadKeys: new Set(options.expandedDone ? [`${ENV}:lead`] : []),
+      ...(options.sortOrders ? { folderSortOrders: options.sortOrders } : {}),
+      expandedSettledFolderKeys: new Set(),
+      snoozedShelfExpanded: false,
+    });
+
+  it("groups a lead's agents by status with Done folded until opened", () => {
+    expect(describeRows(listWith({}).items).slice(2)).toEqual([
+      "agents 4 open",
+      "[working]",
+      "  child zeta working",
+      "[needs-you]",
+      "  child asks needs-you",
+      "[done 2]",
+    ]);
+    expect(describeRows(listWith({ expandedDone: true }).items).slice(-3)).toEqual([
+      "[done 2 open]",
+      "  child new idle",
+      "  child old idle",
+    ]);
+  });
+
+  it("lists agents flat by name when the folder sorts by name", () => {
+    const list = listWith({ sortOrders: new Map([[appKey, "name"]]) });
+    expect(describeRows(list.items).slice(3)).toEqual([
+      "  child asks needs-you",
+      "  child new idle",
+      "  child old idle",
+      "  child zeta working",
+    ]);
+    const header = list.items.find((item) => item.type === "folder-header");
+    expect(header?.type === "folder-header" && header.sortOrder).toBe("name");
   });
 });

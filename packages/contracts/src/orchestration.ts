@@ -32,7 +32,12 @@ import {
   PullRequestReviewDecision,
   PullRequestState,
 } from "./pullRequest.ts";
-import { ReviewBasedOnInput, ReviewFindingsMode } from "./reviewFindings.ts";
+import {
+  AgentReviewMode,
+  LocalReviewScope,
+  ReviewBasedOnInput,
+  ReviewFindingsMode,
+} from "./reviewFindings.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -843,6 +848,23 @@ export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 export const ThreadKind = Schema.Literal("sidechat");
 export type ThreadKind = typeof ThreadKind.Type;
 
+/** Longest goal ViewCode stores; it rides along with every turn while active. */
+export const THREAD_GOAL_MAX_CHARS = 2000;
+export const ThreadGoalObjective = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(THREAD_GOAL_MAX_CHARS),
+);
+
+/**
+ * ViewCode thread goal: an objective the user set that every turn is given
+ * while it is active. A paused goal stays on the thread but is not sent.
+ */
+export const ThreadGoal = Schema.Struct({
+  objective: ThreadGoalObjective,
+  pausedAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+});
+export type ThreadGoal = typeof ThreadGoal.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -899,6 +921,9 @@ export const OrchestrationThread = Schema.Struct({
   // full agents (own session, model and composer) nested under their parent.
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   kind: Schema.optional(Schema.NullOr(ThreadKind)),
+  // ViewCode goal and debug mode. Optional so older servers still decode.
+  goal: Schema.optional(Schema.NullOr(ThreadGoal)),
+  debugMode: Schema.optional(Schema.Boolean),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
@@ -974,6 +999,8 @@ export const OrchestrationThreadShell = Schema.Struct({
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   kind: Schema.optional(Schema.NullOr(ThreadKind)),
+  goal: Schema.optional(Schema.NullOr(ThreadGoal)),
+  debugMode: Schema.optional(Schema.Boolean),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   session: Schema.NullOr(OrchestrationSession),
@@ -1346,6 +1373,12 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   /** Null promotes a side chat to an ordinary thread. */
   kind: Schema.optional(Schema.NullOr(ThreadKind)),
+  /** Sets the goal's objective (null clears the goal). An edit keeps its pause. */
+  goal: Schema.optional(Schema.NullOr(ThreadGoalObjective)),
+  /** Pauses or resumes the current goal; with `goal`, the new one starts paused or not. */
+  goalPaused: Schema.optional(Schema.Boolean),
+  /** Evidence-first debug mode for the thread's turns. */
+  debugMode: Schema.optional(Schema.Boolean),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1386,15 +1419,6 @@ const ThreadPullRequestWatchCommand = Schema.Struct({
   ),
 });
 
-/**
- * Starts an agent review of a pull request: a new thread on the reference's project, linked to
- * the pull request, whose first message asks for the review. Lives here rather than beside
- * `PullRequestRef` because it carries a model selection.
- */
-/** How thorough an agent review is: one pass, several agents, or a security audit. */
-export const AgentReviewMode = Schema.Literals(["quick", "deep", "security"]);
-export type AgentReviewMode = typeof AgentReviewMode.Type;
-
 /** How each client offers the modes, in this order; the first is the default. */
 export const AGENT_REVIEW_MODES: ReadonlyArray<{
   readonly mode: AgentReviewMode;
@@ -1420,6 +1444,11 @@ export const AGENT_REVIEW_MODES: ReadonlyArray<{
   },
 ];
 
+/**
+ * Starts an agent review of a pull request: a new thread on the reference's project, linked to
+ * the pull request, whose first message asks for the review. Lives here rather than beside
+ * `PullRequestRef` because it carries a model selection.
+ */
 export const PullRequestStartReviewInput = Schema.Struct({
   ...PullRequestRef.fields,
   /** Absent: a quick review. */
@@ -1440,6 +1469,11 @@ export const PullRequestStartReviewInput = Schema.Struct({
    */
   incremental: Schema.optional(Schema.Boolean),
   basedOn: Schema.optional(ReviewBasedOnInput),
+  /**
+   * The chat the review is asked for from, which the reviewer runs as a child agent of. Absent
+   * (the pull request page): a thread of its own. Older servers ignore it.
+   */
+  sourceThreadId: Schema.optional(ThreadId),
 });
 export type PullRequestStartReviewInput = typeof PullRequestStartReviewInput.Type;
 
@@ -1450,7 +1484,10 @@ export type PullRequestStartReviewInput = typeof PullRequestStartReviewInput.Typ
  */
 export const ReviewStartLocalInput = Schema.Struct({
   projectId: ProjectId,
-  /** The thread whose checkout to review. Absent: the project's workspace. */
+  /**
+   * The thread whose checkout to review, which the reviewer runs as a child agent of. Absent: the
+   * project's workspace, in a thread of its own.
+   */
   sourceThreadId: Schema.optional(ThreadId),
   /** Absent: a quick review. */
   mode: Schema.optional(AgentReviewMode),
@@ -1460,6 +1497,8 @@ export const ReviewStartLocalInput = Schema.Struct({
   /** Review again with the findings in `basedOn` checked; see `PullRequestStartReviewInput`. */
   incremental: Schema.optional(Schema.Boolean),
   basedOn: Schema.optional(ReviewBasedOnInput),
+  /** What to read; see `LocalReviewScope`. */
+  scope: Schema.optional(LocalReviewScope),
 });
 export type ReviewStartLocalInput = typeof ReviewStartLocalInput.Type;
 
@@ -1493,6 +1532,9 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  // Set on a draft before its first send; older servers ignore them.
+  goal: Schema.optional(ThreadGoalObjective),
+  debugMode: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -2084,6 +2126,8 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
   modelSelection: Schema.optional(ModelSelection),
   kind: Schema.optional(Schema.NullOr(ThreadKind)),
+  goal: Schema.optional(Schema.NullOr(ThreadGoal)),
+  debugMode: Schema.optional(Schema.Boolean),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // No longer produced; kept so persisted events from before

@@ -6,7 +6,12 @@ import type { PullRequestReaction } from "@t3tools/contracts";
 
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as GitHubPullRequestCli from "./GitHubPullRequestCli.ts";
-import { gitHubViewerPermissions, loginAvatarUrl, make } from "./GitHubPullRequestProvider.ts";
+import {
+  gitHubProviderFailure,
+  gitHubViewerPermissions,
+  loginAvatarUrl,
+  make,
+} from "./GitHubPullRequestProvider.ts";
 import type { GitHubReviewThreadComments } from "./gitHubPullRequestJson.ts";
 
 const coreFields = {
@@ -21,6 +26,26 @@ const coreFields = {
   },
 };
 
+describe("gitHubProviderFailure", () => {
+  const loginUnavailable = (
+    stage: GitHubPullRequestCli.GitHubViewerLoginUnavailableError["stage"],
+  ) =>
+    new GitHubPullRequestCli.GitHubViewerLoginUnavailableError({
+      command: "gh",
+      cwd: "/w",
+      host: "github.com-work",
+      stage,
+    });
+
+  it("keeps every stage a failure, so the host-naming message reaches the page", () => {
+    expect(gitHubProviderFailure(loginUnavailable("auth-token")).reason).toBe("failed");
+    expect(gitHubProviderFailure(loginUnavailable("empty-token")).reason).toBe("failed");
+    expect(gitHubProviderFailure(loginUnavailable("api-user")).reason).toBe("failed");
+    expect(gitHubProviderFailure(loginUnavailable("decode")).reason).toBe("failed");
+    expect(gitHubProviderFailure(loginUnavailable("pinned-host-mismatch")).reason).toBe("failed");
+  });
+});
+
 it.effect("maps credential verification failures without relabeling operation failures", () =>
   Effect.gen(function* () {
     let verificationFails = true;
@@ -34,6 +59,8 @@ it.effect("maps credential verification failures without relabeling operation fa
                   new GitHubPullRequestCli.GitHubViewerLoginUnavailableError({
                     command: "gh",
                     cwd: "/w",
+                    host: "github.com",
+                    stage: "api-user",
                   }),
                 )
               : use({ accountId: "123", viewer: "viewer", credentialFingerprint: "fingerprint" }),
@@ -51,6 +78,8 @@ it.effect("maps credential verification failures without relabeling operation fa
     expect(yield* verify(input, operation).pipe(Effect.flip)).toMatchObject({
       _tag: "PullRequestProviderError",
       operation: "routeIdentity",
+      reason: "failed",
+      detail: "GitHub CLI could not read the signed-in account on github.com.",
     });
     expect(operations).toBe(0);
     verificationFails = false;

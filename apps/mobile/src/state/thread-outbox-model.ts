@@ -42,6 +42,7 @@ const QueuedThreadCreationSchema = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   startFromOrigin: Schema.optional(Schema.Boolean),
+  pullRequestReference: Schema.optional(Schema.String),
 });
 
 export const QueuedThreadMessageSchema = Schema.Struct({
@@ -73,6 +74,7 @@ export interface QueuedThreadCreation {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin?: boolean;
+  readonly pullRequestReference?: string;
 }
 
 export interface QueuedThreadMessage {
@@ -240,7 +242,8 @@ export function isQueuedThreadCreationSendable(message: QueuedThreadMessage): bo
   if (!message.creation) {
     return false;
   }
-  if (message.text.trim().length === 0 || message.modelSelection === undefined) {
+  const hasContent = message.text.trim().length > 0 || message.attachments.length > 0;
+  if (!hasContent || message.modelSelection === undefined) {
     return false;
   }
   return message.creation.workspaceMode !== "worktree" || Boolean(message.creation.branch);

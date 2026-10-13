@@ -41,6 +41,9 @@ const BUILT_IN_DRIVER_ORDER: ReadonlyArray<string> = [
   "opencode",
   "antigravity",
   "commandCode",
+  "droid",
+  "devin",
+  "pi",
 ];
 
 const driverRank = (driver: string): number => {

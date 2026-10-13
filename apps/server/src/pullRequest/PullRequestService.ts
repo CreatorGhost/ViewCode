@@ -59,6 +59,7 @@ import {
   type PullRequestLabelCandidateList,
   type PullRequestLabelChangeInput,
   type PullRequestSetFilesViewedInput,
+  type PullRequestState,
   type PullRequestSubmitReviewInput,
   PullRequestStack,
   PullRequestSummary,
@@ -128,7 +129,16 @@ const REPOSITORY_SEARCH_CHUNK = 100;
  * `invalidate` rather than a flag on the read, so an ordinary read can never opt out.
  */
 const LIST_CACHE_TTL = Duration.seconds(30);
-const DETAIL_CACHE_TTL = Duration.seconds(15);
+/**
+ * Each connected client re-reads the pull request it shows on focus, on a timer, and after every
+ * turn, so detail, activity, and preview answers are shared for the clients' own minute of
+ * staleness. A merged change request cannot change again and is held for ten. A closed one is
+ * not: it can reopen, and a watch started on it reads it to learn whether it did.
+ */
+const DETAIL_CACHE_TTL = Duration.seconds(60);
+const MERGED_DETAIL_CACHE_TTL = Duration.minutes(10);
+const detailTimeToLive = (state: PullRequestState | undefined) =>
+  state === "merged" ? MERGED_DETAIL_CACHE_TTL : DETAIL_CACHE_TTL;
 const DIFF_CACHE_TTL = Duration.seconds(60);
 /** A commit is content-addressed, so its own diff cannot change under its key. */
 const COMMIT_DIFF_CACHE_TTL = Duration.minutes(10);
@@ -142,6 +152,8 @@ const LIST_STATS_CACHE_TTL = Duration.seconds(60);
 const FILES_VIEWED_CACHE_TTL = Duration.seconds(15);
 /** A diff can stay interactive while its next cached value is fetched off the critical path. */
 const DIFF_STALE_WINDOW = Duration.minutes(10);
+/** How long an expired diff may stay held before it is dropped unread. */
+const DIFF_SWEEP_INTERVAL = Duration.minutes(1);
 /** How long one host's signed-in login is believed without asking its CLI again. */
 const VIEWER_CACHE_TTL = Duration.minutes(10);
 const SEARCH_VISIBILITY_TTL = Duration.minutes(10);
@@ -1130,12 +1142,13 @@ export const make = Effect.gen(function* () {
     };
   };
 
-  // A repository that has appeared in a host search is known to be indexed there. Empty
-  // authored/reviewing searches for that same repository are therefore real empty answers, not
-  // a reason to issue the two-command per-repository fallback again.
+  // A repository that has appeared in a host search, run as a given account, is known to be
+  // indexed there for that account. Empty authored/reviewing searches for that same repository
+  // are therefore real empty answers, not a reason to issue the two-command per-repository
+  // fallback again. Keyed by the account the search ran as: another account may not see it.
   const searchVisibleAt = new Map<string, number>();
-  const searchVisibilityKey = (host: string, repository: string) =>
-    `${host}\n${repository.trim().toLowerCase()}`;
+  const searchVisibilityKey = (host: string, account: string, repository: string) =>
+    `${host}\n${account.toLowerCase()}\n${repository.trim().toLowerCase()}`;
 
   const listUncached: PullRequestService["Service"]["list"] = (input) =>
     Effect.gen(function* () {
@@ -1380,7 +1393,7 @@ export const make = Effect.gen(function* () {
                 const held = rows.get(key);
                 if (held === undefined) rows.set(key, [item]);
                 else held.push(item);
-                searchVisibleAt.set(searchVisibilityKey(first.host, item.repository), now);
+                searchVisibleAt.set(searchVisibilityKey(first.host, viewer, item.repository), now);
               }
               // The oldest row of the whole slice, which is how far every repository in it has now
               // been read — including the ones that contributed nothing to it.
@@ -1405,10 +1418,17 @@ export const make = Effect.gen(function* () {
                     // keeps a search-invisible repository from disappearing on a busy host, at the
                     // price of one request per repository with nothing in the first slice — which
                     // run together, and only there.
+                    //
+                    // An earlier search having shown the repository only excuses the read for a
+                    // question that names the reader (Authored, Reviewing, `author:`), whose empty
+                    // answer is ordinary. An "all" listing's empty first slice is still read on
+                    // its own: an empty answer there is exactly what a search that cannot see the
+                    // repository's rows gives, and believing it drops open rows silently.
                     const lastVisible = searchVisibleAt.get(
-                      searchVisibilityKey(project.host, project.repository),
+                      searchVisibilityKey(project.host, viewer, project.repository),
                     );
                     const searchIsKnownVisible =
+                      queryNamesViewer &&
                       !page.truncated &&
                       lastVisible !== undefined &&
                       now - lastVisible <= Duration.toMillis(SEARCH_VISIBILITY_TTL);
@@ -1887,6 +1907,7 @@ export const make = Effect.gen(function* () {
     );
 
   const context = yield* Effect.context<never>();
+  const scope = yield* Effect.scope;
   /** Runs a refresh as its own fiber, for the reads that answer from a held value first. */
   const runFork = Effect.runForkWith(context);
 
@@ -2584,8 +2605,9 @@ export const make = Effect.gen(function* () {
           if (oldest !== undefined) held.delete(oldest);
         }
         held.set(key, { at, value });
+        armDiffSweep();
       });
-    return <E>(key: string, read: Effect.Effect<PullRequestDiffResult, E>) => {
+    const serve = <E>(key: string, read: Effect.Effect<PullRequestDiffResult, E>) => {
       const recorded = read.pipe(Effect.tap((value) => record(key, value)));
       return Effect.flatMap(Clock.currentTimeMillis, (now) => {
         const snapshot = held.get(key);
@@ -2596,6 +2618,14 @@ export const make = Effect.gen(function* () {
         return revalidate(recorded).pipe(Effect.as(snapshot.value));
       });
     };
+    /** Drops what `serve` would already refuse, and says how many values are still held. */
+    const dropExpired = Effect.map(Clock.currentTimeMillis, (now) => {
+      for (const [key, snapshot] of held) {
+        if (now - snapshot.at > staleMs) held.delete(key);
+      }
+      return held.size;
+    });
+    return { serve, dropExpired };
   })();
 
   const makeLastGoodRead = <A>(capacity: number) => {
@@ -2934,7 +2964,8 @@ export const make = Effect.gen(function* () {
     },
     {
       capacity: DETAIL_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? DETAIL_CACHE_TTL : Duration.zero),
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? detailTimeToLive(exit.value.state) : Duration.zero,
     },
   );
   const summaryFromDetail = (
@@ -2995,7 +3026,9 @@ export const make = Effect.gen(function* () {
     },
     {
       capacity: DETAIL_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? DETAIL_CACHE_TTL : Duration.zero),
+      // Activity carries no state of its own; the detail or summary read under the same key does.
+      timeToLive: (exit, key) =>
+        Exit.isSuccess(exit) ? detailTimeToLive(lastGoodSummary.peek(key)?.state) : Duration.zero,
     },
   );
 
@@ -3005,7 +3038,8 @@ export const make = Effect.gen(function* () {
     },
     {
       capacity: DETAIL_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? DETAIL_CACHE_TTL : Duration.zero),
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? detailTimeToLive(exit.value.state) : Duration.zero,
     },
   );
   const preview: PullRequestService["Service"]["preview"] = (input) => {
@@ -3042,6 +3076,36 @@ export const make = Effect.gen(function* () {
       },
     },
   );
+  /**
+   * Both diff holders drop an expired value only when its own key is read again, and a diff's key
+   * moves with every push, so a closed page's patches would stay held until the server restarted.
+   * One pending sweep at a time, armed in the same step that leaves a value held and re-armed
+   * while anything still is, so an idle server keeps no timer.
+   */
+  let diffSweepPending = false;
+  // Forked from the service's own context, in one step with the flag: a caller's interruption
+  // cannot strand the flag, and its request is not kept alive by the wait.
+  const armDiffSweep = () => {
+    if (diffSweepPending) return;
+    diffSweepPending = true;
+    runFork(Effect.forkIn(sweepDiffs, scope));
+  };
+  const sweepDiffs: Effect.Effect<void> = Effect.sleep(DIFF_SWEEP_INTERVAL).pipe(
+    Effect.andThen(
+      Effect.suspend(() => {
+        // Cleared before the sweep, so a read that settles during it arms the next one itself.
+        diffSweepPending = false;
+        return staleDiff.dropExpired;
+      }),
+    ),
+    // The cache drops its expired entries as its keys are walked.
+    Effect.flatMap((stale) =>
+      Effect.map(Cache.keys(diffCache), (keys) => stale + Array.from(keys).length),
+    ),
+    Effect.map((held) => {
+      if (held > 0) armDiffSweep();
+    }),
+  );
   const diff: PullRequestService["Service"]["diff"] = (input) => {
     const key = JSON.stringify([
       refCacheKey(input),
@@ -3064,8 +3128,10 @@ export const make = Effect.gen(function* () {
               Effect.uninterruptible,
             ),
       ),
+      // However the read ends, it may have left a value behind in the cache.
+      Effect.ensuring(Effect.sync(armDiffSweep)),
     );
-    return staleDiff(key, read);
+    return staleDiff.serve(key, read);
   };
 
   const filesViewedCache = yield* Cache.makeWith(

@@ -1297,6 +1297,55 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
+  effectIt.effect("gives every turn the thread's active goal and debug mode", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = ThreadId.make("thread-1");
+      const startTurn = (index: number) =>
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-turn-start-guidance-${index}`),
+          threadId,
+          message: {
+            messageId: asMessageId(`user-message-guidance-${index}`),
+            role: "user",
+            text: `Turn ${index}`,
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        });
+
+      yield* harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-guidance-set"),
+        threadId,
+        goal: "The login flow works on Safari",
+        debugMode: true,
+      });
+      yield* startTurn(1);
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+      expect(harness.sendTurn.mock.calls[0]?.[0].guidance).toMatchObject({
+        goal: "The login flow works on Safari",
+        debug: { playbookPath: expect.stringMatching(/debug-mode\.md$/) },
+      });
+
+      // A paused goal stays on the thread but is not sent; turning debug off
+      // still sends (empty) guidance so a provider holding it hears the change.
+      yield* harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-guidance-pause"),
+        threadId,
+        goalPaused: true,
+        debugMode: false,
+      });
+      yield* startTurn(2);
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 2));
+      expect(harness.sendTurn.mock.calls[1]?.[0].guidance).toEqual({});
+    }),
+  );
+
   effectIt.effect("retains a turn dispatched immediately after start until activation", () =>
     Effect.gen(function* () {
       const activation = yield* Deferred.make<void>();
@@ -2078,7 +2127,7 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
-  it("retries thread title generation after a transient failure", async () => {
+  it("retries thread title generation after a killed CLI", async () => {
     const now = "2026-01-01T00:00:00.000Z";
     const seededTitle = "Please investigate reconnect failures after restar...";
     const harness = await createHarness({ initialTitle: seededTitle });
@@ -2090,7 +2139,7 @@ describe("ProviderCommandReactor", () => {
           ? Effect.fail(
               new TextGenerationError({
                 operation: "generateThreadTitle",
-                detail: "Claude CLI request timed out.",
+                detail: "Claude CLI command failed with code 137.",
               }),
             )
           : Effect.succeed({ title: "Generated title" });
