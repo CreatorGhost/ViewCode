@@ -122,7 +122,7 @@ function ProjectColorDialogContent(props: { projectKey: string }) {
       <DialogHeader>
         <DialogTitle>Project color</DialogTitle>
         <DialogDescription>
-          Marks {group.displayName} on its tabs, top bar and rail button.
+          Marks {group.displayName} in the sidebar and on its rail button.
         </DialogDescription>
       </DialogHeader>
       <DialogPanel>

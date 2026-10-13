@@ -512,7 +512,7 @@ function ProjectDetail({
           />
           <SettingsRow
             title="Project color"
-            description="Marks this project on its tabs, top bar and rail button. A dot marks colors other projects use."
+            description="Marks this project in the sidebar and on its rail button. A dot marks colors other projects use."
             resetAction={
               projectColor !== null ? (
                 <SettingResetButton
