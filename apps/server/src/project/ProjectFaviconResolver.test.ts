@@ -1,5 +1,3 @@
-import * as NodeFS from "node:fs";
-
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
 import * as Duration from "effect/Duration";
@@ -84,10 +82,9 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         yield* writeTextFile(cwd, "src-tauri/icons/128x128.png", "png");
         yield* writeTextFile(parent, "other/app/icon.svg", "<svg>other</svg>");
         // A loop back into the project, and a link out of it.
-        yield* Effect.sync(() => {
-          NodeFS.symlinkSync(path.join(cwd, "brand"), path.join(cwd, "brand", "again"));
-          NodeFS.symlinkSync(path.join(parent, "other"), path.join(cwd, "outside"));
-        });
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.symlink(path.join(cwd, "brand"), path.join(cwd, "brand", "again"));
+        yield* fileSystem.symlink(path.join(parent, "other"), path.join(cwd, "outside"));
 
         const candidates = yield* resolver.listCandidates(cwd);
         expect(candidates).toEqual([
