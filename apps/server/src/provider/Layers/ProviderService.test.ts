@@ -280,7 +280,9 @@ function makeFakeCodexAdapter(
     capabilities: {
       sessionModelSwitch: "in-session",
       ...(supportsConversationRollback !== undefined ? { supportsConversationRollback } : {}),
-      ...(provider === CODEX_DRIVER ? { promptlessTurnContinuation: true } : {}),
+      ...(provider === CODEX_DRIVER
+        ? { promptlessTurnContinuation: true, developerTurnGuidance: true }
+        : {}),
     },
     startSession,
     sendTurn,
@@ -1772,6 +1774,43 @@ routing.layer("ProviderServiceLive routing", (it) => {
       routing.claude.stopSession.mockClear();
       routing.codex.startSession.mockClear();
       routing.codex.stopSession.mockClear();
+    }),
+  );
+
+  it.effect("puts turn guidance ahead of the text only for adapters without a channel", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const guidance = { goal: "Ship the release", debug: { playbookPath: null } };
+      const codexThreadId = asThreadId("thread-guidance-codex");
+      yield* provider.startSession(codexThreadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId: codexThreadId,
+        runtimeMode: "full-access",
+      });
+      yield* provider.sendTurn({ threadId: codexThreadId, input: "Go", guidance });
+      assert.equal(routing.codex.sendTurn.mock.calls.at(-1)?.[0].input, "Go");
+      assert.deepEqual(routing.codex.sendTurn.mock.calls.at(-1)?.[0].guidance, guidance);
+
+      const claudeThreadId = asThreadId("thread-guidance-claude");
+      yield* provider.startSession(claudeThreadId, {
+        provider: CLAUDE_AGENT_DRIVER,
+        providerInstanceId: claudeAgentInstanceId,
+        threadId: claudeThreadId,
+        runtimeMode: "full-access",
+      });
+      yield* provider.sendTurn({ threadId: claudeThreadId, input: "Go", guidance });
+      const sent = routing.claude.sendTurn.mock.calls.at(-1)?.[0].input ?? "";
+      assert.match(sent, /^<viewcode_goal>\n[\s\S]*Goal: Ship the release\n<\/viewcode_goal>/);
+      assert.include(sent, "<viewcode_debug_mode>\nDebug mode is on");
+      assert.isTrue(sent.endsWith("\n\nGo"));
+
+      // A provider command must still open the message.
+      yield* provider.sendTurn({ threadId: claudeThreadId, input: "/compact", guidance });
+      assert.equal(routing.claude.sendTurn.mock.calls.at(-1)?.[0].input, "/compact");
+
+      yield* provider.stopSession({ threadId: codexThreadId });
+      yield* provider.stopSession({ threadId: claudeThreadId });
     }),
   );
 

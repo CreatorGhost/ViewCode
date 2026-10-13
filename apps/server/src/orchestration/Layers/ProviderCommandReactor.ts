@@ -14,6 +14,7 @@ import {
   type OrchestrationSession,
   ThreadId,
   type ProviderSession,
+  type ThreadGoal,
   type TurnId,
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
@@ -53,6 +54,7 @@ import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { isStaleProviderSessionCause } from "../../provider/staleSession.ts";
 import { readMcpProviderSession } from "../../mcp/McpProviderSession.ts";
 import { THREAD_FORKED_ACTIVITY_KIND, forkHandoffIntro } from "../ThreadFork.ts";
+import { ensureDebugPlaybook } from "../../review/DebugPlaybook.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -1380,6 +1382,37 @@ const make = Effect.gen(function* () {
     return { prelude, accepted, rejected };
   });
 
+  /**
+   * The thread's goal (unless paused) and debug mode for one turn. Read from the thread on every
+   * turn, so they survive a handoff and apply to agent messages and resumes too. Always present,
+   * even empty, so a provider that keeps them in its context hears when they are turned off.
+   */
+  const turnGuidanceForThread = Effect.fnUntraced(function* (thread: {
+    readonly goal?: ThreadGoal | null | undefined;
+    readonly debugMode?: boolean | undefined;
+  }) {
+    const goal = thread.goal != null && thread.goal.pausedAt === null ? thread.goal : null;
+    if (thread.debugMode !== true) {
+      return goal === null ? {} : { goal: goal.objective };
+    }
+    const config = yield* Effect.serviceOption(ServerConfig);
+    const playbookPath = Option.isNone(config)
+      ? null
+      : yield* ensureDebugPlaybook({ stateDir: config.value.stateDir }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to write the debug playbook", {
+              cause: Cause.pretty(cause),
+            }).pipe(Effect.as(null)),
+          ),
+        );
+    return {
+      ...(goal === null ? {} : { goal: goal.objective }),
+      debug: { playbookPath },
+    };
+  });
+
   const buildSendTurnRequestForThread = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageText: string;
@@ -1443,6 +1476,7 @@ const make = Effect.gen(function* () {
             }
           : requestedModelSelection
         : (input.modelSelection ?? threadModelForSession);
+    const guidance = yield* turnGuidanceForThread(thread);
     // Last, so nothing between taking the handoff and returning can fail.
     const handoff = yield* takeHandoffPrelude({
       threadId: input.threadId,
@@ -1468,6 +1502,7 @@ const make = Effect.gen(function* () {
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+      guidance,
     };
   });
 

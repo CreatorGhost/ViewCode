@@ -93,6 +93,7 @@ import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { providerLaunchBlockReason } from "../providerLaunch.ts";
+import { withTurnGuidancePrelude } from "../turnGuidance.ts";
 const isModelSelection = Schema.is(ModelSelection);
 const encodePromptJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -1931,15 +1932,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
               model: input.modelSelection?.model,
               runtimeMode: routed.runtimeMode,
             });
-            const turn = yield* routed.adapter.sendTurn(input).pipe(
-              Effect.tapError((error) =>
-                analytics.record("provider.turn.rejected", {
-                  provider: routed.adapter.provider,
-                  ...(turnMetadata.subscriptionSharing ? { subscriptionSharing: true } : {}),
-                  errorType: error._tag,
-                }),
-              ),
-            );
+            const turn = yield* routed.adapter
+              .sendTurn(
+                routed.adapter.capabilities.developerTurnGuidance === true
+                  ? input
+                  : withTurnGuidancePrelude(input, maxInputChars),
+              )
+              .pipe(
+                Effect.tapError((error) =>
+                  analytics.record("provider.turn.rejected", {
+                    provider: routed.adapter.provider,
+                    ...(turnMetadata.subscriptionSharing ? { subscriptionSharing: true } : {}),
+                    errorType: error._tag,
+                  }),
+                ),
+              );
             yield* associateTurnAnalytics({
               providerInstanceId: routed.instanceId,
               threadId: input.threadId,
