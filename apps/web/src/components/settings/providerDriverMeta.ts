@@ -4,6 +4,7 @@ import {
   CodexSettings,
   CommandCodeSettings,
   CursorSettings,
+  DevinSettings,
   DroidSettings,
   GrokSettings,
   OpenCodeSettings,
@@ -15,6 +16,7 @@ import {
   ClaudeAI,
   CommandCodeIcon,
   CursorIcon,
+  DevinIcon,
   DroidIcon,
   GrokIcon,
   type Icon,
@@ -99,6 +101,13 @@ const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
     icon: DroidIcon,
     badgeLabel: "Early Access",
     settingsSchema: DroidSettings,
+  },
+  {
+    value: ProviderDriverKind.make("devin"),
+    label: "Devin",
+    icon: DevinIcon,
+    badgeLabel: "Early Access",
+    settingsSchema: DevinSettings,
   },
 ];
 

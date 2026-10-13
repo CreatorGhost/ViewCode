@@ -907,7 +907,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const binDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-provider-cli-path-" });
-        const detected = { commandCode: "cmd", droid: "droid" } as const;
+        const detected = { commandCode: "cmd", droid: "droid", devin: "devin" } as const;
         for (const binary of Object.values(detected)) {
           yield* fs.writeFileString(path.join(binDir, binary), "#!/bin/sh\n");
           yield* fs.chmod(path.join(binDir, binary), 0o755);

@@ -28,6 +28,7 @@ import { OpenCodeDriver, type OpenCodeDriverEnv } from "./Drivers/OpenCodeDriver
 import { AntigravityDriver, type AntigravityDriverEnv } from "./Drivers/AntigravityDriver.ts";
 import { CommandCodeDriver, type CommandCodeDriverEnv } from "./Drivers/CommandCodeDriver.ts";
 import { DroidDriver, type DroidDriverEnv } from "./Drivers/DroidDriver.ts";
+import { DevinDriver, type DevinDriverEnv } from "./Drivers/DevinDriver.ts";
 import type { AnyProviderDriver } from "./ProviderDriver.ts";
 
 /**
@@ -43,7 +44,8 @@ export type BuiltInDriversEnv =
   | OpenCodeDriverEnv
   | AntigravityDriverEnv
   | CommandCodeDriverEnv
-  | DroidDriverEnv;
+  | DroidDriverEnv
+  | DevinDriverEnv;
 
 /**
  * Ordered list of built-in drivers. Order matters only for tie-breaking in
@@ -59,4 +61,5 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   AntigravityDriver,
   CommandCodeDriver,
   DroidDriver,
+  DevinDriver,
 ];

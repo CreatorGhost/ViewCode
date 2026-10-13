@@ -24,9 +24,11 @@ import {
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -86,6 +88,8 @@ export interface AcpAgentRuntimeInput extends Pick<
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly environment: NodeJS.ProcessEnv;
   readonly runtimeMode: RuntimeMode;
+  /** The session's starting model, for agents that take it at launch. */
+  readonly model: string | undefined;
   readonly loggers: Pick<
     AcpSessionRuntime.AcpSessionRuntimeOptions,
     "requestLogger" | "protocolLogging"
@@ -113,6 +117,12 @@ export interface AcpAgentProfile {
   readonly configureSession: (
     input: AcpAgentSessionConfiguration,
   ) => Effect.Effect<void, EffectAcpErrors.AcpError>;
+  /**
+   * For agents that replay a loaded session's history after `session/load`
+   * returns (Devin): a resumed session is ready only once updates have been
+   * quiet this long, or after `maxMs`.
+   */
+  readonly loadReplayQuiet?: { readonly quietMs: number; readonly maxMs: number };
   /** The ViewCode MCP server entry this agent takes, if any. */
   readonly mcpServer: (
     session: McpProviderSession.McpProviderSessionConfig,
@@ -139,6 +149,7 @@ interface AcpAgentSessionContext {
   lastPlanFingerprint: string | undefined;
   activeTurnId: TurnId | undefined;
   promptInFlight: boolean;
+  lastEventAtMillis: number;
   stopped: boolean;
 }
 
@@ -284,10 +295,15 @@ export function makeAcpAgentAdapter(profile: AcpAgentProfile, options: AcpAgentA
       event: AcpSessionRuntime.AcpSessionRuntimeEvent,
     ) =>
       Effect.gen(function* () {
+        if (event._tag === "EventStreamBarrier") {
+          yield* Deferred.succeed(event.acknowledge, undefined);
+          return;
+        }
+        // Output belongs to a turn. Devin replays a loaded session's history
+        // after `session/load` returns, and that must not show up as new work.
+        ctx.lastEventAtMillis = yield* Clock.currentTimeMillis;
+        if (!ctx.promptInFlight && event._tag !== "ContextWindowUpdated") return;
         switch (event._tag) {
-          case "EventStreamBarrier":
-            yield* Deferred.succeed(event.acknowledge, undefined);
-            return;
           case "AssistantItemStarted":
           case "AssistantItemCompleted":
             yield* offerRuntimeEvent(
@@ -351,6 +367,21 @@ export function makeAcpAgentAdapter(profile: AcpAgentProfile, options: AcpAgentA
         }
       });
 
+    const waitForQuietUpdates = (
+      ctx: AcpAgentSessionContext,
+      quiet: NonNullable<AcpAgentProfile["loadReplayQuiet"]>,
+    ) =>
+      Effect.gen(function* () {
+        const startedAt = yield* Clock.currentTimeMillis;
+        while (true) {
+          const now = yield* Clock.currentTimeMillis;
+          if (now - ctx.lastEventAtMillis >= quiet.quietMs || now - startedAt >= quiet.maxMs) {
+            return;
+          }
+          yield* Effect.sleep(Duration.millis(25));
+        }
+      });
+
     const startSession: ProviderAdapterShape<ProviderAdapterError>["startSession"] = (input) =>
       withThreadLock(
         input.threadId,
@@ -408,6 +439,7 @@ export function makeAcpAgentAdapter(profile: AcpAgentProfile, options: AcpAgentA
                 mcpSession,
               ),
               runtimeMode: input.runtimeMode,
+              model: modelSelection?.model,
               clientInfo: { name: "t3-code", version: "0.0.0" },
               ...(resumeSessionId ? { resumeSessionId } : {}),
               ...(mcpServer ? { mcpServers: [mcpServer] } : {}),
@@ -543,6 +575,7 @@ export function makeAcpAgentAdapter(profile: AcpAgentProfile, options: AcpAgentA
             lastPlanFingerprint: undefined,
             activeTurnId: undefined,
             promptInFlight: false,
+            lastEventAtMillis: yield* Clock.currentTimeMillis,
             stopped: false,
           };
           ctx = context;
@@ -558,6 +591,9 @@ export function makeAcpAgentAdapter(profile: AcpAgentProfile, options: AcpAgentA
             ),
             Effect.forkIn(sessionScope),
           );
+          if (resumeSessionId !== undefined && profile.loadReplayQuiet) {
+            yield* waitForQuietUpdates(context, profile.loadReplayQuiet);
+          }
           sessions.set(input.threadId, context);
           sessionScopeTransferred = true;
 

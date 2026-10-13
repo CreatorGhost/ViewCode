@@ -169,6 +169,8 @@ export const DEFAULT_TEXT_GENERATION_REASONING_EFFORT = "low";
 export const COMMAND_CODE_DEFAULT_MODEL = "default";
 /** Keep the model Droid picks from its own settings. Never sent to ACP. */
 export const DROID_DEFAULT_MODEL = "default";
+/** Keep the model Devin is configured with. Never passed as `--model`. */
+export const DEVIN_DEFAULT_MODEL = "default";
 
 export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, string>> = {
   [CODEX_DRIVER_KIND]: DEFAULT_MODEL,
@@ -180,6 +182,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [ProviderDriverKind.make("antigravity")]: ANTIGRAVITY_DEFAULT_MODEL,
   [ProviderDriverKind.make("commandCode")]: COMMAND_CODE_DEFAULT_MODEL,
   [ProviderDriverKind.make("droid")]: DROID_DEFAULT_MODEL,
+  [ProviderDriverKind.make("devin")]: DEVIN_DEFAULT_MODEL,
 };
 
 /** Per-provider text generation model defaults. */
@@ -230,4 +233,5 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [OPENCODE_DRIVER_KIND]: "OpenCode",
   [ProviderDriverKind.make("commandCode")]: "Command Code",
   [ProviderDriverKind.make("droid")]: "Droid",
+  [ProviderDriverKind.make("devin")]: "Devin",
 };

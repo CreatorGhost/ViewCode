@@ -2708,6 +2708,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                 "codex",
                 "commandCode",
                 "cursor",
+                "devin",
                 "droid",
                 "grok",
                 "opencode",

@@ -21,6 +21,10 @@ const droidProfile = process.env.T3_ACP_DROID === "1";
 const requireAuth = process.env.T3_ACP_REQUIRE_AUTH === "1";
 let authenticated = false;
 let currentAutonomy = "normal";
+// Devin: `http: false` MCP capabilities, mode and model as config options.
+const devinProfile = process.env.T3_ACP_DEVIN === "1";
+// Replays history after `session/load` has returned, as Devin can.
+const emitLateLoadReplay = process.env.T3_ACP_EMIT_LATE_LOAD_REPLAY === "1";
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
   process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
@@ -77,8 +81,12 @@ const permissionRequestCount = Math.max(
 );
 const sessionId = "mock-session-1";
 
-let currentModeId = antigravityProfile ? "default" : "ask";
-let currentModelId = antigravityProfile ? "gemini-test-low" : "default";
+let currentModeId = antigravityProfile ? "default" : devinProfile ? "accept-edits" : "ask";
+let currentModelId = antigravityProfile
+  ? "gemini-test-low"
+  : devinProfile
+    ? "swe-1-6-fast"
+    : "default";
 let parameterizedModelPicker = false;
 let currentReasoning = "medium";
 let currentContext = "272k";
@@ -124,6 +132,29 @@ process.once("exit", (code) => {
 });
 
 function configOptions(): ReadonlyArray<AcpSchema.SessionConfigOption> {
+  if (devinProfile) {
+    return [
+      {
+        id: "mode",
+        name: "Session Mode",
+        category: "mode",
+        type: "select",
+        currentValue: currentModeId,
+        options: ["accept-edits", "ask", "plan", "bypass"].map((value) => ({ value, name: value })),
+      },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: currentModelId,
+        options: [
+          { value: "swe-1-6-fast", name: "SWE-1.6 Fast" },
+          { value: "claude-opus-5-5-high", name: "Claude Opus 5.5 High" },
+        ],
+      },
+    ];
+  }
   if (droidProfile) {
     return [
       {
@@ -428,6 +459,18 @@ const program = Effect.gen(function* () {
       }
       parameterizedModelPicker =
         request.clientCapabilities?._meta?.parameterizedModelPicker === true;
+      if (devinProfile) {
+        return {
+          protocolVersion: 1,
+          agentInfo: { name: "affogato", version: "mock" },
+          agentCapabilities: {
+            loadSession: true,
+            mcpCapabilities: { http: false, sse: false },
+            promptCapabilities: { image: true, embeddedContext: true },
+          },
+          authMethods: [{ id: "devin-browser", name: "Log in with browser" }],
+        };
+      }
       if (droidProfile) {
         return {
           protocolVersion: 1,
@@ -578,6 +621,22 @@ const program = Effect.gen(function* () {
       }
       if (emitLoadReplay) {
         emitLoadReplayNotifications(requestedSessionId);
+      }
+      if (emitLateLoadReplay) {
+        yield* Effect.sleep("20 millis").pipe(
+          Effect.andThen(
+            Effect.sync(() =>
+              writeJsonRpcNotification("session/update", {
+                sessionId: requestedSessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { type: "text", text: "late replay" },
+                },
+              }),
+            ),
+          ),
+          Effect.forkDetach,
+        );
       }
       yield* agent.client.sessionUpdate({
         sessionId: requestedSessionId,

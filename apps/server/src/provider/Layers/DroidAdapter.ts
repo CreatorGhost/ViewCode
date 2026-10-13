@@ -18,8 +18,8 @@ export function makeDroidAdapter(settings: DroidSettings, options: AcpAgentAdapt
       provider: PROVIDER,
       label: "Droid",
       capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
-      // Droid's autonomy is a session config option, applied per turn.
-      makeRuntime: ({ loggers, runtimeMode: _runtimeMode, ...input }) =>
+      // Droid's model and autonomy are session config options, applied per turn.
+      makeRuntime: ({ loggers, runtimeMode: _runtimeMode, model: _model, ...input }) =>
         makeDroidAcpRuntime({ ...input, ...loggers, settings, provider: PROVIDER }),
       configureSession: configureDroidSession,
       // Droid advertises no MCP transport, so it gets the stdio bridge.

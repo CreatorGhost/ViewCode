@@ -4,6 +4,7 @@ import {
   ClaudeAI,
   CommandCodeIcon,
   CursorIcon,
+  DevinIcon,
   DroidIcon,
   GrokIcon,
   Icon,
@@ -20,6 +21,7 @@ export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>
   [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
   [ProviderDriverKind.make("commandCode")]: CommandCodeIcon,
   [ProviderDriverKind.make("droid")]: DroidIcon,
+  [ProviderDriverKind.make("devin")]: DevinIcon,
 };
 
 export type ModelEsque = {
