@@ -275,6 +275,8 @@ export function selectThreadTreeSearchMatches<T>(input: {
   readonly threadKeyOf: (thread: T) => string;
   readonly parentKeyOf: (thread: T) => string | null;
   readonly matches: (thread: T) => boolean;
+  /** Keep the agents below a match too (search does); a status filter keeps only the path. */
+  readonly includeDescendants?: boolean;
 }): ThreadTreeSearchSelection {
   const parentByKey = new Map<string, string>();
   const childrenByKey = new Map<string, string[]>();
@@ -302,7 +304,7 @@ export function selectThreadTreeSearchMatches<T>(input: {
     if (!input.matches(thread)) continue;
     const key = input.threadKeyOf(thread);
     keys.add(key);
-    addDescendants(key);
+    if (input.includeDescendants !== false) addDescendants(key);
     const seen = new Set<string>([key]);
     let cursor = parentByKey.get(key);
     while (cursor !== undefined && !seen.has(cursor)) {
