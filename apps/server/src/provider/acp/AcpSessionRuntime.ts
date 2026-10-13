@@ -96,7 +96,8 @@ export interface AcpSessionRuntimeOptions {
     readonly name: string;
     readonly version: string;
   };
-  readonly authMethodId: string;
+  /** Sent in `authenticate` right after `initialize`. Omit it for agents that use their own stored login. */
+  readonly authMethodId?: string;
   /** Provider name used in diagnostics, e.g. the MCP transport warning. */
   readonly provider?: string;
   readonly mcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
@@ -768,15 +769,17 @@ export const make = (
         yield* options.onMcpServersDropped?.({ unsupportedTransports }) ?? Effect.void;
       }
 
-      const authenticatePayload = {
-        methodId: options.authMethodId,
-      } satisfies EffectAcpSchema.AuthenticateRequest;
+      if (options.authMethodId !== undefined) {
+        const authenticatePayload = {
+          methodId: options.authMethodId,
+        } satisfies EffectAcpSchema.AuthenticateRequest;
 
-      yield* runLoggedRequest(
-        "authenticate",
-        authenticatePayload,
-        acp.agent.authenticate(authenticatePayload),
-      );
+        yield* runLoggedRequest(
+          "authenticate",
+          authenticatePayload,
+          acp.agent.authenticate(authenticatePayload),
+        );
+      }
 
       let sessionId: string;
       let sessionSetupResult:

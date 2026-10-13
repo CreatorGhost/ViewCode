@@ -58,7 +58,7 @@ export function isExplicitDevinModel(model: string | undefined): model is string
 
 export interface DevinAcpRuntimeInput extends Omit<
   AcpSessionRuntime.AcpSessionRuntimeOptions,
-  "authMethodId" | "authenticateOnDemand" | "spawn"
+  "authMethodId" | "spawn"
 > {
   readonly settings: Pick<DevinSettings, "binaryPath">;
   readonly environment: NodeJS.ProcessEnv;

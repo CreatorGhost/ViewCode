@@ -9,7 +9,8 @@
  *   (reads `FACTORY_API_KEY`). It advertises no `mcpCapabilities`, so only
  *   stdio MCP servers may be sent.
  * - A login stored by running `droid` is used without `authenticate`; with
- *   none, `session/new` fails with -32000 "Authentication required".
+ *   none, `session/new` fails with "Authentication required" (see
+ *   docs/internals/viewcode.md for why ViewCode authenticates up front instead).
  * - In ACP mode `-m`/`-r`/`--auto` are ignored. The session's config options
  *   carry `model`, `reasoning_effort` and `autonomy_level` (`normal`, `spec`,
  *   `auto-low`, `auto-medium`, `auto-high`, capped by the org's maximum).
@@ -32,8 +33,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
-import * as EffectAcpErrors from "effect-acp/errors";
-import type * as EffectAcpSchema from "effect-acp/schema";
+import type * as EffectAcpErrors from "effect-acp/errors";
 
 import { collectSessionConfigOptionValues, findSessionConfigOption } from "./AcpRuntimeModel.ts";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
@@ -59,22 +59,9 @@ export function hasDroidApiKey(environment: NodeJS.ProcessEnv): boolean {
   return Boolean(environment[DROID_API_KEY_ENV]?.trim());
 }
 
-/**
- * Picks `factory-api-key` when the key is set and Droid offers it. The browser
- * pairing method needs a terminal, so without a key the user is sent there.
- */
-export const resolveDroidAuthentication = (
-  initializeResult: EffectAcpSchema.InitializeResponse,
-  environment: NodeJS.ProcessEnv,
-): Effect.Effect<EffectAcpSchema.AuthenticateRequest, EffectAcpErrors.AcpError> =>
-  hasDroidApiKey(environment) &&
-  (initializeResult.authMethods ?? []).some((method) => method.id === DROID_API_KEY_AUTH_METHOD_ID)
-    ? Effect.succeed({ methodId: DROID_API_KEY_AUTH_METHOD_ID })
-    : Effect.fail(EffectAcpErrors.AcpRequestError.authRequired(DROID_NOT_SIGNED_IN_MESSAGE));
-
 export interface DroidAcpRuntimeInput extends Omit<
   AcpSessionRuntime.AcpSessionRuntimeOptions,
-  "authMethodId" | "authenticateOnDemand" | "spawn"
+  "authMethodId" | "spawn"
 > {
   readonly settings: Pick<DroidSettings, "binaryPath">;
   readonly environment: NodeJS.ProcessEnv;
@@ -101,8 +88,9 @@ export const makeDroidAcpRuntime = (
         },
         // Droid answers `session/load` with no transcript replay we need.
         resumeMethod: "resume",
-        authenticateOnDemand: (initializeResult) =>
-          resolveDroidAuthentication(initializeResult, environment),
+        // The key wins over a stored login; device pairing needs a terminal,
+        // so without a key Droid's own login is used.
+        ...(hasDroidApiKey(environment) ? { authMethodId: DROID_API_KEY_AUTH_METHOD_ID } : {}),
       }).pipe(
         Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner)),
       ),

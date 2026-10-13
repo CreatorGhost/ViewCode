@@ -105,7 +105,7 @@ it("reads built-in and custom models from Droid's model listing", () => {
 
 it.layer(testLayer)("DroidAdapter", (it) => {
   it.effect(
-    "signs in with FACTORY_API_KEY only after Droid asks, then applies model and autonomy",
+    "signs in with FACTORY_API_KEY before the session, then applies model and autonomy",
     () =>
       Effect.gen(function* () {
         const { binaryPath, requestLogPath } = yield* Effect.promise(() =>
@@ -134,7 +134,7 @@ it.layer(testLayer)("DroidAdapter", (it) => {
               ? [request.method]
               : [],
           ),
-          ["initialize", "session/new", "authenticate", "session/new"],
+          ["initialize", "authenticate", "session/new"],
         );
         assert.equal(
           requests.find((request) => request.method === "authenticate")?.params?.methodId,
@@ -153,9 +153,9 @@ it.layer(testLayer)("DroidAdapter", (it) => {
       }),
   );
 
-  it.effect("tells the user to sign in when Droid has no login and no key", () =>
+  it.effect("leaves sign-in to Droid's stored login when no key is set", () =>
     Effect.gen(function* () {
-      const { binaryPath } = yield* Effect.promise(() =>
+      const { binaryPath, requestLogPath } = yield* Effect.promise(() =>
         makeMockDroid({ T3_ACP_REQUIRE_AUTH: "1" }),
       );
       const environment = { ...process.env };
@@ -168,7 +168,9 @@ it.layer(testLayer)("DroidAdapter", (it) => {
           runtimeMode: "approval-required",
         })
         .pipe(Effect.flip);
-      assert.include(error.message, "Droid is not signed in");
+      assert.include(error.message, "Authentication required");
+      const requests = yield* Effect.promise(() => readRequests(requestLogPath));
+      assert.isFalse(requests.some((request) => request.method === "authenticate"));
     }),
   );
 
