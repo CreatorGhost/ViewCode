@@ -1,10 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentIdentificationMode } from "@t3tools/contracts/settings";
-import { isViewCodeThemeId } from "@t3tools/shared/themePalettes";
 import { useId } from "react";
 
 import { APP_STAGE_LABEL } from "../branding";
-import { useTheme } from "../hooks/useTheme";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 import { primaryServerConfigAtom } from "../state/server";
 
@@ -46,18 +44,17 @@ export function useEnvironmentStageLabel(): string {
 }
 
 /**
- * ViewCode's glass themes (plain, teal, named) have no stage artwork: an "artwork" preference reads
- * as the plain stage pill there, so the channel stays identifiable.
+ * ViewCode draws no stage artwork in any theme (user decision: the banner fought the calm shell):
+ * an "artwork" preference reads as the plain stage pill, so the channel stays identifiable.
  */
 export function resolveThemeEnvironmentIdentificationMode(
   mode: EnvironmentIdentificationMode,
-  theme: string,
 ): EnvironmentIdentificationMode {
-  return mode === "artwork" && isViewCodeThemeId(theme) ? "pill" : mode;
+  return mode === "artwork" ? "pill" : mode;
 }
 
 export function useStageArtworkAllowed(): boolean {
-  return !isViewCodeThemeId(useTheme().theme);
+  return false;
 }
 
 export function useSidebarStageBackdropVariant(enabled = true): SidebarStageBackdropVariant | null {

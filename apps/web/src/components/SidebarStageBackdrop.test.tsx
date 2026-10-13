@@ -17,11 +17,9 @@ describe("SidebarStageBackdrop", () => {
   });
 
   it("shows the stage as a pill instead of artwork under the ViewCode theme", () => {
-    expect(resolveThemeEnvironmentIdentificationMode("artwork", "viewcode")).toBe("pill");
-    expect(resolveThemeEnvironmentIdentificationMode("artwork", "viewcode-teal")).toBe("pill");
-    expect(resolveThemeEnvironmentIdentificationMode("artwork", "viewcode-nord")).toBe("pill");
-    expect(resolveThemeEnvironmentIdentificationMode("none", "viewcode")).toBe("none");
-    expect(resolveThemeEnvironmentIdentificationMode("artwork", "t3code")).toBe("artwork");
+    expect(resolveThemeEnvironmentIdentificationMode("artwork")).toBe("pill");
+    expect(resolveThemeEnvironmentIdentificationMode("pill")).toBe("pill");
+    expect(resolveThemeEnvironmentIdentificationMode("none")).toBe("none");
   });
 
   it("resolves supported environment pill labels", () => {

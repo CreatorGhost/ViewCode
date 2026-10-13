@@ -592,10 +592,6 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
     font-size: 0.875rem;
     line-height: 1.25rem;
   }
-  /* The folder's sort order lives in its menu; the row stays a name. */
-  [data-folder-sort-label] {
-    display: none;
-  }
   [data-testid="sidebar-row"] {
     height: 2rem; /* 32px */
     border-radius: var(--vc-row-radius);
@@ -858,4 +854,8 @@ html [data-app-rail] {
     pointer-events: none;
     z-index: 1;
   }
+}
+/* A folder's sort order lives in its menu, in every theme; the row stays a name. */
+[data-folder-sort-label] {
+  display: none;
 }
