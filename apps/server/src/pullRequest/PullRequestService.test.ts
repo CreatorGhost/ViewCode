@@ -4292,6 +4292,56 @@ it.effect("fills in the line counts for the rows it is given", () =>
   }),
 );
 it.effect(
+  "asks for line counts per repository owner, so one unreadable owner costs only its rows",
+  () =>
+    Effect.gen(function* () {
+      const asked: Array<ReadonlyArray<string>> = [];
+      const service = yield* makeService({
+        projects: [
+          project({ id: "p1", title: "dotfiles", workspaceRoot: "/a", repository: "me/dotfiles" }),
+          project({
+            id: "p2",
+            title: "private",
+            workspaceRoot: "/b",
+            repository: "company/private",
+          }),
+          project({ id: "p3", title: "site", workspaceRoot: "/c", repository: "me/site" }),
+        ],
+        providers: [
+          fakeProvider("github", {
+            listChangeRequestStats: (input) => {
+              const repositories = input.changeRequests.map((request) => request.repository);
+              asked.push(repositories);
+              return repositories.includes("company/private")
+                ? Effect.fail(requestFailed)
+                : Effect.succeed(
+                    input.changeRequests.map((request) => ({
+                      ...request,
+                      additions: 1,
+                      deletions: 1,
+                    })),
+                  );
+            },
+          }),
+        ],
+      });
+
+      const result = yield* service.listStats({
+        refs: [
+          { projectId: "p1" as ProjectId, repository: "me/dotfiles", number: 1 },
+          { projectId: "p2" as ProjectId, repository: "company/private", number: 2 },
+          { projectId: "p3" as ProjectId, repository: "me/site", number: 3 },
+        ],
+      });
+
+      assert.deepStrictEqual(asked.toSorted(), [["company/private"], ["me/dotfiles", "me/site"]]);
+      assert.deepStrictEqual(result.stats.map((stat) => stat.repository).toSorted(), [
+        "me/dotfiles",
+        "me/site",
+      ]);
+    }),
+);
+it.effect(
   "reuses counts across overlapping pages until expiry, explicit invalidation, or a reference changes",
   () =>
     Effect.gen(function* () {

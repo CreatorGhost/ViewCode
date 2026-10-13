@@ -2533,8 +2533,10 @@ export const make = Effect.gen(function* () {
    * The line counts for rows already on the page, which the listing left out because on GitHub
    * they cost more than everything else on the row put together.
    *
-   * One read per host rather than per row, and only for a host whose listing defers them; a row
-   * whose host answered with the counts in the first place is not here to be asked about. A ref
+   * One read per host and repository owner rather than per row, and only for a host whose listing
+   * defers them; a row whose host answered with the counts in the first place is not here to be
+   * asked about. Splitting by owner lets a host signed in to several accounts answer each owner as
+   * the account that can see it, so an owner none can see costs only its own rows. A ref
    * that names no project this workspace has, or a repository that is not the one the project's
    * remote points at, is dropped rather than refused: it is one row's two numbers, and the page
    * that asked has already moved on.
@@ -2561,14 +2563,16 @@ export const make = Effect.gen(function* () {
         }
         wanted.set(`${project.project.id} ${ref.number}`, { project, number: ref.number });
       }
-      const byHost = new Map<string, Array<{ project: SupportedProject; number: number }>>();
+      const byOwner = new Map<string, Array<{ project: SupportedProject; number: number }>>();
       for (const entry of wanted.values()) {
-        const held = byHost.get(entry.project.host);
-        if (held === undefined) byHost.set(entry.project.host, [entry]);
+        const repository = entry.project.repository.toLowerCase();
+        const key = `${entry.project.host} ${repository.slice(0, repository.lastIndexOf("/"))}`;
+        const held = byOwner.get(key);
+        if (held === undefined) byOwner.set(key, [entry]);
         else held.push(entry);
       }
       const stats = yield* Effect.forEach(
-        [...byHost.values()],
+        [...byOwner.values()],
         (entries) => {
           const first = entries[0]!;
           const readStats = first.project.api.listChangeRequestStats;

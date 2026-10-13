@@ -9,6 +9,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
+import { gitHubCommandTarget } from "../sourceControl/gitHubAccountRouting.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
 import * as GitHubGraphQlBudget from "../sourceControl/githubGraphQlBudget.ts";
@@ -529,6 +530,37 @@ layer("GitHubPullRequestCli.layer", (it) => {
         's0: repository(owner: "acme", name: "web") { pullRequest(number: 7)',
       );
       expect(document).toContain("pullRequest(number: 8)");
+    }),
+  );
+
+  it.effect("batches linked pull requests by repository owner, so each batch can be routed", () =>
+    Effect.gen(function* () {
+      // The batches answer nothing, and the `gh pr view` reads that follow are not under test.
+      mockedExecute.mockImplementation((input) =>
+        Effect.succeed(output(input.args[0] === "api" ? '{"data":{}}' : "not json")),
+      );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+
+      const reads = yield* Effect.forEach(
+        [
+          { repository: "me/dotfiles", number: 1 },
+          { repository: "company/private", number: 2 },
+          { repository: "me/site", number: 3 },
+        ],
+        (read) =>
+          Effect.exit(cli.getPullRequestSummary({ cwd: "/w", host: "github.com", ...read })),
+        { concurrency: "unbounded" },
+      ).pipe(Effect.forkChild);
+      yield* TestClock.adjust("10 millis");
+      yield* Fiber.join(reads);
+
+      const batches = mockedExecute.mock.calls
+        .filter(([input]) => input.args[0] === "api")
+        .map(
+          ([input]) =>
+            gitHubCommandTarget({ args: input.args, defaultHost: "github.com" })?.owner ?? null,
+        );
+      assert.deepStrictEqual(batches.toSorted(), ["company", "me"]);
     }),
   );
 
@@ -1239,6 +1271,36 @@ layer("GitHubPullRequestCli.layer", (it) => {
       const document = callAt(0).args.at(-1) ?? "";
       expect(document).toContain('s0: repository(owner: "acme", name: "web")');
       expect(document).toContain("pullRequest(number: 25)");
+    }),
+  );
+
+  it.effect("reads counts for each repository owner apart, so each read can be routed", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockImplementation(() =>
+        Effect.succeed(
+          output(JSON.stringify({ data: { s0: { pullRequest: { additions: 4, deletions: 1 } } } })),
+        ),
+      );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+
+      yield* cli.listPullRequestStats({
+        cwd: "/w",
+        host: "github.com",
+        changeRequests: [
+          { repository: "me/dotfiles", number: 1 },
+          { repository: "Company/private", number: 2 },
+          { repository: "me/site", number: 3 },
+        ],
+      });
+
+      // One read per owner, each naming only that owner, so the account that can see it runs it.
+      assert.deepStrictEqual(
+        mockedExecute.mock.calls.map(
+          ([input]) =>
+            gitHubCommandTarget({ args: input.args, defaultHost: "github.com" })?.owner ?? null,
+        ),
+        ["me", "company"],
+      );
     }),
   );
 
