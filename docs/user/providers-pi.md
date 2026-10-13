@@ -2,7 +2,9 @@
 
 ViewCode runs the [Pi coding agent](https://pi.dev) on your selected environment
 through Pi's RPC mode. Pi loads your own setup from `~/.pi/agent`: its settings,
-providers and models, extensions, skills and `AGENTS.md` files.
+providers and models, extensions, skills and `AGENTS.md` files. A project's own `.pi`
+settings, extensions and skills load only once you trust that folder in Pi (run `/trust`
+there in the `pi` terminal app), because ViewCode cannot show Pi's trust prompt.
 
 ## Set up Pi
 
