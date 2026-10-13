@@ -1,10 +1,12 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { settleAsyncResult } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Notifications from "expo-notifications";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useEffectEvent, useRef } from "react";
 
-import { mobilePreferencesAtom } from "../../state/preferences";
+import { runtime } from "../../lib/runtime";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { environmentPresentations } from "../../state/presentation";
 import { pushEnvironment } from "../../state/pushNotifications";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -15,6 +17,7 @@ import {
   resolveDirectPushPreferences,
 } from "./directPush";
 import { readExpoPushToken } from "./directPushToken";
+import { requestAgentNotificationPermission } from "./notificationPermissions";
 
 /**
  * Keeps every connected computer's copy of this phone's push registration in
@@ -22,6 +25,10 @@ import { readExpoPushToken } from "./directPushToken";
  * categories change, and tells computers to forget the phone when
  * notifications are turned off or permission is withdrawn. Runs only on
  * connection and preference changes; nothing polls.
+ *
+ * The first time a computer connects on a phone that never chose, it asks for
+ * the notification permission once and records the answer, so notifications
+ * are not silently off until someone finds the setting.
  */
 export function useDirectPushRegistration(): void {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
@@ -30,6 +37,8 @@ export function useDirectPushRegistration(): void {
   const unregister = useAtomCommand(pushEnvironment.unregister, { reportFailure: false });
   // What each computer was last told this app session; a reconnect tells it again.
   const synced = useRef(new Map<EnvironmentId, string | null>());
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const asked = useRef(false);
 
   const loaded = AsyncResult.isSuccess(preferencesResult);
   const stored = loaded ? preferencesResult.value.directPush : undefined;
@@ -78,7 +87,20 @@ export function useDirectPushRegistration(): void {
     }
   });
 
+  const askOnce = useEffectEvent(async () => {
+    if (asked.current || everEnabled || connected.length === 0) return;
+    asked.current = true;
+    const permission = await settleAsyncResult(() =>
+      runtime.runPromiseExit(requestAgentNotificationPermission),
+    );
+    const granted = permission._tag === "Success" && permission.value.type === "granted";
+    const token = granted ? await readExpoPushToken() : null;
+    savePreferences({ directPush: { ...preferences, enabled: token?.ok === true } });
+  });
+
   useEffect(() => {
-    if (loaded) void sync();
+    if (!loaded) return;
+    void askOnce();
+    void sync();
   }, [loaded, connectedKey, preferencesKey]);
 }
