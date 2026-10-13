@@ -16,7 +16,9 @@ import { CheckIcon, CircleAlertIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useThreadShell } from "~/state/entities";
+import { usePrimaryEnvironmentId } from "~/state/environments";
 import { serverEnvironment } from "~/state/server";
+import { toastManager } from "../ui/toast";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { Button } from "../ui/button";
@@ -34,6 +36,7 @@ import {
   COMPUTER_USE_MODE_LABELS,
   describeComputerUseApprovals,
   describeComputerUseStatus,
+  MACOS_ACCESSIBILITY_GUIDANCE,
   showsComputerUseApprovals,
 } from "./ComputerUseSetting.logic";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
@@ -96,17 +99,56 @@ function ComputerUseStatusLine({ environmentId }: { readonly environmentId: Envi
     };
   }, [fetchStatus]);
 
-  const check = () => {
-    setState({ phase: "loading" });
-    void fetchStatus();
+  // The Mac this window runs on serves this environment: macOS can be asked directly, and its
+  // own prompt (with a button to the pane) is how ViewCode gets into the Accessibility list.
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const bridge = typeof window === "undefined" ? undefined : window.desktopBridge;
+  const grantsHere =
+    bridge?.getClientPlatform?.() === "darwin" &&
+    bridge.openSystemSettings !== undefined &&
+    primaryEnvironmentId === environmentId;
+  const [trustedHere, setTrustedHere] = useState<boolean | null>(null);
+  const readTrustHere = useCallback(async () => {
+    if (!grantsHere || !bridge?.checkSystemPermission) return null;
+    const trusted = await bridge.checkSystemPermission("accessibility").catch(() => null);
+    setTrustedHere(trusted);
+    return trusted;
+  }, [bridge, grantsHere]);
+  useEffect(() => {
+    void readTrustHere();
+  }, [readTrustHere]);
+
+  const allowAccess = async () => {
+    const opened = await bridge?.openSystemSettings?.("accessibility").catch(() => false);
+    if (opened === false) {
+      toastManager.add({
+        type: "error",
+        title: "Could not open System Settings",
+        description: "Open Privacy & Security → Accessibility and turn on ViewCode.",
+      });
+    }
   };
 
-  const line =
+  const check = () => {
+    setState({ phase: "loading" });
+    void (async () => {
+      // Still not allowed: bring up macOS's own prompt rather than only asking again.
+      if ((await readTrustHere()) === false) await allowAccess();
+      await fetchStatus();
+    })();
+  };
+
+  const described =
     state.phase === "ready"
       ? describeComputerUseStatus(state.status)
       : state.phase === "error"
         ? { ready: false, message: state.message }
         : null;
+  // macOS says this app is not trusted yet: say that, whatever the server's probe made of it.
+  const line =
+    described !== null && !described.ready && trustedHere === false
+      ? { ready: false, message: MACOS_ACCESSIBILITY_GUIDANCE }
+      : described;
   const Icon = line?.ready ? CheckIcon : CircleAlertIcon;
 
   return (
@@ -122,6 +164,11 @@ function ComputerUseStatusLine({ environmentId }: { readonly environmentId: Envi
       ) : (
         <span>Checking…</span>
       )}
+      {grantsHere && line !== null && !line.ready ? (
+        <Button size="xs" onClick={() => void allowAccess()}>
+          Allow access…
+        </Button>
+      ) : null}
       <Button size="xs" variant="outline" disabled={state.phase === "loading"} onClick={check}>
         Check again
       </Button>
