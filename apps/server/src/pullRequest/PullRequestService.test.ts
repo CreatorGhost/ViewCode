@@ -1273,23 +1273,21 @@ it.effect("asks about each repository as the account it is read as", () =>
             Effect.sync(() => {
               asked.push(`across ${input.repositories.join(",")} as ${input.viewer}`);
               return {
-                items: [batchedChangeRequest(1, "pingdotgg/t3code", "2026-07-02T00:00:00Z")],
+                items: input.repositories.map((repository) =>
+                  repository === "acme/client"
+                    ? {
+                        ...batchedChangeRequest(2, repository, "2026-07-03T00:00:00Z"),
+                        reviewRequestLogins: ["bilal-acme"],
+                      }
+                    : batchedChangeRequest(1, repository, "2026-07-02T00:00:00Z"),
+                ),
                 truncated: false,
               };
             }),
           listChangeRequests: (input) =>
             Effect.sync(() => {
               asked.push(`${input.repository} as ${input.viewer}`);
-              return {
-                items: [
-                  {
-                    ...changeRequest(2, "2026-07-03T00:00:00Z"),
-                    reviewRequestLogins: ["bilal-acme"],
-                  },
-                ],
-                truncated: false,
-                continues: true,
-              };
+              return { items: [], truncated: false, continues: true };
             }),
         }),
       ],
@@ -1297,8 +1295,9 @@ it.effect("asks about each repository as the account it is read as", () =>
 
     const result = yield* service.list({ state: "open", involvement: "reviewing" });
 
+    // Each owner is searched on its own, as its own account, and neither needs the slow listing.
     assert.deepStrictEqual(asked.toSorted(), [
-      "acme/client as bilal-acme",
+      "across acme/client as bilal-acme",
       "across pingdotgg/t3code as bilal",
     ]);
     assert.deepStrictEqual(
@@ -1307,6 +1306,45 @@ it.effect("asks about each repository as the account it is read as", () =>
         ["acme/client", true],
         ["pingdotgg/t3code", false],
       ],
+    );
+  }),
+);
+
+it.effect("lists a repository its own search said nothing about", () =>
+  Effect.gen(function* () {
+    const asked: Array<string> = [];
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p2", title: "client", workspaceRoot: "/b", repository: "acme/client" }),
+      ],
+      providers: [
+        fakeProvider("github", {
+          accountFor: () => Effect.succeed("bilal-acme"),
+          // Not indexed for search, which answers with silence rather than with an error.
+          listChangeRequestsAcross: (input) =>
+            Effect.sync(() => {
+              asked.push(`across ${input.repositories.join(",")}`);
+              return { items: [], truncated: false };
+            }),
+          listChangeRequests: (input) =>
+            Effect.sync(() => {
+              asked.push(input.repository);
+              return {
+                items: [changeRequest(2, "2026-07-03T00:00:00Z")],
+                truncated: false,
+                continues: true,
+              };
+            }),
+        }),
+      ],
+    });
+
+    const result = yield* service.list({ state: "open" });
+
+    assert.deepStrictEqual(asked, ["across acme/client", "acme/client"]);
+    assert.deepStrictEqual(
+      result.entries.map((entry) => entry.number),
+      [2],
     );
   }),
 );

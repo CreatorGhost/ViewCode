@@ -271,11 +271,11 @@ const SEARCH_DEBOUNCE_MS = 250;
 /** What `scorePullRequestMatch` gives a row none of whose own fields carry the search text. */
 const MATCHED_ELSEWHERE_SCORE = 10;
 /**
- * One whole page from the host and no more: every provider asks for one row beyond the page as
- * its "is there more" probe, and GitHub serves a hundred per request — so asking for ninety-nine
- * costs one round trip where a hundred costs two.
+ * A screenful, because the first rows are what the reader is waiting for and a host answers in
+ * proportion to the rows asked for (measured on a 66-row repository: 20 rows in ~2.2s, a hundred
+ * in ~4-5.5s). The rest are one "load more" away, read a slice at a time.
  */
-const PAGE_SIZE = 99;
+const PAGE_SIZE = 20;
 /** The largest page the listing accepts; past it the request is refused outright. */
 const MAX_PAGE_SIZE = 500;
 /** Stable empty map so the memos below do not see a new object on every render. */
@@ -1111,7 +1111,7 @@ function PullRequestsRouteView() {
   // can, and that is what stops a cleared search from keeping its own rows.
   // A grown page is read by the list and nothing else: the baseline always asks for one page, so
   // a host with no cursor to continue from — where "more" means asking for a longer page — would
-  // have its extra rows thrown away for the ninety-nine the baseline keeps answering with.
+  // have its extra rows thrown away for the one page the baseline keeps answering with.
   const answered =
     (sentQuery.length === 0 && sentCursors === null && pageSize === PAGE_SIZE
       ? baselineQuery.data
