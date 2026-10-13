@@ -50,6 +50,51 @@ const decide = (
   }) !== null;
 
 describe("resolveAutoSettlementAt", () => {
+  it.each(["starting", "running", "approval", "input", "queued", "background"] as const)(
+    "keeps a lead active while its child has %s work",
+    (work) => {
+      const lead = makeThread();
+      const child = makeThread({
+        id: ThreadId.make("child"),
+        parentThreadId: lead.id,
+        ...(work === "starting" || work === "running"
+          ? {
+              session: {
+                threadId: ThreadId.make("child"),
+                status: work,
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: null,
+                lastError: null,
+                updatedAt: NOW,
+              },
+            }
+          : {}),
+        hasPendingApprovals: work === "approval",
+        hasPendingUserInput: work === "input",
+        latestUserMessageAt: work === "queued" ? NOW : lead.latestUserMessageAt,
+        backgroundLiveness: work === "background" ? "working" : null,
+      });
+      const decideWithChild = (candidate: OrchestrationThreadShell) =>
+        resolveAutoSettlementAt({
+          thread: lead,
+          childThreads: [candidate],
+          pullRequest: { state: "merged", mergedAt: NOW },
+          now: NOW,
+          autoSettleAfterDays: 3,
+          autoSettleOnMerge: true,
+        });
+      expect(decideWithChild(child)).toBeNull();
+      for (const ignored of [
+        { kind: "sidechat" as const },
+        { archivedAt: NOW },
+        { settledOverride: "settled" as const, settledAt: NOW },
+        { parentThreadId: ThreadId.make("other") },
+      ])
+        expect(decideWithChild({ ...child, ...ignored })).not.toBeNull();
+    },
+  );
+
   it("returns the last activity time for persisted settlement", () => {
     expect(
       resolveAutoSettlementAt({

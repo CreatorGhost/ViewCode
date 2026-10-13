@@ -75,12 +75,14 @@ export function pullRequestMatchesProject(
 /**
  * Read the shell state for a discovery or settlement sweep. A sweep for one
  * thread reads that thread and the projects it names, not every thread. A
+ * Settlement includes the target's children to guard their work. A
  * sweep over all threads reads only unsettled threads, since both sweeps skip
  * settled ones. Discovery's backfill does its own full read.
  */
 export const readSweepSnapshot = (
   snapshots: ProjectionSnapshotQuery.ProjectionSnapshotQueryShape,
   threadId: ThreadId | null,
+  includeChildAgents = false,
 ): Effect.Effect<
   Pick<OrchestrationShellSnapshot, "snapshotSequence" | "projects" | "threads">,
   ProjectionRepositoryError
@@ -100,7 +102,11 @@ export const readSweepSnapshot = (
             ? [thread.value.projectId]
             : [thread.value.projectId, reference.projectId],
         );
-        return { snapshotSequence, projects, threads: [thread.value] };
+        const children = includeChildAgents
+          ? (yield* snapshots.getShellSnapshot({ unsettledOnly: true, parentThreadId: threadId }))
+              .threads
+          : [];
+        return { snapshotSequence, projects, threads: [thread.value, ...children] };
       });
 
 /** @public Service construction is part of the canonical Effect module API. */

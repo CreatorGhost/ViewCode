@@ -95,12 +95,19 @@ export const make = Effect.gen(function* () {
     if (!autoSettlementConfigured(settings)) {
       return;
     }
-    const snapshot = yield* readSweepSnapshot(snapshots, threadId ?? null);
+    const snapshot = yield* readSweepSnapshot(snapshots, threadId ?? null, true);
     const now = DateTime.formatIso(yield* DateTime.now);
     const projects = new Map(snapshot.projects.map((project) => [project.id, project]));
     // A merge rechecks all candidates, including branches that discovery has
     // not linked yet. Those lookups can still have cached the PR as open.
-    const candidates = snapshot.threads.filter((thread) => isAutoSettlementCandidate(thread, now));
+    const childrenByParent = Map.groupBy(snapshot.threads, (thread) => thread.parentThreadId);
+    const childThreadsFor = (thread: (typeof snapshot.threads)[number]) =>
+      childrenByParent.get(thread.id) ?? [];
+    const candidates = snapshot.threads.filter(
+      (thread) =>
+        (threadId === undefined || thread.id === threadId) &&
+        isAutoSettlementCandidate(thread, now, childThreadsFor(thread)),
+    );
 
     // Return the thread when it still needs a pull request decision. A rejected
     // dispatch skips it for this snapshot instead of retrying through a lookup.
@@ -113,6 +120,7 @@ export const make = Effect.gen(function* () {
         const decisionNow = DateTime.formatIso(yield* DateTime.now);
         const settledAt = resolveAutoSettlementAt({
           thread,
+          childThreads: childThreadsFor(thread),
           pullRequest,
           now: decisionNow,
           autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,
@@ -216,6 +224,7 @@ export const make = Effect.gen(function* () {
         return (
           resolveAutoSettlementAt({
             thread,
+            childThreads: childThreadsFor(thread),
             pullRequest,
             now: decisionNow,
             autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,

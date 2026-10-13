@@ -133,6 +133,8 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getShellSnapshot: (options?: {
     readonly unsettledOnly?: boolean;
+    /** Limit background settlement reads to the direct children of this thread. */
+    readonly parentThreadId?: ThreadId;
   }) => Effect.Effect<OrchestrationShellSnapshot, ProjectionRepositoryError>;
 
   /**

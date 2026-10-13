@@ -2,6 +2,7 @@ import type {
   OrchestrationClientOrigin,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationThread,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -36,10 +37,12 @@ import {
   isOrchestrationCommandRejection,
   OrchestrationCommandIdConflictError,
   OrchestrationCommandInvariantError,
+  OrchestrationThreadSettleBlockedError,
   OrchestrationCommandPreviouslyRejectedError,
   type OrchestrationDispatchError,
   type OrchestrationProjectorDecodeError,
 } from "../Errors.ts";
+import { threadHasActiveChildAgent } from "../ThreadSettlementPolicy.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
@@ -241,6 +244,64 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
 
+        // A child's state can change after the lead's sweep snapshot without
+        // appending any event to the lead. Recheck it at serialized dispatch.
+        const settlementCommand = envelope.command;
+        if (
+          settlementCommand.type === "thread.auto-settle" &&
+          commandReadModel.threads.some(
+            (child) =>
+              child.parentThreadId === settlementCommand.threadId &&
+              child.kind !== "sidechat" &&
+              child.deletedAt === null &&
+              child.archivedAt === null &&
+              child.settledOverride !== "settled" &&
+              child.settledAt === null,
+          )
+        ) {
+          const children = yield* projectionSnapshotQuery.getShellSnapshot({
+            unsettledOnly: true,
+            parentThreadId: settlementCommand.threadId,
+          });
+          if (
+            threadHasActiveChildAgent(
+              { id: settlementCommand.threadId },
+              children.threads,
+              DateTime.formatIso(yield* DateTime.now),
+            )
+          ) {
+            return yield* new OrchestrationThreadSettleBlockedError({
+              threadId: settlementCommand.threadId,
+            });
+          }
+        }
+        // Both kinds of settlement project to the same override. Timestamp
+        // comparisons lose provenance after metadata edits and migration 046.
+        let automaticallySettledParent: OrchestrationThread | undefined;
+        const activityCommand = envelope.command;
+        if (
+          activityCommand.type === "thread.turn.start" ||
+          (activityCommand.type === "thread.session.set" &&
+            (activityCommand.session.status === "starting" ||
+              activityCommand.session.status === "running"))
+        ) {
+          const child = commandReadModel.threads.find(
+            (thread) => thread.id === activityCommand.threadId,
+          );
+          const parent =
+            child?.kind !== "sidechat" && child?.parentThreadId != null
+              ? commandReadModel.threads.find((thread) => thread.id === child.parentThreadId)
+              : undefined;
+          if (
+            parent?.settledOverride === "settled" &&
+            parent.archivedAt === null &&
+            parent.deletedAt === null &&
+            (yield* eventStore.isThreadAutomaticallySettled(parent.id))
+          ) {
+            automaticallySettledParent = parent;
+          }
+        }
+
         // Command snapshots omit activities at startup and cap them while running.
         // Read this request's durable state before deciding how to send the answer.
         const userInputActivity =
@@ -251,6 +312,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
+          ...(automaticallySettledParent !== undefined ? { automaticallySettledParent } : {}),
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
             : {}),

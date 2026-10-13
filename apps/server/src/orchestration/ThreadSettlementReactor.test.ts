@@ -268,10 +268,23 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
       getShellSnapshot: (readOptions) =>
-        Ref.update(snapshotReadCount, (count) => count + 1).pipe(
-          Effect.andThen(Queue.offer(snapshotReads, null)),
-          Effect.andThen(options.getShellSnapshot?.(readOptions) ?? Ref.get(snapshots)),
-        ),
+        readOptions?.parentThreadId !== undefined
+          ? Ref.get(snapshots).pipe(
+              Effect.map((snapshot) => ({
+                ...snapshot,
+                threads: snapshot.threads.filter(
+                  (thread) =>
+                    thread.parentThreadId === readOptions.parentThreadId &&
+                    thread.archivedAt === null &&
+                    thread.settledOverride !== "settled" &&
+                    thread.settledAt === null,
+                ),
+              })),
+            )
+          : Ref.update(snapshotReadCount, (count) => count + 1).pipe(
+              Effect.andThen(Queue.offer(snapshotReads, null)),
+              Effect.andThen(options.getShellSnapshot?.(readOptions) ?? Ref.get(snapshots)),
+            ),
       getSnapshotSequence: () =>
         Ref.get(snapshots).pipe(Effect.map(({ snapshotSequence }) => ({ snapshotSequence }))),
       getThreadShellById: (threadId) =>
@@ -380,6 +393,79 @@ describe("ThreadSettlementReactor", () => {
     });
     assert.strictEqual(base, unrelated);
   });
+
+  it.effect("full and targeted sweeps leave leads with active children visible", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const lead = makeThread("lead", {
+          linkedPullRequest: {
+            projectId: PROJECT_ID,
+            repository: "owner/repository",
+            number: 42,
+            url: "https://example.test/owner/repository/pull/42",
+          },
+        });
+        const child = makeThread("child", { parentThreadId: lead.id, hasPendingUserInput: true });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([lead, child]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleAfterDays: 3,
+            sidebarAutoSettleOnMerge: true,
+          },
+          pullRequestSummary: (input) =>
+            Effect.succeed(makePullRequestSummary({ ...input, state: "merged" })),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          assert.deepStrictEqual(yield* Ref.get(fixture.commands), []);
+          const publishLeadReady = fixture.publishEvent({
+            sequence: 2,
+            eventId: EventId.make("lead-ready"),
+            type: "thread.session-set",
+            aggregateKind: "thread",
+            aggregateId: lead.id,
+            occurredAt: NOW,
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            payload: {
+              threadId: lead.id,
+              session: {
+                threadId: lead.id,
+                status: "ready",
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: null,
+                lastError: null,
+                updatedAt: NOW,
+              },
+            },
+          });
+          yield* publishLeadReady;
+          assert.strictEqual(yield* Queue.take(fixture.snapshotReads), lead.id);
+          yield* reactor.drain;
+          assert.deepStrictEqual(yield* Ref.get(fixture.commands), []);
+          assert.deepStrictEqual(yield* Ref.get(fixture.summaryCalls), []);
+          yield* Ref.update(fixture.snapshots, (snapshot) => ({
+            ...snapshot,
+            threads: [lead, { ...child, hasPendingUserInput: false }],
+          }));
+          yield* publishLeadReady;
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+          // A targeted sweep reads children for eligibility, but settles only its target.
+          assert.deepStrictEqual(
+            (yield* Ref.get(fixture.commands)).map((command) => command.threadId),
+            [lead.id],
+          );
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
 
   it.effect(
     "settles synced terminal links immediately while open, unsynced, or running threads wait",

@@ -68,6 +68,7 @@ function pullRequestSettles(
 
 export function resolveAutoSettlementAt(input: {
   readonly thread: OrchestrationThreadShell;
+  readonly childThreads?: ReadonlyArray<OrchestrationThreadShell>;
   readonly pullRequest: SettlementPullRequest | null;
   readonly now: string;
   readonly autoSettleAfterDays: number | null;
@@ -96,7 +97,7 @@ export function resolveAutoSettlementAt(input: {
             closedAt: latest.snapshot.closedAt ?? null,
           };
   }
-  if (!isAutoSettlementCandidate(thread, input.now)) return null;
+  if (!isAutoSettlementCandidate(thread, input.now, input.childThreads)) return null;
   const activityAt = latestTimestamp([
     thread.latestUserMessageAt,
     thread.latestTurn?.requestedAt,
@@ -114,10 +115,37 @@ export function resolveAutoSettlementAt(input: {
     : null;
 }
 
+/** Unsettled child work keeps its lead visible; side chats have their own lifecycle. */
+export function threadHasActiveChildAgent(
+  thread: Pick<OrchestrationThreadShell, "id">,
+  children: ReadonlyArray<OrchestrationThreadShell>,
+  now: string,
+): boolean {
+  return children.some(
+    (child) =>
+      child.parentThreadId === thread.id &&
+      child.kind !== "sidechat" &&
+      child.archivedAt === null &&
+      child.settledOverride !== "settled" &&
+      child.settledAt === null &&
+      (child.hasPendingApprovals ||
+        child.hasPendingUserInput ||
+        child.session?.status === "starting" ||
+        child.session?.status === "running" ||
+        child.backgroundLiveness != null ||
+        threadHasQueuedTurnStart(child, now)),
+  );
+}
+
 /** Cheap checks that run before any source control lookup. */
-export function isAutoSettlementCandidate(thread: OrchestrationThreadShell, now: string): boolean {
+export function isAutoSettlementCandidate(
+  thread: OrchestrationThreadShell,
+  now: string,
+  childThreads: ReadonlyArray<OrchestrationThreadShell> = [],
+): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
   if (thread.autoSettleDisabledAt != null) return false;
+  if (threadHasActiveChildAgent(thread, childThreads, now)) return false;
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
   if (thread.session?.status === "starting" || thread.session?.status === "running") return false;
   if (thread.backgroundLiveness != null) return false;

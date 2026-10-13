@@ -3819,6 +3819,33 @@ it.effect("reads a full sweep from unsettled threads and every project", () => {
     const unsettled = yield* query.getShellSnapshot({ unsettledOnly: true });
     assert.deepStrictEqual(unsettled.threads, sweep.threads);
     assert.strictEqual(unsettled.updatedAt, "2026-09-04T00:00:00Z");
+    // Child reads must preserve the shell's pending/session/turn state while
+    // excluding unrelated, archived, and settled children at the SQL boundary.
+    yield* sql`UPDATE projection_threads SET parent_thread_id = 't-resumed'
+      WHERE thread_id IN ('t-open', 't-settled', 't-archived')`;
+    const childSnapshot = yield* query.getShellSnapshot({
+      unsettledOnly: true,
+      parentThreadId: ThreadId.make("t-resumed"),
+    });
+    const openChild = unsettled.threads.find((thread) => thread.id === "t-open");
+    assert.ok(openChild);
+    assert.deepStrictEqual(childSnapshot.threads, [
+      { ...openChild, parentThreadId: ThreadId.make("t-resumed") },
+    ]);
+    const leadSweep = yield* readSweepSnapshot(query, ThreadId.make("t-resumed"), true);
+    assert.deepStrictEqual(
+      leadSweep.threads.map((thread) => thread.id),
+      ["t-resumed", "t-open"],
+    );
+    // A malformed unrelated active thread must not break this scoped read.
+    yield* sql`UPDATE projection_threads SET model_selection_json = 'invalid-json' WHERE thread_id = 't-branch'`;
+    assert.deepStrictEqual(
+      (yield* query.getShellSnapshot({
+        unsettledOnly: true,
+        parentThreadId: ThreadId.make("t-resumed"),
+      })).threads,
+      childSnapshot.threads,
+    );
   }).pipe(Effect.provide(layer));
 });
 

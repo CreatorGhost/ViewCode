@@ -34,6 +34,10 @@ export interface OrchestrationAggregateReplayStats {
  * OrchestrationEventStoreShape - Service API for orchestration event persistence.
  */
 export interface OrchestrationEventStoreShape {
+  /** Distinguish a server auto-settle from the user's latest lifecycle decision. */
+  readonly isThreadAutomaticallySettled: (
+    threadId: string,
+  ) => Effect.Effect<boolean, OrchestrationEventStoreError>;
   /**
    * Persist a new orchestration event.
    *

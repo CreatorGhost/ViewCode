@@ -216,7 +216,10 @@ const EventReplayStatsRowSchema = Schema.Struct({
   eventCount: Schema.Number,
   payloadBytes: Schema.Number,
 });
-const ActiveThreadRowsRequest = Schema.Struct({ unsettledOnly: Schema.Boolean });
+const ActiveThreadRowsRequest = Schema.Struct({
+  unsettledOnly: Schema.Boolean,
+  parentThreadId: Schema.optional(ThreadId),
+});
 const ProjectionThreadSearchRequest = Schema.Struct({
   pattern: Schema.String,
   limit: Schema.Int,
@@ -666,6 +669,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ? sql`AND threads.settled_at IS NULL AND threads.settled_override IS NOT 'settled'`
       : sql``;
 
+  const childThreadsFilter = (parentThreadId: string | undefined) =>
+    parentThreadId === undefined ? sql`` : sql`AND threads.parent_thread_id = ${parentThreadId}`;
+
   const listActiveThreadRows = SqlSchema.findAll({
     Request: ActiveThreadRowsRequest,
     Result: ProjectionThreadDbRowSchema,
@@ -719,6 +725,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE deleted_at IS NULL
           AND archived_at IS NULL
           ${unsettledThreadsFilter(request.unsettledOnly)}
+          ${childThreadsFilter(request.parentThreadId)}
         ORDER BY project_id ASC, created_at ASC, thread_id ASC
       `,
   });
@@ -892,6 +899,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE threads.deleted_at IS NULL
           AND threads.archived_at IS NULL
           ${unsettledThreadsFilter(request.unsettledOnly)}
+          ${childThreadsFilter(request.parentThreadId)}
         ORDER BY links.thread_id ASC, links.linked_at ASC, links.number ASC
       `,
   });
@@ -1023,6 +1031,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE threads.deleted_at IS NULL
           AND threads.archived_at IS NULL
           ${unsettledThreadsFilter(request.unsettledOnly)}
+          ${childThreadsFilter(request.parentThreadId)}
         ORDER BY sessions.thread_id ASC
       `,
   });
@@ -1119,6 +1128,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           AND threads.archived_at IS NULL
           AND threads.latest_turn_id IS NOT NULL
           ${unsettledThreadsFilter(request.unsettledOnly)}
+          ${childThreadsFilter(request.parentThreadId)}
         ORDER BY turns.thread_id ASC
       `,
   });
@@ -2802,6 +2812,7 @@ pending_approval_requests AS (
 
   const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = (options) => {
     const unsettledOnly = options?.unsettledOnly === true;
+    const parentThreadId = options?.parentThreadId;
     return sql
       .withTransaction(
         Effect.all([
@@ -2813,7 +2824,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
-          listActiveThreadRows({ unsettledOnly }).pipe(
+          listActiveThreadRows({ unsettledOnly, parentThreadId }).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listThreads:query",
@@ -2821,7 +2832,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
-          listActiveThreadSessionRows({ unsettledOnly }).pipe(
+          listActiveThreadSessionRows({ unsettledOnly, parentThreadId }).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:query",
@@ -2829,7 +2840,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
-          listActiveThreadPullRequestRows({ unsettledOnly }).pipe(
+          listActiveThreadPullRequestRows({ unsettledOnly, parentThreadId }).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listThreadPullRequests:query",
@@ -2837,7 +2848,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
-          listActiveLatestTurnRows({ unsettledOnly }).pipe(
+          listActiveLatestTurnRows({ unsettledOnly, parentThreadId }).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:query",

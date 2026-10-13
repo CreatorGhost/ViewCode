@@ -353,6 +353,7 @@ describe("OrchestrationEngine", () => {
           }),
         ),
       hasEventAfter: () => Effect.succeed(false),
+      isThreadAutomaticallySettled: () => Effect.succeed(false),
       readAggregateRange: () => Stream.die("unused aggregate replay"),
       getAggregateReplayStats: () => Effect.die("unused aggregate replay stats"),
     };
@@ -698,6 +699,128 @@ describe("OrchestrationEngine", () => {
           expect(thread?.settledAt).toBe(lastActivityAt);
           expect(thread?.updatedAt).toBe(now());
         }
+      }).pipe(Effect.provide(makeOrchestrationLayer())),
+  );
+
+  effectIt.effect(
+    "child turns wake only automatically settled leads using durable provenance",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(now()));
+        const engine = yield* OrchestrationEngineService;
+        const snapshots = yield* ProjectionSnapshotQuery;
+        const projectId = ProjectId.make("agent-settlement-project");
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("create-agent-project"),
+          projectId,
+          title: "Project",
+          workspaceRoot: "/tmp/agent-settlement",
+          createdAt: now(),
+        });
+        for (const trigger of ["turn", "session"] as const)
+          for (const mode of ["auto", "manual", "manual-after-auto", "sidechat"] as const) {
+            const leadId = ThreadId.make(`lead-${mode}-${trigger}`);
+            const childId = ThreadId.make(`child-${mode}-${trigger}`);
+            for (const threadId of [leadId, childId])
+              yield* engine.dispatch({
+                type: "thread.create",
+                commandId: CommandId.make(`create-${threadId}`),
+                threadId,
+                projectId,
+                title: String(threadId),
+                modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+                runtimeMode: "full-access",
+                interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                branch: null,
+                worktreePath: null,
+                createdAt: now(),
+                ...(threadId === childId
+                  ? {
+                      parentThreadId: leadId,
+                      ...(mode === "sidechat" ? { kind: "sidechat" as const } : {}),
+                    }
+                  : {}),
+              });
+            if (mode !== "manual")
+              yield* engine.dispatch({
+                type: "thread.auto-settle",
+                commandId: CommandId.make(`server:auto-settle:${leadId}`),
+                threadId: leadId,
+                snapshotSequence: yield* engine.latestSequence,
+                settledAt: "2025-12-20T00:00:00.000Z",
+              });
+            if (mode === "manual" || mode === "manual-after-auto")
+              yield* engine.dispatch({
+                type: "thread.settle",
+                commandId: CommandId.make(`manual-settle-${leadId}`),
+                threadId: leadId,
+              });
+            // Metadata/session cleanup can follow settlement without changing its provenance.
+            yield* engine.dispatch({
+              type: "thread.meta.update",
+              commandId: CommandId.make(`rename-${leadId}`),
+              threadId: leadId,
+              title: "Renamed",
+            });
+            if (trigger === "session")
+              yield* engine.dispatch({
+                type: "thread.session.set",
+                commandId: CommandId.make(`session-${childId}`),
+                threadId: childId,
+                session: {
+                  threadId: childId,
+                  status: "starting",
+                  providerName: "codex",
+                  runtimeMode: "full-access",
+                  activeTurnId: null,
+                  lastError: null,
+                  updatedAt: now(),
+                },
+                createdAt: now(),
+              });
+            else
+              yield* engine.dispatch({
+                type: "thread.turn.start",
+                commandId: CommandId.make(`turn-${childId}`),
+                threadId: childId,
+                message: {
+                  messageId: MessageId.make(`message-${childId}`),
+                  role: "user",
+                  text: "Continue",
+                  attachments: [],
+                },
+                runtimeMode: "full-access",
+                interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                createdAt: now(),
+              });
+            const receiptSnapshot = yield* snapshots.getSnapshot();
+            const lead = receiptSnapshot.threads.find((thread) => thread.id === leadId);
+            expect(lead?.settledOverride).toBe(mode === "auto" ? null : "settled");
+            if (mode === "auto") {
+              expect(lead?.unsettledAt).toBe(now());
+              const error = yield* engine
+                .dispatch({
+                  type: "thread.auto-settle",
+                  commandId: CommandId.make(`server:auto-settle:busy-lead-${trigger}`),
+                  threadId: leadId,
+                  snapshotSequence: receiptSnapshot.snapshotSequence,
+                  settledAt: now(),
+                })
+                .pipe(Effect.flip);
+              expect(error._tag).toBe("OrchestrationThreadSettleBlockedError");
+            }
+            const wakeEvents = yield* Stream.runCollect(
+              engine.readThreadEvents({
+                threadId: leadId,
+                fromSequenceExclusive: 0,
+                toSequenceInclusive: yield* engine.latestSequence,
+              }),
+            );
+            expect(wakeEvents.filter((event) => event.type === "thread.unsettled")).toHaveLength(
+              mode === "auto" ? 1 : 0,
+            );
+          }
       }).pipe(Effect.provide(makeOrchestrationLayer())),
   );
 
@@ -1502,6 +1625,7 @@ describe("OrchestrationEngine", () => {
         return Stream.fromIterable(events);
       },
       hasEventAfter: () => Effect.succeed(false),
+      isThreadAutomaticallySettled: () => Effect.succeed(false),
       readAggregateRange: () => Stream.die("unused aggregate replay"),
       getAggregateReplayStats: () => Effect.die("unused aggregate replay stats"),
     };
@@ -1742,6 +1866,7 @@ describe("OrchestrationEngine", () => {
         return Stream.fromIterable(events);
       },
       hasEventAfter: () => Effect.succeed(false),
+      isThreadAutomaticallySettled: () => Effect.succeed(false),
       readAggregateRange: () => Stream.die("unused aggregate replay"),
       getAggregateReplayStats: () => Effect.die("unused aggregate replay stats"),
     };
