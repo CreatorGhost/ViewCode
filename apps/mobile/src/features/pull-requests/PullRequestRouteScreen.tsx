@@ -13,7 +13,6 @@ import { usePullRequestFileFilter } from "./usePullRequestFileFilter";
 import { isPullRequestTestFile } from "./pullRequestFileFilters";
 import {
   StackActions,
-  useFocusEffect,
   useNavigation,
   useRoute,
   type StaticScreenProps,
@@ -346,8 +345,6 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
   const result = useEnvironmentQuery(detailAtom);
   const pullRefresh = usePullToRefresh(detailAtom);
   const activity = useEnvironmentQuery(composerPullRequests.activity(requestTarget(params)));
-  const { refresh: refreshDetail } = result;
-  useFocusEffect(useCallback(() => refreshDetail(), [refreshDetail]));
   const pr = result.data;
   const summary = params.initialSummary;
   const identity = pr ?? summary;
@@ -683,8 +680,6 @@ export function PullRequestFileRouteScreen({
   const result = usePullRequestDiff(route.params);
   const filter = usePullRequestFileFilter(result.parsed);
   const detail = useEnvironmentQuery(composerPullRequests.detail(requestTarget(route.params)));
-  const { refresh: refreshDetail } = detail;
-  useFocusEffect(useCallback(() => refreshDetail(), [refreshDetail]));
   const { loadMore } = result;
   const parsed = filter.parsed;
   const reviewDraft = usePullRequestReviewDraft(route.params);
