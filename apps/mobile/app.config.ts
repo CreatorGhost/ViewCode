@@ -52,19 +52,6 @@ const DEVELOPMENT_ASSETS = {
   androidNotificationColor: "#00639B",
 } as const;
 
-const PREVIEW_ASSETS = {
-  appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
-  iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIconComposerProject),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
-  androidAdaptiveForeground,
-  androidAdaptiveBackgroundColor: "#171b1e",
-  androidAdaptiveBackgroundImage: "./assets/android-icon-background-nightly.png",
-  androidSplashIcon: "./assets/android-splash-icon-nightly.png",
-  androidMonochromeIcon: "./assets/android-icon-mark.png",
-  androidNotificationIcon: "./assets/android-notification-icon.png",
-  androidNotificationColor: "#c3d5db",
-} as const;
-
 const RELEASE_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
@@ -77,6 +64,10 @@ const RELEASE_ASSETS = {
   androidNotificationIcon: "./assets/android-notification-icon-prod.png",
   androidNotificationColor: "#FFFFFF",
 } as const;
+
+// Preview builds are the ones people install to try ViewCode, so they show the
+// store icon; only development builds keep a distinct one.
+const PREVIEW_ASSETS = RELEASE_ASSETS;
 
 // ViewCode ships under its own identity so it installs next to the store T3
 // Code app: its own package/bundle ids and URL schemes (a shared scheme would
