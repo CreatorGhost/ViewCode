@@ -91,6 +91,9 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-
   html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="sidebar-inset"] {
     /* Fixed chat controls share the inset sheet header's vertical origin. */
     --workspace-sheet-inset-top: var(--vc-sheet-inset);
+    /* The panel's header row is the window's title row less the inset above and below, so its
+       tabs share a centre line with the sidebar toggle and the macOS window buttons. */
+    --workspace-topbar-height: calc(52px - 2 * var(--vc-sheet-inset));
     height: calc(100dvh - 2 * var(--vc-sheet-inset));
     margin: var(--vc-sheet-inset) var(--vc-sheet-inset) var(--vc-sheet-inset) 0;
     overflow: hidden;
@@ -102,10 +105,26 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-
       0 12px 32px -16px rgb(0 0 0 / 0.6);
   }
 
+  /* With the sidebar collapsed the panel sits right beside the rail: the rail's own 7px padding is
+     the gap, the same as on the rail's outer side. On macOS the window buttons then sit over the
+     panel's corner, and its header content starts after them. */
   html[data-theme-id^="viewcode"]:not([data-theme-id=""])
     [data-slot="sidebar"][data-state="collapsed"]
     ~ [data-slot="sidebar-inset"] {
     margin-left: var(--vc-sheet-inset);
+  }
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+    [data-app-rail-layout]:not(:has(> [data-slot="sidebar"][data-state="expanded"]))
+    > [data-slot="sidebar-inset"] {
+    margin-left: 0 !important;
+  }
+  html[data-macos-window-controls="visible"][data-theme-id^="viewcode"]:not([data-theme-id=""])
+    [data-app-rail-layout]:not(:has(> [data-slot="sidebar"][data-state="expanded"]))
+    > [data-slot="sidebar-inset"] {
+    --workspace-titlebar-content-left: calc(
+      var(--workspace-controls-left) + var(--workspace-titlebar-controls-width) +
+        var(--workspace-titlebar-control-gap) - var(--app-rail-width)
+    );
   }
 }
 
@@ -545,7 +564,9 @@ html[data-window-glass="true"] body {
  */
 html[data-macos-window-controls="visible"] {
   --macos-window-controls-clearance: calc(var(--desktop-window-controls-inset, 90px) - 8px);
-  --workspace-controls-left: calc(var(--macos-window-controls-clearance) + 0.75rem);
+  /* The toggle sits as close after the green button as a native Mac app's does (~19px to its
+     glyph), not a wide gap away. */
+  --workspace-controls-left: calc(var(--macos-window-controls-clearance) - 0.125rem);
 }
 /* The sidebar's overlay sheet is portaled outside the wrapper that sets this, and its title
    row still has to clear the fixed toggle. */
