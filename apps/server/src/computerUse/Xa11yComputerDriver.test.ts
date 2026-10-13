@@ -66,6 +66,9 @@ process.on("message", (message) => {
     case "scrollAt":
       return; // never asks to dispatch
     case "status":
+      if (process.argv.includes("--denied")) {
+        return process.send({ id, ok: true, result: { available: true, accessibility: "denied", reason: String(process.pid) } });
+      }
       return process.send({ id, ok: true, result: { available: true, accessibility: "granted" } });
     case "listWindows":
       if (process.argv.includes("--enumeration-diagnostic")) {
@@ -102,6 +105,7 @@ const makeDriver = (
     readonly log?: string;
     readonly recycleAfter?: number;
     readonly enumerationDiagnostic?: boolean;
+    readonly denied?: boolean;
   } = {},
 ) => {
   const script = stubScript();
@@ -113,6 +117,7 @@ const makeDriver = (
         script,
         options.log ?? "",
         ...(options.enumerationDiagnostic ? ["--enumeration-diagnostic"] : []),
+        ...(options.denied ? ["--denied"] : []),
       ],
       env: { ...process.env },
     }),
@@ -163,6 +168,19 @@ describe("Xa11yComputerDriver", () => {
           (yield* Effect.flip(driver.typeText("e1", identity, "x"))).reason,
           "restarted",
         );
+      }),
+    ),
+  );
+
+  it.effect("asks a fresh worker after a status without the grant", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const driver = yield* makeDriver({ denied: true });
+        const first = yield* driver.status();
+        const second = yield* driver.status();
+        assert.strictEqual(first.accessibility, "denied");
+        // The stub reports its pid as the reason: a new pid is a new worker.
+        assert.notStrictEqual(first.reason, second.reason);
       }),
     ),
   );

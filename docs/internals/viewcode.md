@@ -474,8 +474,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   driver logs worker start, stop, per-op timeouts and shim rewrites. None carry labels, titles,
   paths, values or coordinates; window and ref ids stay at debug.
   Ad-hoc signed builds lose the TCC grant on every rebuild while System Settings still shows it on;
-  the settings status line is a fresh check for that reason. Unverified on real hardware: the TCC
-  grant under Electron-as-node, xa11y input on macOS and Windows, and whether managed-Mac security
+  the settings status line is a fresh check for that reason. macOS reads a process's grant once,
+  so a status that is not granted discards the worker and the next check asks a fresh one; without
+  that, granting while the app ran needed a restart. xa11y can report the denial as a
+  `PlatformError` saying "Permission denied", which the driver treats as `PermissionDeniedError`.
+  Unverified on real hardware: xa11y input on macOS and Windows, and whether managed-Mac security
   software tolerates synthetic input; the first run on such a machine should be one
   `list-windows`.
 

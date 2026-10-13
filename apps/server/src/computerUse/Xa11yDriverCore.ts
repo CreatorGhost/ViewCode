@@ -509,8 +509,16 @@ class Refusal {
   }
 }
 
+// xa11y can report a missing Accessibility grant as a PlatformError whose
+// message says "Permission denied"; it means the same as PermissionDeniedError.
 const errorName = (error: unknown): string =>
-  error instanceof Error ? error.name : typeof error === "string" ? error : "unknown";
+  error instanceof Error
+    ? error.name === "PlatformError" && /permission denied/i.test(error.message)
+      ? "PermissionDeniedError"
+      : error.name
+    : typeof error === "string"
+      ? error
+      : "unknown";
 
 /**
  * Maps an xa11y error to a driver failure. `afterDispatch` marks errors from
