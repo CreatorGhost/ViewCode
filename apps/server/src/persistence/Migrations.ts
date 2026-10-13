@@ -9,6 +9,7 @@
  */
 
 import * as Migrator from "effect/unstable/sql/Migrator";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 // Import all migrations statically
@@ -153,6 +154,49 @@ const makeMigrationLoader = (throughId?: number) =>
     ),
   );
 
+// ViewCode's migrations from 55 on are its own; upstream T3 Code's ids from 55
+// on are its V2 schema. Renumbering these must keep that in mind.
+const FIRST_VIEWCODE_MIGRATION_ID = 55;
+
+/**
+ * Fail before migrating when the migrator would skip one of ViewCode's own
+ * migrations. It skips every id up to the highest recorded one, whatever name
+ * was recorded, so a database that T3 Code (or another build) migrated past 55
+ * would start without ViewCode's schema and fail on first use. Earlier ids are
+ * shared with upstream and are not checked.
+ */
+const assertViewCodeMigrationsCanRun = Effect.fn("assertViewCodeMigrationsCanRun")(function* (
+  throughId?: number,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (tables.length === 0) return;
+  const recorded = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+  }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const latestRecordedId = Math.max(0, ...recorded.map((row) => row.migration_id));
+  const recordedNames = new Map(recorded.map((row) => [row.migration_id, row.name]));
+  const skipped = migrationEntries.flatMap(([id, name]) => {
+    if (
+      id < FIRST_VIEWCODE_MIGRATION_ID ||
+      id > latestRecordedId ||
+      (throughId !== undefined && id > throughId)
+    )
+      return [];
+    const recordedName = recordedNames.get(id);
+    if (recordedName === name) return [];
+    return [`${id}_${name} (recorded: ${recordedName ?? "nothing"})`];
+  });
+  if (skipped.length === 0) return;
+  return yield* new Migrator.MigrationError({
+    kind: "BadState",
+    message: `This database's migration history would skip required schema migrations: ${skipped.join(", ")}. The migrator skips every id up to the highest recorded id (${latestRecordedId}), regardless of name. It was probably written by a different build, such as T3 Code sharing this home directory. Start the build that wrote it, or point ViewCode at its own home directory.`,
+  });
+});
+
 /**
  * Migrator run function - no schema dumping needed
  * Uses the base Migrator.make without platform dependencies
@@ -176,6 +220,9 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  if (toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_VIEWCODE_MIGRATION_ID) {
+    yield* assertViewCodeMigrationsCanRun(toMigrationInclusive);
+  }
   const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
