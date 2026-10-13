@@ -201,6 +201,31 @@ describe("all-environment PR list", () => {
       repo: "mbp-next",
     });
   });
+  it("counts a project's pull requests as yours when its own account opened them", () => {
+    const work = entry(5, {
+      projectId: "work" as PullRequestListEntry["projectId"],
+      author: { login: "mgai-adi", name: null, avatarUrl: null },
+    });
+    const merged = mergeEnvironmentPullRequestPages([
+      {
+        environmentId: cups,
+        pages: pullRequestListHead(null, {
+          ...page([work, entry(1)]),
+          viewers: { "github.com": "CreatorGhost" },
+          // Only the work account can see this project's repository.
+          accounts: { ["work" as PullRequestListEntry["projectId"]]: "mgai-adi" },
+        }),
+      },
+    ]);
+    const rows = filterPullRequestList(
+      merged.entries,
+      { ...DEFAULT_PR_LIST_CONTROLS, involvement: "authored" },
+      merged.viewers,
+      "",
+      merged.localSearchHosts,
+    );
+    expect(rows.map((row) => row.number)).toEqual([5]);
+  });
   it("uses the viewer account and search support from each environment before deduplicating", () => {
     const remote = {
       ...page([entry(1, { author: { login: "other", name: null, avatarUrl: null } })]),

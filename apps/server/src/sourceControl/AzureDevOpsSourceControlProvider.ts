@@ -4,21 +4,26 @@ import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contrac
 import * as AzureDevOpsCli from "./AzureDevOpsCli.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import {
-  combinedAuthOutput,
-  firstSafeAuthLine,
   providerAuth,
   type SourceControlAuthProbeInput,
   type SourceControlCliDiscoverySpec,
 } from "./SourceControlProviderDiscovery.ts";
 
+/**
+ * `az account show` only knows `az login`. Azure DevOps also signs in with a personal access token
+ * (`az devops login` or AZURE_DEVOPS_EXT_PAT), which nothing can confirm without an organization
+ * to ask, and this probe has none. So a missing `az login` is reported as unverified rather than
+ * as signed out, which would wrongly lock token users out of every Azure DevOps action.
+ */
 function parseAzureAuth(input: SourceControlAuthProbeInput) {
   const account = input.stdout.trim().split(/\r?\n/)[0]?.trim();
 
   if (input.exitCode !== 0) {
     return providerAuth({
-      status: "unauthenticated",
+      status: "unknown",
+      host: "dev.azure.com",
       detail:
-        firstSafeAuthLine(combinedAuthOutput(input)) ?? "Run `az login` to authenticate Azure CLI.",
+        "No `az login` session. A personal access token from `az devops login` or AZURE_DEVOPS_EXT_PAT is used if one is set; otherwise run `az login` or `az devops login`.",
     });
   }
 

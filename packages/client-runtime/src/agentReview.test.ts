@@ -435,3 +435,31 @@ describe("what a review of a chat's work reads", () => {
     ).toBe("Commit a1b2c3d");
   });
 });
+
+describe("pull requests waiting for the reader's review", () => {
+  const pr = (number: number) => ({
+    host: "github.com",
+    repository: "acme/app",
+    number,
+    title: `Change ${number}`,
+  });
+
+  it("offers them after the chat's own work and before the other open ones, once each", () => {
+    const choices = agentReviewTargetChoices({
+      pullRequest: pr(1),
+      openPullRequests: [pr(1), pr(2), pr(3)],
+      reviewRequested: [pr(3), pr(1)],
+      dirty: null,
+      branch: null,
+      canReviewLocal: false,
+      canScope: false,
+    });
+    expect(
+      choices.map((choice) =>
+        choice.kind === "pull-request"
+          ? `${choice.pullRequest.number}:${choice.own ? "own" : choice.requested ? "requested" : "open"}`
+          : "local",
+      ),
+    ).toEqual(["1:own", "3:requested", "2:open"]);
+  });
+});

@@ -2590,15 +2590,11 @@ export default function Sidebar() {
     if (folder && folderExpandedByKey.get(folder.projectKey) === false) {
       setProjectExpanded(projectExpansionPreferenceKeys(folder), true);
     }
-    if (
-      folderKey !== undefined &&
-      folderSectionsByKey.get(folderKey)?.settled.some((node) => node.key === rootKey)
-    ) {
-      setProjectExpanded(settledGroupPreferenceKey(folderKey), true);
-    }
+    // A settled chat needs no reveal: a collapsed Settled group still shows the open chat's tree
+    // (`folderViewByKey`). Opening the group here saved it open, so switching to a folder whose
+    // latest chat was settled unfolded every settled chat for good.
   }, [
     folderExpandedByKey,
-    folderSectionsByKey,
     projectGroupByScopeKey,
     routeThreadKey,
     setProjectExpanded,

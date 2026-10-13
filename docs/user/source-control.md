@@ -99,6 +99,11 @@ az extension add --name azure-devops
 az login
 ```
 
+On a headless or remote server you can sign in with a personal access token instead, using
+`az devops login` or the `AZURE_DEVOPS_EXT_PAT` environment variable. Settings → Source Control
+then shows Azure DevOps as unverified rather than signed in, because only `az login` can be checked
+without a repository; pull requests still work.
+
 Only Azure DevOps Services (`dev.azure.com` and `*.visualstudio.com`) is supported. The Azure CLI
 does not work with Azure DevOps Server (on-premises, formerly TFS), so pull requests on those
 servers are not available.

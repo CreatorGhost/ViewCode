@@ -222,6 +222,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      compositor updates discrete frames instead of every vsync. */
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
+  /* A running review's ring and the line sweeping under it: transform only, stepped to about
+     16 frames a second, so the compositor moves them without repainting and without every vsync. */
+  --animate-review-ring: review-ring 1s steps(16) infinite;
+  --animate-review-sweep: review-sweep 2s steps(40) infinite;
   /* One-shot surge when the effort slider enters Max or fusion: a flash and a
      glow spreading from the track in the look's colour (--effort-surge). */
   --animate-effort-surge: effort-surge 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 1 both;
@@ -305,6 +309,19 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     }
     100% {
       opacity: 1;
+    }
+  }
+  @keyframes review-ring {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes review-sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
     }
   }
   @keyframes status-pulse {

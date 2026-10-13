@@ -311,6 +311,26 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 
+  it.effect("keeps origin when upstream is on another host", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-repository-identity-mirror-test-",
+      });
+
+      yield* git(cwd, ["init"]);
+      yield* git(cwd, ["remote", "add", "origin", "https://gitlab.company.com/mirrors/react.git"]);
+      yield* git(cwd, ["remote", "add", "upstream", "https://github.com/facebook/react.git"]);
+
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      const identity = yield* resolver.resolve(cwd);
+
+      expect(identity?.canonicalKey).toBe("gitlab.company.com/mirrors/react");
+      expect(identity?.locator.remoteName).toBe("origin");
+      expect(identity?.origin).toBeUndefined();
+    }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
+  );
+
   it.effect("uses the last remote path segment as the repository name for nested groups", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -413,4 +433,85 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       ),
     ),
   );
+});
+
+it.layer(NodeServices.layer)("RepositoryIdentityResolver SSH aliases", (it) => {
+  it.effect("identifies a repository behind an SSH alias by its real host", () => {
+    const calls: Array<string> = [];
+    const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
+      run: (input) =>
+        Effect.sync(() => {
+          calls.push(input.command);
+          return {
+            stdout:
+              input.command === "ssh"
+                ? "user git\nhostname github.com\nport 22\n"
+                : input.args.includes("rev-parse")
+                  ? "/repo\n"
+                  : "origin\tgit@github.com-work:Acme/app.git (fetch)\n",
+            stderr: "",
+            code: ChildProcessSpawner.ExitCode(0),
+            timedOut: false,
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            stdoutInvalidUtf8: false,
+            stderrInvalidUtf8: false,
+          };
+        }),
+    });
+    const resolverLayer = Layer.effect(
+      RepositoryIdentityResolver.RepositoryIdentityResolver,
+      RepositoryIdentityResolver.make(),
+    ).pipe(Layer.provide(processRunner));
+    return Effect.gen(function* () {
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      const identity = yield* resolver.resolve("/repo");
+      expect(identity?.canonicalKey).toBe("github.com/acme/app");
+      expect(identity?.provider).toBe("github");
+      // Readers of the locator want the real host too; git still goes by the remote's name.
+      expect(identity?.locator).toMatchObject({
+        remoteName: "origin",
+        remoteUrl: "git@github.com:Acme/app.git",
+      });
+      expect(calls.filter((command) => command === "ssh")).toHaveLength(1);
+    }).pipe(Effect.provide(resolverLayer));
+  });
+
+  it.effect("prefers upstream when origin's SSH alias points at upstream's host", () => {
+    const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
+      run: (input) =>
+        Effect.sync(() => ({
+          stdout:
+            input.command === "ssh"
+              ? "user git\nhostname github.com\nport 22\n"
+              : input.args.includes("rev-parse")
+                ? "/repo\n"
+                : [
+                    "origin\tgit@github.com-work:julius/app.git (fetch)",
+                    "upstream\tgit@github.com:Acme/app.git (fetch)",
+                  ].join("\n"),
+          stderr: "",
+          code: ChildProcessSpawner.ExitCode(0),
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
+        })),
+    });
+    const resolverLayer = Layer.effect(
+      RepositoryIdentityResolver.RepositoryIdentityResolver,
+      RepositoryIdentityResolver.make(),
+    ).pipe(Layer.provide(processRunner));
+    return Effect.gen(function* () {
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      const identity = yield* resolver.resolve("/repo");
+      expect(identity?.canonicalKey).toBe("github.com/acme/app");
+      expect(identity?.locator.remoteName).toBe("upstream");
+      expect(identity?.origin).toEqual({
+        canonicalKey: "github.com/julius/app",
+        displayName: "julius/app",
+      });
+    }).pipe(Effect.provide(resolverLayer));
+  });
 });

@@ -565,6 +565,7 @@ function withRateLimitBackoff(
       : { withVerifiedCredential: api.withVerifiedCredential }),
     // Read from memory, so there is no host call for a pause to hold back.
     ...(api.accountFor === undefined ? {} : { accountFor: api.accountFor }),
+    ...(api.signedInLogins === undefined ? {} : { signedInLogins: api.signedInLogins }),
     listChangeRequests: wrap("listChangeRequests", api.listChangeRequests),
     ...(api.listChangeRequestsAcross === undefined
       ? {}
@@ -1540,6 +1541,26 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  /**
+   * The reader of one repository: the account the host CLI routed it to where several are signed
+   * in to the host (the only one that can see a private repository, say), else `viewer`, the
+   * host's own. Asked after a read, which is when a first routing is learnt. A pinned credential
+   * already names its reader.
+   */
+  const readerOf = (
+    project: SupportedProject,
+    viewer: string | null,
+  ): Effect.Effect<string | null> =>
+    routingCredential.pipe(
+      Effect.flatMap((credential) =>
+        credential !== null || project.api.accountFor === undefined
+          ? Effect.succeed(viewer)
+          : project.api
+              .accountFor({ host: project.host, repository: project.repository })
+              .pipe(Effect.map((routed) => routed ?? viewer)),
+      ),
+    );
+
   const routingIdentity: PullRequestService["Service"]["routingIdentity"] = Effect.fn(
     "PullRequestService.routingIdentity",
   )(function* (input) {
@@ -1723,55 +1744,68 @@ export const make = Effect.gen(function* () {
           ],
           { concurrency: 2 },
         ).pipe(
-          Effect.map(([{ value: changeRequest, observedAt }, viewer]): PullRequestDetail => ({
-            provider: project.api.kind,
-            capabilities: project.api.capabilities,
-            projectId: project.project.id,
-            projectTitle: project.project.title,
-            workspaceRoot: project.project.workspaceRoot,
-            repository: project.repository,
-            number: changeRequest.number,
-            title: changeRequest.title,
-            body: changeRequest.body,
-            url: changeRequest.url,
-            author: changeRequest.author,
-            state: changeRequest.state,
-            isDraft: changeRequest.isDraft,
-            mergeability: changeRequest.mergeability,
-            additions: changeRequest.additions,
-            deletions: changeRequest.deletions,
-            changedFiles: changeRequest.changedFiles,
-            headBranch: changeRequest.headBranch,
-            ...(changeRequest.headRepositoryNameWithOwner === undefined
-              ? {}
-              : { headRepositoryNameWithOwner: changeRequest.headRepositoryNameWithOwner }),
-            ...(changeRequest.headSha ? { headSha: changeRequest.headSha } : {}),
-            baseBranch: changeRequest.baseBranch,
-            createdAt: changeRequest.createdAt,
-            updatedAt: changeRequest.updatedAt,
-            observedAt,
-            mergedAt: changeRequest.mergedAt,
-            closedAt: changeRequest.closedAt,
-            reviewers: changeRequest.reviewers,
-            labels: changeRequest.labels,
-            checks: changeRequest.checks,
-            mergeCapabilities: changeRequest.mergeCapabilities,
-            viewerPermissions: changeRequest.viewerPermissions,
-            ...(viewer === null || viewer.trim().length === 0 ? {} : { viewer }),
-            ...(changeRequest.baseComparison === undefined
-              ? {}
-              : { baseComparison: changeRequest.baseComparison }),
-            ...(changeRequest.behindBy === undefined ? {} : { behindBy: changeRequest.behindBy }),
-            ...(changeRequest.autoMergeEnabled === undefined
-              ? {}
-              : { autoMergeEnabled: changeRequest.autoMergeEnabled }),
-            ...(changeRequest.autoMergeMethod === undefined
-              ? {}
-              : { autoMergeMethod: changeRequest.autoMergeMethod }),
-            ...(changeRequest.workflowApprovalsRequired === undefined
-              ? {}
-              : { workflowApprovalsRequired: changeRequest.workflowApprovalsRequired }),
-          })),
+          // Who opened it is compared with the reader (own pull request, own remarks), so the
+          // reader is the account this repository is read as, not just the host's active one.
+          Effect.flatMap(([read, viewer]) =>
+            Effect.all([
+              readerOf(project, viewer),
+              project.api.signedInLogins === undefined
+                ? Effect.succeed([] as ReadonlyArray<string>)
+                : project.api.signedInLogins(project.host),
+            ]).pipe(Effect.map(([reader, logins]) => [read, reader, logins] as const)),
+          ),
+          Effect.map(
+            ([{ value: changeRequest, observedAt }, viewer, logins]): PullRequestDetail => ({
+              provider: project.api.kind,
+              capabilities: project.api.capabilities,
+              projectId: project.project.id,
+              projectTitle: project.project.title,
+              workspaceRoot: project.project.workspaceRoot,
+              repository: project.repository,
+              number: changeRequest.number,
+              title: changeRequest.title,
+              body: changeRequest.body,
+              url: changeRequest.url,
+              author: changeRequest.author,
+              state: changeRequest.state,
+              isDraft: changeRequest.isDraft,
+              mergeability: changeRequest.mergeability,
+              additions: changeRequest.additions,
+              deletions: changeRequest.deletions,
+              changedFiles: changeRequest.changedFiles,
+              headBranch: changeRequest.headBranch,
+              ...(changeRequest.headRepositoryNameWithOwner === undefined
+                ? {}
+                : { headRepositoryNameWithOwner: changeRequest.headRepositoryNameWithOwner }),
+              ...(changeRequest.headSha ? { headSha: changeRequest.headSha } : {}),
+              baseBranch: changeRequest.baseBranch,
+              createdAt: changeRequest.createdAt,
+              updatedAt: changeRequest.updatedAt,
+              observedAt,
+              mergedAt: changeRequest.mergedAt,
+              closedAt: changeRequest.closedAt,
+              reviewers: changeRequest.reviewers,
+              labels: changeRequest.labels,
+              checks: changeRequest.checks,
+              mergeCapabilities: changeRequest.mergeCapabilities,
+              viewerPermissions: changeRequest.viewerPermissions,
+              ...(viewer === null || viewer.trim().length === 0 ? {} : { viewer }),
+              ...(logins.length > 1 ? { viewerLogins: logins } : {}),
+              ...(changeRequest.baseComparison === undefined
+                ? {}
+                : { baseComparison: changeRequest.baseComparison }),
+              ...(changeRequest.behindBy === undefined ? {} : { behindBy: changeRequest.behindBy }),
+              ...(changeRequest.autoMergeEnabled === undefined
+                ? {}
+                : { autoMergeEnabled: changeRequest.autoMergeEnabled }),
+              ...(changeRequest.autoMergeMethod === undefined
+                ? {}
+                : { autoMergeMethod: changeRequest.autoMergeMethod }),
+              ...(changeRequest.workflowApprovalsRequired === undefined
+                ? {}
+                : { workflowApprovalsRequired: changeRequest.workflowApprovalsRequired }),
+            }),
+          ),
         ),
       ),
     );
@@ -2499,8 +2533,10 @@ export const make = Effect.gen(function* () {
    * The line counts for rows already on the page, which the listing left out because on GitHub
    * they cost more than everything else on the row put together.
    *
-   * One read per host rather than per row, and only for a host whose listing defers them; a row
-   * whose host answered with the counts in the first place is not here to be asked about. A ref
+   * One read per host and repository owner rather than per row, and only for a host whose listing
+   * defers them; a row whose host answered with the counts in the first place is not here to be
+   * asked about. Splitting by owner lets a host signed in to several accounts answer each owner as
+   * the account that can see it, so an owner none can see costs only its own rows. A ref
    * that names no project this workspace has, or a repository that is not the one the project's
    * remote points at, is dropped rather than refused: it is one row's two numbers, and the page
    * that asked has already moved on.
@@ -2527,14 +2563,16 @@ export const make = Effect.gen(function* () {
         }
         wanted.set(`${project.project.id} ${ref.number}`, { project, number: ref.number });
       }
-      const byHost = new Map<string, Array<{ project: SupportedProject; number: number }>>();
+      const byOwner = new Map<string, Array<{ project: SupportedProject; number: number }>>();
       for (const entry of wanted.values()) {
-        const held = byHost.get(entry.project.host);
-        if (held === undefined) byHost.set(entry.project.host, [entry]);
+        const repository = entry.project.repository.toLowerCase();
+        const key = `${entry.project.host} ${repository.slice(0, repository.lastIndexOf("/"))}`;
+        const held = byOwner.get(key);
+        if (held === undefined) byOwner.set(key, [entry]);
         else held.push(entry);
       }
       const stats = yield* Effect.forEach(
-        [...byHost.values()],
+        [...byOwner.values()],
         (entries) => {
           const first = entries[0]!;
           const readStats = first.project.api.listChangeRequestStats;

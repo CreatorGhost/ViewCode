@@ -516,6 +516,8 @@ export class GitHubPullRequestCli extends Context.Service<
       readonly host: string;
       readonly repository: string;
     }) => Effect.Effect<string | null>;
+    /** Every gh account signed in to the host. */
+    readonly signedInLogins: (host: string) => Effect.Effect<ReadonlyArray<string>>;
 
     readonly listPullRequests: (input: {
       readonly cwd: string;
@@ -854,6 +856,31 @@ function parseRepositorySelector(value: string): {
 } {
   const parts = value.trim().split("/").filter(Boolean);
   return { name: parts.at(-1) ?? "", owner: parts.at(-2) ?? "" };
+}
+
+/**
+ * Pull requests in batches of at most `size`, each naming one repository owner. `gh` runs a
+ * command as the signed-in account that can see the owner it names, and a document naming two
+ * owners runs as the active account, which may see neither.
+ */
+function chunksByOwner<T extends { readonly repository: string }>(
+  items: ReadonlyArray<T>,
+  size: number,
+): Array<ReadonlyArray<T>> {
+  const byOwner = new Map<string, Array<T>>();
+  for (const item of items) {
+    const owner = parseRepositorySelector(item.repository).owner.toLowerCase();
+    const held = byOwner.get(owner);
+    if (held === undefined) byOwner.set(owner, [item]);
+    else held.push(item);
+  }
+  const chunks: Array<ReadonlyArray<T>> = [];
+  for (const owned of byOwner.values()) {
+    for (let start = 0; start < owned.length; start += size) {
+      chunks.push(owned.slice(start, start + size));
+    }
+  }
+  return chunks;
 }
 
 /**
@@ -1839,15 +1866,17 @@ export const make = Effect.gen(function* () {
       );
 
   /**
-   * Summaries asked for together, on one host under one credential, share aliased GraphQL reads
-   * of twenty-five: the background sync reads every linked pull request each minute, and one
-   * `gh pr view` apiece is most of what it spends. Whatever the batch cannot answer — a selector
+   * Summaries asked for together, on one host under one credential and for one repository owner,
+   * share aliased GraphQL reads of twenty-five: the background sync reads every linked pull
+   * request each minute, and one `gh pr view` apiece is most of what it spends. One owner per
+   * batch lets `gh` run it as the account that can see that owner. Whatever the batch cannot answer — a selector
    * GraphQL cannot address, a pull request GitHub returned nothing for — is read on its own.
    */
   const summaryResolver = RequestResolver.makeGrouped<PullRequestSummaryRead, string>({
     key: ({ request, context }) =>
       JSON.stringify([
         request.host.toLowerCase(),
+        parseRepositorySelector(request.repository).owner.toLowerCase(),
         Context.getOrElse(context, GitHubCli.PinnedGitHubCredential, () => null)
           ?.credentialFingerprint ?? null,
         Context.getOrElse(context, SourceControlRateLimit.CredentialScope, () => ""),
@@ -1925,6 +1954,7 @@ export const make = Effect.gen(function* () {
     getViewerLogin: (input) =>
       getRoutingIdentity(input).pipe(Effect.map((identity) => identity.viewer)),
     accountFor: (input) => github.accountFor(input),
+    signedInLogins: (host) => github.signedInLogins(host),
 
     listPullRequests: (input) => {
       const fallbackMaxRows = Math.max(input.limit + 1, PULL_REQUEST_FALLBACK_MAX_ROWS);
@@ -2087,14 +2117,9 @@ export const make = Effect.gen(function* () {
       );
     },
 
-    listPullRequestStats: (input) => {
-      const chunks: Array<ReadonlyArray<{ readonly repository: string; readonly number: number }>> =
-        [];
-      for (let start = 0; start < input.changeRequests.length; start += STAT_ALIASES_PER_REQUEST) {
-        chunks.push(input.changeRequests.slice(start, start + STAT_ALIASES_PER_REQUEST));
-      }
-      return Effect.forEach(
-        chunks,
+    listPullRequestStats: (input) =>
+      Effect.forEach(
+        chunksByOwner(input.changeRequests, STAT_ALIASES_PER_REQUEST),
         (chunk) => {
           const query = buildPullRequestStatsGraphQlQuery(chunk);
           if (query === null) {
@@ -2122,8 +2147,7 @@ export const make = Effect.gen(function* () {
           );
         },
         { concurrency: STAT_REQUEST_CONCURRENCY },
-      ).pipe(Effect.map((results) => results.flat()));
-    },
+      ).pipe(Effect.map((results) => results.flat())),
 
     getPullRequestSummary,
 

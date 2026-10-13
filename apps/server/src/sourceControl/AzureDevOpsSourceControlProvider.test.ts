@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as AzureDevOpsCli from "./AzureDevOpsCli.ts";
 import * as AzureDevOpsSourceControlProvider from "./AzureDevOpsSourceControlProvider.ts";
@@ -118,3 +119,25 @@ it.effect("creates Azure DevOps PRs through provider-neutral input names", () =>
     });
   }),
 );
+
+it("leaves a missing `az login` unverified, since a token may sign Azure DevOps in instead", () => {
+  const auth = AzureDevOpsSourceControlProvider.discovery.parseAuth({
+    exitCode: ChildProcessSpawner.ExitCode(1),
+    stdout: "",
+    stderr: "ERROR: Please run 'az login' to setup account.\n",
+  });
+
+  assert.strictEqual(auth.status, "unknown");
+  assert.match(Option.getOrThrow(auth.detail), /az devops login/);
+});
+
+it("reports the `az login` account when there is one", () => {
+  const auth = AzureDevOpsSourceControlProvider.discovery.parseAuth({
+    exitCode: ChildProcessSpawner.ExitCode(0),
+    stdout: "bilal@acme.dev\n",
+    stderr: "",
+  });
+
+  assert.strictEqual(auth.status, "authenticated");
+  assert.deepStrictEqual(auth.account, Option.some("bilal@acme.dev"));
+});

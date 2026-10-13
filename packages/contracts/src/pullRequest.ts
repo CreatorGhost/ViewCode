@@ -871,6 +871,11 @@ export const PullRequestDetail = Schema.Struct({
    */
   viewer: Schema.optional(TrimmedNonEmptyString),
   /**
+   * Every account the host's CLI is signed in with, where there are several (gh with a personal
+   * and a work account). A pull request any of them opened is the reader's own.
+   */
+  viewerLogins: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  /**
    * Where the branch stands against its base. Optional so a host that cannot compare says
    * nothing rather than claiming the branch is current — the page shows a banner only where the
    * answer is "behind", and silence is not that answer.
@@ -1283,7 +1288,8 @@ const PROVIDER_REQUIREMENT: Partial<
   "azure-devops": {
     missing:
       "Azure CLI (`az`) with the Azure DevOps extension is required. Install `az`, then run `az extension add --name azure-devops`.",
-    unauthenticated: "Azure CLI is not signed in. Run `az login` and retry.",
+    unauthenticated:
+      "Azure CLI is not signed in to Azure DevOps. Run `az login` or `az devops login` and retry.",
   },
   bitbucket: {
     missing:

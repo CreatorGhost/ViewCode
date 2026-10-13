@@ -71,6 +71,14 @@ export function pullRequestListRowsAreEqual(
   );
 }
 
+/**
+ * Where a project's own reader sits in the merged viewer map: the account its repository is read
+ * as, where several are signed in to the host and only that one can see it (a work account).
+ */
+export function projectViewerKey(environmentId: string | undefined, projectId: string): string {
+  return environmentId ? `${environmentId} project:${projectId}` : `project:${projectId}`;
+}
+
 /** Keep cursors and viewer identities with the environment that issued them. */
 export function mergeEnvironmentPullRequestPages(
   sources: readonly { environmentId: EnvironmentId; pages: PullRequestListPages }[],
@@ -83,6 +91,8 @@ export function mergeEnvironmentPullRequestPages(
     entries.push(...pages.entries.map((entry) => ({ ...entry, environmentId })));
     for (const [host, viewer] of Object.entries(pages.head.viewers))
       viewers[`${environmentId} ${host}`] = viewer;
+    for (const [projectId, account] of Object.entries(pages.head.accounts ?? {}))
+      viewers[projectViewerKey(environmentId, projectId)] = account;
     for (const provider of pages.head.providers)
       if (!provider.searchesOnHost) localSearchHosts.add(`${environmentId} ${provider.host}`);
     errors.push(...pages.head.errors.map((error) => ({ ...error, environmentId })));
@@ -190,7 +200,9 @@ export function filterPullRequestList<
     if (controls.projectEnvironmentId && entry.environmentId !== controls.projectEnvironmentId)
       return false;
     const viewerKey = entry.environmentId ? `${entry.environmentId} ${entry.host}` : entry.host;
-    const viewer = viewers[viewerKey];
+    // "Me" is the account this project's repository is read as, else the host's.
+    const viewer =
+      viewers[projectViewerKey(entry.environmentId, entry.projectId)] ?? viewers[viewerKey];
     if (controls.involvement === "reviewing" && !entry.viewerReviewRequested) return false;
     if (
       controls.involvement === "authored" &&

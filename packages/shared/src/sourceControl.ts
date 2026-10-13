@@ -139,7 +139,17 @@ export function getChangeRequestTerminologyForKind(
   };
 }
 
-const SCP_SSH_REMOTE_PATTERN = /^[a-zA-Z0-9._-]+@([^:/]+):/;
+// `user@host:path`, or `host:path` with the user from the SSH config (`gitlab-work:group/app`).
+// Never a URL with a scheme, and never a one-letter Windows drive.
+const SCP_SSH_REMOTE_PATTERN =
+  /^(?![a-zA-Z][a-zA-Z0-9+.-]*:\/\/)(?:[a-zA-Z0-9._-]+@)?([^:/\\\s]{2,}):(?!\/\/)/;
+
+// The port-443 SSH endpoints forges document, which serve the same repositories as the web host.
+const SSH_ENDPOINT_WEB_HOSTS: Readonly<Record<string, string>> = {
+  "ssh.github.com": "github.com",
+  "altssh.gitlab.com": "gitlab.com",
+  "altssh.bitbucket.org": "bitbucket.org",
+};
 
 export function isSshRemoteUrl(remoteUrl: string): boolean {
   const trimmed = remoteUrl.trim();
@@ -158,12 +168,17 @@ function parseRemoteHost(remoteUrl: string): string | null {
 
   const scpMatch = SCP_SSH_REMOTE_PATTERN.exec(trimmed);
   if (scpMatch?.[1]) {
-    return scpMatch[1].toLowerCase();
+    const host = scpMatch[1].toLowerCase();
+    return SSH_ENDPOINT_WEB_HOSTS[host] ?? host;
   }
 
   try {
     const url = new URL(trimmed);
-    return (url.protocol === "ssh:" ? url.hostname : url.host).toLowerCase();
+    if (url.protocol === "ssh:") {
+      const host = url.hostname.toLowerCase();
+      return SSH_ENDPOINT_WEB_HOSTS[host] ?? host;
+    }
+    return url.host.toLowerCase();
   } catch {
     return null;
   }

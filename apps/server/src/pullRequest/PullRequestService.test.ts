@@ -1357,6 +1357,32 @@ it.effect("asks again as the account a repository's first read found", () =>
   }),
 );
 
+it.effect("names the account a repository is read as as the detail's reader", () =>
+  Effect.gen(function* () {
+    let routed: string | null = null;
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/w", repository: "acme/web" })],
+      providers: [
+        fakeProvider("github", {
+          accountFor: () => Effect.sync(() => routed),
+          // Only another signed-in account can see the repository; the read learns it.
+          getChangeRequest: () =>
+            Effect.sync(() => {
+              routed = "bilal-acme";
+              return hostedChangeRequest("Description");
+            }),
+        }),
+      ],
+    });
+    const detail = yield* service.detail({
+      projectId: "p1" as ProjectId,
+      repository: "acme/web",
+      number: 1,
+    });
+    assert.strictEqual(detail.viewer, "bilal-acme");
+  }),
+);
+
 it.effect("tries another workspace on the same host for the viewer", () =>
   Effect.gen(function* () {
     const service = yield* makeService({
@@ -4264,6 +4290,56 @@ it.effect("fills in the line counts for the rows it is given", () =>
       },
     ]);
   }),
+);
+it.effect(
+  "asks for line counts per repository owner, so one unreadable owner costs only its rows",
+  () =>
+    Effect.gen(function* () {
+      const asked: Array<ReadonlyArray<string>> = [];
+      const service = yield* makeService({
+        projects: [
+          project({ id: "p1", title: "dotfiles", workspaceRoot: "/a", repository: "me/dotfiles" }),
+          project({
+            id: "p2",
+            title: "private",
+            workspaceRoot: "/b",
+            repository: "company/private",
+          }),
+          project({ id: "p3", title: "site", workspaceRoot: "/c", repository: "me/site" }),
+        ],
+        providers: [
+          fakeProvider("github", {
+            listChangeRequestStats: (input) => {
+              const repositories = input.changeRequests.map((request) => request.repository);
+              asked.push(repositories);
+              return repositories.includes("company/private")
+                ? Effect.fail(requestFailed)
+                : Effect.succeed(
+                    input.changeRequests.map((request) => ({
+                      ...request,
+                      additions: 1,
+                      deletions: 1,
+                    })),
+                  );
+            },
+          }),
+        ],
+      });
+
+      const result = yield* service.listStats({
+        refs: [
+          { projectId: "p1" as ProjectId, repository: "me/dotfiles", number: 1 },
+          { projectId: "p2" as ProjectId, repository: "company/private", number: 2 },
+          { projectId: "p3" as ProjectId, repository: "me/site", number: 3 },
+        ],
+      });
+
+      assert.deepStrictEqual(asked.toSorted(), [["company/private"], ["me/dotfiles", "me/site"]]);
+      assert.deepStrictEqual(result.stats.map((stat) => stat.repository).toSorted(), [
+        "me/dotfiles",
+        "me/site",
+      ]);
+    }),
 );
 it.effect(
   "reuses counts across overlapping pages until expiry, explicit invalidation, or a reference changes",

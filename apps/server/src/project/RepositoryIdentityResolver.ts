@@ -11,6 +11,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 
 import * as ProcessRunner from "../processRunner.ts";
+import { resolveSshAliasRemote, type SshConfigReader } from "../sourceControl/sshAliasRemote.ts";
 
 const DEFAULT_REPOSITORY_IDENTITY_CACHE_CAPACITY = 512;
 // Background sweeps resolve every project each minute. A long TTL keeps them
@@ -55,15 +56,29 @@ function parseRemoteFetchUrls(stdout: string): Map<string, string> {
   return remotes;
 }
 
+const remoteHostOf = (remoteUrl: string) => normalizeGitRemoteUrl(remoteUrl).split("/")[0];
+
+/**
+ * The remote that identifies the repository: `upstream` when origin is a fork of it on the same
+ * host, then `origin`, then the first remote by name. An upstream on another host is what origin
+ * mirrors (gitlab.company.com/mirrors/react from github.com/facebook/react); the project's change
+ * requests live on origin. `resolvedUrls` holds upstream and origin with SSH aliases resolved.
+ */
 function pickPrimaryRemote(
   remotes: ReadonlyMap<string, string>,
+  resolvedUrls: ReadonlyMap<string, string>,
 ): { readonly remoteName: string; readonly remoteUrl: string } | null {
-  for (const preferredRemoteName of ["upstream", "origin"] as const) {
-    const remoteUrl = remotes.get(preferredRemoteName);
-    if (remoteUrl) {
-      return { remoteName: preferredRemoteName, remoteUrl };
-    }
+  const upstreamUrl = remotes.get("upstream");
+  const originUrl = remotes.get("origin");
+  if (
+    upstreamUrl &&
+    (!originUrl ||
+      remoteHostOf(resolvedUrls.get("upstream") ?? upstreamUrl) ===
+        remoteHostOf(resolvedUrls.get("origin") ?? originUrl))
+  ) {
+    return { remoteName: "upstream", remoteUrl: upstreamUrl };
   }
+  if (originUrl) return { remoteName: "origin", remoteUrl: originUrl };
 
   const [remoteName, remoteUrl] =
     [...remotes.entries()].toSorted(([left], [right]) => left.localeCompare(right))[0] ?? [];
@@ -85,14 +100,29 @@ function buildRepositoryOrigin(
   return { canonicalKey: originKey, ...(displayName ? { displayName } : {}) };
 }
 
+/** `ssh -G <host>` through the process runner: the effective SSH config, read without connecting. */
+const readSshConfig =
+  (processRunner: ProcessRunner.ProcessRunner["Service"]): SshConfigReader =>
+  (host) =>
+    processRunner
+      .run({ command: "ssh", args: ["-G", host], timeoutBehavior: "timedOutResult" })
+      .pipe(
+        Effect.map((result) => (result.code === 0 ? result.stdout : null)),
+        Effect.orElseSucceed(() => null),
+      );
+
 function buildRepositoryIdentity(input: {
   readonly remoteName: string;
   readonly remoteUrl: string;
+  /** The remote with any SSH alias resolved to its real host; identifies the repository. */
+  readonly resolvedRemoteUrl: string;
   readonly originUrl: string | undefined;
   readonly rootPath: string;
 }): RepositoryIdentity {
-  const canonicalKey = normalizeGitRemoteUrl(input.remoteUrl);
-  const sourceControlProvider = detectSourceControlProviderFromGitRemoteUrl(input.remoteUrl);
+  const canonicalKey = normalizeGitRemoteUrl(input.resolvedRemoteUrl);
+  const sourceControlProvider = detectSourceControlProviderFromGitRemoteUrl(
+    input.resolvedRemoteUrl,
+  );
   const repositoryPath = repositoryPathOf(canonicalKey);
   const repositoryPathSegments = repositoryPath.split("/").filter((segment) => segment.length > 0);
   const [owner] = repositoryPathSegments;
@@ -101,10 +131,12 @@ function buildRepositoryIdentity(input: {
 
   return {
     canonicalKey,
+    // Read for the host, provider and web links, never to run git (that goes by `remoteName`),
+    // so it carries the real host behind an SSH alias.
     locator: {
       source: "git-remote",
       remoteName: input.remoteName,
-      remoteUrl: input.remoteUrl,
+      remoteUrl: input.resolvedRemoteUrl,
     },
     rootPath: input.rootPath,
     ...(repositoryPath ? { displayName: repositoryPath } : {}),
@@ -155,10 +187,23 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
   }
 
   const remotes = parseRemoteFetchUrls(remoteResult.value.stdout);
-  const remote = pickPrimaryRemote(remotes);
-  return remote
-    ? buildRepositoryIdentity({ ...remote, originUrl: remotes.get("origin"), rootPath: cacheKey })
-    : null;
+  // The repository and its provider are keyed on the real host behind an SSH config alias.
+  const sshConfig = readSshConfig(processRunner);
+  const resolvedUrls = new Map<string, string>();
+  for (const remoteName of ["upstream", "origin"]) {
+    const remoteUrl = remotes.get(remoteName);
+    if (remoteUrl) resolvedUrls.set(remoteName, yield* resolveSshAliasRemote(remoteUrl, sshConfig));
+  }
+  const remote = pickPrimaryRemote(remotes, resolvedUrls);
+  if (!remote) return null;
+  return buildRepositoryIdentity({
+    ...remote,
+    resolvedRemoteUrl:
+      resolvedUrls.get(remote.remoteName) ??
+      (yield* resolveSshAliasRemote(remote.remoteUrl, sshConfig)),
+    originUrl: resolvedUrls.get("origin"),
+    rootPath: cacheKey,
+  });
 });
 
 export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (

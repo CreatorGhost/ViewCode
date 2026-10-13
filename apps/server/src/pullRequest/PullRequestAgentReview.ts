@@ -150,6 +150,8 @@ export interface LocalAgentReviewInput {
 export interface PullRequestAuthorship {
   readonly author: string | null;
   readonly viewer: string | null;
+  /** The reader's other accounts on the host, where its CLI holds several. */
+  readonly viewerLogins?: ReadonlyArray<string> | undefined;
 }
 
 /**
@@ -160,7 +162,10 @@ export interface PullRequestAuthorship {
 export function reviewFindingsModeFor(authorship: PullRequestAuthorship): ReviewFindingsMode {
   const { author, viewer } = authorship;
   if (author === null || viewer === null) return "fix";
-  return author.toLowerCase() === viewer.toLowerCase() ? "fix" : "comment";
+  const own = [viewer, ...(authorship.viewerLogins ?? [])].some(
+    (login) => login.toLowerCase() === author.toLowerCase(),
+  );
+  return own ? "fix" : "comment";
 }
 
 /**
@@ -426,6 +431,7 @@ const make = Effect.gen(function* () {
         authorship: {
           author: detail.author?.login ?? null,
           viewer: detail.viewer ?? null,
+          viewerLogins: detail.viewerLogins,
         } satisfies PullRequestAuthorship,
         headSha:
           detail.headSha !== undefined && isCommitSha(detail.headSha) ? detail.headSha : undefined,
