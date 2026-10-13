@@ -18,6 +18,15 @@ import {
   summarizeAgentTreeControl,
   type AgentTreeControlSummary,
 } from "@t3tools/client-runtime/state/child-agents";
+import {
+  DEFAULT_FOLDER_SORT_ORDER,
+  flattenChatRows,
+  resolveAgentStatusGroup,
+  sortChatAgents,
+  sortFolderChats,
+  type AgentStatusGroup,
+  type FolderSortOrder,
+} from "@t3tools/client-runtime/state/thread-arrangement";
 import type { AgentControlState, EnvironmentId, ServerConfig } from "@t3tools/contracts";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 
@@ -39,7 +48,7 @@ import {
   type PendingThreadOrder,
 } from "../threads/threadOrder";
 import type { HomeProjectScope } from "./homeThreadList";
-import { agentStatusRank, sortAgentsByStatus, type HomeAgentStatus } from "../agents/agentStatus";
+import type { HomeAgentStatus } from "../agents/agentStatus";
 
 /**
  * Home as project folders: pinned leads on top, then one collapsible folder
@@ -151,6 +160,8 @@ export interface HomeFolderHeaderItem {
   /** Working threads (leads and agents) outside the Settled row. */
   readonly workingCount: number;
   readonly expanded: boolean;
+  /** How the folder orders its chats and agents (long-press the header to change it). */
+  readonly sortOrder: FolderSortOrder;
 }
 
 export interface HomeFolderLeadItem {
@@ -197,6 +208,28 @@ export interface HomeFolderChildItem {
   readonly muted: boolean;
 }
 
+/** The label above one status group of a lead's agents (Status order). */
+export interface HomeFolderAgentGroupItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
+  readonly type: "folder-agent-group";
+  readonly key: string;
+  readonly group: AgentStatusGroup;
+  readonly muted: boolean;
+}
+
+/** "Done (N)": a lead's finished agents, folded until opened. */
+export interface HomeFolderAgentsDoneItem {
+  /** Position in the folder card; null outside a folder. */
+  readonly folderEdge?: HomeFolderEdge | null;
+  readonly type: "folder-agents-done";
+  readonly key: string;
+  readonly leadKey: string;
+  readonly count: number;
+  readonly expanded: boolean;
+  readonly muted: boolean;
+}
+
 export interface HomeFolderSettledItem {
   /** Position in the folder card; null outside a folder. */
   readonly folderEdge?: HomeFolderEdge | null;
@@ -227,6 +260,8 @@ export type HomeFolderListItem =
   | HomeFolderLeadItem
   | HomeFolderAgentsToggleItem
   | HomeFolderChildItem
+  | HomeFolderAgentGroupItem
+  | HomeFolderAgentsDoneItem
   | HomeFolderSettledItem
   | HomeFolderPendingItem
   | ThreadListV2SnoozedShelfListItem;
@@ -289,6 +324,10 @@ export function buildHomeFolderList(input: {
   readonly now: string;
   readonly collapsedFolderKeys: ReadonlySet<string>;
   readonly expandedLeadKeys: ReadonlySet<string>;
+  /** Leads whose Done group is open, by thread key. */
+  readonly expandedDoneLeadKeys?: ReadonlySet<string>;
+  /** Folders off the default Status order, by folder key. */
+  readonly folderSortOrders?: ReadonlyMap<string, FolderSortOrder>;
   readonly expandedSettledFolderKeys: ReadonlySet<string>;
   readonly snoozedShelfExpanded: boolean;
   readonly snoozeLabelNow?: string;
@@ -307,6 +346,13 @@ export function buildHomeFolderList(input: {
 
   const hasFolder = (thread: EnvironmentThreadShell) =>
     folderKeyByProjectKey.has(scopedProjectKey(thread.environmentId, thread.projectId));
+  // The web sidebar's per-folder order (client-runtime thread-arrangement).
+  const folderSortOf = (thread: EnvironmentThreadShell | undefined): FolderSortOrder =>
+    (thread &&
+      input.folderSortOrders?.get(
+        folderKeyByProjectKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? "",
+      )) ??
+    DEFAULT_FOLDER_SORT_ORDER;
 
   let threads = input.threads.filter(
     (thread) =>
@@ -370,6 +416,11 @@ export function buildHomeFolderList(input: {
     bucketByKey.set(key, bucket);
   }
   const bucketOf = (thread: EnvironmentThreadShell) => bucketByKey.get(threadKey(thread));
+  // A paused agent waits for the user's Resume, so it groups with Needs you.
+  const agentGroupOf = (thread: EnvironmentThreadShell): AgentStatusGroup =>
+    input.agentControl?.get(threadKey(thread))?.paused === true
+      ? "needs-you"
+      : resolveAgentStatusGroup(thread);
 
   const pending =
     input.pendingOrder == null
@@ -393,6 +444,7 @@ export function buildHomeFolderList(input: {
   // Roots of one folder mix every bucket; each bucket keeps the flat list's
   // order: saved arrangement for active, newest settle first for settled.
   const sortRoots = (roots: readonly EnvironmentThreadShell[]) => {
+    const order = folderSortOf(roots[0]);
     const active = roots.filter((thread) => bucketOf(thread) === "active");
     const settled = roots
       .filter((thread) => bucketOf(thread) === "settled")
@@ -407,7 +459,10 @@ export function buildHomeFolderList(input: {
         (left, right) => parseTimestampMs(left.snoozedUntil) - parseTimestampMs(right.snoozedUntil),
       );
     return [
-      ...applyPendingThreadOrder(sortActiveThreadsByOrderKey(active), "active", pending),
+      // Status keeps the saved arrangement; Recent and Name are plain orders.
+      ...(order === "status"
+        ? applyPendingThreadOrder(sortActiveThreadsByOrderKey(active), "active", pending)
+        : sortFolderChats(active, order)),
       ...settled,
       ...snoozed,
     ];
@@ -433,15 +488,8 @@ export function buildHomeFolderList(input: {
       ...sortRoots(roots.filter((thread) => bucketOf(thread) !== "pinned")),
     ],
     sortRoots,
-    // Working agents first, as in the thread screen's panel; otherwise in the
-    // order they were spawned.
-    sortChildren: (children) =>
-      sortAgentsByStatus(
-        [...children].sort(
-          (left, right) => parseTimestampMs(left.createdAt) - parseTimestampMs(right.createdAt),
-        ),
-        (child) => agentStatusRank(resolveHomeAgentStatus(child)),
-      ),
+    // Status: Working, Needs you, Failed, Done, newest first in each.
+    sortChildren: (children) => sortChatAgents(children, folderSortOf(children[0]), agentGroupOf),
     isWorking: (thread) => resolveHomeAgentStatus(thread) === "working",
   });
 
@@ -561,16 +609,44 @@ export function buildHomeFolderList(input: {
       muted,
     });
     if (!expanded) return;
-    // An open lead shows its whole tree; nested agents indent by depth.
-    for (const row of agents) {
+    // An open lead shows its whole tree; nested agents indent by depth. Under
+    // Status its own agents fall into groups and Done folds, as on web.
+    const rows = flattenChatRows(node, {
+      isExpanded: () => true,
+      groupOf: folderSortOf(node.thread) === "status" ? agentGroupOf : null,
+      isDoneExpanded: (leadKey) =>
+        searching || statusFilter !== "all" || input.expandedDoneLeadKeys?.has(leadKey) === true,
+    });
+    for (const row of rows.slice(1)) {
+      if (row.kind === "group") {
+        items.push({
+          type: "folder-agent-group",
+          key: `folder-agent-group:${row.key}`,
+          group: row.group,
+          muted,
+        });
+        continue;
+      }
+      if (row.kind === "done") {
+        items.push({
+          type: "folder-agents-done",
+          key: `folder-agents-done:${row.leadKey}`,
+          leadKey: row.leadKey,
+          count: row.count,
+          expanded: row.expanded,
+          muted,
+        });
+        continue;
+      }
       const control = agentControl.get(row.key);
+      const thread = row.row.node.thread;
       items.push({
         type: "folder-child",
         key: `folder-child:${row.key}`,
-        thread: row.thread,
-        depth: row.depth,
-        status: control?.paused ? "paused" : resolveHomeAgentStatus(row.thread),
-        running: row.running,
+        thread,
+        depth: row.row.depth,
+        status: control?.paused ? "paused" : resolveHomeAgentStatus(thread),
+        running: resolveHomeAgentStatus(thread) === "working",
         queued: control?.queued ?? 0,
         muted,
       });
@@ -623,6 +699,7 @@ export function buildHomeFolderList(input: {
       count: active.length,
       workingCount,
       expanded,
+      sortOrder: input.folderSortOrders?.get(folder.key) ?? DEFAULT_FOLDER_SORT_ORDER,
     });
     if (!expanded) continue;
     for (const node of active) pushTree(node, true, false);
@@ -724,7 +801,8 @@ export function homeFolderListItemsAreEqual(
         previous.scope.representative === item.scope.representative &&
         previous.count === item.count &&
         previous.workingCount === item.workingCount &&
-        previous.expanded === item.expanded
+        previous.expanded === item.expanded &&
+        previous.sortOrder === item.sortOrder
       );
     case "folder-lead":
       return (
@@ -753,6 +831,20 @@ export function homeFolderListItemsAreEqual(
         previous.status === item.status &&
         previous.running === item.running &&
         previous.queued === item.queued &&
+        previous.muted === item.muted
+      );
+    case "folder-agent-group":
+      return (
+        previous.type === "folder-agent-group" &&
+        previous.key === item.key &&
+        previous.muted === item.muted
+      );
+    case "folder-agents-done":
+      return (
+        previous.type === "folder-agents-done" &&
+        previous.key === item.key &&
+        previous.count === item.count &&
+        previous.expanded === item.expanded &&
         previous.muted === item.muted
       );
     case "folder-settled":

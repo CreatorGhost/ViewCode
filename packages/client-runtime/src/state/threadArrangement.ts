@@ -35,8 +35,9 @@ type AgentStatusInput = Pick<
 
 /**
  * Which group an agent shows in, from the same status its row in the lead's
- * chat shows. An agent that has not run its first turn yet is about to, so it
- * counts as working; a stopped one is finished and reads as done.
+ * chat shows. An agent with a live session that has not run its first turn is
+ * about to, so it counts as working; one without a session never will, and a
+ * stopped one is finished: both read as done.
  */
 export function resolveAgentStatusGroup(thread: AgentStatusInput): AgentStatusGroup {
   switch (resolveSpawnedAgentRowStatus(thread, "started")) {
@@ -46,9 +47,10 @@ export function resolveAgentStatusGroup(thread: AgentStatusInput): AgentStatusGr
     case "failed":
       return "failed";
     case "running":
-    case "idle":
     case null:
       return "working";
+    case "idle":
+      return thread.session?.status === "ready" ? "working" : "done";
     case "done":
     case "stopped":
     case "queued":
@@ -116,19 +118,20 @@ function byName<T extends SortableThread>(left: T, right: T): number {
 /**
  * Agents in display order. Status: Working, Needs you, Failed, Done, newest
  * first inside each group, so every group is one contiguous run. Recent:
- * newest first. Name: A to Z.
+ * newest first. Name: A to Z. `groupOf` lets a client fold in state the
+ * shell lacks (mobile counts a paused agent as needing the user); pass the
+ * same one to `flattenChatRows`.
  */
 export function sortChatAgents<T extends SortableThread>(
   agents: ReadonlyArray<T>,
   order: FolderSortOrder,
+  groupOf: (agent: T) => AgentStatusGroup = resolveAgentStatusGroup,
 ): T[] {
   // Copy then .sort(): Hermes (mobile) has no .toSorted().
   const sorted = [...agents];
   if (order === "name") return sorted.sort(byName);
   if (order === "recent") return sorted.sort(byRecent);
-  const rank = new Map(
-    sorted.map((agent) => [agent, AGENT_STATUS_GROUPS.indexOf(resolveAgentStatusGroup(agent))]),
-  );
+  const rank = new Map(sorted.map((agent) => [agent, AGENT_STATUS_GROUPS.indexOf(groupOf(agent))]));
   return sorted.sort((left, right) => rank.get(left)! - rank.get(right)! || byRecent(left, right));
 }
 

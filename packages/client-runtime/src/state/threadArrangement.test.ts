@@ -78,8 +78,9 @@ describe("resolveAgentStatusGroup", () => {
     expect(groupOf(shell("a", { session: { status: "error" } }))).toBe("failed");
     expect(groupOf(shell("a"))).toBe("done");
     expect(groupOf(shell("a", { turn: "interrupted" }))).toBe("done");
-    // Spawned, first turn not started yet.
+    // Spawned, first turn not started yet; without a session it never will.
     expect(groupOf(shell("a", { turn: null }))).toBe("working");
+    expect(groupOf(shell("a", { turn: null, session: null }))).toBe("done");
   });
 });
 

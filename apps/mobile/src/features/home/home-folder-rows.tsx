@@ -3,6 +3,15 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import { resolveAgentControlAvailability } from "@t3tools/client-runtime/state/child-agents";
+import {
+  AGENT_STATUS_GROUP_LABEL,
+  DEFAULT_FOLDER_SORT_ORDER,
+  FOLDER_SORT_ORDER_LABEL,
+  FOLDER_SORT_ORDERS,
+  type AgentStatusGroup,
+  type FolderSortOrder,
+} from "@t3tools/client-runtime/state/thread-arrangement";
+import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useMemo, type ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 
@@ -65,6 +74,9 @@ export function HomeFolderCardSlice(props: {
   );
 }
 
+// The folder title spans the header, so its long-press menu wrapper must too.
+const FOLDER_TITLE_MENU_STYLE = { flex: 1 } as const;
+
 const pressedOpacity = ({ pressed }: { readonly pressed: boolean }) => ({
   opacity: pressed ? 0.6 : 1,
 });
@@ -89,10 +101,30 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
   readonly count: number;
   readonly workingCount: number;
   readonly expanded: boolean;
+  readonly sortOrder: FolderSortOrder;
   readonly onToggle: (folderKey: string) => void;
   readonly onNewThread: (project: EnvironmentProject) => void;
+  readonly onSortChange: (folderKey: string, order: FolderSortOrder) => void;
 }) {
-  const { folderKey, onToggle, onNewThread, project } = props;
+  const { folderKey, onToggle, onNewThread, onSortChange, project } = props;
+  const sortActions = useMemo<MenuAction[]>(
+    () =>
+      FOLDER_SORT_ORDERS.map((order) => ({
+        id: `sort:${order}`,
+        title: `Sort by ${FOLDER_SORT_ORDER_LABEL[order].toLowerCase()}`,
+        state: order === props.sortOrder ? ("on" as const) : ("off" as const),
+      })),
+    [props.sortOrder],
+  );
+  const handleSortAction = useCallback(
+    ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      const order = FOLDER_SORT_ORDERS.find(
+        (candidate) => nativeEvent.event === `sort:${candidate}`,
+      );
+      if (order) onSortChange(folderKey, order);
+    },
+    [folderKey, onSortChange],
+  );
   // The project colour, else the icon's colour, tints the header; the bar marks a project colour.
   const accentColor =
     project.projectColor ??
@@ -118,54 +150,67 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
           )}
         />
       ) : null}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={[
-          props.title,
-          `${props.count} ${props.count === 1 ? "thread" : "threads"}`,
-          props.workingCount > 0 ? `${props.workingCount} working` : null,
-        ]
-          .filter((part) => part !== null)
-          .join(", ")}
-        accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the project folder.`}
-        accessibilityState={{ expanded: props.expanded }}
-        className="min-h-[44px] flex-1 flex-row items-center gap-2"
-        onPress={() => onToggle(folderKey)}
-        style={pressedOpacity}
+      <ControlPillMenu
+        actions={sortActions}
+        onPressAction={handleSortAction}
+        shouldOpenOnLongPress
+        title={`Sort ${props.title}`}
+        style={FOLDER_TITLE_MENU_STYLE}
       >
-        <ProjectFavicon
-          environmentId={project.environmentId}
-          faviconPath={project.faviconPath}
-          projectIcon={project.projectIcon}
-          size={sectionLabel ? 16 : 18}
-          projectTitle={props.title}
-          workspaceRoot={project.workspaceRoot}
-        />
-        <Text
-          className={cn(
-            "shrink text-sm",
-            sectionLabel
-              ? ["font-t3-medium", accent?.text ?? "text-foreground-muted"]
-              : ["font-t3-bold", accent?.text ?? "text-foreground"],
-          )}
-          numberOfLines={1}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={[
+            props.title,
+            `${props.count} ${props.count === 1 ? "thread" : "threads"}`,
+            props.workingCount > 0 ? `${props.workingCount} working` : null,
+          ]
+            .filter((part) => part !== null)
+            .join(", ")}
+          accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the project folder. Long-press to sort it.`}
+          accessibilityState={{ expanded: props.expanded }}
+          className="min-h-[44px] flex-1 flex-row items-center gap-2"
+          onPress={() => onToggle(folderKey)}
+          style={pressedOpacity}
         >
-          {props.title}
-        </Text>
-        {props.count > 0 ? (
-          <Text className="text-xs tabular-nums text-foreground-tertiary">{props.count}</Text>
-        ) : null}
-        {props.workingCount > 0 ? (
-          <View className="flex-row items-center gap-1 rounded-full bg-row-hover px-2 py-0.5">
-            <View className="size-1.5 rounded-full bg-adaptive-sky-600-400" />
-            <Text className="text-xs tabular-nums text-adaptive-sky-600-400">
-              {props.workingCount} working
+          <ProjectFavicon
+            environmentId={project.environmentId}
+            faviconPath={project.faviconPath}
+            projectIcon={project.projectIcon}
+            size={sectionLabel ? 16 : 18}
+            projectTitle={props.title}
+            workspaceRoot={project.workspaceRoot}
+          />
+          <Text
+            className={cn(
+              "shrink text-sm",
+              sectionLabel
+                ? ["font-t3-medium", accent?.text ?? "text-foreground-muted"]
+                : ["font-t3-bold", accent?.text ?? "text-foreground"],
+            )}
+            numberOfLines={1}
+          >
+            {props.title}
+          </Text>
+          {props.count > 0 ? (
+            <Text className="text-xs tabular-nums text-foreground-tertiary">{props.count}</Text>
+          ) : null}
+          {props.workingCount > 0 ? (
+            <View className="flex-row items-center gap-1 rounded-full bg-row-hover px-2 py-0.5">
+              <View className="size-1.5 rounded-full bg-adaptive-sky-600-400" />
+              <Text className="text-xs tabular-nums text-adaptive-sky-600-400">
+                {props.workingCount} working
+              </Text>
+            </View>
+          ) : null}
+          <View className="flex-1" />
+          {props.sortOrder !== DEFAULT_FOLDER_SORT_ORDER ? (
+            <Text className="text-xs text-foreground-tertiary">
+              {FOLDER_SORT_ORDER_LABEL[props.sortOrder]}
             </Text>
-          </View>
-        ) : null}
-        <View className="flex-1" />
-        <Chevron expanded={props.expanded} />
-      </Pressable>
+          ) : null}
+          <Chevron expanded={props.expanded} />
+        </Pressable>
+      </ControlPillMenu>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`New task in ${props.title}`}
@@ -223,6 +268,64 @@ export const HomeFolderAgentsToggle = memo(function HomeFolderAgentsToggle(props
       {props.pausedCount > 0 ? (
         <Text className="text-xs text-adaptive-amber-700-400">· {props.pausedCount} paused</Text>
       ) : null}
+    </Pressable>
+  );
+});
+
+const AGENT_GROUP_DOT_CLASS: Record<AgentStatusGroup, string> = {
+  working: "bg-adaptive-sky-600-400",
+  "needs-you": "bg-adaptive-amber-700-400",
+  failed: "bg-adaptive-rose-600-400",
+  done: "bg-foreground-muted",
+};
+
+/** The label above one status group of a lead's agents. */
+export const HomeFolderAgentGroupLabel = memo(function HomeFolderAgentGroupLabel(props: {
+  readonly group: AgentStatusGroup;
+  readonly muted: boolean;
+}) {
+  return (
+    <View
+      accessibilityRole="header"
+      className={cn(
+        "flex-row items-center gap-1.5 pt-2 pb-1",
+        Platform.OS === "android" ? "pl-8" : "pl-6",
+        props.muted && "opacity-60",
+      )}
+    >
+      <View className={cn("size-1.5 rounded-full", AGENT_GROUP_DOT_CLASS[props.group])} />
+      <Text className="text-xs font-t3-medium uppercase text-foreground-tertiary">
+        {AGENT_STATUS_GROUP_LABEL[props.group]}
+      </Text>
+    </View>
+  );
+});
+
+/** "Done (N)": a lead's finished agents, folded until tapped. */
+export const HomeFolderAgentsDoneRow = memo(function HomeFolderAgentsDoneRow(props: {
+  readonly leadKey: string;
+  readonly count: number;
+  readonly expanded: boolean;
+  readonly muted: boolean;
+  readonly onToggle: (leadKey: string) => void;
+}) {
+  const { leadKey, onToggle } = props;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${props.count} done ${props.count === 1 ? "agent" : "agents"}`}
+      accessibilityHint={`${props.expanded ? "Hides" : "Shows"} the agents that finished.`}
+      accessibilityState={{ expanded: props.expanded }}
+      className={cn(
+        "min-h-[44px] flex-row items-center gap-1.5 pr-4",
+        Platform.OS === "android" ? "pl-8" : "pl-6",
+        props.muted && "opacity-60",
+      )}
+      onPress={() => onToggle(leadKey)}
+      style={pressedOpacity}
+    >
+      <Chevron expanded={props.expanded} size={10} />
+      <Text className="text-xs font-t3-medium text-foreground-muted">Done ({props.count})</Text>
     </Pressable>
   );
 });
