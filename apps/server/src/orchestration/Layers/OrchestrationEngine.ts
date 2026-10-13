@@ -36,10 +36,15 @@ import {
   isOrchestrationCommandRejection,
   OrchestrationCommandIdConflictError,
   OrchestrationCommandInvariantError,
+  OrchestrationThreadSettleBlockedError,
   OrchestrationCommandPreviouslyRejectedError,
   type OrchestrationDispatchError,
   type OrchestrationProjectorDecodeError,
 } from "../Errors.ts";
+import {
+  MAX_SETTLEMENT_AGENT_DEPTH,
+  threadHasActiveDescendantAgent,
+} from "../ThreadSettlementPolicy.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
@@ -241,6 +246,78 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
 
+        // A child's state can change after the lead's sweep snapshot without
+        // appending any event to the lead. Recheck it at serialized dispatch.
+        const settlementCommand = envelope.command;
+        if (
+          settlementCommand.type === "thread.auto-settle" &&
+          commandReadModel.threads.some(
+            (child) =>
+              child.parentThreadId === settlementCommand.threadId &&
+              child.kind !== "sidechat" &&
+              child.deletedAt === null &&
+              child.archivedAt === null &&
+              child.settledOverride !== "settled" &&
+              child.settledAt === null,
+          )
+        ) {
+          const descendants = yield* projectionSnapshotQuery.getSettlementDescendants(
+            settlementCommand.threadId,
+          );
+          if (
+            threadHasActiveDescendantAgent(
+              { id: settlementCommand.threadId },
+              Map.groupBy(descendants, (thread) => thread.parentThreadId),
+              DateTime.formatIso(yield* DateTime.now),
+            )
+          ) {
+            yield* Effect.logDebug("descendant became active after automatic settlement sweep", {
+              threadId: settlementCommand.threadId,
+            });
+            return yield* new OrchestrationThreadSettleBlockedError({
+              threadId: settlementCommand.threadId,
+            });
+          }
+        }
+        // Both kinds of settlement project to the same override. Timestamp
+        // comparisons lose provenance after metadata edits and migration 046.
+        const automaticallySettledAncestors: ThreadId[] = [];
+        const activityCommand = envelope.command;
+        if (
+          activityCommand.type === "thread.turn.start" ||
+          (activityCommand.type === "thread.session.set" &&
+            (activityCommand.session.status === "starting" ||
+              activityCommand.session.status === "running"))
+        ) {
+          const byId = new Map(commandReadModel.threads.map((thread) => [thread.id, thread]));
+          let child = byId.get(activityCommand.threadId);
+          const seen = new Set<ThreadId>([activityCommand.threadId]);
+          for (let depth = 0; depth < MAX_SETTLEMENT_AGENT_DEPTH; depth++) {
+            if (
+              child?.parentThreadId == null ||
+              child.kind === "sidechat" ||
+              child.archivedAt !== null ||
+              child.deletedAt !== null
+            )
+              break;
+            const parent = byId.get(child.parentThreadId);
+            if (
+              parent === undefined ||
+              seen.has(parent.id) ||
+              parent.kind === "sidechat" ||
+              parent.archivedAt !== null ||
+              parent.deletedAt !== null
+            )
+              break;
+            seen.add(parent.id);
+            if (parent.settledOverride === "settled") {
+              if (!(yield* eventStore.isThreadAutomaticallySettled(parent.id))) break;
+              automaticallySettledAncestors.push(parent.id);
+            }
+            child = parent;
+          }
+        }
+
         // Command snapshots omit activities at startup and cap them while running.
         // Read this request's durable state before deciding how to send the answer.
         const userInputActivity =
@@ -251,6 +328,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
+          automaticallySettledAncestors,
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
             : {}),

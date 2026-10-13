@@ -26,6 +26,7 @@ import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { TestClock } from "effect/testing";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -42,6 +43,7 @@ import {
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
+import { MAX_SETTLEMENT_AGENT_DEPTH } from "../ThreadSettlementPolicy.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -353,6 +355,7 @@ describe("OrchestrationEngine", () => {
           }),
         ),
       hasEventAfter: () => Effect.succeed(false),
+      isThreadAutomaticallySettled: () => Effect.succeed(false),
       readAggregateRange: () => Stream.die("unused aggregate replay"),
       getAggregateReplayStats: () => Effect.die("unused aggregate replay stats"),
     };
@@ -427,6 +430,7 @@ describe("OrchestrationEngine", () => {
               fullSnapshotReadCount += 1;
               return projectionSnapshot;
             }),
+          getSettlementDescendants: () => Effect.die("unused"),
           getShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: projectionSnapshot.snapshotSequence,
@@ -700,6 +704,531 @@ describe("OrchestrationEngine", () => {
         }
       }).pipe(Effect.provide(makeOrchestrationLayer())),
   );
+
+  effectIt.effect(
+    "child turns wake only automatically settled leads using durable provenance",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(now()));
+        const engine = yield* OrchestrationEngineService;
+        const snapshots = yield* ProjectionSnapshotQuery;
+        const projectId = ProjectId.make("agent-settlement-project");
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("create-agent-project"),
+          projectId,
+          title: "Project",
+          workspaceRoot: "/tmp/agent-settlement",
+          createdAt: now(),
+        });
+        for (const trigger of ["turn", "session"] as const)
+          for (const mode of [
+            "auto",
+            "manual",
+            "manual-after-auto",
+            "sidechat",
+            "archived-child",
+          ] as const) {
+            const leadId = ThreadId.make(`lead-${mode}-${trigger}`);
+            const childId = ThreadId.make(`child-${mode}-${trigger}`);
+            for (const threadId of [leadId, childId])
+              yield* engine.dispatch({
+                type: "thread.create",
+                commandId: CommandId.make(`create-${threadId}`),
+                threadId,
+                projectId,
+                title: String(threadId),
+                modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+                runtimeMode: "full-access",
+                interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                branch: null,
+                worktreePath: null,
+                createdAt: now(),
+                ...(threadId === childId
+                  ? {
+                      parentThreadId: leadId,
+                      ...(mode === "sidechat" ? { kind: "sidechat" as const } : {}),
+                    }
+                  : {}),
+              });
+            // A stale client can still start a turn on an archived child; it must not wake the lead.
+            if (mode === "archived-child")
+              yield* engine.dispatch({
+                type: "thread.archive",
+                commandId: CommandId.make(`archive-${childId}`),
+                threadId: childId,
+              });
+            if (mode !== "manual")
+              yield* engine.dispatch({
+                type: "thread.auto-settle",
+                commandId: CommandId.make(`server:auto-settle:${leadId}`),
+                threadId: leadId,
+                snapshotSequence: yield* engine.latestSequence,
+                settledAt: "2025-12-20T00:00:00.000Z",
+              });
+            if (mode === "manual" || mode === "manual-after-auto")
+              yield* engine.dispatch({
+                type: "thread.settle",
+                commandId: CommandId.make(`manual-settle-${leadId}`),
+                threadId: leadId,
+              });
+            // Metadata/session cleanup can follow settlement without changing its provenance.
+            yield* engine.dispatch({
+              type: "thread.meta.update",
+              commandId: CommandId.make(`rename-${leadId}`),
+              threadId: leadId,
+              title: "Renamed",
+            });
+            if (trigger === "session")
+              yield* engine.dispatch({
+                type: "thread.session.set",
+                commandId: CommandId.make(`session-${childId}`),
+                threadId: childId,
+                session: {
+                  threadId: childId,
+                  status: "starting",
+                  providerName: "codex",
+                  runtimeMode: "full-access",
+                  activeTurnId: null,
+                  lastError: null,
+                  updatedAt: now(),
+                },
+                createdAt: now(),
+              });
+            else
+              yield* engine.dispatch({
+                type: "thread.turn.start",
+                commandId: CommandId.make(`turn-${childId}`),
+                threadId: childId,
+                message: {
+                  messageId: MessageId.make(`message-${childId}`),
+                  role: "user",
+                  text: "Continue",
+                  attachments: [],
+                },
+                runtimeMode: "full-access",
+                interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                createdAt: now(),
+              });
+            const receiptSnapshot = yield* snapshots.getSnapshot();
+            const lead = receiptSnapshot.threads.find((thread) => thread.id === leadId);
+            expect(lead?.settledOverride).toBe(mode === "auto" ? null : "settled");
+            if (mode === "auto") {
+              expect(lead?.unsettledAt).toBe(now());
+              const error = yield* engine
+                .dispatch({
+                  type: "thread.auto-settle",
+                  commandId: CommandId.make(`server:auto-settle:busy-lead-${trigger}`),
+                  threadId: leadId,
+                  snapshotSequence: receiptSnapshot.snapshotSequence,
+                  settledAt: now(),
+                })
+                .pipe(Effect.flip);
+              expect(error._tag).toBe("OrchestrationThreadSettleBlockedError");
+            }
+            const wakeEvents = yield* Stream.runCollect(
+              engine.readThreadEvents({
+                threadId: leadId,
+                fromSequenceExclusive: 0,
+                toSequenceInclusive: yield* engine.latestSequence,
+              }),
+            );
+            expect(wakeEvents.filter((event) => event.type === "thread.unsettled")).toHaveLength(
+              mode === "auto" ? 1 : 0,
+            );
+          }
+      }).pipe(Effect.provide(makeOrchestrationLayer())),
+  );
+
+  effectIt.effect(
+    "grandchild activity wakes automatic ancestors through idle ancestors and stops at a manual settle",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(now()));
+        const engine = yield* OrchestrationEngineService;
+        const snapshots = yield* ProjectionSnapshotQuery;
+        const projectId = ProjectId.make("nested-settlement-project");
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("create-nested-project"),
+          projectId,
+          title: "Project",
+          workspaceRoot: "/tmp/nested-settlement",
+          createdAt: now(),
+        });
+        for (const trigger of ["turn", "session"] as const)
+          for (const middle of ["auto", "idle", "manual"] as const) {
+            const ids = ["lead", "middle", "parent", "leaf"].map((id) =>
+              ThreadId.make(`${id}-${middle}-${trigger}`),
+            );
+            for (const [index, threadId] of ids.entries()) {
+              yield* engine.dispatch({
+                type: "thread.create",
+                commandId: CommandId.make(`create-${threadId}`),
+                threadId,
+                projectId,
+                title: threadId,
+                modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+                runtimeMode: "full-access",
+                interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                branch: null,
+                worktreePath: null,
+                createdAt: now(),
+                ...(index > 0 ? { parentThreadId: ids[index - 1]! } : {}),
+              });
+              if (index < 3 && !(index === 1 && middle === "idle"))
+                yield* engine.dispatch(
+                  index === 1 && middle === "manual"
+                    ? {
+                        type: "thread.settle",
+                        commandId: CommandId.make(`manual-${threadId}`),
+                        threadId,
+                      }
+                    : {
+                        type: "thread.auto-settle",
+                        commandId: CommandId.make(`server:auto-settle:${threadId}`),
+                        threadId,
+                        snapshotSequence: yield* engine.latestSequence,
+                        settledAt: "2025-12-20T00:00:00.000Z",
+                      },
+                );
+            }
+            const leafId = ids[3]!;
+            yield* engine.dispatch(
+              trigger === "turn"
+                ? {
+                    type: "thread.turn.start",
+                    commandId: CommandId.make(`turn-${leafId}`),
+                    threadId: leafId,
+                    message: {
+                      messageId: MessageId.make(`message-${leafId}`),
+                      role: "user",
+                      text: "Continue",
+                      attachments: [],
+                    },
+                    runtimeMode: "full-access",
+                    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                    createdAt: now(),
+                  }
+                : {
+                    type: "thread.session.set",
+                    commandId: CommandId.make(`session-${leafId}`),
+                    threadId: leafId,
+                    session: {
+                      threadId: leafId,
+                      status: "running",
+                      providerName: "codex",
+                      runtimeMode: "full-access",
+                      activeTurnId: null,
+                      lastError: null,
+                      updatedAt: now(),
+                    },
+                    createdAt: now(),
+                  },
+            );
+            const snapshot = yield* snapshots.getSnapshot();
+            const states = ids
+              .slice(0, 3)
+              .map((id) => snapshot.threads.find((thread) => thread.id === id)?.settledOverride);
+            expect(states).toEqual(
+              middle === "manual" ? ["settled", "settled", null] : [null, null, null],
+            );
+            if (middle !== "manual") {
+              const error = yield* engine
+                .dispatch({
+                  type: "thread.auto-settle",
+                  commandId: CommandId.make(`server:auto-settle:again-${leafId}`),
+                  threadId: ids[0]!,
+                  snapshotSequence: snapshot.snapshotSequence,
+                  settledAt: now(),
+                })
+                .pipe(Effect.flip);
+              expect(error._tag).toBe("OrchestrationThreadSettleBlockedError");
+            }
+          }
+      }).pipe(Effect.provide(makeOrchestrationLayer())),
+  );
+
+  effectIt.effect(
+    "rejects a stale lead sweep when an idle child starts work before dispatch without resolving repositories",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(now()));
+        const engine = yield* OrchestrationEngineService;
+        const snapshots = yield* ProjectionSnapshotQuery;
+        const projectId = ProjectId.make("settlement-race-project");
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("create-race-project"),
+          projectId,
+          title: "Project",
+          workspaceRoot: "/tmp/settlement-race",
+          createdAt: now(),
+        });
+        for (const start of ["queued", "session"] as const) {
+          const leadId = ThreadId.make(`race-lead-${start}`);
+          const childId = ThreadId.make(`race-child-${start}`);
+          for (const threadId of [leadId, childId])
+            yield* engine.dispatch({
+              type: "thread.create",
+              commandId: CommandId.make(`create-${threadId}`),
+              threadId,
+              projectId,
+              title: threadId,
+              modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+              runtimeMode: "full-access",
+              interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+              branch: null,
+              worktreePath: null,
+              createdAt: now(),
+              ...(threadId === childId ? { parentThreadId: leadId } : {}),
+            });
+          const snapshotSequence = yield* snapshots.getSnapshotSequence();
+          const idle = yield* snapshots.getSettlementDescendants(leadId);
+          expect(idle).toHaveLength(1);
+          expect(idle[0]?.session).toBeNull();
+          expect(idle[0]?.latestUserMessageAt).toBeNull();
+          yield* engine.dispatch(
+            start === "queued"
+              ? {
+                  type: "thread.turn.start",
+                  commandId: CommandId.make(`turn-${childId}`),
+                  threadId: childId,
+                  message: {
+                    messageId: MessageId.make(`message-${childId}`),
+                    role: "user",
+                    text: "Continue",
+                    attachments: [],
+                  },
+                  runtimeMode: "full-access",
+                  interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                  createdAt: now(),
+                }
+              : {
+                  type: "thread.session.set",
+                  commandId: CommandId.make(`session-${childId}`),
+                  threadId: childId,
+                  session: {
+                    threadId: childId,
+                    status: "starting",
+                    providerName: "codex",
+                    runtimeMode: "full-access",
+                    activeTurnId: null,
+                    lastError: null,
+                    updatedAt: now(),
+                  },
+                  createdAt: now(),
+                },
+          );
+          const error = yield* engine
+            .dispatch({
+              type: "thread.auto-settle",
+              commandId: CommandId.make(`server:auto-settle:${leadId}`),
+              threadId: leadId,
+              snapshotSequence: snapshotSequence.snapshotSequence,
+              settledAt: now(),
+            })
+            .pipe(Effect.flip);
+          expect(error._tag).toBe("OrchestrationThreadSettleBlockedError");
+          const leadEvents = yield* Stream.runCollect(
+            engine.readThreadEvents({
+              threadId: leadId,
+              fromSequenceExclusive: 0,
+              toSequenceInclusive: yield* engine.latestSequence,
+            }),
+          );
+          expect(leadEvents.some((event) => event.type === "thread.settled")).toBe(false);
+        }
+      }).pipe(
+        Effect.provide(
+          makeOrchestrationLayer(undefined, {
+            resolve: () => Effect.die("settlement must not resolve repositories"),
+          }),
+        ),
+      ),
+  );
+
+  effectIt.effect("ancestor wakes stop at the depth cap", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse(now()));
+      const engine = yield* OrchestrationEngineService;
+      const snapshots = yield* ProjectionSnapshotQuery;
+      const projectId = ProjectId.make("bounded-wake-project");
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("create-bounded-project"),
+        projectId,
+        title: "Project",
+        workspaceRoot: "/tmp/bounded-wake",
+        createdAt: now(),
+      });
+      for (const count of [MAX_SETTLEMENT_AGENT_DEPTH + 3]) {
+        const ids = Array.from({ length: count }, (_, index) =>
+          ThreadId.make(`bounded-${count}-${index}`),
+        );
+        for (const [index, threadId] of ids.entries()) {
+          yield* engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`create-${threadId}`),
+            threadId,
+            projectId,
+            title: threadId,
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+            runtimeMode: "full-access",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            branch: null,
+            worktreePath: null,
+            createdAt: now(),
+            ...(index > 0 ? { parentThreadId: ids[index - 1]! } : {}),
+          });
+          // Settle before creating the next child, so the depth-limit guard does
+          // not prevent constructing this legacy tree for the wake regression.
+          if (index < count - 1)
+            yield* engine.dispatch({
+              type: "thread.auto-settle",
+              commandId: CommandId.make(`server:auto-settle:${threadId}`),
+              threadId,
+              snapshotSequence: yield* engine.latestSequence,
+              settledAt: "2025-12-20T00:00:00.000Z",
+            });
+        }
+        const leafId = ids.at(-1)!;
+        yield* engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`turn-${leafId}`),
+          threadId: leafId,
+          message: {
+            messageId: MessageId.make(`message-${leafId}`),
+            role: "user",
+            text: "Continue",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: now(),
+        });
+        const snapshot = yield* snapshots.getSnapshot();
+        const ancestorStates = ids
+          .slice(0, -1)
+          .map((id) => snapshot.threads.find((thread) => thread.id === id)?.settledOverride);
+        expect(ancestorStates.filter((state) => state === null)).toHaveLength(
+          Math.min(count - 1, MAX_SETTLEMENT_AGENT_DEPTH),
+        );
+        expect(ancestorStates.filter((state) => state === "settled")).toHaveLength(
+          Math.max(0, count - 1 - MAX_SETTLEMENT_AGENT_DEPTH),
+        );
+        const leafEvents = yield* Stream.runCollect(
+          engine.readThreadEvents({
+            threadId: leafId,
+            fromSequenceExclusive: 0,
+            toSequenceInclusive: yield* engine.latestSequence,
+          }),
+        );
+        // The triggering thread is not an ancestor of itself.
+        expect(leafEvents.filter((event) => event.type === "thread.unsettled")).toHaveLength(0);
+      }
+    }).pipe(Effect.provide(makeOrchestrationLayer())),
+  );
+
+  it("wakes each automatic ancestor only once from a persisted cycle after restart", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-settlement-cycle-"));
+    const databasePath = NodePath.join(directory, "state.sqlite");
+    let system = await createOrchestrationSystem(databasePath);
+    const projectId = ProjectId.make("cycle-project");
+    const ids = ["cycle-lead", "cycle-child", "cycle-leaf"].map((id) => ThreadId.make(id));
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("cycle-project"),
+          projectId,
+          title: "Project",
+          workspaceRoot: directory,
+          createdAt: now(),
+        }),
+      );
+      for (const [index, threadId] of ids.entries()) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`create-${threadId}`),
+            threadId,
+            projectId,
+            title: threadId,
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+            runtimeMode: "full-access",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            branch: null,
+            worktreePath: null,
+            createdAt: now(),
+            ...(index > 0 ? { parentThreadId: ids[index - 1]! } : {}),
+          }),
+        );
+        if (index < 2)
+          await system.run(
+            system.engine.dispatch({
+              type: "thread.auto-settle",
+              commandId: CommandId.make(`server:auto-settle:${threadId}`),
+              threadId,
+              snapshotSequence: await system.run(system.engine.latestSequence),
+              settledAt: now(),
+            }),
+          );
+      }
+      // Seed the legacy cycle in this isolated projection, then restart so
+      // the command read model bootstraps with the malformed parent relation.
+      await system.run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE projection_threads SET parent_thread_id = ${ids[2]!} WHERE thread_id = ${ids[0]!}`;
+        }).pipe(
+          Effect.provide(
+            makeSqlitePersistenceLive(databasePath).pipe(Layer.provide(NodeServices.layer)),
+          ),
+          Effect.scoped,
+        ),
+      );
+      await system.dispose();
+      system = await createOrchestrationSystem(databasePath);
+      const threadId = ids[2]!;
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cycle-session"),
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now(),
+          },
+          createdAt: now(),
+        }),
+      );
+      const snapshot = await system.readModel();
+      for (const id of ids) {
+        expect(snapshot.threads.find((thread) => thread.id === id)?.settledOverride).toBeNull();
+        const events = await system.run(
+          Stream.runCollect(
+            system.engine.readThreadEvents({
+              threadId: id,
+              fromSequenceExclusive: 0,
+              toSequenceInclusive: await system.run(system.engine.latestSequence),
+            }),
+          ),
+        );
+        expect(events.filter((event) => event.type === "thread.unsettled")).toHaveLength(
+          id === ids[2] ? 0 : 1,
+        );
+      }
+    } finally {
+      await system.dispose();
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
 
   it("persists deterministic read models for repeated snapshot reads", async () => {
     const createdAt = now();
@@ -1502,6 +2031,7 @@ describe("OrchestrationEngine", () => {
         return Stream.fromIterable(events);
       },
       hasEventAfter: () => Effect.succeed(false),
+      isThreadAutomaticallySettled: () => Effect.succeed(false),
       readAggregateRange: () => Stream.die("unused aggregate replay"),
       getAggregateReplayStats: () => Effect.die("unused aggregate replay stats"),
     };
@@ -1742,6 +2272,7 @@ describe("OrchestrationEngine", () => {
         return Stream.fromIterable(events);
       },
       hasEventAfter: () => Effect.succeed(false),
+      isThreadAutomaticallySettled: () => Effect.succeed(false),
       readAggregateRange: () => Stream.die("unused aggregate replay"),
       getAggregateReplayStats: () => Effect.die("unused aggregate replay stats"),
     };
