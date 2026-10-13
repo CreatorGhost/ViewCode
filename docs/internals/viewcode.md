@@ -21,6 +21,7 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
 | Computer use (agents drive the desktop)  | `apps/server/src/computerUse/` (`ComputerUseService.ts` gate, `ComputerUseCli.ts` CLI + manual, `Xa11yDriverCore.ts` driver), contracts `computerUse.ts`, web `settings/ComputerUseSetting.tsx`                                                                                                                                                                                                                                                       |
 | Browser CLI (no MCP)                     | `apps/server/src/browserCli/` (`BrowserCli.ts` CLI + manual, `BrowserCliRoute.ts` runs the preview handlers), `mcp/toolkits/preview/handlers.ts`                                                                                                                                                                                                                                                                                                      |
 | Theme                                    | `packages/shared/src/themePalettes.ts` (`VIEWCODE_THEME` and `VIEWCODE_TEAL_THEME`, the web-only default; `isViewCodeThemeId` names the glass themes), `viewcodeThemes.ts` (Droppy themes), `apps/web/src/viewcode-theme.css` (structure, keyed on `viewcode*` theme ids); `apps/web/src/viewcodeLookMigration.ts` runs two one-time moves to the teal default (upstream themes, then plain `viewcode`) that share one Undo target, the original look |
+| Thread goal and debug mode               | `goal`/`debugMode` on threads (contracts `orchestration.ts`, migration `059_ProjectionThreadsGoalDebugMode`, `orchestration/threadGoal.ts`), server `provider/turnGuidance.ts`, `review/DebugPlaybook.ts`, `orchestration/ThreadGoals.ts` + MCP `mcp/toolkits/goal/`, client-runtime `threadGoal.ts`, web `chat/useThreadGoalControls.ts`, mobile `threads/useThreadGoalActions.ts`                                                                   |
 | Project colors                           | `projectColor` on projects (contracts `orchestration.ts`, migration `058_ProjectionProjectColor`), web `projectColor.logic.ts`, `components/ProjectColorPicker.tsx`, `--project-accent` from `projectIconColors.ts` (the chat top bar draws it with `background-image` in `index.css` because themes and glass override its `background-color`), mobile `lib/projectIcon.ts`                                                                          |
 
 ## Decisions
@@ -653,6 +654,44 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   without changing the workspace selection.
 - `openSideChat(parentRef, prefill?)` (`sidechatDockStore.ts`) is the hook for
   other code, such as a selection toolbar's "Ask in side chat".
+
+### Thread goal and debug mode
+
+- Both are thread state set through `thread.meta.update` (`goal` objective or null,
+  `goalPaused`, `debugMode`), so every client, the MCP tools and a draft's bootstrap use one
+  path and they survive a handoff for free. The reactor reads them from the thread on every
+  turn (`turnGuidanceForThread`) and sends them as `ProviderSendTurnInput.guidance`; a paused
+  goal is not sent. Child agents and forks do not inherit either.
+- Debug mode is a separate flag, not an `interactionMode` value. `interactionMode` is a closed
+  literal older clients fail to decode, it is sent with every turn from the composer's local
+  pick (`serverBasis`), and Codex passes it straight through as its collaboration mode, so
+  `"debug"` would have needed a decision in every adapter and both composers. As a flag it
+  reaches every adapter through one guidance path, and it combines with plan mode.
+- Delivery is decided at the adapter boundary. Codex (`developerTurnGuidance`) gets
+  `viewcode_goal` and `viewcode_debug_mode` `additionalContext` entries, always both once a
+  turn carries guidance, with an "off" value when unset: Codex keeps what it was sent and only
+  resends a changed value, so omitting a cleared goal would let the old one stand, including
+  after an idle-reaped session resumes. Every other adapter (Claude, Cursor, Grok, OpenCode,
+  Antigravity, Command Code) gets tagged blocks ahead of the user's text from
+  `ProviderService.sendTurn` (`withTurnGuidancePrelude`), skipped when the message opens with a
+  slash command (the provider must see the command first) or when it would exceed the input
+  limit. Claude's system prompt is fixed at spawn, so a per-turn change could not go there
+  without a restart.
+- Upstream's native `/goal` (Codex `thread/goal/*`, Claude's Stop-hook evaluator) is not used.
+  Both are autonomous continuation loops the provider owns: Codex starts its own follow-up
+  turns and Claude holds a turn open until its evaluator passes. ViewCode v1 maps one
+  `sendTurn` to one turn, and agent-message replies, usage resume, Stop-as-pause and PR wakes
+  key on that; upstream needed run holds and Stop-pauses-goal on v2 to make it safe. Native
+  state also lives in the provider session, which a handoff replaces, and only two of seven
+  providers have it. So
+  ViewCode owns `/goal` everywhere and hides the providers' own `/goal` and `/debug` from the
+  slash menus (`APP_OWNED_SLASH_COMMAND_NAMES`).
+- The debug method lives in a playbook (`<stateDir>/review-playbooks/debug-mode.md`) written
+  on use like the review playbooks; each turn carries only the short note and its path.
+- `viewcode_get_goal` / `viewcode_set_goal` act on the caller's own thread, behind the
+  `agents` capability. The set tool's description carries Synara's guardrail (only a goal the
+  user stated, never inferred; no pause or clear unasked); it is the only guard, as with any
+  agent tool.
 
 ### Command Code
 
