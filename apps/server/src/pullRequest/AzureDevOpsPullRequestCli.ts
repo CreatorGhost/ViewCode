@@ -372,6 +372,8 @@ export const make = Effect.gen(function* () {
     readonly operation: string;
     /** Every pull request route lives under `git`; the signed-in identity lives under `IMS`. */
     readonly area?: string;
+    /** For a route Azure DevOps only serves as a preview (IMS `me`). */
+    readonly apiVersion?: string;
     readonly resource: string;
     readonly routeParameters: ReadonlyArray<string>;
     readonly queryParameters?: ReadonlyArray<string>;
@@ -390,7 +392,7 @@ export const make = Effect.gen(function* () {
         "--resource",
         input.resource,
         "--api-version",
-        REST_API_VERSION,
+        input.apiVersion ?? REST_API_VERSION,
         // az refuses the flag with nothing after it, so a route without parameters leaves it off.
         ...(input.routeParameters.length === 0
           ? []
@@ -542,6 +544,8 @@ export const make = Effect.gen(function* () {
           operation: "getViewer",
           area: "IMS",
           resource: "me",
+          // Identity's "get self" has no released version; Azure DevOps refuses a plain 7.1.
+          apiVersion: "7.1-preview.1",
           routeParameters: [],
           decode: decodeIdentitySelfJson,
         }),

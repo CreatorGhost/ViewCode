@@ -96,7 +96,8 @@ function useReviewStartChoices(input: {
     return agentReviewTargetChoices({
       pullRequest: canReviewPullRequest ? own : null,
       openPullRequests: reviewable(entries),
-      reviewRequested: reviewable(requestedEntries),
+      // Only rows that say so: hosts without a reviewer filter answer every open one.
+      reviewRequested: reviewable(requestedEntries?.filter((entry) => entry.viewerReviewRequested)),
       // The form's own "What to review" says what of the local changes to read.
       dirty: null,
       branch: null,
