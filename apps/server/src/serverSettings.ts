@@ -287,6 +287,7 @@ const PersistedOptionalProviderSettings = Schema.Struct({
       ),
       droid: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
       devin: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
+      pi: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
     }),
   ),
 });
@@ -295,7 +296,7 @@ const PersistedOptionalProviderSettings = Schema.Struct({
  * Providers that turn themselves on when their CLI is on PATH at startup; an
  * explicit choice in settings (or on the provider instance) still wins.
  */
-const PATH_DETECTED_PROVIDERS = ["commandCode", "droid", "devin"] as const;
+const PATH_DETECTED_PROVIDERS = ["commandCode", "droid", "devin", "pi"] as const;
 type PathDetectedProvider = (typeof PATH_DETECTED_PROVIDERS)[number];
 type ProvidersOnPath = Readonly<Record<PathDetectedProvider, boolean>>;
 
@@ -426,6 +427,7 @@ const PERSISTED_SERVER_SETTINGS_DEFAULTS = {
     commandCode: { ...DEFAULT_SERVER_SETTINGS.providers.commandCode, enabled: undefined },
     droid: { ...DEFAULT_SERVER_SETTINGS.providers.droid, enabled: undefined },
     devin: { ...DEFAULT_SERVER_SETTINGS.providers.devin, enabled: undefined },
+    pi: { ...DEFAULT_SERVER_SETTINGS.providers.pi, enabled: undefined },
   },
 };
 

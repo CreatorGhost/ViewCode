@@ -65,6 +65,7 @@ const PROVIDER_EXECUTABLES: Record<string, string> = {
   localharness_external: "antigravity",
   droid: "droid",
   devin: "devin",
+  pi: "pi",
 };
 
 type ChildProcessModule = typeof import("node:child_process");

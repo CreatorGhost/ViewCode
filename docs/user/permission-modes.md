@@ -38,6 +38,9 @@ Devin approves file edits itself outside **Full access** and asks before other a
 **Supervised**, **Auto-accept edits** and **Auto** behave the same there; **Full access** uses its
 Bypass Permissions mode.
 
+Pi has no permissions of its own; ViewCode asks before any tool that is not a read, and **Auto**
+behaves like **Supervised**.
+
 Command Code cannot ask for approval. Outside **Full access** it reads and answers, but its file
 edits and shell commands are blocked and show as declined; the access menu says so. Choose **Full
 access** for Command Code threads that should change files.

@@ -100,7 +100,7 @@ const ListAgentsTool = Tool.make("viewcode_list_agents", {
 
 const ListModelsTool = Tool.make("viewcode_list_models", {
   description:
-    "List the providers and models available for viewcode_spawn_agent and viewcode_configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor, Droid) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Each model lists its effortLevels (reasoning effort ids for the effort parameter) and fastMode when supported. Check usage.exhausted before choosing a provider for long work. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
+    "List the providers and models available for viewcode_spawn_agent and viewcode_configure_agent. Each provider is a separate subscription. Some providers (Command Code, OpenCode, Cursor, Droid, Pi) also resell other vendors' models, billed to their own plan. When the user names a model family, use the vendor's own provider (GPT → Codex, Claude → Claude, Grok → Grok) unless they name the reselling provider. Each model lists its effortLevels (reasoning effort ids for the effort parameter) and fastMode when supported. Check usage.exhausted before choosing a provider for long work. Only pick providers with usable: true; if the one the user wants is unusable, tell them its note instead of substituting another provider.",
   success: Schema.Struct({
     providers: Schema.Array(
       Schema.Struct({

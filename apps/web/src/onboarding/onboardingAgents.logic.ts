@@ -11,6 +11,7 @@ const ONBOARDING_AGENT_DRIVERS: readonly ProviderDriverKind[] = [
   "commandCode",
   "droid",
   "devin",
+  "pi",
 ].map((driver) => ProviderDriverKind.make(driver));
 
 /** Drivers the onboarding cards show: every enabled built-in provider, in display order. */
