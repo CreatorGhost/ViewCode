@@ -1,5 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - Effect has no incremental digest.
-import { ProviderDriverKind, type ProviderInstallState } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  resolveProviderInstanceEnabled,
+  type ProviderInstallState,
+  type ServerSettings,
+} from "@t3tools/contracts";
 import {
   HostProcessArchitecture,
   HostProcessEnvironment,
@@ -26,6 +32,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as NodeCrypto from "node:crypto";
 import { ServerConfig } from "../config.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { BUNDLED_MODEL_MANIFEST, ModelManifest } from "./ModelManifest.ts";
 import { resolveProviderCompatibility } from "./providerCompatibility.ts";
 
@@ -145,12 +152,45 @@ export class CodexInstallation extends Context.Service<
     CodexInstallation,
     Effect.gen(function* () {
       const config = yield* ServerConfig;
-      return yield* makeCodexInstallation({ baseDir: config.baseDir });
+      const serverSettings = yield* ServerSettingsService;
+      return yield* makeCodexInstallation({
+        baseDir: config.baseDir,
+        codexEnabled: serverSettings.getSettings.pipe(
+          Effect.map(isCodexEnabled),
+          Effect.orElseSucceed(() => false),
+        ),
+        codexEnabledChanges: serverSettings.streamChanges.pipe(Stream.map(isCodexEnabled)),
+      });
     }),
+  );
+}
+
+/**
+ * Whether any Codex instance is enabled: the default one by its instance entry, else the legacy
+ * `providers.codex` switch, or any custom Codex instance. A disabled Codex never has its binary
+ * run, not even to read its version (managed laptops ban it, and endpoint security flags a run).
+ */
+export function isCodexEnabled(settings: ServerSettings): boolean {
+  const defaultInstance = settings.providerInstances[ProviderInstanceId.make(DRIVER)];
+  if (
+    defaultInstance === undefined
+      ? settings.providers.codex.enabled
+      : resolveProviderInstanceEnabled(defaultInstance)
+  )
+    return true;
+  return Object.values(settings.providerInstances).some(
+    (instance) => instance.driver === DRIVER && resolveProviderInstanceEnabled(instance),
   );
 }
 export interface CodexInstallationOptions {
   readonly baseDir: string;
+  /**
+   * Whether Codex is enabled now. The local `codex` is only probed (`--version`, `app-server
+   * --help`) while it is; absent, it is probed as before. Its changes re-run the probe when
+   * Codex is turned on.
+   */
+  readonly codexEnabled?: Effect.Effect<boolean>;
+  readonly codexEnabledChanges?: Stream.Stream<boolean>;
   readonly releaseAsset?: CodexReleaseAsset | null;
   readonly validate?: (
     executable: CodexExecutable,
@@ -690,10 +730,11 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
     ),
   );
 
+  const codexEnabled = options.codexEnabled ?? Effect.succeed(true);
   yield* Effect.gen(function* () {
     const canRemove = yield* fs.exists(managedDirectory);
     yield* SubscriptionRef.update(state, (current) => ({ ...current, canRemove }));
-    if (yield* reuseLocal()) return;
+    if ((yield* codexEnabled) && (yield* reuseLocal())) return;
     if (!(yield* fs.exists(activePath))) return;
     const active = yield* readRecord(activePath, ActiveRelease);
     const installed = yield* completedRelease(active.version);
@@ -720,6 +761,25 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
       ),
     ),
   );
+
+  // Turning Codex on later finds a local `codex` without a restart; the boot check skipped it.
+  if (options.codexEnabledChanges !== undefined) {
+    yield* options.codexEnabledChanges.pipe(
+      Stream.changes,
+      Stream.filter((enabled) => enabled),
+      Stream.runForEach(() =>
+        gate.withPermit(
+          Effect.gen(function* () {
+            const current = yield* SubscriptionRef.get(state);
+            if (isRunning(current) || current.executablePath !== null) return;
+            yield* reuseLocal();
+          }),
+        ),
+      ),
+      Effect.ignoreCause({ log: true }),
+      Effect.forkIn(serviceScope),
+    );
+  }
 
   return CodexInstallation.of({
     managedDirectory,
