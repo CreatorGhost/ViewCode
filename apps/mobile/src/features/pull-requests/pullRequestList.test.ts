@@ -12,6 +12,7 @@ import {
   mergePullRequestListEntries,
   mergeEnvironmentPullRequestPages,
   nextPullRequestListInput,
+  PR_LIST_PAGE_SIZE,
   pullRequestListFacets,
   pullRequestListHead,
   pullRequestListReviewStatus,
@@ -121,7 +122,7 @@ describe("mobile PR list pagination", () => {
       state: "open",
       query: "fix",
       filters: { draft: "hide" },
-      limit: 30,
+      limit: PR_LIST_PAGE_SIZE,
       cursors: { "github.com org/repo": "opaque-boundary" },
     });
     const next = appendPullRequestListPage(first, page([entry(2), entry(1)]), {
@@ -157,7 +158,7 @@ describe("mobile PR list pagination", () => {
   });
   it("can grow legacy listings that provide no cursor, without exceeding the wire limit", () => {
     const first = pullRequestListHead(null, { ...page([entry(1)]), truncated: true });
-    expect(nextPullRequestListInput(first, { state: "all" })?.limit).toBe(60);
+    expect(nextPullRequestListInput(first, { state: "all" })?.limit).toBe(PR_LIST_PAGE_SIZE * 2);
     expect(nextPullRequestListInput({ ...first, limit: 490 }, { state: "all" })?.limit).toBe(500);
     expect(nextPullRequestListInput({ ...first, limit: 500 }, { state: "all" })).toBeNull();
   });

@@ -8,7 +8,7 @@ import type {
   PullRequestListState,
 } from "@t3tools/contracts";
 
-export const PR_LIST_PAGE_SIZE = 30;
+export const PR_LIST_PAGE_SIZE = 20;
 export interface PullRequestListControls {
   readonly state: PullRequestListState;
   readonly involvement: PullRequestInvolvement;
