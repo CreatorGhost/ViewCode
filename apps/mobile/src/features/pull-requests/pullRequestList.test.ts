@@ -9,6 +9,7 @@ import {
   appendPullRequestListPage,
   DEFAULT_PR_LIST_CONTROLS,
   filterPullRequestList,
+  groupPullRequestListByProject,
   mergePullRequestListEntries,
   mergeEnvironmentPullRequestPages,
   nextPullRequestListInput,
@@ -384,5 +385,52 @@ describe("mobile PR scan and filters", () => {
     });
     expect(pullRequestLabelColor("ffab00")).toBe("#ffab00");
     expect(pullRequestLabelColor("not-a-color")).toBeNull();
+  });
+});
+
+describe("groupPullRequestListByProject", () => {
+  const environmentId = EnvironmentId.make("mac");
+  const scoped = (number: number, project: string) => ({
+    ...entry(number, {
+      projectId: project as PullRequestListEntry["projectId"],
+      projectTitle: project,
+    }),
+    environmentId,
+  });
+  const labelOf = (row: { readonly projectTitle: string }) => row.projectTitle;
+  const shape = (items: ReturnType<typeof groupPullRequestListByProject>) =>
+    items.map((item) =>
+      item.kind === "project"
+        ? `${item.collapsed ? "+" : "-"}${item.label} ${item.count}`
+        : `#${item.entry.number}`,
+    );
+
+  it("heads each project, newest project first, rows in the order they came", () => {
+    const rows = [scoped(3, "sutra"), scoped(9, "mantis"), scoped(5, "sutra"), scoped(1, "mantis")];
+    expect(shape(groupPullRequestListByProject(rows, labelOf, new Set()))).toEqual([
+      "-mantis 2",
+      "#9",
+      "#1",
+      "-sutra 2",
+      "#3",
+      "#5",
+    ]);
+  });
+
+  it("keeps a collapsed project's header and count, without its rows", () => {
+    const rows = [scoped(9, "mantis"), scoped(3, "sutra"), scoped(1, "mantis")];
+    expect(shape(groupPullRequestListByProject(rows, labelOf, new Set(["mac:mantis"])))).toEqual([
+      "+mantis 2",
+      "-sutra 1",
+      "#3",
+    ]);
+  });
+
+  it("draws no header for a single project", () => {
+    const rows = [scoped(2, "sutra"), scoped(1, "sutra")];
+    expect(shape(groupPullRequestListByProject(rows, labelOf, new Set(["mac:sutra"])))).toEqual([
+      "#2",
+      "#1",
+    ]);
   });
 });

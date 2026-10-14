@@ -14,12 +14,16 @@ import type {
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import * as Schema from "effect/Schema";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   ArrowDownUpIcon,
   CalendarArrowDownIcon,
   CalendarArrowUpIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   ClockIcon,
   EyeIcon,
   LayersIcon,
@@ -213,20 +217,40 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   others: UsersIcon,
 };
 
+/** The groups a reader folded away, by group key; kept across visits like the sidebar's. */
+const COLLAPSED_PULL_REQUEST_GROUPS_STORAGE_KEY = "viewcode:pull-requests:collapsed-groups";
+const CollapsedGroupKeys = Schema.Array(Schema.String);
+
 function PullRequestGroupHeader({
   group,
   project,
   account,
+  collapsed,
+  onToggle,
 }: {
   group: { key: string; label: string; entries: ReadonlyArray<unknown> };
   /** The folder a project group belongs to, when the workspace still holds it. */
   project?: ProjectFaviconProject | undefined;
   /** The host account the group was read as, such as "@login", where the listing names one. */
   account?: string | undefined;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
   const Icon = GROUP_ICONS[group.key] ?? LayersIcon;
   return (
-    <div className="flex items-center gap-2 px-3 pb-1 text-xs font-medium text-muted-foreground/70">
+    <button
+      type="button"
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+      className="group/header flex w-full items-center gap-2 px-3 pb-1 text-left text-xs font-medium text-muted-foreground/70 hover:text-muted-foreground"
+    >
+      <ChevronRightIcon
+        aria-hidden
+        className={cn(
+          "size-3 shrink-0 text-muted-foreground/50 transition-transform group-hover/header:text-muted-foreground",
+          !collapsed && "rotate-90",
+        )}
+      />
       {project ? (
         <ProjectFavicon project={project} className="size-3.5 shrink-0" />
       ) : (
@@ -238,7 +262,7 @@ function PullRequestGroupHeader({
       ) : null}
       <span className="shrink-0 tabular-nums text-muted-foreground/50">{group.entries.length}</span>
       <Separator className="min-w-2 flex-1" />
-    </div>
+    </button>
   );
 }
 
@@ -1634,6 +1658,18 @@ function PullRequestsRouteView() {
   const shownCount = displayGroups.reduce((count, group) => count + group.entries.length, 0);
   /** One project's rows need no header to say whose they are. */
   const showGroupHeaders = displayGroups.filter((group) => group.entries.length > 0).length > 1;
+  const [collapsedGroups, setCollapsedGroups] = useLocalStorage(
+    COLLAPSED_PULL_REQUEST_GROUPS_STORAGE_KEY,
+    [],
+    CollapsedGroupKeys,
+  );
+  const toggleGroup = useCallback(
+    (key: string) =>
+      setCollapsedGroups((current) =>
+        current.includes(key) ? current.filter((held) => held !== key) : [...current, key],
+      ),
+    [setCollapsedGroups],
+  );
   const heldPullRequestsBySurface = useMemo(
     () =>
       new Map(
@@ -1874,39 +1910,43 @@ function PullRequestsRouteView() {
                   account={
                     accounts[group.key] === undefined ? undefined : `@${accounts[group.key]}`
                   }
+                  collapsed={collapsedGroups.includes(group.key)}
+                  onToggle={() => toggleGroup(group.key)}
                 />
               ) : null}
-              {group.entries.map((entry) => {
-                const entryKey = pullRequestEntryKey(entry);
-                return (
-                  <PullRequestRow
-                    key={entryKey}
-                    statsKey={entryKey}
-                    statsRef={registerStatsRow}
-                    entry={entry}
-                    // The header names the project; without one the row has to.
-                    showProjectTitle={!showGroupHeaders}
-                    showProvider={showProvider}
-                    {...(capableEnvironments.length > 1 &&
-                    environmentLabels.get(entry.environmentId) !== undefined
-                      ? { environmentLabel: environmentLabels.get(entry.environmentId)! }
-                      : {})}
-                    // Ten is the floor the ranking gives a row whose own fields say nothing
-                    // about the search: the host matched something this row cannot show.
-                    matchedElsewhere={
-                      typedParsed.text.length > 0 &&
-                      scorePullRequestMatch(entry, typedParsed.text) <= MATCHED_ELSEWHERE_SCORE
-                    }
-                    selected={
-                      selected?.environmentId === entry.environmentId &&
-                      selected.repository === entry.repository &&
-                      selected.host?.toLowerCase() === entry.host.toLowerCase() &&
-                      selected.number === entry.number
-                    }
-                    onSelect={selectEntry}
-                  />
-                );
-              })}
+              {(showGroupHeaders && collapsedGroups.includes(group.key) ? [] : group.entries).map(
+                (entry) => {
+                  const entryKey = pullRequestEntryKey(entry);
+                  return (
+                    <PullRequestRow
+                      key={entryKey}
+                      statsKey={entryKey}
+                      statsRef={registerStatsRow}
+                      entry={entry}
+                      // The header names the project; without one the row has to.
+                      showProjectTitle={!showGroupHeaders}
+                      showProvider={showProvider}
+                      {...(capableEnvironments.length > 1 &&
+                      environmentLabels.get(entry.environmentId) !== undefined
+                        ? { environmentLabel: environmentLabels.get(entry.environmentId)! }
+                        : {})}
+                      // Ten is the floor the ranking gives a row whose own fields say nothing
+                      // about the search: the host matched something this row cannot show.
+                      matchedElsewhere={
+                        typedParsed.text.length > 0 &&
+                        scorePullRequestMatch(entry, typedParsed.text) <= MATCHED_ELSEWHERE_SCORE
+                      }
+                      selected={
+                        selected?.environmentId === entry.environmentId &&
+                        selected.repository === entry.repository &&
+                        selected.host?.toLowerCase() === entry.host.toLowerCase() &&
+                        selected.number === entry.number
+                      }
+                      onSelect={selectEntry}
+                    />
+                  );
+                },
+              )}
             </div>
           ))}
         </div>
