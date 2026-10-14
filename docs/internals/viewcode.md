@@ -429,7 +429,8 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   too short on a slow managed Mac), failing closed. Windows is refused until there is a real win32
   window model (xa11y treats each top-level window as an app there).
 - The driver is xa11y in a child process spawned from the app's own executable with
-  `ELECTRON_RUN_AS_NODE=1`: macOS keys the Accessibility grant to the responsible app. The sibling
+  `ELECTRON_RUN_AS_NODE=1` (or `t3 __computer-use-driver` when the backend is the standalone
+  `t3`, as on Apple Silicon desktops): macOS keys the Accessibility grant to the responsible app. The sibling
   Helper is the macOS bundle default after real desktop AX/capture and Dock verification.
   `VIEWCODE_COMPUTER_DRIVER_HOST=main` restores the main host; missing Helpers and standalone
   Node keep the main executable. Chromium and
@@ -821,8 +822,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
   frames cannot help because the stock phone expects one WebSocket message.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
-  runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works: the server
-  is Electron-as-node there, so it downloads only npm (pinned version and integrity,
+  runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works where the server
+  is Electron-as-node (not Apple Silicon, whose backend is the standalone `t3`
+  and needs Node on PATH like `npx t3`), so it downloads only npm (pinned version and integrity,
   `relay/bundledNpm.ts`) and runs its `npx-cli.js` under its own executable with
   `ELECTRON_RUN_AS_NODE=1`, a `node` shim first on PATH because wrangler's shebang, npm
   install scripts and esbuild's postinstall start `node` by name. wrangler itself is not

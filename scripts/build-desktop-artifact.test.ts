@@ -25,6 +25,7 @@ import {
   DESKTOP_ELECTRON_LANGUAGES,
   DESKTOP_FILE_EXCLUSIONS,
   DESKTOP_EXTRA_RESOURCES,
+  MAC_SERVER_RUNTIME_EXTRA_RESOURCE,
   LINUX_CAPTURE_EXTRA_RESOURCES,
   LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
   LINUX_FILE_EXCLUSIONS,
@@ -65,6 +66,7 @@ import {
   stageDesktopDmgBackground,
   stageResourceMonitor,
   stageLinuxCaptureHelper,
+  stageMacServerRuntime,
   stageWslRuntimeArchive,
   bundlesWslRuntime,
   STAGE_INSTALL_ARGS,
@@ -257,6 +259,50 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
 });
 
 it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
+  it.effect("unpacks the macOS CLI archive's tree as the app's server runtime", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-mac-server-runtime-" });
+      const sourceArchivePath = yield* makeLinuxCliArchiveFixture({
+        root: path.join(tempDir, "archive"),
+        stem: "t3-1.2.3-darwin-arm64",
+      });
+      const targetDir = path.join(tempDir, "stage", "t3-server");
+
+      yield* stageMacServerRuntime({ sourceArchivePath, targetDir, verbose: false });
+
+      assert.equal(
+        yield* fs.readFileString(path.join(targetDir, "t3")),
+        "t3-1.2.3-darwin-arm64/t3",
+      );
+      assert.isTrue(yield* fs.exists(path.join(targetDir, "client/index.html")));
+      assert.deepStrictEqual(yield* fs.readDirectory(path.dirname(targetDir)), ["t3-server"]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("refuses a macOS server archive without the t3 executable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-mac-server-runtime-" });
+      const stem = "t3-1.2.3-darwin-arm64";
+      const sourceArchivePath = yield* makeLinuxCliArchiveFixture({
+        root: path.join(tempDir, "archive"),
+        stem,
+        omitMembers: [`${stem}/t3`],
+      });
+
+      const error = yield* stageMacServerRuntime({
+        sourceArchivePath,
+        targetDir: path.join(tempDir, "stage", "t3-server"),
+        verbose: false,
+      }).pipe(Effect.flip);
+
+      assert.equal(error._tag, "MacServerRuntimeArchiveMissingError");
+    }).pipe(Effect.scoped),
+  );
+
   it("resolves the dedicated nightly updater channel from nightly versions", () => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
@@ -570,6 +616,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "!apps/desktop/prod-resources/windows-server/**/*",
       "!apps/desktop/prod-resources/wsl-runtime.tar.gz",
       "!apps/desktop/prod-resources/wsl-runtime.tar.gz.sha256",
+      "!apps/desktop/prod-resources/t3-server",
+      "!apps/desktop/prod-resources/t3-server/**/*",
       "!apps/desktop/gnome-extension",
       "!apps/desktop/gnome-extension/**/*",
     ]);
@@ -593,6 +641,18 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         false,
         undefined,
         undefined,
+      );
+      const macWithServerRuntime = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+        false,
+        "arm64",
+        true,
       );
       const linux = yield* createBuildConfig(
         "linux",
@@ -635,6 +695,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(winWithoutWslRuntime.asar, win.asar);
       assert.deepStrictEqual(winWithoutWslRuntime.asarUnpack, win.asarUnpack);
       assert.deepStrictEqual(mac.extraResources, DESKTOP_EXTRA_RESOURCES);
+      // A staged macOS CLI archive ships as the backend the app runs.
+      assert.deepStrictEqual(macWithServerRuntime.extraResources, [
+        ...DESKTOP_EXTRA_RESOURCES,
+        MAC_SERVER_RUNTIME_EXTRA_RESOURCE,
+      ]);
       assert.deepStrictEqual(linux.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
         ...LINUX_CAPTURE_EXTRA_RESOURCES,
@@ -2238,6 +2303,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         mockUpdates: Option.none(),
         mockUpdateServerPort: Option.none(),
         wslRuntime: Option.none(),
+        macServerRuntime: Option.none(),
       }).pipe(
         Effect.provide(
           Layer.mergeAll(
@@ -2278,6 +2344,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             mockUpdates: Option.none(),
             mockUpdateServerPort: Option.none(),
             wslRuntime: Option.none(),
+            macServerRuntime: Option.none(),
           }),
         );
 
@@ -2302,6 +2369,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         mockUpdates: Option.some(false),
         mockUpdateServerPort: Option.none(),
         wslRuntime: Option.none(),
+        macServerRuntime: Option.none(),
       }).pipe(
         Effect.provide(
           ConfigProvider.layer(

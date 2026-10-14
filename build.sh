@@ -75,8 +75,9 @@ if [ "$fresh" = 1 ]; then
   refuse_fresh_while_running
 fi
 
-# Downloads Node 24 into ~/.viewcode-tools/node for ViewCode only; the system Node is untouched.
-install_private_node() {
+# Downloads the Node release in nodejs.org/dist/<$1> into ~/.viewcode-tools/node,
+# for ViewCode only; the system Node is untouched. Sets fetched_node_dir.
+fetch_node() {
   local os arch ext dir base file sums
   case "$(uname -s)" in
     Darwin) os=darwin ext=tar.gz ;;
@@ -88,10 +89,10 @@ install_private_node() {
     x86_64 | amd64) arch=x64 ;;
     *) echo "Unsupported CPU $(uname -m); install Node.js 24.13+ yourself." >&2; exit 1 ;;
   esac
-  base=https://nodejs.org/dist/latest-v24.x
+  base="https://nodejs.org/dist/$1"
   sums=$(curl -fsSL "$base/SHASUMS256.txt")
   file=$(printf '%s\n' "$sums" | awk -v s="-$os-$arch.$ext" 'index($2, s) { print $2; exit }')
-  [ -n "$file" ] || { echo "Could not find a Node 24 download for $os-$arch." >&2; exit 1; }
+  [ -n "$file" ] || { echo "Could not find a Node $1 download for $os-$arch." >&2; exit 1; }
   dir="$tools_dir/node/${file%.$ext}"
   if [ ! -x "$dir/bin/node" ]; then
     echo "Downloading $file (used only by ViewCode, into $tools_dir/node)"
@@ -107,7 +108,25 @@ install_private_node() {
     tar -xf "$tmp/$file" -C "$tools_dir/node"
     rm -rf "$tmp"
   fi
-  export PATH="$dir/bin:$PATH"
+  fetched_node_dir="$dir"
+}
+
+install_private_node() {
+  fetch_node latest-v24.x
+  export PATH="$fetched_node_dir/bin:$PATH"
+}
+
+# The server as ViewCode's own program (apps/server/dist-exe/t3), so the app
+# never runs its own binary with ELECTRON_RUN_AS_NODE, which endpoint security
+# on company Macs flags. Building it needs Node 25.7+: the version the release
+# embeds is fetched next to build.sh's own Node, used for this step only.
+build_standalone_server() {
+  local version
+  version=$(sed -n 's/^const SEA_NODE_VERSION = "\(.*\)";$/\1/p' apps/server/vite.config.ts)
+  [ -n "$version" ] || return 1
+  (fetch_node "v$version" && PATH="$PWD/node_modules/.bin:$fetched_node_dir/bin:$PATH" node apps/server/scripts/cli.ts build-exe) || return 1
+  # Apple Silicon only runs signed code; ad-hoc, like the source-launched app.
+  codesign --force --sign - apps/server/dist-exe/t3
 }
 
 step "Checking tools"
@@ -265,6 +284,18 @@ step "Checking T3 Connect configuration"
 
 step "Building the desktop app"
 pnpm build:desktop
+
+# Single-executables are arm64-only on macOS; elsewhere the app runs its
+# server as before.
+if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
+  step "Building ViewCode's server program"
+  if build_standalone_server; then
+    export T3CODE_DESKTOP_SERVER_EXECUTABLE="$PWD/apps/server/dist-exe/t3"
+    echo "The app will run its server as $T3CODE_DESKTOP_SERVER_EXECUTABLE"
+  else
+    echo "Could not build the server program; the app starts its server the old way (itself as Node)." >&2
+  fi
+fi
 
 step "Opening ViewCode (close the window or press Ctrl+C to quit)"
 exec pnpm start:desktop
