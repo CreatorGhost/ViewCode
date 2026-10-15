@@ -1,3 +1,4 @@
+import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
 import type {
   EditorId,
@@ -36,7 +37,7 @@ import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hoo
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
-import { cn } from "~/lib/utils";
+import { cn, getLocalFileManagerName } from "~/lib/utils";
 import type { ChatFileAttachment } from "~/types";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { isAbsolutePath, resolvePathLinkTarget } from "~/terminal-links";
@@ -47,6 +48,7 @@ import { buildFileReviewComment } from "~/reviewCommentContext";
 import { assetEnvironment } from "~/state/assets";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
+import { shellEnvironment } from "~/state/shell";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
@@ -124,13 +126,17 @@ function WorkspaceImagePreview(props: {
   readonly alt: string;
   readonly workspaceMutationId: string | null;
 }) {
+  // The workspace route only serves files under the root; an image elsewhere
+  // on the host (a screenshot on the Desktop) is served as host media.
+  const insideWorkspace =
+    mediaFileReference(props.absolutePath, props.workspaceRoot).relativePath !== undefined;
   const resource = useMemo(
     () => ({
-      _tag: "workspace-file" as const,
+      _tag: insideWorkspace ? ("workspace-file" as const) : ("media-file" as const),
       threadId: props.threadRef.threadId,
       path: props.absolutePath,
     }),
-    [props.threadRef.threadId, props.absolutePath],
+    [insideWorkspace, props.threadRef.threadId, props.absolutePath],
   );
   const assetUrl = useAssetUrlState(props.environmentId, resource);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -958,8 +964,15 @@ export default function FilePreviewPanel({
   // a file surface and the read fails. Keep the breadcrumbs, drop the preview
   // pane, and let the tree fill the surface with the folder revealed. Mutation
   // refresh stays on so the surface notices if the path becomes a file. A host
-  // path cannot be revealed in the workspace tree, so it keeps the read error.
+  // folder cannot be revealed in the workspace tree, so it offers the file
+  // manager instead.
   const isDirectory = file.isNotFile && !isHostFile;
+  const isHostDirectory = file.isNotFile && isHostFile && attachment === undefined;
+  const openHostFolder = useAtomCommand(shellEnvironment.openInEditor, "open folder");
+  const canOpenHostFolder =
+    environmentId === primaryEnvironmentId &&
+    remoteOpenState.mode === "local-exec" &&
+    availableEditors.includes("file-manager");
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isDirectory ? null : relativePath;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
@@ -1188,7 +1201,25 @@ export default function FilePreviewPanel({
         <div
           className={cn("min-w-0 flex-1 flex-col overflow-hidden", previewPath ? "flex" : "hidden")}
         >
-          {isDirectory ? null : relativePath && attachment ? (
+          {isDirectory ? null : isHostDirectory ? (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-xs leading-relaxed text-muted-foreground">
+              <p>This folder is outside the project, so its files can't be listed here.</p>
+              {canOpenHostFolder && absolutePath ? (
+                <Button
+                  variant="outline"
+                  size="compact"
+                  onClick={() =>
+                    void openHostFolder({
+                      environmentId,
+                      input: { cwd: absolutePath, editor: "file-manager" },
+                    })
+                  }
+                >
+                  Open in {getLocalFileManagerName(navigator.platform)}
+                </Button>
+              ) : null}
+            </div>
+          ) : relativePath && attachment ? (
             <AttachmentFilePreview
               key={`${environmentId}:${attachment.id}`}
               name={attachment.name}
