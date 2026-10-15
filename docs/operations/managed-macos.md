@@ -175,9 +175,11 @@ exception, or touches the EDR.
    `timeout` nor `gtimeout`.
    **Never** run `opencode --version` without a timeout: it opens a TUI and
    hung for minutes, taking the terminal session with it.
-6. `./build.sh --web` runs the server from the terminal and the UI in a
-   browser, a legitimate mode that is useful as a data point. It still spawns
-   provider CLIs; if Cortex flags it too, stop and go back to step 1.
+6. `./build.sh --install --managed` builds ViewCode for the browser and
+   installs a `viewcode` command (`~/.local/bin`) that runs the server with
+   plain Node and opens the UI in a browser: the mode that runs clean on this
+   laptop. Afterwards just run `viewcode`; run the install again after pulling.
+   It still spawns provider CLIs; if Cortex flags it, stop and go back to step 1.
 
 ## Cursor Enterprise MCP policy
 

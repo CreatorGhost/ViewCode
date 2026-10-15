@@ -77,7 +77,8 @@ git clone https://github.com/CreatorGhost/ViewCode.git
 cd ViewCode
 ./build.sh              # later runs: just ./build.sh again
 ./build.sh --no-pull    # build what you have checked out
-./build.sh --web        # server + web UI instead of the desktop app
+./build.sh --web        # server + web UI instead of the desktop app (dev mode)
+./build.sh --install    # build for the browser and install a `viewcode` command; then just run `viewcode`
 ./build.sh --managed    # locked-down work laptops: only Claude and Cursor are enabled
 ./build.sh --fresh      # start as a brand-new install (quit ViewCode first; moves your data aside, restorable)
 ```

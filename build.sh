@@ -4,6 +4,10 @@
 #   ./build.sh            pull, install, build, open the desktop app
 #   ./build.sh --no-pull  build what is checked out
 #   ./build.sh --web      run server + web UI in dev mode instead (open the printed URL)
+#   ./build.sh --install  build ViewCode for the browser and install a `viewcode`
+#                         command (~/.local/bin): run `viewcode` any time to start
+#                         the server and open ViewCode in your browser, no desktop
+#                         app needed. Run it again after pulling to update.
 #   ./build.sh --managed  for locked-down machines: enables only Claude and
 #                         Cursor, so ViewCode never launches Codex, OpenCode, Grok,
 #                         Antigravity or Command Code
@@ -29,6 +33,7 @@ mode=desktop
 managed=0
 relay=0
 fresh=0
+install=0
 for arg in "$@"; do
   case "$arg" in
     --no-pull) pull=0 ;;
@@ -36,8 +41,9 @@ for arg in "$@"; do
     --managed) managed=1 ;;
     --relay) relay=1 ;;
     --fresh) fresh=1 ;;
+    --install) install=1 ;;
     -h | --help)
-      sed -n '2,23p' "$0"
+      sed -n '2,27p' "$0"
       exit 0
       ;;
     *)
@@ -281,6 +287,32 @@ step "Checking T3 Connect configuration"
     ? "T3 Connect: configured. It will show under Connect phone > Anywhere, next to Quick connect."
     : "T3 Connect: not configured (optional; missing " + missing.join(", ") + "). Connect phone > Anywhere still offers Quick connect. See docs/operations/connect-setup.md.");
 '
+
+if [ "$install" = 1 ]; then
+  step "Building ViewCode for the browser"
+  pnpm exec vp run --filter t3 build
+  # The launcher pins this checkout and this Node, so `viewcode` works from any
+  # shell. It runs the server with plain Node, as `npx t3` does: no Electron.
+  bin_dir="$HOME/.local/bin"
+  mkdir -p "$bin_dir"
+  launcher="$bin_dir/viewcode"
+  {
+    printf '#!/bin/sh\n'
+    printf '# Installed by %s/build.sh --install; run that again to update.\n' "$PWD"
+    printf 'exec "%s" --use-system-ca "%s/apps/server/dist/bin.mjs" "$@"\n' "$(command -v node)" "$PWD"
+  } >"$launcher"
+  chmod +x "$launcher"
+  echo "Installed $launcher"
+  case ":$PATH:" in
+    *":$bin_dir:"*) ;;
+    *)
+      echo "Add it to your PATH once, then open a new terminal:"
+      echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
+      ;;
+  esac
+  step "Starting ViewCode in your browser (Ctrl+C to stop; next time just run: viewcode)"
+  exec "$launcher"
+fi
 
 step "Building the desktop app"
 pnpm build:desktop
