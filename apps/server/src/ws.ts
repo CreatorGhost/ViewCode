@@ -166,7 +166,6 @@ import * as NewProject from "./project/NewProject.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
-import * as T3CodeHistory from "./project/T3CodeHistory.ts";
 import {
   importRecentAgentThreads,
   listImportableAgentSessions,
