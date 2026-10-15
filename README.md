@@ -50,9 +50,22 @@ From T3 Code you also get:
 - **Code history:** checkpoints for every turn, diffs, git worktrees.
 - **Tools:** a built-in terminal and pull-request integrations.
 
+## Quick start (browser)
+
+With Node.js 22.16 or newer and at least one [provider CLI](#install-and-run-from-source)
+logged in:
+
+```bash
+npm install -g viewcode-app
+viewcode        # starts the server and opens ViewCode in your browser
+```
+
+It works on macOS, Linux and Windows. For the desktop app, build from source below.
+
 ## Install and run (from source)
 
-There are no prebuilt downloads yet: you build ViewCode from this repository.
+There are no prebuilt desktop downloads yet: you build the desktop app from this
+repository.
 
 Requirements:
 
@@ -94,13 +107,15 @@ node scripts/pack-viewcode-npm.ts   # writes apps/server/dist-npm/viewcode-app-<
 Then, on any machine with Node 22.16 or newer:
 
 ```bash
-npm install -g ./viewcode-app-<version>.tgz   # or `npm install -g viewcode-app` once you've run `npm publish` on that file
+npm install -g ./viewcode-app-<version>.tgz
 viewcode                                      # starts the server and opens it in your browser
 ```
 
 The tarball works on macOS, Linux and Windows; npm fetches the native parts for
 the machine it installs on. To publish an update, bump `version` in
-`apps/server/package.json` first, since npm never accepts the same version twice.
+`apps/server/package.json` first, since npm never accepts the same version twice,
+then stage it with `npx npm@latest stage publish <tgz> --access public` and approve
+it under Staged Packages on npmjs.com.
 
 Or step by step:
 
