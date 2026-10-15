@@ -160,6 +160,14 @@ const selectorDiagnosticsFromInput = (
   return {};
 };
 
+/**
+ * The host enforces `timeoutMs` on the operation itself and answers with its
+ * own timeout error, after the request has crossed the wire. The broker waits
+ * this much longer so a slow operation never reads as an unreachable host:
+ * only a host that stops answering is evicted.
+ */
+export const PREVIEW_HOST_RESPONSE_GRACE_MS = 5_000;
+
 const hostAssignmentKey = (scope: McpInvocationContext.McpInvocationScope): string =>
   `${scope.environmentId}\u0000${scope.providerSessionId}`;
 
@@ -610,7 +618,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         }
         return yield* new PreviewAutomationRequestQueueClosedError(requestContext);
       }
-      const result = yield* Deferred.await(deferred).pipe(Effect.timeoutOption(timeoutMs));
+      const result = yield* Deferred.await(deferred).pipe(
+        Effect.timeoutOption(timeoutMs + PREVIEW_HOST_RESPONSE_GRACE_MS),
+      );
       return yield* Option.match(result, {
         onNone: () =>
           Effect.gen(function* () {
