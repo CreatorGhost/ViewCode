@@ -166,7 +166,6 @@ import * as NewProject from "./project/NewProject.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
-import * as T3CodeHistory from "./project/T3CodeHistory.ts";
 import {
   importRecentAgentThreads,
   listImportableAgentSessions,
@@ -4478,6 +4477,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         ),
     });
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -4520,7 +4520,11 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
-              Layer.provide(AgentSessionScanner.layer.pipe(Layer.provide(T3CodeHistory.layer))),
+              // One scanner for the server: its import read lock bounds memory across every
+              // client and the MCP history tools.
+              Layer.provide(
+                Layer.succeed(AgentSessionScanner.AgentSessionScanner, agentSessionScanner),
+              ),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               // One server-lifetime service means clients share the same PR caches, and a WS

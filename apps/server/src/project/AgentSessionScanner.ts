@@ -62,6 +62,7 @@ import {
   createTranscriptJsonSelector,
   TranscriptJsonLimitError,
 } from "./AgentSessionJson.ts";
+import * as CursorHistory from "./CursorHistory.ts";
 import * as T3CodeHistory from "./T3CodeHistory.ts";
 
 /** Chunk size for full transcript reads. */
@@ -88,7 +89,7 @@ const MAX_METADATA_BYTES_PER_SOURCE = 64 * 1024 * 1024;
 const MAX_METADATA_OPERATIONS_PER_SOURCE = MAX_TRANSCRIPTS_PER_SOURCE * 4;
 const MAX_METADATA_RECORDS_PER_SOURCE = 100_000;
 const MAX_METADATA_RECORDS_PER_TRANSCRIPT = 1_000;
-const RECENT_THREAD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const RECENT_THREAD_WINDOW_MS = 60 * 24 * 60 * 60 * 1000;
 /**
  * Large tool results (especially screenshots) can make an otherwise ordinary
  * Codex transcript several GiB. Streaming field selection avoids allocating
@@ -688,6 +689,21 @@ function t3CodeResume(driver: string, cursor: unknown): AgentSessionThread["resu
 }
 
 /**
+ * The messages an imported database thread keeps: all of them, or the first
+ * user message and the latest ones. Null when no one ever wrote in it.
+ */
+function importedMessageWindow<Message extends { readonly role: string }>(
+  all: ReadonlyArray<Message>,
+): ReadonlyArray<Message> | null {
+  const firstUserIndex = all.findIndex((message) => message.role === "user");
+  if (firstUserIndex === -1) return null;
+  if (all.length <= MAX_IMPORTED_MESSAGES) return all;
+  return firstUserIndex >= all.length - (MAX_IMPORTED_MESSAGES - 1)
+    ? all.slice(-MAX_IMPORTED_MESSAGES)
+    : [all[firstUserIndex]!, ...all.slice(-(MAX_IMPORTED_MESSAGES - 1))];
+}
+
+/**
  * A T3 Code thread as an importable session. It continues on the instance T3
  * used when ViewCode has one by that id, else on Codex. T3's saved Claude or
  * Codex session carries over only when it ran on that same instance; other
@@ -728,15 +744,8 @@ export function t3CodeThreadToAgentSession(
     ...message,
     createdAt: normalizeTimestamp(message.createdAt, fallback),
   }));
-  const firstUserIndex = all.findIndex((message) => message.role === "user");
-  if (firstUserIndex === -1) return null;
-  const firstUser = all[firstUserIndex]!;
-  const messages =
-    all.length <= MAX_IMPORTED_MESSAGES
-      ? all
-      : firstUserIndex >= all.length - (MAX_IMPORTED_MESSAGES - 1)
-        ? all.slice(-MAX_IMPORTED_MESSAGES)
-        : [firstUser, ...all.slice(-(MAX_IMPORTED_MESSAGES - 1))];
+  const messages = importedMessageWindow(all);
+  if (messages === null) return null;
   const classification = classifyAgentSession({
     origin: thread.parentThreadId === null ? "main" : "child",
     userTexts: messages.filter((message) => message.role === "user").map((message) => message.text),
@@ -763,6 +772,49 @@ export function t3CodeThreadToAgentSession(
     hiddenReason: classification.hiddenReason,
     driver,
     ...(resume === undefined ? {} : { resume }),
+  };
+}
+
+/**
+ * A Cursor chat as an importable session. It continues on the Cursor driver
+ * with no resume cursor, so its first turn carries a recap of the imported
+ * history (see AgentSessionImporter).
+ */
+export function cursorThreadToAgentSession(
+  thread: CursorHistory.CursorThread,
+): AgentSessionThread | null {
+  const fallback = normalizeTimestamp(thread.updatedAt, DateTime.formatIso(DateTime.makeUnsafe(0)));
+  const all = thread.messages.map((message) => ({
+    ...message,
+    createdAt: normalizeTimestamp(message.createdAt, fallback),
+  }));
+  const messages = importedMessageWindow(all);
+  if (messages === null) return null;
+  const userTexts = all.filter((message) => message.role === "user").map((message) => message.text);
+  const classification = classifyAgentSession({
+    origin: "main",
+    userTexts: messages.filter((message) => message.role === "user").map((message) => message.text),
+  });
+  // "New Agent" is the name Cursor gives every chat it never titled.
+  const cursorTitle = thread.title?.trim();
+  const title =
+    (cursorTitle && cursorTitle.toLowerCase() !== "new agent" ? cursorTitle : null) ??
+    userTexts.map(titleFromUserText).find((candidate) => candidate !== null) ??
+    "Imported thread";
+  return {
+    source: "cursor",
+    providerInstanceId: ProviderInstanceId.make("cursor"),
+    providerSessionId: thread.id,
+    title,
+    model: null,
+    createdAt: normalizeTimestamp(thread.createdAt, messages[0]?.createdAt ?? fallback),
+    updatedAt: fallback,
+    messages,
+    userMessageCount: classification.userMessageCount,
+    // A single prompt is mostly a one-off Cursor CLI command, not a conversation.
+    hiddenReason:
+      classification.hiddenReason ?? (classification.userMessageCount <= 1 ? "too-short" : null),
+    driver: ProviderDriverKind.make("cursor"),
   };
 }
 
@@ -887,6 +939,7 @@ export const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   // Optional so a scanner without a T3 Code install to read (tests, embeds) needs no stub.
   const t3CodeHistory = yield* Effect.serviceOption(T3CodeHistory.T3CodeHistory);
+  const cursorHistory = yield* Effect.serviceOption(CursorHistory.CursorHistory);
   const baseDir = path.resolve(serverConfig.baseDir);
   const worktreesDir = path.resolve(serverConfig.worktreesDir);
   // Windows filesystems are case-insensitive, so path prefix checks there
@@ -1455,11 +1508,13 @@ export const make = Effect.gen(function* () {
       truncated ||= metadataBudget.truncated;
     }
 
-    let warning: string | null = null;
+    // Each history source may add a warning; all of them are shown.
+    const warnings: Array<string> = [];
     if (Option.isSome(t3CodeHistory)) {
       const read = yield* t3CodeHistory.value.projects;
-      warning = T3CodeHistory.t3CodeReadWarning(read);
-      if (warning !== null) {
+      const t3Warning = T3CodeHistory.t3CodeReadWarning(read);
+      if (t3Warning !== null) {
+        warnings.push(t3Warning);
         yield* Effect.logWarning("Could not read T3 Code projects", { reason: read });
       }
       if (read._tag === "Read") {
@@ -1481,7 +1536,33 @@ export const make = Effect.gen(function* () {
       }
     }
 
-    return { candidates: raw, truncated, warning };
+    if (Option.isSome(cursorHistory)) {
+      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+      const read = yield* cursorHistory.value.projects(nowMs - RECENT_THREAD_WINDOW_MS);
+      const cursorWarning = CursorHistory.cursorReadWarning(read);
+      if (cursorWarning !== null) {
+        warnings.push(cursorWarning);
+        yield* Effect.logWarning("Could not read Cursor projects", { reason: read._tag });
+      }
+      if (read._tag === "Read") {
+        for (const project of read.value) {
+          raw.push({
+            cwd: project.workspaceRoot,
+            source: "cursor",
+            providerInstanceId: ProviderInstanceId.make("cursor"),
+            threadCount: project.threadCount,
+            lastActiveAtMs: project.lastActiveAt === null ? null : Date.parse(project.lastActiveAt),
+            transcripts: [],
+          });
+        }
+      }
+    }
+
+    return {
+      candidates: raw,
+      truncated,
+      warning: warnings.length === 0 ? null : warnings.join(" "),
+    };
   });
 
   let cachedCandidates: ReadonlyArray<RawCandidate> | null = null;
@@ -1633,12 +1714,14 @@ export const make = Effect.gen(function* () {
       readonly transcript: RawCandidate["transcripts"][number] & { readonly mtimeMs: number };
     }> = [];
     const t3ProjectIds: Array<string> = [];
+    const cursorRoots: Array<string> = [];
     for (const candidate of candidates) {
       const expanded = expandHomePath(candidate.cwd.trim());
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
       if ((yield* directoryIdentity(resolved)) !== rootIdentity) continue;
       if (candidate.t3ProjectId !== undefined) t3ProjectIds.push(candidate.t3ProjectId);
+      if (candidate.source === "cursor") cursorRoots.push(candidate.cwd);
 
       for (const transcript of candidate.transcripts) {
         if (
@@ -1671,6 +1754,7 @@ export const make = Effect.gen(function* () {
     let transcriptsRemaining = MAX_IMPORT_TRANSCRIPTS;
     let recordsRemaining = MAX_IMPORT_RECORDS;
     const t3Outcomes = yield* readT3CodeThreads(t3ProjectIds);
+    const cursorOutcomes = yield* readCursorThreads(cursorRoots, cutoffMs);
     const providerOutcomes = Stream.fromIteratorSucceed(eligibleTranscripts.values(), 1).pipe(
       Stream.mapEffect(({ candidate, transcript }) =>
         Effect.gen(function* () {
@@ -1774,7 +1858,7 @@ export const make = Effect.gen(function* () {
       Stream.map(Option.toArray),
       Stream.flattenIterable,
     );
-    return Stream.concat(providerOutcomes, Stream.fromIterable(t3Outcomes));
+    return Stream.concat(providerOutcomes, Stream.fromIterable([...t3Outcomes, ...cursorOutcomes]));
   });
 
   /**
@@ -1820,6 +1904,45 @@ export const make = Effect.gen(function* () {
         },
       ];
     });
+  });
+
+  /** Cursor chats of the given folders updated inside the recency window. */
+  const readCursorThreads = Effect.fn("AgentSessionScanner.readCursorThreads")(function* (
+    workspaceRoots: ReadonlyArray<string>,
+    cutoffMs: number,
+  ) {
+    if (workspaceRoots.length === 0 || Option.isNone(cursorHistory)) {
+      return [] as Array<AgentSessionRecentThread>;
+    }
+    const read = yield* cursorHistory.value.threads(workspaceRoots, cutoffMs);
+    const outcomes: Array<AgentSessionRecentThread> = [];
+    const warning = CursorHistory.cursorReadWarning(read);
+    if (warning !== null) {
+      yield* Effect.logWarning("Could not read Cursor threads", { reason: read._tag });
+      outcomes.push({ _tag: "Warning", message: warning });
+    }
+    if (read._tag !== "Read") return outcomes;
+    for (const cursorThread of read.value) {
+      const thread = cursorThreadToAgentSession(cursorThread);
+      if (thread === null) continue;
+      outcomes.push({
+        _tag: "Importable",
+        thread,
+        // A database row has no file identity; the path records where it came from.
+        source: {
+          provider: "cursor",
+          providerInstanceId: thread.providerInstanceId,
+          providerSessionId: thread.providerSessionId,
+          filePath: cursorThread.sourcePath,
+          size: 0,
+          mtimeMs: null,
+          device: 0,
+          inode: null,
+          birthtimeMs: null,
+        },
+      });
+    }
+    return outcomes;
   });
 
   const recentThreads: AgentSessionScanner["Service"]["recentThreads"] = (

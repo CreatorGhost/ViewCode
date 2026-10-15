@@ -76,7 +76,7 @@ import {
   ImportSessionsDialog,
   type ImportSessionsTarget,
 } from "../agentSessions/ImportSessionsDialog";
-import { ClaudeAI, OpenAI, T3CodeIcon } from "../Icons";
+import { ClaudeAI, CursorIcon, OpenAI, T3CodeIcon } from "../Icons";
 import { T3Wordmark } from "../T3Wordmark";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -1296,7 +1296,7 @@ function ImportStep({
     return (
       <StepShell
         title="Bring in past conversations?"
-        description="Your projects start empty. Pick specific T3 Code, Claude Code or Codex conversations to continue, or skip this. You can do it later from a project's menu in the sidebar."
+        description="Your projects start empty. Pick specific T3 Code, Claude Code, Codex or Cursor conversations to continue, or skip this. You can do it later from a project's menu in the sidebar."
       >
         <ScrollArea scrollFade className="mt-5 h-auto max-h-80">
           <div className="space-y-0.5 pr-3">
@@ -1359,7 +1359,7 @@ function ImportStep({
         <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6">
           <Spinner size="lg" tone="muted" />
           <p className="text-center text-sm text-muted-foreground">
-            Looking for projects from T3 Code, Claude Code and Codex…
+            Looking for projects from T3 Code, Claude Code, Codex and Cursor…
           </p>
         </div>
         <div className="flex justify-end">
@@ -1374,7 +1374,7 @@ function ImportStep({
   return (
     <StepShell
       title="Start fresh, or add projects"
-      description="ViewCode starts with a clean sidebar. Add folders you have used with T3 Code, Claude Code or Codex as projects if you like. Adding a project does not bring in its conversations; you choose those next."
+      description="ViewCode starts with a clean sidebar. Add folders you have used with T3 Code, Claude Code, Codex or Cursor as projects if you like. Adding a project does not bring in its conversations; you choose those next."
     >
       {candidates.length > 0 ? (
         <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -1436,7 +1436,7 @@ function ImportStep({
                   </div>
                 ) : scanCandidates.length === 0 ? (
                   <p className="py-2 text-sm text-muted-foreground">
-                    No existing T3 Code, Claude Code or Codex projects found.
+                    No existing T3 Code, Claude Code, Codex or Cursor projects found.
                   </p>
                 ) : null}
                 {scan.data?.truncated ? (
@@ -1694,7 +1694,7 @@ function ImportRowMeta({
   // "just now" does not fit the fixed column, so collapse it.
   const age = relative === null ? "" : relative.suffix === null ? "now" : relative.value;
   return (
-    <span className="ml-auto grid shrink-0 grid-cols-[1rem_1rem_1rem_2.5rem_2.25rem] items-center gap-x-1 text-xs text-muted-foreground tabular-nums">
+    <span className="ml-auto grid shrink-0 grid-cols-[1rem_1rem_1rem_1rem_2.5rem_2.25rem] items-center gap-x-1 text-xs text-muted-foreground tabular-nums">
       <span className="flex size-4 items-center justify-center">
         {sources?.includes("t3code") ? (
           <T3CodeIcon className="size-3" aria-label="T3 Code" />
@@ -1707,6 +1707,9 @@ function ImportRowMeta({
       </span>
       <span className="flex size-4 items-center justify-center">
         {sources?.includes("codex") ? <OpenAI className="size-3" aria-label="Codex" /> : null}
+      </span>
+      <span className="flex size-4 items-center justify-center">
+        {sources?.includes("cursor") ? <CursorIcon className="size-3" aria-label="Cursor" /> : null}
       </span>
       <span className="text-right">{threadCount}</span>
       <span className="text-right whitespace-nowrap">{age}</span>

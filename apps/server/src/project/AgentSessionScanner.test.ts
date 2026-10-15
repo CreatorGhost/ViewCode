@@ -1456,7 +1456,7 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
         yield* writeTranscript({
           filePath: path.join(claudeHomePath, "projects", "-selected", "claude-old.jsonl"),
           contents: claudeTranscript(workspace, "claude-old"),
-          mtimeMs: nowMs - 31 * 24 * 60 * 60 * 1000,
+          mtimeMs: nowMs - 61 * 24 * 60 * 60 * 1000,
         });
         yield* writeTranscript({
           filePath: path.join(claudeHomePath, "projects", "-other", "claude-other.jsonl"),
