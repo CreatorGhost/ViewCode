@@ -202,12 +202,13 @@ not establish whether Claude's separate SDK/MCP path is blocked.
 
 Each is an IT request. Never circumvent the control.
 
-| Blocker                                                                    | Symptom                                                            | Fix                                                                  |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat | Ask the Cursor team admin to allow `viewcode` (see above)            |
-| macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path |
-| Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                          |
-| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                     |
+| Blocker                                                                    | Symptom                                                            | Fix                                                                                                                             |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat | Ask the Cursor team admin to allow `viewcode` (see above)                                                                       |
+| MCP blocked for a reviewer (Cursor policy, Claude `managed-mcp.json`)      | A review finishes but its findings never reach the Review panel    | No IT request: reviewers fall back to `viewcode-review submit`; if it reports `unreachable`, give the review thread full access |
+| macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path                                                            |
+| Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                                                                                     |
+| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                                                                                |
 
 ## Building the installer on the managed Mac
 

@@ -21,6 +21,7 @@ import { uninstallCommand } from "./cli/uninstall.ts";
 import { updateCommand } from "./cli/update.ts";
 import { claudeHistoryCommand } from "./cli/claudeHistory.ts";
 import { viewcodeBrowserCommand } from "./cli/browser.ts";
+import { viewcodeReviewCommand } from "./cli/review.ts";
 import { computerUseDriverCommand, viewcodeComputerCommand } from "./cli/computerUse.ts";
 import { mcpStdioBridgeCommand } from "./cli/mcpStdioBridge.ts";
 import { serviceLauncherCommand } from "./cli/serviceLauncher.ts";
@@ -76,6 +77,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       computerUseDriverCommand,
       viewcodeComputerCommand,
       viewcodeBrowserCommand,
+      viewcodeReviewCommand,
       servicePreflightCommand,
       sshHelperCommand,
       themeCommand,

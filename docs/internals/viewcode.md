@@ -312,6 +312,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   (`browserArtifactsDir`) and its path returned, with the same 20 KB bounding.
 - The host is the desktop app's webview (`PreviewAutomationHosts.tsx`); web and mobile register
   no host, so the CLI, like the MCP tools, needs a desktop app connected to the environment.
+- `viewcode-review submit` is the same escape hatch for `submit_review_findings`, without which a
+  reviewer on a machine that blocks MCP finishes its review but the Review panel stays empty:
+  `POST /api/review-findings` decodes the tool's own input schema and runs the handler it shares
+  with the tool (`makeSubmitReviewFindings`). It is on every session's PATH, as the tool is offered
+  to every session; the playbook sends reviewers to it only when the tool is missing.
 
 ### Computer use
 

@@ -88,6 +88,7 @@ import * as ComputerUseAncestry from "./computerUse/computerUseAncestry.ts";
 import * as ComputerUseService from "./computerUse/ComputerUseService.ts";
 import * as ComputerUseCursor from "./computerUse/ComputerUseCursor.ts";
 import { browserCliRouteLayer } from "./browserCli/BrowserCliRoute.ts";
+import { reviewCliRouteLayer } from "./reviewCli/ReviewCliRoute.ts";
 import { computerUseRouteLayer } from "./computerUse/ComputerUseRoute.ts";
 import * as Xa11yComputerDriver from "./computerUse/Xa11yComputerDriver.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
@@ -698,10 +699,14 @@ export const makeRoutesLayer = Layer.mergeAll(
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),
-  // `/api/computer-use` and `/api/browser` authenticate with the same session credentials as `/mcp`.
-  Layer.mergeAll(McpHttpServer.layer, computerUseRouteLayer, browserCliRouteLayer).pipe(
-    Layer.provide(McpSessionRegistry.layer),
-  ),
+  // `/api/computer-use`, `/api/browser` and `/api/review-findings` authenticate with the same
+  // session credentials as `/mcp`.
+  Layer.mergeAll(
+    McpHttpServer.layer,
+    computerUseRouteLayer,
+    browserCliRouteLayer,
+    reviewCliRouteLayer,
+  ).pipe(Layer.provide(McpSessionRegistry.layer)),
   // Last, so no route layer can replace the server's one TracerDisabledWhen.
   untracedRequestsLayer,
 ).pipe(
