@@ -142,6 +142,17 @@ export interface WorkLogEntry {
   htmlRender?: HtmlRenderReference;
   /** The findings a reviewer submitted; renders as a card that opens them. */
   reviewFindings?: ReviewFindingsActivityPayload;
+  /** The models on either side of a handoff, named from the server's provider list. */
+  handoff?: WorkLogHandoff;
+}
+
+export interface WorkLogHandoff {
+  readonly fromModel: string;
+  readonly toModel: string;
+  readonly fromInstanceId?: string;
+  readonly toInstanceId?: string;
+  /** A session that could not resume and restarted from a recap. */
+  readonly recovery?: boolean;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -630,6 +641,24 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   const reviewFindings = readReviewFindings(activity);
   if (reviewFindings) entry.reviewFindings = reviewFindings;
+  if (
+    activity.kind === "viewcode.handoff" ||
+    activity.kind === "viewcode.session.resume-fallback"
+  ) {
+    const fromModel = asTrimmedString(asRecord(payload?.from)?.model);
+    const toModel = asTrimmedString(asRecord(payload?.to)?.model);
+    const fromInstanceId = asTrimmedString(asRecord(payload?.from)?.instanceId);
+    const toInstanceId = asTrimmedString(asRecord(payload?.to)?.instanceId);
+    if (fromModel && toModel) {
+      entry.handoff = {
+        fromModel,
+        toModel,
+        ...(fromInstanceId ? { fromInstanceId } : {}),
+        ...(toInstanceId ? { toInstanceId } : {}),
+        ...(activity.kind === "viewcode.session.resume-fallback" ? { recovery: true } : {}),
+      };
+    }
+  }
   const toolCallId =
     asTrimmedString(payload?.toolCallId) ?? asTrimmedString(asRecord(payload?.data)?.toolCallId);
   if (toolCallId) {
@@ -1180,6 +1209,47 @@ function capitalizePhrase(value: string): string {
     return value;
   }
   return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
+}
+
+/**
+ * "Context handoff · Sonnet 5.5 → GPT-6.1-Sol", as web's handoff divider
+ * reads. When the model did not change, the accounts did, so they are named.
+ * Ids the server does not list stay raw.
+ */
+export function handoffRowLabel(
+  handoff: WorkLogHandoff,
+  providers: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly driver: string;
+    readonly displayName?: string | undefined;
+    readonly models: ReadonlyArray<{
+      readonly slug: string;
+      readonly name: string;
+      readonly shortName?: string | undefined;
+    }>;
+  }>,
+): string {
+  const side = (model: string, instanceId: string | undefined) => {
+    const provider = providers.find((entry) => entry.instanceId === instanceId);
+    const found = provider?.models.find((entry) => entry.slug === model);
+    return {
+      model: found ? (found.shortName ?? found.name) : model,
+      account: provider ? (provider.displayName ?? provider.driver) : instanceId,
+    };
+  };
+  const from = side(handoff.fromModel, handoff.fromInstanceId);
+  const to = side(handoff.toModel, handoff.toInstanceId);
+  const header = handoff.recovery ? "Session restarted with a recap" : "Context handoff";
+  const showAccounts =
+    handoff.fromModel === handoff.toModel &&
+    handoff.fromInstanceId !== handoff.toInstanceId &&
+    from.account !== undefined &&
+    to.account !== undefined;
+  return showAccounts
+    ? `${header} · ${to.model} · ${from.account} → ${to.account}`
+    : from.model === to.model
+      ? `${header} · ${to.model}`
+      : `${header} · ${from.model} → ${to.model}`;
 }
 
 /**

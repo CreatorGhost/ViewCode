@@ -3,6 +3,7 @@ import {
   getQuestionAnswerPreview,
   hasQuestionAnswer,
 } from "@t3tools/client-runtime/work-log/user-input";
+import { useAtomValue } from "@effect/atom-react";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
@@ -41,9 +42,12 @@ import { cn } from "../../lib/cn";
 import { THREAD_WORK_ROW_MIN_HEIGHT, type deriveThreadWorkLogSizing } from "../../lib/layout";
 import {
   type AgentSpawnSummary,
+  handoffRowLabel,
   type ThreadFeedActivity,
+  type WorkLogHandoff,
   workEntryRowLabel,
 } from "../../lib/threadActivity";
+import { environmentServerConfigsAtom } from "../../state/server";
 import {
   resolveThreadWorkGroupInitialScroll,
   shouldFollowThreadWorkGroupAppend,
@@ -730,32 +734,43 @@ function workLogRowKey(row: ThreadFeedActivity): string {
   return row.id;
 }
 
-const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
-  props: Omit<
-    ThreadWorkLogProps,
-    | "activities"
-    | "copiedRowId"
-    | "edgeFadeColor"
-    | "expandedRows"
-    | "rowSizing"
-    | "scrollPositions"
-  > & {
-    readonly row: ThreadFeedActivity;
-    readonly copied: boolean;
-    readonly expanded: boolean;
-  },
-) {
+type ThreadWorkLogRowProps = Omit<
+  ThreadWorkLogProps,
+  "activities" | "copiedRowId" | "edgeFadeColor" | "expandedRows" | "rowSizing" | "scrollPositions"
+> & {
+  readonly row: ThreadFeedActivity;
+  readonly copied: boolean;
+  readonly expanded: boolean;
+};
+
+const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: ThreadWorkLogRowProps) {
+  const handoff = props.row.workEntry.handoff;
+  return handoff ? (
+    <HandoffWorkLogRow {...props} handoff={handoff} />
+  ) : (
+    <WorkLogRowBody {...props} />
+  );
+});
+
+/** Names a handoff's models the way the server lists them, as web's divider does. */
+function HandoffWorkLogRow(props: ThreadWorkLogRowProps & { readonly handoff: WorkLogHandoff }) {
+  const serverConfigs = useAtomValue(environmentServerConfigsAtom);
+  const providers = serverConfigs.get(props.environmentId)?.providers ?? [];
+  return <WorkLogRowBody {...props} label={handoffRowLabel(props.handoff, providers)} />;
+}
+
+function WorkLogRowBody(props: ThreadWorkLogRowProps & { readonly label?: string }) {
   const { row, expanded } = props;
   const canExpand = row.canExpand;
   const fullDetail = expanded ? row.getFullDetail() : null;
   const viewedImagePath = workEntryViewedImagePath(row.workEntry);
   const toolPresentation = resolveWorkEntryToolPresentation(row.workEntry);
-  const previewText = workEntryRowLabel(row.workEntry);
+  const previewText = props.label ?? workEntryRowLabel(row.workEntry);
   const answerPreview = row.workEntry.questionAnswer
     ? getQuestionAnswerPreview(row.workEntry.questionAnswer)
     : null;
   const accessiblePreview = [previewText, answerPreview].filter(Boolean).join(": ");
-  const displayText = workEntryRowLabel(row.workEntry, expanded);
+  const displayText = props.label ?? workEntryRowLabel(row.workEntry, expanded);
   const iconIsDestructive = row.icon === "alert" || row.icon === "warning";
   const failed = row.status === "failure";
   const toolIcon = row.workEntry.toolIcon ?? row.workEntry.toolSource?.icon;
@@ -912,7 +927,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
       ) : null}
     </Animated.View>
   );
-});
+}
 
 export function ThreadWorkGroupToggle(props: {
   readonly environmentId: EnvironmentId;

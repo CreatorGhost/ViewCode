@@ -18,6 +18,7 @@ import {
   buildPendingUserInputAnswers,
   buildThreadFeed,
   deriveThreadFeedPresentation,
+  handoffRowLabel,
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
@@ -289,6 +290,76 @@ function makeThread(
     settledAt: input.settledAt ?? null,
   };
 }
+
+describe("handoff rows", () => {
+  const providers = [
+    {
+      instanceId: ProviderInstanceId.make("claudeAgent"),
+      driver: "claudeAgent",
+      models: [{ slug: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", shortName: "Sonnet 5.5" }],
+    },
+    {
+      instanceId: ProviderInstanceId.make("codex"),
+      driver: "codex",
+      models: [{ slug: "gpt-6.1-sol", name: "GPT-6.1-Sol" }],
+    },
+    {
+      instanceId: ProviderInstanceId.make("codex_work"),
+      driver: "codex",
+      displayName: "Work",
+      models: [{ slug: "gpt-6.1-sol", name: "GPT-6.1-Sol" }],
+    },
+  ] as const;
+
+  const handoffOf = (payload: Record<string, unknown>) => {
+    const feed = buildThreadFeed(
+      makeThread({
+        id: ThreadId.make("thread-1"),
+        projectId: ProjectId.make("project-1"),
+        title: "Thread",
+        activities: [
+          makeActivity({
+            id: EventId.make("handoff-1"),
+            kind: "viewcode.handoff",
+            summary:
+              "Context handed off from claude-sonnet-5-5 (claudeAgent) to gpt-6.1-sol (codex)",
+            createdAt: "2026-04-01T00:00:01.000Z",
+            payload,
+          }),
+        ],
+      }),
+    );
+    const group = feed.find((entry) => entry.type === "activity-group");
+    return group?.type === "activity-group" ? group.activities[0]!.workEntry.handoff : undefined;
+  };
+
+  it("names the models the way the server lists them", () => {
+    const handoff = handoffOf({
+      from: { instanceId: "claudeAgent", model: "claude-sonnet-5-5" },
+      to: { instanceId: "codex", model: "gpt-6.1-sol" },
+    });
+    expect(handoffRowLabel(handoff!, providers)).toBe("Context handoff · Sonnet 5.5 → GPT-6.1-Sol");
+  });
+
+  it("names the accounts when only the account changed", () => {
+    const handoff = handoffOf({
+      from: { instanceId: "codex", model: "gpt-6.1-sol" },
+      to: { instanceId: "codex_work", model: "gpt-6.1-sol" },
+    });
+    expect(handoffRowLabel(handoff!, providers)).toBe(
+      "Context handoff · GPT-6.1-Sol · codex → Work",
+    );
+  });
+
+  it("keeps a model the server does not list as its id", () => {
+    expect(
+      handoffRowLabel(
+        { fromModel: "old-model", toModel: "gpt-6.1-sol", toInstanceId: "codex" },
+        providers,
+      ),
+    ).toBe("Context handoff · old-model → GPT-6.1-Sol");
+  });
+});
 
 describe("buildThreadFeed", () => {
   it("shows a sent agent message as one card and drops its send_message tool call", () => {
