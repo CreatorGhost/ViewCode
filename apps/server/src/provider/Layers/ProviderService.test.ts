@@ -5337,6 +5337,7 @@ describe("agent browser access", () => {
                     capabilities: request.capabilities,
                     computerUseEndpoint: "http://127.0.0.1:4000/api/computer-use",
                     browserEndpoint: "http://127.0.0.1:4000/api/browser",
+                    reviewEndpoint: "http://127.0.0.1:4000/api/review-findings",
                   },
                 }
               : undefined;
@@ -5445,6 +5446,22 @@ describe("agent browser access", () => {
       assert.isDefined(off);
       assert.equal(off?.browserCli, undefined);
       assert.equal(off?.agentDeviceEnvironment?.VIEWCODE_BROWSER_ENDPOINT, undefined);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("puts the review CLI on every session's PATH, for reviewers without MCP", () =>
+    Effect.gen(function* () {
+      let session: McpProviderSession.McpProviderSessionConfig | undefined;
+      yield* startSessionWith(false, asThreadId("thread-review-cli"), undefined, {
+        credential: true,
+        onSession: (config) => (session = config),
+      });
+      assert.equal(
+        session?.agentDeviceEnvironment?.VIEWCODE_REVIEW_ENDPOINT,
+        "http://127.0.0.1:4000/api/review-findings",
+      );
+      assert.equal(session?.agentDeviceEnvironment?.VIEWCODE_REVIEW_AUTH, "Bearer fixture");
+      assert.include(session?.agentDeviceEnvironment?.PATH ?? "", "review");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

@@ -241,6 +241,117 @@ const VERDICT_LABELS: Record<ReviewFindingsActivityPayload["verdict"], string> =
   "request-changes": "request changes",
 };
 
+/**
+ * `submit_review_findings`: records a review's findings on the credential's own thread. Also run
+ * by `POST /api/review-findings` for the `viewcode-review` CLI, which reviewers use when MCP is
+ * blocked, so both transports share one gate and one record.
+ */
+export const makeSubmitReviewFindings = Effect.gen(function* () {
+  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const crypto = yield* Crypto.Crypto;
+  const reviews = yield* PullRequestAgentReview.PullRequestAgentReview;
+
+  /** What the server recorded when it started the review in this thread; empty when it did not. */
+  const reviewStart = (threadId: ThreadId) =>
+    snapshots.getThreadDetailById(threadId, { activityKinds: [REVIEW_STARTED_ACTIVITY_KIND] }).pipe(
+      Effect.map((thread): ReviewStartedActivityPayload => {
+        const latest = Option.getOrUndefined(thread)?.activities.at(-1);
+        return latest === undefined
+          ? {}
+          : Option.getOrElse(decodeReviewStarted(latest.payload), () => ({}));
+      }),
+      Effect.orElseSucceed((): ReviewStartedActivityPayload => ({})),
+    );
+
+  return Effect.fn("PullRequestsToolkit.submitReviewFindings")(function* ({
+    target: requested,
+    mode: requestedMode,
+    previous,
+    complete,
+    ...report
+  }: SubmitReviewFindingsInput) {
+    const scope = yield* McpInvocationContext.requireMcpCapability("pull-requests");
+    const found = yield* snapshots
+      .getThreadShellById(scope.threadId)
+      .pipe(Effect.mapError((cause) => new ReviewFindingsFailedError({ cause })));
+    if (Option.isNone(found)) {
+      return yield* new PullRequestThreadNotFoundError({ threadId: scope.threadId });
+    }
+    const thread = found.value;
+    const target = reviewFindingsTarget(thread, requested);
+    if (target === null) return yield* new ReviewFindingsTargetMissingError({});
+    // Local changes have nowhere to post to.
+    const mode: ReviewFindingsMode =
+      target.kind === "local"
+        ? "fix"
+        : (requestedMode ??
+          PullRequestAgentReview.reviewFindingsModeFor(
+            yield* reviews.authorship({
+              projectId: thread.projectId,
+              host: target.host,
+              repository: target.repository,
+              number: target.number,
+            }),
+          ));
+    const started = yield* reviewStart(thread.id);
+    const payload: ReviewFindingsActivityPayload = {
+      ...report,
+      target,
+      mode,
+      // The commit the start asked for; the reviewer was told to review it even if the pull
+      // request moved on, so posting pins its comments there.
+      ...(target.kind === "pull-request" && started.headSha !== undefined
+        ? { headSha: started.headSha }
+        : {}),
+      // A re-review says which findings it started from, so clients can tell it apart.
+      ...(started.incremental === true && started.basedOn !== undefined
+        ? { incremental: true, basedOn: started.basedOn }
+        : {}),
+      ...(previous === undefined ? {} : { previous }),
+      // A set sent while the review goes on, which a later call replaces.
+      complete: complete ?? true,
+    };
+    const createdAt = DateTime.formatIso(yield* DateTime.now);
+    const count = report.findings.length;
+    const uuid = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+    // Clients show only the latest findings activity, which is how a re-review replaces the
+    // set. It belongs to the running turn, so reverting that turn removes it.
+    yield* engine
+      .dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make(`server:mcp-review-findings:${thread.id}:${uuid}`),
+        threadId: thread.id,
+        activity: {
+          id: EventId.make(yield* crypto.randomUUIDv4.pipe(Effect.orDie)),
+          tone: "info",
+          kind: REVIEW_FINDINGS_ACTIVITY_KIND,
+          summary: `${complete === false ? "Review so far" : "Review"}: ${VERDICT_LABELS[report.verdict]}, ${count} ${count === 1 ? "finding" : "findings"}`,
+          payload,
+          turnId: thread.session?.activeTurnId ?? null,
+          createdAt,
+        },
+        createdAt,
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause as Cause.Cause<never>)
+            : Effect.fail(new ReviewFindingsFailedError({ cause })),
+        ),
+      );
+    return {
+      target: target.kind,
+      findings: count,
+      needsChecking: report.needsChecking.length,
+      message:
+        complete === false
+          ? "Recorded and shown to the reader as the findings so far. Keep reviewing; each later call passes the whole set so far, and the last one, after your report, leaves out complete."
+          : "Recorded and shown to the reader under your report. Don't repeat the findings; end your turn.",
+    };
+  });
+});
+
 const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
@@ -248,6 +359,7 @@ const make = Effect.gen(function* () {
   const reviews = yield* PullRequestAgentReview.PullRequestAgentReview;
   const poster = yield* ReviewFindingsPoster.ReviewFindingsPoster;
   const turnOrigin = yield* TurnOrigin.TurnOrigin;
+  const submitReviewFindings = yield* makeSubmitReviewFindings;
 
   const reviewActivities = (threadId: ThreadId) =>
     snapshots
@@ -312,18 +424,6 @@ const make = Effect.gen(function* () {
     }
     return latest;
   });
-
-  /** What the server recorded when it started the review in this thread; empty when it did not. */
-  const reviewStart = (threadId: ThreadId) =>
-    snapshots.getThreadDetailById(threadId, { activityKinds: [REVIEW_STARTED_ACTIVITY_KIND] }).pipe(
-      Effect.map((thread): ReviewStartedActivityPayload => {
-        const latest = Option.getOrUndefined(thread)?.activities.at(-1);
-        return latest === undefined
-          ? {}
-          : Option.getOrElse(decodeReviewStarted(latest.payload), () => ({}));
-      }),
-      Effect.orElseSucceed((): ReviewStartedActivityPayload => ({})),
-    );
 
   const commandId = (tag: string, threadId: ThreadId) =>
     crypto.randomUUIDv4.pipe(
@@ -483,85 +583,7 @@ const make = Effect.gen(function* () {
       requireThread(PullRequestListFailedError).pipe(Effect.map(listThreadPullRequests)),
     watch_pull_request: (input) => setWatching(input, true),
     unwatch_pull_request: (input) => setWatching(input, false),
-    submit_review_findings: ({
-      target: requested,
-      mode: requestedMode,
-      previous,
-      complete,
-      ...report
-    }) =>
-      Effect.gen(function* () {
-        const thread = yield* requireThread(ReviewFindingsFailedError);
-        const target = reviewFindingsTarget(thread, requested);
-        if (target === null) return yield* new ReviewFindingsTargetMissingError({});
-        // Local changes have nowhere to post to.
-        const mode: ReviewFindingsMode =
-          target.kind === "local"
-            ? "fix"
-            : (requestedMode ??
-              PullRequestAgentReview.reviewFindingsModeFor(
-                yield* reviews.authorship({
-                  projectId: thread.projectId,
-                  host: target.host,
-                  repository: target.repository,
-                  number: target.number,
-                }),
-              ));
-        const started = yield* reviewStart(thread.id);
-        const payload: ReviewFindingsActivityPayload = {
-          ...report,
-          target,
-          mode,
-          // The commit the start asked for; the reviewer was told to review it even if the pull
-          // request moved on, so posting pins its comments there.
-          ...(target.kind === "pull-request" && started.headSha !== undefined
-            ? { headSha: started.headSha }
-            : {}),
-          // A re-review says which findings it started from, so clients can tell it apart.
-          ...(started.incremental === true && started.basedOn !== undefined
-            ? { incremental: true, basedOn: started.basedOn }
-            : {}),
-          ...(previous === undefined ? {} : { previous }),
-          // A set sent while the review goes on, which a later call replaces.
-          complete: complete ?? true,
-        };
-        const createdAt = DateTime.formatIso(yield* DateTime.now);
-        const count = report.findings.length;
-        // Clients show only the latest findings activity, which is how a re-review replaces the
-        // set. It belongs to the running turn, so reverting that turn removes it.
-        yield* engine
-          .dispatch({
-            type: "thread.activity.append",
-            commandId: yield* commandId("mcp-review-findings", thread.id),
-            threadId: thread.id,
-            activity: {
-              id: EventId.make(yield* crypto.randomUUIDv4.pipe(Effect.orDie)),
-              tone: "info",
-              kind: REVIEW_FINDINGS_ACTIVITY_KIND,
-              summary: `${complete === false ? "Review so far" : "Review"}: ${VERDICT_LABELS[report.verdict]}, ${count} ${count === 1 ? "finding" : "findings"}`,
-              payload,
-              turnId: thread.session?.activeTurnId ?? null,
-              createdAt,
-            },
-            createdAt,
-          })
-          .pipe(
-            Effect.catchCause((cause) =>
-              Cause.hasInterruptsOnly(cause)
-                ? Effect.failCause(cause as Cause.Cause<never>)
-                : Effect.fail(new ReviewFindingsFailedError({ cause })),
-            ),
-          );
-        return {
-          target: target.kind,
-          findings: count,
-          needsChecking: report.needsChecking.length,
-          message:
-            complete === false
-              ? "Recorded and shown to the reader as the findings so far. Keep reviewing; each later call passes the whole set so far, and the last one, after your report, leaves out complete."
-              : "Recorded and shown to the reader under your report. Don't repeat the findings; end your turn.",
-        };
-      }),
+    submit_review_findings: submitReviewFindings,
     post_review_findings: (input) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(ReviewPostFailedError);

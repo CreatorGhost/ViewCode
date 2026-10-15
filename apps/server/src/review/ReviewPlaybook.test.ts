@@ -4,8 +4,12 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
+import { SubmitReviewFindingsInput } from "../mcp/toolkits/pullRequests/tools.ts";
 import { ensureReviewPlaybook, reviewPlaybookMarkdown } from "./ReviewPlaybook.ts";
+
+const decodeSubmission = Schema.decodeUnknownExit(Schema.fromJsonString(SubmitReviewFindingsInput));
 
 describe("ensureReviewPlaybook", () => {
   it.effect("writes each mode's playbook to an absolute path and repairs a stale copy", () =>
@@ -23,6 +27,8 @@ describe("ensureReviewPlaybook", () => {
         // Findings reach the reader while the review goes on, then as one final set.
         expect(text).toContain("`complete: false`");
         expect(text).toContain("once more without `complete`");
+        // A reviewer whose MCP servers are blocked submits through the CLI instead.
+        expect(text).toContain("viewcode-review submit <<'JSON'");
       }
       // Agents a review starts carry short, whole names the user can read in their chat.
       expect(reviewPlaybookMarkdown("deep")).toContain('"Review: tests"');
@@ -35,4 +41,12 @@ describe("ensureReviewPlaybook", () => {
       expect(yield* fs.readFileString(quick)).toBe(reviewPlaybookMarkdown("quick"));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
+});
+
+describe("reviewPlaybookMarkdown", () => {
+  it("shows a viewcode-review example the tool's own schema accepts", () => {
+    const example = /<<'JSON'\n([\s\S]*?)\nJSON\n/.exec(reviewPlaybookMarkdown("quick"))?.[1];
+    expect(example).toBeDefined();
+    expect(decodeSubmission(example)._tag).toBe("Success");
+  });
 });
