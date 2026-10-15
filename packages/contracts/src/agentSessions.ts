@@ -4,9 +4,10 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 
 /**
  * Where importable history comes from: a coding agent's home directory
- * (Claude Code, Codex) or a T3 Code install's database (`t3code`).
+ * (Claude Code, Codex), a T3 Code install's database (`t3code`), or Cursor's
+ * CLI and editor chat stores (`cursor`).
  */
-export const AgentSessionSource = Schema.Literals(["claudeAgent", "codex", "t3code"]);
+export const AgentSessionSource = Schema.Literals(["claudeAgent", "codex", "t3code", "cursor"]);
 export type AgentSessionSource = typeof AgentSessionSource.Type;
 
 /** File identity saved with an imported session so bounded retries can skip unchanged history. */

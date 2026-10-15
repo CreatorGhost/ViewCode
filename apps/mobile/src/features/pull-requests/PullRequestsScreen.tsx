@@ -3,6 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProjectId } from "@t3tools/contracts";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/unstable/reactivity";
 import {
   ActivityIndicator,
   Keyboard,
@@ -17,21 +18,26 @@ import { ScrollViewMarker } from "../../native/ScrollViewMarker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
+import { SymbolView } from "../../components/AppSymbol";
 import { EmptyState } from "../../components/EmptyState";
 import { NativePrimaryColumnContext } from "../../native/v5-workspace-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useProjects } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { PullRequestListRow } from "./PullRequestListRow";
 import { PullRequestListFilters } from "./PullRequestListFilters";
 import { pullRequestListControlsAtom, usePullRequestList } from "./usePullRequestList";
 import { usePullRequestListActions } from "./usePullRequestListActions";
 import {
   filterPullRequestList,
+  groupPullRequestListByProject,
   pullRequestListFacets,
+  pullRequestListItemKey,
   pullRequestListRowsAreEqual,
   scopedPullRequestListKey as pullRequestKey,
   type EnvironmentPullRequestListEntry,
+  type PullRequestListItem,
   PR_LIST_PAGE_SIZE,
 } from "./pullRequestList";
 import { useDebouncedValue } from "../../state/queries";
@@ -48,6 +54,51 @@ function PullRequestScrollView(props: ScrollViewProps) {
         contentOffset={props.contentOffset ?? { x: 0, y: -insets.top }}
       />
     </ScrollViewMarker>
+  );
+}
+
+const projectLabelOf = (entry: EnvironmentPullRequestListEntry) =>
+  entry.projectTitle || entry.repository;
+
+const NO_COLLAPSED_PROJECTS: readonly string[] = [];
+
+const pullRequestListItemsAreEqual = (previous: PullRequestListItem, next: PullRequestListItem) =>
+  previous.kind === "row" && next.kind === "row"
+    ? pullRequestListRowsAreEqual(previous.entry, next.entry)
+    : previous.kind === "project" &&
+      next.kind === "project" &&
+      previous.key === next.key &&
+      previous.label === next.label &&
+      previous.count === next.count &&
+      previous.collapsed === next.collapsed;
+
+/** A project's header in the list: tap to fold its pull requests away or bring them back. */
+function PullRequestProjectHeader(props: {
+  readonly item: Extract<PullRequestListItem, { kind: "project" }>;
+  readonly onToggle: (key: string) => void;
+}) {
+  const { item, onToggle } = props;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !item.collapsed }}
+      accessibilityLabel={`${item.label}, ${item.count} pull ${item.count === 1 ? "request" : "requests"}`}
+      onPress={() => onToggle(item.key)}
+      className="flex-row items-center gap-2 px-4 pb-1 pt-4"
+    >
+      {/* Swapped rather than rotated: a rotated glyph leaves its viewport on Android. */}
+      <SymbolView
+        name={item.collapsed ? "chevron.right" : "chevron.down"}
+        size={11}
+        tintColorClassName="accent-foreground-muted"
+        type="monochrome"
+      />
+      <Text className="shrink text-xs font-t3-medium text-foreground-muted" numberOfLines={1}>
+        {item.label}
+      </Text>
+      <Text className="text-xs text-foreground-muted opacity-60">{item.count}</Text>
+      <View className="h-px flex-1 bg-border" />
+    </Pressable>
   );
 }
 
@@ -139,6 +190,30 @@ export function PullRequestsScreen() {
       ),
     [result.entries, controls, query, result.data],
   );
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const collapsedProjects =
+    (AsyncResult.isSuccess(preferences)
+      ? preferences.value.pullRequestCollapsedProjects
+      : undefined) ?? NO_COLLAPSED_PROJECTS;
+  const items = useMemo(
+    () => groupPullRequestListByProject(entries, projectLabelOf, new Set(collapsedProjects)),
+    [entries, collapsedProjects],
+  );
+  const toggleProject = useCallback(
+    (key: string) =>
+      savePreferences({
+        transform: (current) => {
+          const held = current.pullRequestCollapsedProjects ?? [];
+          return {
+            pullRequestCollapsedProjects: held.includes(key)
+              ? held.filter((candidate) => candidate !== key)
+              : [...held, key],
+          };
+        },
+      }),
+    [savePreferences],
+  );
   const facets = useMemo(() => pullRequestListFacets(result.entries), [result.entries]);
   const [knownFacets, setKnownFacets] = useState({ environmentId, source: facets, ...facets });
   if (knownFacets.environmentId !== environmentId || knownFacets.source !== facets) {
@@ -163,18 +238,21 @@ export function PullRequestsScreen() {
     (project) => environmentId === null || project.environmentId === environmentId,
   );
   const renderPullRequest = useCallback(
-    ({ item }: { readonly item: EnvironmentPullRequestListEntry }) => (
-      <PullRequestListRow
-        item={item}
-        onSelect={selectPullRequest}
-        getActions={actions}
-        onAction={select}
-        busy={busyKey === pullRequestKey(item)}
-        selected={selectedKey === pullRequestKey(item)}
-        sidebar={sidebar}
-      />
-    ),
-    [selectPullRequest, selectedKey, actions, select, busyKey, sidebar],
+    ({ item }: { readonly item: PullRequestListItem }) =>
+      item.kind === "project" ? (
+        <PullRequestProjectHeader item={item} onToggle={toggleProject} />
+      ) : (
+        <PullRequestListRow
+          item={item.entry}
+          onSelect={selectPullRequest}
+          getActions={actions}
+          onAction={select}
+          busy={busyKey === pullRequestKey(item.entry)}
+          selected={selectedKey === pullRequestKey(item.entry)}
+          sidebar={sidebar}
+        />
+      ),
+    [selectPullRequest, selectedKey, actions, select, busyKey, sidebar, toggleProject],
   );
   const previousSearchMode = useRef(search.searching);
   useEffect(() => {
@@ -186,18 +264,39 @@ export function PullRequestsScreen() {
         animated: false,
       });
   }, [search.searching, search.scrollOffset, insets.top]);
+  const resultOnViewableItemsChanged = result.onViewableItemsChanged;
+  // Line counts are asked for the rows on screen; project headers have none.
+  const onViewableItemsChanged = useCallback(
+    ({
+      viewableItems,
+    }: {
+      readonly viewableItems: readonly {
+        readonly item: PullRequestListItem;
+        readonly isViewable: boolean;
+      }[];
+    }) =>
+      resultOnViewableItemsChanged({
+        viewableItems: viewableItems.flatMap((token) =>
+          token.item.kind === "row"
+            ? [{ item: token.item.entry, isViewable: token.isViewable }]
+            : [],
+        ),
+      }),
+    [resultOnViewableItemsChanged],
+  );
   const initialIndex = initialAnchor
-    ? entries.findIndex((entry) => pullRequestKey(entry) === initialAnchor.key)
+    ? items.findIndex((item) => pullRequestListItemKey(item) === initialAnchor.key)
     : -1;
 
   return (
     <View className={sidebar ? "flex-1 bg-drawer" : "flex-1 bg-screen"}>
       <LegendList
         ref={listRef}
-        data={entries}
+        data={items}
         extraData={`${selectedKey}:${busyKey}`}
-        keyExtractor={pullRequestKey}
-        itemsAreEqual={pullRequestListRowsAreEqual}
+        keyExtractor={pullRequestListItemKey}
+        itemsAreEqual={pullRequestListItemsAreEqual}
+        getItemType={(item) => item.kind}
         // Default-size rows measure about 78pt with one title line and 98pt with two.
         estimatedItemSize={88}
         // Build roughly a screen ahead so a fling reaches already-mounted rows.
@@ -205,7 +304,7 @@ export function PullRequestsScreen() {
         maintainVisibleContentPosition={result.continued ? maintainVisiblePosition : false}
         onEndReached={() => void result.loadMore()}
         onEndReachedThreshold={0.5}
-        onViewableItemsChanged={result.onViewableItemsChanged}
+        onViewableItemsChanged={onViewableItemsChanged}
         refreshControl={
           <RefreshControl
             refreshing={result.refreshing}
@@ -242,10 +341,10 @@ export function PullRequestsScreen() {
             ),
           );
           const listState = listRef.current?.getState();
-          const item = listState ? entries[listState.start] : undefined;
+          const item = listState ? items[listState.start] : undefined;
           if (listState && item)
             list.recordScrollAnchor({
-              key: pullRequestKey(item),
+              key: pullRequestListItemKey(item),
               viewOffset:
                 listState.positionAtIndex(listState.start) - event.nativeEvent.contentOffset.y,
             });

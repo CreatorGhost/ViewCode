@@ -61,6 +61,8 @@ import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
 import { BROWSER_AUTH_ENV, BROWSER_ENDPOINT_ENV } from "../../browserCli/browserCliProtocol.ts";
 import { ensureBrowserCliShim } from "../../browserCli/BrowserCliShim.ts";
+import { REVIEW_AUTH_ENV, REVIEW_ENDPOINT_ENV } from "../../reviewCli/reviewCliProtocol.ts";
+import { ensureReviewCliShim } from "../../reviewCli/ReviewCliShim.ts";
 import { COMPUTER_CLI_NAME, ensureComputerUseShim } from "../../computerUse/ComputerUseShim.ts";
 import { ComputerUseService } from "../../computerUse/ComputerUseService.ts";
 import { computerUseScreenshotsDir } from "../../computerUse/computerUsePolicy.ts";
@@ -1063,6 +1065,33 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       } satisfies Record<string, string>;
     });
 
+  /**
+   * The `viewcode-review` CLI on PATH, for every session that may submit review findings (as
+   * `submit_review_findings` may be called from any session). It is how a reviewer whose MCP
+   * servers are blocked by policy still gets its findings into the Review panel.
+   */
+  const reviewEnvironment = (config: McpProviderSession.McpProviderSessionConfig) =>
+    Effect.gen(function* () {
+      if (!config.reviewEndpoint) return undefined;
+      const shimDir = yield* ensureReviewCliShim({ stateDir: serverConfig.stateDir }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, pathService),
+        Effect.provideService(HostProcessPlatform, hostPlatform),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Review CLI unavailable; withholding it from this session", {
+            cause,
+          }).pipe(Effect.as(undefined)),
+        ),
+      );
+      if (!shimDir) return undefined;
+      return {
+        PATH: shimDir,
+        PATH_SEPARATOR: hostPlatform === "win32" ? ";" : ":",
+        [REVIEW_ENDPOINT_ENV]: config.reviewEndpoint,
+        [REVIEW_AUTH_ENV]: config.authorizationHeader,
+      } satisfies Record<string, string>;
+    });
+
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
       // A new session replaces the old one: its refs, grant and pending
@@ -1088,9 +1117,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         const browserCliEnvironment = capabilities.has("preview")
           ? yield* browserEnvironment(credential.config)
           : undefined;
+        const reviewCliEnvironment = credential.config.capabilities.has("pull-requests")
+          ? yield* reviewEnvironment(credential.config)
+          : undefined;
         const cliEnvironment = McpProviderSession.mergeAgentCliEnvironments([
           deviceEnvironment,
           browserCliEnvironment,
+          reviewCliEnvironment,
           computerCli?.environment,
         ]);
         yield* Effect.sync(() =>

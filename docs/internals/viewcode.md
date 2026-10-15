@@ -312,6 +312,11 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   (`browserArtifactsDir`) and its path returned, with the same 20 KB bounding.
 - The host is the desktop app's webview (`PreviewAutomationHosts.tsx`); web and mobile register
   no host, so the CLI, like the MCP tools, needs a desktop app connected to the environment.
+- `viewcode-review submit` is the same escape hatch for `submit_review_findings`, without which a
+  reviewer on a machine that blocks MCP finishes its review but the Review panel stays empty:
+  `POST /api/review-findings` decodes the tool's own input schema and runs the handler it shares
+  with the tool (`makeSubmitReviewFindings`). It is on every session's PATH, as the tool is offered
+  to every session; the playbook sends reviewers to it only when the tool is missing.
 
 ### Computer use
 
@@ -429,7 +434,8 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   too short on a slow managed Mac), failing closed. Windows is refused until there is a real win32
   window model (xa11y treats each top-level window as an app there).
 - The driver is xa11y in a child process spawned from the app's own executable with
-  `ELECTRON_RUN_AS_NODE=1`: macOS keys the Accessibility grant to the responsible app. The sibling
+  `ELECTRON_RUN_AS_NODE=1` (or `t3 __computer-use-driver` when the backend is the standalone
+  `t3`, as on Apple Silicon desktops): macOS keys the Accessibility grant to the responsible app. The sibling
   Helper is the macOS bundle default after real desktop AX/capture and Dock verification.
   `VIEWCODE_COMPUTER_DRIVER_HOST=main` restores the main host; missing Helpers and standalone
   Node keep the main executable. Chromium and
@@ -821,8 +827,9 @@ so the next person (or agent) doesn't rediscover them. Product intent lives in
   snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
   frames cannot help because the stock phone expects one WebSocket message.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
-  runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works: the server
-  is Electron-as-node there, so it downloads only npm (pinned version and integrity,
+  runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works where the server
+  is Electron-as-node (not Apple Silicon, whose backend is the standalone `t3`
+  and needs Node on PATH like `npx t3`), so it downloads only npm (pinned version and integrity,
   `relay/bundledNpm.ts`) and runs its `npx-cli.js` under its own executable with
   `ELECTRON_RUN_AS_NODE=1`, a `node` shim first on PATH because wrangler's shebang, npm
   install scripts and esbuild's postinstall start `node` by name. wrangler itself is not
@@ -1026,9 +1033,11 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 
 ### Session import
 
-- Three sources share one scan → list → import flow: Claude Code and Codex
-  session files, and a T3 Code install (`t3code`, `project/T3CodeHistory.ts`).
-  Nothing is imported by default: sessions are picked one by one.
+- Four sources share one scan → list → import flow: Claude Code and Codex
+  session files, a T3 Code install (`t3code`, `project/T3CodeHistory.ts`) and
+  Cursor (`cursor`, `project/CursorHistory.ts`). Nothing is imported by
+  default: sessions are picked one by one. Agents reach the same flow through
+  the `history` MCP toolkit.
 - **Never read T3's live database directly.** T3 Code may be running. The file
   is attached with `mode=ro` to a private temp database, the needed rows are
   copied in one read transaction, the source is detached, and the copy is
@@ -1046,6 +1055,22 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   session ran on the same instance the thread continues on, otherwise null.
   An `import:` thread whose binding has no cursor gets a recap on its first
   turn (`ProviderCommandReactor`, shown as the stale-session notice).
+- **Cursor's stores are private and change often** (composerData `_v` 16–18,
+  three CLI versions in two weeks), so they get the same read-only treatment
+  as T3's: each SQLite file is attached `mode=ro` inside one read transaction,
+  only the rows of the chats asked for are read (the editor's `state.vscdb`
+  can be 140+ MB), and an unexpected shape is an "unsupported" warning. The
+  CLI (`~/.cursor/chats/<md5 of folder>/<chat>/`): `meta.json` places the chat;
+  `store.db` `meta['0']` is hex JSON naming a root blob, the root is protobuf
+  whose field-1 entries are message blob ids in order, messages are JSON and
+  the typed prompt sits in `<user_query>`. It also holds `blobEncryptionKey`,
+  which is never read into a result or logged. The editor (`Cursor/User` in
+  each platform's app-data folder): `workspaceStorage/*/workspace.json` maps
+  storage ids to folders (several ids per folder), `composerHeaders` places
+  chats, `cursorDiskKV` has `composerData:<id>` and `bubbleId:<id>:<bubble>`.
+  Cursor threads are `import:cursor:<chat>` (editor chats `editor:<id>`) and
+  continue with a recap: ACP `session/load` of a CLI chat is untested. Chats
+  ViewCode ran itself live in `~/.cursor/acp-sessions`, which is not read.
 - `agentSessions.list` reads the recent transcripts without writing and marks
   junk `hidden` with a reason (`classifyAgentSession`): Codex sub-agent and
   internal rollouts, sessions opened by an agent message (Traycer or

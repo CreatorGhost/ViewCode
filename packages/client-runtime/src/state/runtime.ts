@@ -512,6 +512,24 @@ const refreshOnSignalWhileRead =
     );
   };
 
+const CUT_OFF_RETRY_DELAY_MS = 2_000;
+
+/**
+ * A request whose connection closes under it ends as an interruption from the RPC client, not as
+ * an error; shown as one it reads "All fibers interrupted without error" until the next answer,
+ * which for a slow read (a pull request listing) is a minute away. The connection change re-runs
+ * the query on the new session, so the request waits for that, and asks once more if no change
+ * comes. Only this request's own result counts: interrupting the query itself is not caught.
+ */
+const askAgainWhenCutOff = <A, E, R>(ask: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  ask.pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.sleep(CUT_OFF_RETRY_DELAY_MS).pipe(Effect.andThen(ask))
+        : Effect.failCause(cause),
+    ),
+  );
+
 export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,
   options: EnvironmentQueryAtomOptions<
@@ -559,7 +577,9 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
         switch (connectionState.phase) {
           case "connected":
             return Option.isSome(session)
-              ? runInEnvironment(target.environmentId, options.execute(target.input))
+              ? askAgainWhenCutOff(
+                  runInEnvironment(target.environmentId, options.execute(target.input)),
+                )
               : Effect.never;
           case "connecting":
           case "backoff":

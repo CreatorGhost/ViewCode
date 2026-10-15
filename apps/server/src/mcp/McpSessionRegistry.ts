@@ -10,6 +10,7 @@ import * as NetAddress from "effect/unstable/net/NetAddress";
 
 import { BROWSER_CLI_ROUTE_PATH } from "../browserCli/browserCliProtocol.ts";
 import { COMPUTER_USE_ROUTE_PATH } from "../computerUse/computerUsePolicy.ts";
+import { REVIEW_CLI_ROUTE_PATH } from "../reviewCli/reviewCliProtocol.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpProviderSession from "./McpProviderSession.ts";
@@ -115,6 +116,11 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     httpServer.address._tag === "UnixPathAddress"
       ? `unix:${httpServer.address.path}`
       : `${httpOrigin}${BROWSER_CLI_ROUTE_PATH}`;
+  // And the review CLI.
+  const reviewEndpoint =
+    httpServer.address._tag === "UnixPathAddress"
+      ? `unix:${httpServer.address.path}`
+      : `${httpOrigin}${REVIEW_CLI_ROUTE_PATH}`;
   // A socket listener has no URL a provider can dial, so providers launch the
   // stdio bridge, which forwards to `/mcp` over the same socket. On TCP the
   // bridge dials the endpoint, for agents that take only stdio MCP servers.
@@ -180,6 +186,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           endpoint,
           computerUseEndpoint,
           browserEndpoint,
+          reviewEndpoint,
           authorizationHeader: `Bearer ${rawToken}`,
           ...(isSocketListener ? { stdio: bridgeLaunch } : { stdioBridge: bridgeLaunch }),
           capabilities: scope.capabilities,

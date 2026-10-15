@@ -14,6 +14,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
+import { REVIEW_CLI_NAME } from "../reviewCli/reviewCliProtocol.ts";
+
 const PLAYBOOK_DIR = "review-playbooks";
 
 /** The MCP tool a reviewer hands its findings to; the playbook names it. */
@@ -96,7 +98,26 @@ under \`needsChecking\` (a security audit's confirmed findings and those that ne
 each with the severity, confidence, path, lines and suggested fix the report gives it. The reader
 sends findings from it to the chat that fixes them, so each \`detail\` must stand on its own. The
 written report stays the reader's version; the tool call does not replace it. If you review again
-in this thread, send the full new set the same way. Without the tool, the report is enough.
+in this thread, send the full new set the same way.
+
+When \`${SUBMIT_REVIEW_FINDINGS_TOOL}\` is not in your tool list (an organization can block
+ViewCode's tools), run \`${REVIEW_CLI_NAME} submit\` in your shell instead, with the tool's input
+as JSON on stdin (or in a file outside the checkout, with \`--file <path>\`):
+
+\`\`\`sh
+${REVIEW_CLI_NAME} submit <<'JSON'
+{"verdict": "request-changes", "mergeConfidence": 2, "reviewEffort": 3, "complete": false,
+ "findings": [{"severity": "blocker", "confidence": 90, "path": "src/a.ts", "line": 4,
+   "title": "Unchecked input", "detail": "What is wrong, why it matters, how it is reached.",
+   "suggestedFix": "the code as it applies"}],
+ "needsChecking": []}
+JSON
+\`\`\`
+
+Every field (\`complete\`, \`target\`, \`mode\` and \`previous\` included) means what it means for the
+tool, and each run replaces the set before it the same way; \`${REVIEW_CLI_NAME} help\` lists them.
+When it prints an error, fix what the message names and run it again. Only when neither the tool
+nor the command is available is the report enough.
 
 ## Rated findings
 

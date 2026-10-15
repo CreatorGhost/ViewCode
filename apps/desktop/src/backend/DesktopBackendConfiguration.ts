@@ -185,6 +185,35 @@ function resourceMonitorBinaryName(platform: NodeJS.Platform): string {
   return platform === "win32" ? "t3-resource-monitor.exe" : "t3-resource-monitor";
 }
 
+/**
+ * Where a packaged macOS build ships the release's standalone `t3` server
+ * (the CLI archive's tree: the executable, `client/`, `resource-monitor/` and
+ * its native `node_modules`). See scripts/build-desktop-artifact.ts.
+ */
+export const MAC_BUNDLED_SERVER_DIR = "t3-server";
+
+/**
+ * The `T3CODE_DESKTOP_SERVER_EXECUTABLE` override, else the bundled `t3`
+ * executable when this is a packaged macOS build that ships one. The backend
+ * then runs as that program rather than as the app's own Electron binary with
+ * `ELECTRON_RUN_AS_NODE`, which endpoint security tools on managed Macs flag
+ * as a living-off-the-land launch.
+ */
+const resolveBundledServerExecutable = Effect.fn(
+  "desktop.backendConfiguration.resolveBundledServerExecutable",
+)(function* () {
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  if (Option.isSome(environment.serverExecutablePathOverride)) {
+    return environment.serverExecutablePathOverride;
+  }
+  if (!environment.isPackaged || environment.platform !== "darwin") return Option.none<string>();
+  const fileSystem = yield* FileSystem.FileSystem;
+  const candidate = environment.path.join(environment.resourcesPath, MAC_BUNDLED_SERVER_DIR, "t3");
+  return (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false)))
+    ? Option.some(candidate)
+    : Option.none<string>();
+});
+
 const resolveResourceMonitorPath = Effect.fn(
   "desktop.backendConfiguration.resolveResourceMonitorPath",
 )(function* () {
@@ -544,6 +573,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     input: SharedBootstrapInput & {
       readonly resourceMonitorPath: Option.Option<string>;
       readonly listenPath: string;
+      readonly serverExecutablePath: Option.Option<string>;
     },
   ): Effect.fn.Return<
     DesktopBackendManager.DesktopBackendStartConfig,
@@ -574,6 +604,31 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       }),
       ...buildObservabilityFragment(input.observabilitySettings),
     };
+    const httpBaseUrl =
+      listenPath === undefined
+        ? backendExposure.httpBaseUrl
+        : DesktopLocalBackendSocket.localBackendHttpBaseUrl(
+            DesktopBackendManager.PRIMARY_INSTANCE_ID,
+          );
+
+    if (Option.isSome(input.serverExecutablePath)) {
+      const executablePath = input.serverExecutablePath.value;
+      return {
+        executablePath,
+        // The executable carries `--use-system-ca` in its own exec arguments.
+        args: ["--bootstrap-fd", "3"],
+        entryPath: executablePath,
+        cwd: environment.backendCwd,
+        env: backendChildEnvPatch(),
+        extendEnv: true,
+        bootstrap,
+        bootstrapDelivery: "fd3",
+        httpBaseUrl,
+        ...(listenPath === undefined ? {} : { listenPath }),
+        captureOutput: true,
+        preflightFailure: Option.none(),
+      } satisfies DesktopBackendManager.DesktopBackendStartConfig;
+    }
 
     return {
       executablePath: process.execPath,
@@ -601,12 +656,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       extendEnv: true,
       bootstrap,
       bootstrapDelivery: "fd3",
-      httpBaseUrl:
-        listenPath === undefined
-          ? backendExposure.httpBaseUrl
-          : DesktopLocalBackendSocket.localBackendHttpBaseUrl(
-              DesktopBackendManager.PRIMARY_INSTANCE_ID,
-            ),
+      httpBaseUrl,
       ...(listenPath === undefined ? {} : { listenPath }),
       captureOutput: true,
       preflightFailure: Option.none(),
@@ -919,10 +969,15 @@ export const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
     );
+    const serverExecutablePath = yield* resolveBundledServerExecutable().pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
+    );
     return yield* resolvePrimaryStartConfig({
       ...shared,
       resourceMonitorPath,
       listenPath: primaryListenPath,
+      serverExecutablePath,
     }).pipe(
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(DesktopServerExposure.DesktopServerExposure, serverExposure),

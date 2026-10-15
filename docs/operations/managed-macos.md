@@ -1,11 +1,46 @@
 # Running ViewCode on a managed (EDR-protected) Mac
 
-> **ViewCode no longer targets managed machines.** Three defaults that existed
-> only for this laptop were lifted: the first-run provider gate (installed
+> **Managed-only defaults were lifted.** The first-run provider gate (installed
 > providers are probed at boot again), the click-only Same Wi-Fi test (it runs
 > when Connect phone opens) and Tailscale Serve being off at launch (now on when
 > Tailscale is signed in). What respects an organisation's policy files stays.
-> The report below is kept as a record.
+> The report below is kept as a record; the current findings are next.
+
+## October 2026: what Cortex XDR actually flags
+
+Measured again on the same laptop with the server and a browser: it runs clean
+once Codex is turned off. Two launches were flagged:
+
+- **A provider's binary run while that provider is off.** `CodexInstallation`
+  probed a local `codex` at boot whatever the setting; it now does so only while
+  Codex is enabled.
+- **The app's own Electron binary started with `ELECTRON_RUN_AS_NODE=1`**
+  (MITRE T1218.015). That is how the desktop app ran its backend. On Apple
+  Silicon the backend is now the standalone `t3` server instead: a packaged
+  app ships it under `Resources/t3-server` (the release's macOS CLI archive,
+  `--mac-server-runtime`), and `./build.sh` builds `apps/server/dist-exe/t3`
+  and passes it as `T3CODE_DESKTOP_SERVER_EXECUTABLE`. Intel Macs keep the old
+  backend because Node single-executables do not run there. Under `t3` the
+  server's helpers (MCP bridge, computer use, Claude history) are subcommands
+  of `t3`, not more Electron-as-Node launches. The snapshot accessibility
+  reader (`SnapShotAccessibilityProcess`) still uses `ELECTRON_RUN_AS_NODE`,
+  only when a snapshot is taken.
+
+To check a build, read `userdata/logs/spawn-trace.log` (server) and
+`userdata/logs/desktop.trace.ndjson` (desktop) right after startup: the backend
+should be `.../t3 --bootstrap-fd 3`, and nothing should start a disabled
+provider's binary.
+
+A local DMG with the bundled server needs the macOS CLI archive first
+(Node 25.7+ on PATH for `build-exe`, and `cargo` for the resource monitor):
+
+```bash
+node apps/server/scripts/cli.ts build-exe
+cargo build --release --manifest-path native/resource-monitor/Cargo.toml --target aarch64-apple-darwin
+mkdir -p /tmp/rm/darwin-arm64 && cp native/resource-monitor/target/aarch64-apple-darwin/release/t3-resource-monitor /tmp/rm/darwin-arm64/
+node scripts/build-cli-archive.ts --platform mac --arch arm64 --version "$(node -p 'require("./apps/server/package.json").version')" --resource-monitor-dir /tmp/rm --output-dir release-cli
+pnpm dist:desktop:dmg:arm64 --mac-server-runtime release-cli/t3-*-darwin-arm64.tar.gz
+```
 
 Field report from a locked-down company laptop, checked against ViewCode's
 source. Specifics that identify the machine, user or tenant (names, prevention
@@ -140,9 +175,14 @@ exception, or touches the EDR.
    `timeout` nor `gtimeout`.
    **Never** run `opencode --version` without a timeout: it opens a TUI and
    hung for minutes, taking the terminal session with it.
-6. `./build.sh --web` runs the server from the terminal and the UI in a
-   browser, a legitimate mode that is useful as a data point. It still spawns
-   provider CLIs; if Cortex flags it too, stop and go back to step 1.
+6. `./build.sh --install --managed` builds ViewCode for the browser and
+   installs a `viewcode` command (`~/.local/bin`) that runs the server with
+   plain Node and opens the UI in a browser: the mode that runs clean on this
+   laptop. Afterwards just run `viewcode`; run the install again after pulling.
+   It still spawns provider CLIs; if Cortex flags it, stop and go back to step 1.
+   To skip building on the laptop, pack the same server on another machine
+   (`node scripts/pack-viewcode-npm.ts`, see the README) and
+   `npm install -g` the tarball here.
 
 ## Cursor Enterprise MCP policy
 
@@ -167,12 +207,13 @@ not establish whether Claude's separate SDK/MCP path is blocked.
 
 Each is an IT request. Never circumvent the control.
 
-| Blocker                                                                    | Symptom                                                            | Fix                                                                  |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat | Ask the Cursor team admin to allow `viewcode` (see above)            |
-| macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path |
-| Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                          |
-| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                     |
+| Blocker                                                                    | Symptom                                                            | Fix                                                                                                                             |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Cursor Enterprise MCP policy                                               | Cursor loads zero ViewCode tools; `viewcode_*` missing in the chat | Ask the Cursor team admin to allow `viewcode` (see above)                                                                       |
+| MCP blocked for a reviewer (Cursor policy, Claude `managed-mcp.json`)      | A review finishes but its findings never reach the Review panel    | No IT request: reviewers fall back to `viewcode-review submit`; if it reports `unreachable`, give the review thread full access |
+| macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path                                                            |
+| Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                                                                                     |
+| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                                                                                |
 
 ## Building the installer on the managed Mac
 

@@ -77,10 +77,30 @@ git clone https://github.com/CreatorGhost/ViewCode.git
 cd ViewCode
 ./build.sh              # later runs: just ./build.sh again
 ./build.sh --no-pull    # build what you have checked out
-./build.sh --web        # server + web UI instead of the desktop app
+./build.sh --web        # server + web UI instead of the desktop app (dev mode)
+./build.sh --install    # build for the browser and install a `viewcode` command; then just run `viewcode`
 ./build.sh --managed    # locked-down work laptops: only Claude and Cursor are enabled
 ./build.sh --fresh      # start as a brand-new install (quit ViewCode first; moves your data aside, restorable)
 ```
+
+To use ViewCode in a browser on a machine that shouldn't build it (a locked-down
+work laptop, say), pack it as an npm package. Build it anywhere with the repo:
+
+```bash
+pnpm exec vp run --filter t3 build
+node scripts/pack-viewcode-npm.ts   # writes apps/server/dist-npm/viewcode-app-<version>.tgz
+```
+
+Then, on any machine with Node 22.16 or newer:
+
+```bash
+npm install -g ./viewcode-app-<version>.tgz   # or `npm install -g viewcode-app` once you've run `npm publish` on that file
+viewcode                                      # starts the server and opens it in your browser
+```
+
+The tarball works on macOS, Linux and Windows; npm fetches the native parts for
+the machine it installs on. To publish an update, bump `version` in
+`apps/server/package.json` first, since npm never accepts the same version twice.
 
 Or step by step:
 

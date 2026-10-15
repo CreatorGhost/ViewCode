@@ -66,6 +66,7 @@ function makeEnvironmentLayer(
     readonly otlpTracesUrl?: string;
     readonly otlpMetricsUrl?: string;
     readonly otlpLogsUrl?: string;
+    readonly serverExecutable?: string;
   },
 ) {
   return DesktopEnvironment.layer({
@@ -91,6 +92,7 @@ function makeEnvironmentLayer(
           T3CODE_OTLP_TRACES_URL: options?.otlpTracesUrl,
           T3CODE_OTLP_METRICS_URL: options?.otlpMetricsUrl,
           T3CODE_OTLP_LOGS_URL: options?.otlpLogsUrl,
+          T3CODE_DESKTOP_SERVER_EXECUTABLE: options?.serverExecutable,
         }),
       ),
     ),
@@ -308,6 +310,84 @@ describe("DesktopBackendConfiguration", () => {
         path.join(resourcesPath, "server.asar/apps/server/dist/bin.mjs"),
       );
       assert.equal(config.env.ELECTRON_RUN_AS_NODE, "1");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("resolvePrimary on a packaged Mac runs the bundled t3, never the app as Node", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-backend-config-test-",
+      });
+      const resourcesPath = path.join(baseDir, "resources");
+      const serverExecutable = path.join(
+        resourcesPath,
+        DesktopBackendConfiguration.MAC_BUNDLED_SERVER_DIR,
+        "t3",
+      );
+      yield* fileSystem.makeDirectory(path.dirname(serverExecutable), { recursive: true });
+      yield* fileSystem.writeFileString(serverExecutable, "");
+
+      const config = yield* Effect.gen(function* () {
+        const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+        return yield* configuration.resolvePrimary;
+      }).pipe(
+        Effect.provide(
+          DesktopBackendConfiguration.layer.pipe(
+            Layer.provideMerge(serverExposureLayer),
+            Layer.provideMerge(DesktopAppSettings.layerTest()),
+            Layer.provideMerge(DesktopWslEnvironment.layerTest()),
+            Layer.provideMerge(DesktopWslServerTree.layerTest()),
+            Layer.provideMerge(
+              makeEnvironmentLayer(baseDir, {
+                appPath: `${resourcesPath}/app.asar`,
+                platform: "darwin",
+                resourcesPath,
+              }),
+            ),
+          ),
+        ),
+      );
+
+      assert.equal(config.executablePath, serverExecutable);
+      assert.deepEqual(config.args, ["--bootstrap-fd", "3"]);
+      assert.equal(config.bootstrapDelivery, "fd3");
+      assert.notProperty(config.env, "ELECTRON_RUN_AS_NODE");
+      assert.equal(config.bootstrap.mode, "desktop");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("resolvePrimary runs the configured standalone server from a source launch", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-backend-config-test-",
+      });
+
+      const config = yield* Effect.gen(function* () {
+        const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+        return yield* configuration.resolvePrimary;
+      }).pipe(
+        Effect.provide(
+          DesktopBackendConfiguration.layer.pipe(
+            Layer.provideMerge(serverExposureLayer),
+            Layer.provideMerge(DesktopAppSettings.layerTest()),
+            Layer.provideMerge(DesktopWslEnvironment.layerTest()),
+            Layer.provideMerge(DesktopWslServerTree.layerTest()),
+            Layer.provideMerge(
+              makeEnvironmentLayer(baseDir, {
+                isPackaged: false,
+                serverExecutable: "/repo/apps/server/dist-exe/t3",
+              }),
+            ),
+          ),
+        ),
+      );
+
+      assert.equal(config.executablePath, "/repo/apps/server/dist-exe/t3");
+      assert.deepEqual(config.args, ["--bootstrap-fd", "3"]);
+      assert.notProperty(config.env, "ELECTRON_RUN_AS_NODE");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 

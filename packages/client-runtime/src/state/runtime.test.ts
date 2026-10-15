@@ -493,6 +493,39 @@ describe("environment query lifecycle", () => {
     ),
   );
 
+  it.effect("asks again on the new session when the connection closes under a request", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstStarted = Latch.makeUnsafe();
+        const cutOff = Latch.makeUnsafe();
+        let executions = 0;
+        const execute = Effect.suspend(() => {
+          executions += 1;
+          if (executions > 1) return Effect.succeed("recovered");
+          firstStarted.openUnsafe();
+          // What the RPC client hands a pending request when its connection is torn down.
+          return cutOff.await.pipe(Effect.andThen(Effect.failCause(Cause.interrupt(1))));
+        });
+        const harness = yield* makeEnvironmentQueryHarness(execute);
+        const registry = yield* mountEnvironmentQuery(harness.atom);
+
+        yield* firstStarted.await;
+        cutOff.openUnsafe();
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        expect(AsyncResult.isFailure(registry.get(harness.atom))).toBe(false);
+
+        yield* SubscriptionRef.set(
+          harness.supervisorState,
+          queryConnectionState({ generation: 2 }),
+        );
+        expect(
+          yield* AtomRegistry.getResult(registry, harness.atom, { suspendOnWaiting: true }),
+        ).toBe("recovered");
+      }),
+    ),
+  );
+
   it.effect("retains the last successful value while reconnecting", () =>
     Effect.scoped(
       Effect.gen(function* () {

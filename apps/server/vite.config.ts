@@ -87,6 +87,7 @@ export default mergeConfig(
             "src/computer-use-driver.ts",
             "src/viewcode-computer.ts",
             "src/viewcode-browser.ts",
+            "src/viewcode-review.ts",
           ],
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,
@@ -101,7 +102,10 @@ export default mergeConfig(
               // true, and the server reaches several modules that way. The
               // cache is also platform-bound, so leaving it off keeps the
               // build correct on any host.
-              seaConfig: { useCodeCache: false },
+              // `--use-system-ca` trusts the OS certificate store as well as
+              // Node's bundled roots, as the desktop's backend does, so
+              // outbound HTTPS works behind a TLS-inspecting corporate proxy.
+              seaConfig: { useCodeCache: false, execArgv: ["--use-system-ca"] },
             },
           }
         : {}),

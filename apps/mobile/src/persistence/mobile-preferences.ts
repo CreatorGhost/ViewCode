@@ -40,6 +40,8 @@ export interface Preferences {
   readonly codeFontSize?: number | null;
   readonly codeWordBreak?: boolean;
   readonly collapsedProjectGroups?: readonly string[];
+  /** Projects folded away in the pull request list, by `environmentId:projectId`. */
+  readonly pullRequestCollapsedProjects?: readonly string[];
   /** What the Return key does in the composer on a hardware keyboard. iOS only. */
   readonly composerEnterBehavior?: ComposerEnterBehavior;
   /** @deprecated Kept temporarily so older OTA bundles retain the selected mode. */
@@ -120,6 +122,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     codeFontSize?: number | null;
     codeWordBreak?: boolean;
     collapsedProjectGroups?: readonly string[];
+    pullRequestCollapsedProjects?: readonly string[];
     composerEnterBehavior?: ComposerEnterBehavior;
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
@@ -177,6 +180,11 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (typeof parsed.codeWordBreak === "boolean") preferences.codeWordBreak = parsed.codeWordBreak;
   if (Array.isArray(parsed.collapsedProjectGroups)) {
     preferences.collapsedProjectGroups = parsed.collapsedProjectGroups.filter(
+      (key): key is string => typeof key === "string",
+    );
+  }
+  if (Array.isArray(parsed.pullRequestCollapsedProjects)) {
+    preferences.pullRequestCollapsedProjects = parsed.pullRequestCollapsedProjects.filter(
       (key): key is string => typeof key === "string",
     );
   }

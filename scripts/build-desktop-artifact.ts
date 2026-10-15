@@ -162,6 +162,7 @@ interface BuildCliInput {
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
   readonly wslRuntime: Option.Option<string>;
+  readonly macServerRuntime: Option.Option<string>;
 }
 
 function detectHostBuildPlatform(hostPlatform: string): typeof BuildPlatform.Type | undefined {
@@ -678,6 +679,20 @@ export class WslRuntimeArchiveMissingError extends Schema.TaggedError<WslRuntime
   }
 }
 
+export class MacServerRuntimeArchiveMissingError extends Schema.TaggedError<MacServerRuntimeArchiveMissingError>()(
+  "MacServerRuntimeArchiveMissingError",
+  {
+    archivePath: Schema.String,
+    missing: Schema.Literals(["archive", "t3"]),
+  },
+) {
+  override get message(): string {
+    return this.missing === "archive"
+      ? `macOS server runtime archive not found at ${this.archivePath}.`
+      : `macOS server runtime archive ${this.archivePath} has no t3 executable at its top level.`;
+  }
+}
+
 export class WindowsServerSidecarPackError extends Schema.TaggedError<WindowsServerSidecarPackError>()(
   "WindowsServerSidecarPackError",
   {
@@ -919,6 +934,7 @@ interface ResolvedBuildOptions {
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
   readonly wslRuntime: string | undefined;
+  readonly macServerRuntime: string | undefined;
 }
 
 interface StagePackageJson {
@@ -964,6 +980,8 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!apps/desktop/prod-resources/windows-server/**/*",
   "!apps/desktop/prod-resources/wsl-runtime.tar.gz",
   "!apps/desktop/prod-resources/wsl-runtime.tar.gz.sha256",
+  "!apps/desktop/prod-resources/t3-server",
+  "!apps/desktop/prod-resources/t3-server/**/*",
   "!apps/desktop/gnome-extension",
   "!apps/desktop/gnome-extension/**/*",
 ] as const;
@@ -1063,6 +1081,21 @@ export const bundlesWslRuntime = (input: {
   readonly platform: typeof BuildPlatform.Type;
   readonly runtimeArchivePath: string | undefined;
 }): boolean => input.platform === "win" && input.runtimeArchivePath !== undefined;
+
+// The macOS backend is the macOS CLI release archive's tree (the signed `t3`
+// executable, its client, resource monitor and native node_modules), unpacked
+// to resources/t3-server. The desktop runs that executable as the backend
+// (see MAC_BUNDLED_SERVER_DIR in apps/desktop), so a managed Mac never sees
+// the app's own binary launched with ELECTRON_RUN_AS_NODE.
+export const MAC_SERVER_RUNTIME_EXTRA_RESOURCE = {
+  from: "apps/desktop/prod-resources/t3-server",
+  to: "t3-server",
+} as const;
+
+export const bundlesMacServerRuntime = (input: {
+  readonly platform: typeof BuildPlatform.Type;
+  readonly runtimeArchivePath: string | undefined;
+}): boolean => input.platform === "mac" && input.runtimeArchivePath !== undefined;
 
 export const WSL_RUNTIME_EXTRA_RESOURCES = [
   WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE,
@@ -1557,6 +1590,10 @@ const BuildEnvConfig = Config.all({
   // by the build_linux_cli CI job. The Windows build embeds it verbatim as the
   // WSL runtime.
   wslRuntime: Config.String("T3CODE_DESKTOP_WSL_RUNTIME").pipe(Config.option),
+  // Path to the macOS CLI release archive (t3-<version>-darwin-<arch>.tar.gz)
+  // built by scripts/build-cli-archive.ts. The macOS build ships its tree as
+  // the backend, so the app never runs its own binary as Node.
+  macServerRuntime: Config.String("T3CODE_DESKTOP_MAC_SERVER_RUNTIME").pipe(Config.option),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -1650,6 +1687,8 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
 
   const wslRuntime =
     Option.getOrUndefined(input.wslRuntime) ?? Option.getOrUndefined(env.wslRuntime);
+  const macServerRuntime =
+    Option.getOrUndefined(input.macServerRuntime) ?? Option.getOrUndefined(env.macServerRuntime);
 
   return {
     platform,
@@ -1664,6 +1703,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     mockUpdates,
     mockUpdateServerPort,
     wslRuntime,
+    macServerRuntime,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -2652,6 +2692,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   // source file was never written fails the electron-builder step.
   wslRuntimeBundled = false,
   arch?: typeof BuildArch.Type,
+  // macOS only, and true only when a macOS CLI archive was staged; see
+  // MAC_SERVER_RUNTIME_EXTRA_RESOURCE.
+  macServerRuntimeBundled = false,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
@@ -2681,6 +2724,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
+      ...(platform === "mac" && macServerRuntimeBundled ? [MAC_SERVER_RUNTIME_EXTRA_RESOURCE] : []),
     ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
@@ -2866,6 +2910,52 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   if (platform === "win") {
     yield* stageWindowsIcons(stageResourcesDir, iconAssets.windowsIconIco);
   }
+});
+
+// Unpack the macOS CLI release archive into the stage. tar keeps the archive's
+// modes and the signatures build-cli-archive.ts applied; electron-builder then
+// signs the tree again with the app (scripts/sign-macos.ts gives the `t3`
+// executable the CLI's own entitlements).
+export const stageMacServerRuntime = Effect.fn("stageMacServerRuntime")(function* (input: {
+  readonly sourceArchivePath: string;
+  readonly targetDir: string;
+  readonly verbose: boolean;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const sourceExists = yield* fs
+    .exists(input.sourceArchivePath)
+    .pipe(Effect.orElseSucceed(() => false));
+  if (!sourceExists) {
+    return yield* new MacServerRuntimeArchiveMissingError({
+      archivePath: input.sourceArchivePath,
+      missing: "archive",
+    });
+  }
+  // The archive holds one top-level t3-<version>-darwin-<arch>/ directory,
+  // which becomes the target directory itself.
+  const extractDir = `${input.targetDir}.extract`;
+  yield* fs.remove(input.targetDir, { recursive: true, force: true });
+  yield* fs.remove(extractDir, { recursive: true, force: true });
+  yield* fs.makeDirectory(extractDir, { recursive: true });
+  yield* runCommand(
+    ChildProcess.make("tar", ["-xzf", input.sourceArchivePath, "-C", extractDir], {}),
+    { label: "tar (macOS server runtime)", verbose: input.verbose },
+  );
+  const [top, ...others] = yield* fs.readDirectory(extractDir);
+  const hasExecutable =
+    top !== undefined &&
+    others.length === 0 &&
+    (yield* fs.exists(path.join(extractDir, top, "t3")).pipe(Effect.orElseSucceed(() => false)));
+  if (hasExecutable) yield* fs.rename(path.join(extractDir, top), input.targetDir);
+  yield* fs.remove(extractDir, { recursive: true, force: true });
+  if (!hasExecutable) {
+    return yield* new MacServerRuntimeArchiveMissingError({
+      archivePath: input.sourceArchivePath,
+      missing: "t3",
+    });
+  }
+  yield* Effect.log(`[desktop-artifact] Staged macOS server runtime at ${input.targetDir}.`);
 });
 
 // Copy the Linux CLI release archive into the stage verbatim and record its
@@ -3737,6 +3827,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         : undefined,
       bundlesWslRuntime({ platform: options.platform, runtimeArchivePath: options.wslRuntime }),
       options.arch,
+      bundlesMacServerRuntime({
+        platform: options.platform,
+        runtimeArchivePath: options.macServerRuntime,
+      }),
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -3801,6 +3895,19 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       sourceArchivePath: options.wslRuntime,
       archivePath: path.join(stageAppDir, WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE.from),
       hashPath: path.join(stageAppDir, WSL_RUNTIME_ARCHIVE_HASH_EXTRA_RESOURCE.from),
+    });
+  }
+  if (
+    options.macServerRuntime !== undefined &&
+    bundlesMacServerRuntime({
+      platform: options.platform,
+      runtimeArchivePath: options.macServerRuntime,
+    })
+  ) {
+    yield* stageMacServerRuntime({
+      sourceArchivePath: options.macServerRuntime,
+      targetDir: path.join(stageAppDir, MAC_SERVER_RUNTIME_EXTRA_RESOURCE.from),
+      verbose: options.verbose,
     });
   }
 
@@ -3999,6 +4106,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   wslRuntime: Flag.String("wsl-runtime").pipe(
     Flag.withDescription(
       "Path to the Linux CLI release archive (t3-<version>-linux-x64.tar.gz) to embed as the WSL runtime of a Windows build (env: T3CODE_DESKTOP_WSL_RUNTIME).",
+    ),
+    Flag.optional,
+  ),
+  macServerRuntime: Flag.String("mac-server-runtime").pipe(
+    Flag.withDescription(
+      "Path to the macOS CLI release archive (t3-<version>-darwin-<arch>.tar.gz) whose standalone server a macOS build runs as its backend (env: T3CODE_DESKTOP_MAC_SERVER_RUNTIME).",
     ),
     Flag.optional,
   ),

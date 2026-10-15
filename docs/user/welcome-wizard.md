@@ -75,7 +75,8 @@ pick conversations to continue in ViewCode:
   stay open. A thread that ran Claude or Codex continues that same session;
   any other thread continues with a recap of the conversation. If your T3 Code
   version is not supported, ViewCode says so and lists nothing from it.
-- **Claude Code and Codex**: sessions from the last 30 days.
+- **Claude Code, Codex and Cursor**: sessions from the last 60 days, from both
+  the Cursor editor and the Cursor CLI.
 
 Nothing is checked for you. Sub-agent runs, sessions another agent started,
 short fragments, and Claude or Codex sessions a T3 Code thread already carries

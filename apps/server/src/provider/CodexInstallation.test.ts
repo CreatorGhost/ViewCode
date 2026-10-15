@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import * as NodeCrypto from "node:crypto";
 import {
@@ -364,3 +365,31 @@ it("publishes complete packages for all supported platforms", () => {
       expect(resolveCodexReleaseAsset(platform, arch)?.url).toContain("codex-package-");
   expect(resolveCodexReleaseAsset("linux", "riscv64")).toBeNull();
 });
+
+it.effect("never runs a local codex while Codex is disabled, and checks it once turned on", () =>
+  Effect.gen(function* () {
+    const enabled = yield* SubscriptionRef.make(false);
+    const h = yield* makeHarness({
+      local: { version: "0.156.1" },
+      options: {
+        codexEnabled: SubscriptionRef.get(enabled),
+        codexEnabledChanges: SubscriptionRef.changes(enabled),
+      },
+    });
+    // Booting with Codex off runs nothing: a managed laptop that bans Codex sees no `codex`.
+    expect(yield* h.fs.exists(h.probeLog)).toBe(false);
+    expect((yield* h.installation.state).executablePath).toBeNull();
+
+    yield* SubscriptionRef.set(enabled, true);
+    const found = yield* h.installation.changes.pipe(
+      Stream.filter((state) => state.executablePath !== null),
+      Stream.runHead,
+      Effect.map(Option.getOrThrow),
+    );
+    expect(found).toMatchObject({ source: "local", installedVersion: "0.156.1" });
+    expect((yield* h.fs.readFileString(h.probeLog)).trim().split("\n")).toEqual([
+      "--version",
+      "app-server --help",
+    ]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);

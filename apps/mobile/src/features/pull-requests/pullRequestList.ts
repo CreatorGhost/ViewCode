@@ -8,7 +8,7 @@ import type {
   PullRequestListState,
 } from "@t3tools/contracts";
 
-export const PR_LIST_PAGE_SIZE = 30;
+export const PR_LIST_PAGE_SIZE = 20;
 export interface PullRequestListControls {
   readonly state: PullRequestListState;
   readonly involvement: PullRequestInvolvement;
@@ -36,6 +36,65 @@ export type EnvironmentPullRequestListEntry = PullRequestListEntry & {
 
 export const scopedPullRequestListKey = (entry: EnvironmentPullRequestListEntry) =>
   `${entry.environmentId}:${pullRequestListKey(entry)}`;
+
+/** The project a row belongs to, as the collapsed-projects preference names it. */
+export const pullRequestListProjectKey = (entry: EnvironmentPullRequestListEntry) =>
+  `${entry.environmentId}:${entry.projectId}`;
+
+export type PullRequestListItem =
+  | {
+      readonly kind: "project";
+      readonly key: string;
+      readonly label: string;
+      readonly count: number;
+      readonly collapsed: boolean;
+    }
+  | { readonly kind: "row"; readonly entry: EnvironmentPullRequestListEntry };
+
+export const pullRequestListItemKey = (item: PullRequestListItem) =>
+  item.kind === "project" ? `project:${item.key}` : scopedPullRequestListKey(item.entry);
+
+/**
+ * The rows under one header per project, as the desktop list draws them: projects run by their
+ * most recently updated row and rows keep the order they came in. A collapsed project keeps its
+ * header and drops its rows. One project needs no header to say whose rows they are.
+ */
+export function groupPullRequestListByProject(
+  entries: readonly EnvironmentPullRequestListEntry[],
+  labelOf: (entry: EnvironmentPullRequestListEntry) => string,
+  collapsed: ReadonlySet<string>,
+): PullRequestListItem[] {
+  const projects = new Map<
+    string,
+    { label: string; newest: string; entries: EnvironmentPullRequestListEntry[] }
+  >();
+  for (const entry of entries) {
+    const key = pullRequestListProjectKey(entry);
+    const project = projects.get(key);
+    if (project === undefined) {
+      projects.set(key, { label: labelOf(entry), newest: entry.updatedAt, entries: [entry] });
+      continue;
+    }
+    project.entries.push(entry);
+    if (entry.updatedAt.localeCompare(project.newest) > 0) project.newest = entry.updatedAt;
+  }
+  if (projects.size <= 1) return entries.map((entry) => ({ kind: "row", entry }));
+  return [...projects]
+    .sort(([, left], [, right]) => right.newest.localeCompare(left.newest))
+    .flatMap(([key, project]): PullRequestListItem[] => {
+      const isCollapsed = collapsed.has(key);
+      return [
+        {
+          kind: "project",
+          key,
+          label: project.label,
+          count: project.entries.length,
+          collapsed: isCollapsed,
+        },
+        ...(isCollapsed ? [] : project.entries.map((entry) => ({ kind: "row" as const, entry }))),
+      ];
+    });
+}
 
 /** Provider refreshes and diff-count batches recreate entries; unchanged rows can stay mounted. */
 export function pullRequestListRowsAreEqual(
