@@ -100,6 +100,11 @@ const packViewcodeNpm = Effect.fn("packViewcodeNpm")(function* (input: { readonl
     `${yield* encodePackageJson(viewcodeNpmManifest(input.name))}\n`,
   );
   yield* fs.writeFileString(path.join(stageDir, "README.md"), README);
+  // MIT requires the notice to travel with every copy.
+  yield* fs.copyFile(
+    yield* path.fromFileUrl(new URL("../LICENSE", import.meta.url)),
+    path.join(stageDir, "LICENSE"),
+  );
 
   const child = yield* spawner.spawn(
     ChildProcess.make("npm", ["pack", "--pack-destination", outputDir], {
