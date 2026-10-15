@@ -180,6 +180,9 @@ exception, or touches the EDR.
    plain Node and opens the UI in a browser: the mode that runs clean on this
    laptop. Afterwards just run `viewcode`; run the install again after pulling.
    It still spawns provider CLIs; if Cortex flags it, stop and go back to step 1.
+   To skip building on the laptop, pack the same server on another machine
+   (`node scripts/pack-viewcode-npm.ts`, see the README) and
+   `npm install -g` the tarball here.
 
 ## Cursor Enterprise MCP policy
 
