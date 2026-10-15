@@ -64,6 +64,8 @@ export class NetService extends Context.Service<NetService, NetServiceShape>()(
 ) {}
 
 /** @public Service construction is part of the canonical Effect module API. */
+const PORT_SCAN_LENGTH = 20;
+
 export const make = () => {
   /**
    * Returns true when a TCP server can bind to {host, port}.
@@ -195,10 +197,18 @@ export const make = () => {
     isPortAvailableOnLoopback,
     hasListenerOnHost,
     reserveLoopbackPort,
+    // The next free port up from the preferred one keeps a second server's
+    // address predictable (3773, then 3774); past a short scan, any free port.
     findAvailablePort: (preferred) =>
       Effect.gen(function* () {
-        if (preferred > 0 && (yield* isPortAvailableOnLoopback(preferred))) {
-          return preferred;
+        if (preferred > 0) {
+          for (
+            let port = preferred;
+            port < preferred + PORT_SCAN_LENGTH && port <= 65_535;
+            port++
+          ) {
+            if (yield* isPortAvailableOnLoopback(port)) return port;
+          }
         }
         return yield* reserveLoopbackPort();
       }),
