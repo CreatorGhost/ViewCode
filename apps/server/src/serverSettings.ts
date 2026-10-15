@@ -372,6 +372,24 @@ function restoreUsedProviders(
   };
 }
 
+/**
+ * ViewCode: a brand-new environment starts with every provider off, written to
+ * settings.json, so nothing runs a provider CLI (not even `--version`) before
+ * the user picks one. Endpoint security on managed machines flags a banned
+ * CLI the moment it runs. Existing installs keep their defaults.
+ */
+function disableEveryProvider(settings: ServerSettings): ServerSettings {
+  return {
+    ...settings,
+    providers: Object.fromEntries(
+      Object.entries(settings.providers).map(([provider, config]) => [
+        provider,
+        { ...config, enabled: false },
+      ]),
+    ) as ServerSettings["providers"],
+  };
+}
+
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
   return isModelSelectionProviderEnabled(settings, settings.textGenerationModelSelection)
     ? settings
@@ -808,13 +826,19 @@ const make = Effect.gen(function* () {
     const providersOnPath = Object.fromEntries(
       PATH_DETECTED_PROVIDERS.map((provider, index) => [provider, onPath[index] === true]),
     ) as Record<PathDetectedProvider, boolean>;
-    detectedEnabled = Object.fromEntries(
-      PATH_DETECTED_PROVIDERS.filter(
-        (provider) => persisted.providers?.[provider]?.enabled === undefined,
-      ).map((provider) => [provider, providersOnPath[provider]]),
-    );
+    // Same test as the default runtime mode: no file and no provider ever used.
+    const brandNew = rawSettingsJson === undefined && !(yield* readEnvironmentHasHistory);
+    // A brand-new install writes its off flags, so a CLI installed later is not picked up.
+    detectedEnabled = brandNew
+      ? {}
+      : Object.fromEntries(
+          PATH_DETECTED_PROVIDERS.filter(
+            (provider) => persisted.providers?.[provider]?.enabled === undefined,
+          ).map((provider) => [provider, providersOnPath[provider]]),
+        );
+    const restored = restoreUsedProviders(settings, persisted, providerHistory, providersOnPath);
     const loaded = foldProviderInstanceEnabledFlags(
-      restoreUsedProviders(settings, persisted, providerHistory, providersOnPath),
+      brandNew ? disableEveryProvider(restored) : restored,
     );
     const folded = yield* decideDefaultRuntimeMode(
       settingsFileTrusted ? foldLegacyProjectSettings(loaded, legacyProjectRows) : loaded,
@@ -822,7 +846,7 @@ const make = Effect.gen(function* () {
     );
     // Only rewrite a file that decoded cleanly; an untrusted one stays for the user to repair.
     const migrated = settingsFileTrusted ? yield* moveInlineBitbucketTokens(folded) : folded;
-    if (migrated !== loaded && settingsFileTrusted) {
+    if ((migrated !== loaded || brandNew) && settingsFileTrusted) {
       yield* writeSettingsAtomically(migrated);
     }
     return migrated;

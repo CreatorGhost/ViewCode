@@ -8,6 +8,36 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 You need an installed, authenticated provider before starting a thread. You can
 launch T3 Code and configure providers afterwards.
 
+## ViewCode from npm
+
+ViewCode is on npm as `viewcode-app`. It needs Node.js 24.13 or newer and runs in
+your browser:
+
+```bash
+npm install -g viewcode-app
+viewcode
+```
+
+`viewcode` starts the server and opens ViewCode in your browser. Update it with
+`npm install -g viewcode-app@latest`. The `update`, `uninstall` and `service`
+commands below belong to the `t3` install and do not apply to this one.
+
+If `viewcode` is `command not found` in a new terminal although it worked before,
+check `node --version`. With nvm, a default alias that points at a version that
+is not installed (such as `lts/*`) leaves new terminals without `node`; run
+`nvm alias default 24`.
+
+On a company network that inspects TLS, add `export NODE_OPTIONS=--use-system-ca`
+to your shell profile so Node trusts the certificates your company installed.
+
+### Company-managed Macs
+
+- Use `viewcode` in the browser.
+- A new install starts with every AI tool off. Turn on only the ones your company
+  allows: endpoint security can end your session the moment a blocked tool runs.
+- Leave the background service, a desktop app you built yourself and Computer use
+  off until IT approves them.
+
 ## Command line
 
 ```bash
@@ -135,9 +165,13 @@ Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set it
 **Binary path** in provider settings, especially when using a version manager.
 Cursor's executable is `cursor-agent`, although its login command is
 `agent login`. Codex connected through ChatGPT and Antigravity can use their
-managed runtimes without a `PATH` entry. Command Code, Droid, Devin and Pi are
-turned on automatically when `cmd`, `droid`, `devin` or `pi` is on the server's
-`PATH`.
+managed runtimes without a `PATH` entry.
+
+A new install starts with every provider off. The welcome screen asks which ones
+you use and shows which CLIs it found, without running any of them; nothing starts
+until you turn a provider on there or in **Settings → Providers**. An install from
+before this keeps its providers as they were, and turns Command Code, Droid, Devin
+and Pi on when `cmd`, `droid`, `devin` or `pi` is on the server's `PATH`.
 
 T3 Code warns when a provider version has known compatibility problems with your
 release. Check **Settings → Providers** on that environment for the recommended
