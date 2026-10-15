@@ -309,6 +309,7 @@ import {
   ViewCodeRelaySetupError,
   ViewCodeRelaySetupStartInput,
 } from "./remoteAccess.ts";
+import { DetectProvidersResult } from "./providerChoice.ts";
 import {
   AgentControlError,
   AgentControlInput,
@@ -464,6 +465,7 @@ export const WS_METHODS = {
   serverRemoveKeybinding: "server.removeKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverDetectProviders: "server.detectProviders",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
@@ -773,6 +775,13 @@ const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
 const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
   payload: Schema.Struct({ patch: ServerSettingsPatch }),
   success: ServerSettings,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+// ViewCode: filesystem-only lookup of every built-in provider CLI.
+const WsServerDetectProvidersRpc = Rpc.make(WS_METHODS.serverDetectProviders, {
+  payload: Schema.Struct({}),
+  success: DetectProvidersResult,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
 
@@ -1806,6 +1815,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRemoveKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerDetectProvidersRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,

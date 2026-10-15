@@ -128,6 +128,8 @@ import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts"
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
 import { VoiceModelStore } from "./voiceModels/VoiceModelStore.ts";
+import { AntigravityInstallation } from "./provider/AntigravityInstallation.ts";
+import { detectProviders } from "./provider/providerLaunch.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -615,6 +617,7 @@ const makeWsRpcLayer = (
       const providerAuth = yield* ProviderAuthService;
       const providerInstances = yield* ProviderInstanceRegistry;
       const providerInstallation = yield* makeProviderInstallation();
+      const antigravityInstallation = yield* AntigravityInstallation;
       const voiceModels = yield* VoiceModelStore;
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
@@ -2996,6 +2999,16 @@ const makeWsRpcLayer = (
             {
               "rpc.aggregate": "server",
             },
+          ),
+        [WS_METHODS.serverDetectProviders]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverDetectProviders,
+            serverSettings.getSettings.pipe(
+              Effect.flatMap(detectProviders),
+              Effect.map((providers) => ({ providers })),
+              Effect.provideService(AntigravityInstallation, antigravityInstallation),
+            ),
+            { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverUpdateSettings]: ({ patch }) =>
           observeRpcEffect(

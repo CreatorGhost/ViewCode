@@ -71,6 +71,13 @@ const makeFailingSecretStoreLayer = (cause: ServerSecretStore.SecretStoreError) 
     }),
   );
 
+/** An install that already wrote settings.json; it keeps the default providers. */
+const markExistingInstall = Effect.gen(function* () {
+  const serverConfig = yield* ServerConfig.ServerConfig;
+  const fileSystem = yield* FileSystem.FileSystem;
+  yield* fileSystem.writeFileString(serverConfig.settingsPath, "{}");
+});
+
 const recordProviderUsage = (provider: string, instanceId: string | null = provider) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -201,6 +208,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
   it.effect("deep merges nested settings updates without dropping siblings", () =>
     Effect.gen(function* () {
+      yield* markExistingInstall;
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
 
       yield* serverSettings.updateSettings({
@@ -914,6 +922,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         }
 
         yield* Effect.gen(function* () {
+          yield* markExistingInstall;
           const serverConfig = yield* ServerConfig.ServerConfig;
           const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
 
@@ -934,6 +943,61 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           Effect.provideService(HostProcessEnvironment, { ...process.env, PATH: binDir }),
         );
       }).pipe(Effect.scoped),
+  );
+
+  it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
+    "starts a brand-new install with every provider off, CLIs on PATH included",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const binDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-provider-cli-path-" });
+        for (const binary of ["claude", "cursor-agent", "cmd", "droid"]) {
+          yield* fs.writeFileString(path.join(binDir, binary), "#!/bin/sh\n");
+          yield* fs.chmod(path.join(binDir, binary), 0o755);
+        }
+
+        yield* Effect.gen(function* () {
+          const serverConfig = yield* ServerConfig.ServerConfig;
+          const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+
+          const { providers } = yield* serverSettings.getSettings;
+          for (const [provider, config] of Object.entries(providers)) {
+            assert.isFalse(config.enabled, provider);
+          }
+          // Written down, so a later boot (or a CLI installed later) changes nothing.
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          const persisted = JSON.parse(yield* fs.readFileString(serverConfig.settingsPath));
+          for (const provider of ["codex", "claudeAgent", "cursor", "commandCode", "droid"]) {
+            assert.isFalse(persisted.providers[provider].enabled, provider);
+          }
+        }).pipe(
+          Effect.provide(makeServerSettingsLayer()),
+          Effect.provideService(HostProcessEnvironment, { ...process.env, PATH: binDir }),
+        );
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("keeps the default providers of an install that has run one", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* recordProviderUsage("codex");
+
+      const { providers } = yield* serverSettings.getSettings;
+      assert.isTrue(providers.codex.enabled);
+      assert.isTrue(providers.claudeAgent.enabled);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("keeps the default providers of an install with a settings file", () =>
+    Effect.gen(function* () {
+      yield* markExistingInstall;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+
+      const { providers } = yield* serverSettings.getSettings;
+      assert.isTrue(providers.codex.enabled);
+      assert.isTrue(providers.claudeAgent.enabled);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
   it.effect("folds a legacy in-config enabled flag into the envelope on load", () =>
@@ -997,6 +1061,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
   it.effect("trims provider path settings when updates are applied", () =>
     Effect.gen(function* () {
+      yield* markExistingInstall;
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
 
       const next = yield* serverSettings.updateSettings({
@@ -1119,21 +1184,24 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           otlpTracesUrl: "http://localhost:4318/v1/traces",
           otlpMetricsUrl: "http://localhost:4318/v1/metrics",
         },
+        // A fresh install writes every provider off until the user picks one.
         providers: {
           codex: {
+            enabled: false,
             binaryPath: "/opt/homebrew/bin/codex",
           },
-          cursor: {
-            enabled: false,
-          },
-          grok: {
-            enabled: false,
-          },
+          claudeAgent: { enabled: false },
+          cursor: { enabled: false },
+          grok: { enabled: false },
           opencode: {
             enabled: false,
             serverUrl: "http://127.0.0.1:4096",
             serverPassword: "secret-password",
           },
+          commandCode: { enabled: false },
+          droid: { enabled: false },
+          devin: { enabled: false },
+          pi: { enabled: false },
         },
         backgroundActivity: {
           schemaVersion: 1,

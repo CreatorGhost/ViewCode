@@ -10,7 +10,8 @@
  */
 import {
   DEFAULT_SERVER_SETTINGS,
-  type ProviderDriverKind,
+  type DetectedProvider,
+  ProviderDriverKind,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ServerSettings,
@@ -123,3 +124,30 @@ export const providerLaunchBlockReason = Effect.fn("providerLaunchBlockReason")(
       : null;
   },
 );
+
+/**
+ * Where each built-in provider's executable would be found, by filesystem
+ * lookup only. Never spawns. Backs `server.detectProviders`, which the
+ * first-run picker uses before anything is enabled.
+ */
+export const detectProviders = Effect.fn("detectProviders")(function* (
+  settings: ServerSettings,
+): Effect.fn.Return<ReadonlyArray<DetectedProvider>, never, FileSystem.FileSystem | Path.Path> {
+  return yield* Effect.forEach(
+    [...BUILT_IN_PROVIDER_DRIVER_KINDS].map((driver) => ProviderDriverKind.make(driver)),
+    (driver) =>
+      Effect.gen(function* () {
+        const entry = instanceEntry(settings, driver) ?? { driver };
+        const executable = yield* resolveInstanceExecutable(
+          entry.driver === driver ? entry : { driver },
+        );
+        // `undefined`: nothing local to find (OpenCode on an external server
+        // counts as available) or no way to look (Antigravity without its
+        // installation service).
+        const path = executable ?? null;
+        const installed = path !== null || (executable === undefined && driver === "opencode");
+        return { driver, installed, path } satisfies DetectedProvider;
+      }),
+    { concurrency: "unbounded" },
+  );
+});

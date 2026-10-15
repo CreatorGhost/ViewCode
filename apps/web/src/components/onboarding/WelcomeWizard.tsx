@@ -65,6 +65,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { connectPairing } from "../../connection/onboarding";
 import { getProviderSummary } from "../settings/providerStatus";
 import { resolveOnboardingAgentDrivers } from "../../onboarding/onboardingAgents.logic";
+import { ProviderPicker } from "./ProviderPicker";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { ChatGptWelcomeCoordinator } from "../settings/ChatGptWelcomeCoordinator";
 import { AddManagedCodexAccountDialog, CodexSetupSection } from "../settings/CodexSetupSection";
@@ -650,7 +651,7 @@ function AgentsStep({
   return (
     <StepShell
       title="Connect your agents"
-      description="Choose an agent to start coding. You can add more later."
+      description="Choose the AI tools to start coding with. You can add more later in Settings."
     >
       <ScrollArea scrollFade className="mt-5 h-auto max-h-[min(32rem,55dvh)]">
         <div className="space-y-5 pr-3">
@@ -748,11 +749,12 @@ function ConnectedAgentsStep({
     <section>
       <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
       {primaryAgents.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {providers === null
-            ? "Checking agents..."
-            : "No agents enabled. Turn agents on in Settings, Providers."}
-        </p>
+        providers === null ? (
+          <p className="text-xs text-muted-foreground">Checking agents...</p>
+        ) : (
+          // Nothing is on yet (a new install starts that way): pick what may run.
+          <ProviderPicker environmentId={environmentId} />
+        )
       ) : null}
       <div className="space-y-1.5">
         {primaryAgents.map(({ driver, provider, instanceId }) =>

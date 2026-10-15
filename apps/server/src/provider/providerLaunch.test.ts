@@ -12,7 +12,7 @@ import {
   ServerSettingsPatch,
   type ServerSettings,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelSelection } from "@t3tools/shared/model";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as DateTime from "effect/DateTime";
@@ -48,6 +48,7 @@ import * as ResetCreditCoordinator from "./Layers/resetCreditCoordinator.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import * as OpenCodeRuntime from "./opencodeRuntime.ts";
 import type { ProviderInstance } from "./ProviderDriver.ts";
+import { detectProviders } from "./providerLaunch.ts";
 import * as ProviderInstanceRegistry from "./Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./Services/ProviderRegistry.ts";
 
@@ -73,7 +74,8 @@ const stubbedSettings = (dir: string) =>
     ...DEFAULT_SERVER_SETTINGS,
     providers: {
       ...DEFAULT_SERVER_SETTINGS.providers,
-      codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, binaryPath: `${dir}/codex` },
+      // Never a file named `codex`: endpoint security on managed Macs flags the name.
+      codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, binaryPath: `${dir}/codex-stub` },
       claudeAgent: {
         ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent,
         binaryPath: `${dir}/claude`,
@@ -210,10 +212,17 @@ const buildRegistry = (
 
 describe("boot probes", () => {
   it.effect.skipIf(windowsHost)(
-    "probes the default-enabled providers of a fresh environment at boot",
+    "probes the default-enabled providers of an existing install at boot",
     () =>
       Effect.gen(function* () {
-        const dir = makeStubDir(["codex", "claude", "cursor-agent", "grok", "opencode", "cmd"]);
+        const dir = makeStubDir([
+          "codex-stub",
+          "claude",
+          "cursor-agent",
+          "grok",
+          "opencode",
+          "cmd",
+        ]);
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => NodeFS.rmSync(dir, { recursive: true })),
         );
@@ -239,7 +248,7 @@ describe("boot probes", () => {
           yield* Deferred.await(claudeSpawned);
           yield* registry.refresh();
           // Codex and Claude are on by default; the others stay off.
-          assert.includeMembers([...new Set(spawned)], [`${dir}/codex`, `${dir}/claude`]);
+          assert.includeMembers([...new Set(spawned)], [`${dir}/codex-stub`, `${dir}/claude`]);
           assert.notInclude(spawned, `${dir}/cursor-agent`);
         }).pipe(Effect.provide(services));
       }).pipe(
@@ -257,6 +266,61 @@ describe("boot probes", () => {
         ),
       ),
   );
+});
+
+describe("detectProviders", () => {
+  it.effect.skipIf(windowsHost)("finds CLIs on disk without running them", () =>
+    Effect.gen(function* () {
+      const dir = makeStubDir(["claude"]);
+      yield* Effect.addFinalizer(() => Effect.sync(() => NodeFS.rmSync(dir, { recursive: true })));
+      // No spawner is in scope: the lookup cannot start a process.
+      const detected = yield* detectProviders(stubbedSettings(dir));
+      const byDriver = new Map(detected.map((provider) => [provider.driver, provider]));
+      assert.deepStrictEqual(byDriver.get(ProviderDriverKind.make("claudeAgent")), {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        installed: true,
+        path: `${dir}/claude`,
+      });
+      assert.isFalse(byDriver.get(ProviderDriverKind.make("grok"))?.installed);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("a brand-new data folder", () => {
+  it.effect.skipIf(windowsHost)("runs no provider binary until the user enables one", () => {
+    // Every CLI but Codex is on PATH; Codex is never staged under its own name.
+    const dir = makeStubDir(["claude", "cursor-agent", "grok", "opencode", "cmd", "droid"]);
+    return Effect.gen(function* () {
+      yield* Effect.addFinalizer(() => Effect.sync(() => NodeFS.rmSync(dir, { recursive: true })));
+      const settings = yield* ServerSettingsModule.ServerSettingsService;
+      const { spawner, spawned } = makeRecordingSpawner(() => Effect.void);
+      const scope = yield* Scope.make();
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+      const services = yield* Layer.build(buildRegistry(settings, spawner)).pipe(
+        Scope.provide(scope),
+      );
+      yield* Effect.gen(function* () {
+        const registry = yield* ProviderRegistry.ProviderRegistry;
+        const providers = yield* registry.refresh();
+        assert.deepStrictEqual(spawned, []);
+        assert.isTrue(providers.every((provider) => !provider.enabled));
+      }).pipe(Effect.provide(services));
+    }).pipe(
+      Effect.provide(
+        ServerSettingsModule.layer.pipe(
+          Layer.provide(ServerSecretStore.layer),
+          Layer.provideMerge(Layer.fresh(SqlitePersistenceMemory)),
+          Layer.provideMerge(
+            Layer.fresh(
+              ServerConfig.layerTest(process.cwd(), { prefix: "t3-provider-launch-fresh-" }),
+            ),
+          ),
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+      Effect.provideService(HostProcessEnvironment, { ...process.env, PATH: dir }),
+    );
+  });
 });
 
 describe("turning a provider off", () => {

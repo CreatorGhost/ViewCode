@@ -1,10 +1,12 @@
 # Running ViewCode on a managed (EDR-protected) Mac
 
-> **Managed-only defaults were lifted.** The first-run provider gate (installed
-> providers are probed at boot again), the click-only Same Wi-Fi test (it runs
-> when Connect phone opens) and Tailscale Serve being off at launch (now on when
-> Tailscale is signed in). What respects an organisation's policy files stays.
-> The report below is kept as a record; the current findings are next.
+> **First-run provider gate.** A brand-new data folder (no `settings.json` and no
+> provider ever used) writes every provider off, and the welcome screen asks
+> which to turn on; finding CLIs there is a `PATH` lookup, never a run. Existing
+> installs keep their providers. The other managed-only defaults stay lifted:
+> the Same Wi-Fi test runs when Connect phone opens and Tailscale Serve is on
+> when Tailscale is signed in. The report below is kept as a record; the current
+> findings are next.
 
 ## October 2026: what Cortex XDR actually flags
 
