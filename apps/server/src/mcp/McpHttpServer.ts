@@ -35,6 +35,11 @@ import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { AgentsToolkitHandlersLive } from "./toolkits/agents/handlers.ts";
 import { AgentsToolkit } from "./toolkits/agents/tools.ts";
 import { GoalToolkitHandlersLive } from "./toolkits/goal/handlers.ts";
+import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
+import * as CursorHistory from "../project/CursorHistory.ts";
+import * as T3CodeHistory from "../project/T3CodeHistory.ts";
+import { HistoryToolkitHandlersLive } from "./toolkits/history/handlers.ts";
+import { HistoryToolkit } from "./toolkits/history/tools.ts";
 import { GoalToolkit } from "./toolkits/goal/tools.ts";
 import * as ThreadGoals from "../orchestration/ThreadGoals.ts";
 import { HtmlToolkitHandlersLive } from "./toolkits/html/handlers.ts";
@@ -664,6 +669,15 @@ export const GoalToolkitRegistrationLive = McpServer.toolkit(GoalToolkit).pipe(
   Layer.provide(ThreadGoals.layer),
 );
 
+export const HistoryToolkitRegistrationLive = McpServer.toolkit(HistoryToolkit).pipe(
+  Layer.provide(HistoryToolkitHandlersLive),
+  Layer.provide(
+    AgentSessionScanner.layer.pipe(
+      Layer.provide(Layer.merge(T3CodeHistory.layer, CursorHistory.layer)),
+    ),
+  ),
+);
+
 export const HtmlToolkitRegistrationLive = McpServer.toolkit(HtmlToolkit).pipe(
   Layer.provide(HtmlToolkitHandlersLive),
   Layer.provide(HtmlRender.layer),
@@ -694,6 +708,7 @@ export const layer = Layer.mergeAll(
   PullRequestsToolkitRegistrationLive,
   AgentsToolkitRegistrationLive,
   GoalToolkitRegistrationLive,
+  HistoryToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
   HtmlToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

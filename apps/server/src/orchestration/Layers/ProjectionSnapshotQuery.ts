@@ -3406,8 +3406,8 @@ pending_approval_requests AS (
           if (
             Option.isNone(source) ||
             row.threadId !==
-              // T3 Code threads are named by source, not instance (AgentSessionImporter).
-              `import:${source.value.provider === "t3code" ? "t3code" : source.value.providerInstanceId}:${source.value.providerSessionId}`
+              // T3 Code and Cursor threads are named by source, not instance (AgentSessionImporter).
+              `import:${source.value.provider === "t3code" || source.value.provider === "cursor" ? source.value.provider : source.value.providerInstanceId}:${source.value.providerSessionId}`
           ) {
             return [];
           }

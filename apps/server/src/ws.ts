@@ -166,6 +166,7 @@ import * as NewProject from "./project/NewProject.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
+import * as CursorHistory from "./project/CursorHistory.ts";
 import * as T3CodeHistory from "./project/T3CodeHistory.ts";
 import {
   importRecentAgentThreads,
@@ -4520,7 +4521,11 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
-              Layer.provide(AgentSessionScanner.layer.pipe(Layer.provide(T3CodeHistory.layer))),
+              Layer.provide(
+                AgentSessionScanner.layer.pipe(
+                  Layer.provide(Layer.merge(T3CodeHistory.layer, CursorHistory.layer)),
+                ),
+              ),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               // One server-lifetime service means clients share the same PR caches, and a WS

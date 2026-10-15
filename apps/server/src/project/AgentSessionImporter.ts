@@ -118,10 +118,13 @@ const importKey = (source: ImportSourceRef) =>
     ? sessionKey("t3code", source.providerSessionId)
     : sessionKey(source.providerInstanceId, source.providerSessionId);
 
-/** Threads are named `import:<instance>:<session>`, and T3 Code threads `import:t3code:<thread>`. */
+/**
+ * Threads are named `import:<instance>:<session>`; T3 Code and Cursor threads by their source,
+ * `import:t3code:<thread>` and `import:cursor:<chat>`.
+ */
 const importedThreadId = (source: ImportSourceRef) =>
   ThreadId.make(
-    `import:${source.provider === "t3code" ? "t3code" : source.providerInstanceId}:${source.providerSessionId}`,
+    `import:${source.provider === "t3code" || source.provider === "cursor" ? source.provider : source.providerInstanceId}:${source.providerSessionId}`,
   );
 
 /** The project's root, checked against the one the client saw. */
@@ -158,6 +161,8 @@ const resolveImportWorkspaceRoot = Effect.fn("resolveImportWorkspaceRoot")(funct
 function importedResumeCursor(threadId: ThreadId, thread: AgentSessionScanner.AgentSessionThread) {
   if (thread.source === "codex") return { threadId: thread.providerSessionId };
   if (thread.source === "claudeAgent") return { threadId, resume: thread.providerSessionId };
+  // Cursor chats continue with a recap: ACP `session/load` of a Cursor CLI chat is untested.
+  if (thread.source === "cursor") return null;
   const resume = thread.resume;
   if (resume === undefined) return null;
   if (resume.provider === "codex") return { threadId: resume.sessionId };
@@ -205,10 +210,11 @@ export const listImportableAgentSessions = Effect.fn("listImportableAgentSession
       .flatMap((binding) => resumeCursorSessionIds(binding.resumeCursor)),
   );
   const threads: Array<AgentSessionScanner.AgentSessionThread> = [];
-  let warning: string | null = null;
+  // Each history source may warn; keep them all.
+  const warnings = new Set<string>();
   yield* Stream.runForEach(scanner.recentThreads(workspaceRoot), (outcome) =>
     Effect.sync(() => {
-      if (outcome._tag === "Warning") warning = outcome.message;
+      if (outcome._tag === "Warning") warnings.add(outcome.message);
       if (outcome._tag === "Importable") threads.push(outcome.thread);
     }),
   );
@@ -238,7 +244,7 @@ export const listImportableAgentSessions = Effect.fn("listImportableAgentSession
   sessions.sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
   return {
     sessions,
-    ...(warning === null ? {} : { warning }),
+    ...(warnings.size === 0 ? {} : { warning: [...warnings].join(" ") }),
   } satisfies AgentSessionListResult;
 });
 

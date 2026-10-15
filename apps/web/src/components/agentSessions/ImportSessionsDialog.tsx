@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentSessionImport, agentSessionList } from "../../state/agentSessions";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
-import { ClaudeAI, OpenAI, T3CodeIcon, type Icon } from "../Icons";
+import { ClaudeAI, CursorIcon, OpenAI, T3CodeIcon, type Icon } from "../Icons";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -50,7 +50,7 @@ function plural(count: number, noun: string) {
 }
 
 /**
- * Pick past T3 Code, Claude Code and Codex conversations to bring into one
+ * Pick past T3 Code, Claude Code, Codex and Cursor conversations to bring into one
  * project. Nothing is checked up front; sessions that look like agent plumbing
  * (sub-agents, agent-to-agent messages, fragments) sit behind "Show hidden".
  */
@@ -194,8 +194,8 @@ function ImportSessionsPopup({
       <DialogHeader>
         <DialogTitle>Import past sessions</DialogTitle>
         <DialogDescription>
-          Choose T3 Code conversations, or Claude Code and Codex ones from the last 30 days, to
-          continue in {target.title}. Imported sessions appear in the sidebar as threads.
+          Choose T3 Code conversations, or Claude Code, Codex and Cursor ones from the last 30 days,
+          to continue in {target.title}. Imported sessions appear in the sidebar as threads.
         </DialogDescription>
       </DialogHeader>
       <DialogPanel>
@@ -214,7 +214,7 @@ function ImportSessionsPopup({
         ) : list.sessions.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             {list.warning ??
-              "No T3 Code conversations, or Claude Code or Codex sessions from the last 30 days, in this folder."}
+              "No T3 Code conversations, or Claude Code, Codex or Cursor sessions from the last 30 days, in this folder."}
           </p>
         ) : (
           <div className="space-y-0.5">
@@ -275,6 +275,7 @@ function ImportSessionsPopup({
 const SOURCE_ICONS = {
   claudeAgent: { Icon: ClaudeAI, label: "Claude Code" },
   codex: { Icon: OpenAI, label: "Codex" },
+  cursor: { Icon: CursorIcon, label: "Cursor" },
   t3code: { Icon: T3CodeIcon, label: "T3 Code" },
 } satisfies Record<AgentSessionSummary["provider"], { Icon: Icon; label: string }>;
 
