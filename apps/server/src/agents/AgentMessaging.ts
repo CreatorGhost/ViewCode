@@ -751,6 +751,14 @@ const make = Effect.gen(function* () {
         );
       }
       const keepModel = providerId === undefined && model === undefined;
+      // A signed-out account lists no models, so name the real problem
+      // instead of reporting an unknown model.
+      if (!keepModel && provider.auth.status === "unauthenticated") {
+        const name = provider.displayName ?? String(provider.driver);
+        return yield* fail(
+          `${name} (${instanceId}) is not signed in${provider.message ? `: ${provider.message}` : "."} Sign it in from Settings, or pick another provider from viewcode_list_models.`,
+        );
+      }
       const slug = keepModel
         ? fallback.model
         : model === undefined
@@ -763,7 +771,9 @@ const make = Effect.gen(function* () {
             )?.slug;
       if (!slug) {
         return yield* fail(
-          `Unknown model "${model}" for ${instanceId}. Call viewcode_list_models for valid ids.`,
+          model === undefined
+            ? `${instanceId} has no models available. Call viewcode_list_models for valid ids.`
+            : `Unknown model "${model}" for ${instanceId}. Call viewcode_list_models for valid ids.`,
         );
       }
       const unchanged = String(fallback.instanceId) === instanceId && fallback.model === slug;

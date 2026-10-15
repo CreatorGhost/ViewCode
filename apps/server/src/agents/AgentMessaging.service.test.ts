@@ -313,6 +313,7 @@ const makeHarness = Effect.gen(function* () {
                 driver: "claudeAgent",
                 enabled: true,
                 status: "ready",
+                auth: { status: "authenticated" },
                 ...(reading ? { usageLimits: reading } : {}),
                 models: [{ slug: "claude-sonnet-4-6", name: "Sonnet" }],
               },
@@ -321,6 +322,7 @@ const makeHarness = Effect.gen(function* () {
                 driver: "codex",
                 enabled: true,
                 status: "ready",
+                auth: { status: "authenticated" },
                 models: [
                   {
                     slug: "gpt-5.4",
@@ -353,6 +355,16 @@ const makeHarness = Effect.gen(function* () {
                   },
                   { slug: "gpt-5.5", name: "GPT-5.5" },
                 ],
+              },
+              {
+                instanceId: "codex_work",
+                driver: "codex",
+                displayName: "Work",
+                enabled: true,
+                status: "ready",
+                auth: { status: "unauthenticated" },
+                message: "Sign in with ChatGPT to use Codex.",
+                models: [],
               },
             ] as never,
         ),
@@ -1089,6 +1101,19 @@ describe("AgentMessaging", () => {
             .spawnAgent(LEAD, { name: "Helper", prompt: "Go.", providerId: "codex", effort: "max" })
             .pipe(Effect.flip);
           assert.include(error.message, "low, medium, high, xhigh");
+          assert.equal(harness.selections.length, 0);
+        }),
+      ),
+    );
+
+    it.effect("spawn on a signed-out account says it is not signed in", () =>
+      withMessaging((harness, messaging) =>
+        Effect.gen(function* () {
+          const error = yield* messaging
+            .spawnAgent(LEAD, { name: "Helper", prompt: "Go.", providerId: "codex_work" })
+            .pipe(Effect.flip);
+          assert.include(error.message, "Work (codex_work) is not signed in");
+          assert.notInclude(error.message, "undefined");
           assert.equal(harness.selections.length, 0);
         }),
       ),
