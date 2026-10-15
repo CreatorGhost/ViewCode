@@ -1028,9 +1028,11 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 
 ### Session import
 
-- Three sources share one scan → list → import flow: Claude Code and Codex
-  session files, and a T3 Code install (`t3code`, `project/T3CodeHistory.ts`).
-  Nothing is imported by default: sessions are picked one by one.
+- Four sources share one scan → list → import flow: Claude Code and Codex
+  session files, a T3 Code install (`t3code`, `project/T3CodeHistory.ts`) and
+  Cursor (`cursor`, `project/CursorHistory.ts`). Nothing is imported by
+  default: sessions are picked one by one. Agents reach the same flow through
+  the `history` MCP toolkit.
 - **Never read T3's live database directly.** T3 Code may be running. The file
   is attached with `mode=ro` to a private temp database, the needed rows are
   copied in one read transaction, the source is detached, and the copy is
@@ -1048,6 +1050,22 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   session ran on the same instance the thread continues on, otherwise null.
   An `import:` thread whose binding has no cursor gets a recap on its first
   turn (`ProviderCommandReactor`, shown as the stale-session notice).
+- **Cursor's stores are private and change often** (composerData `_v` 16–18,
+  three CLI versions in two weeks), so they get the same read-only treatment
+  as T3's: each SQLite file is attached `mode=ro` inside one read transaction,
+  only the rows of the chats asked for are read (the editor's `state.vscdb`
+  can be 140+ MB), and an unexpected shape is an "unsupported" warning. The
+  CLI (`~/.cursor/chats/<md5 of folder>/<chat>/`): `meta.json` places the chat;
+  `store.db` `meta['0']` is hex JSON naming a root blob, the root is protobuf
+  whose field-1 entries are message blob ids in order, messages are JSON and
+  the typed prompt sits in `<user_query>`. It also holds `blobEncryptionKey`,
+  which is never read into a result or logged. The editor (`Cursor/User` in
+  each platform's app-data folder): `workspaceStorage/*/workspace.json` maps
+  storage ids to folders (several ids per folder), `composerHeaders` places
+  chats, `cursorDiskKV` has `composerData:<id>` and `bubbleId:<id>:<bubble>`.
+  Cursor threads are `import:cursor:<chat>` (editor chats `editor:<id>`) and
+  continue with a recap: ACP `session/load` of a CLI chat is untested. Chats
+  ViewCode ran itself live in `~/.cursor/acp-sessions`, which is not read.
 - `agentSessions.list` reads the recent transcripts without writing and marks
   junk `hidden` with a reason (`classifyAgentSession`): Codex sub-agent and
   internal rollouts, sessions opened by an agent message (Traycer or

@@ -45,6 +45,9 @@ import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
+import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
+import * as CursorHistory from "./project/CursorHistory.ts";
+import * as T3CodeHistory from "./project/T3CodeHistory.ts";
 import * as PullRequestAgentReview from "./pullRequest/PullRequestAgentReview.ts";
 import * as TurnOrigin from "./orchestration/TurnOrigin.ts";
 import * as LearnedReviewStyles from "./review/LearnedReviewStyles.ts";
@@ -400,6 +403,11 @@ const RepositoryIdentityResolverLayerLive = Layer.effect(
   }),
 ).pipe(Layer.provide(SourceControlProviderRegistryLayerLive), Layer.provide(ProcessRunner.layer));
 
+/** One scanner for the server, so its import read lock covers every client and the MCP tools. */
+const AgentSessionScannerLive = AgentSessionScanner.layer.pipe(
+  Layer.provide(Layer.merge(T3CodeHistory.layer, CursorHistory.layer)),
+);
+
 const PullRequestServiceLive = PullRequestService.layer.pipe(
   Layer.provide(PullRequestProviderRegistry.layer),
   // Where the viewed-file marks live for a host that keeps none of its own.
@@ -700,6 +708,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),
+  Layer.provide(AgentSessionScannerLive),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(DesktopAppUpdateLayerLive))),
   Layer.provide(commandReadinessLayer),
