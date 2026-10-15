@@ -53,6 +53,10 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isCommandAvailable } from "@t3tools/shared/shell";
 import { writeFileStringAtomically } from "./atomicWrite.ts";
 import { resolveCommandCodeBinary } from "./provider/commandCodeCli.ts";
+import {
+  AdminProviderPolicyRef,
+  applyAdminProviderPolicy,
+} from "./provider/AdminProviderPolicy.ts";
 import * as ServerConfig from "./config.ts";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
@@ -614,6 +618,11 @@ const make = Effect.gen(function* () {
   const startedRef = yield* Ref.make(false);
   const startedDeferred = yield* Deferred.make<void, ServerSettingsError>();
   const watcherScope = yield* Scope.make("sequential");
+  // IT's machine-wide policy wins over settings.json: what it blocks reads as off everywhere.
+  const adminPolicy = yield* AdminProviderPolicyRef;
+  if (adminPolicy.problem !== null) yield* Effect.logWarning(adminPolicy.problem);
+  const resolveEffectiveSettings = (settings: ServerSettings) =>
+    resolveTextGenerationProvider(applyAdminProviderPolicy(settings, adminPolicy.blockedDrivers));
   yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
 
   const emitChange = (settings: ServerSettings) =>
@@ -950,7 +959,7 @@ const make = Effect.gen(function* () {
           ),
         ),
       ),
-      Stream.map(resolveTextGenerationProvider),
+      Stream.map(resolveEffectiveSettings),
     );
 
   type SecretChange = {
@@ -1211,7 +1220,7 @@ const make = Effect.gen(function* () {
         );
         yield* Cache.set(settingsCache, cacheKey, next);
         yield* emitChange(next);
-        return resolveTextGenerationProvider(materialized);
+        return resolveEffectiveSettings(materialized);
       }),
     );
 
@@ -1288,7 +1297,7 @@ const make = Effect.gen(function* () {
     ready: Deferred.await(startedDeferred),
     getSettings: getSettingsFromCache.pipe(
       Effect.flatMap(materializeProviderEnvironmentSecrets),
-      Effect.map(resolveTextGenerationProvider),
+      Effect.map(resolveEffectiveSettings),
     ),
     updateSettings,
     get streamChanges() {

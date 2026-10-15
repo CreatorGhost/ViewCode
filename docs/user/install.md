@@ -38,6 +38,24 @@ to your shell profile so Node trusts the certificates your company installed.
 - Leave the background service, a desktop app you built yourself and Computer use
   off until IT approves them.
 
+IT can block a provider for everyone on a machine. A blocked provider stays off
+whatever the user picks, never runs, and shows as **Blocked by your organization**.
+Deploy this policy, then restart ViewCode:
+
+```json
+{ "providers": { "codex": { "allowed": false } } }
+```
+
+| Platform | Where                                                                      |
+| -------- | -------------------------------------------------------------------------- |
+| macOS    | MDM managed preferences for `dev.viewcode.app` (the same keys, as a plist) |
+| Linux    | `/etc/viewcode/policy.json`                                                |
+| Windows  | `C:\ProgramData\ViewCode\policy.json`                                      |
+
+Provider keys are `codex`, `claudeAgent`, `cursor`, `grok`, `opencode`,
+`antigravity`, `commandCode`, `droid`, `devin` and `pi`. A policy file that cannot
+be read is reported in the server log and blocks nothing.
+
 ## Command line
 
 ```bash

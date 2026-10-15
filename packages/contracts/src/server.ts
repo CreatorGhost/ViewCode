@@ -641,6 +641,12 @@ export const ServerConfig = Schema.Struct({
   shellRevealInFileManager: Schema.optionalKey(Schema.Boolean),
   /** File-manager wording clients should use for reveal actions. */
   shellRevealInFileManagerKind: Schema.optionalKey(FileManagerRevealKind),
+  /**
+   * ViewCode: providers this machine's administrator policy blocks. They read
+   * as off in `settings` whatever the user chose; clients show them as blocked.
+   * Absent when no policy blocks anything.
+   */
+  blockedProviderDrivers: Schema.optionalKey(Schema.Array(ProviderDriverKind)),
   /** Whether thread subscriptions can emit an opt-in catch-up completion marker. */
   threadResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
   /**

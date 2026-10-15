@@ -57,6 +57,7 @@ import {
   ProjectListEntriesError,
   ProjectListIconCandidatesError,
   ProjectReadFileError,
+  ProviderDriverKind,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
@@ -130,6 +131,7 @@ import { makeProviderInstallation } from "./provider/providerInstallation.ts";
 import { VoiceModelStore } from "./voiceModels/VoiceModelStore.ts";
 import { AntigravityInstallation } from "./provider/AntigravityInstallation.ts";
 import { detectProviders } from "./provider/providerLaunch.ts";
+import { AdminProviderPolicyRef } from "./provider/AdminProviderPolicy.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -2150,6 +2152,7 @@ const makeWsRpcLayer = (
               )
             : undefined;
 
+          const adminPolicy = yield* AdminProviderPolicyRef;
           return {
             environment,
             auth,
@@ -2186,6 +2189,13 @@ const makeWsRpcLayer = (
               : {
                   shellRevealInFileManager: true,
                   shellRevealInFileManagerKind: fileManagerRevealKind,
+                }),
+            ...(adminPolicy.blockedDrivers.length === 0
+              ? {}
+              : {
+                  blockedProviderDrivers: adminPolicy.blockedDrivers.map((driver) =>
+                    ProviderDriverKind.make(driver),
+                  ),
                 }),
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,

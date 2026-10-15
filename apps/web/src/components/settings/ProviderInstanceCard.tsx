@@ -381,6 +381,8 @@ interface ProviderInstanceCardProps {
   readonly selected?: boolean | undefined;
   readonly onSelect?: (() => void) | undefined;
   readonly readOnly?: boolean | undefined;
+  /** The machine's administrator policy blocks this provider: it stays off. */
+  readonly blockedByPolicy?: boolean | undefined;
   readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
   /**
    * Pass `undefined` to hide the delete footer entirely. Built-in default
@@ -438,6 +440,7 @@ export function ProviderInstanceCard({
   selected = false,
   onSelect,
   readOnly = false,
+  blockedByPolicy = false,
   onUpdate,
   onDelete,
   headerAction,
@@ -461,9 +464,11 @@ export function ProviderInstanceCard({
     ? ((liveProvider?.status as ProviderStatusKey | undefined) ?? "warning")
     : "disabled";
   const statusStyle = PROVIDER_STATUS_STYLES[statusKey];
-  const summary = enabled
-    ? getProviderSummary(liveProvider)
-    : { headline: "Disabled", detail: null };
+  const summary = blockedByPolicy
+    ? { headline: "Blocked by your organization", detail: null }
+    : enabled
+      ? getProviderSummary(liveProvider)
+      : { headline: "Disabled", detail: null };
   const authEmail = liveProvider?.auth.email?.trim();
   const isAuthenticated = enabled && liveProvider?.auth.status === "authenticated";
   const authLabel =
@@ -734,8 +739,8 @@ export function ProviderInstanceCard({
         </div>
         <span className="flex h-5 shrink-0 items-center">
           <Switch
-            checked={enabled}
-            disabled={readOnly}
+            checked={enabled && !blockedByPolicy}
+            disabled={readOnly || blockedByPolicy}
             onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
             aria-label={`Enable ${displayName}`}
           />
