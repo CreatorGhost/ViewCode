@@ -194,7 +194,7 @@ function ImportSessionsPopup({
       <DialogHeader>
         <DialogTitle>Import past sessions</DialogTitle>
         <DialogDescription>
-          Choose T3 Code conversations, or Claude Code, Codex and Cursor ones from the last 30 days,
+          Choose T3 Code conversations, or Claude Code, Codex and Cursor ones from the last 60 days,
           to continue in {target.title}. Imported sessions appear in the sidebar as threads.
         </DialogDescription>
       </DialogHeader>
@@ -214,7 +214,7 @@ function ImportSessionsPopup({
         ) : list.sessions.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             {list.warning ??
-              "No T3 Code conversations, or Claude Code, Codex or Cursor sessions from the last 30 days, in this folder."}
+              "No T3 Code conversations, or Claude Code, Codex or Cursor sessions from the last 60 days, in this folder."}
           </p>
         ) : (
           <div className="space-y-0.5">
