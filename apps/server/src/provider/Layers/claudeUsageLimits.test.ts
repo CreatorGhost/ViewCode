@@ -159,6 +159,49 @@ describe("claudeUsageResponseToLimits", () => {
     ).toBe(unsupported);
   });
 
+  it("shows a spend-capped account's monthly spend instead of no usage", () => {
+    // Observed on a usage-based Enterprise seat: no windows, a $100 monthly cap.
+    expect(
+      claudeUsageResponseToLimits({
+        checkedAt,
+        response: {
+          rate_limits_available: true,
+          rate_limits: {
+            five_hour: null,
+            seven_day: null,
+            extra_usage: {
+              is_enabled: true,
+              monthly_limit: 10000,
+              used_credits: 1705,
+              utilization: 17.05,
+              currency: "USD",
+              decimal_places: 2,
+            },
+          } as never,
+        },
+      }).limits.windows,
+    ).toEqual([
+      {
+        id: "monthly_spend",
+        kind: "monthly",
+        label: "Monthly spend · $17.05 of $100.00",
+        usedPercent: 17.05,
+      },
+    ]);
+    // Turned off, or with no limit set, it adds nothing.
+    for (const extra_usage of [
+      { is_enabled: false, monthly_limit: 10000, used_credits: 1705, utilization: 17 },
+      { is_enabled: true, monthly_limit: null, used_credits: 1705, utilization: null },
+    ]) {
+      expect(
+        claudeUsageResponseToLimits({
+          checkedAt,
+          response: { rate_limits_available: true, rate_limits: { extra_usage } },
+        }).limits.windows,
+      ).toEqual([]);
+    }
+  });
+
   it("skips a window the endpoint reports without a utilization", () => {
     expect(
       claudeUsageResponseToLimits({

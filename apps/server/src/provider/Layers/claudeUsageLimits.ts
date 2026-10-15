@@ -157,6 +157,42 @@ export function claudeRateLimitEventToUpdate(
 }
 
 /**
+ * A spend-capped account (usage-based Enterprise) has no session or weekly
+ * window: its only ceiling is a monthly spend limit, billed at API prices. It
+ * reads as a monthly row, so the account is not shown as having no usage.
+ * `decimal_places` is not in the SDK typings; the observed value is 2.
+ */
+function extraUsageWindow(rateLimits: object): ServerProviderUsageWindow | undefined {
+  const extra = (rateLimits as { readonly extra_usage?: unknown }).extra_usage;
+  if (typeof extra !== "object" || extra === null) return undefined;
+  const usage = extra as {
+    readonly is_enabled?: unknown;
+    readonly monthly_limit?: unknown;
+    readonly used_credits?: unknown;
+    readonly utilization?: unknown;
+    readonly currency?: unknown;
+    readonly decimal_places?: unknown;
+  };
+  const limit = usage.monthly_limit;
+  if (usage.is_enabled !== true || typeof limit !== "number" || limit <= 0) return undefined;
+  const used = typeof usage.used_credits === "number" ? usage.used_credits : 0;
+  const scale = 10 ** (typeof usage.decimal_places === "number" ? usage.decimal_places : 2);
+  const symbol =
+    usage.currency === undefined || usage.currency === null || usage.currency === "USD"
+      ? "$"
+      : `${String(usage.currency)} `;
+  const amount = (minor: number) => `${symbol}${(minor / scale).toFixed(2)}`;
+  return {
+    id: "monthly_spend",
+    kind: "monthly",
+    label: `Monthly spend · ${amount(used)} of ${amount(limit)}`,
+    usedPercent: clampPercent(
+      typeof usage.utilization === "number" ? usage.utilization : (used / limit) * 100,
+    ),
+  };
+}
+
+/**
  * Percentages on the `get_usage` response are already 0–100. Also yields the
  * scoped-bucket names the response carried, for the event mapper to reuse.
  */
@@ -197,6 +233,8 @@ export function claudeUsageResponseToLimits(input: {
     // skipped would let a mid-turn event open a row the probe never showed.
     overageIncluded ??= entry.display_name;
   }
+  const spend = extraUsageWindow(response.rate_limits);
+  if (spend) windows.push(spend);
   // CLI 2.1.283 forwards the raw usage payload through get_usage. This opt-in
   // block is not in SDK types and may be absent; absence never means zero resets.
   const extras = decodeUsageExtras(response.rate_limits);
