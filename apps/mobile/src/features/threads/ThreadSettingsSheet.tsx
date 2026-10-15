@@ -14,7 +14,12 @@ import {
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
-import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import {
+  usePreventRemove,
+  useNavigation,
+  useRoute,
+  type RouteProp,
+} from "@react-navigation/native";
 import {
   createNativeStackNavigator,
   type NativeStackNavigationProp,
@@ -27,6 +32,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -1109,10 +1115,37 @@ function ThreadSettingsModelsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<ThreadSettingsPickerStackParams>>();
   const usesNativeMailSearchToolbar = Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED;
   const hasCustomCatalogFilter = session.providerFilter !== null || session.showLegacy;
+  const committed = useRef(false);
   const commitAndClose = useCallback(() => {
     if (!session.commitPendingModel()) return;
+    committed.current = true;
     presentation.onClose();
   }, [presentation, session]);
+  // Android's Back has no Cancel label, so leaving with a staged model asks
+  // instead of dropping it: switching models can hand the thread to another
+  // provider, so it is never saved without a choice. iOS shows Cancel and Save.
+  usePreventRemove(Platform.OS === "android" && session.pendingModel !== null, ({ data }) => {
+    if (committed.current) {
+      navigation.dispatch(data.action);
+      return;
+    }
+    Alert.alert(
+      "Save model change?",
+      `Switch this thread to ${session.pendingModel?.label ?? "the selected model"}?`,
+      [
+        { text: "Keep editing", style: "cancel" },
+        { text: "Discard", style: "destructive", onPress: () => navigation.dispatch(data.action) },
+        {
+          text: "Save",
+          onPress: () => {
+            if (!session.commitPendingModel()) return;
+            committed.current = true;
+            navigation.dispatch(data.action);
+          },
+        },
+      ],
+    );
+  });
   const providerFilters = useMemo(
     () => [
       { id: "all-providers", title: "All providers", value: null },
