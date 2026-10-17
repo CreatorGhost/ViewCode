@@ -18,6 +18,8 @@ import {
   parseChecksums,
 } from "@t3tools/shared/cliRelease";
 
+import { NativeCliManagedRuntimeAllowed } from "./ViewCodeManagedRuntimePolicy.ts";
+
 import * as ProcessRunner from "../processRunner.ts";
 
 const PINNED_RUNTIME_DIR = "runtime";
@@ -354,5 +356,13 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
   );
 });
 
-export const ensurePinnedRuntimeInstalled = (input: PinnedRuntimeInstallInput) =>
-  pinnedRuntimeInstallLock.withPermit(installPinnedRuntime(input));
+export const ensurePinnedRuntimeInstalled = Effect.fn("cloud.pinned_runtime.ensure_installed")(
+  function* (input: PinnedRuntimeInstallInput) {
+    if (!(yield* NativeCliManagedRuntimeAllowed)) {
+      return yield* new PinnedRuntimeInstallError({
+        step: "requesting a managed CLI runtime, which is disabled for ViewCode",
+      });
+    }
+    return yield* pinnedRuntimeInstallLock.withPermit(installPinnedRuntime(input));
+  },
+);

@@ -1,3 +1,5 @@
+import * as Layer from "effect/Layer";
+import { NativeCliManagedRuntimeAllowed } from "./ViewCodeManagedRuntimePolicy.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -59,7 +61,46 @@ const extractingRunner = (fs: FileSystem.FileSystem, path: Path.Path, commands: 
       }),
   });
 
-it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
+const runtimeTestLayer = Layer.merge(
+  NodeServices.layer,
+  Layer.succeed(NativeCliManagedRuntimeAllowed, true),
+);
+
+it.layer(runtimeTestLayer)("ensurePinnedRuntimeInstalled", (it) => {
+  it.effect(
+    "refuses a direct install without downloading or changing the runtime under ViewCode policy",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "viewcode-no-managed-runtime-",
+        });
+        const requests: string[] = [];
+        const commands: string[] = [];
+        let validated = false;
+        const error = yield* ensurePinnedRuntimeInstalled({
+          baseDir,
+          version,
+          fs,
+          path,
+          platform: "linux",
+          arch: "x64",
+          httpClient: releaseHttpClient(yield* validChecksums, requests),
+          runner: extractingRunner(fs, path, commands),
+          validate: () =>
+            Effect.sync(() => {
+              validated = true;
+            }),
+        }).pipe(Effect.provideService(NativeCliManagedRuntimeAllowed, false), Effect.flip);
+        assert.equal(error._tag, "PinnedRuntimeInstallError");
+        assert.include(error.message, "disabled for ViewCode");
+        assert.deepEqual(requests, []);
+        assert.deepEqual(commands, []);
+        assert.isFalse(validated);
+        assert.isFalse(yield* fs.exists(path.join(baseDir, "runtime")));
+      }),
+  );
   it.effect("installs the verified release archive as the runtime executable", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -119,7 +160,9 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
                         controller.enqueue(archiveBytes.slice(0, 4));
                       },
                     }),
-                    { headers: knownSize ? { "content-length": String(archiveBytes.length) } : {} },
+                    {
+                      headers: knownSize ? { "content-length": String(archiveBytes.length) } : {},
+                    },
                   ),
             ),
           ),
@@ -166,7 +209,9 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-progress-failed-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-pinned-progress-failed-",
+      });
       const checksums = yield* validChecksums;
       const progress: PinnedRuntimeProgress[] = [];
       let cancelled = false;
@@ -368,7 +413,9 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-runtime-interrupt-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-pinned-runtime-interrupt-",
+      });
       const started = yield* Deferred.make<void>();
       const runner = ProcessRunner.ProcessRunner.of({
         run: () => Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),

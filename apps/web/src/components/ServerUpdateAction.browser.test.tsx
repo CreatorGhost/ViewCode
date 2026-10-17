@@ -227,9 +227,16 @@ describe("ServerUpdateAction", () => {
     [
       undefined,
       "Copy relaunch command",
-      "npx t3@0.0.45",
+      "npx viewcode-app@0.0.45",
       "Relaunch command copied",
-      "This does not update an installed t3 command.",
+      "This does not update an installed viewcode command.",
+    ],
+    [
+      { kind: "npm-global", prefix: "/opt/viewcode", packageName: "viewcode-app" },
+      "Copy update command",
+      "npm install --global --prefix '/opt/viewcode' viewcode-app@0.0.45",
+      "Update command copied",
+      "then restart viewcode",
     ],
   ] satisfies ReadonlyArray<
     readonly [ServerInstallation | undefined, string, string, string, string]

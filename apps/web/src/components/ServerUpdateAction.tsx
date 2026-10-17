@@ -217,6 +217,8 @@ export function ServerUpdateAction({
   appearance = "button",
 }: Omit<ServerUpdateTarget, "continueThreadsAfterServerUpdate"> & UpdateButtonProps) {
   const isDesktopAppUpdate = selfUpdate === "desktop-managed";
+  const cliCommandName =
+    installation === undefined || installation.packageName === "viewcode-app" ? "viewcode" : "t3";
   const sessionStateAtom = environmentSession.sessionStateAtom(environmentId);
   const canUpdate = canUpdateServer(useAtomValue(sessionStateAtom));
   const continueThreadsAfterServerUpdate = useEnvironmentSettings(
@@ -233,8 +235,8 @@ export function ServerUpdateAction({
           installation?.kind === "npm-global" ? "Update command copied" : "Relaunch command copied",
         description:
           installation?.kind === "npm-global"
-            ? `Run \`${command}\` on ${serverLabel}, then restart t3 with your usual options.`
-            : `Stop t3 on ${serverLabel}, then relaunch with \`${command}\` using the same subcommand and options. This does not update an installed t3 command.`,
+            ? `Run \`${command}\` on ${serverLabel}, then restart ${cliCommandName} with your usual options.`
+            : `Stop ${cliCommandName} on ${serverLabel}, then relaunch with \`${command}\` using the same subcommand and options. This does not update an installed ${cliCommandName} command.`,
       });
     },
     onError: (error) => {

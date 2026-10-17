@@ -1,3 +1,4 @@
+import { NativeCliManagedRuntimeAllowed } from "./ViewCodeManagedRuntimePolicy.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -128,6 +129,7 @@ it("escapes XML in host paths", () => {
 const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
   platform: NodeJS.Platform = "linux",
   installerPath = macInstallerPath,
+  nativeCliManagedRuntimeAllowed = true,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -218,6 +220,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
         host: { execPath: "/usr/bin/t3" },
       });
     }).pipe(
+      Effect.provideService(NativeCliManagedRuntimeAllowed, nativeCliManagedRuntimeAllowed),
       Effect.provideService(ProcessRunner.ProcessRunner, runner),
       Effect.provide(
         Layer.mergeAll(
@@ -886,6 +889,22 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
           `launchctl bootstrap gui/501 ${plistPath}`,
         ]);
       }
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("ViewCode managed runtime policy", (it) => {
+  it.effect("rejects installation before changing the host even through the reused service", () =>
+    Effect.gen(function* () {
+      const { service, commands, fs, statePath } = yield* makeHarness(
+        "linux",
+        macInstallerPath,
+        false,
+      );
+      const error = yield* service.install().pipe(Effect.flip);
+      expect(error.message).toContain("disabled for ViewCode");
+      expect(commands).toEqual([]);
+      expect(yield* fs.exists(statePath)).toBe(false);
     }),
   );
 });

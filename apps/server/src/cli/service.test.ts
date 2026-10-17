@@ -1,3 +1,4 @@
+import { NativeCliManagedRuntimeAllowed } from "../cloud/ViewCodeManagedRuntimePolicy.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -17,10 +18,15 @@ import {
   offerServiceDuringOnboarding,
   reconcileService,
   recoverServiceOnboardingOffer,
+  makeServiceCommand,
   serviceCommand,
 } from "./service.ts";
 
 afterEach(() => vi.restoreAllMocks());
+
+const upstreamServiceCommand = makeServiceCommand(true);
+const upstreamServiceStatus = (value: BootService.BootServiceStatus, version: string) =>
+  formatServiceStatus(value, version, true);
 
 const status = {
   supported: true,
@@ -32,7 +38,7 @@ const status = {
 
 it("reports the installed service version and host paths", () => {
   assert.equal(
-    formatServiceStatus(status, "0.0.29"),
+    upstreamServiceStatus(status, "0.0.29"),
     [
       "ViewCode service",
       "  Status: installed · t3@0.0.29",
@@ -44,13 +50,13 @@ it("reports the installed service version and host paths", () => {
 
 it("gives a direct repair command for a stale service", () => {
   assert.include(
-    formatServiceStatus({ ...status, current: false }, "0.0.29"),
+    upstreamServiceStatus({ ...status, current: false }, "0.0.29"),
     "Next: Run `t3 service install` to repair it.",
   );
 });
 
 it("explains an incomplete nightly installation and keeps repair on its installed version", () => {
-  const output = formatServiceStatus(
+  const output = upstreamServiceStatus(
     {
       ...status,
       current: false,
@@ -69,7 +75,7 @@ it("explains an incomplete nightly installation and keeps repair on its installe
 });
 
 it("points an older service at a repair, never at npx", () => {
-  const output = formatServiceStatus(
+  const output = upstreamServiceStatus(
     { ...status, current: false, installedVersion: "0.0.28" },
     "0.0.29",
   );
@@ -79,13 +85,13 @@ it("points an older service at a repair, never at npx", () => {
 
 it("explains where the service is supported", () => {
   assert.include(
-    formatServiceStatus({ ...status, supported: false, installed: false }, "0.0.29"),
+    upstreamServiceStatus({ ...status, supported: false, installed: false }, "0.0.29"),
     "Supported on: Linux with systemd, macOS with launchd",
   );
 });
 
 it("reports a newer installed service and tells the CLI to catch up to it", () => {
-  const output = formatServiceStatus(
+  const output = upstreamServiceStatus(
     { ...status, current: false, installedVersion: "0.0.32-nightly.1" },
     "0.0.31",
   );
@@ -132,7 +138,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))("service commands
         Layer.succeed(BootService.BootService, service),
       );
 
-      yield* Command.runWith(serviceCommand, { version: packageJson.version })([
+      yield* Command.runWith(upstreamServiceCommand, { version: packageJson.version })([
         "restart",
         "--base-dir",
         baseDir,
@@ -157,11 +163,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))("service commands
           Layer.succeed(BootService.BootService, service),
         );
 
-        const error = yield* Command.runWith(serviceCommand, { version: packageJson.version })([
-          command,
-          "--base-dir",
-          baseDir,
-        ]).pipe(
+        const error = yield* Command.runWith(upstreamServiceCommand, {
+          version: packageJson.version,
+        })([command, "--base-dir", baseDir]).pipe(
           Effect.provideService(HostProcess.Environment, {}),
           Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
           Effect.flip,
@@ -185,7 +189,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))("service commands
         Layer.succeed(BootService.BootService, service),
       );
 
-      yield* Command.runWith(serviceCommand, { version: packageJson.version })([
+      yield* Command.runWith(upstreamServiceCommand, { version: packageJson.version })([
         command,
         "--base-dir",
         baseDir,
@@ -243,6 +247,7 @@ it.effect("leaves a newer service unchanged during onboarding without prompting"
 
     const ready = yield* offerServiceDuringOnboarding.pipe(
       Effect.provideService(BootService.BootService, service),
+      Effect.provideService(NativeCliManagedRuntimeAllowed, true),
       Effect.provideService(Terminal.Terminal, terminal),
       Effect.provide(NodeServices.layer),
     );
@@ -274,4 +279,38 @@ it.effect("keeps the manual-server fallback when background prerequisites fail",
     );
     expect(ready).toBe(false);
   }),
+);
+
+it("never suggests unsupported upstream service installation or update commands", () => {
+  for (const state of [status, { ...status, current: false }, { ...status, installed: false }]) {
+    const output = formatServiceStatus(state, "1.2.3");
+    expect(output).toContain("unavailable for ViewCode");
+    expect(output).not.toContain("t3 service install");
+    expect(output).not.toContain("t3 update");
+  }
+});
+
+it.effect(
+  "skips service onboarding without reading status or prompting under ViewCode policy",
+  () =>
+    Effect.gen(function* () {
+      const { service, installOptions } = makeTestService(status);
+      const ready = yield* offerServiceDuringOnboarding.pipe(
+        Effect.provideService(BootService.BootService, {
+          ...service,
+          status: Effect.die("must not inspect or prompt for installation"),
+        }),
+      );
+      expect(ready).toBe(false);
+      expect(installOptions).toEqual([]);
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NetService.layer))),
+);
+
+it.effect.each(["install", "update"])("hides unsupported service %s commands", (command) =>
+  Effect.gen(function* () {
+    const error = yield* Command.runWith(serviceCommand, { version: packageJson.version })([
+      command,
+    ]).pipe(Effect.flip);
+    expect(error).toMatchObject({ _tag: "ShowHelp", commandPath: ["service"] });
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NetService.layer))),
 );

@@ -8,6 +8,7 @@ import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
 import { FetchHttpClient } from "effect/http";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { NativeCliManagedRuntimeAllowed } from "../cloud/ViewCodeManagedRuntimePolicy.ts";
 import * as BootService from "../cloud/bootService.ts";
 import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import type * as ServerConfig from "../config.ts";
@@ -62,9 +63,21 @@ export const reconcileService = Effect.fn("cli.service.reconcile")(function* (op
 export function formatServiceStatus(
   status: BootService.BootServiceStatus,
   cliVersion: string,
+  nativeCliManagedRuntimeAllowed: boolean = viewcodeProductPolicy.nativeCliManagedRuntime,
 ): string {
   if (!status.supported) {
     return "ViewCode service\n  Status: unavailable on this machine\n  Supported on: Linux with systemd, macOS with launchd";
+  }
+  if (!nativeCliManagedRuntimeAllowed) {
+    return [
+      "ViewCode service",
+      `  Status: ${status.installed ? (status.current ? "installed" : "needs an update or repair") : "not installed"}`,
+      ...(status.installed ? [`  Unit: ${status.unitPath}`, `  Logs: ${status.logPath}`] : []),
+      ...(status.problems ?? []).map(
+        (problem) => `  [${problem}] ${BootService.formatBootServiceProblem(problem)}`,
+      ),
+      "  Managed CLI installation and updates are unavailable for ViewCode. Use your original install method to update it.",
+    ].join("\n");
   }
   if (!status.installed) {
     return "ViewCode service\n  Status: not installed\n  Next: Run `t3 service install`.";
@@ -159,9 +172,7 @@ const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
 );
 
 const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe(
-  Command.withDescription(
-    "Restart the background service. Picks up a version installed by `t3 update` that was not restarted at the time.",
-  ),
+  Command.withDescription("Restart the installed background service."),
   Command.withHandler((flags) =>
     runServiceCommand(
       flags,
@@ -209,6 +220,7 @@ const serviceStatusCommand = Command.make("status", projectLocationFlags).pipe(
 );
 
 export const offerServiceDuringOnboarding = Effect.gen(function* () {
+  if (!(yield* NativeCliManagedRuntimeAllowed)) return false;
   const service = yield* BootService.BootService;
   const status = yield* service.status;
   const { supported, installed, current } = status;
@@ -282,13 +294,17 @@ export const recoverServiceOnboardingOffer = <R>(
     }),
   );
 
-export const serviceCommand = Command.make("service").pipe(
-  Command.withDescription("Manage the ViewCode background service."),
-  Command.withSubcommands([
-    serviceInstallCommand,
-    serviceRestartCommand,
-    serviceUninstallCommand,
-    serviceStatusCommand,
-    serviceUpdateCommand,
-  ]),
-);
+export const makeServiceCommand = (
+  nativeCliManagedRuntimeAllowed: boolean = viewcodeProductPolicy.nativeCliManagedRuntime,
+) =>
+  Command.make("service").pipe(
+    Command.withDescription("Manage the ViewCode background service."),
+    Command.withSubcommands([
+      ...(nativeCliManagedRuntimeAllowed ? [serviceInstallCommand, serviceUpdateCommand] : []),
+      serviceRestartCommand,
+      serviceUninstallCommand,
+      serviceStatusCommand,
+    ]),
+  );
+
+export const serviceCommand = makeServiceCommand();

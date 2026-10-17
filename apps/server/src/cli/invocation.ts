@@ -8,11 +8,17 @@ import type { ServerInstallation } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isCommandAvailable } from "@t3tools/shared/shell";
 
+import {
+  cliIdentityForEntry,
+  globalCliInstallLayout,
+  isViewCodePackageEntry,
+} from "./ViewCodeCliIdentity.ts";
+
 import packageJson from "../../package.json" with { type: "json" };
 
 export type CliRunner = "npx" | "pnpm dlx" | "bunx";
 
-/** Detection is best-effort; callers must fail closed to a plain `t3` command. */
+/** Detection is best-effort; source launches use the product CLI command. */
 function detectCliRunner(entryPath: string): CliRunner | null {
   const path = entryPath.replaceAll("\\", "/");
   if (path.includes("/_npx/")) {
@@ -34,7 +40,7 @@ function detectCliRunner(entryPath: string): CliRunner | null {
 const InstallManifest = Schema.Struct({
   name: Schema.String,
   version: Schema.String,
-  bin: Schema.optionalKey(Schema.Struct({ t3: Schema.String })),
+  bin: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 const decodeInstallManifest = Schema.decodeUnknownEffect(Schema.fromJsonString(InstallManifest));
 
@@ -58,7 +64,7 @@ const resolveEntryPath = Effect.gen(function* () {
       .pipe(Effect.flatMap(decodeInstallManifest), Effect.option);
     if (
       Option.isSome(manifest) &&
-      manifest.value.name === "t3" &&
+      manifest.value.name === cliIdentityForEntry(npmLauncher).packageName &&
       manifest.value.version === packageJson.version
     ) {
       return npmLauncher;
@@ -73,15 +79,18 @@ export const resolveServerInstallation = Effect.gen(function* () {
   const path = yield* Path.Path;
   const platform = yield* HostProcess.Platform;
   const entry = yield* fs.realPath(yield* resolveEntryPath);
-  const match = /^(.*)\/lib\/node_modules\/t3\/(?:dist\/bin\.mjs|bin\/t3\.mjs)$/.exec(entry);
-  if (!match) {
+  const layout = globalCliInstallLayout(entry);
+  if (layout === null) {
     const runner = detectCliRunner(entry);
     return runner === null
       ? null
-      : ({ kind: runner === "pnpm dlx" ? "pnpm-dlx" : runner } satisfies ServerInstallation);
+      : ({
+          kind: runner === "pnpm dlx" ? "pnpm-dlx" : runner,
+          ...(isViewCodePackageEntry(entry) ? { packageName: "viewcode-app" as const } : {}),
+        } satisfies ServerInstallation);
   }
   if (platform === "win32") return null;
-  const prefix = match[1] || "/";
+  const { prefix, identity } = layout;
   if (
     prefix.includes("/node_modules/") ||
     /\/(?:Cellar|Caskroom)\//i.test(prefix) ||
@@ -89,25 +98,29 @@ export const resolveServerInstallation = Effect.gen(function* () {
   )
     return null;
 
-  const packageRoot = path.join(prefix, "lib/node_modules/t3");
+  const packageRoot = path.join(prefix, "lib/node_modules", identity.packageName);
   const manifest = yield* fs
     .readFileString(path.join(packageRoot, "package.json"))
     .pipe(Effect.flatMap(decodeInstallManifest));
-  if (manifest.name !== "t3" || !manifest.bin) return null;
-  const bin = yield* fs.realPath(path.join(packageRoot, manifest.bin.t3));
-  const globalBin = yield* fs.realPath(path.join(prefix, "bin/t3"));
+  if (manifest.name !== identity.packageName || !manifest.bin?.[identity.command]) return null;
+  const bin = yield* fs.realPath(path.join(packageRoot, manifest.bin[identity.command]!));
+  const globalBin = yield* fs.realPath(path.join(prefix, "bin", identity.command));
   if (globalBin !== bin || bin !== entry) return null;
-  return { kind: "npm-global", prefix } satisfies ServerInstallation;
+  return {
+    kind: "npm-global",
+    prefix,
+    ...(identity.packageName === "viewcode-app" ? { packageName: identity.packageName } : {}),
+  } satisfies ServerInstallation;
 }).pipe(Effect.orElseSucceed(() => null));
 
 /**
- * The literal spec the user typed (e.g. `t3@nightly`) is resolved away before
+ * The literal package spec the user typed is resolved away before
  * our process starts, so re-derive it from the running version: nightly builds
  * re-suggest the nightly channel, anything else suggests the bare package.
  */
-function suggestedPackageSpec(version: string): string {
+function suggestedPackageSpec(version: string, packageName: string): string {
   const channel = /^[^-+]+-(nightly|preview)\./.exec(version)?.[1];
-  return channel === undefined ? "t3" : `t3@${channel}`;
+  return channel === undefined ? packageName : `${packageName}@${channel}`;
 }
 
 export function formatCliCommand(input: {
@@ -115,11 +128,12 @@ export function formatCliCommand(input: {
   readonly entryPath: string;
   readonly version: string;
 }): string {
+  const identity = cliIdentityForEntry(input.entryPath);
   const runner = detectCliRunner(input.entryPath);
   if (runner === null) {
-    return `t3 ${input.subcommand}`;
+    return `${identity.command} ${input.subcommand}`;
   }
-  return `${runner} ${suggestedPackageSpec(input.version)} ${input.subcommand}`;
+  return `${runner} ${suggestedPackageSpec(input.version, identity.packageName)} ${input.subcommand}`;
 }
 
 export const resolveCliCommand = (subcommand: string) =>
@@ -164,7 +178,7 @@ const resolveInstallLauncher = Effect.gen(function* () {
 });
 
 /**
- * `t3 <subcommand> <args>` for a person to run on this host: `t3` when it is
+ * The product CLI command for a person to run on this host: its command when it is
  * on PATH, the package runner this process came from, or else the absolute
  * path of the launcher for this install, such as the one the desktop app
  * installs. `args` are quoted for the host's shell: POSIX, or PowerShell on
@@ -175,9 +189,12 @@ export const resolveHostCliCommand = (subcommand: string, args: ReadonlyArray<st
     const platform = yield* HostProcess.Platform;
     const withArgs = (prefix: string) =>
       [prefix, ...args.map((arg) => hostShellWord(platform, arg))].join(" ");
+    const identity = cliIdentityForEntry(yield* resolveEntryPath);
     const command = yield* resolveCliCommand(subcommand);
-    if (command !== `t3 ${subcommand}`) return { command: withArgs(command), launcher: false };
-    if (yield* isCommandAvailable("t3")) return { command: withArgs(command), launcher: false };
+    if (command !== `${identity.command} ${subcommand}`)
+      return { command: withArgs(command), launcher: false };
+    if (yield* isCommandAvailable(identity.command))
+      return { command: withArgs(command), launcher: false };
     const launcher = yield* resolveInstallLauncher;
     if (Option.isNone(launcher)) return { command: withArgs(command), launcher: false };
     // PowerShell runs a quoted path only through the call operator.

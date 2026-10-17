@@ -1,3 +1,4 @@
+import { NativeCliManagedRuntimeAllowed } from "./ViewCodeManagedRuntimePolicy.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { ServerSelfUpdateError, ThreadId } from "@t3tools/contracts";
@@ -21,6 +22,7 @@ import * as ServerSelfUpdate from "./selfUpdate.ts";
 interface HarnessOptions {
   readonly mode?: "web" | "desktop";
   readonly managed?: boolean;
+  readonly nativeCliManagedRuntimeAllowed?: boolean;
   readonly preflight?: "ready" | "blocked";
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
   readonly desktopAppUpdate?: DesktopAppUpdate.DesktopAppUpdate["Service"];
@@ -107,6 +109,10 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
     Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
   );
   const selfUpdate = yield* ServerSelfUpdate.make().pipe(
+    Effect.provideService(
+      NativeCliManagedRuntimeAllowed,
+      options.nativeCliManagedRuntimeAllowed ?? true,
+    ),
     Effect.provideService(ProcessRunner.ProcessRunner, runner),
     Effect.provideService(ServiceLauncherClient.ServiceLauncherClient, launcher),
     Effect.provideService(
@@ -125,6 +131,36 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
 });
 
 it.layer(NodeServices.layer)("server self update", (it) => {
+  it.effect(
+    "never downloads upstream CLI releases under ViewCode policy, including stale client requests",
+    () =>
+      Effect.gen(function* () {
+        expect(
+          ServerSelfUpdate.resolveServerSelfUpdateCapability({
+            desktopManaged: false,
+            launcherManaged: true,
+          }),
+        ).toBeNull();
+        expect(
+          ServerSelfUpdate.resolveServerSelfUpdateCapability({
+            desktopManaged: true,
+            launcherManaged: true,
+          }),
+        ).toBe("desktop-managed");
+        const harness = yield* makeHarness({
+          managed: true,
+          nativeCliManagedRuntimeAllowed: false,
+        });
+        const result = yield* harness.selfUpdate
+          .update({ targetVersion: "1.1.0" })
+          .pipe(Effect.result);
+        expect(result._tag).toBe("Failure");
+        if (result._tag === "Failure")
+          expect(result.failure.message).toContain("original install method");
+        expect(harness.order).toEqual([]);
+      }),
+  );
+
   it.effect("marks running threads at the boot-service handoff", () =>
     Effect.gen(function* () {
       const events: string[] = [];

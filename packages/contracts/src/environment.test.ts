@@ -30,7 +30,12 @@ describe("ExecutionEnvironmentDescriptor", () => {
 
   it("decodes old, recognized and future manual installation descriptors", () => {
     expect(decodeDescriptor(descriptor).capabilities.serverInstallation).toBeUndefined();
-    for (const installation of [{ kind: "npx" }, { kind: "npm-global", prefix: "/opt/node" }]) {
+    for (const installation of [
+      { kind: "npx" },
+      { kind: "npm-global", prefix: "/opt/node" },
+      { kind: "npm-global", prefix: "/opt/viewcode", packageName: "viewcode-app" },
+      { kind: "pnpm-dlx", packageName: "viewcode-app" },
+    ]) {
       expect(
         decodeDescriptor({
           ...descriptor,

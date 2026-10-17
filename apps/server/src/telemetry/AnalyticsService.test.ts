@@ -3,6 +3,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
@@ -56,15 +58,17 @@ const SentBatch = Schema.fromJsonString(
   }),
 );
 
+const decodeSentBatch = Schema.decodeEffect(SentBatch);
+
 const layerAcceptThenFailClient = (batches: Array<ReadonlyArray<{ readonly uuid: string }>>) =>
   Layer.succeed(
     HttpClient.HttpClient,
     HttpClient.make((request) =>
       Effect.gen(function* () {
         if (request.body._tag === "Uint8Array") {
-          const body = yield* Schema.decodeEffect(SentBatch)(
-            new TextDecoder().decode(request.body.body),
-          ).pipe(Effect.orDie);
+          const body = yield* decodeSentBatch(new TextDecoder().decode(request.body.body)).pipe(
+            Effect.orDie,
+          );
           batches.push(body.batch);
         }
         return yield* new HttpClientError.HttpClientError({
@@ -82,6 +86,41 @@ it("retryDelayMs doubles from 2s and stays under the 5 minute cap", () => {
 });
 
 it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
+  it.effect(
+    "never sends analytics without explicit telemetry opt-in, even with an inherited key",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const home = yield* fs.makeTempDirectoryScoped({ prefix: "viewcode-telemetry-home-" });
+        for (const env of [{}, { T3CODE_POSTHOG_KEY: "phc_explicit_test_key" }]) {
+          const requests: Array<string> = [];
+          const layer = AnalyticsService.layer.pipe(
+            Layer.provide(
+              ServerConfig.ServerConfig.layerTest(process.cwd(), {
+                prefix: "viewcode-telemetry-default-",
+              }),
+            ),
+            Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
+            Layer.provide(
+              Layer.succeed(
+                HttpClient.HttpClient,
+                HttpClient.make((request) => {
+                  requests.push(request.url);
+                  return Effect.succeed(HttpClientResponse.fromWeb(request, new Response("{}")));
+                }),
+              ),
+            ),
+          );
+          yield* Effect.gen(function* () {
+            const analytics = yield* AnalyticsService.AnalyticsService;
+            yield* analytics.record("test.default_off", { index: 1 });
+            yield* analytics.flush;
+          }).pipe(Effect.provide(layer), Effect.provideService(HostProcess.HomeDirectory, home));
+          assert.deepEqual(requests, []);
+        }
+      }),
+  );
+
   it.effect("a batch that keeps failing is retried with backoff, then dropped", () =>
     Effect.gen(function* () {
       const batches: Array<ReadonlyArray<{ readonly uuid: string }>> = [];

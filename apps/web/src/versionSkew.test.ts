@@ -35,7 +35,7 @@ describe("versionSkew", () => {
   });
 
   it("keeps runner and unknown commands as relaunches", () => {
-    expect(manualServerUpdateCommand("0.0.45")).toBe("npx t3@0.0.45");
+    expect(manualServerUpdateCommand("0.0.45")).toBe("npx viewcode-app@0.0.45");
     expect(manualServerUpdateCommand("0.0.45", { kind: "npx" })).toBe("npx t3@0.0.45");
     expect(manualServerUpdateCommand("0.0.45", { kind: "pnpm-dlx" })).toBe("pnpm dlx t3@0.0.45");
     expect(manualServerUpdateCommand("0.0.45", { kind: "bunx" })).toBe("bunx t3@0.0.45");
@@ -241,4 +241,25 @@ describe("versionSkew", () => {
     expect(serverUpdateGuidance("respawn")).toBe("Update to stay in sync");
     expect(serverUpdateGuidance("desktop-managed")).toBe("Update the desktop app");
   });
+});
+
+it("keeps ViewCode update commands on the ViewCode package while preserving legacy descriptors", () => {
+  expect(
+    manualServerUpdateCommand("0.1.0", {
+      kind: "npm-global",
+      prefix: "/opt/viewcode",
+      packageName: "viewcode-app",
+    }),
+  ).toBe("npm install --global --prefix '/opt/viewcode' viewcode-app@0.1.0");
+  expect(manualServerUpdateCommand("0.1.0", { kind: "npx", packageName: "viewcode-app" })).toBe(
+    "npx viewcode-app@0.1.0",
+  );
+  expect(
+    manualServerUpdateCommand("0.1.0", { kind: "pnpm-dlx", packageName: "viewcode-app" }),
+  ).toBe("pnpm dlx viewcode-app@0.1.0");
+  expect(manualServerUpdateCommand("0.1.0", { kind: "bunx", packageName: "viewcode-app" })).toBe(
+    "bunx viewcode-app@0.1.0",
+  );
+  expect(manualServerUpdateCommand("0.1.0")).toBe("npx viewcode-app@0.1.0");
+  expect(manualServerUpdateCommand("0.1.0", { kind: "npx" })).toBe("npx t3@0.1.0");
 });

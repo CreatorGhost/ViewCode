@@ -6,6 +6,7 @@ import {
   type ServerSelfUpdateResult,
   type ThreadId,
 } from "@t3tools/contracts";
+import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Cause from "effect/Cause";
 import * as Config from "effect/Config";
@@ -31,6 +32,7 @@ import {
   PinnedRuntimeInstallError,
   PinnedRuntimePreflightBlockedError,
 } from "./pinnedRuntime.ts";
+import { NativeCliManagedRuntimeAllowed } from "./ViewCodeManagedRuntimePolicy.ts";
 import { decodeServicePreflightResult } from "./servicePreflight.ts";
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
 import { isExactServiceVersion, SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
@@ -40,9 +42,13 @@ const PREFLIGHT_TIMEOUT = Duration.seconds(30);
 export function resolveServerSelfUpdateCapability(input: {
   readonly desktopManaged: boolean;
   readonly launcherManaged: boolean;
+  readonly nativeCliManagedRuntimeAllowed?: boolean;
 }): ServerSelfUpdateCapability | null {
   if (input.desktopManaged) return "desktop-managed" as const;
-  return input.launcherManaged ? ("boot-service" as const) : null;
+  return (input.nativeCliManagedRuntimeAllowed ?? viewcodeProductPolicy.nativeCliManagedRuntime) &&
+    input.launcherManaged
+    ? ("boot-service" as const)
+    : null;
 }
 
 export class ServerSelfUpdate extends Context.Service<
@@ -184,8 +190,12 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   );
   const inFlight = yield* Ref.make(false);
 
-  const capability: ServerSelfUpdateCapability | null =
-    serverConfig.mode === "desktop" ? "desktop-managed" : launcher.managed ? "boot-service" : null;
+  const nativeCliManagedRuntimeAllowed = yield* NativeCliManagedRuntimeAllowed;
+  const capability = resolveServerSelfUpdateCapability({
+    desktopManaged: serverConfig.mode === "desktop",
+    launcherManaged: launcher.managed,
+    nativeCliManagedRuntimeAllowed,
+  });
   const failWith = (reason: string, cause?: unknown) =>
     cause === undefined
       ? new ServerSelfUpdateError({ reason })
@@ -203,6 +213,10 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       );
     }
     if (capability === null) {
+      if (!nativeCliManagedRuntimeAllowed)
+        return yield* failWith(
+          "Automatic CLI updates are disabled for ViewCode. Update it with its original install method, then restart the server.",
+        );
       return yield* failWith(
         "Remote updates require the ViewCode background service. Run `t3 service install` on the server machine.",
       );
@@ -298,6 +312,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
               ),
             ),
       }).pipe(
+        Effect.provideService(NativeCliManagedRuntimeAllowed, nativeCliManagedRuntimeAllowed),
         Effect.mapError((error) =>
           error._tag === "PinnedRuntimePreflightBlockedError"
             ? failWith(error.reason, error)

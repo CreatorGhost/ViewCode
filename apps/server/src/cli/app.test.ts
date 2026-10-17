@@ -149,7 +149,7 @@ describe("t3 server command safety", () => {
   );
 
   it.effect(
-    "keeps upstream doctor and Connect setup unavailable even with cloud configuration",
+    "keeps upstream doctor, self-update and Connect setup unavailable even with cloud configuration",
     () =>
       withTempDirectory("viewcode-cli-policy-", (root) =>
         Effect.gen(function* () {
@@ -157,6 +157,14 @@ describe("t3 server command safety", () => {
           const command = Command.runWith(makeCli({ cloudEnabled: true }), { version: "0.0.0" });
           const doctor = yield* command(["doctor", "--base-dir", baseDir]).pipe(Effect.flip);
           expect(String(doctor)).toContain('Unknown command "doctor"');
+          const update = yield* command(["update", "--base-dir", baseDir]).pipe(Effect.flip);
+          expect(String(update)).toContain('Unknown command "update"');
+          for (const action of ["install", "update"]) {
+            const service = yield* command(["service", action, "--base-dir", baseDir]).pipe(
+              Effect.flip,
+            );
+            expect(service).toMatchObject({ _tag: "ShowHelp", commandPath: ["t3", "service"] });
+          }
           const connect = yield* command(["connect", "link"]).pipe(Effect.flip);
           expect(connect).toMatchObject({ _tag: "ShowHelp", commandPath: ["t3", "connect"] });
           expect(String(connect)).not.toContain("T3 Connect");

@@ -1,3 +1,4 @@
+import { NativeCliManagedRuntimeAllowed } from "./ViewCodeManagedRuntimePolicy.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -523,6 +524,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   readonly cliVersion: string;
   readonly host?: BootServiceHost;
 }) {
+  const nativeCliManagedRuntimeAllowed = yield* NativeCliManagedRuntimeAllowed;
   const hostExecPath = yield* HostProcess.ExecutablePath;
   const platform = yield* HostProcess.Platform;
   const arch = yield* HostProcess.Architecture;
@@ -711,6 +713,11 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     readonly allowDowngrade?: boolean;
     readonly start?: boolean;
   }) {
+    if (!nativeCliManagedRuntimeAllowed) {
+      return yield* new BootServiceCommandError({
+        step: "requesting a managed CLI runtime, which is disabled for ViewCode",
+      });
+    }
     const manager = yield* requireManager;
     yield* fs
       .makeDirectory(input.logsDir, { recursive: true })
@@ -760,6 +767,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
             }),
           ),
     }).pipe(
+      Effect.provideService(NativeCliManagedRuntimeAllowed, nativeCliManagedRuntimeAllowed),
       Effect.mapError((error) =>
         error._tag === "PinnedRuntimeInstallError"
           ? new BootServiceCommandError({

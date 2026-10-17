@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { CommandResolutionCache } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -41,16 +42,13 @@ it("formats package runner commands from their cache entry paths", () => {
 });
 
 it("treats stable installs as direct invocations", () => {
-  for (const entryPath of [
-    "/usr/local/lib/node_modules/t3/dist/bin.mjs",
-    "/home/theo/Code/work/t3code/apps/server/dist/bin.mjs",
-    "/home/theo/.t3/runtime/0.0.31/node_modules/t3/dist/bin.mjs",
-    "",
-  ]) {
-    assert.equal(
-      formatCliCommand({ subcommand: "serve", entryPath, version: "0.0.31" }),
-      "t3 serve",
-    );
+  for (const [entryPath, expected] of [
+    ["/usr/local/lib/node_modules/t3/dist/bin.mjs", "t3 serve"],
+    ["/home/theo/Code/work/t3code/apps/server/dist/bin.mjs", "viewcode serve"],
+    ["/home/theo/.t3/runtime/0.0.31/node_modules/t3/dist/bin.mjs", "t3 serve"],
+    ["", "viewcode serve"],
+  ] as const) {
+    assert.equal(formatCliCommand({ subcommand: "serve", entryPath, version: "0.0.31" }), expected);
   }
 });
 
@@ -161,7 +159,7 @@ it.layer(NodeServices.layer)("root CLI commands", (it) => {
       expect(yield* rootCommand(desktop)).toBe(`sudo '${shim}' browser setup`);
 
       expect(yield* rootCommand({ ...desktop, path: yield* pathWithT3 })).toBe(
-        'sudo env "PATH=$PATH" t3 browser setup',
+        `sudo '${shim}' browser setup`,
       );
 
       expect(
@@ -174,7 +172,7 @@ it.layer(NodeServices.layer)("root CLI commands", (it) => {
 
       expect(
         yield* rootCommand({ ...desktop, env: { T3CODE_CLI_PATH: path.join(home, "gone") } }),
-      ).toBe('sudo env "PATH=$PATH" t3 browser setup');
+      ).toBe('sudo env "PATH=$PATH" viewcode browser setup');
     }).pipe(Effect.scoped),
   );
 });
@@ -205,7 +203,7 @@ it.layer(NodeServices.layer)("host CLI commands", (it) => {
       );
       // Without a launcher, plain `t3` with PowerShell-quoted arguments.
       expect((yield* hostCommand("win32", {})).command).toBe(
-        't3 doctor "--base-dir" "C:\\Users\\Jane Doe\\.t3"',
+        'viewcode doctor "--base-dir" "C:\\Users\\Jane Doe\\.t3"',
       );
       // Typographic quotes also delimit PowerShell strings; doubling keeps them.
       expect(
@@ -216,7 +214,7 @@ it.layer(NodeServices.layer)("host CLI commands", (it) => {
           Effect.provideService(HostProcess.Arguments, ["C:\\t3.exe", "C:\\bin.mjs"]),
           Effect.provideService(HostProcess.IsExecutable, false),
         )).command,
-      ).toBe('t3 doctor "--base-dir" "C:\\T3\\\u201C\u201CArchive\u201D\u201D"');
+      ).toBe('viewcode doctor "--base-dir" "C:\\T3\\\u201C\u201CArchive\u201D\u201D"');
       // POSIX hosts keep single quotes for the same input. The shim prefix is
       // a host path, so only the arguments are asserted.
       expect((yield* hostCommand("linux", { T3CODE_CLI_PATH: shim })).command).toMatch(
@@ -286,7 +284,7 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
       );
       expect(yield* resolve).toBeNull();
       yield* fs.symlink(entry, globalBin);
-      expect(yield* resolve).toEqual({ kind: "npm-global", prefix });
+      expect(yield* resolve).toEqual({ kind: "npm-global", prefix: yield* fs.realPath(prefix) });
       yield* fs.remove(globalBin);
       yield* fs.writeFileString(globalBin, "an unrelated t3 command");
       expect(yield* resolve).toBeNull();
@@ -320,7 +318,7 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
       // (the variable is inherited), not the install this executable runs from.
       for (const [version, expected] of [
         ["0.0.1", null],
-        [packageJson.version, { kind: "npm-global", prefix }],
+        [packageJson.version, { kind: "npm-global", prefix: yield* fs.realPath(prefix) }],
       ] as const) {
         yield* fs.writeFileString(
           path.join(packageRoot, "package.json"),
@@ -353,6 +351,109 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
             Effect.provideService(HostProcess.IsExecutable, false),
           ),
         ).toBeNull();
+      }
+    }),
+  );
+});
+
+it("keeps ViewCode package runner and source recovery commands on ViewCode", () => {
+  for (const [entryPath, expected] of [
+    ["/tmp/_npx/hash/node_modules/viewcode-app/dist/bin.mjs", "npx viewcode-app browser setup"],
+    [
+      "/tmp/pnpm/dlx/hash/node_modules/viewcode-app/dist/bin.mjs",
+      "pnpm dlx viewcode-app browser setup",
+    ],
+    [
+      "/home/me/.bun/install/cache/viewcode-app@0.1.0/dist/bin.mjs",
+      "bunx viewcode-app browser setup",
+    ],
+    ["/usr/local/lib/node_modules/viewcode-app/dist/bin.mjs", "viewcode browser setup"],
+    ["/work/ViewCode/apps/server/src/bin.ts", "viewcode browser setup"],
+    ["/opt/ViewCode/viewcode", "viewcode browser setup"],
+  ] as const)
+    expect(formatCliCommand({ subcommand: "browser setup", entryPath, version: "0.1.0" })).toBe(
+      expected,
+    );
+});
+
+it.layer(NodeServices.layer)("ViewCode CLI ownership", (it) => {
+  it.effect("recognizes only the proven ViewCode global bin and carries package identity", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const prefix = yield* fs.makeTempDirectoryScoped({ prefix: "viewcode-cli-global-" });
+      const packageRoot = path.join(prefix, "lib/node_modules/viewcode-app");
+      const entry = path.join(packageRoot, "dist/bin.mjs");
+      const bin = path.join(prefix, "bin/viewcode");
+      yield* fs.makeDirectory(path.dirname(entry), { recursive: true });
+      yield* fs.makeDirectory(path.dirname(bin), { recursive: true });
+      yield* fs.writeFileString(entry, "");
+      yield* fs.writeFileString(
+        path.join(packageRoot, "package.json"),
+        '{"name":"viewcode-app","version":"0.1.0","bin":{"viewcode":"dist/bin.mjs"}}',
+      );
+      const resolve = resolveServerInstallation.pipe(
+        Effect.provideService(HostProcess.Arguments, ["node", entry]),
+        Effect.provideService(HostProcess.IsExecutable, false),
+        Effect.provideService(HostProcess.Platform, "linux"),
+        Effect.provideService(HostProcess.Environment, {}),
+      );
+      expect(yield* resolve).toBeNull();
+      yield* fs.symlink(entry, bin);
+      expect(yield* resolve).toEqual({
+        kind: "npm-global",
+        prefix: yield* fs.realPath(prefix),
+        packageName: "viewcode-app",
+      });
+      yield* fs.remove(bin);
+      yield* fs.writeFileString(bin, "unrelated command");
+      expect(yield* resolve).toBeNull();
+    }),
+  );
+  it.effect("never selects an installed upstream t3 command for this ViewCode executable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const bin = yield* fs.makeTempDirectoryScoped({ prefix: "viewcode-cli-path-" });
+      yield* fs.writeFileString(path.join(bin, "t3"), "#!/bin/sh\n", { mode: 0o755 });
+      const command = resolveHostCliCommand("browser setup").pipe(
+        Effect.provideService(HostProcess.Platform, "linux"),
+        Effect.provideService(HostProcess.Arguments, ["/opt/viewcode", "/opt/viewcode"]),
+        Effect.provideService(HostProcess.ExecutablePath, "/opt/viewcode"),
+        Effect.provideService(HostProcess.IsExecutable, true),
+        Effect.provideService(HostProcess.Environment, { PATH: bin }),
+      );
+      expect(yield* command).toEqual({ command: "/opt/viewcode browser setup", launcher: true });
+      yield* fs.writeFileString(path.join(bin, "viewcode"), "#!/bin/sh\n", { mode: 0o755 });
+      expect(yield* command.pipe(Effect.provideService(CommandResolutionCache, new Map()))).toEqual(
+        { command: "viewcode browser setup", launcher: false },
+      );
+    }),
+  );
+  it.effect("reports runner package identity but leaves local and source installs unclaimed", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "viewcode-cli-runner-" });
+      for (const [relative, expected] of [
+        [
+          "_npx/hash/node_modules/viewcode-app/dist/bin.mjs",
+          { kind: "npx", packageName: "viewcode-app" },
+        ],
+        ["project/node_modules/viewcode-app/dist/bin.mjs", null],
+        ["project/apps/server/src/bin.ts", null],
+        ["viewcode", null],
+      ] as const) {
+        const entry = path.join(root, relative);
+        yield* fs.makeDirectory(path.dirname(entry), { recursive: true });
+        yield* fs.writeFileString(entry, "");
+        expect(
+          yield* resolveServerInstallation.pipe(
+            Effect.provideService(HostProcess.Arguments, ["node", entry]),
+            Effect.provideService(HostProcess.IsExecutable, false),
+            Effect.provideService(HostProcess.Environment, {}),
+          ),
+        ).toEqual(expected);
       }
     }),
   );
