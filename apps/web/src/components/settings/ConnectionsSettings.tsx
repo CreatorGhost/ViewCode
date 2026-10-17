@@ -1,4 +1,5 @@
 import { SessionPermissions } from "./SessionPermissions";
+import { ConnectPhoneSettingsSection } from "../connectPhone/ConnectPhoneSettingsSection";
 import { AUTH_SCOPE_OPTIONS as PAIRING_SCOPE_OPTIONS } from "@t3tools/shared/authScopeOptions";
 import {
   ChevronRightIcon,
@@ -3836,6 +3837,7 @@ export function ConnectionsSettings() {
 
   return (
     <SettingsPageContainer>
+      <ConnectPhoneSettingsSection />
       {primarySettings}
       <SettingsSection
         {...searchableSetting("remote-environments")}

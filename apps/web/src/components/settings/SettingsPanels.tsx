@@ -173,6 +173,10 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
+import { ChatAppearanceSettings } from "./ChatAppearanceSettings";
+import { ProjectColorSettings } from "./ProjectColorSettings";
+import { ReadAloudSettings } from "./ReadAloudSettings";
+import { WindowTransparencySetting } from "./WindowTransparencySetting";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -1137,6 +1141,7 @@ export function AppearanceSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="appearance-interface" title="Interface">
+        <WindowTransparencySetting />
         <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."
@@ -1385,6 +1390,10 @@ export function AppearanceSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ProjectColorSettings />
+      <ChatAppearanceSettings showChatWidth={false} showCollapseFinishedTurns={false} />
+      <ReadAloudSettings />
 
       <SettingsSection id="motion" title="Motion">
         <SettingsRow

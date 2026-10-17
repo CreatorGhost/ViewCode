@@ -15,7 +15,15 @@ function labelFor<Value extends string>(
 }
 
 /** Settings -> Appearance -> Chat: transcript density, column width, turn folding. */
-export function ChatAppearanceSettings() {
+export function ChatAppearanceSettings({
+  showChatWidth = true,
+  showCollapseFinishedTurns = true,
+  showHeaderActions = true,
+}: {
+  showChatWidth?: boolean;
+  showCollapseFinishedTurns?: boolean;
+  showHeaderActions?: boolean;
+} = {}) {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
 
@@ -55,90 +63,100 @@ export function ChatAppearanceSettings() {
           </Select>
         }
       />
-      <SettingsRow
-        {...searchableSetting("chat-width")}
-        description="Maximum width of the conversation and the composer."
-        resetAction={
-          settings.chatWidth !== DEFAULT_CLIENT_SETTINGS.chatWidth ? (
-            <SettingResetButton
-              label="chat width"
-              onClick={() => updateSettings({ chatWidth: DEFAULT_CLIENT_SETTINGS.chatWidth })}
-            />
-          ) : null
-        }
-        control={
-          <Select
-            value={settings.chatWidth}
-            onValueChange={(value) => {
-              const option = CHAT_WIDTH_OPTIONS.find((candidate) => candidate.value === value);
-              if (option) updateSettings({ chatWidth: option.value });
-            }}
-          >
-            <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Chat width">
-              <SelectValue>
-                {labelFor<ChatWidth>(CHAT_WIDTH_OPTIONS, settings.chatWidth)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false}>
-              {CHAT_WIDTH_OPTIONS.map((option) => (
-                <SelectItem hideIndicator key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        }
-      />
-      <SettingsRow
-        {...searchableSetting("collapse-finished-turns")}
-        description="Fold the tool calls of finished turns into one summary row. The running turn stays open."
-        resetAction={
-          settings.collapseFinishedTurns !== DEFAULT_CLIENT_SETTINGS.collapseFinishedTurns ? (
-            <SettingResetButton
-              label="collapse finished turns"
-              onClick={() =>
-                updateSettings({
-                  collapseFinishedTurns: DEFAULT_CLIENT_SETTINGS.collapseFinishedTurns,
-                })
-              }
-            />
-          ) : null
-        }
-        control={
-          <Switch
-            checked={settings.collapseFinishedTurns}
-            onCheckedChange={(checked) =>
-              updateSettings({ collapseFinishedTurns: Boolean(checked) })
+      {showChatWidth ? (
+        <SettingsRow
+          {...searchableSetting("chat-width")}
+          description="Maximum width of the conversation and the composer."
+          resetAction={
+            settings.chatWidth !== DEFAULT_CLIENT_SETTINGS.chatWidth ? (
+              <SettingResetButton
+                label="chat width"
+                onClick={() => updateSettings({ chatWidth: DEFAULT_CLIENT_SETTINGS.chatWidth })}
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.chatWidth}
+              onValueChange={(value) => {
+                const option = CHAT_WIDTH_OPTIONS.find((candidate) => candidate.value === value);
+                if (option) updateSettings({ chatWidth: option.value });
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Chat width">
+                <SelectValue>
+                  {labelFor<ChatWidth>(CHAT_WIDTH_OPTIONS, settings.chatWidth)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {CHAT_WIDTH_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+      ) : null}
+      {showCollapseFinishedTurns ? (
+        <>
+          <SettingsRow
+            {...searchableSetting("collapse-finished-turns")}
+            description="Fold the tool calls of finished turns into one summary row. The running turn stays open."
+            resetAction={
+              settings.collapseFinishedTurns !== DEFAULT_CLIENT_SETTINGS.collapseFinishedTurns ? (
+                <SettingResetButton
+                  label="collapse finished turns"
+                  onClick={() =>
+                    updateSettings({
+                      collapseFinishedTurns: DEFAULT_CLIENT_SETTINGS.collapseFinishedTurns,
+                    })
+                  }
+                />
+              ) : null
             }
-            aria-label="Collapse finished turns"
-          />
-        }
-      />
-      <SettingsRow
-        {...searchableSetting("header-actions")}
-        description="Show project actions and the Commit, Push and PR buttons in the chat's top bar."
-        resetAction={
-          settings.headerActionsVisible !== DEFAULT_CLIENT_SETTINGS.headerActionsVisible ? (
-            <SettingResetButton
-              label="actions and Git in the top bar"
-              onClick={() =>
-                updateSettings({
-                  headerActionsVisible: DEFAULT_CLIENT_SETTINGS.headerActionsVisible,
-                })
-              }
-            />
-          ) : null
-        }
-        control={
-          <Switch
-            checked={settings.headerActionsVisible}
-            onCheckedChange={(checked) =>
-              updateSettings({ headerActionsVisible: Boolean(checked) })
+            control={
+              <Switch
+                checked={settings.collapseFinishedTurns}
+                onCheckedChange={(checked) =>
+                  updateSettings({ collapseFinishedTurns: Boolean(checked) })
+                }
+                aria-label="Collapse finished turns"
+              />
             }
-            aria-label="Actions and Git in the top bar"
           />
-        }
-      />
+        </>
+      ) : null}
+      {showHeaderActions ? (
+        <>
+          <SettingsRow
+            {...searchableSetting("header-actions")}
+            description="Show project actions and the Commit, Push and PR buttons in the chat's top bar."
+            resetAction={
+              settings.headerActionsVisible !== DEFAULT_CLIENT_SETTINGS.headerActionsVisible ? (
+                <SettingResetButton
+                  label="actions and Git in the top bar"
+                  onClick={() =>
+                    updateSettings({
+                      headerActionsVisible: DEFAULT_CLIENT_SETTINGS.headerActionsVisible,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.headerActionsVisible}
+                onCheckedChange={(checked) =>
+                  updateSettings({ headerActionsVisible: Boolean(checked) })
+                }
+                aria-label="Actions and Git in the top bar"
+              />
+            }
+          />
+        </>
+      ) : null}
     </SettingsSection>
   );
 }
