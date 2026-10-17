@@ -451,6 +451,9 @@ export const layerWithOptions = (
                 // same token or the process's tool calls fail auth.
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   yield* agentAccessSettings(threadId);
+                const computerToolsAvailable = yield* (
+                  mcpSessionRegistry.computerAvailable ?? Effect.succeed(false)
+                );
                 const capabilities = new Set<
                   import("../mcp/McpInvocationContext.ts").McpCapability
                 >(["orchestration", "worktree", "pull-requests"]);
@@ -478,7 +481,8 @@ export const layerWithOptions = (
                     resolved.thread.threadId === threadId &&
                     resolved.thread.providerInstanceId === providerInstanceId &&
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
-                    resolved.capabilities.has("device") === deviceToolsAvailable
+                    resolved.capabilities.has("device") === deviceToolsAvailable &&
+                    resolved.capabilities.has("computer") === computerToolsAvailable
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -1361,7 +1365,10 @@ export const layerWithOptions = (
               Effect.tap((runtime) => Effect.sync(() => (attachedTo = runtime))),
               Effect.uninterruptible,
             );
-            if (attached !== undefined) {
+            const currentEntry = (yield* Ref.get(sessions)).get(
+              sessionKey(input.providerSessionId),
+            );
+            if (attached !== undefined || currentEntry?.attachedThreadIds.has(input.threadId)) {
               const prepared = yield* prepareMcpSession(input.threadId, input.providerInstanceId);
               preparedForCleanup = prepared;
               if (prepared.mcpCredentialId !== undefined) {
@@ -1372,13 +1379,23 @@ export const layerWithOptions = (
                   if (entry === undefined) return current;
                   const mcpCredentialIdByThread = new Map(entry.mcpCredentialIdByThread);
                   mcpCredentialIdByThread.set(input.threadId, mcpCredentialId);
+                  const loadedProviderThreadKeyByThread = new Map(
+                    entry.loadedProviderThreadKeyByThread,
+                  );
+                  if (entry.mcpCredentialIdByThread.get(input.threadId) !== mcpCredentialId) {
+                    loadedProviderThreadKeyByThread.delete(input.threadId);
+                  }
                   const updated = new Map(current);
-                  updated.set(key, { ...entry, mcpCredentialIdByThread });
+                  updated.set(key, {
+                    ...entry,
+                    mcpCredentialIdByThread,
+                    loadedProviderThreadKeyByThread,
+                  });
                   return updated;
                 });
               }
               const entry = (yield* Ref.get(sessions)).get(sessionKey(input.providerSessionId));
-              if (entry !== undefined) {
+              if (attached !== undefined && entry !== undefined) {
                 yield* withActivityError(
                   input.providerSessionId,
                   writeProviderSessionEvents({

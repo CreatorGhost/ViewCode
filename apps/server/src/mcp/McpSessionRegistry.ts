@@ -41,6 +41,7 @@ export interface McpIssuedCredential {
 }
 
 export interface McpSessionRegistryShape {
+  readonly computerAvailable?: Effect.Effect<boolean>;
   readonly issue: (request: McpCredentialRequest) => Effect.Effect<McpIssuedCredential>;
   readonly resolve: (
     rawToken: string,
@@ -147,6 +148,22 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     return next.size === records.size ? records : next;
   };
 
+  const computerShimDirectory = Effect.gen(function* () {
+    const enabled =
+      Option.isSome(settings) &&
+      (yield* settings.value.getSettings.pipe(
+        Effect.map((value) => value.computerUse !== "off"),
+        Effect.orElseSucceed(() => false),
+      ));
+    return enabled && Option.isSome(config)
+      ? yield* ensureComputerUseShim({ stateDir: config.value.stateDir }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.orElseSucceed(() => undefined),
+        )
+      : undefined;
+  });
+
   const issue: McpSessionRegistryShape["issue"] = Effect.fn("McpSessionRegistry.issue")(
     function* (request) {
       yield* Effect.annotateCurrentSpan({
@@ -159,20 +176,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const rawToken = yield* crypto.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
       const browserToolsAvailable = request.browserToolsAvailable ?? true;
-      const computerEnabled =
-        Option.isSome(settings) &&
-        (yield* settings.value.getSettings.pipe(
-          Effect.map((value) => value.computerUse !== "off"),
-          Effect.orElseSucceed(() => false),
-        ));
-      const computerShimDir =
-        computerEnabled && Option.isSome(config)
-          ? yield* ensureComputerUseShim({ stateDir: config.value.stateDir }).pipe(
-              Effect.provideService(FileSystem.FileSystem, fs),
-              Effect.provideService(Path.Path, path),
-              Effect.orElseSucceed(() => undefined),
-            )
-          : undefined;
+      const computerShimDir = yield* computerShimDirectory;
       const computerEndpoint =
         httpServer.address._tag === "UnixPathAddress"
           ? `unix:${httpServer.address.path}`
@@ -294,6 +298,9 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     }));
 
   return McpSessionRegistry.of({
+    computerAvailable: computerShimDirectory.pipe(
+      Effect.map((directory) => directory !== undefined),
+    ),
     issue,
     resolve,
     touch,

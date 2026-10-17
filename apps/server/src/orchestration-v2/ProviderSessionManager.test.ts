@@ -41,6 +41,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
@@ -457,7 +458,7 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
   });
 });
 
-function layerTest(input: {
+function layerTest<McpRegistryError = never>(input: {
   readonly state: Ref.Ref<TestProviderRuntimeState>;
   readonly idleTimeoutMs: number;
   readonly maxIdlePinMs?: number;
@@ -488,6 +489,7 @@ function layerTest(input: {
   readonly scopeCloseReached?: Deferred.Deferred<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
   readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
+  readonly mcpRegistryLayer?: Layer.Layer<McpSessionRegistry.McpSessionRegistry, McpRegistryError>;
 }) {
   const layerConfiguredEventSink =
     input.flakyReleaseWrites !== undefined
@@ -526,9 +528,10 @@ function layerTest(input: {
     }).pipe(Effect.map(ProviderAdapterRegistry.layerSingle)),
   );
   const layerConfiguredMcpRegistry =
-    input.pauseResolve === undefined
+    input.mcpRegistryLayer ??
+    (input.pauseResolve === undefined
       ? layerTestMcpRegistry
-      : layerPausingMcpRegistry(input.pauseResolve);
+      : layerPausingMcpRegistry(input.pauseResolve));
   const layerProviderEventIngestorTest = ProviderEventIngestor.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -1863,7 +1866,7 @@ it.effect(
         assert.equal(resolved?.thread.threadId, threadId);
         assert.deepEqual(
           resolved?.capabilities,
-          new Set(["preview", "orchestration", "worktree", "pull-requests"]),
+          new Set(["preview", "orchestration", "agents", "worktree", "pull-requests"]),
         );
 
         yield* manager.close(providerSessionId);
@@ -1920,7 +1923,7 @@ it.effect(
         const resolved = yield* registry.resolve(token!);
         assert.deepEqual(
           resolved?.capabilities,
-          new Set(["orchestration", "worktree", "pull-requests"]),
+          new Set(["orchestration", "agents", "worktree", "pull-requests"]),
         );
 
         yield* manager.close(providerSessionId);
@@ -2393,6 +2396,101 @@ it.effect(
             capabilities: ExclusiveCapabilities,
             mcpConfigs,
           }),
+        ),
+      );
+    }),
+);
+
+it.effect.each([true, false])(
+  "ProviderSessionManagerV2 refreshes computer authority only when its available grant changes (launcher available: %s)",
+  (launcherAvailable) =>
+    Effect.gen(function* () {
+      const state = yield* Ref.make(emptyState);
+      const settingsLayer = ServerSettings.layerTest({ computerUse: "off" });
+      const registryWithSettings = layerTestMcpRegistry.pipe(Layer.provide(settingsLayer));
+      const configuredRegistry = launcherAvailable
+        ? registryWithSettings.pipe(
+            Layer.provide(
+              ServerConfig.layerTest(process.cwd(), { prefix: "v2-computer-credential-" }).pipe(
+                Layer.provide(NodeServices.layer),
+              ),
+            ),
+          )
+        : registryWithSettings;
+      yield* Effect.gen(function* () {
+        const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+        const settings = yield* ServerSettings.ServerSettingsService;
+        const registry = yield* McpSessionRegistry.McpSessionRegistry;
+        const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const threadId = ThreadId.make(`thread-computer-credential-${launcherAvailable}`);
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId,
+        });
+        yield* eventSink.write({
+          events: [
+            yield* makeThreadCreatedEvent({ idAllocator, threadId, now: yield* DateTime.now }),
+          ],
+        });
+        const open = manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+        const runtime = yield* open;
+        const providerThread = makeProviderThread({
+          idAllocator,
+          threadId,
+          providerSessionId,
+          now: yield* DateTime.now,
+          nativeThreadId: "native-computer-credential",
+        });
+        const resume = runtime.resumeThread({
+          threadId,
+          providerThread,
+          modelSelection,
+          runtimePolicy,
+        });
+        yield* resume;
+        assert.equal((yield* Ref.get(state)).resumeCount, 1);
+        const initial = yield* mcpSessions.read(threadId);
+        assert.isDefined(initial);
+
+        const reattach = (mode: "off" | "observe" | "control") =>
+          Effect.gen(function* () {
+            yield* settings.updateSettings({ computerUse: mode });
+            yield* open;
+            yield* resume;
+            const current = yield* mcpSessions.read(threadId);
+            assert.isDefined(current);
+            return current!;
+          });
+        const enabled = yield* reattach("observe");
+        const initialToken = initial!.authorizationHeader.replace(/^Bearer\s+/, "");
+        assert.equal(enabled.capabilities?.has("computer"), launcherAvailable);
+        assert.equal(enabled.providerSessionId === initial!.providerSessionId, !launcherAvailable);
+        assert.equal((yield* registry.resolve(initialToken)) === undefined, launcherAvailable);
+        assert.equal((yield* Ref.get(state)).resumeCount, launcherAvailable ? 2 : 1);
+        assert.equal((yield* reattach("control")).providerSessionId, enabled.providerSessionId);
+        assert.equal((yield* Ref.get(state)).resumeCount, launcherAvailable ? 2 : 1);
+
+        const disabled = yield* reattach("off");
+        assert.isFalse(disabled.capabilities?.has("computer"));
+        assert.equal(disabled.providerSessionId === enabled.providerSessionId, !launcherAvailable);
+        if (launcherAvailable) {
+          assert.isUndefined(
+            yield* registry.resolve(enabled.authorizationHeader.replace(/^Bearer\s+/, "")),
+          );
+        }
+        assert.equal((yield* reattach("off")).providerSessionId, disabled.providerSessionId);
+        assert.equal((yield* Ref.get(state)).resumeCount, launcherAvailable ? 3 : 1);
+        yield* manager.close(providerSessionId);
+      }).pipe(
+        Effect.provide(
+          layerTest({
+            state,
+            idleTimeoutMs: 60_000,
+            serverSettingsLayer: settingsLayer,
+            mcpRegistryLayer: configuredRegistry,
+          }).pipe(Layer.provideMerge(settingsLayer)),
         ),
       );
     }),
