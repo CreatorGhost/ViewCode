@@ -1,4 +1,9 @@
-import { EnvironmentId, ProjectId, SourceControlProviderKind, type PullRequestDetailView } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  SourceControlProviderKind,
+  type PullRequestDetailView,
+} from "@t3tools/contracts";
 import { act, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
@@ -243,4 +248,71 @@ it("hides bot and resolved comments until the filter shows them, and remembers t
   });
   expect(filterItem("Bot comments").props.checked).toBe(true);
   expect(texts()).toContain("Bot report 11");
+});
+
+it("keeps the reviewer strip after a host removes a completed reviewer, and updates stale verdicts", () => {
+  const approval = {
+    id: "approval",
+    kind: "review" as const,
+    author: { login: "Reviewer", name: null, avatarUrl: null },
+    body: "",
+    createdAt: "2026-09-02T00:00:00Z",
+    url: null,
+    path: null,
+    reviewState: "APPROVED",
+  };
+  const value: PullRequestDetailView = {
+    ...detail,
+    reviewers: [{ login: "reviewer", name: null, avatarUrl: null }],
+    comments: [approval],
+  };
+  act(() => {
+    renderer = create(render(value));
+  });
+  const outcomes = () =>
+    renderer.root
+      .findAllByType("span")
+      .filter(
+        (span) =>
+          span.props.className === "sr-only" &&
+          span.children.some((child) => typeof child === "string" && child.startsWith("Approved")),
+      )
+      .map((span) => span.children.join(""));
+  // Case differences across API fields must not produce two reviewer avatars/verdicts.
+  expect(outcomes()).toEqual(["Approved"]);
+  act(() =>
+    renderer.update(
+      render({
+        ...value,
+        reviewers: [],
+        commits: [
+          {
+            oid: "new-head",
+            messageHeadline: "New work after the review",
+            committedDate: "2026-09-03T00:00:00Z",
+          },
+        ],
+      }),
+    ),
+  );
+  expect(outcomes()).toEqual(["Approved earlier changes"]);
+  act(() =>
+    renderer.update(
+      render({
+        ...value,
+        reviewers: [],
+        comments: [
+          {
+            ...approval,
+            id: "renewed-approval",
+            createdAt: "2026-09-04T00:00:00Z",
+          },
+        ],
+        commits: [
+          { oid: "new-head", messageHeadline: "New work", committedDate: "2026-09-03T00:00:00Z" },
+        ],
+      }),
+    ),
+  );
+  expect(outcomes()).toEqual(["Approved"]);
 });

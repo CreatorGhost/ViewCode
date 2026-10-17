@@ -35,13 +35,11 @@ import {
   LayersIcon,
   ListChecksIcon,
   PenLineIcon,
-  UsersIcon,
   Plug2Icon,
   Maximize2Icon,
   Minimize2Icon,
   SearchIcon,
   UserLockIcon,
-  type LucideIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -66,6 +64,7 @@ import {
   pullRequestDiffStatKey,
   pullRequestEntryKey,
   pullRequestEntryViewer,
+  pullRequestProjectGroupKey,
   rankPullRequestMatches,
   sortPullRequestGroups,
   pullRequestEnvironmentSetKey,
@@ -161,6 +160,9 @@ import {
 import { useDebouncedValue } from "../state/queries";
 import { useAllEnvironmentShellsBootstrapped, useProjects } from "../state/entities";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
+import { useSidebarProjectSnapshots } from "../components/sidebar/useSidebarProjectGroups";
+import { ViewCodePullRequestProjectGroup } from "../components/pullRequest/ViewCodePullRequestProjectGroup";
+import { viewCodePullRequestProjectGroups } from "../components/pullRequest/viewcodeProjectGroups.logic";
 import { useEnvironments } from "../state/environments";
 import {
   pullRequestEnvironment,
@@ -171,7 +173,6 @@ import {
 } from "../state/pullRequests";
 import { useAtomCommand } from "../state/use-atom-command";
 import { cn } from "~/lib/utils";
-import { Separator } from "~/components/ui/separator";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
@@ -197,28 +198,6 @@ export interface PullRequestsSearch extends PullRequestListPreferences {
   readonly selectedProjectId?: ProjectId;
   readonly selectedHost?: string;
   readonly selectedEnvironmentId?: EnvironmentId;
-}
-
-const GROUP_ICONS: Record<string, LucideIcon> = {
-  authored: PenLineIcon,
-  reviewRequested: EyeIcon,
-  others: UsersIcon,
-};
-
-function PullRequestGroupHeader({
-  group,
-}: {
-  group: { key: string; label: string; entries: ReadonlyArray<unknown> };
-}) {
-  const Icon = GROUP_ICONS[group.key] ?? LayersIcon;
-  return (
-    <div className="flex items-center gap-2 px-3 pb-1 text-xs font-medium text-muted-foreground/70">
-      <Icon aria-hidden className="size-3.5 shrink-0" />
-      <h2 className="shrink-0">{group.label}</h2>
-      <span className="shrink-0 tabular-nums text-muted-foreground/50">{group.entries.length}</span>
-      <Separator className="min-w-2 flex-1" />
-    </div>
-  );
 }
 
 const INVOLVEMENT_TABS = [
@@ -878,7 +857,7 @@ function PullRequestsRouteView() {
   const {
     entries,
     listedPullRequestTabStatuses,
-    groups,
+    groups: priorityGroups,
     entriesByStatsKey,
     heldPullRequestsBySurface,
   } = pullRequestGroups({
@@ -899,6 +878,27 @@ function PullRequestsRouteView() {
     reviewing: partitionsWanted ? reviewingQuery.data?.entries : undefined,
     partitionsWanted,
   });
+
+  const projectFolders = useSidebarProjectSnapshots();
+  const projectFolderByKey = new Map(
+    projectFolders.flatMap((folder) =>
+      folder.memberProjects.map(
+        (member) =>
+          [
+            pullRequestProjectGroupKey({
+              environmentId: member.environmentId,
+              projectId: member.id,
+            }),
+            folder,
+          ] as const,
+      ),
+    ),
+  );
+  const groups = viewCodePullRequestProjectGroups(
+    priorityGroups,
+    new Map([...projectFolderByKey].map(([key, folder]) => [key, folder.displayName])),
+    typedParsed.text,
+  );
 
   const visibleStatsKeys = useRef({ key: filterKey, values: new Set<string>() });
   const [statsByRow, setStatsByRow] = useState<PullRequestDiffStats>(() => new Map());
@@ -1091,6 +1091,8 @@ function PullRequestsRouteView() {
     involvement: search.involvement,
   });
   const showProvider = hosts.length > 1;
+  const showProjectGroupHeaders =
+    displayGroups.filter((group) => group.entries.length > 0).length > 1;
   const [closeSweepKeys, setCloseSweepKeys] = useState<ReadonlySet<string>>(() => new Set());
   const closeSensorRef = useRef<SidebarPointerSensor | null>(null);
   // A sweep spans many renders; each step reads the rows on screen at that moment.
@@ -1348,8 +1350,12 @@ function PullRequestsRouteView() {
       ) : (
         <div className={cn("space-y-3", closeSweepKeys.size > 0 && "**:pointer-events-none")}>
           {displayGroups.map((group) => (
-            <div key={group.key} className="space-y-0.5">
-              {group.label ? <PullRequestGroupHeader group={group} /> : null}
+            <ViewCodePullRequestProjectGroup
+              key={group.key}
+              group={group}
+              project={projectFolderByKey.get(group.key)}
+              showHeader={showProjectGroupHeaders}
+            >
               {group.entries.map((entry) => {
                 const entryKey = pullRequestEntryKey(entry);
                 return (
@@ -1358,7 +1364,7 @@ function PullRequestsRouteView() {
                     statsKey={entryKey}
                     statsRef={registerStatsRow}
                     entry={entry}
-                    showProjectTitle
+                    showProjectTitle={!showProjectGroupHeaders}
                     showProvider={showProvider}
                     {...(capableEnvironments.length > 1 &&
                     environmentLabels.get(entry.environmentId) !== undefined
@@ -1384,7 +1390,7 @@ function PullRequestsRouteView() {
                   />
                 );
               })}
-            </div>
+            </ViewCodePullRequestProjectGroup>
           ))}
         </div>
       )}
