@@ -7866,6 +7866,9 @@ export default function ChatView(props: ChatViewProps) {
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
+            toolbarControlCount={
+              inlineRightPanelOwnsTitleBar ? 1 : shouldUsePlanSidebarSheet ? 3 : 4
+            }
             actions={
               <ViewCodeThreadControls
                 threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}

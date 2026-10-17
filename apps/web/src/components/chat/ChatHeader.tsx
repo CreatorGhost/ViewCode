@@ -48,6 +48,8 @@ interface ChatHeaderProps {
   onOpenThread: (threadId: ThreadId) => void;
   rightPanelOpen: boolean;
   actions?: ReactNode;
+  /** Each native toolbar control occupies a 28px toggle plus its 4px gap. */
+  toolbarControlCount?: number;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
 }
@@ -77,6 +79,7 @@ export const ChatHeader = memo(function ChatHeader({
   onOpenThread,
   rightPanelOpen,
   actions,
+  toolbarControlCount,
   onNewThreadInProject,
   onOpenProjectSettings,
 }: ChatHeaderProps) {
@@ -274,6 +277,11 @@ export const ChatHeader = memo(function ChatHeader({
         "flex min-w-0 flex-1 items-center gap-2 sm:gap-3",
         rightPanelOpen ? "pr-10" : "pr-24",
       )}
+      style={
+        toolbarControlCount === undefined
+          ? undefined
+          : { paddingRight: `calc(${toolbarControlCount} * 2rem + 0.5rem)` }
+      }
       onContextMenu={handleHeaderContextMenu}
     >
       <WorkspaceBreadcrumb
