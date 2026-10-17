@@ -54,6 +54,8 @@ import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { DiffFileTree } from "./diffs/DiffFileTree";
 import { diffFileTreeEntries } from "./diffs/diffFileTree.logic";
+import { DiffFileJumpDialog } from "./diffNav/DiffFileJumpDialog";
+import { useDiffNavigation } from "./diffNav/useDiffNavigation";
 import { Button } from "./ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
@@ -278,9 +280,14 @@ export default function DiffPanel({
   const selectedRunId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
   const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
-  const selectedFilePath = diffSelection.kind === "turn" || diffSelection.kind === "unstaged" ? (diffSelection.filePath ?? null) : null;
+  const selectedFilePath =
+    diffSelection.kind === "turn" || diffSelection.kind === "unstaged"
+      ? (diffSelection.filePath ?? null)
+      : null;
   const selectedFileRevealRequestId =
-    diffSelection.kind === "turn" || diffSelection.kind === "unstaged" ? (diffSelection.revealRequestId ?? 0) : 0;
+    diffSelection.kind === "turn" || diffSelection.kind === "unstaged"
+      ? (diffSelection.revealRequestId ?? 0)
+      : 0;
   const selectedTurn =
     selectedRunId === null
       ? undefined
@@ -547,6 +554,8 @@ export default function DiffPanel({
     }
     requestTreeReveal(file.fileKey);
   };
+  const diffFilePaths = renderableFileEntries.map(({ fileDiff }) => resolveFileDiffPath(fileDiff));
+  const diffNav = useDiffNavigation(diffFilePaths, revealDiffFile);
 
   const externalRevealRef = useRef<{ cache: string; key: string } | null>(null);
   useEffect(() => {
@@ -1166,6 +1175,12 @@ export default function DiffPanel({
           </div>
         </>
       )}
+      <DiffFileJumpDialog
+        open={diffNav.jumpOpen}
+        onOpenChange={diffNav.setJumpOpen}
+        paths={diffFilePaths}
+        onPick={diffNav.jump}
+      />
     </DiffPanelShell>
   );
 }
