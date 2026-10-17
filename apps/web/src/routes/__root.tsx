@@ -19,6 +19,9 @@ import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { AgentSessionDialogsHost } from "../components/agentSessions/AgentSessionDialogsHost";
+import { ChatAppearanceSync } from "../components/chat/appearance/ChatAppearanceSync";
+import { ConnectPhoneDialogHost } from "../components/connectPhone/ConnectPhoneDialog";
+import { ShortcutsSheet } from "../components/shortcuts/ShortcutsSheet";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { KeybindingsConfigWarning } from "../components/KeybindingsConfigWarning";
@@ -221,6 +224,7 @@ function RootRouteView() {
         <DocumentTitleSync />
         <BrowserChromeThemeSync key={pathname} />
         <ContrastAppearanceSync />
+        <ChatAppearanceSync />
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
         <FontAppearanceSync />
@@ -244,6 +248,8 @@ function RootRouteView() {
           <CustomSnoozeDialogHost />
           <SlowRpcRequestToastCoordinator />
           <AgentSessionDialogsHost />
+          <ConnectPhoneDialogHost />
+          <ShortcutsSheet />
           <PermissionUpdateNotice />
           {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}
           <ProjectCloneToastCoordinator />

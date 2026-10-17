@@ -77,6 +77,7 @@ import {
   FolderGit2Icon,
   FolderIcon,
   FolderPlusIcon,
+  KeyboardIcon,
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
@@ -109,6 +110,8 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { useShortcutsSheetStore } from "./shortcuts/shortcutsSheetStore";
+import { buildThreadTabActions } from "./tabs/threadTabActions";
 import {
   composerPromptLink,
   copyPromptLink,
@@ -1905,6 +1908,29 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push(
+    ...buildThreadTabActions(
+      paletteRouteTarget?.kind === "server" ? paletteRouteTarget.threadRef : null,
+      (ref) =>
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId: ref.environmentId, threadId: ref.threadId },
+        }),
+      () => void navigate({ to: "/" }),
+    ),
+    {
+      kind: "action",
+      value: "action:keyboard-shortcuts",
+      searchTerms: ["keyboard shortcuts", "keybindings", "hotkeys", "cheat sheet"],
+      title: "Keyboard shortcuts",
+      icon: <KeyboardIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "shortcuts.open",
+      run: async () => {
+        useShortcutsSheetStore.getState().setOpen(true);
+      },
+    },
+  );
 
   actionItems.push({
     kind: "action",
