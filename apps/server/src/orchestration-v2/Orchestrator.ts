@@ -6756,7 +6756,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const parentRun = parentProjection.runs.find(
         (candidate) => candidate.id === command.parentRunId,
       );
-      if (parentRun === undefined || !isBlockingRun(parentRun)) {
+      const userRequested = command.viewcodeUserRequested === true;
+      if (
+        userRequested &&
+        (command.createdBy !== "user" ||
+          command.workspaceStrategy?.type !== "worktree" ||
+          parentProjection.thread.archivedAt !== null ||
+          parentProjection.thread.deletedAt !== null)
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            "Manual delegated tasks require a user request, an active thread and their own worktree.",
+        });
+      }
+      if (
+        parentRun === undefined ||
+        (!isBlockingRun(parentRun) && !(userRequested && parentRun.status === "completed"))
+      ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
@@ -6776,7 +6794,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         parentNode === undefined ||
         parentNode.runId !== parentRun.id ||
-        parentRun.rootNodeId === null
+        parentRun.rootNodeId === null ||
+        (userRequested && parentNode.id !== parentRun.rootNodeId)
       ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,

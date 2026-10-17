@@ -22,6 +22,7 @@ import { AgentSessionDialogsHost } from "../components/agentSessions/AgentSessio
 import { ChatAppearanceSync } from "../components/chat/appearance/ChatAppearanceSync";
 import { ConnectPhoneDialogHost } from "../components/connectPhone/ConnectPhoneDialog";
 import { ShortcutsSheet } from "../components/shortcuts/ShortcutsSheet";
+import { CreateChildAgentDialogHost } from "../components/agents/CreateChildAgentDialog";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { KeybindingsConfigWarning } from "../components/KeybindingsConfigWarning";
@@ -250,6 +251,7 @@ function RootRouteView() {
           <AgentSessionDialogsHost />
           <ConnectPhoneDialogHost />
           <ShortcutsSheet />
+          <CreateChildAgentDialogHost />
           <PermissionUpdateNotice />
           {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}
           <ProjectCloneToastCoordinator />

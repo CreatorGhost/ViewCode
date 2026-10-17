@@ -1077,3 +1077,44 @@ it.effect.each([
     expect(dispatched).toEqual(settles ? ["thread.settle"] : []);
   }),
 );
+
+it.effect(
+  "manual delegation still refuses project-disabled providers at the native dispatch chokepoint",
+  () => {
+    const projectId = ProjectId.make("project:thread-management:chokepoint");
+    const instanceId = ProviderInstanceId.make("codex_work");
+    const dispatched: Array<string> = [];
+    const layerTest = layerDispatchChokepointTest(
+      ServerSettings.layerTest({
+        providerInstances: { [instanceId]: { driver: "codex", enabled: true } },
+        projectSettingsOverrides: {
+          [projectId]: { providerInstances: { [instanceId]: { enabled: false } } },
+        },
+      }),
+    )(dispatched);
+    return Effect.gen(function* () {
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const error = yield* Effect.flip(
+        threads.dispatch({
+          type: "delegated_task.request",
+          viewcodeUserRequested: true,
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make("command:manual-disabled"),
+          parentThreadId: ThreadId.make("thread:thread-management:chokepoint"),
+          parentRunId: RunId.make("run:parent"),
+          parentNodeId: NodeId.make("node:parent"),
+          task: "Inspect",
+          modelSelection: { instanceId, model: "test" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+        }),
+      );
+      expect(error).toBeInstanceOf(
+        ThreadManagementService.ThreadManagementProviderInstanceDisabledError,
+      );
+      expect(dispatched).toEqual([]);
+    }).pipe(Effect.provide(layerTest));
+  },
+);

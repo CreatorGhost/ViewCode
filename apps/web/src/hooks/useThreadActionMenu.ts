@@ -9,6 +9,7 @@ import {
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import {
   AuthOrchestrationOperateScope,
+  type ContextMenuItem,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -46,6 +47,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
+import { useCreateChildAgent } from "../components/agents/useCreateChildAgent";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -88,6 +90,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
+  const createChildAgent = useCreateChildAgent();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -128,22 +131,48 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat);
-      const items = buildThreadActionMenuItems({
-        canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
-        branch: thread.branch ?? null,
-        projectFilter: null,
-        isPinned: thread.pinnedAt != null,
-        isSettled: supports.settlement && thread.settledOverride === "settled",
-        autoSettleEnabled: thread.autoSettleDisabledAt == null,
-        isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
-        canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
-        isRegeneratingTitle,
-        isRunning: !threadRuntimeCanArchive(thread.runtime),
-        supports,
-        snoozePresets,
-      });
+      const canOperate = readEnvironmentScope(
+        threadRef.environmentId,
+        AuthOrchestrationOperateScope,
+      );
+      const items: Array<ContextMenuItem<ThreadActionMenuId | "new-child-agent">> = [
+        ...(canOperate
+          ? [
+              {
+                id: "new-child-agent" as const,
+                label: "New child agent",
+                icon: "message-square-plus" as const,
+              },
+            ]
+          : []),
+        ...buildThreadActionMenuItems({
+          canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
+          branch: thread.branch ?? null,
+          projectFilter: null,
+          isPinned: thread.pinnedAt != null,
+          isSettled: supports.settlement && thread.settledOverride === "settled",
+          autoSettleEnabled: thread.autoSettleDisabledAt == null,
+          isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
+          canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
+          isRegeneratingTitle,
+          isRunning: !threadRuntimeCanArchive(thread.runtime),
+          supports,
+          snoozePresets,
+        }),
+      ];
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
+      if (clicked.value === "new-child-agent") {
+        if (!readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)) {
+          failureToast(
+            "Thread action unavailable",
+            new Error("This connection cannot create agents."),
+          );
+          return;
+        }
+        createChildAgent(thread);
+        return;
+      }
       const action: ThreadActionMenuId = clicked.value;
       if (
         threadActionRequiresOperate(action) &&
