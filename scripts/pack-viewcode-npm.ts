@@ -53,7 +53,8 @@ function viewcodeNpmManifest(name: string, dependencies: Readonly<Record<string,
     files: ["dist"],
     // Everything else is inside the bundle; these load native code at runtime.
     dependencies,
-    engines: serverPackageJson.engines,
+    // The external Undici 8 runtime requires Node 22.19 or newer.
+    engines: { node: "^22.19 || ^23.11 || >=24.10" },
   };
 }
 
