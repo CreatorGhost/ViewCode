@@ -71,6 +71,10 @@ API behavior that were not actually observed.
 
 ## Product decisions to preserve
 
+- Exact user-message forks use optional `sourceMessageId` on native
+  `thread.fork`. Their immutable target-local conversation prefix excludes the
+  selected user's later reply; first continuation is portable. Ordinary native
+  run forks retain upstream semantics.
 - Child agents use native delegated tasks and their own worktrees. ViewCode
   adds messaging, control queues, the sidebar tree and side chats.
 - Provider and model switches use upstream portable handoffs. ViewCode adds

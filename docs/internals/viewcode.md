@@ -27,6 +27,7 @@ excluded from ViewCode are gated, not deleted.
 | Provider/model handoff and account switching      | Native `ContextHandoffService`/`ProviderSwitchService`; account-scoped continuation keys in the provider drivers (covered by `provider/viewcode/accountSwitchHandoff.test.ts`) |
 | Child agents, messaging and controls              | Native delegated tasks and lineage; `agents/AgentMessagingV2.ts`, `server/viewcodeAgentsLayers.ts`, MCP `toolkits/agents/`                                                     |
 | Side chats and expiry                             | Native `thread.fork` with optional kind; `ViewCodeSidechatBootstrap.ts`, `ViewCodeSidechatExpiry.ts`, shared `state/sidechat.ts`                                               |
+| Exact user-message forks                          | Native `thread.fork` with optional `sourceMessageId`; `orchestration-v2/ViewCodeMessageFork.ts` snapshots a target-local conversation prefix                                   |
 | Goals and debug mode                              | `orchestration-v2/ViewCodeGoals.ts`, `ViewCodeTurnGuidance.ts`, MCP `toolkits/goal/`                                                                                           |
 | PR/local/incremental reviews and fixes            | `pullRequest/`, `review/`, `review/ReviewActivityStoreV2.ts`; `server/viewcodeReviewLayers.ts` and `viewcodeReviewRpc.ts`                                                      |
 | GitHub automatic account routing                  | Upstream GitHub API providers wrapped by `packages/source-control-github/src/server/GitHubAccountRouting.ts` and routed providers; SSH alias resolver                          |
@@ -95,6 +96,15 @@ correlation; tree permissions and the hop limit prevent cross-tree delivery
 and reply loops. Completion replies are emitted once, including a useful
 failure notice when a child cannot produce a final answer. Stopped/interrupted
 work does not generate a spurious completion reply.
+
+Ordinary native forks retain upstream run boundaries. ViewCode's user-message
+fork passes optional `sourceMessageId` and copies an immutable conversation
+prefix through that user message, excluding its later assistant reply. The
+prefix belongs to the target thread and is runless, including after paging or
+projection replay. Its first continuation uses portable context, even when the
+provider supports native forks: native provider turns cannot express this
+mid-turn boundary. Do not replace this with an inclusive run fork or read the
+source's current history during later handoffs.
 
 Side chats use native fork history with `kind: sidechat`. While a parent has no
 stable provider run, a bounded transcript bootstrap supplies context without
