@@ -24,7 +24,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
-import { selectCliRuntimeExternalDependencies } from "./lib/cli-external-packages.ts";
+import { resolveViewcodeNpmDependencies } from "./lib/viewcode-npm-dependencies.ts";
 
 // Trust the OS certificate store as well as Node's bundled roots, as the
 // desktop backend does, so HTTPS works behind a TLS-inspecting proxy.
@@ -41,7 +41,7 @@ class ViewcodeNpmPackError extends Schema.TaggedError<ViewcodeNpmPackError>()(
   }
 }
 
-function viewcodeNpmManifest(name: string) {
+function viewcodeNpmManifest(name: string, dependencies: Readonly<Record<string, string>>) {
   return {
     name,
     version: serverPackageJson.version,
@@ -52,7 +52,7 @@ function viewcodeNpmManifest(name: string) {
     bin: { viewcode: "dist/bin.mjs" },
     files: ["dist"],
     // Everything else is inside the bundle; these load native code at runtime.
-    dependencies: selectCliRuntimeExternalDependencies(serverPackageJson.dependencies),
+    dependencies,
     engines: serverPackageJson.engines,
   };
 }
@@ -85,6 +85,11 @@ const packViewcodeNpm = Effect.fn("packViewcodeNpm")(function* (input: { readonl
     });
   }
 
+  const dependencies = yield* resolveViewcodeNpmDependencies({
+    serverDir,
+    dependencies: serverPackageJson.dependencies,
+  });
+
   yield* fs.remove(outputDir, { recursive: true, force: true });
   yield* fs.makeDirectory(stageDir, { recursive: true });
   yield* fs.copy(distDir, path.join(stageDir, "dist"));
@@ -97,7 +102,7 @@ const packViewcodeNpm = Effect.fn("packViewcodeNpm")(function* (input: { readonl
   yield* fs.writeFileString(bin, source.replace(/^#!.*\n/, `${BIN_SHEBANG}\n`));
   yield* fs.writeFileString(
     path.join(stageDir, "package.json"),
-    `${yield* encodePackageJson(viewcodeNpmManifest(input.name))}\n`,
+    `${yield* encodePackageJson(viewcodeNpmManifest(input.name, dependencies))}\n`,
   );
   yield* fs.writeFileString(path.join(stageDir, "README.md"), README);
   // MIT requires the notice to travel with every copy.
