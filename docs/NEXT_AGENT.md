@@ -46,8 +46,10 @@ parent lineage, side-chat kind, goals, debug mode, project color and PR watch.
 A second launch must preserve changes made in v2. See
 [thread migration](user/thread-migration.md) for what conversation history keeps
 and loses. Never run a development server against the user's live userdata.
-Use the `VACUUM INTO` procedure in `AGENTS.md`, copy secrets only when needed,
-and keep the original backup untouched.
+Use the read-only v2 snapshot workflow in [AGENTS.md](../AGENTS.md#test-data).
+For a legacy database, open the source read-only and use `VACUUM INTO` to make
+a separate worktree-local copy before testing the first-launch migration.
+Copy secrets only when needed, and keep the original backup untouched.
 
 ### Integration checks that matter
 
