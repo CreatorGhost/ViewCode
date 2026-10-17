@@ -3312,10 +3312,10 @@ export function GeneralSettingsPanel() {
             />
           </>
         )}
-        <MobileAppSettingsRow />
+        {viewcodeProductPolicy.upstreamPromotions ? <MobileAppSettingsRow /> : null}
         <SettingsRow
           {...searchableSetting("privacy-policy")}
-          description="How we handle your data, including the anonymous usage data ViewCode collects."
+          description="Anonymous usage analytics are disabled by default. Collection requires explicit opt-in."
           control={
             <Button
               render={<a href={PRIVACY_POLICY_URL} target="_blank" rel="noreferrer noopener" />}
