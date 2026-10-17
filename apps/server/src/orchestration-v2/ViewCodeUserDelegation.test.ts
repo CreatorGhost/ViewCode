@@ -19,6 +19,8 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
+import * as Option from "effect/Option";
 import * as RpcTest from "effect/rpc/RpcTest";
 import * as RpcAuthorization from "../auth/RpcAuthorization.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -47,7 +49,7 @@ const layerTest = Layer.mergeAll(
   ProviderReplayHarness.layerWithRegistry(
     { name: "viewcode-user-delegation" },
     ProviderAdapterRegistry.layerFromAdapters([adapter]),
-    { databaseLayer: database, runEffectWorker: false },
+    { databaseLayer: database, runEffectWorker: false, runContinuationWorker: true },
   ),
 );
 
@@ -254,4 +256,110 @@ it.effect("the user-requested marker cannot bypass authenticated operate permiss
     assert.propertyVal(error, "requiredPermission", AuthOrchestrationOperateScope);
     assert.isFalse(handled);
   }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "reports a manual child's terminal result back through the native continuation worker after its parent completed",
+  () =>
+    Effect.gen(function* () {
+      const { orchestrator, projections, sink, command, parent } = yield* seed();
+      yield* orchestrator.dispatch(command);
+      const task = (yield* projections.getThreadProjection(parent.thread.id)).subagents[0]!;
+      const child = yield* projections.getThreadProjection(task.childThreadId!);
+      const childRun = child.runs[0]!;
+      const afterSequence = yield* sink.latestSequence();
+      const now = yield* DateTime.now;
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("manual-child-result"),
+            type: "message.updated",
+            threadId: child.thread.id,
+            runId: childRun.id,
+            occurredAt: now,
+            payload: {
+              id: MessageId.make("manual-child-result"),
+              threadId: child.thread.id,
+              runId: childRun.id,
+              nodeId: childRun.rootNodeId,
+              role: "assistant",
+              text: "MANUAL_CHILD_REPORT",
+              attachments: [],
+              streaming: false,
+              createdBy: "agent",
+              creationSource: "provider",
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+          {
+            id: EventId.make("manual-child-completed"),
+            type: "run.updated",
+            threadId: child.thread.id,
+            runId: childRun.id,
+            occurredAt: now,
+            payload: { ...childRun, status: "completed", startedAt: now, completedAt: now },
+          },
+        ],
+      });
+      yield* orchestrator.recoverDelegatedTask(child.thread.id, childRun.id);
+      const wake = yield* sink.stream({ afterSequence, eventType: "message.updated" }).pipe(
+        Stream.filter(
+          (stored) =>
+            stored.event.type === "message.updated" &&
+            stored.event.threadId === parent.thread.id &&
+            stored.event.payload.delegatedCompletion?.parentRunId === command.parentRunId,
+        ),
+        Stream.runHead,
+        Effect.timeout("3 seconds"),
+      );
+      assert.isTrue(Option.isSome(wake));
+      const after = yield* projections.getThreadProjection(parent.thread.id);
+      const completedTask = after.subagents.find((entry) => entry.id === task.id)!;
+      assert.equal(completedTask.status, "completed");
+      assert.include(completedTask.result!, "MANUAL_CHILD_REPORT");
+      assert.equal(after.runs.find((run) => run.id === command.parentRunId)!.status, "completed");
+      const report = after.messages.find(
+        (message) => message.delegatedCompletion?.parentRunId === command.parentRunId,
+      )!;
+      assert.equal(report.createdBy, "agent");
+      assert.equal(report.creationSource, "server");
+      assert.include(report.delegatedCompletion!.taskIds, task.id);
+      assert.isNotNull(report.runId);
+      assert.notEqual(report.runId, command.parentRunId);
+      assert.isDefined(after.runs.find((run) => run.id === report.runId));
+    }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect.each(["stopped", "disposed"] as const)(
+  "rejects a new manual child on a %s reporting cohort without reopening it",
+  (disposition) =>
+    Effect.gen(function* () {
+      const { orchestrator, projections, sink, command, run, parent } = yield* seed();
+      const now = yield* DateTime.now;
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make(`manual-closed-${disposition}`),
+            type: "run.updated",
+            threadId: parent.thread.id,
+            runId: run.id,
+            occurredAt: now,
+            payload: {
+              ...run,
+              status: "completed",
+              completedAt: now,
+              delegatedCompletion: { disposition, nextGeneration: 3, delivery: null },
+            },
+          },
+        ],
+      });
+      const error = yield* orchestrator.dispatch(command).pipe(Effect.flip);
+      assert.equal(error._tag, "OrchestratorDispatchError");
+      assert.include(String(error.cause), "Send another message");
+      const after = yield* projections.getThreadProjection(parent.thread.id);
+      assert.lengthOf(after.subagents, 0);
+      assert.equal(after.runs[0]!.delegatedCompletion!.disposition, disposition);
+      assert.equal(after.runs[0]!.delegatedCompletion!.nextGeneration, 3);
+    }).pipe(Effect.provide(layerTest)),
 );

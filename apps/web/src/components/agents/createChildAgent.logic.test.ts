@@ -122,3 +122,19 @@ describe("manual child delegation", () => {
     ).toBeNull();
   });
 });
+
+it.each(["stopped", "disposed"] as const)(
+  "requires a fresh user turn after a %s report cohort instead of reviving it",
+  (disposition) => {
+    const projection = parent();
+    const closed = {
+      ...projection,
+      runs: projection.runs.map((run) => ({
+        ...run,
+        delegatedCompletion: { disposition, nextGeneration: 3, delivery: null },
+      })),
+    };
+    expect(() => command(closed)).toThrow("Send another message");
+    expect(closed.runs[0]!.delegatedCompletion.disposition).toBe(disposition);
+  },
+);

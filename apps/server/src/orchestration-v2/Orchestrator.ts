@@ -6784,6 +6784,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Parent run ${command.parentRunId} is not active.`,
         });
       }
+      if (
+        userRequested &&
+        parentRun.delegatedCompletion !== undefined &&
+        parentRun.delegatedCompletion.disposition !== "open"
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            "Child-agent reporting for this turn was stopped or cancelled. Send another message in this thread before creating a new child agent.",
+        });
+      }
       if (yield* stopReachedRun(command, command.parentThreadId, parentRun.id)) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,

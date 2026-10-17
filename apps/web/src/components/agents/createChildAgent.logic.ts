@@ -30,6 +30,10 @@ export function manualChildAgentCommand(input: {
   )[0];
   if (!run?.rootNodeId)
     throw new Error("Send one message in this thread before creating an agent.");
+  if (run.delegatedCompletion !== undefined && run.delegatedCompletion.disposition !== "open")
+    throw new Error(
+      "Child-agent reporting for this turn was stopped or cancelled. Send another message in this thread before creating a new child agent.",
+    );
   return {
     type: "delegated_task.request",
     viewcodeUserRequested: true,
