@@ -7876,8 +7876,8 @@ export default function ChatView(props: ChatViewProps) {
               inlineRightPanelOwnsTitleBar ? 1 : shouldUsePlanSidebarSheet ? 3 : 4
             }
             actions={
-              settings.headerActionsVisible ? (
-                <div data-chat-header-actions className="flex shrink-0 items-center gap-1">
+              <div data-chat-header-actions className="flex shrink-0 items-center gap-1">
+                {settings.headerActionsVisible ? (
                   <ViewCodeHeaderProjectActions
                     projectCwd={activeProject?.workspaceRoot ?? null}
                     scripts={{
@@ -7893,27 +7893,27 @@ export default function ChatView(props: ChatViewProps) {
                     }}
                     git={{ gitCwd, activeThreadRef, ...(draftId ? { draftId } : {}) }}
                   />
-                  {isServerThread ? (
-                    <ReviewHeaderButton
-                      environmentId={activeThread.environmentId}
-                      threadId={activeThread.id}
-                      compact
-                    />
-                  ) : null}
-                  <ViewCodeThreadControls
-                    threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
-                    isServerThread={isServerThread}
-                    draftTarget={composerDraftTarget}
+                ) : null}
+                {isServerThread ? (
+                  <ReviewHeaderButton
+                    environmentId={activeThread.environmentId}
+                    threadId={activeThread.id}
+                    compact
                   />
-                  {isServerThread && activeThreadShell?.source.kind !== "sidechat" ? (
-                    <SidechatHeaderButton
-                      environmentId={activeThread.environmentId}
-                      threadId={activeThread.id}
-                      keybindings={keybindings}
-                    />
-                  ) : null}
-                </div>
-              ) : null
+                ) : null}
+                <ViewCodeThreadControls
+                  threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
+                  isServerThread={isServerThread}
+                  draftTarget={composerDraftTarget}
+                />
+                {isServerThread && activeThreadShell?.source.kind !== "sidechat" ? (
+                  <SidechatHeaderButton
+                    environmentId={activeThread.environmentId}
+                    threadId={activeThread.id}
+                    keybindings={keybindings}
+                  />
+                ) : null}
+              </div>
             }
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
             {...(activeDraftLogicalProjectKey
