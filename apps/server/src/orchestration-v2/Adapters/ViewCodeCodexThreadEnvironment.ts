@@ -19,6 +19,13 @@ const scopedEnvironmentKeys = [
   "VIEWCODE_COMPUTER_SCREENSHOTS_DIR",
 ] as const;
 
+export function viewcodeCodexAppServerArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
+  // ViewCode unsubscribes only after checking this thread's active/background
+  // work. Native Codex otherwise retains it for 30 minutes and ignores changed
+  // per-thread config until it closes. Keep other subscribed threads resident.
+  return [...args, "--config", "thread_unload_delay_secs=0"];
+}
+
 export function withoutCodexThreadEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.entries(environment).filter(

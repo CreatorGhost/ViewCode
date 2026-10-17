@@ -8,6 +8,7 @@ import {
   codexThreadEnvironment,
   codexThreadEnvironmentOverrides,
   makeCodexThreadEnvironmentTracker,
+  viewcodeCodexAppServerArgs,
   withoutCodexThreadEnvironment,
 } from "./ViewCodeCodexThreadEnvironment.ts";
 
@@ -34,6 +35,24 @@ const session = (id: string): McpProviderSessionConfig => ({
 });
 
 describe("Codex thread shell environment", () => {
+  it("releases only unsubscribed managed threads promptly without changing custom launch arguments", () => {
+    const original = [
+      "app-server",
+      "--config",
+      'shell_environment_policy.inherit="none"',
+      "--config",
+      'model_provider="company"',
+      "--listen",
+      "stdio://",
+    ];
+    expect(viewcodeCodexAppServerArgs(original)).toEqual([
+      ...original,
+      "--config",
+      "thread_unload_delay_secs=0",
+    ]);
+    expect(original).not.toContain("thread_unload_delay_secs=0");
+  });
+
   it("keeps each thread's CLI credentials out of the reusable app-server process", () => {
     const processEnvironment = {
       PATH: "/usr/bin",

@@ -120,6 +120,7 @@ import {
   codexThreadEnvironment,
   codexThreadEnvironmentOverrides,
   makeCodexThreadEnvironmentTracker,
+  viewcodeCodexAppServerArgs,
   withoutCodexThreadEnvironment,
 } from "./ViewCodeCodexThreadEnvironment.ts";
 import { autoApprovesComputerUseCommand } from "@t3tools/provider-core/server/computerUseCommand";
@@ -1532,8 +1533,10 @@ export const layerAppServerClientFactory: Layer.Layer<
           };
           const command = yield* makeCodexAppServerSpawnCommand({
             command: input.settings.binaryPath || "codex",
-            args: codexAppServerArgs(
-              resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
+            args: viewcodeCodexAppServerArgs(
+              codexAppServerArgs(
+                resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
+              ),
             ),
             env: environment,
             threadId: input.threadId,
