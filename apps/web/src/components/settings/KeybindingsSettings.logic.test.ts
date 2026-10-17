@@ -85,11 +85,14 @@ describe("KeybindingsSettings.logic", () => {
     expect(composer?.rows.map((row) => row.command)).toEqual(
       expect.arrayContaining(["composer.host", "modelPicker.toggle"]),
     );
-    expect(
-      groupKeybindingRows(
-        filterKeybindingRows(buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS), "split"),
-      ),
-    ).toEqual([expect.objectContaining({ id: "terminal" })]);
+    const splitGroups = groupKeybindingRows(
+      filterKeybindingRows(buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS), "split"),
+    );
+    expect(splitGroups.map((group) => group.id)).toEqual(["threads", "terminal"]);
+    expect(splitGroups.map((group) => group.rows.map((row) => row.command))).toEqual([
+      ["thread.split"],
+      ["terminal.split", "terminal.splitVertical"],
+    ]);
   });
   it("orders Usage bindings and command choices like the page", () => {
     const expected = [
