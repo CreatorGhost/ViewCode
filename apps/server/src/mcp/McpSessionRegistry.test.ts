@@ -2,12 +2,14 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ServerConfig from "../config.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
@@ -36,14 +38,65 @@ const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
       Effect.provide(NodeServices.layer),
     );
 
-it.effect("withholds computer and browser authority when settings deny them even if requested", () =>
-  Effect.gen(function* () {
-    const registry = yield* makeRegistry(() => 1_000);
-    const issued = yield* registry.issue({ threadId: ThreadId.make("denied-tools"), providerInstanceId: ProviderInstanceId.make("codex"), browserToolsAvailable: false, capabilities: new Set(["computer", "preview"]) });
-    expect(issued.config.capabilities?.has("computer")).toBe(false);
-    expect(issued.config.capabilities?.has("preview")).toBe(false);
-    expect(issued.config.agentDeviceEnvironment?.VIEWCODE_COMPUTER_AUTH).toBeUndefined();
-  }).pipe(Effect.provide(ServerSettings.layerTest({ computerUse: "off" }))),
+it.effect("production registry follows settings when issuing computer grants", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const registry = yield* McpSessionRegistry.McpSessionRegistry;
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const threadId = ThreadId.make("production-computer-settings");
+      const issue = registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      });
+
+      expect(yield* registry.computerAvailable!).toBe(false);
+      expect((yield* issue).config.capabilities?.has("computer")).toBe(false);
+      yield* settings.updateSettings({ computerUse: "observe" });
+      expect(yield* registry.computerAvailable!).toBe(true);
+      const observed = yield* issue;
+      expect(observed.config.capabilities?.has("computer")).toBe(true);
+      expect(observed.config.agentDeviceEnvironment?.VIEWCODE_COMPUTER_CLI).toContain(
+        config.stateDir,
+      );
+      expect(observed.config.agentDeviceEnvironment?.VIEWCODE_COMPUTER_AUTH).toBe(
+        observed.config.authorizationHeader,
+      );
+      yield* settings.updateSettings({ computerUse: "off" });
+      expect(yield* registry.computerAvailable!).toBe(false);
+      expect((yield* issue).config.capabilities?.has("computer")).toBe(false);
+    }).pipe(
+      Effect.provide(
+        McpSessionRegistry.layer.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(
+              ServerSettings.layerTest({ computerUse: "off" }),
+              ServerConfig.layerTest(process.cwd(), { prefix: "viewcode-computer-registry-" }),
+              Layer.succeed(HttpServer.HttpServer, fakeHttpServer),
+              Layer.succeed(ServerEnvironment.ServerEnvironment, fakeEnvironment),
+            ).pipe(Layer.provideMerge(NodeServices.layer)),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect(
+  "withholds computer and browser authority when settings deny them even if requested",
+  () =>
+    Effect.gen(function* () {
+      const registry = yield* makeRegistry(() => 1_000);
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make("denied-tools"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        browserToolsAvailable: false,
+        capabilities: new Set(["computer", "preview"]),
+      });
+      expect(issued.config.capabilities?.has("computer")).toBe(false);
+      expect(issued.config.capabilities?.has("preview")).toBe(false);
+      expect(issued.config.agentDeviceEnvironment?.VIEWCODE_COMPUTER_AUTH).toBeUndefined();
+    }).pipe(Effect.provide(ServerSettings.layerTest({ computerUse: "off" }))),
 );
 
 it.effect(

@@ -319,21 +319,27 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
 let activeMcpSessionRegistry: McpSessionRegistryShape | undefined;
 
-const make = Effect.acquireRelease(
-  makeWithOptions().pipe(
-    Effect.tap((registry) =>
-      Effect.sync(() => {
-        activeMcpSessionRegistry = registry;
-      }),
+const make = Effect.gen(function* () {
+  const settings = yield* ServerSettings.ServerSettingsService;
+  const config = yield* ServerConfig.ServerConfig;
+  return yield* Effect.acquireRelease(
+    makeWithOptions().pipe(
+      Effect.provideService(ServerSettings.ServerSettingsService, settings),
+      Effect.provideService(ServerConfig.ServerConfig, config),
+      Effect.tap((registry) =>
+        Effect.sync(() => {
+          activeMcpSessionRegistry = registry;
+        }),
+      ),
     ),
-  ),
-  (registry) =>
-    Effect.sync(() => {
-      if (activeMcpSessionRegistry === registry) {
-        activeMcpSessionRegistry = undefined;
-      }
-    }),
-);
+    (registry) =>
+      Effect.sync(() => {
+        if (activeMcpSessionRegistry === registry) {
+          activeMcpSessionRegistry = undefined;
+        }
+      }),
+  );
+});
 
 export const layer = Layer.effect(McpSessionRegistry, make);
 
