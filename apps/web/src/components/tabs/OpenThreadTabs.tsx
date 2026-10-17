@@ -5,7 +5,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Atom } from "effect/reactivity";
 import { ChevronDownIcon, XIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 
 import { cn } from "~/lib/utils";
 import { environmentCatalog } from "../../connection/catalog";
@@ -63,16 +63,10 @@ export function ThreadTabsHost() {
 
   // Tabs for threads that no longer exist or were archived (here or on another
   // device) quietly go away, once that environment's live thread list is in.
-  const liveKeys = useMemo(
-    () =>
-      new Set(
-        shells
-          .filter((shell) => shell.archivedAt == null && !isSidechat(shell))
-          .map((shell) =>
-            scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
-          ),
-      ),
-    [shells],
+  const liveKeys = new Set(
+    shells
+      .filter((shell) => shell.archivedAt == null && !isSidechat(shell))
+      .map((shell) => scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id })),
   );
   useEffect(() => {
     if (liveEnvironmentIds === "") return;
@@ -130,7 +124,11 @@ export interface ActiveTabExtras {
   readonly renameField?: React.ReactNode;
   /** Present when the thread has an action menu: clicking the active tab or its chevron opens it. */
   readonly onClick?: (event: React.MouseEvent<HTMLElement>) => void;
-  readonly onDoubleClick?: (event: React.MouseEvent<HTMLElement>) => void;
+  readonly onDoubleClick?: ((event: React.MouseEvent<HTMLElement>) => void) | undefined;
+  readonly onBlur?: (() => void) | undefined;
+  readonly onKeyActivate?: (anchor: HTMLElement) => void;
+  /** Native parent breadcrumb already names the active tab's parent. */
+  readonly hideLeadTitle?: boolean;
 }
 
 const TabItem = memo(function TabItem(props: {
@@ -151,7 +149,7 @@ const TabItem = memo(function TabItem(props: {
   closable?: boolean;
 }) {
   const extras = props.active ? props.activeExtras : undefined;
-  const title = threadTabTitle(props.title, props.leadTitle);
+  const title = threadTabTitle(props.title, extras?.hideLeadTitle ? null : props.leadTitle);
   const statusGlyph = threadStatusGlyph(props.status, "xs");
   const Icon = props.driverKind
     ? (PROVIDER_ICON_BY_PROVIDER as Record<string, React.ComponentType<{ className?: string }>>)[
@@ -163,6 +161,7 @@ const TabItem = memo(function TabItem(props: {
       role="tab"
       tabIndex={0}
       aria-selected={props.active}
+      aria-haspopup={extras?.onClick ? "menu" : undefined}
       data-active={props.active}
       data-thread-tab=""
       data-attention={props.attention && !props.active ? "true" : undefined}
@@ -171,10 +170,14 @@ const TabItem = memo(function TabItem(props: {
         else props.onSelect(props.threadKey);
       }}
       onDoubleClick={extras?.onDoubleClick}
+      onBlur={extras?.onBlur}
       onKeyDown={(event) => {
+        // Rename fields and the close button own their Enter/Space behavior.
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          props.onSelect(props.threadKey);
+          if (extras?.onKeyActivate) extras.onKeyActivate(event.currentTarget);
+          else props.onSelect(props.threadKey);
         }
       }}
       // Middle click closes, like a browser tab.
@@ -188,7 +191,7 @@ const TabItem = memo(function TabItem(props: {
         if (event.button === 1) event.preventDefault();
       }}
       className={cn(
-        "group/tab relative flex h-7 min-w-24 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-ring",
+        "group/tab relative flex h-7 min-w-24 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         props.active
           ? "bg-foreground/10 text-foreground"
           : "text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
@@ -225,6 +228,7 @@ const TabItem = memo(function TabItem(props: {
         <button
           type="button"
           aria-label={`Close ${title.full}`}
+          onDoubleClick={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
             props.onClose(props.threadKey);
@@ -261,23 +265,15 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
   const scroller = useRef<HTMLDivElement>(null);
   // A custom instance id says nothing about its driver, so the glyph comes from the provider list.
   const providers = useAtomValue(primaryServerProvidersAtom);
-  const driverByInstance = useMemo(
-    () =>
-      new Map(
-        providers.map((provider) => [provider.instanceId as string, provider.driver as string]),
-      ),
-    [providers],
+  const driverByInstance = new Map(
+    providers.map((provider) => [provider.instanceId as string, provider.driver as string]),
   );
 
-  const byKey = useMemo(
-    () =>
-      new Map(
-        shells.map((shell) => [
-          scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
-          shell,
-        ]),
-      ),
-    [shells],
+  const byKey = new Map(
+    shells.map((shell) => [
+      scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
+      shell,
+    ]),
   );
   // A child agent's lead lives in the same environment, so it is found the way the tab's own shell is.
   const leadTitleOf = (shell: ThreadShell) =>
@@ -287,8 +283,9 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
         )?.title ?? null)
       : null;
 
-  // Keep the active tab in view when the strip overflows; the deps are the triggers, not reads.
+  // Keep a newly selected/opened tab in view when the strip overflows.
   useEffect(() => {
+    if (activeKey === null || !tabs?.includes(activeKey)) return;
     scroller.current
       ?.querySelector<HTMLElement>('[data-active="true"]')
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -297,29 +294,22 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
   const showList =
     !props.paneOnly && !!tabs && tabs.length >= 2 && activeKey !== null && tabs.includes(activeKey);
 
-  // Stable callbacks keep the memoised tabs from re-rendering on every strip render.
-  const select = useCallback(
-    (key: string) => {
-      const ref = parseScopedThreadKey(key);
-      if (ref) {
-        void navigate({
-          to: "/$environmentId/$threadId",
-          params: { environmentId: ref.environmentId, threadId: ref.threadId },
-        });
-      }
-    },
-    [navigate],
-  );
+  const select = (key: string) => {
+    const ref = parseScopedThreadKey(key);
+    if (ref) {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: ref.environmentId, threadId: ref.threadId },
+      });
+    }
+  };
   const environmentId = active.environmentId;
-  const close = useCallback(
-    (key: string) => {
-      const next = useThreadTabsStore.getState().close(environmentId, key, activeKey);
-      if (key !== activeKey) return;
-      if (next) select(next);
-      else void navigate({ to: "/" });
-    },
-    [activeKey, environmentId, navigate, select],
-  );
+  const close = (key: string) => {
+    const next = useThreadTabsStore.getState().close(environmentId, key, activeKey);
+    if (key !== activeKey) return;
+    if (next) select(next);
+    else void navigate({ to: "/" });
+  };
 
   if (!showList || !tabs) {
     const shell = activeKey ? byKey.get(activeKey) : undefined;

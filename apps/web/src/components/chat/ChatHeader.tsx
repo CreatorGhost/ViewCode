@@ -9,7 +9,6 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon } from "lucide-react";
 import {
   memo,
   useEffect,
@@ -37,6 +36,9 @@ import {
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { useClientSettings } from "../../hooks/useSettings";
+import { OpenThreadTabs, type ActiveTabExtras } from "../tabs/OpenThreadTabs";
+import { useSplitPaneActions } from "../../splitView/SplitPaneContext";
+import { SplitPaneControls } from "../../splitView/SplitPaneControls";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -83,6 +85,7 @@ export const ChatHeader = memo(function ChatHeader({
   onNewThreadInProject,
   onOpenProjectSettings,
 }: ChatHeaderProps) {
+  const splitPane = useSplitPaneActions();
   const activeProjectName = activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const interfaceFont = useClientSettings((settings) => settings.fontFamilySans);
@@ -197,7 +200,7 @@ export const ChatHeader = memo(function ChatHeader({
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
   });
-  const titleButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleMenuAnchorRef = useRef<HTMLElement | null>(null);
   const titleMenuTimerRef = useRef<number | null>(null);
   const cancelPendingTitleMenu = () => {
     if (titleMenuTimerRef.current === null) return;
@@ -215,12 +218,13 @@ export const ChatHeader = memo(function ChatHeader({
   );
   const openTitleMenuNow = () => {
     cancelPendingTitleMenu();
-    const rect = titleButtonRef.current?.getBoundingClientRect();
+    const rect = titleMenuAnchorRef.current?.getBoundingClientRect();
     if (!rect) return;
     openMenu({ x: rect.left, y: rect.bottom + 4 });
   };
-  const openMenuFromTitle = (event: ReactMouseEvent<HTMLButtonElement>) => {
+  const openMenuFromTitle = (event: ReactMouseEvent<HTMLElement>) => {
     if (isTrailingDoubleClick(event.detail)) return;
+    titleMenuAnchorRef.current = event.currentTarget;
     const clickedChevron =
       (event.target as HTMLElement).closest("[data-thread-title-chevron]") !== null;
     if (event.detail === 0 || clickedChevron || window.desktopBridge === undefined) {
@@ -242,6 +246,10 @@ export const ChatHeader = memo(function ChatHeader({
   };
   const handleHeaderContextMenu = (event: ReactMouseEvent) => {
     if (renamingTitle !== null) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-chat-header-actions]")) return;
+    const tab = target.closest("[data-thread-tab]");
+    if (tab && tab.getAttribute("data-active") !== "true") return;
     if (!isServerThread && onOpenProjectSettings === undefined) return;
     cancelPendingTitleMenu();
     event.preventDefault();
@@ -269,6 +277,49 @@ export const ChatHeader = memo(function ChatHeader({
       renameCommittedRef.current = true;
       setRenaming(null);
     }
+  };
+  const activeTabExtras: ActiveTabExtras = {
+    ...(activeProject
+      ? { glyph: <ProjectFavicon project={activeProject} className="size-3.5 shrink-0" /> }
+      : {}),
+    hideLeadTitle: parentThreadLink !== null,
+    ...(renamingTitle === null
+      ? {}
+      : {
+          renameField: (
+            <input
+              autoFocus
+              aria-label="Thread title"
+              className="min-w-0 flex-1 rounded-sm bg-transparent text-sm font-medium text-foreground outline-none ring-1 ring-inset ring-ring/50 focus:ring-ring"
+              defaultValue={renamingTitle}
+              onClick={(event) => event.stopPropagation()}
+              onBlur={(event) => {
+                if (renameCommittedRef.current) return;
+                if (
+                  event.relatedTarget instanceof HTMLElement &&
+                  event.relatedTarget.closest("button")
+                ) {
+                  setRenaming(null);
+                  return;
+                }
+                commitRename(event.currentTarget.value);
+              }}
+              onFocus={(event) => event.currentTarget.select()}
+              onKeyDown={handleRenameKeyDown}
+            />
+          ),
+        }),
+    ...(isServerThread
+      ? {
+          onClick: openMenuFromTitle,
+          onDoubleClick: canOperateThread ? handleTitleDoubleClick : undefined,
+          onBlur: cancelPendingTitleMenu,
+          onKeyActivate: (anchor: HTMLElement) => {
+            titleMenuAnchorRef.current = anchor;
+            openTitleMenuNow();
+          },
+        }
+      : {}),
   };
   return (
     <div
@@ -350,65 +401,19 @@ export const ChatHeader = memo(function ChatHeader({
           </>
         ) : null}
         <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
-          {renamingTitle !== null ? (
-            <input
-              autoFocus
-              aria-label="Thread title"
-              className="min-w-0 flex-1 rounded-sm bg-transparent text-sm font-medium text-foreground outline-none ring-1 ring-inset ring-ring/50 focus:ring-ring"
-              defaultValue={renamingTitle}
-              onBlur={(event) => {
-                if (renameCommittedRef.current) return;
-                if (
-                  event.relatedTarget instanceof HTMLElement &&
-                  event.relatedTarget.closest("button")
-                ) {
-                  setRenaming(null);
-                  return;
-                }
-                commitRename(event.currentTarget.value);
-              }}
-              onFocus={(event) => event.currentTarget.select()}
-              onKeyDown={handleRenameKeyDown}
-            />
-          ) : isServerThread ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    ref={titleButtonRef}
-                    type="button"
-                    aria-label={`Thread actions for ${activeThreadTitle}`}
-                    aria-haspopup="menu"
-                    onClick={openMenuFromTitle}
-                    onDoubleClick={canOperateThread ? handleTitleDoubleClick : undefined}
-                    onBlur={cancelPendingTitleMenu}
-                    className="group/thread-title inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                  />
-                }
-              >
-                <h2 className="min-w-0">
-                  <WorkspaceBreadcrumbText>{activeThreadTitle}</WorkspaceBreadcrumbText>
-                </h2>
-                <ChevronDownIcon
-                  aria-hidden
-                  data-thread-title-chevron
-                  className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread-title:opacity-100 group-focus-visible/thread-title:opacity-100"
-                />
-              </TooltipTrigger>
-              <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
-            </Tooltip>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger
-                render={<h2 aria-label={activeThreadTitle} className="min-w-0 flex-1" />}
-              >
-                <WorkspaceBreadcrumbText>{activeThreadTitle}</WorkspaceBreadcrumbText>
-              </TooltipTrigger>
-              <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
-            </Tooltip>
-          )}
+          <OpenThreadTabs
+            activeRef={activeThreadRef}
+            fallbackTitle={activeThreadTitle}
+            paneOnly={splitPane !== null}
+            activeExtras={activeTabExtras}
+          />
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {splitPane ? (
+        <div data-chat-header-actions>
+          <SplitPaneControls {...splitPane} />
+        </div>
+      ) : null}
       {actions}
     </div>
   );
