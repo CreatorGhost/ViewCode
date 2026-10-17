@@ -13,7 +13,12 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import { addAccountSettingsPatch, prepareProviderAccountSignIn } from "./providerAccounts.ts";
+import {
+  addAccountSettingsPatch,
+  addProviderAccount,
+  prepareProviderAccountSignIn,
+} from "./providerAccounts.ts";
+import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
 
 const tempDir = () => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-accounts-"));
 
@@ -21,6 +26,32 @@ const withInstances = (instances: ServerSettings["providerInstances"]): ServerSe
   ...DEFAULT_SERVER_SETTINGS,
   providerInstances: instances,
 });
+
+it.effect("admin-blocked accounts fail before creating directories or updating settings", () =>
+  Effect.gen(function* () {
+    let updated = false;
+    const result = yield* addProviderAccount({
+      settings: withInstances({}),
+      account: {
+        driver: "codex",
+        instanceId: ProviderInstanceId.make("codex_blocked"),
+        displayName: "Blocked",
+      },
+      stateDir: "/must-not-write",
+      updateSettings: () =>
+        Effect.sync(() => {
+          updated = true;
+        }),
+    }).pipe(Effect.result);
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure")
+      expect(result.failure.detail).toBe("Blocked by your organization.");
+    expect(updated).toBe(false);
+  }).pipe(
+    Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: ["codex"], problem: null }),
+    Effect.provide(NodeServices.layer),
+  ),
+);
 
 describe("addAccountSettingsPatch", () => {
   it("adds a managed Codex account sharing the default CODEX_HOME", () => {

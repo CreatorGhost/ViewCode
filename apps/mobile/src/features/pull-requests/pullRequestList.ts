@@ -1,12 +1,4 @@
-import type {
-  EnvironmentId,
-  PullRequestListEntry,
-  PullRequestListFilters,
-  PullRequestListInput,
-  PullRequestListResult,
-  PullRequestInvolvement,
-  PullRequestListState,
-} from "@t3tools/contracts";
+import type { EnvironmentId, PullRequestListEntry, PullRequestListFilters, PullRequestListInput, PullRequestListResult, PullRequestInvolvement, PullRequestListState } from "@t3tools/contracts";
 
 export const PR_LIST_PAGE_SIZE = 20;
 export interface PullRequestListControls {

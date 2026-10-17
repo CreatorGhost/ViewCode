@@ -20,20 +20,19 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type OrchestrationCommand,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadActivity,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Stream from "effect/Stream";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
+import { ReviewActivityStoreV2 } from "../review/ReviewActivityStoreV2.ts";
 import * as PullRequestAgentReview from "../pullRequest/PullRequestAgentReview.ts";
 import { reviewCliRouteLayer } from "./ReviewCliRoute.ts";
 
@@ -46,8 +45,8 @@ const thread = {
   id: threadId,
   projectId: ProjectId.make("project"),
   pullRequests: [],
-  session: null,
-} as unknown as OrchestrationThreadShell;
+  activeRunId: null,
+} as unknown as OrchestrationV2ThreadShell;
 
 const report = {
   verdict: "approve-with-nits",
@@ -69,7 +68,7 @@ const report = {
 
 const makeStack = (listen: "unix" | "tcp") =>
   Effect.gen(function* () {
-    const commands: Array<OrchestrationCommand> = [];
+    const commands: Array<Parameters<ReviewActivityStoreV2["Service"]["append"]>[0]> = [];
     const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-review-e2e-"));
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => NodeFS.rmSync(directory, { recursive: true, force: true })),
@@ -93,22 +92,17 @@ const makeStack = (listen: "unix" | "tcp") =>
       reviewCliRouteLayer.pipe(
         Layer.provide(Layer.succeed(McpSessionRegistry.McpSessionRegistry, registry)),
         Layer.provide(
-          Layer.mock(ProjectionSnapshotQuery)({
-            getThreadShellById: (id) =>
-              Effect.succeed(id === threadId ? Option.some(thread) : Option.none()),
-            getThreadDetailById: () => Effect.succeedNone,
+          Layer.mock(ProjectionStoreV2)({
+            getThreadShell: (id) => Effect.succeed(id === threadId ? thread : null),
           }),
         ),
         Layer.provide(
-          Layer.mock(OrchestrationEngineService)({
-            readEvents: () => Stream.empty,
-            dispatch: (command) =>
+          Layer.mock(ReviewActivityStoreV2)({
+            list: () => Effect.succeed([]),
+            append: (command) =>
               Effect.sync(() => {
                 commands.push(command);
-                return { sequence: 1 };
               }),
-            streamDomainEvents: Stream.empty,
-            latestSequence: Effect.succeed(0),
           }),
         ),
         Layer.provide(Layer.mock(PullRequestAgentReview.PullRequestAgentReview)({})),
@@ -120,7 +114,7 @@ const makeStack = (listen: "unix" | "tcp") =>
     const config = (yield* registry.issue({
       threadId,
       providerInstanceId,
-      capabilities: new Set(["agents"]),
+      capabilities: new Set(["pull-requests"]),
     })).config;
     return { commands, config };
   });
@@ -174,7 +168,6 @@ describe("viewcode-review end to end", () => {
           });
           expect(stack.commands).toMatchObject([
             {
-              type: "thread.activity.append",
               threadId,
               activity: {
                 kind: "viewcode.review.findings",

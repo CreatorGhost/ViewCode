@@ -2,15 +2,7 @@ import {
   clampFileAttachmentUploadBytes,
   fileAttachmentTooLargeMessage,
 } from "@t3tools/client-runtime/state/attachments";
-import {
-  isProviderSendTurnSupportedImageMimeType,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-  type EnvironmentId,
-  type PastedTextAttachmentSource,
-  type UploadChatImageAttachment,
-} from "@t3tools/contracts";
+import { isProviderSendTurnSupportedImageMimeType, PROVIDER_SEND_TURN_MAX_ATTACHMENTS, PROVIDER_SEND_TURN_MAX_FILE_BYTES, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES, type EnvironmentId, type PastedTextAttachmentSource, type UploadChatImageAttachment } from "@t3tools/contracts";
 import type { DocumentPickerResult } from "expo-document-picker";
 import { estimateBase64ByteSize } from "./base64";
 import {

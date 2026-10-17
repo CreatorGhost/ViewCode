@@ -5,30 +5,37 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  TurnId,
+  RunId,
+  CheckpointId,
+  CheckpointScopeId,
   type GitPreparePullRequestThreadInput,
-  type OrchestrationCommand,
+  type OrchestrationV2ServerCommand,
   type OrchestrationProjectShell,
-  type OrchestrationThread,
   type OrchestrationThreadActivity,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
   type ReviewFindingToFix,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
+import { liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import * as Stream from "effect/Stream";
 
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import {
-  ProjectionSnapshotQuery,
-  type ProjectionThreadCheckpointContext,
-} from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import { ReviewActivityStoreV2 } from "./ReviewActivityStoreV2.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ReviewFixThread from "./ReviewFixThread.ts";
+
+type ReviewRecord =
+  | OrchestrationV2ServerCommand
+  | ({ readonly type: "review.activity.record" } & Parameters<
+      ReviewActivityStoreV2["Service"]["append"]
+    >[0]);
 
 const PROJECT_ID = ProjectId.make("project-1");
 const REVIEW_THREAD_ID = ThreadId.make("review-thread");
@@ -47,12 +54,17 @@ const project: OrchestrationProjectShell = {
   title: "Project",
   workspaceRoot: "/workspace/project",
   defaultModelSelection: null,
+  defaultThreadEnvMode: null,
+  autoPull: false,
+  faviconPath: null,
+  projectIcon: null,
   scripts: [],
   createdAt: "2026-08-01T00:00:00.000Z",
   updatedAt: "2026-08-01T00:00:00.000Z",
 };
 
-const reviewThread: OrchestrationThreadShell = {
+const reviewThread: OrchestrationV2ThreadShell = {
+  ...liveThreadShell(REVIEW_THREAD_ID),
   id: REVIEW_THREAD_ID,
   projectId: PROJECT_ID,
   title: "Review: #42 Cache the probe",
@@ -62,16 +74,14 @@ const reviewThread: OrchestrationThreadShell = {
   branch: "feature",
   worktreePath: "/workspace/project-feature",
   pullRequests: [],
-  latestTurn: null,
-  createdAt: "2026-08-01T00:00:00.000Z",
-  updatedAt: "2026-08-20T00:00:00.000Z",
+  activeRunId: null,
+  status: "idle",
+  createdAt: DateTime.makeUnsafe("2026-08-01T00:00:00.000Z"),
+  updatedAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
   archivedAt: null,
   settledOverride: null,
   settledAt: null,
-  session: null,
   latestUserMessageAt: null,
-  hasPendingApprovals: false,
-  hasPendingUserInput: false,
   hasActionableProposedPlan: false,
 };
 
@@ -109,7 +119,7 @@ const fixStarted: OrchestrationThreadActivity = {
 const makeHarness = (options: {
   readonly defaultModel?: typeof PROJECT_MODEL;
   readonly checkoutFails?: boolean;
-  readonly threads?: ReadonlyArray<OrchestrationThreadShell>;
+  readonly threads?: ReadonlyArray<OrchestrationV2ThreadShell>;
   /** The fix session to undo: its activities, turn count and session status. */
   readonly fixThread?: {
     readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
@@ -118,68 +128,67 @@ const makeHarness = (options: {
   };
 }) =>
   Effect.gen(function* () {
-    const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+    const commands = yield* Ref.make<ReadonlyArray<ReviewRecord>>([]);
     const checkouts = yield* Ref.make<ReadonlyArray<GitPreparePullRequestThreadInput>>([]);
     const dependencies = Layer.mergeAll(
-      Layer.mock(ProjectionSnapshotQuery)({
-        getShellSnapshot: () =>
-          Effect.succeed({
-            snapshotSequence: 0,
-            projects: [project],
-            threads: options.threads ?? [reviewThread],
-            updatedAt: reviewThread.updatedAt,
-          }),
-        getThreadShellById: (threadId) =>
+      Layer.mock(ProjectStoreV2)({
+        getShell: (projectId) =>
+          Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
+      }),
+      Layer.mock(ProjectionStoreV2)({
+        getThreadShell: (threadId) =>
           Effect.succeed(
             threadId === REVIEW_THREAD_ID
-              ? Option.some(reviewThread)
+              ? reviewThread
               : threadId === FIX_THREAD_ID && options.fixThread !== undefined
-                ? Option.some({
+                ? {
                     ...reviewThread,
                     id: FIX_THREAD_ID,
-                    session:
-                      options.fixThread.status === undefined
-                        ? null
-                        : {
-                            threadId: FIX_THREAD_ID,
-                            status: options.fixThread.status,
-                            providerName: "codex",
-                            runtimeMode: "full-access",
-                            activeTurnId: null,
-                            lastError: null,
-                            updatedAt: "2026-08-20T00:00:00.000Z",
-                          },
-                  })
-                : Option.none(),
-          ),
-        getProjectShellById: (projectId) =>
-          Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
-        getThreadDetailById: (threadId) =>
-          Effect.succeed(
-            threadId === FIX_THREAD_ID && options.fixThread !== undefined
-              ? Option.some({
-                  id: threadId,
-                  activities: options.fixThread.activities,
-                } as unknown as OrchestrationThread)
-              : Option.none(),
-          ),
-        getThreadCheckpointContext: (threadId) =>
-          Effect.succeed(
-            threadId === FIX_THREAD_ID && options.fixThread !== undefined
-              ? Option.some({
-                  checkpoints: Array.from({ length: options.fixThread.turnCount }, (_, index) => ({
-                    checkpointTurnCount: index + 1,
-                  })),
-                } as unknown as ProjectionThreadCheckpointContext)
-              : Option.none(),
+                    activeRunId:
+                      options.fixThread.status === "running" ? RunId.make("run:fix") : null,
+                  }
+                : null,
           ),
       }),
-      Layer.mock(OrchestrationEngineService)({
-        readEvents: () => Stream.empty,
-        streamDomainEvents: Stream.empty,
-        latestSequence: Effect.succeed(0),
+      Layer.mock(ReviewActivityStoreV2)({
+        list: () => Effect.succeed(options.fixThread?.activities ?? []),
+        append: (command) =>
+          Ref.update(commands, (all) => [
+            ...all,
+            { type: "review.activity.record" as const, ...command },
+          ]),
+      }),
+      Layer.mock(ThreadManagementService)({
+        getShellSnapshot: () =>
+          Effect.succeed({
+            threads: options.threads ?? [reviewThread],
+            projects: [project],
+          } as never),
+        getThreadProjection: () =>
+          Effect.succeed({
+            runs: Array.from({ length: options.fixThread?.turnCount ?? 0 }, (_, index) => ({
+              ordinal: index + 1,
+            })),
+            checkpoints: [
+              {
+                id: CheckpointId.make("baseline"),
+                scopeId: CheckpointScopeId.make("scope:fix"),
+                appRunOrdinal: null,
+                status: "ready",
+              },
+            ],
+          } as never),
         dispatch: (command) =>
-          Ref.update(commands, (all) => [...all, command]).pipe(Effect.as({ sequence: 1 })),
+          Ref.update(commands, (all) => [...all, command]).pipe(Effect.as({} as never)),
+        sendToThread: (input) =>
+          Ref.update(commands, (all) => [
+            ...all,
+            {
+              ...input,
+              type: "message.dispatch" as const,
+              dispatchMode: { type: "queue_after_active" as const },
+            },
+          ]).pipe(Effect.as({} as never)),
       }),
       Layer.mock(GitWorkflowService)({
         preparePullRequestThread: (input) =>
@@ -260,7 +269,7 @@ describe("ReviewFixThread", () => {
       });
       // What the session fixes and where to go back to, outside any turn.
       expect(started).toMatchObject({
-        type: "thread.activity.append",
+        type: "review.activity.record",
         threadId: result.threadId,
         activity: {
           kind: "viewcode.review.fix-started",
@@ -272,7 +281,7 @@ describe("ReviewFixThread", () => {
           },
         },
       });
-      const text = turn?.type === "thread.turn.start" ? turn.message.text : "";
+      const text = turn?.type === "message.dispatch" ? turn.text : "";
       expect(text).toContain('from "Review: #42 Cache the probe" on PR #42');
       expect(text).toContain("verify each against the code first");
       expect(text).toContain("1. Cache never expires");
@@ -288,15 +297,8 @@ describe("ReviewFixThread", () => {
               ...reviewThread,
               id: FIX_THREAD_ID,
               worktreePath: "/workspace/.worktrees/cache-probe",
-              session: {
-                threadId: FIX_THREAD_ID,
-                status,
-                providerName: "codex",
-                runtimeMode: "full-access",
-                activeTurnId: status === "running" ? null : TurnId.make("active-turn"),
-                lastError: null,
-                updatedAt: reviewThread.updatedAt,
-              },
+              status: status === "running" ? "running" : "idle",
+              activeRunId: status === "running" ? null : RunId.make("active-turn"),
             },
           ],
         });
@@ -321,15 +323,8 @@ describe("ReviewFixThread", () => {
             ...reviewThread,
             id: FIX_THREAD_ID,
             worktreePath: "/workspace/.worktrees/cache-probe",
-            session: {
-              threadId: FIX_THREAD_ID,
-              status: "ready",
-              providerName: "codex",
-              runtimeMode: "full-access",
-              activeTurnId: null,
-              lastError: null,
-              updatedAt: reviewThread.updatedAt,
-            },
+            status: "idle",
+            activeRunId: null,
           },
         ],
       });
@@ -345,8 +340,8 @@ describe("ReviewFixThread", () => {
           worktreePath: "/workspace/.worktrees/cache-probe",
         },
         { type: "thread.pull-request.link" },
-        { type: "thread.activity.append" },
-        { type: "thread.turn.start", threadId: result.threadId },
+        { type: "review.activity.record" },
+        { type: "message.dispatch", threadId: result.threadId },
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
@@ -364,8 +359,8 @@ describe("ReviewFixThread", () => {
       const sent = yield* Ref.get(harness.commands);
       expect(sent.map((command) => command.type)).toEqual([
         "thread.create",
-        "thread.activity.append",
-        "thread.turn.start",
+        "review.activity.record",
+        "message.dispatch",
       ]);
       expect(sent[0]).toMatchObject({
         modelSelection: REVIEW_MODEL,
@@ -385,7 +380,13 @@ describe("ReviewFixThread", () => {
         undoneTurns: 2,
       });
       expect(yield* Ref.get(harness.commands)).toMatchObject([
-        { type: "thread.checkpoint.revert", threadId: FIX_THREAD_ID, turnCount: 0 },
+        {
+          type: "checkpoint.rollback",
+          threadId: FIX_THREAD_ID,
+          checkpointId: "baseline",
+          scopeId: "scope:fix",
+          restoreFiles: true,
+        },
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );

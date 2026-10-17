@@ -1,3 +1,5 @@
+import { requestOlderThreadTurns } from "../../state/threads";
+import { threadHasOlderTurns } from "@t3tools/client-runtime/viewcodeThreadAtoms";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
@@ -10,10 +12,7 @@ import {
   sidechatsOf,
   type SidechatPreference,
 } from "@t3tools/client-runtime/state/sidechat";
-import {
-  requestOlderThreadTurns,
-  threadHasOlderTurns,
-} from "@t3tools/client-runtime/state/threads";
+
 import { EnvironmentId, type MessageId, type ModelSelection, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { useMemo, useRef, useState } from "react";

@@ -1,14 +1,27 @@
-import { McpCapabilityUnavailableError, TrimmedNonEmptyString } from "@t3tools/contracts";
+import {
+  McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
+  TrimmedNonEmptyString,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import * as Tool from "effect/ai/Tool";
+import * as Toolkit from "effect/ai/Toolkit";
 
-import { AgentMessaging, AgentMessagingError } from "../../../agents/AgentMessaging.ts";
+import { AgentMessaging, AgentMessagingError } from "../../../agents/AgentMessagingV2.ts";
+import { ThreadManagementService } from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
-const dependencies = [McpInvocationContext.McpInvocationContext, AgentMessaging];
+const dependencies = [
+  McpInvocationContext.McpInvocationContext,
+  AgentMessaging,
+  ThreadManagementService,
+];
 
-export const AgentToolError = Schema.Union([McpCapabilityUnavailableError, AgentMessagingError]);
+export const AgentToolError = Schema.Union([
+  McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
+  AgentMessagingError,
+]);
 
 const AgentRef = TrimmedNonEmptyString.annotate({
   description: "The agent's id from viewcode_list_agents, or its exact name.",
@@ -173,7 +186,12 @@ const SpawnAgentTool = Tool.make("viewcode_spawn_agent", {
       }),
     ),
   }),
-  success: Schema.Struct({ agentId: Schema.String, name: Schema.String, ...SendResult.fields }),
+  success: Schema.Struct({
+    agentId: Schema.String,
+    name: Schema.String,
+    taskId: Schema.optional(Schema.String),
+    ...SendResult.fields,
+  }),
   failure: AgentToolError,
   dependencies,
 })

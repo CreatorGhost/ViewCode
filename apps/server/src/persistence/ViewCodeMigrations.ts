@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
-import * as Migrator from "effect/unstable/sql/Migrator";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as Migrator from "effect/sql/Migrator";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import parentThreadId from "./ViewCodeMigrations/001_ProjectionThreadsParentThreadId.ts";
 import pullRequestWatch from "./ViewCodeMigrations/002_ProjectionThreadPullRequestWatch.ts";

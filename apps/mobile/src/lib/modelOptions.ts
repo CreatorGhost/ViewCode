@@ -1,9 +1,4 @@
-import type {
-  ModelCapabilities,
-  ModelSelection,
-  ProviderRuntimeModeLimits,
-  ServerConfig as T3ServerConfig,
-} from "@t3tools/contracts";
+import type { ModelCapabilities, ModelSelection, ProviderRuntimeModeLimits, ServerConfig as T3ServerConfig } from "@t3tools/contracts";
 import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
   getProviderOptionDescriptors,

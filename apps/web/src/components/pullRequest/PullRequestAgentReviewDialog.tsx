@@ -36,7 +36,7 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { useProject, useServerConfigs, useThreadShell } from "../../state/entities";
-import { useEnvironments } from "../../state/environments";
+import { useEnvironmentProviders } from "../../state/environments";
 import { pullRequestEnvironment } from "../../state/pullRequests";
 import { reviewEnvironment } from "../../state/review";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
@@ -116,16 +116,9 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
   const projectId =
     request.kind === "pull-request" ? request.reference.projectId : request.projectId;
   const project = useProject(scopeProjectRef(environmentId, projectId));
-  const { environments } = useEnvironments();
-  const providers =
-    environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
-      ?.providers ?? EMPTY_SERVER_PROVIDERS;
-  const entries = useMemo(
-    () =>
-      sortProviderInstanceEntries(
-        applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings),
-      ),
-    [providers, settings],
+  const providers = useEnvironmentProviders().get(environmentId) ?? EMPTY_SERVER_PROVIDERS;
+  const entries = sortProviderInstanceEntries(
+    applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, projectId),
   );
   const [picked, setPicked] = useState<ModelSelection | null>(null);
   const selection =
@@ -134,10 +127,11 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
       providers,
       resolveProjectSettings(settings, projectId, project).settings.defaultModelSelection,
     );
-  const modelOptions = useMemo(
-    () =>
-      getCustomModelOptionsByInstance(settings, providers, selection?.instanceId, selection?.model),
-    [providers, selection?.instanceId, selection?.model, settings],
+  const modelOptions = getCustomModelOptionsByInstance(
+    settings,
+    providers,
+    selection?.instanceId,
+    selection?.model,
   );
   // The form opens on the depth and "What to review" last started on this device.
   const [remembered] = useState(readReviewStartPreference);
@@ -172,6 +166,7 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
 
   return {
     /** Whether a review of local changes can be told what to read. */
+    environmentId,
     canScope,
     scope,
     setScope,
@@ -240,6 +235,7 @@ export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
               />
             ) : null}
             <ProviderModelPicker
+              environmentId={form.environmentId}
               activeInstanceId={selection.instanceId}
               model={selection.model}
               lockedProvider={null}
@@ -299,14 +295,11 @@ export function useReviewStartedHandler(
   besideChat: ScopedThreadRef | null,
   onShow: () => void,
 ): (started: StartedAgentReview) => void {
-  return useCallback(
-    (started: StartedAgentReview) => {
-      if (besideChat !== null) useRightPanelStore.getState().open(besideChat, "review");
-      else onShow();
-      announceReviewStarted(started, besideChat !== null ? "chat" : "pull-request");
-    },
-    [besideChat, onShow],
-  );
+  return (started: StartedAgentReview) => {
+    if (besideChat !== null) useRightPanelStore.getState().open(besideChat, "review");
+    else onShow();
+    announceReviewStarted(started, besideChat !== null ? "chat" : "pull-request");
+  };
 }
 
 /**

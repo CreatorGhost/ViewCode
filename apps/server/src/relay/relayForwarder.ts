@@ -12,8 +12,8 @@
  */
 import * as NodeHttp from "node:http";
 
-import * as Undici from "@effect/platform-node/Undici";
-import { ORCHESTRATION_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
+import * as Undici from "undici";
+import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
 import {
   chunkBody,
   CreditGate,
@@ -41,7 +41,7 @@ const MAX_WS_MESSAGE_BYTES = 1024 * 1024 - 64;
 const MAX_PENDING_WS_BYTES = 4 * 1024 * 1024;
 const KNOWN_RPC_TAGS = new Set<string>([
   ...Object.values(WS_METHODS),
-  ...Object.values(ORCHESTRATION_WS_METHODS),
+  ...Object.values(ORCHESTRATION_V2_WS_METHODS),
 ]);
 
 export interface OversizedRelayMessage {

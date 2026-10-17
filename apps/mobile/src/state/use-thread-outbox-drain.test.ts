@@ -1,13 +1,5 @@
 import { acknowledgedThreadMessagesAtom } from "./acknowledged-thread-messages";
-import {
-  CommandId,
-  ComposerContextId,
-  EnvironmentId,
-  MessageId,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-} from "@t3tools/contracts";
+import { CommandId, ComposerContextId, EnvironmentId, MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { PreparedTurnAttachments } from "../lib/attachmentUpload";
@@ -84,7 +76,7 @@ vi.mock("./entities", () => ({
 }));
 
 vi.mock("./server", async () => {
-  const { Atom } = await import("effect/unstable/reactivity");
+  const { Atom } = await import("effect/reactivity");
   return { serverEnvironment: { configValueAtom: Atom.family(() => Atom.make(null)) } };
 });
 
@@ -99,7 +91,7 @@ vi.mock("./use-atom-command", () => ({
 }));
 
 vi.mock("./use-thread-outbox", async () => {
-  const { Atom } = await import("effect/unstable/reactivity");
+  const { Atom } = await import("effect/reactivity");
   return {
     editingQueuedMessageIdsAtom: Atom.make<Record<string, boolean>>({}).pipe(Atom.keepAlive),
     useThreadOutboxMessages: () => ({}),

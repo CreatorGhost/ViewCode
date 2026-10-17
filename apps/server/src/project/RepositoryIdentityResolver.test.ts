@@ -1,14 +1,14 @@
 // @effect-diagnostics nodeBuiltinImport:off - realpathSync.native resolves Windows 8.3 short names, which the Effect realPath does not.
 import * as NodeFS from "node:fs";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { SourceControlProviderError } from "@t3tools/contracts";
+import { SourceControlProviderError, SourceControlProviderKind } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { TestClock } from "effect/testing";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -71,7 +71,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
           if (refinementFails)
             return Effect.fail(
               new SourceControlProviderError({
-                provider: "forgejo",
+                provider: SourceControlProviderKind.make("forgejo"),
                 operation: "detectProvider",
                 cwd: rootPath,
                 detail: "account unavailable",
@@ -81,7 +81,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
             identity.canonicalKey.startsWith("ssh.forge.test/")
               ? {
                   ...identity,
-                  provider: "forgejo",
+                  provider: SourceControlProviderKind.make("forgejo"),
                   webUrl: "http://forge.test:3000/git/team/repo",
                 }
               : identity,

@@ -1,11 +1,19 @@
+import { useSyncExternalStore } from "react";
+
+import { isElectron } from "~/env";
+
 import { isMacPlatform, isWindowsPlatform } from "./utils";
 
 const WCO_CLASS_NAME = "wco";
 const ELECTRON_CLASS_NAME = "electron";
 const ELECTRON_WINDOWS_CLASS_NAME = "electron-windows";
+// The workspace topbar the desktop app centers the traffic lights in. macOS has
+// no overlay API to measure, and the lights stay inside it at any zoom level.
+const MACOS_TITLEBAR_HEIGHT = 52;
 
 interface WindowControlsOverlayLike {
   readonly visible: boolean;
+  getTitlebarAreaRect(): DOMRect;
   addEventListener(type: "geometrychange", listener: EventListener): void;
   removeEventListener(type: "geometrychange", listener: EventListener): void;
 }
@@ -43,6 +51,22 @@ export function syncDocumentWindowControlsOverlayClass(): () => void {
   };
 }
 
+function subscribeTitlebarArea(listener: () => void): () => void {
+  const overlay = getWindowControlsOverlay();
+  overlay?.addEventListener("geometrychange", listener);
+  return () => overlay?.removeEventListener("geometrychange", listener);
+}
+
+function getNativeTitlebarHeight(): number {
+  if (isElectron && isMacPlatform(navigator.platform)) return MACOS_TITLEBAR_HEIGHT;
+  const overlay = getWindowControlsOverlay();
+  return overlay?.visible ? overlay.getTitlebarAreaRect().bottom : 0;
+}
+
+export function useNativeTitlebarHeight(): number {
+  return useSyncExternalStore(subscribeTitlebarArea, getNativeTitlebarHeight, () => 0);
+}
+
 function getElectronPlatformClassNames(
   platform: string,
 ):
@@ -62,33 +86,5 @@ export function syncDocumentElectronPlatformClasses(platform: string): () => voi
   document.documentElement.classList.add(...classNames);
   return () => {
     document.documentElement.classList.remove(...classNames);
-  };
-}
-
-/**
- * The macOS traffic lights sit over the window's top-left corner. Marks the
- * root with `data-macos-window-controls="visible"` while they show (out of
- * fullscreen) so CSS keeps that corner clear (viewcode-theme.css). Setting the
- * attribute by hand in a plain browser previews the desktop layout.
- */
-export function syncDocumentMacosWindowControls(
-  platform: string,
-  bridge: Pick<
-    NonNullable<Window["desktopBridge"]>,
-    "getWindowFullscreenState" | "onWindowFullscreenStateChange"
-  > | null,
-): () => void {
-  if (typeof document === "undefined" || !isMacPlatform(platform)) {
-    return () => {};
-  }
-  const root = document.documentElement;
-  const update = (fullscreen: boolean) => {
-    root.dataset.macosWindowControls = fullscreen ? "hidden" : "visible";
-  };
-  update(bridge?.getWindowFullscreenState?.() ?? false);
-  const unsubscribe = bridge?.onWindowFullscreenStateChange?.(update);
-  return () => {
-    unsubscribe?.();
-    delete root.dataset.macosWindowControls;
   };
 }

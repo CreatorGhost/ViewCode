@@ -1,7 +1,7 @@
 import { createContext, use } from "react";
 
 /**
- * Upstream T3 Code measures UIKit's layout regions here for its iOS column navigator. ViewCode
+ * Upstream ViewCode measures UIKit's layout regions here for its iOS column navigator. ViewCode
  * has no such navigator, so nothing provides these and readers fall back to window metrics.
  */
 export interface NativeLayoutMetrics {

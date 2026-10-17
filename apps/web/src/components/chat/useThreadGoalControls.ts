@@ -1,6 +1,5 @@
 import type { EnvironmentId, ThreadGoal, ThreadId } from "@t3tools/contracts";
 import { threadGoalUpdate, type GoalCommandAction } from "@t3tools/client-runtime/threadGoal";
-import { useCallback, useMemo } from "react";
 
 import { useComposerDraftStore, type ComposerThreadTarget } from "../../composerDraftStore";
 import { toastManager } from "../ui/toast";
@@ -39,72 +38,60 @@ export function useThreadGoalControls(input: {
   } = input;
   const updateServer = useUpdateThreadGoalState();
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const goal = useMemo<ThreadGoal | null>(
-    () =>
-      isServerThread
-        ? (serverGoal ?? null)
-        : draftGoal
-          ? { objective: draftGoal, pausedAt: null, updatedAt: "" }
-          : null,
-    [draftGoal, isServerThread, serverGoal],
-  );
+  const goal = (() =>
+    isServerThread
+      ? (serverGoal ?? null)
+      : draftGoal
+        ? { objective: draftGoal, pausedAt: null, updatedAt: "" }
+        : null)();
   const debugMode = isServerThread ? serverDebugMode === true : draftDebugMode === true;
   const editorOpen = useThreadGoalEditorStore((state) => state.threadKey === threadKey);
 
-  const change = useCallback(
-    (fields: {
-      readonly goal?: string | null;
-      readonly goalPaused?: boolean;
-      readonly debugMode?: boolean;
-    }) => {
-      if (isServerThread) {
-        if (environmentId !== null && threadId !== null) {
-          updateServer(environmentId, threadId, fields);
-        }
-        return;
+  const change = (fields: {
+    readonly goal?: string | null;
+    readonly goalPaused?: boolean;
+    readonly debugMode?: boolean;
+  }) => {
+    if (isServerThread) {
+      if (environmentId !== null && threadId !== null) {
+        updateServer(environmentId, threadId, fields);
       }
-      if (draftTarget === null) return;
-      setDraftThreadContext(draftTarget, {
-        ...(fields.goal !== undefined ? { goal: fields.goal } : {}),
-        ...(fields.debugMode !== undefined ? { debugMode: fields.debugMode } : {}),
+      return;
+    }
+    if (draftTarget === null) return;
+    setDraftThreadContext(draftTarget, {
+      ...(fields.goal !== undefined ? { goal: fields.goal } : {}),
+      ...(fields.debugMode !== undefined ? { debugMode: fields.debugMode } : {}),
+    });
+  };
+
+  const setDebugMode = (next: boolean) => {
+    if (next !== debugMode) change({ debugMode: next });
+  };
+
+  const applyGoalAction = (action: GoalCommandAction) => {
+    if (action.action === "edit") {
+      openThreadGoalEditor(threadKey);
+      return;
+    }
+    if (action.action === "too-long") {
+      toastManager.add({ type: "warning", title: "That goal is too long" });
+      return;
+    }
+    if ((action.action === "pause" || action.action === "resume") && goal === null) {
+      toastManager.add({ type: "info", title: "This thread has no goal yet" });
+      return;
+    }
+    if ((action.action === "pause" || action.action === "resume") && !isServerThread) {
+      toastManager.add({
+        type: "info",
+        title: "A goal can be paused once the thread has started",
       });
-    },
-    [draftTarget, environmentId, isServerThread, setDraftThreadContext, threadId, updateServer],
-  );
-
-  const setDebugMode = useCallback(
-    (next: boolean) => {
-      if (next !== debugMode) change({ debugMode: next });
-    },
-    [change, debugMode],
-  );
-
-  const applyGoalAction = useCallback(
-    (action: GoalCommandAction) => {
-      if (action.action === "edit") {
-        openThreadGoalEditor(threadKey);
-        return;
-      }
-      if (action.action === "too-long") {
-        toastManager.add({ type: "warning", title: "That goal is too long" });
-        return;
-      }
-      if ((action.action === "pause" || action.action === "resume") && goal === null) {
-        toastManager.add({ type: "info", title: "This thread has no goal yet" });
-        return;
-      }
-      if ((action.action === "pause" || action.action === "resume") && !isServerThread) {
-        toastManager.add({
-          type: "info",
-          title: "A goal can be paused once the thread has started",
-        });
-        return;
-      }
-      const update = threadGoalUpdate(action);
-      if (update !== null) change(update);
-    },
-    [change, goal, isServerThread, threadKey],
-  );
+      return;
+    }
+    const update = threadGoalUpdate(action);
+    if (update !== null) change(update);
+  };
 
   return {
     goal,
@@ -112,10 +99,10 @@ export function useThreadGoalControls(input: {
     setDebugMode,
     applyGoalAction,
     editorOpen,
-    openEditor: useCallback(() => openThreadGoalEditor(threadKey), [threadKey]),
+    openEditor: () => openThreadGoalEditor(threadKey),
     closeEditor: closeThreadGoalEditor,
-    saveGoal: useCallback((objective: string) => change({ goal: objective }), [change]),
-    setGoalPaused: useCallback((paused: boolean) => change({ goalPaused: paused }), [change]),
-    clearGoal: useCallback(() => change({ goal: null }), [change]),
+    saveGoal: (objective: string) => change({ goal: objective }),
+    setGoalPaused: (paused: boolean) => change({ goalPaused: paused }),
+    clearGoal: () => change({ goal: null }),
   };
 }

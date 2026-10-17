@@ -1,67 +1,62 @@
-import { CommandId, EventId } from "@t3tools/contracts";
-import { HTML_RENDER_ACTIVITY_KIND } from "@t3tools/shared/htmlRender";
-import * as Crypto from "effect/Crypto";
-import * as DateTime from "effect/DateTime";
+import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
-import * as Option from "effect/Option";
 
 import * as HtmlRender from "../../../htmlRender/HtmlRender.ts";
-import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
-import { HtmlToolkit } from "./tools.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
+import { HtmlPreviewToolkit, HtmlRenderToolkit, type HtmlToolkit } from "./tools.ts";
 
-const make = Effect.gen(function* () {
-  const htmlRender = yield* HtmlRender.HtmlRender;
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  const crypto = yield* Crypto.Crypto;
-  const fileSystem = yield* FileSystem.FileSystem;
-  const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+const INVALID_PAGE_ERRORS = new Set([
+  "HtmlRenderImagesNotFoundError",
+  "HtmlRenderImageTooLargeError",
+  "HtmlRenderPageTooLargeError",
+]);
 
-  return HtmlToolkit.of({
-    html_render: (input) =>
-      Effect.gen(function* () {
-        const { threadId } = yield* McpInvocationContext.requireMcpCapability("html");
-        const { reference, filePath } = yield* htmlRender.publish({ threadId, ...input });
-        // Provider adapters do not reliably carry MCP tool results into the
-        // thread, so the page reaches clients as an activity of its own. It
-        // belongs to the running turn, so reverting that turn removes it.
-        yield* Effect.gen(function* () {
-          const thread = yield* snapshots.getThreadShellById(threadId);
-          const turnId = Option.match(thread, {
-            onNone: () => null,
-            onSome: (shell) => shell.session?.activeTurnId ?? null,
-          });
-          const createdAt = DateTime.formatIso(yield* DateTime.now);
-          yield* engine.dispatch({
-            type: "thread.activity.append",
-            commandId: CommandId.make(`server:html-render:${threadId}:${yield* uuid}`),
-            threadId,
-            activity: {
-              id: EventId.make(yield* uuid),
-              tone: "info",
-              kind: HTML_RENDER_ACTIVITY_KIND,
-              summary: reference.title,
-              payload: reference,
-              turnId,
-              createdAt,
-            },
-            createdAt,
-          });
-        }).pipe(
-          Effect.mapError((cause) => new HtmlRender.HtmlRenderStoreError({ cause })),
-          // Nothing references a page whose activity never landed.
-          Effect.onError(() => fileSystem.remove(filePath, { force: true }).pipe(Effect.ignore)),
-        );
-        return {
-          htmlRender: reference,
-          message:
-            "Shown to the reader above your reply. Don't mention or describe the page; reply with only what it doesn't already say.",
-        };
-      }),
+const toFailure = (error: { readonly _tag: string; readonly message: string }) =>
+  new OrchestratorMcpFailure({
+    code: INVALID_PAGE_ERRORS.has(error._tag) ? "invalid_request" : "orchestration_error",
+    message: error.message,
   });
+
+const handlers = {
+  // The headless browser runs on the host and can open local files, so only
+  // agents T3 launched, which already work on this machine, get it.
+  html_preview: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const htmlRender = yield* HtmlRender.HtmlRender;
+      const { png, ...preview } = yield* htmlRender.preview(input).pipe(Effect.mapError(toFailure));
+      return {
+        ...preview,
+        screenshot: {
+          mimeType: "image/png" as const,
+          data: png,
+          width: preview.width,
+          height: preview.capturedHeight,
+        },
+      };
+    }),
+  ),
+  html_render: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const { thread } = yield* McpInvocationContext.requireThreadScope(scope, "html_render");
+      const htmlRender = yield* HtmlRender.HtmlRender;
+      const reference = yield* htmlRender
+        .publish({ threadId: thread.threadId, ...input })
+        .pipe(Effect.mapError(toFailure));
+      return {
+        htmlRender: reference,
+        message:
+          "Shown to the reader above your reply. Don't mention or describe the page; reply with only what it doesn't already say.",
+      };
+    }),
+  ),
+} satisfies McpToolAccess.Handlers<typeof HtmlToolkit.tools>;
+
+export const layerPreview = McpToolAccess.toLayer(HtmlPreviewToolkit, {
+  html_preview: handlers.html_preview,
 });
 
-export const HtmlToolkitHandlersLive = HtmlToolkit.toLayer(make);
+export const layerRender = McpToolAccess.toLayer(HtmlRenderToolkit, {
+  html_render: handlers.html_render,
+});

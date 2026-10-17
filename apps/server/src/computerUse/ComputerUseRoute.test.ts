@@ -3,7 +3,7 @@ import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { HttpBody, HttpClient, HttpRouter } from "effect/unstable/http";
+import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
@@ -14,11 +14,15 @@ const credentialThread = ThreadId.make("thread-from-credential");
 
 const scope = (
   capabilities: ReadonlyArray<McpInvocationContext.McpCapability>,
-): McpInvocationContext.McpInvocationScope => ({
+ ): McpInvocationContext.McpThreadInvocationScope => ({
   environmentId: EnvironmentId.make("environment"),
-  threadId: credentialThread,
-  providerSessionId: "provider-session",
-  providerInstanceId: ProviderInstanceId.make("codex"),
+  requestNamespace: "computer-test",
+  thread: {
+    threadId: credentialThread,
+    providerSessionId: "provider-session",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  client: undefined,
   capabilities: new Set(capabilities),
   issuedAt: 1,
 });
@@ -31,9 +35,9 @@ const serve = Effect.gen(function* () {
         resolve: (token) =>
           Effect.succeed(
             token === "with-computer"
-              ? scope(["agents", "computer"])
+              ? scope(["orchestration", "computer"])
               : token === "without-computer"
-                ? scope(["agents"])
+                ? scope(["orchestration"])
                 : undefined,
           ),
       }),

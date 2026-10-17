@@ -19,11 +19,9 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
-import * as ServerSettings from "../serverSettings.ts";
-import { isFilesystemRoot, managedWorktreesDirectories } from "../worktreesDirectory.ts";
+import * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
 
 // Fields split by the unit separator, commits by the record separator: neither occurs in a
 // subject or a name.
@@ -47,7 +45,6 @@ export class ReviewService extends Context.Service<
     readonly getDiffFileContents: (
       input: ReviewDiffFileContentsInput,
     ) => Effect.Effect<ReviewDiffFileContentsResult, ReviewDiffPreviewError>;
-    /** The checkout's latest commits, to pick one to review, and the base a branch review uses. */
     readonly listCommits: (
       input: ReviewListCommitsInput,
     ) => Effect.Effect<ReviewListCommitsResult, ReviewDiffPreviewError>;
@@ -61,8 +58,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
-  const settings = yield* ServerSettings.ServerSettingsService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const knownWorkspaces = yield* KnownWorkspaces.KnownWorkspaces;
 
   const canonicalizePath = (value: string) => {
     const resolvedPath = path.resolve(value);
@@ -83,11 +79,6 @@ export const make = Effect.gen(function* () {
     );
   };
 
-  const isWithinRoot = (candidate: string, root: string) => {
-    const relative = path.relative(root, candidate);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  };
-
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
     operation:
       | "ReviewService.getDiffPreview"
@@ -95,44 +86,13 @@ export const make = Effect.gen(function* () {
       | "ReviewService.listCommits",
     cwd: string,
   ) {
-    const worktreesDirectories = yield* settings.getSettings.pipe(
-      Effect.orElseSucceed(() => ({ worktreesDirectory: "", previousWorktreesDirectories: [] })),
-    );
-    const [candidate, workspaceRoot, worktreesRoots] = yield* Effect.all([
+    const [candidate, workspaceRoot] = yield* Effect.all([
       canonicalizePath(cwd),
       canonicalizePath(config.cwd),
-      // A managed root that cannot be resolved, or resolves to a filesystem
-      // root through a symlink, is skipped rather than failing every review.
-      Effect.forEach(
-        managedWorktreesDirectories(worktreesDirectories, config.worktreesDir, path),
-        (directory) => canonicalizePath(directory).pipe(Effect.orElseSucceed(() => null)),
-      ).pipe(
-        Effect.map((roots) =>
-          roots.filter((root): root is string => root !== null && !isFilesystemRoot(root, path)),
-        ),
-      ),
     ]);
-
     if (
-      isWithinRoot(candidate, workspaceRoot) ||
-      worktreesRoots.some((root) => isWithinRoot(candidate, root))
-    ) {
-      return;
-    }
-    // A project the user added is theirs to review wherever it lives, which matters when the
-    // server runs from a checkout somewhere else. Read only when the cheaper roots refused.
-    const projectRoots = yield* snapshots.getProjectShells().pipe(
-      Effect.flatMap((projects) =>
-        Effect.forEach(projects, (project) =>
-          canonicalizePath(project.workspaceRoot).pipe(Effect.orElseSucceed(() => null)),
-        ),
-      ),
-      Effect.orElseSucceed((): ReadonlyArray<string | null> => []),
-    );
-    if (
-      projectRoots.some(
-        (root) => root !== null && !isFilesystemRoot(root, path) && isWithinRoot(candidate, root),
-      )
+      KnownWorkspaces.isWithinRoot(path, candidate, workspaceRoot) ||
+      (yield* knownWorkspaces.contains(candidate))
     ) {
       return;
     }
@@ -143,9 +103,7 @@ export const make = Effect.gen(function* () {
       detail:
         operation === "ReviewService.getDiffPreview"
           ? "Review diff preview cwd must stay within the configured workspace root."
-          : operation === "ReviewService.listCommits"
-            ? "Review commits cwd must stay within the configured workspace root."
-            : "Review diff file contents cwd must stay within the configured workspace root.",
+          : "Review diff file contents cwd must stay within the configured workspace root.",
     });
   });
 

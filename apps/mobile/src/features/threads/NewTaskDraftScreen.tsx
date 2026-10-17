@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import {
   nextPastedTextFileName,
@@ -28,11 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useFontFamily } from "../../lib/useFontFamily";
 import { modelChipLabel } from "../../lib/providerOptions";
-import {
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  resolveEnvironmentMachineKind,
-} from "@t3tools/contracts";
+import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, PROVIDER_SEND_TURN_MAX_INPUT_CHARS, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 
 import {
   ComposerEditor,

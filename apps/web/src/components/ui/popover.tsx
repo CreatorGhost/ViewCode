@@ -38,6 +38,7 @@ const popoverViewportPaddingClassName = {
 // control panels that hang off a pill (the composer's model and usage popovers).
 const popoverPopupVariantClassName = {
   default: "rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]",
+  panel: "rounded-xl before:rounded-[calc(var(--radius-xl)-1px)]",
   floating: "rounded-3xl before:rounded-[calc(var(--radius-3xl)-1px)]",
 } as const;
 

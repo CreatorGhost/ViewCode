@@ -8,17 +8,22 @@ import {
   AgentSessionScanError,
   AgentSessionScanResult,
   McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
   ProjectId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import * as Tool from "effect/ai/Tool";
+import * as Toolkit from "effect/ai/Toolkit";
 
+import * as AgentSessionImporter from "../../../project/AgentSessionImporter.ts";
+import * as AgentSessionScanner from "../../../project/AgentSessionScanner.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 export const HistoryToolError = Schema.Union([
   McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
   AgentSessionImportProjectChangedError,
   AgentSessionImportProjectNotFoundError,
   AgentSessionScanError,
@@ -29,7 +34,12 @@ const ScanTool = Tool.make("viewcode_scan_importable_projects", {
     "List folders on this machine with past Claude Code, Codex, Cursor or T3 Code conversations that ViewCode can import, with how many and when last used. Use it only when the user asks to bring in past conversations.",
   success: AgentSessionScanResult,
   failure: HistoryToolError,
-  dependencies: [McpInvocationContext.McpInvocationContext],
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagement.ThreadManagementService,
+    AgentSessionImporter.AgentSessionImporter,
+    AgentSessionScanner.AgentSessionScanner,
+  ],
 })
   .annotate(Tool.Title, "Find importable projects")
   .annotate(Tool.Readonly, true)
@@ -43,7 +53,12 @@ const ListTool = Tool.make("viewcode_list_importable_sessions", {
   parameters: AgentSessionListInput,
   success: AgentSessionListResult,
   failure: HistoryToolError,
-  dependencies: [McpInvocationContext.McpInvocationContext],
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagement.ThreadManagementService,
+    AgentSessionImporter.AgentSessionImporter,
+    AgentSessionScanner.AgentSessionScanner,
+  ],
 })
   .annotate(Tool.Title, "List importable sessions")
   .annotate(Tool.Readonly, true)
@@ -63,7 +78,12 @@ const ImportTool = Tool.make("viewcode_import_sessions", {
   }),
   success: AgentSessionImportResult,
   failure: HistoryToolError,
-  dependencies: [McpInvocationContext.McpInvocationContext],
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagement.ThreadManagementService,
+    AgentSessionImporter.AgentSessionImporter,
+    AgentSessionScanner.AgentSessionScanner,
+  ],
 })
   .annotate(Tool.Title, "Import past sessions")
   .annotate(Tool.Readonly, false)

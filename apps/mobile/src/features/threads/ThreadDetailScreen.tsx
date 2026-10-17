@@ -1,3 +1,5 @@
+import type { OrchestrationThreadShell, EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useAtomValue } from "@effect/atom-react";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -15,20 +17,7 @@ import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSki
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
-import type {
-  ApprovalRequestId,
-  EnvironmentId,
-  MessageId,
-  ModelSelection,
-  OrchestrationThreadShell,
-  ProviderApprovalDecision,
-  ProviderInteractionMode,
-  RuntimeMode,
-  ServerConfig as T3ServerConfig,
-  ThreadId,
-  UsageLimitsReport,
-  UserInputQuestion,
-} from "@t3tools/contracts";
+import type { ApprovalRequestId, EnvironmentId, MessageId, ModelSelection, ProviderApprovalDecision, ProviderInteractionMode, RuntimeMode, ServerConfig as T3ServerConfig, ThreadId, UsageLimitsReport, UserInputQuestion } from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
 import {
   memo,
@@ -99,7 +88,7 @@ import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
 import { UsageResumeCard } from "./UsageResumeCard";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import { ActiveAgentsStrip } from "../agents/ActiveAgentsStrip";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,

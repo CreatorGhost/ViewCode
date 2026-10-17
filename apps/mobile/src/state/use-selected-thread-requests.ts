@@ -1,3 +1,4 @@
+import { RuntimeRequestId } from "@t3tools/contracts";
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
 import { useServerConfigs } from "./entities";
 import { Alert } from "react-native";
@@ -15,12 +16,8 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  ApprovalRequestId,
-  type ProviderApprovalDecision,
-  type UserInputQuestion,
-} from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import { ApprovalRequestId, type ProviderApprovalDecision, type UserInputQuestion } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 
 import { threadEnvironment } from "../state/threads";
 import { scopedRequestKey } from "../lib/scopedEntities";
@@ -223,7 +220,7 @@ export function useSelectedThreadRequests() {
         environmentId: selectedThreadShell.environmentId,
         input: {
           threadId: selectedThreadShell.id,
-          requestId,
+          requestId: RuntimeRequestId.make(requestId),
           decision,
         },
       });
@@ -289,7 +286,7 @@ export function useSelectedThreadRequests() {
       environmentId: selectedThreadShell.environmentId,
       input: {
         threadId: selectedThreadShell.id,
-        requestId: activePendingUserInput.requestId,
+        requestId: RuntimeRequestId.make(activePendingUserInput.requestId),
         answers: activePendingUserInputAnswers,
         ...(attachmentsByQuestionId.size > 0
           ? { attachmentsByQuestionId: Object.fromEntries(attachmentsByQuestionId) }
@@ -319,7 +316,7 @@ export function useSelectedThreadRequests() {
       environmentId: selectedThreadShell.environmentId,
       input: {
         threadId: selectedThreadShell.id,
-        requestId: activePendingUserInput.requestId,
+        requestId: RuntimeRequestId.make(activePendingUserInput.requestId),
       },
     });
     setRespondingUserInputId((current) =>

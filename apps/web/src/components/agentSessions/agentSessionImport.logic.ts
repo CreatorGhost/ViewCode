@@ -1,8 +1,8 @@
+import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 import type {
   AgentSessionHiddenReason,
   AgentSessionSummary,
   EnvironmentId,
-  OrchestrationThreadShell,
   ScopedProjectRef,
 } from "@t3tools/contracts";
 
@@ -51,7 +51,7 @@ export function isUntouchedImportedThread(
 export function importedThreadsForCleanup<
   T extends Pick<
     OrchestrationThreadShell,
-    "id" | "projectId" | "archivedAt" | "createdAt" | "latestTurn" | "session"
+      "id" | "projectId" | "archivedAt" | "createdAt" | "latestTurn" | "session"
   > & { readonly environmentId: EnvironmentId },
 >(threads: ReadonlyArray<T>, projectRefs: ReadonlyArray<ScopedProjectRef>) {
   const inProject = (thread: T) =>

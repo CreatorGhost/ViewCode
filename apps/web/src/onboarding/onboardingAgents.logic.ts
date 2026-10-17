@@ -1,5 +1,8 @@
 import {
   ProviderDriverKind,
+  defaultInstanceIdForDriver,
+  providerInstanceConfigEnabledFlag,
+  type ProviderInstanceConfigMap,
   type DetectedProvider,
   type ServerProvider,
   type ServerSettingsPatch,
@@ -17,6 +20,7 @@ const ONBOARDING_AGENT_DRIVERS: readonly ProviderDriverKind[] = [
   "droid",
   "devin",
   "pi",
+  "muse",
 ].map((driver) => ProviderDriverKind.make(driver));
 
 /** Drivers the onboarding cards show: every enabled built-in provider, in display order. */
@@ -35,30 +39,52 @@ export interface ProviderPickerRow {
   readonly driver: ProviderDriverKind;
   /** Null while the lookup runs. */
   readonly found: boolean | null;
+  readonly blockedByAdmin?: boolean;
 }
 
 /** Every built-in provider in display order, marked by the filesystem lookup. */
 export function buildProviderPickerRows(
   detected: ReadonlyArray<DetectedProvider> | null,
+  blockedDrivers: ReadonlyArray<ProviderDriverKind> = [],
 ): ProviderPickerRow[] {
   const byDriver = new Map(detected?.map((provider) => [provider.driver, provider]));
   return ONBOARDING_AGENT_DRIVERS.map((driver) => {
     const provider = byDriver.get(driver);
     return {
       driver,
+      ...(blockedDrivers.includes(driver) ? { blockedByAdmin: true } : {}),
       found: detected === null ? null : provider?.installed === true,
     };
   });
 }
 
 /** Turns on exactly the picked providers; the rest keep their current state. */
-export function providerPickerPatch(picked: ReadonlySet<ProviderDriverKind>): ServerSettingsPatch {
+export function providerPickerPatch(
+  picked: ReadonlySet<ProviderDriverKind>,
+  currentInstances: ProviderInstanceConfigMap = {},
+  blockedDrivers: ReadonlyArray<ProviderDriverKind> = [],
+): ServerSettingsPatch {
   return {
-    providers: Object.fromEntries(
-      ONBOARDING_AGENT_DRIVERS.filter((driver) => picked.has(driver)).map((driver) => [
-        driver,
-        { enabled: true },
-      ]),
-    ),
-  } as ServerSettingsPatch;
+    providerInstances: {
+      ...currentInstances,
+      ...Object.fromEntries(
+        ONBOARDING_AGENT_DRIVERS.filter(
+          (driver) => picked.has(driver) && !blockedDrivers.includes(driver),
+        ).map((driver) => {
+          const instanceId = defaultInstanceIdForDriver(driver);
+          const current = currentInstances[instanceId] ?? { driver };
+          return [
+            instanceId,
+            {
+              ...current,
+              enabled: true,
+              ...(providerInstanceConfigEnabledFlag(current.config) === false
+                ? { config: { ...(current.config as Record<string, unknown>), enabled: true } }
+                : {}),
+            },
+          ];
+        }),
+      ),
+    },
+  };
 }

@@ -1,11 +1,10 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,

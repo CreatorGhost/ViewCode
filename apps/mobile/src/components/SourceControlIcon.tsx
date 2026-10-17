@@ -6,7 +6,7 @@ const ThemedSvg = withUniwind(Svg);
 export type SourceControlIconKind = "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops";
 
 export function SourceControlIcon(props: {
-  readonly kind: SourceControlIconKind;
+  readonly kind: string;
   readonly size?: number;
   readonly color?: string;
   readonly colorClassName?: string;

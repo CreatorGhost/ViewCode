@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useTheme } from "~/hooks/useTheme";
@@ -14,10 +14,7 @@ import {
   getProjectFilePickerMatches,
   PROJECT_FILE_PICKER_RESULT_LIMIT,
 } from "../files/ProjectFilePicker.logic";
-import {
-  useProjectFilePickerQuery,
-  useProjectIconCandidates,
-} from "../files/projectFilesQueryState";
+import { useProjectFilePickerQuery } from "../files/projectFilesQueryState";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "../ui/command";
 import { toastManager } from "../ui/toast";
 
@@ -49,48 +46,24 @@ export function ProjectFaviconPickerDialog(props: {
     PROJECT_FILE_PICKER_RESULT_LIMIT,
     { imageOnly: true },
   );
-  const { onSelect } = props;
-  const candidates = useProjectIconCandidates(props.environmentId, props.cwd, props.projectName);
   const { resolvedTheme } = useTheme();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const pickExternal = props.onPickExternal;
+  const { onPickExternal: pickExternal, onSelect } = props;
   const fileManagerName = getLocalFileManagerName(
     typeof navigator === "undefined" ? "" : navigator.platform,
   );
-  // Before the user types, the likeliest logos lead, ahead of every other image.
-  const browsing = query.trim() === "";
-  const suggestedPaths = useMemo(
-    () => (browsing ? candidates.paths : []),
-    [browsing, candidates.paths],
-  );
-  const suggestedItems = useMemo<CommandPaletteActionItem[]>(
-    () =>
-      suggestedPaths.map((path) => ({
-        kind: "action",
-        value: `project-favicon-suggested:${path}`,
-        searchTerms: [path],
-        title: path.slice(path.lastIndexOf("/") + 1),
-        description: path,
-        icon: <PierreEntryIcon pathValue={path} kind="file" theme={resolvedTheme} />,
-        run: async () => onSelect(path),
-      })),
-    [onSelect, resolvedTheme, suggestedPaths],
-  );
-  const items = useMemo<CommandPaletteActionItem[]>(
-    () =>
-      getProjectFilePickerMatches(result.entries, result.matchedQuery)
-        .filter((match) => !suggestedPaths.includes(match.path))
-        .map((match) => ({
-          kind: "action",
-          value: `project-favicon:${match.path}`,
-          searchTerms: [match.name, match.path],
-          title: match.name,
-          description: match.path,
-          icon: <PierreEntryIcon pathValue={match.path} kind="file" theme={resolvedTheme} />,
-          run: async () => onSelect(match.path),
-        })),
-    [onSelect, resolvedTheme, result.entries, result.matchedQuery, suggestedPaths],
-  );
+  const items: CommandPaletteActionItem[] = getProjectFilePickerMatches(
+    result.entries,
+    result.matchedQuery,
+  ).map((match) => ({
+    kind: "action",
+    value: `project-favicon:${match.path}`,
+    searchTerms: [match.name, match.path],
+    title: match.name,
+    description: match.path,
+    icon: <PierreEntryIcon pathValue={match.path} kind="file" theme={resolvedTheme} />,
+    run: async () => onSelect(match.path),
+  }));
 
   return (
     <CommandDialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -115,7 +88,7 @@ export function ProjectFaviconPickerDialog(props: {
                       .then((path) => {
                         if (!path) return;
                         props.onOpenChange(false);
-                        props.onSelect(path);
+                        onSelect(path);
                       })
                       .catch((error: unknown) => {
                         toastManager.add({
@@ -146,20 +119,11 @@ export function ProjectFaviconPickerDialog(props: {
             value={query}
           >
             <CommandPaletteResults
-              groups={[
-                ...(suggestedItems.length > 0
-                  ? [
-                      {
-                        value: "project-favicon-suggested",
-                        label: "Suggested logos",
-                        items: suggestedItems,
-                      },
-                    ]
-                  : []),
-                ...(items.length > 0
+              groups={
+                items.length > 0
                   ? [{ value: "project-favicon-files", label: props.projectName, items }]
-                  : []),
-              ]}
+                  : []
+              }
               highlightedItemValue={highlightedItemValue}
               isActionsOnly={false}
               keybindings={keybindings}

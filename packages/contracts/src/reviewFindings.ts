@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import {
+  CommandId,
   EventId,
   IsoDateTime,
   NonNegativeInt,
@@ -299,6 +300,7 @@ export type ReviewFixStartedActivityPayload = typeof ReviewFixStartedActivityPay
 /** Undoes what a fix session changed, files and conversation, back to before its first turn. */
 export const ReviewUndoFixesInput = Schema.Struct({
   threadId: ThreadId,
+  commandId: Schema.optional(CommandId),
 });
 export type ReviewUndoFixesInput = typeof ReviewUndoFixesInput.Type;
 

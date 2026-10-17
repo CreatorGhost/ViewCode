@@ -1,10 +1,12 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useAtomValue } from "@effect/atom-react";
 import {
   collectChildAgents,
   resolveAgentControlAvailability,
   summarizeAgentTreeControl,
 } from "@t3tools/client-runtime/state/child-agents";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import type { AgentControlState, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { memo, useMemo, useState } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";

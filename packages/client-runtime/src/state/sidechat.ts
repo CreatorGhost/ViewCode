@@ -1,4 +1,5 @@
-import type { ModelSelection, OrchestrationThreadShell, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationThreadShell } from "../viewcodeThread.ts";
+import { ModelSelection, ThreadId } from "@t3tools/contracts";
 
 /**
  * Side chats: quick-question threads docked beside the thread they were opened

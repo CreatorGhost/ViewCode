@@ -1,5 +1,7 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { getThreadSortTimestamp } from "@t3tools/client-runtime/state/thread-sort";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+
+import { getThreadSortTimestamp } from "@t3tools/client-runtime/viewcodeThreadSort";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { scopedProjectKey } from "../../lib/scopedEntities";

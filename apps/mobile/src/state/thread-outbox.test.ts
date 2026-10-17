@@ -2,20 +2,10 @@ import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentNotRegisteredError } from "@t3tools/client-runtime/connection";
 import { isTransportConnectionErrorMessage } from "@t3tools/client-runtime/errors";
 import { EnvironmentRpcUnavailableError } from "@t3tools/client-runtime/rpc";
-import {
-  CommandId,
-  ComposerContextId,
-  EnvironmentAuthorizationError,
-  EnvironmentId,
-  MessageId,
-  OrchestrationDispatchCommandError,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-} from "@t3tools/contracts";
-import { AtomRegistry } from "effect/unstable/reactivity";
-import * as RpcClientError from "effect/unstable/rpc/RpcClientError";
-import * as Socket from "effect/unstable/socket/Socket";
+import { CommandId, ComposerContextId, EnvironmentAuthorizationError, EnvironmentId, MessageId, OrchestrationDispatchCommandError, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { AtomRegistry } from "effect/reactivity";
+import * as RpcClientError from "effect/rpc/RpcClientError";
+import * as Socket from "effect/socket/Socket";
 import { onTestFinished, vi } from "vite-plus/test";
 
 const outboxFiles = vi.hoisted(() => new Map<string, string | Error>());

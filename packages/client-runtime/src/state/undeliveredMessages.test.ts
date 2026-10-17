@@ -1,7 +1,7 @@
 import type { OrchestrationThreadActivity } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { undeliveredUserMessages } from "./threadDetail.ts";
+import { undeliveredUserMessages } from "../viewcodeThreadAtoms.ts";
 
 const activity = (
   kind: string,

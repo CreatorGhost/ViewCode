@@ -1,8 +1,12 @@
 import {
   AuthSessionId,
   EnvironmentId,
-  type OrchestrationEvent,
-  type OrchestrationThreadShell,
+  EventId,
+  RunId,
+  RuntimeRequestId,
+  ThreadId,
+  type OrchestrationV2DomainEvent,
+  type OrchestrationV2ThreadShell,
   type PushNotificationCategories,
   type PushRegisterInput,
   USAGE_RESUME_ACTIVITY_KIND,
@@ -13,18 +17,21 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
-import { USAGE_RESUME_AUTO_SUMMARY } from "../agents/UsageResume.ts";
+import {
+  v2ThreadShell,
+  v2Projection,
+  v2Now,
+} from "../../../../packages/client-runtime/src/state/orchestrationV2TestFixtures.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
 import { ServerConfig } from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { EventSinkV2 } from "../orchestration-v2/EventSink.ts";
+import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
 import { ServerActivation } from "../serverActivation.ts";
 import {
   type ExpoPushMessage,
@@ -32,7 +39,10 @@ import {
   ExpoPushSender,
   PushNotifications,
   layer,
+  pushJobForEvent,
 } from "./PushNotifications.ts";
+
+const USAGE_RESUME_AUTO_SUMMARY = "Trying to continue after the usage limit…";
 
 const ENVIRONMENT = EnvironmentId.make("env-1");
 const PHONE = AuthSessionId.make("session-phone");
@@ -64,60 +74,64 @@ type ShellState = {
   readonly archived?: boolean;
 };
 
-const shellOf = (id: string, state: ShellState): OrchestrationThreadShell =>
-  ({
-    id,
-    projectId: "project-1",
-    title: state.title ?? `Thread ${id}`,
-    modelSelection: { instanceId: "claudeAgent", model: "sonnet" },
-    parentThreadId: state.parentThreadId ?? null,
-    ...(state.kind ? { kind: state.kind } : {}),
-    archivedAt: state.archived ? "2026-01-01T00:00:00.000Z" : null,
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    hasPendingApprovals: state.approval ?? false,
-    hasPendingUserInput: state.input ?? false,
-    latestTurn:
-      state.turnId === undefined || state.turnId === null
-        ? null
-        : {
-            turnId: state.turnId,
-            state: state.turnState ?? "running",
-            requestedAt: "2026-01-01T00:00:00.000Z",
-            startedAt: null,
-            completedAt: null,
-            assistantMessageId: null,
-          },
-    session:
-      state.status === null || state.status === undefined
-        ? null
-        : {
-            threadId: id,
-            status: state.status,
-            providerName: null,
-            activeTurnId: null,
-            lastError: state.lastError ?? null,
-            updatedAt: "2026-01-01T00:00:00.000Z",
-          },
-  }) as unknown as OrchestrationThreadShell;
+const shellOf = (id: string, state: ShellState): OrchestrationV2ThreadShell => ({
+  ...v2ThreadShell,
+  id: ThreadId.make(id),
+  title: state.title ?? `Thread ${id}`,
+  parentThreadId: state.parentThreadId == null ? null : ThreadId.make(state.parentThreadId),
+  ...(state.kind ? { kind: state.kind } : {}),
+  lineage: {
+    rootThreadId: ThreadId.make(id),
+    parentThreadId: state.parentThreadId == null ? null : ThreadId.make(state.parentThreadId),
+    relationshipToParent:
+      state.parentThreadId == null ? null : state.kind === "sidechat" ? "fork" : "subagent",
+  },
+  archivedAt: state.archived ? v2Now : null,
+  status:
+    state.status === "running"
+      ? "running"
+      : state.status === "starting"
+        ? "starting"
+        : state.status === "error" || state.turnState === "error"
+          ? "failed"
+          : state.turnState === "completed"
+            ? "completed"
+            : state.turnState === "interrupted"
+              ? "interrupted"
+              : "idle",
+  latestRunId: state.turnId == null ? null : RunId.make(state.turnId),
+  activeRunId: state.status === "running" && state.turnId != null ? RunId.make(state.turnId) : null,
+  lastError: state.lastError ?? null,
+  pendingRuntimeRequest:
+    state.approval || state.input
+      ? {
+          id: RuntimeRequestId.make("push-request"),
+          kind: state.input ? "user_input" : "permission",
+          createdAt: v2Now,
+        }
+      : null,
+});
 
 const makeHarness = (stateDir: string) =>
   Effect.gen(function* () {
-    const events = yield* PubSub.unbounded<OrchestrationEvent>();
+    const events = yield* PubSub.unbounded<OrchestrationV2DomainEvent>();
     const sessionChanges = yield* PubSub.unbounded<SessionStore.SessionCredentialChange>();
-    const shells = yield* Ref.make(new Map<string, OrchestrationThreadShell>());
+    const shells = yield* Ref.make(new Map<string, OrchestrationV2ThreadShell>());
     const active = yield* Ref.make<ReadonlySet<string>>(new Set([PHONE, TABLET]));
     const sent = yield* Ref.make<ReadonlyArray<ExpoPushMessage>>([]);
     const tickets = yield* Ref.make<ReadonlyArray<ExpoPushTicket> | null>(null);
 
     const dependencies = Layer.mergeAll(
-      Layer.mock(OrchestrationEngineService)({
-        subscribeDomainEvents: PubSub.subscribe(events).pipe(
-          Effect.map((subscription) => Stream.fromSubscription(subscription)),
-        ),
+      Layer.mock(EventSinkV2)({
+        latestSequence: () => Effect.succeed(0),
+        stream: () =>
+          Stream.fromPubSub(events).pipe(
+            Stream.map((event) => ({ event, sequence: 1, commandId: null })),
+          ),
       }),
-      Layer.mock(ProjectionSnapshotQuery)({
-        getThreadShellById: (threadId) =>
-          Ref.get(shells).pipe(Effect.map((all) => Option.fromNullishOr(all.get(threadId)))),
+      Layer.mock(ProjectionStoreV2)({
+        getThreadShell: (threadId) =>
+          Ref.get(shells).pipe(Effect.map((all) => all.get(threadId) ?? null)),
       }),
       Layer.mock(ServerEnvironment.ServerEnvironment)({
         getEnvironmentId: Effect.succeed(ENVIRONMENT),
@@ -145,7 +159,7 @@ const makeHarness = (stateDir: string) =>
       NodeServices.layer,
     );
 
-    const publish = (event: unknown) => PubSub.publish(events, event as OrchestrationEvent);
+    const publish = (event: unknown) => PubSub.publish(events, event as OrchestrationV2DomainEvent);
     return {
       sent,
       tickets,
@@ -155,20 +169,24 @@ const makeHarness = (stateDir: string) =>
         Ref.update(shells, (all) => new Map(all).set(threadId, shellOf(threadId, state))).pipe(
           Effect.andThen(
             publish({
-              type: "thread.session-set",
-              metadata: {},
-              payload: { threadId, session: {} },
+              id: EventId.make("push:state"),
+              threadId: ThreadId.make(threadId),
+              occurredAt: v2Now,
+              type: "run.updated",
+              payload: {},
             }),
           ),
           Effect.asVoid,
         ),
       usageResume: (threadId: string, payload: UsageResumePayload, summary = "Out of usage.") =>
         publish({
-          type: "thread.activity-appended",
-          metadata: {},
+          id: EventId.make("push:usage"),
+          threadId: ThreadId.make(threadId),
+          occurredAt: v2Now,
+          type: "turn-item.updated",
           payload: {
-            threadId,
-            activity: { kind: USAGE_RESUME_ACTIVITY_KIND, payload, summary },
+            type: "system_notice",
+            viewcodeActivity: { kind: USAGE_RESUME_ACTIVITY_KIND, payload, summary },
           },
         }).pipe(Effect.asVoid),
       revoke: (sessionId: AuthSessionId) =>
@@ -473,5 +491,30 @@ describe("PushNotifications", () => {
           assert.deepEqual(yield* saved, []);
         }),
       ),
+  );
+});
+
+it("does not replay phone alerts for imported v1 shells or repaired metadata", () => {
+  const threadId = v2Projection.thread.id;
+  for (const type of ["thread.created", "thread.metadata-updated"] as const) {
+    assert.isNull(
+      pushJobForEvent({
+        id: EventId.make(`migration:v1:${type}`),
+        threadId,
+        occurredAt: v2Now,
+        type,
+        payload: v2Projection.thread,
+      }),
+    );
+  }
+  assert.deepEqual(
+    pushJobForEvent({
+      id: EventId.make("native:new-thread"),
+      threadId,
+      occurredAt: v2Now,
+      type: "thread.created",
+      payload: v2Projection.thread,
+    }),
+    { kind: "thread", threadId },
   );
 });

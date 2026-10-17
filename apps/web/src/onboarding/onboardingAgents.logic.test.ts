@@ -43,6 +43,21 @@ describe("resolveOnboardingAgentDrivers", () => {
 });
 
 describe("provider picker", () => {
+  it("enables a picked legacy config while preserving account settings", () => {
+    const instanceId = ProviderInstanceId.make("claudeAgent");
+    const patch = providerPickerPatch(new Set([driver("claudeAgent")]), {
+      [instanceId]: {
+        driver: driver("claudeAgent"),
+        enabled: false,
+        config: { enabled: false, homePath: "/accounts/work" },
+      },
+    });
+    expect(patch.providerInstances?.[instanceId]).toEqual({
+      driver: driver("claudeAgent"),
+      enabled: true,
+      config: { enabled: true, homePath: "/accounts/work" },
+    });
+  });
   it("marks found CLIs once the lookup answers, and none before", () => {
     expect(buildProviderPickerRows(null).every((row) => row.found === null)).toBe(true);
     const rows = buildProviderPickerRows([
@@ -56,7 +71,24 @@ describe("provider picker", () => {
 
   it("enables only what was picked", () => {
     expect(providerPickerPatch(new Set([driver("cursor"), driver("claudeAgent")]))).toEqual({
-      providers: { claudeAgent: { enabled: true }, cursor: { enabled: true } },
+      providerInstances: {
+        claudeAgent: { driver: driver("claudeAgent"), enabled: true },
+        cursor: { driver: driver("cursor"), enabled: true },
+      },
     });
+  });
+  it("preserves other instances and omits an administrator-blocked selection", () => {
+    const current = {
+      [ProviderInstanceId.make("codex_work")]: { driver: driver("codex"), enabled: false },
+    };
+    expect(
+      providerPickerPatch(new Set([driver("codex"), driver("muse")]), current, [driver("codex")]),
+    ).toEqual({
+      providerInstances: { ...current, muse: { driver: driver("muse"), enabled: true } },
+    });
+    expect(
+      buildProviderPickerRows([], [driver("codex")]).find((row) => row.driver === "codex")
+        ?.blockedByAdmin,
+    ).toBe(true);
   });
 });

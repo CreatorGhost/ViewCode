@@ -1,6 +1,5 @@
 import type { EnvironmentId, PullRequestRef, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { ListChecksIcon } from "lucide-react";
-import { useMemo } from "react";
 
 import { ReviewSurface } from "../chat/ReviewPanel";
 import { ReviewStartForm, type ReviewStartTarget } from "../chat/ReviewStart";
@@ -50,29 +49,22 @@ export default function PullRequestReviewTab({
   onFixInChat: ReviewFixInChat | undefined;
 }) {
   const { source, posted, ratings } = review;
-  const startReview = useMemo<ReviewStartTarget | null>(
-    () =>
-      canStart
-        ? {
-            environmentId,
-            request: { kind: "pull-request", reference, sourceThreadId },
-            onStarted,
-          }
-        : null,
-    [canStart, environmentId, onStarted, reference, sourceThreadId],
-  );
-  const change = useMemo<ReviewDiffTarget | null>(
-    () =>
-      host === null
-        ? null
-        : {
-            kind: "pull-request",
-            host,
-            repository: reference.repository,
-            number: reference.number,
-          },
-    [host, reference.number, reference.repository],
-  );
+  const startReview: ReviewStartTarget | null = canStart
+    ? {
+        environmentId,
+        request: { kind: "pull-request", reference, sourceThreadId },
+        onStarted,
+      }
+    : null;
+  const change: ReviewDiffTarget | null =
+    host === null
+      ? null
+      : {
+          kind: "pull-request",
+          host,
+          repository: reference.repository,
+          number: reference.number,
+        };
   return (
     <ReviewSurface
       environmentId={environmentId}

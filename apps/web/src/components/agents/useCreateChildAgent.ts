@@ -41,42 +41,39 @@ export function useCreateChildAgent() {
   const navigate = useNavigate();
   const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
 
-  return useCallback(
-    async (parent: EnvironmentThreadShell) => {
-      const threadId = newThreadId();
-      const result = await createThread({
-        environmentId: parent.environmentId,
-        input: {
-          threadId,
-          projectId: parent.projectId,
-          title: "New agent",
-          modelSelection: parent.modelSelection,
-          runtimeMode: parent.runtimeMode,
-          interactionMode: parent.interactionMode,
-          branch: parent.branch,
-          worktreePath: parent.worktreePath,
-          parentThreadId: parent.id,
-        },
-      });
-      if (result._tag === "Failure") {
-        if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not create agent",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
-        return;
+  return async (parent: EnvironmentThreadShell) => {
+    const threadId = newThreadId();
+    const result = await createThread({
+      environmentId: parent.environmentId,
+      input: {
+        threadId,
+        projectId: parent.projectId,
+        title: "New agent",
+        modelSelection: parent.modelSelection,
+        runtimeMode: parent.runtimeMode,
+        interactionMode: parent.interactionMode,
+        branch: parent.branch,
+        worktreePath: parent.worktreePath,
+        parentThreadId: parent.id,
+      },
+    });
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not create agent",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
       }
-      await waitForThreadShell(scopeThreadRef(parent.environmentId, threadId));
-      await navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId: parent.environmentId, threadId },
-      });
-    },
-    [createThread, navigate],
-  );
+      return;
+    }
+    await waitForThreadShell(scopeThreadRef(parent.environmentId, threadId));
+    await navigate({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: parent.environmentId, threadId },
+    });
+  };
 }

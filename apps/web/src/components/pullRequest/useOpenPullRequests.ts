@@ -18,7 +18,7 @@ export function useOpenPullRequests() {
   const navigate = useNavigate();
   const folders = useSidebarProjectSnapshots();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  return useCallback(() => {
+  return () => {
     const scopeKey = useUiStateStore.getState().sidebarProjectScopeKey;
     // A scope whose folder is gone reads as All, as it does in the rail.
     const folder =
@@ -31,5 +31,5 @@ export function useOpenPullRequests() {
         primaryEnvironmentId,
       ),
     });
-  }, [folders, navigate, primaryEnvironmentId]);
+  };
 }

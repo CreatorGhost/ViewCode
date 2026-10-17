@@ -1,13 +1,8 @@
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { LegendList } from "@legendapp/list/react-native";
-import {
-  type EnvironmentId,
-  type EnvironmentMachineKind,
-  resolveEnvironmentMachineKind,
-} from "@t3tools/contracts";
+import { type EnvironmentId, type EnvironmentMachineKind, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { useNavigation } from "@react-navigation/native";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SymbolView } from "../../components/AppSymbol";

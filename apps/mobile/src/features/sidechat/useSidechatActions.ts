@@ -1,19 +1,34 @@
-import { buildSidechatCreateInput } from "@t3tools/client-runtime/state/sidechat";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+import { sidechatTitleFromQuestion } from "@t3tools/client-runtime/state/sidechat";
 import {
+  createEnvironmentRpcCommand,
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { MessageId, ThreadId, type ModelSelection } from "@t3tools/contracts";
+
+import {
+  CommandId,
+  MessageId,
+  ORCHESTRATION_V2_WS_METHODS,
+  ThreadId,
+  type ModelSelection,
+} from "@t3tools/contracts";
 import { useRef, useState } from "react";
 
+import { connectionAtomRuntime } from "../../connection/runtime";
 import { uuidv4 } from "../../lib/uuid";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 
+const forkSidechat = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "mobile:sidechat:fork",
+  tag: ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
+});
+
 /** Sends questions only to the side chat; the server supplies its parent's context. */
 export function useSidechatActions() {
-  const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
+  const createThread = useAtomCommand(forkSidechat, { reportFailure: false });
   const startTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn, { reportFailure: false });
   const pendingRef = useRef(false);
@@ -37,12 +52,17 @@ export function useSidechatActions() {
       if (input.sidechat === null) {
         const created = await createThread({
           environmentId: input.parent.environmentId,
-          input: buildSidechatCreateInput({
-            parent: input.parent,
-            threadId,
-            question: input.question,
-            modelSelection: input.modelSelection,
-          }),
+          input: {
+            type: "thread.fork",
+            commandId: CommandId.make(uuidv4()),
+            kind: "sidechat",
+            sourceThreadId: input.parent.id,
+            targetThreadId: threadId,
+            sourcePoint: { type: "latest_stable" },
+            createdBy: "user",
+            creationSource: "mobile",
+            title: sidechatTitleFromQuestion(input.question),
+          },
         });
         if (created._tag === "Failure") {
           if (!isAtomCommandInterrupted(created)) {

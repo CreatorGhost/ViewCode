@@ -1,11 +1,8 @@
 import {
   AgentReviewMode,
-  McpCapabilityUnavailableError,
-  PositiveInt,
   PullRequestOperationError,
   PullRequestReviewVerdict,
   PullRequestUnavailableError,
-  PullRequestState,
   LocalReviewScope,
   ReviewFindingKey,
   ReviewFindingSeverity,
@@ -14,39 +11,53 @@ import {
   ReviewPostFindingsError,
   ReviewPreviousSummary,
   REVIEW_POST_MAX_OVERALL_COMMENT_CHARS,
+  McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
+  PositiveInt,
+  PullRequestReviewGuide,
+  PullRequestReviewGuideRun,
+  PullRequestState,
   ThreadPullRequestLinkSource,
   TrimmedNonEmptyString,
+  ThreadId,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import * as Tool from "effect/ai/Tool";
+import * as Toolkit from "effect/ai/Toolkit";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
+import * as PullRequestReviewGuideService from "../../../pullRequest/PullRequestReviewGuideService.ts";
+
 import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
-import { SUBMIT_REVIEW_FINDINGS_TOOL } from "../../../review/ReviewPlaybook.ts";
-import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
-import * as TurnOrigin from "../../../orchestration/TurnOrigin.ts";
 import * as ReviewFindingsPoster from "../../../review/ReviewFindingsPoster.ts";
+import * as ReviewActivityStore from "../../../review/ReviewActivityStoreV2.ts";
+import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
+import { SUBMIT_REVIEW_FINDINGS_TOOL } from "../../../review/ReviewPlaybook.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
-  OrchestrationEngine.OrchestrationEngineService,
-  ProjectionSnapshotQuery.ProjectionSnapshotQuery,
-  PullRequestAgentReview.PullRequestAgentReview,
-  ReviewFindingsPoster.ReviewFindingsPoster,
-  TurnOrigin.TurnOrigin,
+  ThreadManagementService.ThreadManagementService,
+  Orchestrator.OrchestratorV2,
+  ProjectService.ProjectService,
+];
+
+const guideDependencies = [
+  ...dependencies,
+  PullRequestReviewGuideService.PullRequestReviewGuideService,
 ];
 
 const REGISTER_EVERY_PR =
   "Register every pull request you open for this thread, including each layer of a stack, right after creating it.";
 
-/**
- * Either the pull request's URL or its repository and number. Both forms
- * resolve to the same host-level identity, so the agent can pass whichever
- * the host CLI handed back.
- */
 export const PullRequestTargetInput = Schema.Struct({
+  threadId: Schema.optional(
+    ThreadId.annotate({
+      description: "Thread to act on. Omit for this thread.",
+    }),
+  ),
   url: Schema.optional(
     TrimmedNonEmptyString.annotate({
       description:
@@ -100,6 +111,15 @@ export class PullRequestHostRequiredError extends Schema.TaggedError<PullRequest
   }
 }
 
+export class PullRequestThreadRequiredError extends Schema.TaggedError<PullRequestThreadRequiredError>()(
+  "PullRequestThreadRequiredError",
+  {},
+) {
+  override get message(): string {
+    return "Pass threadId: this MCP client is not running inside a T3 thread.";
+  }
+}
+
 export class PullRequestThreadNotFoundError extends Schema.TaggedError<PullRequestThreadNotFoundError>()(
   "PullRequestThreadNotFoundError",
   { threadId: Schema.String },
@@ -136,12 +156,21 @@ export class PullRequestWatchFailedError extends Schema.TaggedError<PullRequestW
   }
 }
 
-export class PullRequestNotWatchableError extends Schema.TaggedError<PullRequestNotWatchableError>()(
-  "PullRequestNotWatchableError",
-  { reason: Schema.String },
+export class PullRequestNotOpenError extends Schema.TaggedError<PullRequestNotOpenError>()(
+  "PullRequestNotOpenError",
+  { state: Schema.String },
 ) {
   override get message(): string {
-    return `Cannot watch this pull request: ${this.reason}.`;
+    return `The pull request is ${this.state}, so there is nothing to watch.`;
+  }
+}
+
+export class PullRequestWatchFromSubagentError extends Schema.TaggedError<PullRequestWatchFromSubagentError>()(
+  "PullRequestWatchFromSubagentError",
+  {},
+) {
+  override get message(): string {
+    return "This thread is a subagent, so it cannot watch pull requests. Its parent thread owns the pull request: finish your task and report back instead.";
   }
 }
 
@@ -151,6 +180,24 @@ export class PullRequestListFailedError extends Schema.TaggedError<PullRequestLi
 ) {
   override get message(): string {
     return "Could not list the pull request.";
+  }
+}
+
+export class PullRequestProjectNotFoundError extends Schema.TaggedError<PullRequestProjectNotFoundError>()(
+  "PullRequestProjectNotFoundError",
+  { repository: Schema.String },
+) {
+  override get message(): string {
+    return `No project in this environment is a checkout of ${this.repository}, so its pull requests cannot be read here. Add one with t3_project_create.`;
+  }
+}
+
+export class PullRequestGuideFailedError extends Schema.TaggedError<PullRequestGuideFailedError>()(
+  "PullRequestGuideFailedError",
+  { detail: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {
+  override get message(): string {
+    return this.detail;
   }
 }
 
@@ -229,27 +276,31 @@ export class ReviewPostNothingError extends Schema.TaggedError<ReviewPostNothing
 }
 
 export const PullRequestToolError = Schema.Union([
-  McpCapabilityUnavailableError,
-  PullRequestUrlInvalidError,
-  PullRequestTargetIncompleteError,
-  PullRequestHostRequiredError,
-  PullRequestThreadNotFoundError,
-  PullRequestLinkFailedError,
-  PullRequestUnlinkFailedError,
-  PullRequestListFailedError,
-  PullRequestWatchFailedError,
-  PullRequestNotWatchableError,
   PullRequestReviewFailedError,
   ReviewFindingsFailedError,
   ReviewFindingsTargetMissingError,
   ReviewPostFailedError,
   ReviewPostNotRequestedError,
   ReviewPostNothingError,
-  // The review service's own failures say what to change (pick a model, sign in to the host).
   PullRequestAgentReview.PullRequestAgentReviewError,
   ReviewPostFindingsError,
   PullRequestUnavailableError,
   PullRequestOperationError,
+  OrchestratorMcpFailure,
+  McpCapabilityUnavailableError,
+  PullRequestUrlInvalidError,
+  PullRequestTargetIncompleteError,
+  PullRequestHostRequiredError,
+  PullRequestThreadRequiredError,
+  PullRequestThreadNotFoundError,
+  PullRequestLinkFailedError,
+  PullRequestUnlinkFailedError,
+  PullRequestListFailedError,
+  PullRequestWatchFailedError,
+  PullRequestNotOpenError,
+  PullRequestWatchFromSubagentError,
+  PullRequestProjectNotFoundError,
+  PullRequestGuideFailedError,
 ]);
 export type PullRequestToolError = typeof PullRequestToolError.Type;
 
@@ -281,7 +332,7 @@ export type UnlinkPullRequestResult = typeof UnlinkPullRequestResult.Type;
 export const WatchPullRequestResult = Schema.Struct({
   ...PullRequestIdentity,
   watching: Schema.Boolean.annotate({
-    description: "Whether ViewCode now watches the pull request for this thread.",
+    description: "Whether T3 Code now watches the pull request for this thread.",
   }),
   wasWatching: Schema.Boolean.annotate({
     description: "Whether it was already watched before the call.",
@@ -301,7 +352,7 @@ export const ThreadPullRequestEntry = Schema.Struct({
   stack: Schema.NullOr(
     Schema.Struct({
       kind: Schema.Literals(["native", "derived"]),
-      /** 1-based, bottom of the stack first. */
+      /** 1-based layer, bottom of the stack first. Pull requests built on the same one share it. */
       position: Schema.Int,
       size: Schema.Int,
     }),
@@ -314,7 +365,7 @@ export const ListThreadPullRequestsResult = Schema.Struct({
   chains: Schema.Array(
     Schema.Struct({
       kind: Schema.Literals(["native", "derived"]),
-      /** Bottom to top. */
+      /** Bottom to top; each pull request comes before the ones built on it. */
       numbers: Schema.Array(Schema.Int),
     }),
   ),
@@ -456,7 +507,7 @@ export const PostReviewFindingsResult = Schema.Struct({
 export type PostReviewFindingsResult = typeof PostReviewFindingsResult.Type;
 
 const LinkPullRequestTool = Tool.make("link_pull_request", {
-  description: `${REGISTER_EVERY_PR} Links a pull request to this thread so ViewCode tracks it, shows its status beside the thread, and settles the thread when it merges. Pass the URL, or repository plus number. Linking an already-linked pull request succeeds with alreadyLinked=true.`,
+  description: `${REGISTER_EVERY_PR} Links a pull request to this thread so T3 Code tracks it, shows its status beside the thread, and settles the thread when it merges. Pass the URL, or repository plus number. Linking an already-linked pull request succeeds with alreadyLinked=true.`,
   parameters: PullRequestTargetInput,
   success: LinkPullRequestResult,
   failure: PullRequestToolError,
@@ -483,7 +534,12 @@ const UnlinkPullRequestTool = Tool.make("unlink_pull_request", {
   .annotate(Tool.OpenWorld, false);
 
 const ListThreadPullRequestsTool = Tool.make("list_thread_pull_requests", {
-  description: `List the pull requests linked to this thread with their last known host state, whether ViewCode watches each one, and how they chain into stacks (bottom to top). ${REGISTER_EVERY_PR}`,
+  description: `List the pull requests linked to a thread (omit threadId for this thread) with their last known host state, and how they chain into stacks (bottom to top). ${REGISTER_EVERY_PR}`,
+  parameters: Schema.Struct({
+    threadId: Schema.optional(
+      ThreadId.annotate({ description: "Thread to list. Omit for this thread." }),
+    ),
+  }),
   success: ListThreadPullRequestsResult,
   failure: PullRequestToolError,
   dependencies,
@@ -496,7 +552,7 @@ const ListThreadPullRequestsTool = Tool.make("list_thread_pull_requests", {
 
 const WatchPullRequestTool = Tool.make("watch_pull_request", {
   description:
-    "Have ViewCode watch an open pull request for this thread, linking it first if needed. ViewCode checks it every two minutes and wakes you with a message when a check fails, all checks pass, someone else comments or reviews, or the branch starts to conflict with its base. Use this to monitor or babysit a pull request instead of polling, sleeping, or running a watcher. Only comments posted after this call wake you, so handle the existing ones first, then end your turn. A wake is news, not a merge decision: check readiness yourself before merging. Watching ends when the pull request merges or closes, when ViewCode cannot read it 8 times in a row, after 10 comment-only wakes in a row, when the thread settles or is archived, or when you call unwatch_pull_request.",
+    "Have T3 Code watch an open pull request for this thread, linking it first if needed. T3 Code checks it every two minutes and wakes you with a message when a check fails, the required checks pass, someone else comments or reviews, or the branch starts to conflict with its base. Use this to monitor or babysit a pull request instead of polling, sleeping, or running a watcher. Only comments posted after this call wake you, so handle the existing ones first, then end your turn. A wake is news, not a merge decision: check readiness yourself before merging. While T3 Code watches, the thread stays in the user's Working list, not their inbox. When you hand the work back to the user, call unwatch_pull_request first so the thread returns to their inbox. Watching ends when the pull request merges or closes, when its thread settles or is archived, when T3 Code fails to read it 8 times in a row (a host rate limit only delays it), when the user stops this thread, or when you call unwatch_pull_request. Unsettle the thread before starting a new watch. A subagent cannot watch: its parent thread owns the pull request.",
   parameters: PullRequestTargetInput,
   success: WatchPullRequestResult,
   failure: PullRequestToolError,
@@ -510,7 +566,7 @@ const WatchPullRequestTool = Tool.make("watch_pull_request", {
 
 const UnwatchPullRequestTool = Tool.make("unwatch_pull_request", {
   description:
-    "Stop ViewCode from watching a pull request for this thread. The pull request stays linked. Pass the URL, or repository plus number.",
+    "Stop T3 Code from watching a pull request for this thread. The pull request stays linked. Pass the URL, or repository plus number.",
   parameters: PullRequestTargetInput,
   success: WatchPullRequestResult,
   failure: PullRequestToolError,
@@ -522,13 +578,84 @@ const UnwatchPullRequestTool = Tool.make("unwatch_pull_request", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const GuideTarget = Schema.Struct({
+  url: PullRequestTargetInput.fields.url,
+  repository: PullRequestTargetInput.fields.repository,
+  number: PullRequestTargetInput.fields.number,
+  host: PullRequestTargetInput.fields.host,
+});
+
+const GuideOutcome = Schema.Struct({
+  ...PullRequestIdentity,
+  outcome: Schema.Literals(["started", "running", "failed"]).annotate({
+    description:
+      "started: a run began. running: one was already going for this head and the call joined it. failed: this pull request could not be guided; see detail.",
+  }),
+  detail: Schema.NullOr(Schema.String),
+});
+
+export const WritePullRequestGuidesResult = Schema.Struct({
+  guides: Schema.Array(GuideOutcome),
+});
+export type WritePullRequestGuidesResult = typeof WritePullRequestGuidesResult.Type;
+
+export const ReadPullRequestGuideResult = Schema.Struct({
+  ...PullRequestIdentity,
+  guide: Schema.NullOr(PullRequestReviewGuide),
+  run: Schema.NullOr(PullRequestReviewGuideRun),
+  currentHeadSha: Schema.NullOr(Schema.String),
+  stale: Schema.Boolean.annotate({
+    description:
+      "True when the guide was written for an earlier head than the pull request has now.",
+  }),
+});
+export type ReadPullRequestGuideResult = typeof ReadPullRequestGuideResult.Type;
+
+const WritePullRequestGuidesTool = Tool.make("write_pull_request_guides", {
+  description:
+    "Write review guides for up to 20 pull requests, the tour a maintainer reads in a pull request's Guide tab. Each run reads its change in a temporary checkout and takes minutes, so this returns once the runs are under way; read a guide with read_pull_request_guide to see when it is written. A guide for the same head that is already running is joined, not restarted; a pull request whose guide is current is written again. Each pull request is read through the project in this environment whose checkout has that repository. Fails while review guides are off on this server.",
+  parameters: Schema.Struct({
+    pullRequests: Schema.Array(GuideTarget).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+  }),
+  success: WritePullRequestGuidesResult,
+  failure: PullRequestToolError,
+  dependencies: guideDependencies,
+})
+  .annotate(Tool.Title, "Write pull request guides")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, true);
+
+const ReadPullRequestGuideTool = Tool.make("read_pull_request_guide", {
+  description:
+    "Read a pull request's stored review guide and its run: run.Running while one is being written, run.Failed with the reason when the last one failed, guide null when none was written. stale is true after a push the guide has not caught up with. Never starts a run.",
+  parameters: GuideTarget,
+  success: ReadPullRequestGuideResult,
+  failure: PullRequestToolError,
+  dependencies: guideDependencies,
+})
+  .annotate(Tool.Title, "Read pull request guide")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, true);
+
+const reviewDependencies = [
+  ...dependencies,
+  PullRequestAgentReview.PullRequestAgentReview,
+  ReviewFindingsPoster.ReviewFindingsPoster,
+  ReviewActivityStore.ReviewActivityStoreV2,
+  ProjectionStore.ProjectionStoreV2,
+];
+
 const ReviewPullRequestTool = Tool.make("review_pull_request", {
   description:
     "Start an agent review of a pull request as your child agent: a new ViewCode thread on this thread's project, linked to the pull request, for the user to read and continue. Its findings show in the user's Review panel; nothing is sent back to you. The reviewer follows ViewCode's review playbook for the chosen mode, changes no files and posts nothing to the host. It runs with the user's default model for new threads in the project, or this thread's model when none is set. The call returns once the review has started; it does not wait for or return the findings. Pass the URL, or repository plus number.",
   parameters: ReviewPullRequestInput,
   success: ReviewPullRequestResult,
   failure: PullRequestToolError,
-  dependencies,
+  dependencies: reviewDependencies,
 })
   .annotate(Tool.Title, "Start a pull request review")
   .annotate(Tool.Readonly, false)
@@ -542,7 +669,7 @@ const ReviewLocalChangesTool = Tool.make("review_local_changes", {
   parameters: ReviewLocalChangesInput,
   success: ReviewLocalChangesResult,
   failure: PullRequestToolError,
-  dependencies,
+  dependencies: reviewDependencies,
 })
   .annotate(Tool.Title, "Start a review of local changes")
   .annotate(Tool.Readonly, false)
@@ -556,7 +683,7 @@ const SubmitReviewFindingsTool = Tool.make(SUBMIT_REVIEW_FINDINGS_TOOL, {
   parameters: SubmitReviewFindingsInput,
   success: SubmitReviewFindingsResult,
   failure: PullRequestToolError,
-  dependencies,
+  dependencies: reviewDependencies,
 })
   .annotate(Tool.Title, "Submit review findings")
   // It only records the findings in the caller's own thread, so read-only sandboxes can use it.
@@ -571,7 +698,7 @@ const PostReviewFindingsTool = Tool.make("post_review_findings", {
   parameters: PostReviewFindingsInput,
   success: PostReviewFindingsResult,
   failure: PullRequestToolError,
-  dependencies,
+  dependencies: reviewDependencies,
 })
   .annotate(Tool.Title, "Post review findings")
   .annotate(Tool.Readonly, false)
@@ -585,6 +712,8 @@ export const PullRequestsToolkit = Toolkit.make(
   ListThreadPullRequestsTool,
   WatchPullRequestTool,
   UnwatchPullRequestTool,
+  WritePullRequestGuidesTool,
+  ReadPullRequestGuideTool,
   ReviewPullRequestTool,
   ReviewLocalChangesTool,
   SubmitReviewFindingsTool,

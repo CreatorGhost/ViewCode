@@ -21,7 +21,7 @@ import {
   RELAY_HOST_PATH,
   RELAY_HOST_SECRET_NAME,
 } from "@t3tools/shared/viewcodeRelayProtocol";
-import * as Undici from "@effect/platform-node/Undici";
+import * as Undici from "undici";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -37,7 +37,14 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import { normalizeTunnelHttpBaseUrl } from "../cloud/config.ts";
+/** A Quick connect address is a credential-free HTTPS origin. */
+export function normalizeRelayOrigin(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.username === "" && url.password === "" ? url.origin : null;
+  } catch { return null; }
+}
 import * as ServerSettings from "../serverSettings.ts";
 import { createRelayForwarder, type RelayForwarder } from "./relayForwarder.ts";
 import {
@@ -83,7 +90,6 @@ export interface RelayLink {
 
 export type RelayDial = (config: RelayConnectionConfig) => Effect.Effect<RelayLink, DialFailure>;
 
-// --- session: one open connection ----------------------------------------------
 
 /**
  * Serves one open connection until it ends, and returns why (a phrase for the
@@ -144,7 +150,6 @@ export const runRelaySession = (input: {
     );
   });
 
-// --- connection loop ----------------------------------------------------------------
 
 export interface RelayStateHolder {
   readonly state: SubscriptionRef.SubscriptionRef<ViewCodeRelayState>;
@@ -283,7 +288,6 @@ export const followRelayDesire = (input: {
     Stream.runDrain,
   );
 
-// --- real connection to the Worker -------------------------------------------------
 
 /** Stored origins are always https; plain http exists so tests can talk to a local workerd. */
 export const relayHostUrl = (origin: string): string => {
@@ -397,7 +401,6 @@ export const dialRelay: RelayDial = (config) =>
     Effect.catch((dialError) => probeRelayFailure(config, dialError).pipe(Effect.flip)),
   );
 
-// --- service ----------------------------------------------------------------------------
 
 export class ViewCodeRelayConnector extends Context.Service<
   ViewCodeRelayConnector,
@@ -420,7 +423,7 @@ export const resolveRelayDesire = (
   },
   hostSecret: string | null,
 ): RelayDesire => {
-  const origin = normalizeTunnelHttpBaseUrl(settings.viewcodeRelay.url);
+  const origin = normalizeRelayOrigin(settings.viewcodeRelay.url);
   if (origin === null || hostSecret === null || hostSecret === "") return { kind: "unconfigured" };
   return settings.viewcodeRelay.enabled
     ? { kind: "enabled", origin, hostSecret }

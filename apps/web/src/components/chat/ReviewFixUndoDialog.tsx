@@ -39,10 +39,10 @@ export function ReviewFixUndoDialog({
     if (pending) return;
     setPending(true);
     try {
-      const completed = await undoReviewFixes(threadRef, () =>
+      const completed = await undoReviewFixes(threadRef, (commandId) =>
         undoFixes({
           environmentId: threadRef.environmentId,
-          input: { threadId: threadRef.threadId },
+          input: { threadId: threadRef.threadId, commandId },
         }),
       );
       if (completed) onClose();

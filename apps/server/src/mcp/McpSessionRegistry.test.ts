@@ -4,11 +4,12 @@ import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts"
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
-import { HttpServer } from "effect/unstable/http";
-import * as NetAddress from "effect/unstable/net/NetAddress";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import * as ServerSettings from "../serverSettings.ts";
 
 const environmentId = EnvironmentId.make("environment-1");
 const encodeUnknownJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
@@ -34,6 +35,16 @@ const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
       Effect.provideService(ServerEnvironment.ServerEnvironment, fakeEnvironment),
       Effect.provide(NodeServices.layer),
     );
+
+it.effect("withholds computer and browser authority when settings deny them even if requested", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const issued = yield* registry.issue({ threadId: ThreadId.make("denied-tools"), providerInstanceId: ProviderInstanceId.make("codex"), browserToolsAvailable: false, capabilities: new Set(["computer", "preview"]) });
+    expect(issued.config.capabilities?.has("computer")).toBe(false);
+    expect(issued.config.capabilities?.has("preview")).toBe(false);
+    expect(issued.config.agentDeviceEnvironment?.VIEWCODE_COMPUTER_AUTH).toBeUndefined();
+  }).pipe(Effect.provide(ServerSettings.layerTest({ computerUse: "off" }))),
+);
 
 it.effect(
   "correlates credential lifecycle spans with the thread without exposing the credential",
@@ -88,7 +99,10 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
     expect(token.length).toBeGreaterThan(20);
 
     const resolved = yield* registry.resolve(token);
-    expect(resolved?.threadId).toBe(threadId);
+    expect(resolved?.thread.threadId).toBe(threadId);
+    expect(resolved?.capabilities).toEqual(
+      new Set(["preview", "agents", "orchestration", "worktree", "pull-requests"]),
+    );
 
     yield* registry.revokeThread(threadId);
     expect(yield* registry.resolve(token)).toBeUndefined();
@@ -117,7 +131,7 @@ it.effect("hands providers the stdio bridge when the server listens on a socket"
     expect(stdio?.env).toEqual({ ELECTRON_RUN_AS_NODE: "1", T3_MCP_BEARER_TOKEN: token });
     // The agent CLIs speak HTTP themselves, so they dial the socket directly.
     expect(issued.config.browserEndpoint).toBe("unix:/tmp/t3code-1000/backend.sock");
-    expect((yield* registry.resolve(token))?.threadId).toBe("thread-socket");
+    expect((yield* registry.resolve(token))?.thread.threadId).toBe("thread-socket");
   }),
 );
 
@@ -156,9 +170,26 @@ it.effect("always grants pull-requests and gates browser and device access indep
         .resolve(issued.config.authorizationHeader.replace(/^Bearer\s+/, ""))
         .pipe(Effect.map((scope) => [...(scope?.capabilities ?? [])].sort()));
 
-    expect(yield* capabilitiesOf(withPreview)).toEqual(["preview", "pull-requests"]);
-    expect(yield* capabilitiesOf(withoutPreview)).toEqual(["pull-requests"]);
-    expect(yield* capabilitiesOf(withDevice)).toEqual(["device", "pull-requests"]);
+    expect(yield* capabilitiesOf(withPreview)).toEqual([
+      "agents",
+      "orchestration",
+      "preview",
+      "pull-requests",
+      "worktree",
+    ]);
+    expect(yield* capabilitiesOf(withoutPreview)).toEqual([
+      "agents",
+      "orchestration",
+      "pull-requests",
+      "worktree",
+    ]);
+    expect(yield* capabilitiesOf(withDevice)).toEqual([
+      "agents",
+      "device",
+      "orchestration",
+      "pull-requests",
+      "worktree",
+    ]);
   }),
 );
 
@@ -214,14 +245,12 @@ it.effect("keeps a credential alive across turns that never touch an MCP tool", 
     });
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
 
-    // Well past the liveness window in total, but each turn reports in before
-    // it lapses — this is the long-session case that used to lose the toolkit.
     for (let turn = 0; turn < 10; turn += 1) {
       timestamp += 99;
       yield* registry.touch(threadId);
     }
 
-    expect((yield* registry.resolve(token))?.threadId).toBe(threadId);
+    expect((yield* registry.resolve(token))?.thread.threadId).toBe(threadId);
   }),
 );
 

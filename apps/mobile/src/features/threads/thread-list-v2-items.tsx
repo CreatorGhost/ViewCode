@@ -1,3 +1,5 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import {
   THREAD_LIST_V2_MONO_FONT as MONO_FONT,
   THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME,
@@ -13,10 +15,7 @@ import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
 import type { ThreadMoveDestination } from "./threadOrder";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import type { EnvironmentMachineKind } from "@t3tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";

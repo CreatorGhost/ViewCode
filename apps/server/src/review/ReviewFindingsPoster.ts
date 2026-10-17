@@ -24,8 +24,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ReviewActivityStore from "../review/ReviewActivityStoreV2.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ReviewThreadContext from "../review/ReviewThreadContextV2.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 
 /** What the hosts take in a review's own text. */
@@ -56,11 +57,19 @@ export class ReviewFindingsPoster extends Context.Service<
 >()("t3/review/ReviewFindingsPoster") {}
 
 const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const activities = yield* ReviewActivityStore.ReviewActivityStoreV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const readThread = (
+    threadId: import("@t3tools/contracts").ThreadId,
+    options?: { readonly activityKinds?: ReadonlyArray<string>; readonly allActivities?: boolean },
+  ) =>
+    ReviewThreadContext.read(threadId, options?.activityKinds).pipe(
+      Effect.provideService(ProjectionStore.ProjectionStoreV2, projections),
+      Effect.provideService(ReviewActivityStore.ReviewActivityStoreV2, activities),
+    );
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
-  const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const uuid = crypto.randomUUIDv4().pipe(Effect.orDie);
   const postingGates = new Map<string, { readonly gate: Semaphore.Semaphore; pending: number }>();
 
   const inPostingOrder = (
@@ -115,11 +124,9 @@ const make = Effect.gen(function* () {
     );
 
   const post = Effect.fn("ReviewFindingsPoster.post")(function* (input: ReviewPostFindingsInput) {
-    const thread = yield* snapshots
-      .getThreadShellById(input.reviewThreadId)
-      .pipe(
-        Effect.mapError((cause) => new ReviewPostFindingsError({ stage: "review-thread", cause })),
-      );
+    const thread = yield* readThread(input.reviewThreadId).pipe(
+      Effect.mapError((cause) => new ReviewPostFindingsError({ stage: "review-thread", cause })),
+    );
     if (Option.isNone(thread)) {
       return yield* new ReviewPostFindingsError({ stage: "review-thread" });
     }
@@ -134,14 +141,12 @@ const make = Effect.gen(function* () {
         : { expectedAccountId: input.expectedAccountId }),
     };
 
-    const detail = yield* snapshots
-      .getThreadDetailById(input.reviewThreadId, {
-        activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND, REVIEW_FINDINGS_POSTED_ACTIVITY_KIND],
-        allActivities: true,
-      })
-      .pipe(
-        Effect.mapError((cause) => new ReviewPostFindingsError({ stage: "review-thread", cause })),
-      );
+    const detail = yield* readThread(input.reviewThreadId, {
+      activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND, REVIEW_FINDINGS_POSTED_ACTIVITY_KIND],
+      allActivities: true,
+    }).pipe(
+      Effect.mapError((cause) => new ReviewPostFindingsError({ stage: "review-thread", cause })),
+    );
     if (Option.isNone(detail)) {
       return yield* new ReviewPostFindingsError({ stage: "review-thread" });
     }
@@ -181,11 +186,12 @@ const make = Effect.gen(function* () {
       const commentable = yield* commentableLines(reference);
       const placements = yield* headMoved && commentable !== null
         ? submitWith(commentable).pipe(
-            Effect.catchTag("PullRequestOperationError", (error) =>
-              Effect.logWarning("The host refused line comments on a review of an older commit", {
-                detail: error.detail,
-              }).pipe(Effect.andThen(submitWith(null))),
-            ),
+            Effect.catchTags({
+              PullRequestOperationError: (error) =>
+                Effect.logWarning("The host refused line comments on a review of an older commit", {
+                  detail: error.detail,
+                }).pipe(Effect.andThen(submitWith(null))),
+            }),
           )
         : submitWith(commentable);
       return { placements, headMoved };
@@ -213,9 +219,8 @@ const make = Effect.gen(function* () {
       ...(headSha === undefined ? {} : { headSha, headMoved }),
     };
     const createdAt = DateTime.formatIso(yield* DateTime.now);
-    yield* engine
-      .dispatch({
-        type: "thread.activity.append",
+    yield* activities
+      .append({
         commandId: CommandId.make(`server:review-posted:${thread.value.id}:${yield* uuid}`),
         threadId: thread.value.id,
         activity: {
@@ -227,7 +232,6 @@ const make = Effect.gen(function* () {
           turnId: null,
           createdAt,
         },
-        createdAt,
       })
       .pipe(
         Effect.catch((error) =>

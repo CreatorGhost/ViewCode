@@ -2,7 +2,7 @@ import { QuestionAnswerHistory } from "./QuestionAnswerHistory";
 import {
   getQuestionAnswerPreview,
   hasQuestionAnswer,
-} from "@t3tools/client-runtime/work-log/user-input";
+} from "@t3tools/client-runtime/viewcode-work-log/user-input";
 import { useAtomValue } from "@effect/atom-react";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
@@ -57,8 +57,8 @@ import {
   resolveWorkEntryToolPresentation,
   type ToolGroupSummaryKind,
   workEntryViewedImagePath,
-} from "@t3tools/client-runtime/work-log/presentation";
-import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/scroll-anchor";
+} from "@t3tools/client-runtime/viewcode-work-log/presentation";
+import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/viewcode-work-log/scroll-anchor";
 import type { MarkdownImageRenderer } from "../../native/SelectableMarkdownText";
 import Animated, {
   cancelAnimation,

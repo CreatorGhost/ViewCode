@@ -1,3 +1,5 @@
+import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import { isGlassEffectAPIAvailable } from "expo-glass-effect";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -5,18 +7,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { useAtomValue } from "@effect/atom-react";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
-import {
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  type EnvironmentId,
-  type MessageId,
-  type ModelSelection,
-  type OrchestrationThreadShell,
-  type ProviderInteractionMode,
-  type RuntimeMode,
-  type ServerConfig as T3ServerConfig,
-  type UsageLimitsReport,
-} from "@t3tools/contracts";
+import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, PROVIDER_SEND_TURN_MAX_INPUT_CHARS, type EnvironmentId, type MessageId, type ModelSelection, type ProviderInteractionMode, type RuntimeMode, type ServerConfig as T3ServerConfig, type UsageLimitsReport } from "@t3tools/contracts";
 import {
   collectProviderUsageLimits,
   hasProviderUsageLimits,

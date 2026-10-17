@@ -21,14 +21,10 @@ export function SidechatHost(props: {
   markdownCwd: string | undefined;
 }) {
   const { thread, keybindings } = props;
-  const eligible = thread !== null && !isSidechat(thread);
+  const eligible = thread !== null && thread.source.kind !== "sidechat";
   const environmentId = eligible ? thread.environmentId : null;
   const threadId = eligible ? thread.id : null;
-  const parentRef = useMemo(
-    () =>
-      environmentId !== null && threadId !== null ? scopeThreadRef(environmentId, threadId) : null,
-    [environmentId, threadId],
-  );
+  const parentRef = environmentId !== null && threadId !== null ? scopeThreadRef(environmentId, threadId) : null;
   const open = useSidechatDockStore(
     (state) => selectSidechatDock(state.byParentKey, parentRef).open,
   );

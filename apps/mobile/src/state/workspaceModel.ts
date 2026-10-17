@@ -79,7 +79,7 @@ export function projectWorkspaceState(input: {
   readonly isReady: boolean;
   readonly networkStatus: NetworkStatus;
   readonly environments: ReadonlyArray<WorkspaceEnvironment>;
-  readonly shellSummary: EnvironmentShellSummary;
+  readonly shellSummary: EnvironmentShellSummary & { readonly latestSnapshotUpdatedAt?: string | null };
 }): WorkspaceState {
   // Switched-off environments still count as saved connections, but they do
   // not drive the overall connection state or surface their last error.
@@ -105,7 +105,7 @@ export function projectWorkspaceState(input: {
       activeEnvironments.find((environment) => environment.connectionError !== null)
         ?.connectionError ?? null,
     shellSnapshotError: input.shellSummary.firstError,
-    latestCachedSnapshotReceivedAt: input.shellSummary.latestSnapshotUpdatedAt,
+    latestCachedSnapshotReceivedAt: input.shellSummary.latestSnapshotUpdatedAt ?? null,
     networkStatus: input.networkStatus,
   };
 }

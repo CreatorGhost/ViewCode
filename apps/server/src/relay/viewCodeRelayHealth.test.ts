@@ -1,6 +1,6 @@
 import type { ViewCodeRelayState, ViewCodeRelayStatus } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import * as NetAddress from "effect/unstable/net/NetAddress";
+import * as NetAddress from "effect/net/NetAddress";
 
 import {
   classifyDialError,

@@ -12,12 +12,8 @@ import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
  */
 export function useAskInSideChat(source: ScopedThreadRef | null) {
   const shell = useThreadShell(source);
-  const eligible = shell !== null && !isSidechat(shell);
-  return useMemo(
-    () =>
-      eligible && source
+  const eligible = shell !== null && shell.source.kind !== "sidechat";
+  return eligible && source
         ? (quotedText: string) => openSideChat(source, quoteForComposer(quotedText))
-        : null,
-    [eligible, source],
-  );
+        : null;
 }

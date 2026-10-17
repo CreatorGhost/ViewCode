@@ -113,11 +113,6 @@ const STREAMING_CHOICES: ReadonlyArray<{
     label: "Finished paragraphs",
     description: "Show each paragraph or code block as it completes.",
   },
-  {
-    mode: "token",
-    label: "Token by token (legacy)",
-    description: "Repaint for every token; this can be slower.",
-  },
 ];
 
 const COMPUTER_USE_CHOICES: ReadonlyArray<{
@@ -431,21 +426,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                         separated={index > 0}
                         disabled={disabledFor("responseStreamingMode")}
                         onPress={() => {
-                          if (choice.mode !== "token") {
-                            write({ responseStreamingMode: choice.mode });
-                            return;
-                          }
-                          Alert.alert(
-                            "Use legacy token streaming?",
-                            "Repainting every token can make the app slower.",
-                            [
-                              { text: "Cancel", style: "cancel" },
-                              {
-                                text: "Use token streaming",
-                                onPress: () => write({ responseStreamingMode: "token" }),
-                              },
-                            ],
-                          );
+                          write({ responseStreamingMode: choice.mode });
                         }}
                       />
                     ))}

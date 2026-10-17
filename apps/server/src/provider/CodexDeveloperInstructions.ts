@@ -1,26 +1,15 @@
-import type { ProviderInteractionMode, ProviderTurnGuidance } from "@t3tools/contracts";
+import type { ProviderInteractionMode } from "@t3tools/contracts";
 import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
-import type { ComputerUseGrant } from "../mcp/McpProviderSession.ts";
+import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
+
 import {
-  BROWSER_CLI_GUIDANCE,
-  buildRuntimeInstructions,
-  computerUseGuidance,
-  VIEWCODE_DIAGRAMS_GUIDANCE,
-  VIEWCODE_DRAFTS_GUIDANCE,
-} from "./RuntimeInstructions.ts";
-import { DEBUG_GUIDANCE_TAG, GOAL_GUIDANCE_TAG, renderTurnGuidance } from "./turnGuidance.ts";
+  T3_CODE_BROWSER_TOOL_INSTRUCTIONS,
+  T3_CODE_ORCHESTRATION_INSTRUCTIONS,
+} from "@t3tools/provider-core/server/orchestrationInstructions";
 
-const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `## ViewCode collaborative browser
+const T3_CODE_DEVICE_TOOL_INSTRUCTIONS = `## T3 Code devices
 
-You are running inside ViewCode. The \`viewcode\` MCP server is the product-native collaborative browser shared with the user. When it exposes \`preview_*\` tools, prefer those tools for browser navigation, inspection, interaction, screenshots, and recordings.
-
-For browser work, first call \`preview_status\`. If no automation-capable preview is attached, call \`preview_open\` before concluding that the browser is unavailable. Then use \`preview_navigate\`, \`preview_snapshot\`, and the focused interaction tools. Prefer snapshot-provided locators over coordinates.
-
-Do not switch to global browser skills, Chrome, Node REPL browser automation, standalone Playwright, or agent-browser merely because the preview is initially closed or a first call fails. Use an alternative browser system only when the ViewCode preview tools are absent, the user explicitly requests another browser, or \`preview_open\` returns an explicit unsupported/unavailable error. A failed ViewCode preview tool call should be inspected and retried with corrected arguments when the error is actionable.`;
-
-const T3_CODE_DEVICE_TOOL_INSTRUCTIONS = `## ViewCode devices
-
-The \`viewcode\` MCP server also exposes \`device_*\` tools for iOS Simulators and Android Emulators on this environment. For mobile verification, call \`device_list\`, then \`device_open\` so the user can watch the device in their Device panel; its result explains how to drive the device. Driving happens through the \`agent-device\` CLI, which is on PATH. Keep the host config and session flags returned by \`device_open\` on every command so concurrent devices stay independent: prefer \`agent-device snapshot -i\` refs over coordinates, and use \`device_screenshot\` when you need to see the screen. Prefer these tools and \`agent-device\` for opening and driving devices. Platform tools such as \`xcrun simctl\` and \`adb\` remain available for anything they do not cover, such as builds, logs, or port forwarding. If \`device_list\` reports a platform as unavailable, say so.`;
+The \`t3-code\` MCP server also exposes \`device_*\` tools for iOS Simulators and Android Emulators on this environment. For mobile verification, call \`device_list\`, then \`device_open\` so the user can watch the device in their Device panel; its result explains how to drive the device. Driving happens through the \`agent-device\` CLI, using the exact launcher path returned by \`device_open\`. Keep the host config and session flags returned by \`device_open\` on every command so concurrent devices stay independent: prefer \`agent-device snapshot -i\` refs over coordinates, and use \`device_screenshot\` when you need to see the screen. Prefer these tools and \`agent-device\` for opening and driving devices. Platform tools such as \`xcrun simctl\` and \`adb\` remain available for anything they do not cover, such as builds, logs, or port forwarding. If \`device_list\` reports a platform as unavailable, say so.`;
 
 export interface T3CodeToolAvailability {
   readonly browser: boolean;
@@ -33,11 +22,10 @@ const normalizeAvailability = (
   typeof availability === "boolean" ? { browser: availability, device: false } : availability;
 
 /**
- * Each block is omitted entirely when its tools aren't attached. Describing
- * `preview_*` or `device_*` tools that aren't in the turn's tool list would be
- * worse than saying nothing: the instructions actively steer the model away
- * from Playwright, agent-browser, and raw simctl/adb, so leaving them in would
- * talk it out of the only automation it still has.
+ * Describing `preview_*` or `device_*` tools that aren't in the turn's tool list would be worse
+ * than saying nothing: the instructions actively steer the model away from Playwright,
+ * agent-browser, and raw simctl/adb, so leaving them in would talk it out of the only automation
+ * it still has.
  */
 const toolInstructions = (availability: boolean | T3CodeToolAvailability): string => {
   const tools = normalizeAvailability(availability);
@@ -196,11 +184,8 @@ export interface CodexRuntimeInfo {
   readonly model: string;
   readonly modelName?: string | undefined;
   readonly reasoningEffort: string;
-  readonly computerUse?: ComputerUseGrant | undefined;
-  readonly browserCli?: boolean | undefined;
 }
 
-/** Mode prompt for `turn/start.collaborationMode.settings.developer_instructions`. */
 export function buildCodexDeveloperInstructions(interactionMode: ProviderInteractionMode): string {
   return interactionMode === "plan"
     ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
@@ -208,77 +193,22 @@ export function buildCodexDeveloperInstructions(interactionMode: ProviderInterac
 }
 
 /**
- * ViewCode context for `turn/start.additionalContext`. Codex renders each entry
- * as a `<key>value</key>` developer message and resends it only when the value
- * changes.
- *
  * This must stay out of the collaboration mode: when the model catalog ships
  * its own text for a mode, as newer models do, Codex uses that text and drops
  * the client's `developer_instructions` entirely.
  */
 export function buildCodexAdditionalContext(
   runtime: CodexRuntimeInfo,
-  /**
-   * Whether the `viewcode` MCP server is attached to this turn. Callers derive
-   * it from the session's actual MCP configuration rather than re-reading the
-   * setting, so the prompt cannot claim tools the turn doesn't have.
-   */
   toolsAvailable: boolean | T3CodeToolAvailability = true,
 ): Record<string, V2TurnStartParams__AdditionalContextEntry> {
   const tools = toolInstructions(toolsAvailable);
   // Separate keys keep each value under Codex's per-entry token cap.
   return {
-    viewcode_runtime: {
+    t3_code_orchestration: { kind: "application", value: T3_CODE_ORCHESTRATION_INSTRUCTIONS },
+    t3_code_runtime: {
       kind: "application",
-      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }, { separateEntries: true }),
+      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
     },
-    viewcode_diagrams: { kind: "application", value: VIEWCODE_DIAGRAMS_GUIDANCE },
-    viewcode_drafts: { kind: "application", value: VIEWCODE_DRAFTS_GUIDANCE },
-    ...(runtime.computerUse
-      ? {
-          viewcode_computer_use: {
-            kind: "application",
-            value: computerUseGuidance(runtime.computerUse),
-          },
-        }
-      : {}),
-    ...(runtime.browserCli
-      ? { viewcode_browser: { kind: "application", value: BROWSER_CLI_GUIDANCE } }
-      : {}),
-    ...(tools ? { viewcode_tools: { kind: "application", value: tools } } : {}),
-  };
-}
-
-type CodexAdditionalContext = Record<string, V2TurnStartParams__AdditionalContextEntry>;
-
-/**
- * The goal and debug-mode entries of a turn's `additionalContext`. Both are always present once a
- * turn carries guidance, with an "off" value when unset: Codex keeps an entry it was sent in the
- * conversation and resends only a changed value, so leaving a cleared goal out would let the old
- * one stand, even across a session restart. A turn without guidance (a server continuation) keeps
- * the previous turn's entries.
- */
-export function codexTurnGuidanceContext(
-  guidance: ProviderTurnGuidance | undefined,
-  previous: CodexAdditionalContext | undefined,
-): CodexAdditionalContext | undefined {
-  if (guidance === undefined) {
-    const kept = Object.fromEntries(
-      Object.entries(previous ?? {}).filter(
-        ([key]) => key === GOAL_GUIDANCE_TAG || key === DEBUG_GUIDANCE_TAG,
-      ),
-    );
-    return Object.keys(kept).length === 0 ? undefined : kept;
-  }
-  const rendered = renderTurnGuidance(guidance);
-  return {
-    [GOAL_GUIDANCE_TAG]: {
-      kind: "application",
-      value: rendered[GOAL_GUIDANCE_TAG] ?? "No goal is set for this thread.",
-    },
-    [DEBUG_GUIDANCE_TAG]: {
-      kind: "application",
-      value: rendered[DEBUG_GUIDANCE_TAG] ?? "Debug mode is off for this thread.",
-    },
+    ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
   };
 }

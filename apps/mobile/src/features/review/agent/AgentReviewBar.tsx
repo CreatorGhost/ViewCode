@@ -16,19 +16,13 @@ import {
   reviewStatusText,
 } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import {
-  AGENT_REVIEW_MODES,
-  type AgentReviewMode,
-  type EnvironmentId,
-  type ModelSelection,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { AGENT_REVIEW_MODES, type AgentReviewMode, type EnvironmentId, type ModelSelection, type ThreadId } from "@t3tools/contracts";
 import { REVIEW_VERDICT_LABELS } from "@t3tools/shared/reviewFindings";
 import {
   resolveThreadCurrentPullRequestLink,
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, View } from "react-native";
 

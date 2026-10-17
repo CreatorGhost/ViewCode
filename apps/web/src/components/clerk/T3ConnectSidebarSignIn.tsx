@@ -1,3 +1,4 @@
+import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { UserButton, useAuth } from "@clerk/react";
 import { LogInIcon } from "lucide-react";
 
@@ -7,13 +8,13 @@ import { T3_CONNECT_ACCOUNT_PAGES } from "./T3ConnectAccountPages";
 import { useT3ConnectAuthPrompt } from "./useT3ConnectAuthPrompt";
 
 export function T3ConnectSidebarSignIn() {
-  if (!hasCloudPublicConfig()) return null;
+  if (!viewcodeProductPolicy.upstreamPromotions || !hasCloudPublicConfig()) return null;
 
   return <ConfiguredT3ConnectSidebarSignIn />;
 }
 
 export function T3ConnectSidebarAvatar() {
-  if (!hasCloudPublicConfig()) return null;
+  if (!viewcodeProductPolicy.upstreamPromotions || !hasCloudPublicConfig()) return null;
 
   return <ConfiguredT3ConnectSidebarAvatar />;
 }

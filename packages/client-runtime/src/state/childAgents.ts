@@ -1,9 +1,5 @@
-import type {
-  AgentControlState,
-  EnvironmentId,
-  OrchestrationThreadShell,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { OrchestrationThreadShell } from "../viewcodeThread.ts";
+import { AgentControlState, EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 /**
  * ViewCode child agents (threads whose `parentThreadId` chain leads to a lead

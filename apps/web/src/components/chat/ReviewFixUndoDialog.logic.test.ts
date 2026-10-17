@@ -1,6 +1,12 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   CheckpointRef,
+  CheckpointId,
+  CheckpointScopeId,
+  NodeId,
+  RunId,
+  CommandId,
+  type OrchestrationV2ThreadProjection,
   EnvironmentId,
   EventId,
   MessageId,
@@ -9,15 +15,18 @@ import {
   REVIEW_FIX_STARTED_ACTIVITY_KIND,
   ThreadId,
   TurnId,
+  TurnItemId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
+import { EMPTY_ENVIRONMENT_THREAD_STATE } from "@t3tools/client-runtime/state/threads";
 import * as Cause from "effect/Cause";
-import { Atom, AsyncResult } from "effect/unstable/reactivity";
+import { Atom, AsyncResult } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { environmentThreadDetails } from "../../state/threads";
-import type { Thread } from "../../types";
 import { undoReviewFixes } from "./ReviewFixUndoDialog.logic";
 
 const threadRef = {
@@ -38,58 +47,37 @@ const fixStarted = {
   createdAt: now,
 };
 
-function makeThread(overrides: Partial<Thread> = {}): Thread {
+const at = DateTime.makeUnsafe(now);
+const runId = RunId.make(fixTurnId);
+let requestId = CommandId.make("not-dispatched");
+function makeThread(overrides: Partial<OrchestrationV2ThreadProjection> = {}): OrchestrationV2ThreadProjection {
+  const instanceId = ProviderInstanceId.make("codex");
+  const messageId = MessageId.make("fix-message");
   return {
-    id: threadRef.threadId,
-    environmentId: threadRef.environmentId,
-    projectId: ProjectId.make("undo-project"),
-    title: "Fix thread",
-    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-    runtimeMode: "full-access",
-    interactionMode: "default",
-    session: null,
-    messages: [
-      {
-        id: MessageId.make("fix-message"),
-        role: "user",
-        text: "Fix the findings",
-        turnId: fixTurnId,
-        createdAt: now,
-        updatedAt: now,
-        streaming: false,
-      },
-    ],
-    proposedPlans: [],
-    activities: [fixStarted],
-    checkpoints: [
-      {
-        turnId: fixTurnId,
-        checkpointTurnCount: 1,
-        checkpointRef: CheckpointRef.make("refs/t3/checkpoints/1"),
-        status: "ready",
-        files: [],
-        assistantMessageId: null,
-        completedAt: now,
-      },
-    ],
-    pullRequests: [],
-    createdAt: now,
-    updatedAt: now,
-    archivedAt: null,
-    settledOverride: null,
-    settledAt: null,
-    deletedAt: null,
-    latestTurn: null,
-    branch: null,
-    worktreePath: null,
+    thread: { id:threadRef.threadId, projectId:ProjectId.make("undo-project"),title:"Fix thread",providerInstanceId:instanceId,modelSelection:{instanceId,model:"gpt-6"},
+      createdBy:"user",creationSource:"web",runtimeMode:"full-access",interactionMode:"default",branch:null,worktreePath:null,activeProviderThreadId:null,
+      lineage:{parentThreadId:null,relationshipToParent:null,rootThreadId:threadRef.threadId},forkedFrom:null,historyOrigin:"native",createdAt:at,updatedAt:at,archivedAt:null,settledOverride:null,settledAt:null,lastVisitedAt:null,deletedAt:null,
+    },
+    runs:[{id:runId,threadId:threadRef.threadId,ordinal:1,providerInstanceId:instanceId,modelSelection:{instanceId,model:"gpt-6"},providerThreadId:null,userMessageId:messageId,rootNodeId:null,activeAttemptId:null,status:"completed",requestedAt:at,startedAt:at,completedAt:at,checkpointId:null,contextHandoffId:null}],
+    messages:[{id:messageId,threadId:threadRef.threadId,role:"user",text:"Fix the findings",createdBy:"user",creationSource:"web",attachments:[],runId,nodeId:null,createdAt:at,updatedAt:at,streaming:false}],
+    turnItems:[{id: importTurnItemId,threadId:threadRef.threadId,runId:null,nodeId:null,providerThreadId:null,providerTurnId:null,nativeItemRef:null,parentItemId:null,ordinal:1,status:"completed",title:null,startedAt:at,completedAt:at,updatedAt:at,type:"system_notice",message:"Review fix started",viewcodeActivity:fixStarted}],
+    checkpoints:[{id:CheckpointId.make("fix-checkpoint"),threadId:threadRef.threadId,scopeId:CheckpointScopeId.make("scope"),runId,nodeId:NodeId.make("fix-node"),parentCheckpointId:null,ordinalWithinScope:1,appRunOrdinal:1,ref:CheckpointRef.make("refs/viewcode/checkpoints/1"),status:"ready",files:[],capturedAt:at}],
+    attempts:[],nodes:[],subagents:[],providerSessions:[],providerThreads:[],providerTurns:[],runtimeRequests:[],plans:[],checkpointScopes:[],contextHandoffs:[],contextTransfers:[],visibleTurnItems:[],updatedAt:at,
     ...overrides,
   };
 }
-
+const importTurnItemId = TurnItemId.make("fix-started");
 function observeThread() {
-  const atom = Atom.make<Thread | null>(makeThread());
-  vi.spyOn(environmentThreadDetails, "detailAtom").mockReturnValue(atom);
+  const atom = Atom.make({...EMPTY_ENVIRONMENT_THREAD_STATE,data:Option.some(makeThread())});
+  vi.spyOn(environmentThreadDetails, "stateAtom").mockReturnValue(atom);
   return atom;
+}
+function updateThread(atom: ReturnType<typeof observeThread>, projection: OrchestrationV2ThreadProjection) {
+  appAtomRegistry.set(atom,{...EMPTY_ENVIRONMENT_THREAD_STATE,data:Option.some(projection)});
+}
+function rolledBack() {
+  const projection = makeThread({messages:[],checkpoints:[]});
+  return {...projection,runs:projection.runs.map((run) => ({...run,status:"rolled_back" as const}))};
 }
 
 function deferred<T>() {
@@ -112,7 +100,8 @@ describe("review-fix undo rewind lock", () => {
   it("blocks sends through command acceptance and partial updates until rewind completes", async () => {
     const atom = observeThread();
     const accepted = deferred<void>();
-    const result = undoReviewFixes(threadRef, async () => {
+    const result = undoReviewFixes(threadRef, async (id) => {
+      requestId = id;
       accepted.resolve();
       return AsyncResult.success({ turnCount: 0, undoneTurns: 1 });
     });
@@ -120,9 +109,9 @@ describe("review-fix undo rewind lock", () => {
     await accepted.promise;
     await Promise.resolve();
     expect(useComposerDraftStore.getState().rewindingThreadKeys.has(threadKey)).toBe(true);
-    appAtomRegistry.set(atom, makeThread({ messages: [] }));
+    updateThread(atom, makeThread({ messages: [] }));
     expect(useComposerDraftStore.getState().rewindingThreadKeys.has(threadKey)).toBe(true);
-    appAtomRegistry.set(atom, makeThread({ messages: [], checkpoints: [] }));
+    updateThread(atom, rolledBack());
     await expect(result).resolves.toBe(true);
     expect([...useComposerDraftStore.getState().rewindingThreadKeys]).toEqual([otherThreadKey]);
   });
@@ -130,29 +119,15 @@ describe("review-fix undo rewind lock", () => {
   it("releases the lock and reports a rollback failure after acceptance", async () => {
     const atom = observeThread();
     const accepted = deferred<void>();
-    const result = undoReviewFixes(threadRef, async () => {
+    const result = undoReviewFixes(threadRef, async (id) => {
+      requestId = id;
       accepted.resolve();
       return AsyncResult.success({ turnCount: 0, undoneTurns: 1 });
     });
     const rejection = expect(result).rejects.toThrow("Provider history unavailable");
     await accepted.promise;
-    appAtomRegistry.set(
-      atom,
-      makeThread({
-        activities: [
-          fixStarted,
-          {
-            id: EventId.make("undo-failed"),
-            kind: "checkpoint.revert.failed",
-            tone: "error",
-            summary: "Checkpoint revert failed",
-            payload: { detail: "Provider history unavailable", turnCount: 0 },
-            turnId: null,
-            createdAt: now,
-          },
-        ],
-      }),
-    );
+    const projection = makeThread();
+    updateThread(atom, {...projection,thread:{...projection.thread,rollbackFailure:{requestId,message:"Provider history unavailable"}}});
     await rejection;
     expect([...useComposerDraftStore.getState().rewindingThreadKeys]).toEqual([otherThreadKey]);
   });
@@ -171,7 +146,7 @@ describe("review-fix undo rewind lock", () => {
     const response = deferred<typeof success>();
     const dispatched = deferred<void>();
     const result = undoReviewFixes(threadRef, () => {
-      appAtomRegistry.set(atom, makeThread({ messages: [], checkpoints: [] }));
+      updateThread(atom, rolledBack());
       dispatched.resolve();
       return response.promise;
     });

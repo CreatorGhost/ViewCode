@@ -1,13 +1,8 @@
+import type { OrchestrationThread } from "@t3tools/client-runtime/viewcodeThread";
+
 import { filterComposerPullRequestMatches } from "@t3tools/shared/composerPullRequestMatches";
 import type { VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
-import type {
-  EnvironmentId,
-  ProjectId,
-  OrchestrationThread,
-  ThreadId,
-  VcsListRefsResult,
-  VcsRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ThreadId, VcsListRefsResult, VcsRef } from "@t3tools/contracts";
 import {
   createThreadSearchResultsAtomFamily,
   makeThreadSearchKey,
@@ -16,7 +11,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { appAtomRegistry } from "./atom-registry";

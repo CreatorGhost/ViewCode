@@ -4,7 +4,7 @@ import { ChevronRightIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import { formatUsedPercent } from "../chat/composerUsageLimits.logic";
-import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
+import { PROVIDER_ICON_BY_PROVIDER } from "../chat/viewcodeProviderIcons";
 import { useUsageRefreshOnOpen } from "../chat/useUsageRefreshOnOpen";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";

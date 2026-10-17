@@ -1,12 +1,5 @@
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import {
-  CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
-  MessageId,
-  ProviderInstanceId,
-  ThreadId,
-} from "@t3tools/contracts";
+import { CommandId, DEFAULT_PROVIDER_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, MessageId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 

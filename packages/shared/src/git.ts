@@ -1,4 +1,5 @@
 import type {
+  BranchNamingOptions,
   VcsRef,
   SourceControlProviderInfo,
   VcsStatusLocalResult,
@@ -16,7 +17,7 @@ export const WORKTREE_BRANCH_PREFIX = "vc";
  * Branches already created with them still count as ours: temporary ones are renamed on the
  * first turn, and generated names are re-emitted under the current prefix.
  */
-const LEGACY_WORKTREE_BRANCH_PREFIXES = ["t3code"];
+const LEGACY_WORKTREE_BRANCH_PREFIXES = ["t3code", "t3"];
 /** Local branch a cross-repository pull request is checked out to: `<prefix><number>/<head>`. */
 export const PULL_REQUEST_WORKTREE_BRANCH_PREFIX = `${WORKTREE_BRANCH_PREFIX}/pr-`;
 
@@ -26,7 +27,7 @@ const KNOWN_WORKTREE_BRANCH_PREFIXES = [WORKTREE_BRANCH_PREFIX, ...LEGACY_WORKTR
 // that shape — version nibble `4`, variant nibble `[89ab]` — to keep those threads
 // eligible for branch regeneration without loosening beyond what was ever generated.
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(
-  `^(?:${KNOWN_WORKTREE_BRANCH_PREFIXES.join("|")})\\/(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$`,
+  `^(?:${KNOWN_WORKTREE_BRANCH_PREFIXES.join("|")})[-/](?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$`,
 );
 
 /** The branch name with a current or legacy worktree prefix removed, or unchanged. */
@@ -59,24 +60,30 @@ export function sanitizeBranchFragment(raw: string): string {
   return branchFragment.length > 0 ? branchFragment : "update";
 }
 
-/**
- * Sanitize a string into a `feature/…` refName name.
- * Preserves an existing `feature/` prefix or slash-separated namespace.
- */
+export function formatGeneratedBranchName(raw: string, naming?: BranchNamingOptions): string {
+  if (naming?.mode === "custom") return raw.trim();
+  const branch = sanitizeBranchFragment(raw);
+  if (naming?.mode !== "static") return branch;
+  const prefix = naming.prefix
+    .split("/")
+    .map((part) =>
+      part
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-+|-+$/g, ""),
+    )
+    .filter(Boolean)
+    .join("/");
+  return prefix ? `${prefix}/${branch}` : branch;
+}
+
 export function sanitizeFeatureBranchName(raw: string): string {
   const sanitized = sanitizeBranchFragment(raw);
-  if (sanitized.includes("/")) {
-    return sanitized.startsWith("feature/") ? sanitized : `feature/${sanitized}`;
-  }
-  return `feature/${sanitized}`;
+  return sanitized.includes("/") ? sanitized : `feature/${sanitized}`;
 }
 
 const AUTO_FEATURE_BRANCH_FALLBACK = "feature/update";
 
-/**
- * Resolve a unique `feature/…` refName name that doesn't collide with
- * any existing refName. Appends a numeric suffix when needed.
- */
 export function resolveAutoFeatureBranchName(
   existingBranchNames: readonly string[],
   preferredBranch?: string,
@@ -85,23 +92,29 @@ export function resolveAutoFeatureBranchName(
   const resolvedBase = sanitizeFeatureBranchName(
     preferred && preferred.length > 0 ? preferred : AUTO_FEATURE_BRANCH_FALLBACK,
   );
-  const existingNames = new Set(existingBranchNames.map((refName) => refName.toLowerCase()));
+  const existingNames = existingBranchNames.map((refName) => refName.toLowerCase());
+  const existingRefs = new Set(existingNames);
+  const parts = resolvedBase.split("/");
+  let resolved = "";
 
-  if (!existingNames.has(resolvedBase)) {
-    return resolvedBase;
+  for (const [index, part] of parts.entries()) {
+    const base = resolved ? `${resolved}/${part}` : part;
+    let candidate = base;
+    let suffix = 2;
+    while (
+      existingRefs.has(candidate) ||
+      (index === parts.length - 1 &&
+        existingNames.some((refName) => refName.startsWith(`${candidate}/`)))
+    ) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    resolved = candidate;
   }
 
-  let suffix = 2;
-  while (existingNames.has(`${resolvedBase}-${suffix}`)) {
-    suffix += 1;
-  }
-
-  return `${resolvedBase}-${suffix}`;
+  return resolved;
 }
 
-/**
- * Strip the remote prefix from a remote ref such as `origin/feature/demo`.
- */
 export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
   const firstSeparatorIndex = branchName.indexOf("/");
   if (firstSeparatorIndex <= 0 || firstSeparatorIndex === branchName.length - 1) {
@@ -113,8 +126,6 @@ export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
 export function buildTemporaryWorktreeBranchName(
   randomHex: (byteLength: number) => string,
 ): string {
-  // Normalize to exactly 8 lowercase hex chars so a UUID-shaped callback
-  // still produces the canonical temporary branch form.
   const token = randomHex(4)
     .toLowerCase()
     .replace(/[^0-9a-f]/g, "")
@@ -122,18 +133,26 @@ export function buildTemporaryWorktreeBranchName(
   return `${WORKTREE_BRANCH_PREFIX}/${token}`;
 }
 
+/**
+ * Git stores refs as paths, so a plain `t3` branch makes every `t3/<hex>`
+ * ref impossible. This moves a temporary name to the flat `t3-<hex>` sibling.
+ */
+export function flattenTemporaryWorktreeBranchName(refName: string): string {
+  const normalized = refName.trim().toLowerCase();
+  const tokenStart = normalized.search(/[-/]/) + 1;
+  const token = normalized.slice(tokenStart, tokenStart + 8);
+  return `${WORKTREE_BRANCH_PREFIX}-${token}`;
+}
+
 export function isTemporaryWorktreeBranch(refName: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(refName.trim().toLowerCase());
 }
 
 /**
- * The web spelling of an Azure DevOps repository reached over SSH, or null for anything else.
- *
  * Azure alone addresses one repository under two names that share no part: `ssh.dev.azure.com` and
  * `v3/{org}/{project}/{repo}` over SSH, against `dev.azure.com` and `{org}/{project}/_git/{repo}`
  * everywhere a person sees it. A project cloned over SSH would otherwise be a different repository
- * to every comparison made against a pull request URL, which arrives in the web spelling. So the
- * web spelling is the one both are keyed by.
+ * to every comparison made against a pull request URL, which arrives in the web spelling.
  */
 function azureDevOpsRepositoryKey(host: string, segments: ReadonlyArray<string>): string | null {
   if (host !== "ssh.dev.azure.com" && host !== "vs-ssh.visualstudio.com") return null;
@@ -204,10 +223,6 @@ export function normalizeGitRemoteUrl(value: string): string {
   return normalized;
 }
 
-/**
- * Unquote a git config value: strip an inline `#` or `;` comment outside
- * quotes, then drop surrounding quotes and backslash escapes.
- */
 function parseGitConfigValue(raw: string): string {
   let out = "";
   let quoted = false;
@@ -228,11 +243,6 @@ function parseGitConfigValue(raw: string): string {
   return out.trim();
 }
 
-/**
- * Read the primary remote URL from raw `.git/config` text without spawning
- * git. Prefers `remote.origin.url` and falls back to the first remote so
- * clones made with `git clone --origin <name>` still resolve.
- */
 export function parseOriginUrlFromGitConfig(configText: string): string | null {
   let section: string | null = null;
   let originUrl: string | null = null;
@@ -268,9 +278,6 @@ export function parseOriginUrlFromGitConfig(configText: string): string | null {
   return originUrl ?? firstRemoteUrl;
 }
 
-/**
- * Best-effort parse of a GitHub `owner/repo` identifier from common remote URL shapes.
- */
 export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {
   const trimmed = url?.trim() ?? "";
   if (trimmed.length === 0) {
@@ -305,22 +312,13 @@ function deriveLocalBranchNameCandidatesFromRemoteRef(
   return [...candidates];
 }
 
-// Git rejects ASCII space and the ASCII control characters (tab, newline and
-// friends) in ref names, so the picker's "Create new ref" entry can only fail
-// for a typed name like "new branch". Replacing runs of those with a dash makes
-// the name usable without reimplementing check-ref-format: names invalid for
-// other reasons still surface the git error. Only the whitespace git actually
-// rejects is replaced — git accepts U+00A0 and friends, and rewriting those
-// would silently create a ref the user never asked for. Case and existing
-// dashes are left alone, since ref names are case sensitive and consecutive
-// dashes are valid.
+// Only the whitespace git actually rejects is replaced — git accepts U+00A0 and
+// friends, and rewriting those would silently create a ref the user never asked
+// for.
 export function sanitizeNewRefName(rawName: string): string {
   return rawName.trim().replace(/[ \t\n\r\f\v]+/g, "-");
 }
 
-/**
- * Hide `origin/*` remote refs when a matching local refName already exists.
- */
 export function dedupeRemoteBranchesWithLocalMatches(
   refs: ReadonlyArray<VcsRef>,
 ): ReadonlyArray<VcsRef> {
@@ -394,6 +392,7 @@ function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
     refName: status.refName,
     hasWorkingTreeChanges: status.hasWorkingTreeChanges,
     workingTree: status.workingTree,
+    ...(status.branchChanges ? { branchChanges: status.branchChanges } : {}),
   };
 }
 

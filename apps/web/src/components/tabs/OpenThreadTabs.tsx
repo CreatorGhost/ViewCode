@@ -3,7 +3,7 @@ import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections
 import { useAtomValue } from "@effect/atom-react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { ChevronDownIcon, XIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 
@@ -13,13 +13,13 @@ import { isEditableFocused } from "../../lib/editableFocus";
 import { isPreviewFocused } from "../../lib/previewFocus";
 import { isTerminalFocused } from "../../lib/terminalFocus";
 import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../../state/server";
-import { useThreadShells } from "../../state/entities";
+import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
 import { environmentShell } from "../../state/shell";
 import { resolveThreadRouteRef } from "../../threadRoutes";
-import type { ThreadShell } from "../../types";
+import type { ViewCodeSidebarThread as ThreadShell } from "../../state/viewcodeThreadShells";
 import { useThreadTabsStore } from "../../threadTabsStore";
 import { useUiStateStore } from "../../uiStateStore";
-import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
+import { PROVIDER_ICON_BY_PROVIDER } from "../chat/viewcodeProviderIcons";
 import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 import {
   hasUnseenCompletion,

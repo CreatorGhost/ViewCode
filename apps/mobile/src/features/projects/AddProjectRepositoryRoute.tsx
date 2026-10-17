@@ -1,3 +1,4 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import type { StaticScreenProps } from "@react-navigation/native";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { addProjectRemoteSourceLabel } from "@t3tools/client-runtime/operations/projects";
@@ -20,7 +21,7 @@ export function AddProjectRepositoryRoute({
     source === "forgejo" ||
     source === "bitbucket" ||
     source === "azure-devops"
-      ? addProjectRemoteSourceLabel(source)
+      ? addProjectRemoteSourceLabel(SourceControlProviderKind.make(source))
       : "Git URL";
 
   return (

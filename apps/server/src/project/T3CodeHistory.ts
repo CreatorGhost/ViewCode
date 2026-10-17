@@ -27,6 +27,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as T3CodeHistoryV2 from "./T3CodeHistoryV2.ts";
 import * as ServerConfig from "../config.ts";
 
 export const T3_CODE_UNSUPPORTED_WARNING =
@@ -205,7 +206,7 @@ const nullableText = (value: unknown) =>
 
 /** Active T3 projects with their importable thread counts. */
 export function readT3CodeProjects(databasePath: string): T3CodeRead<ReadonlyArray<T3CodeProject>> {
-  return withSnapshot(
+  return T3CodeHistoryV2.projects(databasePath) ?? withSnapshot(
     databasePath,
     (db) => {
       db.exec(`
@@ -270,7 +271,7 @@ export function readT3CodeThreads(
   databasePath: string,
   projectIds: ReadonlyArray<string>,
 ): T3CodeRead<ReadonlyArray<T3CodeThread>> {
-  return withSnapshot(
+  return T3CodeHistoryV2.threads(databasePath, projectIds) ?? withSnapshot(
     databasePath,
     (db, schema) => {
       db.prepare(
@@ -427,7 +428,9 @@ export const layer = Layer.unwrap(
     const own = NodePath.resolve(dbPath);
     return layerFromDatabasePaths(
       [
+        NodePath.join(home, ".t3", "userdata", "statev2.sqlite"),
         NodePath.join(home, ".t3", "userdata", "state.sqlite"),
+        NodePath.join(home, ".t3", "dev", "statev2.sqlite"),
         NodePath.join(home, ".t3", "dev", "state.sqlite"),
       ].filter((candidate) => NodePath.resolve(candidate) !== own),
     );

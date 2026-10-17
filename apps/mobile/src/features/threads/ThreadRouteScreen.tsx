@@ -1,3 +1,7 @@
+import { requestOlderThreadTurns } from "../../state/threads";
+import { threadHasOlderTurns, undeliveredUserMessages } from "@t3tools/client-runtime/viewcodeThreadAtoms";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
@@ -6,7 +10,7 @@ import {
   clearComposerDraftContent,
 } from "../../state/use-composer-drafts";
 import { useWorktreeSetup } from "./use-worktree-setup";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { ScreenHeaderButton } from "../../components/ScreenHeaderButton";
@@ -20,19 +24,8 @@ import {
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
-import {
-  CommandId,
-  MessageId,
-  DEFAULT_SERVER_SETTINGS,
-  EnvironmentId,
-  ThreadId,
-  type ProjectScript,
-} from "@t3tools/contracts";
-import {
-  requestOlderThreadTurns,
-  threadHasOlderTurns,
-  undeliveredUserMessages,
-} from "@t3tools/client-runtime/state/threads";
+import { CommandId, MessageId, DEFAULT_SERVER_SETTINGS, EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
+
 import {
   projectScriptCwd,
   projectScriptRuntimeEnv,

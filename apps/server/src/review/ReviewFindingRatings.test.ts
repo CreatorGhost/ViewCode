@@ -1,24 +1,15 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import {
-  EventId,
-  ProjectId,
-  ThreadId,
-  type OrchestrationCommand,
-  type OrchestrationThread,
-  type OrchestrationThreadActivity,
-} from "@t3tools/contracts";
+import { EventId, ProjectId, ThreadId, type OrchestrationThreadActivity } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
+import { ReviewActivityStoreV2 } from "./ReviewActivityStoreV2.ts";
 import * as ReviewFindingRatings from "./ReviewFindingRatings.ts";
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
@@ -53,27 +44,22 @@ const findingsActivity: OrchestrationThreadActivity = {
 
 const makeHarness = (ratingActivities: ReadonlyArray<OrchestrationThreadActivity> = []) =>
   Effect.gen(function* () {
-    const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+    const commands = yield* Ref.make<
+      ReadonlyArray<Parameters<ReviewActivityStoreV2["Service"]["append"]>[0]>
+    >([]);
     const dependencies = Layer.mergeAll(
-      Layer.mock(ProjectionSnapshotQuery)({
-        getThreadDetailById: (threadId) =>
+      Layer.mock(ProjectionStoreV2)({
+        getThreadShell: (threadId) =>
           Effect.succeed(
             threadId === REVIEW_THREAD_ID
-              ? Option.some({
-                  id: REVIEW_THREAD_ID,
-                  projectId: PROJECT_ID,
-                  activities: [findingsActivity],
-                } as unknown as OrchestrationThread)
-              : Option.none(),
+              ? ({ id: REVIEW_THREAD_ID, projectId: PROJECT_ID } as never)
+              : null,
           ),
-        listActivitiesByKind: () => Effect.succeed(ratingActivities),
       }),
-      Layer.mock(OrchestrationEngineService)({
-        readEvents: () => Stream.empty,
-        streamDomainEvents: Stream.empty,
-        latestSequence: Effect.succeed(0),
-        dispatch: (command) =>
-          Ref.update(commands, (all) => [...all, command]).pipe(Effect.as({ sequence: 1 })),
+      Layer.mock(ReviewActivityStoreV2)({
+        list: () => Effect.succeed([findingsActivity]),
+        listByKind: () => Effect.succeed(ratingActivities),
+        append: (command) => Ref.update(commands, (all) => [...all, command]),
       }),
     ).pipe(
       Layer.provideMerge(
@@ -101,7 +87,6 @@ describe("ReviewFindingRatings", () => {
       });
       expect(yield* Ref.get(harness.commands)).toMatchObject([
         {
-          type: "thread.activity.append",
           threadId: REVIEW_THREAD_ID,
           activity: {
             kind: "viewcode.review.rating",

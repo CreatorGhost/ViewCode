@@ -1,9 +1,7 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type {
-  ExecutionEnvironmentCapabilities,
-  ThreadPullRequestLink,
-  VcsStatusResult,
-} from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+
+import type { ExecutionEnvironmentCapabilities, ThreadPullRequestLink, VcsStatusResult } from "@t3tools/contracts";
 import { resolveChangeRequestPresentation } from "@t3tools/shared/sourceControl";
 
 import {

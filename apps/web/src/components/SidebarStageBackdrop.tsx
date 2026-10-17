@@ -1,3 +1,4 @@
+import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentIdentificationMode } from "@t3tools/contracts/settings";
 import { useId } from "react";
@@ -9,8 +10,6 @@ import { primaryServerConfigAtom } from "../state/server";
 export type SidebarStageBackdropVariant = "nightly" | "dev";
 export type EnvironmentIdentificationPillLabel = "Dev" | "Nightly";
 
-// A wide viewBox keeps the 96-unit art height at a fixed scale while sidebar resizing reveals
-// more horizontal canvas instead of zooming the scene.
 const STAGE_BACKDROP_VIEW_BOX = "0 0 8192 96";
 
 export function resolveSidebarStageBackdropVariant(
@@ -19,7 +18,7 @@ export function resolveSidebarStageBackdropVariant(
 ): SidebarStageBackdropVariant | null {
   if (!enabled) return null;
   const normalized = stageLabel.trim().toLowerCase();
-  if (normalized === "nightly") return "nightly";
+  if (normalized === "nightly") return viewcodeProductPolicy.upstreamPromotions ? "nightly" : null;
   if (normalized === "dev") return "dev";
   return null;
 }
@@ -29,7 +28,7 @@ export function resolveEnvironmentIdentificationPillLabel(
 ): EnvironmentIdentificationPillLabel | null {
   const normalized = stageLabel.trim().toLowerCase();
   if (normalized === "dev") return "Dev";
-  if (normalized === "nightly") return "Nightly";
+  if (normalized === "nightly") return viewcodeProductPolicy.upstreamPromotions ? "Nightly" : null;
   return null;
 }
 
@@ -62,7 +61,6 @@ export function useSidebarStageBackdropVariant(enabled = true): SidebarStageBack
   return resolveSidebarStageBackdropVariant(useEnvironmentStageLabel(), enabled && artworkAllowed);
 }
 
-/** Stage-channel header art; palettes mirror the per-channel app icons in `assets/`. */
 export function SidebarStageBackdrop({ variant }: { variant: SidebarStageBackdropVariant }) {
   return (
     <div

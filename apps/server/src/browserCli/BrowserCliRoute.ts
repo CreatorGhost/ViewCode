@@ -8,14 +8,18 @@
  * comes from that credential. Refusals answer 200 with `ok: false` so the CLI
  * can print them; only a bad credential is 401.
  */
-import type { PreviewAutomationError } from "@t3tools/contracts";
+import * as Crypto from "effect/Crypto";
+import * as Option from "effect/Option";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as McpToolAccess from "../mcp/McpToolAccess.ts";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Record from "effect/Record";
 import * as Stream from "effect/Stream";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -29,7 +33,7 @@ import {
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
-import { previewHandlers } from "../mcp/toolkits/preview/handlers.ts";
+import { layerStandard, layerSnapshot } from "../mcp/toolkits/preview/handlers.ts";
 import { PreviewToolkit } from "../mcp/toolkits/preview/tools.ts";
 import {
   BROWSER_CLI_ROUTE_PATH,
@@ -43,6 +47,8 @@ import {
 const MAX_BODY_BYTES = 256 * 1024;
 
 const decodeJson = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
+
+const decodeToolInputs = Record.map(PreviewToolkit.tools, (tool) => Schema.decodeUnknownEffect(tool.parametersSchema));
 
 const noStore = { "cache-control": "no-store" };
 
@@ -150,9 +156,7 @@ export const runBrowserTool = (
   input: unknown,
 ) =>
   Effect.gen(function* () {
-    const decoded = yield* Schema.decodeUnknownEffect(PreviewToolkit.tools[tool].parametersSchema)(
-      input ?? {},
-    ).pipe(
+    const decoded = yield* decodeToolInputs[tool](input ?? {}).pipe(
       Effect.mapError(
         (issue) =>
           new BrowserCliInvalidInput({
@@ -160,18 +164,21 @@ export const runBrowserTool = (
           }),
       ),
     );
-    // Each handler takes its own tool's input; the decode above produced exactly that.
-    const handler = previewHandlers[tool] as (
-      input: unknown,
-    ) => Effect.Effect<
-      unknown,
-      PreviewAutomationError,
-      | McpInvocationContext.McpInvocationContext
-      | PreviewAutomationBroker.PreviewAutomationBroker
-      | ServerConfig.ServerConfig
-      | FileSystem.FileSystem
-    >;
-    const result = yield* handler(decoded);
+    const toolkit = yield* PreviewToolkit.pipe(
+      Effect.provide(
+        Layer.merge(
+          McpToolAccess.HandlersLayer.layer(layerStandard),
+          McpToolAccess.HandlersLayer.layer(layerSnapshot),
+        ),
+      ),
+    );
+    const stream = yield* toolkit.handle(tool, decoded);
+    const final = yield* Stream.runLast(stream);
+    if (Option.isNone(final))
+      return yield* new BrowserCliInvalidInput({
+        message: "The browser action returned no result.",
+      });
+    const result = final.value.result;
     if (tool !== "preview_snapshot") return result;
     const includeImage = (decoded as { readonly includeImage?: boolean }).includeImage !== false;
     return yield* snapshotResult(result as Snapshot, includeImage);
@@ -182,6 +189,8 @@ export const browserCliRouteLayer = Layer.unwrap(
     const registry = yield* McpSessionRegistry.McpSessionRegistry;
     const services = yield* Effect.context<
       | PreviewAutomationBroker.PreviewAutomationBroker
+      | Crypto.Crypto
+      | ThreadManagement.ThreadManagementService
       | ServerConfig.ServerConfig
       | FileSystem.FileSystem
       | Path.Path

@@ -1,16 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Effect has no incremental digest.
-import {
-  ProviderDriverKind,
-  ProviderInstanceId,
-  resolveProviderInstanceEnabled,
-  type ProviderInstallState,
-  type ServerSettings,
-} from "@t3tools/contracts";
-import {
-  HostProcessArchitecture,
-  HostProcessEnvironment,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import { ProviderDriverKind, type ProviderInstallState } from "@t3tools/contracts";
+import { cliArchiveTarCommand } from "@t3tools/shared/cliRelease";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Clock from "effect/Clock";
 import * as Cause from "effect/Cause";
@@ -23,20 +14,22 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as NodeCrypto from "node:crypto";
-import { ServerConfig } from "../config.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
-import { BUNDLED_MODEL_MANIFEST, ModelManifest } from "./ModelManifest.ts";
+import * as ServerConfig from "../config.ts";
+import * as ModelManifest from "./ModelManifest.ts";
 import { resolveProviderCompatibility } from "./providerCompatibility.ts";
+import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
 
 const DRIVER = ProviderDriverKind.make("codex");
+const STAGING_STALE_AFTER_MS = 24 * 60 * 60_000;
 const Version = Schema.String.check(Schema.isPattern(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/u));
 const ActiveRelease = Schema.Struct({ version: Version });
 const InstalledRelease = Schema.Struct({
@@ -60,7 +53,6 @@ export interface CodexReleaseAsset {
   readonly sha256: string;
   readonly archiveBytes: number;
 }
-// Official complete packages retain the code-mode, search, and resource companions.
 const RELEASES: Readonly<Record<string, CodexReleaseAsset>> = {
   "darwin-arm64": {
     version: "0.156.1",
@@ -151,46 +143,13 @@ export class CodexInstallation extends Context.Service<
   static readonly layer = Layer.effect(
     CodexInstallation,
     Effect.gen(function* () {
-      const config = yield* ServerConfig;
-      const serverSettings = yield* ServerSettingsService;
-      return yield* makeCodexInstallation({
-        baseDir: config.baseDir,
-        codexEnabled: serverSettings.getSettings.pipe(
-          Effect.map(isCodexEnabled),
-          Effect.orElseSucceed(() => false),
-        ),
-        codexEnabledChanges: serverSettings.streamChanges.pipe(Stream.map(isCodexEnabled)),
-      });
+      const config = yield* ServerConfig.ServerConfig;
+      return yield* makeCodexInstallation({ baseDir: config.baseDir });
     }),
-  );
-}
-
-/**
- * Whether any Codex instance is enabled: the default one by its instance entry, else the legacy
- * `providers.codex` switch, or any custom Codex instance. A disabled Codex never has its binary
- * run, not even to read its version (managed laptops ban it, and endpoint security flags a run).
- */
-export function isCodexEnabled(settings: ServerSettings): boolean {
-  const defaultInstance = settings.providerInstances[ProviderInstanceId.make(DRIVER)];
-  if (
-    defaultInstance === undefined
-      ? settings.providers.codex.enabled
-      : resolveProviderInstanceEnabled(defaultInstance)
-  )
-    return true;
-  return Object.values(settings.providerInstances).some(
-    (instance) => instance.driver === DRIVER && resolveProviderInstanceEnabled(instance),
   );
 }
 export interface CodexInstallationOptions {
   readonly baseDir: string;
-  /**
-   * Whether Codex is enabled now. The local `codex` is only probed (`--version`, `app-server
-   * --help`) while it is; absent, it is probed as before. Its changes re-run the probe when
-   * Codex is turned on.
-   */
-  readonly codexEnabled?: Effect.Effect<boolean>;
-  readonly codexEnabledChanges?: Stream.Stream<boolean>;
   readonly releaseAsset?: CodexReleaseAsset | null;
   readonly validate?: (
     executable: CodexExecutable,
@@ -202,16 +161,16 @@ const isRunning = (state: ProviderInstallState) =>
 export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function* (
   options: CodexInstallationOptions,
 ) {
-  const manifestService = yield* ModelManifest;
+  const manifestService = yield* ModelManifest.ModelManifest;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
   const http = yield* HttpClient.HttpClient;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const serviceScope = yield* Effect.scope;
-  const platform = yield* HostProcessPlatform;
-  const environment = yield* HostProcessEnvironment;
-  const arch = yield* HostProcessArchitecture;
+  const platform = yield* HostProcess.Platform;
+  const environment = yield* HostProcess.Environment;
+  const arch = yield* HostProcess.Architecture;
   const asset =
     options.releaseAsset === undefined
       ? resolveCodexReleaseAsset(platform, arch)
@@ -306,7 +265,11 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
     const manifest = yield* manifestService.current;
     return (
       resolveProviderCompatibility(manifest.compatibility, DRIVER, version) ??
-      resolveProviderCompatibility(BUNDLED_MODEL_MANIFEST.compatibility, DRIVER, version)
+      resolveProviderCompatibility(
+        ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
+        DRIVER,
+        version,
+      )
     );
   });
   const resolveManaged = Effect.fn("CodexInstallation.resolveManaged")(
@@ -347,7 +310,7 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
     args: ReadonlyArray<string>,
   ) {
     const resolved = yield* resolveSpawnCommand(command, args).pipe(
-      Effect.provideService(HostProcessPlatform, platform),
+      Effect.provideService(HostProcess.Platform, platform),
     );
     const child = yield* spawner.spawn(
       ChildProcess.make(resolved.command, resolved.args, { shell: resolved.shell }),
@@ -371,13 +334,13 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
   const resolveLocal = Effect.fn("CodexInstallation.resolveLocal")(
     function* () {
       const executablePath = yield* resolveCommandPath("codex", { env: environment }).pipe(
-        Effect.provideService(HostProcessPlatform, platform),
+        Effect.provideService(HostProcess.Platform, platform),
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, path),
       );
+      if (executablePath === null) return null;
       // Keep launcher symlinks intact: version-manager shims dispatch by their invoked name.
       const realExecutablePath = yield* fs.realPath(executablePath);
-      // A PATH entry pointing into T3's download remains a managed installation.
       const realManaged = yield* fs.realPath(managedDirectory).pipe(Effect.option);
       if (
         realExecutablePath.startsWith(
@@ -408,13 +371,15 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
             );
       localCache.set(executablePath, { fingerprint, executable });
       if (!executable) return null;
-      // Cache executable probes, but reclassify against the current manifest on every resolve.
       const advisory = yield* compatibility(executable.version);
       return advisory?.status === "supported" ? executable : null;
     },
     Effect.orElseSucceed(() => null),
   );
   const resolve = Effect.fn("CodexInstallation.resolve")(function* () {
+    if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(DRIVER)) {
+      return yield* installationError("resolve", "Blocked by your organization.");
+    }
     const local = yield* resolveLocal();
     return local ?? (yield* resolveManaged());
   });
@@ -551,8 +516,10 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
             message: "Extracting Codex.",
           }) satisfies ProviderInstallState,
       );
-      const entries = (yield* runCommand("tar", ["-tzf", archivePath])).trim().split("\n");
-      const types = (yield* runCommand("tar", ["-tvzf", archivePath])).trim().split("\n");
+      // Bare `tar` on Windows can resolve to Git's MSYS tar, which reads `C:\...` as a remote host.
+      const tarCommand = cliArchiveTarCommand(platform, environment);
+      const entries = (yield* runCommand(tarCommand, ["-tzf", archivePath])).trim().split(/\r?\n/u);
+      const types = (yield* runCommand(tarCommand, ["-tvzf", archivePath])).trim().split(/\r?\n/u);
       if (
         entries.length > 10000 ||
         entries.length !== types.length ||
@@ -568,7 +535,7 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
         })
       )
         return yield* installationError("extract", "The Codex archive contains unsafe entries.");
-      yield* runCommand("tar", ["-xzf", archivePath, "-C", runtime]);
+      yield* runCommand(tarCommand, ["-xzf", archivePath, "-C", runtime]);
       yield* SubscriptionRef.update(
         state,
         (current) =>
@@ -592,7 +559,12 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
         }),
         { flag: "wx", mode: 0o600 },
       );
-      yield* fs.rename(runtime, destination);
+      // On Windows, Defender and kernel process rundown can briefly hold the
+      // verified codex.exe handle open right after `--version` exits.
+      const renameRuntime = fs.rename(runtime, destination);
+      yield* platform === "win32"
+        ? renameRuntime.pipe(Effect.retry({ times: 10, schedule: Schedule.spaced("100 millis") }))
+        : renameRuntime;
       yield* activate();
     },
     Effect.scoped,
@@ -606,6 +578,9 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
   const start = gate
     .withPermit(
       Effect.gen(function* () {
+        if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(DRIVER)) {
+          return yield* installationError("start", "Blocked by your organization.");
+        }
         const current = yield* SubscriptionRef.get(state);
         if (isRunning(current)) return current;
         if (yield* reuseLocal()) return yield* SubscriptionRef.get(state);
@@ -615,7 +590,7 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
             `OpenAI does not publish a Codex runtime for ${platform}-${arch}. Use a supported remote environment or a custom executable.`,
           );
         }
-        const operationId = yield* crypto.randomUUIDv4;
+        const operationId = yield* crypto.randomUUIDv4();
         const next: ProviderInstallState = {
           driver: DRIVER,
           operationId,
@@ -718,7 +693,7 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
                 message: null,
               }) satisfies ProviderInstallState,
           );
-          yield* reuseLocal();
+          if (!(yield* AdminProviderPolicyRef).blockedDrivers.includes(DRIVER)) yield* reuseLocal();
         }).pipe(Effect.uninterruptible),
       );
     },
@@ -730,11 +705,36 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
     ),
   );
 
-  const codexEnabled = options.codexEnabled ?? Effect.succeed(true);
   yield* Effect.gen(function* () {
-    const canRemove = yield* fs.exists(managedDirectory);
+    // Two servers can share a home, and writes below a staging directory do not
+    // refresh its mtime, so only directories far older than any real install
+    // (download is capped at 45 minutes) are treated as abandoned.
+    let canRemove = false;
+    if (yield* fs.exists(managedDirectory)) {
+      const entries = yield* fs
+        .readDirectory(managedDirectory)
+        .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+      const now = yield* Clock.currentTimeMillis;
+      for (const entry of entries) {
+        if (!entry.startsWith(".install-") && !entry.startsWith(".active-")) continue;
+        const target = path.join(managedDirectory, entry);
+        const info = yield* fs.stat(target).pipe(Effect.option);
+        if (Option.isNone(info)) continue;
+        const modifiedAt = Option.match(info.value.mtime, {
+          onNone: () => now,
+          onSome: (date) => date.getTime(),
+        });
+        if (now - modifiedAt < STAGING_STALE_AFTER_MS) continue;
+        yield* fs.remove(target, { recursive: true, force: true }).pipe(Effect.ignore);
+      }
+      // The empty root itself stays: deleting it could race another server
+      // creating a staging directory inside. An unreadable root stays removable.
+      const remaining = yield* fs.readDirectory(managedDirectory).pipe(Effect.option);
+      canRemove = Option.isNone(remaining) || remaining.value.length > 0;
+    }
     yield* SubscriptionRef.update(state, (current) => ({ ...current, canRemove }));
-    if ((yield* codexEnabled) && (yield* reuseLocal())) return;
+    // Provider setup is constructed before first-run choices. Native local discovery
+    // belongs to an enabled provider probe or the user's explicit install action.
     if (!(yield* fs.exists(activePath))) return;
     const active = yield* readRecord(activePath, ActiveRelease);
     const installed = yield* completedRelease(active.version);
@@ -761,25 +761,6 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
       ),
     ),
   );
-
-  // Turning Codex on later finds a local `codex` without a restart; the boot check skipped it.
-  if (options.codexEnabledChanges !== undefined) {
-    yield* options.codexEnabledChanges.pipe(
-      Stream.changes,
-      Stream.filter((enabled) => enabled),
-      Stream.runForEach(() =>
-        gate.withPermit(
-          Effect.gen(function* () {
-            const current = yield* SubscriptionRef.get(state);
-            if (isRunning(current) || current.executablePath !== null) return;
-            yield* reuseLocal();
-          }),
-        ),
-      ),
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(serviceScope),
-    );
-  }
 
   return CodexInstallation.of({
     managedDirectory,

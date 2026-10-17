@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { ClaudeSettings, ProviderInstanceId } from "@t3tools/contracts";
-import { HostProcessPlatform, isHostWindows } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -19,12 +19,12 @@ import {
   SYNTHETIC_CLAUDE_THINKING_MODEL,
 } from "../provider/ClaudeModelCatalog.testFixtures.ts";
 import * as TextGeneration from "./TextGeneration.ts";
-import { sanitizeThreadTitle } from "./TextGenerationUtils.ts";
+import { sanitizeThreadTitle } from "@t3tools/provider-core/server/textGenerationUtils";
 import { makeClaudeTextGeneration } from "./ClaudeTextGeneration.ts";
-import { writeFakeCli } from "../testUtils/fakeCli.ts";
+import { writeFakeCli } from "@t3tools/provider-testing/fakeCli";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
-const ClaudeTextGenerationTestLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
+const layerClaudeTextGenerationTest = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3code-claude-text-generation-test-",
 }).pipe(Layer.provideMerge(NodeServices.layer));
 
@@ -35,7 +35,7 @@ function makeFakeClaudeBinary(dir: string) {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
     const fs = yield* FileSystem.FileSystem;
-    const platform = yield* HostProcessPlatform;
+    const platform = yield* HostProcess.Platform;
     const binDir = path.join(dir, "bin");
     const fixturePath = yield* path.fromFileUrl(
       new URL("./testing/ClaudeTextGeneration.fixture.mjs", import.meta.url),
@@ -69,7 +69,7 @@ function withFakeClaudeEnv<A, E, R>(
     const fs = yield* FileSystem.FileSystem;
     const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-claude-text-" });
     const binDir = yield* makeFakeClaudeBinary(tempDir);
-    const pathDelimiter = (yield* isHostWindows) ? ";" : ":";
+    const pathDelimiter = (yield* HostProcess.isWindows) ? ";" : ":";
     const previousPath = process.env.PATH;
     const previousOutput = process.env.T3_FAKE_CLAUDE_OUTPUT;
     const previousExitCode = process.env.T3_FAKE_CLAUDE_EXIT_CODE;
@@ -191,7 +191,7 @@ function withFakeClaudeEnv<A, E, R>(
   }).pipe(Effect.scoped);
 }
 
-it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
+it.layer(layerClaudeTextGenerationTest)("ClaudeTextGeneration", (it) => {
   it.effect("forwards Claude thinking settings without passing unsupported effort", () =>
     withFakeClaudeEnv(
       {
@@ -367,7 +367,6 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
       const claudeConfigDir = path.join(process.cwd(), ".claude-work-test");
       return yield* withFakeClaudeEnv(
         {
-          // @effect-diagnostics-next-line preferSchemaOverJson:off
           output: JSON.stringify({
             structured_output: {
               title: "Use Claude home",
@@ -393,69 +392,69 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
     }),
   );
 
-  for (const verbose of [false, true]) {
-    it.effect(`unwraps a JSON title in ${verbose ? "verbose" : "normal"} Claude output`, () => {
-      const result = {
-        type: "result",
-        structured_output: { title: '{"title": "Refresh ev-stg APP ASG instances"}' },
-      };
-      return withFakeClaudeEnv(
-        { output: JSON.stringify(verbose ? [result] : result) },
-        (textGeneration) =>
-          Effect.gen(function* () {
-            const generated = yield* textGeneration.generateThreadTitle({
-              cwd: process.cwd(),
-              message: "Refresh ev-stg APP ASG instances",
-              modelSelection: {
-                instanceId: ProviderInstanceId.make("claudeAgent"),
-                model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
-              },
-            });
+  it.effect.each([
+    { verbose: false, label: "normal" },
+    { verbose: true, label: "verbose" },
+  ])("unwraps a JSON title in $label Claude output", ({ verbose }) => {
+    const result = {
+      type: "result",
+      structured_output: { title: '{"title": "Refresh ev-stg APP ASG instances"}' },
+    };
+    return withFakeClaudeEnv(
+      { output: JSON.stringify(verbose ? [result] : result) },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Refresh ev-stg APP ASG instances",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            },
+          });
 
-            expect(generated.title).toBe("Refresh ev-stg APP ASG instances");
-          }),
-      );
-    });
-  }
-
-  for (const previousTitle of [undefined, "Old thread title"]) {
-    it.effect(
-      `reads the result from verbose Claude output when ${previousTitle ? "regenerating" : "generating"} a title`,
-      () =>
-        withFakeClaudeEnv(
-          {
-            output: JSON.stringify([
-              { type: "system", subtype: "init" },
-              { type: "assistant", message: { content: [] } },
-              { type: "user", message: { content: [] } },
-              { type: "rate_limit_event" },
-              {
-                type: "result",
-                subtype: "success",
-                result: '{"title":"Refresh ev-stg APP ASG Instances"}',
-                structured_output: { title: "Refresh ev-stg APP ASG Instances" },
-              },
-            ]),
-          },
-          (textGeneration) =>
-            Effect.gen(function* () {
-              const generated = yield* textGeneration.generateThreadTitle({
-                cwd: process.cwd(),
-                message: "Refresh ev-stg APP ASG instances",
-                previousTitle,
-                modelSelection: {
-                  instanceId: ProviderInstanceId.make("claudeAgent"),
-                  model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
-                },
-              });
-
-              expect(generated.title).toBe("Refresh ev-stg APP ASG Instances");
-            }),
-        ),
+          expect(generated.title).toBe("Refresh ev-stg APP ASG instances");
+        }),
     );
-  }
+  });
 
-  for (const [name, output] of [
+  it.effect.each([
+    { previousTitle: undefined, label: "generating" },
+    { previousTitle: "Old thread title", label: "regenerating" },
+  ])("reads the result from verbose Claude output when $label a title", ({ previousTitle }) =>
+    withFakeClaudeEnv(
+      {
+        output: JSON.stringify([
+          { type: "system", subtype: "init" },
+          { type: "assistant", message: { content: [] } },
+          { type: "user", message: { content: [] } },
+          { type: "rate_limit_event" },
+          {
+            type: "result",
+            subtype: "success",
+            result: '{"title":"Refresh ev-stg APP ASG Instances"}',
+            structured_output: { title: "Refresh ev-stg APP ASG Instances" },
+          },
+        ]),
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Refresh ev-stg APP ASG instances",
+            previousTitle,
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            },
+          });
+
+          expect(generated.title).toBe("Refresh ev-stg APP ASG Instances");
+        }),
+    ),
+  );
+
+  it.effect.each([
     ["empty message array", []],
     ["missing result", [{ type: "assistant", structured_output: { title: "Not a result" } }]],
     ["invalid title", [{ type: "result", structured_output: { title: 42 } }]],
@@ -466,26 +465,61 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
         { type: "result", subtype: "error_max_structured_output_retries" },
       ],
     ],
-  ] as const) {
-    it.effect(`rejects verbose Claude output with ${name}`, () =>
-      withFakeClaudeEnv({ output: JSON.stringify(output) }, (textGeneration) =>
-        Effect.gen(function* () {
-          const error = yield* Effect.flip(
-            textGeneration.generateThreadTitle({
-              cwd: process.cwd(),
-              message: "Name this thread",
-              modelSelection: {
-                instanceId: ProviderInstanceId.make("claudeAgent"),
-                model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
-              },
-            }),
-          );
+  ] as const)("rejects verbose Claude output with %s", ([, output]) =>
+    withFakeClaudeEnv({ output: JSON.stringify(output) }, (textGeneration) =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(
+          textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Name this thread",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            },
+          }),
+        );
 
-          expect(error._tag).toBe("TextGenerationError");
-        }),
-      ),
-    );
-  }
+        expect(error._tag).toBe("TextGenerationError");
+      }),
+    ),
+  );
+
+  const apiError = "API Error: 400 Model blocked by guardrail: 4 endpoints excluded";
+  const wrapperNotice = "Using the OpenRouter credential from the global credential file.";
+  it.effect.each([
+    [
+      "the stdout error over a stderr notice",
+      JSON.stringify({ is_error: true, api_error_status: 400, result: apiError }),
+      apiError,
+    ],
+    [
+      "the verbose stdout error over a stderr notice",
+      JSON.stringify([
+        { type: "system", subtype: "init" },
+        { type: "result", is_error: true, result: apiError },
+        { type: "result", is_error: true, result: " " },
+      ]),
+      apiError,
+    ],
+    ["stderr when stdout has no error", "not json", wrapperNotice],
+  ] as const)("reports %s when the Claude CLI fails", ([, output, expected]) =>
+    withFakeClaudeEnv({ output, stderr: wrapperNotice, exitCode: 1 }, (textGeneration) =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(
+          textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Name this thread",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            },
+          }),
+        );
+
+        expect(error.detail).toBe(`Claude CLI command failed: ${expected}`);
+      }),
+    ),
+  );
 
   it.effect("falls back when Claude thread title normalization becomes whitespace-only", () =>
     withFakeClaudeEnv(

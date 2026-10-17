@@ -19,8 +19,11 @@ import {
   SIDECHAT_DOCK_MIN_WIDTH_PX,
   useSidechatDockStore,
 } from "../../sidechatDockStore";
-import { useEnvironments } from "../../state/environments";
-import { useThread, useThreadShells } from "../../state/entities";
+import { useEnvironmentProviders } from "../../state/environments";
+import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
+import { useEnvironmentThread } from "../../state/threads";
+import { viewCodeThreadState } from "@t3tools/client-runtime/viewcodeThreadAtoms";
+import * as Option from "effect/Option";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
@@ -51,54 +54,46 @@ export const SidechatDock = memo(function SidechatDock(props: {
   markdownCwd: string | undefined;
 }) {
   const { parent } = props;
-  const parentRef = useMemo(
-    () => scopeThreadRef(parent.environmentId, parent.id),
-    [parent.environmentId, parent.id],
-  );
+  const parentRef = scopeThreadRef(parent.environmentId, parent.id);
   const dock = useSidechatDockStore((state) => selectSidechatDock(state.byParentKey, parentRef));
   const widthPx = useSidechatDockStore((state) => state.widthPx);
   const shells = useThreadShells();
-  const sidechats = useMemo(
-    () =>
-      sidechatsOf(
-        shells.filter((shell) => shell.environmentId === parent.environmentId),
-        parent.id,
-      ),
-    [parent.environmentId, parent.id, shells],
+  const sidechats = sidechatsOf(
+    shells.filter((shell) => shell.environmentId === parent.environmentId),
+    parent.id,
   );
   const active = resolveActiveSidechat(sidechats, dock.activeThreadId);
-  const activeRef = useMemo<ScopedThreadRef | null>(
-    () => (active ? scopeThreadRef(parent.environmentId, active.id) : null),
-    [active, parent.environmentId],
+  const activeRef = active ? scopeThreadRef(parent.environmentId, active.id) : null;
+  const thread = Option.getOrNull(
+    viewCodeThreadState(
+      useEnvironmentThread(activeRef?.environmentId ?? null, activeRef?.threadId ?? null),
+    ).data,
   );
-  const thread = useThread(activeRef);
   const { ask, reply, stop, promote } = useSidechatActions();
 
   // Providers and model choices for the dock's own picker.
   const settings = useEnvironmentSettings(parent.environmentId);
-  const { environments } = useEnvironments();
-  const providers =
-    environments.find((environment) => environment.environmentId === parent.environmentId)
-      ?.serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
-  const entries = useMemo(
-    () =>
-      sortProviderInstanceEntries(
-        applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings),
-      ),
-    [providers, settings],
+  const providers = useEnvironmentProviders().get(parent.environmentId) ?? EMPTY_SERVER_PROVIDERS;
+  const entries = sortProviderInstanceEntries(
+    applyProviderInstanceSettings(
+      deriveProviderInstanceEntries(providers),
+      settings,
+      parent.projectId,
+    ),
   );
   // Same provider and model as the parent by default; the picker overrides it.
   const [picked, setPicked] = useState<ModelSelection | null>(null);
   const selection: ModelSelection = picked ?? thread?.modelSelection ?? parent.modelSelection;
-  const modelOptions = useMemo(
-    () =>
-      getCustomModelOptionsByInstance(settings, providers, selection.instanceId, selection.model),
-    [providers, selection.instanceId, selection.model, settings],
+  const modelOptions = getCustomModelOptionsByInstance(
+    settings,
+    providers,
+    selection.instanceId,
+    selection.model,
   );
   const activeEntry = entries.find((entry) => entry.instanceId === selection.instanceId);
-  const onModelChange = useCallback((instanceId: ProviderInstanceId, model: string) => {
+  const onModelChange = (instanceId: ProviderInstanceId, model: string) => {
     setPicked(createModelSelection(instanceId, model));
-  }, []);
+  };
 
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -126,11 +121,12 @@ export const SidechatDock = memo(function SidechatDock(props: {
   // reread is never yanked back by the next streamed token.
   const stickToBottomRef = useRef(true);
   useEffect(() => {
+    if (lastMessage?.text.length === 0 || lastMessage === undefined) return;
     const transcript = transcriptRef.current;
     if (transcript && stickToBottomRef.current) transcript.scrollTop = transcript.scrollHeight;
-  }, [messages.length, lastMessage?.text.length]);
+  }, [lastMessage]);
 
-  const submit = useCallback(async () => {
+  const submit = async () => {
     const text = draft.trim();
     if (text.length === 0 || sending || running) return;
     setSending(true);
@@ -150,24 +146,21 @@ export const SidechatDock = memo(function SidechatDock(props: {
     } finally {
       setSending(false);
     }
-  }, [activeRef, ask, draft, parent, reply, running, selection, sending]);
+  };
 
-  const startResize = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      const startX = event.clientX;
-      const startWidth = widthPx;
-      const move = (next: PointerEvent) =>
-        useSidechatDockStore.getState().setWidth(startWidth + (startX - next.clientX));
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-    },
-    [widthPx],
-  );
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = widthPx;
+    const move = (next: PointerEvent) =>
+      useSidechatDockStore.getState().setWidth(startWidth + (startX - next.clientX));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   return (
     <aside
@@ -302,6 +295,7 @@ export const SidechatDock = memo(function SidechatDock(props: {
             {activeEntry ? (
               <>
                 <ProviderModelPicker
+                  environmentId={parent.environmentId}
                   activeInstanceId={selection.instanceId}
                   model={selection.model}
                   lockedProvider={null}

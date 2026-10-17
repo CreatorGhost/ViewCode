@@ -1,6 +1,6 @@
+import type { OrchestrationLatestTurn } from "@t3tools/client-runtime/viewcodeThread";
 import { deriveUsageResumeNotice } from "@t3tools/client-runtime/usage-resume";
 import type {
-  OrchestrationLatestTurn,
   OrchestrationThreadActivity,
   ScopedThreadRef,
 } from "@t3tools/contracts";

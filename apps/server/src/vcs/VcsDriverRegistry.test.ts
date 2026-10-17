@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 
 import * as VcsProcess from "./VcsProcess.ts";
 import * as VcsProjectConfig from "./VcsProjectConfig.ts";
@@ -45,8 +45,6 @@ describe("VcsDriverRegistry", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // Answers detection like git: the nearest folder at or above the cwd, up to
-  // `rootDir`, that holds `.git` is the repository.
   const makeDiskBackedLayer = (rootDir: string, calls: string[]) =>
     Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(
       Layer.provide(NodeServices.layer),

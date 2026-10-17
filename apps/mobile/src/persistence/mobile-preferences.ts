@@ -5,13 +5,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import {
-  AgentReviewMode,
-  type ProviderInstanceId,
-  type PullRequestMergeMethod,
-  type PushNotificationCategories,
-  type SidebarProjectGroupingMode,
-} from "@t3tools/contracts";
+import { AgentReviewMode, type ProviderInstanceId, type PullRequestMergeMethod, type PushNotificationCategories, type SidebarProjectGroupingMode } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import {
   normalizeMobileThemeId,

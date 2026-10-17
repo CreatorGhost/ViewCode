@@ -14,7 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const REQUEST_TIMEOUT = "15 seconds";

@@ -9,7 +9,7 @@ import {
   validateAccountInstanceId,
 } from "@t3tools/shared/providerAccounts";
 import { useAtomValue } from "@effect/atom-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { isElectron } from "../../env";
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -134,10 +134,7 @@ export function AddProviderAccountDialog(props: {
   const [directory, setDirectory] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const instanceId = useMemo(
-    () => deriveAccountInstanceId(driver, label, existingIds),
-    [driver, existingIds, label],
-  );
+  const instanceId = deriveAccountInstanceId(driver, label, existingIds);
   const idError = label.trim() ? validateAccountInstanceId(instanceId, existingIds) : null;
   const canAdd =
     !busy && label.trim() !== "" && idError === null && (!useExisting || directory.trim() !== "");

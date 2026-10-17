@@ -13,7 +13,6 @@ import {
   type ComputerUseMode,
   type ComputerUseRect,
   type ComputerUseResponse,
-  type OrchestrationThreadShell,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
   type RuntimeMode,
@@ -29,7 +28,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 
 import * as ServerConfig from "../config.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ComputerUseThreadState } from "./ComputerUseThreadState.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   ComputerDriver,
@@ -270,44 +269,23 @@ const makeHarness = (
       focus: (handle) => action("focus")(handle),
     };
 
-    const shell = (): OrchestrationThreadShell => ({
-      id: threadId,
-      projectId: ProjectId.make("project"),
-      title: "Thread",
-      modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
-      runtimeMode: thread.runtimeMode,
-      interactionMode: "default",
-      pullRequests: [],
-      branch: null,
-      worktreePath: null,
-      latestTurn: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-      archivedAt: null,
-      settledOverride: null,
-      settledAt: null,
-      session: {
-        threadId,
-        status: thread.running ? "running" : "ready",
-        providerName: "codex",
-        providerInstanceId,
-        runtimeMode: thread.runtimeMode,
-        activeTurnId: thread.running ? thread.turnId : null,
-        lastError: null,
-        updatedAt: NOW,
-      },
-      latestUserMessageAt: NOW,
-      hasPendingApprovals: false,
-      hasPendingUserInput: false,
-      hasActionableProposedPlan: false,
-    });
-
     const layer = ComputerUseService.layer.pipe(
       Layer.provideMerge(ServerSettings.layerTest({ computerUse: initialMode })),
       Layer.provide(Layer.succeed(ComputerDriver, override ? override(driver) : driver)),
       Layer.provide(
-        Layer.mock(ProjectionSnapshotQuery)({
-          getThreadShellById: () => Effect.sync(() => Option.some(shell())),
+        Layer.mock(ComputerUseThreadState)({
+          running: () =>
+            Effect.sync(() =>
+              thread.running
+                ? {
+                    title: "Thread",
+                    turnId: thread.turnId,
+                    provider: ProviderDriverKind.make("codex"),
+                    fullAccess: thread.runtimeMode === "full-access",
+                  }
+                : undefined,
+            ),
+          activeTurn: () => Effect.sync(() => (thread.running ? thread.turnId : undefined)),
         }),
       ),
       Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-computer-use-test-" })),

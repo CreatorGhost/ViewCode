@@ -218,7 +218,7 @@ const RailUsageRings = memo(function RailUsageRings(props: { environmentId: Envi
     () =>
       buildRailUsageRings(
         sortProviderInstanceEntries(
-          applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings),
+          applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
         ),
       ),
     [providers, settings],

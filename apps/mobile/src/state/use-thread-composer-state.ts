@@ -3,27 +3,12 @@ import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 
-import {
-  CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  MessageId,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  type EnvironmentId,
-  type ModelSelection,
-  type ProviderInteractionMode,
-  type RuntimeMode,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { CommandId, DEFAULT_PROVIDER_INTERACTION_MODE, MessageId, PROVIDER_SEND_TURN_MAX_ATTACHMENTS, PROVIDER_SEND_TURN_MAX_INPUT_CHARS, type EnvironmentId, type ModelSelection, type ProviderInteractionMode, type RuntimeMode, type ThreadId } from "@t3tools/contracts";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { nextPastedTextFileName, pastedTextDisposition } from "@t3tools/client-runtime/text-paste";
-import {
-  parseCodexFeedbackCommand,
-  submitCodexFeedback,
-  type CodexFeedbackSubmission,
-} from "@t3tools/client-runtime/state/threads";
-import { deriveActiveWorkStartedAt } from "@t3tools/shared/orchestrationTiming";
+import { parseCodexFeedbackCommand, submitCodexFeedback, type CodexFeedbackSubmission } from "@t3tools/client-runtime/state/threads";
+import { deriveActiveWorkStartedAt } from "@t3tools/client-runtime/viewcodeTiming";
 import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
 import { composerContextSendBlockReason, reidentifyComposerContext } from "../lib/composerContext";
 import { uuidv4 } from "../lib/uuid";

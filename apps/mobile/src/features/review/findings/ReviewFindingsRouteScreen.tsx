@@ -1,3 +1,5 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import {
   type AgentReviewChoices,
@@ -29,19 +31,12 @@ import {
   SPAWNED_AGENT_STATUS_LABEL,
   spawnedAgentElapsedRange,
 } from "@t3tools/client-runtime/state/child-agents";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import {
-  type AgentReviewMode,
-  EnvironmentId,
-  type ReviewFindingRating,
-  type ReviewFindingsActivityPayload,
-  type ReviewVerdict,
-  ThreadId,
-} from "@t3tools/contracts";
+import { type AgentReviewMode, EnvironmentId, type ReviewFindingRating, type ReviewFindingsActivityPayload, type ReviewVerdict, ThreadId } from "@t3tools/contracts";
 import {
   REVIEW_FINDING_SEVERITY_LABELS,
   REVIEW_VERDICT_LABELS,

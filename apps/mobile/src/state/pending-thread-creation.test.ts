@@ -1,12 +1,4 @@
-import {
-  CommandId,
-  ComposerContextId,
-  EnvironmentId,
-  MessageId,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-} from "@t3tools/contracts";
+import { CommandId, ComposerContextId, EnvironmentId, MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {

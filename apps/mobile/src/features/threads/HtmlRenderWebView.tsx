@@ -9,7 +9,14 @@ import {
   type HtmlRenderTheme,
 } from "@t3tools/shared/htmlRender";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, View, type ColorValue } from "react-native";
+import {
+  ActivityIndicator,
+  useWindowDimensions,
+  Platform,
+  Pressable,
+  View,
+  type ColorValue,
+} from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -203,7 +210,8 @@ export function ThreadHtmlRender(props: {
 }) {
   const navigation = useNavigation();
   const { attachmentId, title } = props.render;
-  const height = htmlRenderFrameHeight(props.render);
+  const { width } = useWindowDimensions();
+  const height = htmlRenderFrameHeight(props.render, width);
   const fileName = htmlRenderFileName(title);
   const resource = useMemo(
     () => ({

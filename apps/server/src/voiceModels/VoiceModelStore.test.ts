@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - randomUUID names temporary test fixtures.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import type { VoiceModelTier, VoiceModelTierState } from "@t3tools/contracts";
@@ -7,7 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import * as NodeCrypto from "node:crypto";
 
 import {

@@ -1,32 +1,21 @@
+import type { OrchestrationLatestTurn, OrchestrationThread } from "@t3tools/client-runtime/viewcodeThread";
+
 import * as Option from "effect/Option";
-import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
+import { foldUserInputActivities } from "@t3tools/client-runtime/viewcode-work-log/user-input";
 import * as Schema from "effect/Schema";
 import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@t3tools/client-runtime/pending-requests";
-import {
-  REVIEW_FINDINGS_ACTIVITY_KIND,
-  UserInputAttachmentAnswerPayload,
-  isToolLifecycleItemType,
-} from "@t3tools/contracts";
-import type {
-  OrchestrationLatestTurn,
-  OrchestrationThread,
-  OrchestrationThreadActivity,
-  ReviewFindingsActivityPayload,
-  ToolLifecycleItemType,
-  TurnId,
-  UserInputQuestion,
-} from "@t3tools/contracts";
-import { formatDuration } from "@t3tools/shared/orchestrationTiming";
+import { REVIEW_FINDINGS_ACTIVITY_KIND, UserInputAttachmentAnswerPayload, isToolLifecycleItemType } from "@t3tools/contracts";
+import type { OrchestrationThreadActivity, ReviewFindingsActivityPayload, ToolLifecycleItemType, TurnId, UserInputQuestion } from "@t3tools/contracts";
+import { formatDuration } from "@t3tools/client-runtime/viewcodeTiming";
 import {
   AGENT_MESSAGE_SENT_ACTIVITY_KIND,
   readAgentMessageSentPayload,
   type AgentMessageSentPayload,
 } from "@t3tools/shared/agentMessages";
 import {
-  HTML_RENDER_ACTIVITY_KIND,
   readHtmlRenderReference,
   type HtmlRenderReference,
 } from "@t3tools/shared/htmlRender";
@@ -49,9 +38,9 @@ import {
   workLogEntryIsToolLike,
   type ToolGroupSummaryKind,
   type WorkLogToolLifecycleStatus,
-} from "@t3tools/client-runtime/work-log/presentation";
-import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-log/tool-presentation";
-import { commandProgramName } from "@t3tools/client-runtime/work-log/command-label";
+} from "@t3tools/client-runtime/viewcode-work-log/presentation";
+import { extractToolActivityPresentation } from "@t3tools/client-runtime/viewcode-work-log/tool-presentation";
+import { commandProgramName } from "@t3tools/client-runtime/viewcode-work-log/command-label";
 
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
@@ -2740,3 +2729,5 @@ function toThreadFeedActivityEntry(
     },
   };
 }
+
+const HTML_RENDER_ACTIVITY_KIND = "html.render";

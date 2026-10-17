@@ -14,14 +14,12 @@ import {
 import ChatView from "../components/ChatView";
 import { SidebarInset } from "../components/ui/sidebar";
 import {
-  useThreadDetail,
+  useThreadProjection as useThreadDetail,
   useThreadShell,
-  useThreadStalled,
   useThreadStatus,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { buildThreadRouteParams } from "../threadRoutes";
-import { resolveThreadSyncPhase } from "../threadSync";
 import { SplitPaneContext } from "./SplitPaneContext";
 import { SplitPaneControls } from "./SplitPaneControls";
 import {
@@ -52,19 +50,12 @@ const SplitPane = memo(function SplitPane(props: SplitPaneProps) {
   const shell = useThreadShell(threadRef);
   const detail = useThreadDetail(threadRef);
   const status = useThreadStatus(threadRef);
-  const stalled = useThreadStalled(threadRef);
-  const syncPhase = resolveThreadSyncPhase({
-    detailExists: detail !== null,
-    shellExists: shell !== null,
-    status,
-    stalled,
-  });
   const environmentLive =
     useAtomValue(environmentShell.stateValueAtom(threadRef.environmentId)).status === "live";
   const gone = isSplitPaneThreadGone({
     shellExists: shell !== null,
     detailExists: detail !== null,
-    archived: (shell?.archivedAt ?? detail?.archivedAt ?? null) !== null,
+    archived: (shell?.archivedAt ?? detail?.projection.thread.archivedAt ?? null) !== null,
     deleted: status === "deleted",
     environmentLive,
   });
@@ -91,7 +82,6 @@ const SplitPane = memo(function SplitPane(props: SplitPaneProps) {
               environmentId={threadRef.environmentId}
               threadId={threadRef.threadId}
               routeKind="server"
-              threadSyncPhase={syncPhase}
               reserveTitleBarControlInset={index === 1}
             />
           ) : (

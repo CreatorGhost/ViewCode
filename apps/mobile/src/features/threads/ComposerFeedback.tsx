@@ -1,7 +1,4 @@
-import {
-  codexFeedbackNotice,
-  type CodexFeedbackSubmission,
-} from "@t3tools/client-runtime/state/threads";
+import { codexFeedbackNotice, type CodexFeedbackSubmission } from "@t3tools/client-runtime/state/threads";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";

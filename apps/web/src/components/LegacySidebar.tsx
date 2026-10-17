@@ -1,3 +1,4 @@
+import { readViewCodeThreadShell as readThreadShell, useViewCodeThreadShells as useThreadShells, useViewCodeThreadShellsForProjectRefs as useThreadShellsForProjectRefs } from "../state/viewcodeThreadShells";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
@@ -85,10 +86,7 @@ import { isMacPlatform } from "../lib/utils";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import {
-  readThreadShell,
   useProjects,
-  useThreadShells,
-  useThreadShellsForProjectRefs,
 } from "../state/entities";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
@@ -207,7 +205,7 @@ import {
   getProjectOrderKey,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import type { SidebarThreadSummary } from "../types";
+import type { ViewCodeSidebarThread as SidebarThreadSummary } from "../state/viewcodeThreadShells";
 import {
   buildPhysicalToLogicalProjectKeyMap,
   buildSidebarProjectSnapshots,

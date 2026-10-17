@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - randomUUID names temporary test fixtures.
 import * as NodeCrypto from "node:crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";

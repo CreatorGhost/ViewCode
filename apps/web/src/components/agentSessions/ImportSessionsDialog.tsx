@@ -13,7 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentSessionImport, agentSessionList } from "../../state/agentSessions";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
-import { ClaudeAI, CursorIcon, OpenAI, T3CodeIcon, type Icon } from "../Icons";
+import { ClaudeAI, CursorIcon, OpenAI, type Icon } from "../Icons";
+import { T3Wordmark } from "../T3Wordmark";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -106,7 +107,7 @@ function ImportSessionsPopup({
   // Only the latest listing may land, and none after the dialog closes.
   const listRequestRef = useRef(0);
 
-  const fetchSessions = useCallback(() => {
+  const fetchSessions = () => {
     const request = ++listRequestRef.current;
     void listSessions({
       environmentId: target.environmentId,
@@ -119,7 +120,7 @@ function ImportSessionsPopup({
           : { status: "error", message: errorMessage(squashAtomCommandFailure(result)) },
       );
     });
-  }, [listSessions, target.environmentId, target.projectId, target.workspaceRoot]);
+  };
 
   useEffect(() => {
     fetchSessions();
@@ -133,10 +134,7 @@ function ImportSessionsPopup({
     fetchSessions();
   };
 
-  const { visible, hidden } = useMemo(
-    () => partitionImportableSessions(list.status === "ready" ? list.sessions : []),
-    [list],
-  );
+  const { visible, hidden } = partitionImportableSessions(list.status === "ready" ? list.sessions : []);
   const shown = showHidden ? [...visible, ...hidden] : visible;
   const selected = (list.status === "ready" ? list.sessions : []).filter(
     (session) => !session.alreadyImported && checked.has(sessionKey(session)),
@@ -276,7 +274,7 @@ const SOURCE_ICONS = {
   claudeAgent: { Icon: ClaudeAI, label: "Claude Code" },
   codex: { Icon: OpenAI, label: "Codex" },
   cursor: { Icon: CursorIcon, label: "Cursor" },
-  t3code: { Icon: T3CodeIcon, label: "T3 Code" },
+  t3code: { Icon: T3Wordmark, label: "T3 Code" },
 } satisfies Record<AgentSessionSummary["provider"], { Icon: Icon; label: string }>;
 
 function SessionRow({

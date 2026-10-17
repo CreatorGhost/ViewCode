@@ -1,6 +1,8 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { appAtomRegistry } from "../../state/atom-registry";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, FlatList, Modal, Pressable, View } from "react-native";

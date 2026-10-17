@@ -15,8 +15,8 @@ import {
   getCloneDestinationPath,
   getCloneDirectoryName,
   getDefaultCloneUrl,
-  getNewProjectGitHubRepository,
-  getNewProjectGitHubTarget,
+  getNewProjectRepository,
+  getNewProjectPublishTargets,
   getNewProjectPathPreview,
   normalizePastedCloneUrl,
   resolveAddProjectPath,
@@ -42,6 +42,7 @@ import {
 } from "@t3tools/client-runtime/state/projects";
 import {
   CommandId,
+  SourceControlProviderKind,
   type EnvironmentId,
   type EnvironmentMachineKind,
   ProjectId,
@@ -55,7 +56,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
 import * as Order from "effect/Order";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { cn } from "../../lib/cn";
 import { useProjects, useServerConfigs, waitForProject } from "../../state/entities";
 import { filesystemEnvironment } from "../../state/filesystem";
@@ -127,7 +128,7 @@ function sourceFromParam(value: string | string[] | undefined): AddProjectRemote
     source === "bitbucket" ||
     source === "azure-devops"
   ) {
-    return source;
+    return source === "url" ? source : SourceControlProviderKind.make(source);
   }
   return "url";
 }
@@ -637,11 +638,11 @@ export function AddProjectSourceScreen() {
                   key={candidate}
                   source={candidate}
                   selectedEnvironmentId={selectedEnvironment.environmentId}
-                  ready={readiness[candidate].ready}
+                  ready={readiness(candidate).ready}
                   hint={
-                    readiness[candidate].ready
+                    readiness(candidate).ready
                       ? addProjectRemoteSourcePathHint(candidate)
-                      : (readiness[candidate].hint ?? "")
+                      : (readiness(candidate).hint ?? "")
                   }
                   isFirst={false}
                 />
@@ -721,7 +722,6 @@ function useCreateProject(environment: EnvironmentOption | null) {
         commandId: CommandId.make(uuidv4()),
         projectId,
         workspaceRoot,
-        createdAt: new Date().toISOString(),
       });
       const result = await createProject({
         environmentId: environment.environmentId,
@@ -973,7 +973,10 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
           input: {},
         }),
   );
-  const githubTarget = getNewProjectGitHubTarget(discoveryState.data);
+  const githubTarget =
+    getNewProjectPublishTargets(discoveryState.data).find(
+      (target) => target.definition.kind === "github",
+    ) ?? null;
   const [name, setName] = useState("");
   const [publishesToGitHub, setPublishesToGitHub] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1049,8 +1052,8 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
           environmentId: environment.environmentId,
           input: {
             cwd: workspaceRoot,
-            provider: "github",
-            repository: getNewProjectGitHubRepository(githubTarget, workspaceRoot),
+            provider: SourceControlProviderKind.make("github"),
+            repository: getNewProjectRepository(githubTarget, workspaceRoot),
             visibility: "private",
           },
         }).then((publishResult) => {
@@ -1117,8 +1120,8 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
                 title="Create private repository on GitHub"
                 subtitle={
                   trimmedName.length > 0 && pathPreview !== null
-                    ? getNewProjectGitHubRepository(githubTarget, pathPreview)
-                    : githubTarget.account
+                    ? getNewProjectRepository(githubTarget, pathPreview)
+                    : githubTarget.owner
                 }
                 icon={
                   <SourceControlIcon

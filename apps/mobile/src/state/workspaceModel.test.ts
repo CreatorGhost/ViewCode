@@ -46,7 +46,7 @@ function environment(
   };
 }
 
-const EMPTY_SHELL_SUMMARY: EnvironmentShellSummary = {
+const EMPTY_SHELL_SUMMARY: EnvironmentShellSummary & { readonly latestSnapshotUpdatedAt?: string | null } = {
   hasSnapshot: false,
   hasSynchronizingShell: false,
   hasCachedShell: false,
@@ -55,7 +55,7 @@ const EMPTY_SHELL_SUMMARY: EnvironmentShellSummary = {
   latestSnapshotUpdatedAt: null,
 };
 
-const CACHED_SHELL_SUMMARY: EnvironmentShellSummary = {
+const CACHED_SHELL_SUMMARY: EnvironmentShellSummary & { readonly latestSnapshotUpdatedAt?: string | null } = {
   ...EMPTY_SHELL_SUMMARY,
   hasSnapshot: true,
   hasSynchronizingShell: true,

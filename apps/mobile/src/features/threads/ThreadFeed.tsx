@@ -51,7 +51,7 @@ import {
   classifyMarkdownImageSource,
   markdownImageSourceFragment,
 } from "@t3tools/client-runtime/markdown-images";
-import { resolveViewedImageAsset } from "@t3tools/client-runtime/work-log/presentation";
+import { resolveViewedImageAsset } from "@t3tools/client-runtime/viewcode-work-log/presentation";
 import {
   renderCodexFileCitationsAsMarkdown,
   splitCodexArtifactTemplateMarkdown,
@@ -2942,7 +2942,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const getFixedItemSize = useCallback(
     (entry: RenderedFeedEntry) => {
       if (entry.type === "html-render") {
-        return htmlRenderRowHeight(htmlRenderFrameHeight(entry.render));
+        return htmlRenderRowHeight(htmlRenderFrameHeight(entry.render, windowWidth));
       }
       if (workRowSizing.fixedRowHeight === undefined) {
         return undefined;

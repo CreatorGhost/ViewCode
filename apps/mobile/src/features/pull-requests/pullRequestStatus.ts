@@ -1,9 +1,4 @@
-import type {
-  PullRequestActivity,
-  PullRequestCheck,
-  PullRequestDetail,
-  PullRequestListEntry,
-} from "@t3tools/contracts";
+import type { PullRequestActivity, PullRequestCheck, PullRequestDetail, PullRequestListEntry } from "@t3tools/contracts";
 import type { AppSymbolName } from "../../components/AppSymbol";
 
 const STATES = {

@@ -1,19 +1,12 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useAtomValue } from "@effect/atom-react";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
-import {
-  CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  type MessageId,
-} from "@t3tools/contracts";
+import { CommandId, DEFAULT_PROVIDER_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, PROVIDER_SEND_TURN_MAX_ATTACHMENTS, type MessageId } from "@t3tools/contracts";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 

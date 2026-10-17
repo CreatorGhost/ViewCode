@@ -1,24 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type {
-  EnvironmentId,
-  ModelSelection,
-  ProjectReadFileResult,
-  ProviderInteractionMode,
-  ProviderOptionSelection,
-  RuntimeMode,
-  ServerProvider,
-} from "@t3tools/contracts";
-import {
-  CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
-  DEFAULT_SERVER_SETTINGS,
-  MessageId,
-  repositoryGroupingKeyOf,
-  T3_PROJECT_FILE_NAME,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ModelSelection, ProjectReadFileResult, ProviderInteractionMode, ProviderOptionSelection, RuntimeMode, ServerProvider } from "@t3tools/contracts";
+import { CommandId, DEFAULT_PROVIDER_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, DEFAULT_SERVER_SETTINGS, MessageId, repositoryGroupingKeyOf, T3_PROJECT_FILE_NAME, ThreadId } from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";

@@ -1,6 +1,8 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useCallback, useEffect, useEffectEvent, useMemo } from "react";
 
-import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import {
   type GitActionRequestInput,
@@ -13,7 +15,7 @@ import {
   sanitizeFeatureBranchName,
 } from "@t3tools/shared/git";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 
 import { useBranches } from "../state/queries";
 import { threadEnvironment } from "../state/threads";

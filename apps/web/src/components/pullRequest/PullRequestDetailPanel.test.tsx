@@ -1,5 +1,6 @@
 import {
   EnvironmentId,
+  SourceControlProviderKind,
   ProjectId,
   ThreadId,
   type ScopedThreadRef,
@@ -157,7 +158,7 @@ import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
 import { pullRequestPanelContext } from "./pullRequestDetail.logic";
 
 const detail: PullRequestDetailView = {
-  provider: "github",
+  provider: SourceControlProviderKind.make("github"),
   projectId: ProjectId.make("project"),
   projectTitle: "Project",
   workspaceRoot: "/workspace",

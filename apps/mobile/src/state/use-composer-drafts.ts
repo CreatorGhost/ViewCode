@@ -1,22 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import {
-  EnvironmentId as EnvironmentIdSchema,
-  ModelSelection as ModelSelectionSchema,
-  ComposerContextId,
-  ComposerContextRecord,
-  COMPOSER_CONTEXT_MAX_RECORDS,
-  ForwardCompatibleArray,
-  OrchestrationMessageContext,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  ProjectId as ProjectIdSchema,
-  ProviderInteractionMode as ProviderInteractionModeSchema,
-  RuntimeMode as RuntimeModeSchema,
-  type EnvironmentId,
-  type ModelSelection,
-  type ProjectId,
-  type ProviderInteractionMode,
-  type RuntimeMode,
-} from "@t3tools/contracts";
+import { EnvironmentId as EnvironmentIdSchema, ModelSelection as ModelSelectionSchema, ComposerContextId, ComposerContextRecord, COMPOSER_CONTEXT_MAX_RECORDS, ForwardCompatibleArray, OrchestrationMessageContext, PROVIDER_SEND_TURN_MAX_ATTACHMENTS, ProjectId as ProjectIdSchema, ProviderInteractionMode as ProviderInteractionModeSchema, RuntimeMode as RuntimeModeSchema, type EnvironmentId, type ModelSelection, type ProjectId, type ProviderInteractionMode, type RuntimeMode } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useEffect } from "react";
 import {
@@ -26,7 +9,7 @@ import {
   type ComposerSettingKey,
   type ComposerThreadSettings,
 } from "@t3tools/client-runtime/composer-settings-basis";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 import { writeFileAtomically } from "../lib/atomic-file";
 import { createComposerContextHistory, referencedComposerContext } from "../lib/composerContext";

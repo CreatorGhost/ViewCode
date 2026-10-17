@@ -1,3 +1,6 @@
+import { readEnvironmentScope } from "../state/session";
+import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { readViewCodeThreadShell as readThreadShell, useViewCodeThreadShells as useThreadShells } from "../state/viewcodeThreadShells";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useAtomValue } from "@effect/atom-react";
@@ -38,7 +41,7 @@ import {
   type FolderSortOrder,
   type SidebarAttentionFilter,
 } from "@t3tools/client-runtime/state/thread-arrangement";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import type { ViewCodeSidebarThread as EnvironmentThreadShell } from "../state/viewcodeThreadShells";
 import {
   parseScopedThreadKey,
   scopeProjectRef,
@@ -142,10 +145,8 @@ import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
-  readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
   useProjects,
-  useThreadShells,
 } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
@@ -159,7 +160,7 @@ import {
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import { formatRelativeTimeLabel } from "../timestampFormat";
-import type { SidebarThreadSummary } from "../types";
+import type { ViewCodeSidebarThread as SidebarThreadSummary } from "../state/viewcodeThreadShells";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
@@ -1202,6 +1203,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       <ThreadPullRequestBadgeControl
         render={<InlineButton />}
         badge={prBadgeShape}
+        pullRequests={thread.pullRequests}
         number={pr?.number ?? currentLinkedPr?.number}
         url={pr?.url ?? currentLinkedPr?.url}
         status={prStatus}
@@ -1240,7 +1242,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         aria-label="Pinned"
         className={cn(iconClassName, "text-sidebar-muted-foreground")}
       />
-    ) : status === "monitoring" ? (
+    ) : thread.backgroundLiveness === "monitoring" ? (
       <EyeIcon
         role="img"
         aria-label="Monitoring"
@@ -3446,6 +3448,7 @@ export default function Sidebar() {
             [
               { id: "open-in-split" as const, label: "Open in split", icon: "columns-2" },
               ...buildThreadActionMenuItems({
+                canOperate: readEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope),
                 branch: thread.branch ?? null,
                 projectFilter: threadProjectGroup
                   ? {

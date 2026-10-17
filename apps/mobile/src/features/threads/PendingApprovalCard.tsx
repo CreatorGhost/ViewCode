@@ -1,9 +1,5 @@
 import { RequestActionButton } from "./RequestActionButton";
-import type {
-  ApprovalRequestId,
-  ProviderApprovalDecision,
-  ProviderApprovalOption,
-} from "@t3tools/contracts";
+import type { ApprovalRequestId, ProviderApprovalDecision, ProviderApprovalOption } from "@t3tools/contracts";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";

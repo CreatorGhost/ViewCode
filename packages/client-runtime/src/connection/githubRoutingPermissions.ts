@@ -1,4 +1,4 @@
-import { DESKTOP_LOCAL_BACKEND_SCHEME, EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -25,8 +25,6 @@ export type StoredGitHubRoutingPermission = typeof StoredGitHubRoutingPermission
  * reordering keeps trust but adding or changing an address revokes it.
  */
 export function gitHubRoutingConnectionKey(entry: ConnectionCatalogEntry): string | null {
-  // Learned routes come and go with the server's addresses and reuse a saved
-  // route's credential, so they leave trust where the user put it.
   const routes = [
     { target: entry.target, profile: entry.profile },
     ...(entry.alternateRoutes ?? []),
@@ -61,11 +59,9 @@ function routeConnectionKey(
   if (baseUrls === null) return null;
   try {
     const urls = baseUrls.map((baseUrl) => new URL(baseUrl));
-    // A socket-backed desktop backend uses its own scheme for both URLs.
-    const localBackend = `${DESKTOP_LOCAL_BACKEND_SCHEME}:`;
     if (
-      !["http:", "https:", localBackend].includes(urls[0]!.protocol) ||
-      !["ws:", "wss:", localBackend].includes(urls[1]!.protocol) ||
+      !["http:", "https:"].includes(urls[0]!.protocol) ||
+      !["ws:", "wss:"].includes(urls[1]!.protocol) ||
       urls.some((url) => url.username || url.password)
     )
       return null;

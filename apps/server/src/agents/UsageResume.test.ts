@@ -1,10 +1,4 @@
-import {
-  type OrchestrationEvent,
-  type OrchestrationThreadShell,
-  ThreadId,
-  USAGE_RESUME_ACTIVITY_KIND,
-  type UsageResumePayload,
-} from "@t3tools/contracts";
+import { ThreadId, ProviderInstanceId, type UsageResumePayload } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
@@ -22,13 +16,12 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import { ServerConfig } from "../config.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
+import { UsageResumeRuntime, type UsageResumeEvent } from "./UsageResumeRuntime.ts";
+import { ProviderRegistry } from "../provider/ProviderRegistry.ts";
 import * as DesktopTelemetryReceiver from "../resourceTelemetry/DesktopTelemetryReceiver.ts";
 import { ServerActivation } from "../serverActivation.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
-import { AgentMessaging } from "./AgentMessaging.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import { AgentMessaging } from "./AgentMessagingV2.ts";
 import {
   USAGE_RESUME_DELAY_MS,
   TRANSIENT_RETRY_DELAYS_MS,
@@ -69,7 +62,7 @@ const makeHarness = (
   settings: { resumeAfterUsageLimit?: boolean; keepAwakeForUsageResume?: boolean } = {},
 ) =>
   Effect.gen(function* () {
-    const events = yield* PubSub.unbounded<OrchestrationEvent>();
+    const events = yield* PubSub.unbounded<UsageResumeEvent>();
     const activities = yield* Ref.make<ReadonlyArray<UsageResumePayload>>([]);
     const continues = yield* Queue.unbounded<{
       threadId: string;
@@ -87,42 +80,29 @@ const makeHarness = (
     const parent = yield* Ref.make<string | null>(null);
     /** What the service published to the control stream, in order (null clears). */
     const published = yield* Ref.make<ReadonlyArray<{ resumeAt?: string } | null>>([]);
-    const publish = (event: unknown) => PubSub.publish(events, event as OrchestrationEvent);
-
-    const shell = {
-      id: THREAD,
-      archivedAt: null,
-      parentThreadId: null,
-      modelSelection: { instanceId: "claudeAgent", model: "sonnet" },
-      session: { status: "error", providerInstanceId: "claudeAgent", lastError: LIMIT_TEXT },
-    } as unknown as OrchestrationThreadShell;
-
+    const publish = (event: UsageResumeEvent) => PubSub.publish(events, event);
     const dependencies = Layer.mergeAll(
-      Layer.mock(ProjectionSnapshotQuery)({
-        getShellSnapshot: () =>
+      Layer.mock(UsageResumeRuntime)({
+        getThread: () =>
           Ref.get(parent).pipe(
-            Effect.map((parentThreadId) => ({
-              snapshotSequence: 1,
-              projects: [],
-              threads: [{ ...shell, parentThreadId } as OrchestrationThreadShell],
-              updatedAt: "2026-01-01T00:00:00.000Z",
+            Effect.map((parentId) => ({
+              id: THREAD,
+              archived: false,
+              child: parentId !== null,
+              providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("claudeAgent"),
+                model: "sonnet",
+              },
             })),
           ),
-      }),
-      Layer.mock(OrchestrationEngineService)({
-        dispatch: (command) =>
-          command.type === "thread.activity.append" &&
-          command.activity.kind === USAGE_RESUME_ACTIVITY_KIND
-            ? Ref.update(activities, (all) => [
-                ...all,
-                command.activity.payload as UsageResumePayload,
-              ]).pipe(
-                Effect.andThen(Ref.update(summaries, (all) => [...all, command.activity.summary])),
-                Effect.andThen(Queue.offer(noted, command.activity.payload as UsageResumePayload)),
-                Effect.as({ sequence: 1 }),
-              )
-            : Effect.succeed({ sequence: 1 }),
-        subscribeDomainEvents: PubSub.subscribe(events).pipe(
+        append: ({ activity }) =>
+          Ref.update(activities, (all) => [...all, activity.payload as UsageResumePayload]).pipe(
+            Effect.andThen(Ref.update(summaries, (all) => [...all, activity.summary])),
+            Effect.andThen(Queue.offer(noted, activity.payload as UsageResumePayload)),
+            Effect.asVoid,
+          ),
+        events: PubSub.subscribe(events).pipe(
           Effect.map((subscription) => Stream.fromSubscription(subscription)),
         ),
       }),
@@ -148,7 +128,7 @@ const makeHarness = (
           ),
         setUsageResume: (_threadId, state) => Ref.update(published, (all) => [...all, state]),
       }),
-      ServerSettingsService.layerTest(settings),
+      ServerSettings.layerTest(settings),
       DesktopTelemetryReceiver.layerTest({
         setKeepAwake: (enabled) =>
           Ref.update(awake, (all) => [...all, enabled]).pipe(
@@ -191,29 +171,30 @@ const makeHarness = (
       /** The thread's turn ends with an error, or a limit error if none is given. */
       fail: (lastError = LIMIT_TEXT) =>
         publish({
-          type: "thread.session-set",
-          payload: { threadId: THREAD, session: { status: "error", lastError } },
+          type: "failed",
+          threadId: THREAD,
+          error: lastError,
         }),
       /** The session reports idle after the turn, as Claude's CLI does after a result. */
       idle: (lastError: string | null) =>
-        publish({
-          type: "thread.session-set",
-          payload: { threadId: THREAD, session: { status: "ready", lastError } },
-        }),
+        publish(
+          lastError
+            ? { type: "failed", threadId: THREAD, error: lastError }
+            : { type: "ready", threadId: THREAD },
+        ),
       /** The provider reports a rejected usage window during the turn. */
       rejected: (info: unknown) =>
         publish({
-          type: "thread.activity-appended",
-          payload: {
-            threadId: THREAD,
-            activity: { kind: "runtime.warning", payload: { message: "limit", detail: info } },
-          },
+          type: "signal",
+          threadId: THREAD,
+          detail: info,
         }),
       /** The engine reports a turn start, as it does for the user's prompt or for our resume. */
       turnStart: (messageId: string) =>
         publish({
-          type: "thread.turn-start-requested",
-          payload: { threadId: THREAD, messageId },
+          type: "turn-start",
+          threadId: THREAD,
+          messageId,
         }),
       layer: layer.pipe(Layer.provide(dependencies)),
     };
@@ -404,8 +385,9 @@ describe("UsageResume", () => {
           yield* harness.fail(`${LIMIT_TEXT} again`);
           yield* settle;
           yield* harness.publish({
-            type: "thread.meta-updated",
-            payload: { threadId: THREAD, modelSelection: { instanceId: "codex", model: "gpt" } },
+            type: "model",
+            threadId: THREAD,
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt" },
           });
           yield* settle;
           assert.deepEqual(yield* harness.states, [
@@ -857,7 +839,7 @@ describe("UsageResume", () => {
           yield* Ref.set(harness.windows, [fiveHourWindow(HOUR)]);
           yield* harness.fail();
           yield* settle;
-          yield* harness.publish({ type: "thread.archived", payload: { threadId: THREAD } });
+          yield* harness.publish({ type: "removed", threadId: THREAD });
           yield* settle;
           assert.isFalse(yield* exists(file!));
           assert.deepEqual(yield* harness.awake, [true, false]);

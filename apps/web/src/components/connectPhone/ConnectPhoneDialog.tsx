@@ -240,7 +240,7 @@ function ConnectPhoneDialogContent() {
     <>
       <DialogHeader>
         <DialogTitle>Connect phone</DialogTitle>
-        <DialogDescription>Control ViewCode from the T3 Code mobile app.</DialogDescription>
+        <DialogDescription>Control ViewCode from the ViewCode mobile app.</DialogDescription>
         <ToggleGroup
           aria-label="Phone connection"
           value={[mode === "local" ? "local" : "anywhere"]}
@@ -636,7 +636,7 @@ function ReadyBody({
   return (
     <Panel>
       <ol className="space-y-1.5 text-sm">
-        <Step n={1}>Install T3 Code from the App Store or Google Play.</Step>
+        <Step n={1}>Install ViewCode from the App Store or Google Play.</Step>
         <Step n={2}>Open it and tap Add environment.</Step>
         <Step n={3}>Scan this code.</Step>
       </ol>
@@ -661,7 +661,7 @@ function ReadyBody({
               size={224}
               level="M"
               marginSize={1}
-              title="Pairing code for the T3 Code mobile app"
+              title="Pairing code for the ViewCode mobile app"
             />
           </div>
         ) : status === "paired" ? (

@@ -11,7 +11,7 @@ import { canCreateProjectInEnvironment } from "@t3tools/client-runtime/operation
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -175,7 +175,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
       ) ?? null)
     : null;
   const { connectedEnvironments } = useRemoteConnectionStatus();
-  const ensureScratch = useAtomCommand(projectEnvironment.ensureScratch, {
+  const ensureScratch = useAtomCommand(projectEnvironment.openScratch, {
     reportFailure: false,
   });
   // Threads without a project need a connected environment that offers them.
@@ -244,7 +244,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         );
         return;
       }
-      const project = await waitForProject({ environmentId, projectId: result.value.projectId });
+      const project = await waitForProject({ environmentId, projectId: result.value.id });
       if (project === null) {
         Alert.alert(
           "Could not start without a project",

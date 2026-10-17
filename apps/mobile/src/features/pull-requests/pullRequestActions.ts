@@ -1,11 +1,5 @@
 import { resolveChangeRequestPresentation } from "@t3tools/shared/sourceControl";
-import type {
-  PullRequestAction,
-  PullRequestDetail,
-  PullRequestMergeMethod,
-  PullRequestReviewVerdict,
-  SourceControlProviderKind,
-} from "@t3tools/contracts";
+import type { PullRequestAction, PullRequestDetail, PullRequestMergeMethod, PullRequestReviewVerdict, SourceControlProviderKind } from "@t3tools/contracts";
 import type { AppSymbolName } from "../../components/AppSymbol";
 
 type ActionDetail = Pick<
@@ -43,6 +37,7 @@ export const PR_ACTION_LABELS = {
   "disable-auto-merge": "Disable auto-merge",
   revert: "Create revert pull request",
   "approve-workflows": "Approve workflows",
+  "delete-branch": "Delete branch",
 } as const satisfies Record<PullRequestAction, string>;
 
 export const PR_ACTION_ICONS = {
@@ -56,6 +51,7 @@ export const PR_ACTION_ICONS = {
   "disable-auto-merge": "xmark",
   revert: "arrow.uturn.backward",
   "approve-workflows": "checkmark",
+  "delete-branch": "trash",
 } as const satisfies Record<PullRequestAction, AppSymbolName>;
 
 export const ALL_PR_ACTIONS: readonly PullRequestAction[] = [
@@ -69,6 +65,7 @@ export const ALL_PR_ACTIONS: readonly PullRequestAction[] = [
   "close",
   "reopen",
   "revert",
+  "delete-branch",
 ];
 
 export function allowedMergeMethods(pr: ActionDetail) {

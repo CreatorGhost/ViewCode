@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as NodeNet from "node:net";
 
 import * as NodeStream from "@effect/platform-node/NodeStream";
 import {
@@ -14,7 +15,6 @@ import {
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
-import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -25,11 +25,12 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as Ndjson from "effect/unstable/encoding/Ndjson";
+import * as Ndjson from "effect/encoding/Ndjson";
 
-import { ServerConfig } from "../config.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { subscribeBeforeSnapshotWithoutMutex } from "../utils/subscribeBeforeSnapshot.ts";
+import { makeDesktopCursorBridge } from "./viewcodeCursorBridge.ts";
 
 const INITIAL_SAMPLE_DEADLINE_MS = 90_000;
 const MIN_SNAPSHOT_STALE_AFTER_MS = 90_000;
@@ -174,14 +175,8 @@ export class DesktopTelemetryReceiver extends Context.Service<
     readonly setDiagnosticsDemand: (
       enabled: boolean,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
-    /** Holds or releases the desktop's keep-the-computer-awake assertion. */
     readonly setKeepAwake: (enabled: boolean) => Effect.Effect<void, DesktopTelemetryControlError>;
-    readonly showComputerUseCursor: (
-      message: DesktopComputerUseCursor,
-    ) => Effect.Effect<boolean, DesktopTelemetryControlError>;
-    /** Asks the desktop app supervising this server to update itself. The
-        desktop answers with desktopUpdateStatus reports carrying the same
-        requestId. */
+    readonly showComputerUseCursor: (message: DesktopComputerUseCursor) => Effect.Effect<boolean, DesktopTelemetryControlError>;
     readonly requestDesktopUpdate: (
       requestId: string,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
@@ -191,9 +186,6 @@ export class DesktopTelemetryReceiver extends Context.Service<
     readonly cancelDesktopUpdate: (
       requestId: string,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
-    /** Latest desktop update state report plus subsequent reports. The
-        desktop replays its latest report when the backend attaches, so this
-        is populated shortly after startup on desktop-managed servers. */
     readonly desktopUpdates: Effect.Effect<
       {
         readonly latest: Option.Option<DesktopUpdateStatusReport>;
@@ -336,8 +328,8 @@ export function requireDesktopTelemetryWriteProgress(
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")(function* () {
-  const config = yield* ServerConfig;
-  const serverSettings = yield* ServerSettingsService;
+  const config = yield* ServerConfig.ServerConfig;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const latest = yield* Ref.make(Option.none<DesktopHostTelemetrySnapshot>());
   const receiverStartedAt = yield* DateTime.now;
   const lastContactAtMs = yield* Ref.make(
@@ -357,7 +349,6 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
   const latestUpdateReport = yield* Ref.make(Option.none<DesktopUpdateStatusReport>());
   const updateReportChanges = yield* PubSub.sliding<DesktopUpdateStatusReport>(16);
   const controlMutex = yield* Semaphore.make(1);
-  const cursors = new Map<string, Deferred.Deferred<boolean>>();
   const snapshotMutex = yield* Semaphore.make(1);
   const health = yield* Ref.make<DesktopTelemetryReceiverHealth>({
     status: config.desktopTelemetryFd === undefined ? "unavailable" : "starting",
@@ -410,6 +401,7 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
         );
       }),
     );
+  const cursorBridge = yield* makeDesktopCursorBridge({ available: config.desktopTelemetryFd !== undefined && config.desktopTelemetryControlFd !== undefined, send: sendControlMessage });
   const setDiagnosticsDemand: DesktopTelemetryReceiver["Service"]["setDiagnosticsDemand"] = (
     enabled,
   ) =>
@@ -471,13 +463,11 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
 
   if (config.desktopTelemetryFd !== undefined) {
     const fd = config.desktopTelemetryFd;
+    // The parent waits for this server before closing its pipe. Socket reads
+    // can be cancelled; filesystem reads would keep process.exit waiting.
     const readable = yield* Effect.acquireRelease(
       Effect.try({
-        try: () =>
-          NodeFS.createReadStream("", {
-            fd,
-            autoClose: true,
-          }),
+        try: () => new NodeNet.Socket({ fd, readable: true, writable: false }),
         catch: (cause) => new DesktopTelemetryStreamFailed({ fd, cause }),
       }),
       (stream) =>
@@ -536,14 +526,6 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
           );
         }
 
-        if (message.type === "computerUseCursorReady") {
-          const waiting = cursors.get(message.requestId);
-          return waiting
-            ? Deferred.succeed(waiting, message.ready).pipe(Effect.asVoid)
-            : Effect.void;
-        }
-
-        // Not a resource sample: do not touch `latest` or sample health.
         if (message.type === "desktopUpdateStatus") {
           return recordContact.pipe(
             Effect.andThen(Ref.set(latestUpdateReport, Option.some(message))),
@@ -551,6 +533,9 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
             Effect.asVoid,
           );
         }
+
+        if (message.type === "computerUseCursorReady") return recordContact.pipe(Effect.andThen(cursorBridge.acknowledge(message.requestId, message.ready)));
+        if (message.type !== "desktopTelemetry") return recordContact;
 
         const sampledAt = DateTime.makeUnsafe(message.sampledAtUnixMs);
         return snapshotMutex.withPermits(1)(
@@ -662,26 +647,7 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
     subscribeHealth: subscribeBeforeSnapshotWithoutMutex(healthChanges, Ref.get(health)),
     setDiagnosticsDemand,
     setKeepAwake: (enabled) => sendControlMessage({ version: 1, type: "setKeepAwake", enabled }),
-    showComputerUseCursor: (message) =>
-      Effect.gen(function* () {
-        if (
-          config.desktopTelemetryControlFd === undefined ||
-          config.desktopTelemetryFd === undefined
-        )
-          return true;
-        const waiting = yield* Deferred.make<boolean>();
-        cursors.set(message.requestId, waiting);
-        return yield* sendControlMessage(message).pipe(
-          Effect.andThen(Deferred.await(waiting)),
-          Effect.timeoutOption(Duration.seconds(3)),
-          Effect.map(Option.getOrElse(() => false)),
-          Effect.ensuring(
-            Effect.sync(() => {
-              cursors.delete(message.requestId);
-            }),
-          ),
-        );
-      }),
+    showComputerUseCursor: cursorBridge.show,
     requestDesktopUpdate: (requestId) =>
       sendControlMessage({
         version: 1,

@@ -2,6 +2,7 @@ import type {
   AuthBrowserSessionResult,
   AuthClientMetadata,
   AuthEnvironmentScope,
+  AuthGrantScope,
   AuthPairingCredentialResult,
   ServerAuthSessionMethod,
   AuthSessionId,
@@ -9,10 +10,9 @@ import type {
 } from "@t3tools/contracts";
 import { EnvironmentHttpCommonError, PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import type { EnvironmentHttpCommonError as EnvironmentHttpCommonErrorType } from "@t3tools/contracts";
-import { pairingRejectionMessage } from "@t3tools/client-runtime/connection";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { HttpClientError } from "effect/unstable/http";
+import { HttpClientError } from "effect/http";
 
 import {
   getPairingTokenFromUrl,
@@ -76,10 +76,7 @@ export class PrimaryEnvironmentPairingCredentialRejectedError extends Schema.Tag
   },
 ) {
   override get message(): string {
-    const problem = Reflect.get(Object(this.cause), "pairingProblem");
-    return (
-      pairingRejectionMessage(problem) ?? "Invalid pairing token. Check the token and try again."
-    );
+    return "Invalid pairing token. Check the token and try again.";
   }
 }
 
@@ -144,6 +141,7 @@ type ServerAuthGateState =
 
 let bootstrapPromise: Promise<ServerAuthGateState> | null = null;
 let resolvedAuthenticatedGateState: ServerAuthGateState | null = null;
+let explicitPairingRequested = false;
 const AUTH_SESSION_ESTABLISH_TIMEOUT_MS = 2_000;
 const AUTH_SESSION_ESTABLISH_STEP_MS = 100;
 
@@ -351,13 +349,14 @@ export async function submitServerAuthCredential(credential: string): Promise<vo
   await waitForAuthenticatedSessionAfterBootstrap();
   resolvedAuthenticatedGateState = { status: "authenticated" };
   bootstrapPromise = null;
+  explicitPairingRequested = false;
   stripPairingTokenFromUrl();
 }
 
 export async function createServerPairingCredential(input?: {
-  readonly label?: string;
-  readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
   readonly ttlSeconds?: number;
+  readonly label?: string;
+  readonly scopes?: ReadonlyArray<AuthGrantScope>;
 }): Promise<AuthPairingCredentialResult> {
   const trimmedLabel = input?.label?.trim();
   try {
@@ -368,8 +367,8 @@ export async function createServerPairingCredential(input?: {
             headers: {},
             payload: {
               ...(trimmedLabel ? { label: trimmedLabel } : {}),
+              ...(input?.ttlSeconds === undefined ? {} : { ttlSeconds: input.ttlSeconds }),
               ...(input?.scopes ? { scopes: input.scopes } : {}),
-              ...(input?.ttlSeconds !== undefined ? { ttlSeconds: input.ttlSeconds } : {}),
             },
           }),
         ),
@@ -434,6 +433,19 @@ export async function revokeOtherServerClientSessions(): Promise<number> {
 }
 
 export async function resolveInitialServerAuthGateState(): Promise<ServerAuthGateState> {
+  // An explicit pairing link replaces this browser's grant, even when the
+  // current cookie or a cached gate already authenticates it. Keep that intent
+  // after stripping the token, which causes the router to load this gate again.
+  if (window.location.pathname.replace(/\/+$/, "") !== "/pair") {
+    explicitPairingRequested = false;
+  } else if (peekPairingTokenFromUrl()) {
+    explicitPairingRequested = true;
+  }
+  if (explicitPairingRequested) {
+    const currentSession = await fetchSessionState();
+    return { status: "requires-auth", auth: currentSession.auth };
+  }
+
   const urlCredential = takePairingTokenFromUrl();
   const previousPromise = bootstrapPromise;
   if (urlCredential) {
@@ -474,4 +486,5 @@ export async function resolveInitialServerAuthGateState(): Promise<ServerAuthGat
 export function __resetServerAuthBootstrapForTests() {
   bootstrapPromise = null;
   resolvedAuthenticatedGateState = null;
+  explicitPairingRequested = false;
 }

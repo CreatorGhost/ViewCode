@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  EnvironmentId,
-  SourceControlProviderKind,
-  type PullRequestListEntry,
-  type PullRequestListResult,
-} from "@t3tools/contracts";
+import { EnvironmentId, SourceControlProviderKind, type PullRequestListEntry, type PullRequestListResult } from "@t3tools/contracts";
 import {
   appendPullRequestListPage,
   DEFAULT_PR_LIST_CONTROLS,

@@ -17,7 +17,13 @@ import { memo, useMemo, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
-import { readThreadShells, useServerConfigs, useThreadShells } from "../../state/entities";
+import { readThreadShells } from "../../state/entities";
+import { scopeThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
+import { useEnvironmentProviders } from "../../state/environments";
+import { useEnvironmentThread } from "../../state/threads";
+import * as Option from "effect/Option";
+import { deriveTimelineEntriesFromVisibleTurnItems } from "../../session-logic";
 import { useAgentControlActions } from "../agents/useAgentControlActions";
 import { environmentThreadDetails } from "../../state/threads";
 import { Button } from "../ui/button";
@@ -51,9 +57,9 @@ export function ReviewElapsed({ startedAt, endMs }: { startedAt: string; endMs: 
 /** "Deep review · GPT-6.1": the kind of review and the model it runs on. */
 export function useReviewLabel(environmentId: EnvironmentId, review: LatestReviewStatus): string {
   const { instanceId, model: slug } = review.modelSelection;
-  const provider = useServerConfigs()
+  const provider = useEnvironmentProviders()
     .get(environmentId)
-    ?.providers.find((candidate) => candidate.instanceId === instanceId);
+    ?.find((candidate) => candidate.instanceId === instanceId);
   const model = provider?.models.find((entry) => entry.slug === slug);
   const mode = AGENT_REVIEW_MODES.find((entry) => entry.mode === review.mode)?.label ?? "Review";
   return `${mode} · ${model?.shortName ?? model?.name ?? slug}`;
@@ -89,7 +95,7 @@ export function ReviewStatusBar({
   // belongs to is in the same agent tree, so this never acts on the tree as a whole.
   const stopReview = async () => {
     setStopping(true);
-    const plan = reviewStopPlan(readThreadShells(), { environmentId, threadId: review.threadId });
+    const plan = reviewStopPlan(readThreadShells().map((thread) => scopeThreadShell(thread.environmentId, thread.source)), { environmentId, threadId: review.threadId });
     for (const threadId of plan.stop) {
       await actions.stop(scopeThreadRef(environmentId, threadId), "thread");
     }
@@ -204,9 +210,11 @@ export const ReviewWorkLine = memo(function ReviewWorkLine({
   environmentId: EnvironmentId;
   threadId: ThreadId;
 }) {
-  const ref = useMemo(() => scopeThreadRef(environmentId, threadId), [environmentId, threadId]);
+  const ref = scopeThreadRef(environmentId, threadId);
   const activities = useAtomValue(environmentThreadDetails.activitiesAtom(ref));
-  const line = useMemo(() => reviewWorkLine(activities ?? [], undefined), [activities]);
+  const projection = Option.getOrNull(useEnvironmentThread(environmentId, threadId).data);
+  const entries = projection === null ? [] : deriveTimelineEntriesFromVisibleTurnItems({visibleTurnItems:projection.visibleTurnItems,optimisticMessages:[],attempts:projection.attempts,nodes:projection.nodes,plans:projection.plans}).flatMap((row) => row.kind === "work" ? [row.entry] : []);
+  const line = reviewWorkLine(activities ?? [], undefined, entries);
   return line === null ? null : <span className="min-w-0 truncate ps-3.5">{line}</span>;
 });
 
@@ -223,15 +231,11 @@ export const ReviewAgentList = memo(function ReviewAgentList({
   className?: string;
 }) {
   const threads = useThreadShells();
-  const agents = useMemo(
-    () =>
-      collectChildAgents(threads, { environmentId, threadId }).map((agent) => ({
+  const agents = collectChildAgents(threads, { environmentId, threadId }).map((agent) => ({
         id: agent.thread.id,
         name: agent.thread.title,
         status: resolveSpawnedAgentRowStatus(agent.thread, "started"),
-      })),
-    [environmentId, threadId, threads],
-  );
+      }));
   const [expanded, setExpanded] = useState(false);
   if (agents.length === 0) return null;
   // A deep review starts many lenses; past a few, one line counts them until asked for the list.

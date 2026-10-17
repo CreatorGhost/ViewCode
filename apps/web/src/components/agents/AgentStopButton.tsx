@@ -3,7 +3,7 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useParams } from "@tanstack/react-router";
 import { type ReactElement, useMemo } from "react";
 
-import { useThreadShells } from "../../state/entities";
+import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
 import { composerFloatingLayerProps } from "../chat/composerEventScope";
 import {
   Menu,
@@ -30,22 +30,16 @@ export function AgentStopButton(props: {
   const { onStopThis, render } = props;
   const params = useParams({ strict: false });
   const threads = useThreadShells();
-  const ref = useMemo(
-    () =>
-      params.environmentId && params.threadId
-        ? scopeThreadRef(EnvironmentId.make(params.environmentId), ThreadId.make(params.threadId))
-        : null,
-    [params.environmentId, params.threadId],
-  );
-  const othersRunning = useMemo(
-    () =>
-      ref === null
-        ? []
-        : collectAgentTree(threads, ref).filter(
-            (entry) => entry.running && entry.thread.id !== ref.threadId,
-          ),
-    [ref, threads],
-  );
+  const ref =
+    params.environmentId && params.threadId
+      ? scopeThreadRef(EnvironmentId.make(params.environmentId), ThreadId.make(params.threadId))
+      : null;
+  const othersRunning =
+    ref === null
+      ? []
+      : collectAgentTree(threads, ref).filter(
+          (entry) => entry.running && entry.thread.id !== ref.threadId,
+        );
   const { stop } = useAgentControlActions();
 
   if (ref === null || othersRunning.length === 0) return render({ onClick: onStopThis });

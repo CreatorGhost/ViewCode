@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
-import { useThreadShells } from "../../state/entities";
+import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
 import { useThreadTabsStore } from "../../threadTabsStore";
 import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 import { recentViewCandidates, stepRecentSelection } from "./threadTabs.logic";

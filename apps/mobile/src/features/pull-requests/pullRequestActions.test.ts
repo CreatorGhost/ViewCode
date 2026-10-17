@@ -1,3 +1,4 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   allowedMergeMethods,
@@ -123,8 +124,8 @@ describe("mobile pull request actions", () => {
 
 describe("reviewSummaryRequired", () => {
   it("asks only Forgejo for a summary, and only when requesting changes", () => {
-    expect(reviewSummaryRequired("forgejo", "request-changes")).toBe(true);
-    expect(reviewSummaryRequired("forgejo", "approve")).toBe(false);
-    expect(reviewSummaryRequired("github", "request-changes")).toBe(false);
+    expect(reviewSummaryRequired(SourceControlProviderKind.make("forgejo"), "request-changes")).toBe(true);
+    expect(reviewSummaryRequired(SourceControlProviderKind.make("forgejo"), "approve")).toBe(false);
+    expect(reviewSummaryRequired(SourceControlProviderKind.make("github"), "request-changes")).toBe(false);
   });
 });

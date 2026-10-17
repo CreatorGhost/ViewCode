@@ -1,7 +1,10 @@
+import { CheckIcon, CopyIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { memo, useRef } from "react";
-import { CopyIcon, CheckIcon } from "lucide-react";
+import { Check, Copy } from "lucide";
 import { Button } from "../ui/button";
+import { MorphIcon } from "~/components/MorphIcon";
+import { cn } from "~/lib/utils";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
@@ -20,13 +23,16 @@ import { CopyFormatMenu } from "./CopyFormatMenu";
 
 export const MessageCopyButton = memo(function MessageCopyButton({
   text,
+  label = "Copy message",
+  icon = Copy,
   extraFlavors,
   size = "xs",
   variant = "outline",
   className,
 }: {
   text: string;
-  /** Additional clipboard types written beside `text/plain` when the platform allows it. */
+  label?: string;
+  icon?: typeof Copy;
   extraFlavors?: Readonly<Record<string, string>>;
   size?: "xs" | "icon-xs";
   variant?: "outline" | "ghost";
@@ -45,7 +51,7 @@ export const MessageCopyButton = memo(function MessageCopyButton({
       <TooltipTrigger
         render={
           <Button
-            aria-label="Copy message"
+            aria-label={label}
             disabled={isCopied}
             onClick={() => copyToClipboard(text)}
             ref={ref}
@@ -56,10 +62,13 @@ export const MessageCopyButton = memo(function MessageCopyButton({
           />
         }
       >
-        {isCopied ? <CheckIcon className="size-3 text-primary" /> : <CopyIcon className="size-3" />}
+        <MorphIcon
+          className={cn("size-3", isCopied && "text-primary")}
+          icon={isCopied ? Check : icon}
+        />
       </TooltipTrigger>
       <TooltipPopup>
-        <p>Copy message</p>
+        <p>{label}</p>
       </TooltipPopup>
     </Tooltip>
   );

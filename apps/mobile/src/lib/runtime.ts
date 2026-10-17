@@ -1,10 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
-import * as Socket from "effect/unstable/socket/Socket";
+import * as Socket from "effect/socket/Socket";
 
 import { ManagedRelay } from "@t3tools/client-runtime/relay";
-import { remoteHttpClientLayer } from "@t3tools/client-runtime/rpc";
+import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
 import { RelayMobileClientId } from "@t3tools/contracts/relay";
 
 import { tracingLayer } from "../features/observability/tracing";
@@ -14,7 +14,7 @@ import { disposeOnFoundationReplace, type FoundationHotModule } from "./foundati
 
 declare const module: { readonly hot?: FoundationHotModule } | undefined;
 
-const httpClientLayer = remoteHttpClientLayer(fetch);
+const httpClientLayer = layerRemoteHttpClient(fetch);
 
 // The shared connection runtime still asks for a relay client. ViewCode has no
 // hosted relay, so an empty URL makes it the disabled variant that fails every call.

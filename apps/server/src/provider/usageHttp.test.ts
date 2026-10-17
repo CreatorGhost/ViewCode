@@ -1,14 +1,9 @@
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as TestClock from "effect/testing/TestClock";
-import {
-  HttpClient,
-  HttpClientError,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/http";
 
-import { makeUsageHttpReader } from "./usageHttp.ts";
+import { makeUsageHttpReader } from "./viewcode/usageHttp.ts";
 
 it.effect("honors Retry-After without sharing cooldowns with another account or endpoint", () =>
   Effect.gen(function* () {

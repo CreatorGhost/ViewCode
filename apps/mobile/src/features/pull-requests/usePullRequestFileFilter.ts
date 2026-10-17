@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useMemo } from "react";
 import type { ReviewParsedDiff } from "../review/reviewModel";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";

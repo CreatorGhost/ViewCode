@@ -1,15 +1,14 @@
 import {
+  AuthStandardClientScopes,
   CommandId,
-  AuthAdministrativeScopes,
   EnvironmentHttpApi,
   EnvironmentHttpCommonError,
-  type OrchestrationReadModel,
+  type ProjectMutation,
+  type ProjectSnapshot,
   ProjectId,
-  type ClientOrchestrationCommand,
 } from "@t3tools/contracts";
 import * as Console from "effect/Console";
 import * as Crypto from "effect/Crypto";
-import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -18,20 +17,25 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
-import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
-import { FetchHttpClient, HttpClient, HttpClientError } from "effect/unstable/http";
-
-import { makeListenPathFetch } from "../socketListener.ts";
-import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
+import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
+import { FetchHttpClient, HttpClient, HttpClientError } from "effect/http";
+import * as HttpApiClient from "effect/http-api/HttpApiClient";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 
 import * as ServerConfig from "../config.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
-import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as ServerOwnership from "../serverOwnership.ts";
+import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
+import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
+import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import { projectMutationOperation } from "../project/ProjectMutation.ts";
+import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import {
   clearPersistedServerRuntimeState,
   readPersistedServerRuntimeState,
@@ -46,10 +50,7 @@ type ProjectMutationTarget = {
 };
 
 type ProjectCommandExecutionMode = "live" | "offline";
-type ProjectCliDispatchCommand = Extract<
-  ClientOrchestrationCommand,
-  { type: "project.create" | "project.meta.update" | "project.delete" }
->;
+type ProjectCliDispatchCommand = ProjectMutation;
 
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
 
@@ -189,7 +190,7 @@ export function projectCommandErrorFromLiveServerRequest(cause: unknown): Projec
 }
 
 const projectCommandUuid = Crypto.Crypto.pipe(
-  Effect.flatMap((crypto) => crypto.randomUUIDv4),
+  Effect.flatMap((crypto) => crypto.randomUUIDv4()),
   Effect.mapError(
     (cause) =>
       new ProjectCommandIdGenerationError({
@@ -199,12 +200,18 @@ const projectCommandUuid = Crypto.Crypto.pipe(
   ),
 );
 
-const ProjectCliRuntimeLive = Layer.mergeAll(
-  WorkspacePaths.layer,
-  OrchestrationLayerLive.pipe(
-    Layer.provideMerge(RepositoryIdentityResolver.layer),
-    Layer.provideMerge(SqlitePersistenceLayerLive),
+const layerProjectCliRuntime = RuntimeLayer.layerProjectService.pipe(
+  Layer.provideMerge(ProjectEnrichmentService.layer),
+  Layer.provideMerge(RepositoryIdentityResolver.layer),
+  Layer.provideMerge(
+    ProjectFaviconResolver.layer.pipe(
+      Layer.provide(WorkspacePaths.layer),
+      Layer.provide(T3ProjectFileLoader.layer),
+    ),
   ),
+  Layer.provideMerge(WorkspacePaths.layer),
+  Layer.provideMerge(ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+  Layer.provideMerge(SqlitePersistence.layerConfig),
 );
 
 const PROJECT_CLI_LIVE_SERVER_TIMEOUT = Duration.seconds(1);
@@ -214,7 +221,7 @@ const withProjectCliSessionToken = <A, E, R>(
 ) =>
   Effect.acquireUseRelease(
     environmentAuth.issueSession({
-      scopes: AuthAdministrativeScopes,
+      scopes: AuthStandardClientScopes,
       label: "t3 project cli",
     }),
     (issued) => run(issued.token),
@@ -257,7 +264,7 @@ const resolveProjectTitle = Effect.fn("resolveProjectTitle")(function* (
 });
 
 const findActiveProjectTarget = Effect.fn("findActiveProjectTarget")(function* (input: {
-  readonly snapshot: OrchestrationReadModel;
+  readonly snapshot: ProjectSnapshot;
   readonly identifier: string;
 }) {
   const trimmedIdentifier = input.identifier.trim();
@@ -312,7 +319,7 @@ const findActiveProjectTarget = Effect.fn("findActiveProjectTarget")(function* (
 const fetchLiveOrchestrationSnapshot = (origin: string, bearerToken: string) =>
   Effect.gen(function* () {
     const client = yield* makeLiveServerClient(origin);
-    return yield* client.orchestration.snapshot({
+    return yield* client.projects.snapshot({
       headers: { authorization: `Bearer ${bearerToken}` },
     });
   }).pipe(
@@ -327,34 +334,19 @@ const dispatchLiveOrchestrationCommand = (
 ) =>
   Effect.gen(function* () {
     const client = yield* makeLiveServerClient(origin);
-    yield* client.orchestration.dispatch({
+    yield* client.projects.mutate({
       headers: { authorization: `Bearer ${bearerToken}` },
       payload: command,
-    } as Parameters<typeof client.orchestration.dispatch>[0]);
+    } as Parameters<typeof client.projects.mutate>[0]);
   }).pipe(
     withProjectCliLiveServerTimeout,
     Effect.mapError(projectCommandErrorFromLiveServerRequest),
   );
 
 const getOfflineSnapshot = Effect.fn("getOfflineSnapshot")(function* () {
-  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  // Project commands only read the project list, so use the lightweight
-  // command read model instead of hydrating every thread body in the database.
-  return yield* projectionSnapshotQuery.getCommandReadModel();
+  const projects = yield* ProjectService.ProjectService;
+  return yield* projects.snapshot;
 });
-
-interface LiveProjectServer {
-  readonly origin: string;
-  readonly listenPath: string | undefined;
-}
-
-/** Routes live-server requests over the server's socket when it has no TCP port. */
-const withLiveServerTransport =
-  (listenPath: string | undefined) =>
-  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-    listenPath === undefined
-      ? effect
-      : Effect.provideService(effect, FetchHttpClient.Fetch, makeListenPathFetch(listenPath));
 
 const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecutionMode")(
   function* (
@@ -363,16 +355,13 @@ const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecu
   ) {
     const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
     if (Option.isNone(runtimeState)) {
-      return Option.none<LiveProjectServer>();
+      return Option.none<{ readonly origin: string }>();
     }
 
-    const listenPath = runtimeState.value.listenPath;
     const attempt = withProjectCliSessionToken(environmentAuth, (token) =>
       fetchLiveOrchestrationSnapshot(runtimeState.value.origin, token).pipe(
-        withLiveServerTransport(listenPath),
         Effect.as({
           origin: runtimeState.value.origin,
-          listenPath,
         }),
       ),
     );
@@ -386,15 +375,14 @@ const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecu
       origin: runtimeState.value.origin,
       cause: attempted.failure,
     });
-    yield* clearPersistedServerRuntimeState(config.serverRuntimeStatePath);
-    return Option.none<LiveProjectServer>();
+    return Option.none<{ readonly origin: string }>();
   },
 );
 
 const runProjectMutation = Effect.fn("runProjectMutation")(function* (
   flags: CliAuthLocationFlags,
   run: (input: {
-    readonly snapshot: OrchestrationReadModel;
+    readonly snapshot: ProjectSnapshot;
     readonly dispatch: (
       command: ProjectCliDispatchCommand,
     ) => Effect.Effect<void, Error, FileSystem.FileSystem | HttpClient.HttpClient | Path.Path>;
@@ -420,16 +408,11 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
     if (Option.isSome(liveMode)) {
       return yield* withProjectCliSessionToken(environmentAuth, (token) =>
         Effect.gen(function* () {
-          const transport = withLiveServerTransport(liveMode.value.listenPath);
-          const snapshot = yield* fetchLiveOrchestrationSnapshot(liveMode.value.origin, token).pipe(
-            transport,
-          );
+          const snapshot = yield* fetchLiveOrchestrationSnapshot(liveMode.value.origin, token);
           const output = yield* run({
             snapshot,
             dispatch: (command) =>
-              dispatchLiveOrchestrationCommand(liveMode.value.origin, token, command).pipe(
-                transport,
-              ),
+              dispatchLiveOrchestrationCommand(liveMode.value.origin, token, command),
             mode: "live",
           });
           yield* Console.log(output);
@@ -437,24 +420,30 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
       );
     }
 
-    const offlineRuntimeLayer = ProjectCliRuntimeLive.pipe(
+    const layerOfflineRuntime = layerProjectCliRuntime.pipe(
       Layer.provide(ServerConfig.layer(config)),
       Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),
     );
 
+    // An unreachable server may still be running; never write behind it.
+    yield* ServerOwnership.acquireServerOwnership(config.serverRuntimeStatePath).pipe(
+      Effect.provide(ProcessRunner.layer),
+    );
+    yield* clearPersistedServerRuntimeState(config.serverRuntimeStatePath);
     return yield* Effect.gen(function* () {
       const snapshot = yield* getOfflineSnapshot();
-      const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const projects = yield* ProjectService.ProjectService;
       const output = yield* run({
         snapshot,
-        dispatch: (command) => orchestrationEngine.dispatch(command),
+        dispatch: (command) => projectMutationOperation(projects, command).pipe(Effect.asVoid),
         mode: "offline",
       });
       yield* Console.log(output);
-    }).pipe(Effect.provide(offlineRuntimeLayer));
+    }).pipe(Effect.provide(layerOfflineRuntime));
   }).pipe(
+    Effect.scoped,
     Effect.provide(
-      Layer.mergeAll(EnvironmentAuth.runtimeLayer, WorkspacePaths.layer).pipe(
+      Layer.mergeAll(EnvironmentAuth.layerRuntime, WorkspacePaths.layer).pipe(
         Layer.provideMerge(FetchHttpClient.layer),
         Layer.provide(ServerConfig.layer(config)),
         Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),
@@ -478,7 +467,7 @@ const projectAddCommand = Command.make("add", {
         snapshot,
         dispatch,
       }: {
-        readonly snapshot: OrchestrationReadModel;
+        readonly snapshot: ProjectSnapshot;
         readonly dispatch: (
           command: ProjectCliDispatchCommand,
         ) => Effect.Effect<void, Error, FileSystem.FileSystem | HttpClient.HttpClient | Path.Path>;
@@ -503,7 +492,6 @@ const projectAddCommand = Command.make("add", {
           projectId,
           title,
           workspaceRoot,
-          createdAt: DateTime.formatIso(yield* DateTime.now),
         });
         return `Added project ${projectId} (${title}) at ${workspaceRoot}.`;
       }),
@@ -529,7 +517,7 @@ const projectRemoveCommand = Command.make("remove", {
         snapshot,
         dispatch,
       }: {
-        readonly snapshot: OrchestrationReadModel;
+        readonly snapshot: ProjectSnapshot;
         readonly dispatch: (
           command: ProjectCliDispatchCommand,
         ) => Effect.Effect<void, Error, FileSystem.FileSystem | HttpClient.HttpClient | Path.Path>;
@@ -565,7 +553,7 @@ const projectRenameCommand = Command.make("rename", {
         snapshot,
         dispatch,
       }: {
-        readonly snapshot: OrchestrationReadModel;
+        readonly snapshot: ProjectSnapshot;
         readonly dispatch: (
           command: ProjectCliDispatchCommand,
         ) => Effect.Effect<void, Error, FileSystem.FileSystem | HttpClient.HttpClient | Path.Path>;
@@ -580,7 +568,7 @@ const projectRenameCommand = Command.make("rename", {
         }
 
         yield* dispatch({
-          type: "project.meta.update",
+          type: "project.update",
           commandId: CommandId.make(yield* projectCommandUuid),
           projectId: project.id,
           title: nextTitle,

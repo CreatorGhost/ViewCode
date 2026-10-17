@@ -1,4 +1,6 @@
-import type { EnvironmentId, OrchestrationThreadShell } from "@t3tools/contracts";
+import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+import type { EnvironmentId } from "@t3tools/contracts";
 import { CHATGPT_USAGE_URL, isChatGptUsageLimitError } from "@t3tools/shared/usageLimits";
 import * as Option from "effect/Option";
 import { Linking, Pressable, View } from "react-native";

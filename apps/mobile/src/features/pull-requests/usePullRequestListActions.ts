@@ -3,7 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, PullRequestAction } from "@t3tools/contracts";
 import * as Clipboard from "expo-clipboard";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { use, useCallback, useMemo, useRef, useState } from "react";
 import { Alert, Linking, Platform, Share } from "react-native";
 import type { ControlPillMenuProps } from "../../components/ControlPillMenu.types";

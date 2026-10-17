@@ -1,26 +1,30 @@
 import * as Effect from "effect/Effect";
 
-import { AgentMessaging } from "../../../agents/AgentMessaging.ts";
+import { AgentMessaging } from "../../../agents/AgentMessagingV2.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { AgentsToolkit } from "./tools.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
 
 const make = Effect.gen(function* () {
   const messaging = yield* AgentMessaging;
   const caller = McpInvocationContext.requireMcpCapability("agents").pipe(
-    Effect.map((scope) => scope.threadId),
+    Effect.flatMap((scope) => McpInvocationContext.requireThreadScope(scope, "Agent messaging")),
+    Effect.map((scope) => scope.thread.threadId),
   );
-  return AgentsToolkit.of({
-    viewcode_list_agents: () =>
+  return {
+    viewcode_list_agents: McpToolAccess.readsAsCaller(() =>
       caller.pipe(
         Effect.flatMap((threadId) => messaging.listAgents(threadId)),
         Effect.map((agents) => ({ agents })),
       ),
-    viewcode_list_models: () =>
+    ),
+    viewcode_list_models: McpToolAccess.readsAsCaller(() =>
       caller.pipe(
         Effect.andThen(messaging.listModels()),
         Effect.map((providers) => ({ providers })),
       ),
-    viewcode_spawn_agent: (input) =>
+    ),
+    viewcode_spawn_agent: McpToolAccess.actsAsCaller((input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.spawnAgent(threadId, {
@@ -35,7 +39,8 @@ const make = Effect.gen(function* () {
           }),
         ),
       ),
-    viewcode_send_message: (input) =>
+    ),
+    viewcode_send_message: McpToolAccess.actsAsCaller((input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.sendMessage(threadId, {
@@ -46,7 +51,8 @@ const make = Effect.gen(function* () {
           }),
         ),
       ),
-    viewcode_read_transcript: (input) =>
+    ),
+    viewcode_read_transcript: McpToolAccess.readsAsCaller((input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.readTranscript(threadId, {
@@ -56,7 +62,8 @@ const make = Effect.gen(function* () {
         ),
         Effect.map((transcript) => ({ transcript })),
       ),
-    viewcode_search_history: (input) =>
+    ),
+    viewcode_search_history: McpToolAccess.readsAsCaller((input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.searchHistory(threadId, {
@@ -67,7 +74,8 @@ const make = Effect.gen(function* () {
         ),
         Effect.map((matches) => ({ matches })),
       ),
-    viewcode_configure_agent: (input) =>
+    ),
+    viewcode_configure_agent: McpToolAccess.actsAsCaller((input) =>
       caller.pipe(
         Effect.flatMap((threadId) =>
           messaging.configureAgent(threadId, {
@@ -79,7 +87,9 @@ const make = Effect.gen(function* () {
           }),
         ),
       ),
-  });
+    ),
+  } satisfies McpToolAccess.Handlers<typeof AgentsToolkit.tools>;
 });
 
-export const AgentsToolkitHandlersLive = AgentsToolkit.toLayer(make);
+export const layer = McpToolAccess.toLayer(AgentsToolkit, make);
+export const AgentsToolkitHandlersLive = layer;
