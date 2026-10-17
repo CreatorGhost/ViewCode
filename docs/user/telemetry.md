@@ -1,17 +1,15 @@
 # Product usage data
 
-The T3 Code server sends product usage events to PostHog, associated with a hashed account or
-installation identifier. Events include the provider, model, reasoning effort, permission mode,
-turn result, duration, and main-agent token totals when available.
+ViewCode disables anonymous product analytics by default and ships without a
+PostHog project key. It does not send product usage events on a normal installation.
 
-Events do not include prompts, responses, file contents, authentication tokens, conversation IDs,
-raw provider events, or child-agent output. Child-agent token use is excluded from the totals.
+Set `T3CODE_TELEMETRY_ENABLED=false` in the server's environment before starting it
+to keep the retained analytics integration disabled even if other analytics settings
+have been configured. The desktop app reads shell environment settings on macOS and
+Linux; restart it after changing them. On Windows, use a user environment variable.
 
-To disable collection, set `T3CODE_TELEMETRY_ENABLED=false` in the server's environment before
-starting it. This stops product events from being recorded or sent.
-
-The desktop app reads the variable from your shell profile (for example `~/.zshrc`) on macOS and
-Linux, so export it there and restart the app. On Windows, set it as a user environment variable.
+Diagnostics you explicitly export to your own receiver are separate from anonymous
+product analytics.
 
 ## Export diagnostics to your own receiver
 

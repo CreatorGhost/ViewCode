@@ -33,7 +33,8 @@ and one on everywhere can be kept out of another. That project's model pickers f
 and no new turn there can start on a provider it turned off, including queued messages and
 follow-ups from delegated tasks. A turn already running when the switch flips finishes. A delegated
 task's result still lands in its parent thread, which sees it on its next turn. Reset returns the project to the
-machine's setting. Every other provider setting stays per machine.
+machine's setting. Every other provider setting stays per machine. An IT administrator's
+provider policy takes precedence over project and environment choices.
 
 On mobile, open **Settings** and use the filter in its header to choose connected environments
 and a project. The filter stays available in server-setting pages. With **All projects** selected,
@@ -50,7 +51,7 @@ and other phone-only settings ignore the filter.
 
 In **Settings → Source Control → Worktree branch naming**, choose a static prefix,
 a model-selected semantic prefix such as `feat/` or `fix/`, or custom instructions
-for the complete name. The static prefix defaults to `t3/`; a trailing slash is
+for the complete name. The static prefix defaults to `vc/`; a trailing slash is
 optional, and an empty prefix adds nothing. Invalid characters in a static prefix
 are replaced with hyphens. Custom instructions are appended to
 the naming prompt and can specify issue IDs, namespaces, and casing.
@@ -77,9 +78,9 @@ Leaving an edited form asks before discarding unsaved changes.
 
 In **Settings → Scheduled tasks**, choose **On webhook**
 as a task's schedule to run it whenever another service calls its URL, such as
-GitHub on a new pull request or a CI job that failed. A public URL needs a
-[T3 Connect](remote-access.md) managed tunnel; after you save the task, copy
-its URL from the editor. Without one, the editor shows only the URL's path.
+GitHub on a new pull request or a CI job that failed. The sender needs a reachable
+HTTPS route to the server. After saving, copy the URL from the editor when one is
+available; otherwise combine its displayed path with the HTTPS address you manage.
 **Rotate** replaces the URL and the old one stops working.
 
 The prompt decides what the agent sees. Placeholders pull values out of the
@@ -111,12 +112,9 @@ requests and the prompt each one produced.
 
 If the environment is offline, the sender gets an error and nothing runs;
 redeliver from the sender, such as GitHub's **Recent Deliveries**, once it is
-back. To have T3 Connect keep requests instead, turn on **Hold webhooks while
-offline** in **Settings → Connections**. T3 Connect then stores requests to a
-T3 Connect URL for up to 24 hours and delivers them when the environment
-returns. Leave it off if you don't want request bodies stored outside your
-machine. To skip requests that waited too long, set **Skip requests older
-than** on the task.
+back. To skip requests that waited too long, set **Skip requests older than** on
+the task. ViewCode does not offer the upstream managed tunnel's offline webhook
+queue.
 
 ## Defaults and inheritance
 
@@ -162,7 +160,7 @@ captures and log retention remain machine-wide.
 
 Worktrees can be removed after a chosen number of inactive days, after a thread settles, after
 merging, or when they have no commits beyond the default branch. Set settled retention to 0 days
-to remove a worktree at the next cleanup after settlement. Only T3-managed worktrees are eligible.
+to remove a worktree at the next cleanup after settlement. Only ViewCode-managed worktrees are eligible.
 Active sessions and shared worktrees prevent removal. **Keep worktrees with local changes** defaults
 to **Uncommitted changes**, which protects tracked edits and untracked files but deletes ignored
 files such as `.env` and build output. **Any local files** also protects ignored files other than
@@ -188,7 +186,7 @@ working. Current logs, message attachments, and browser profiles are kept.
 
 Select the project and open Project to choose an icon, emoji, monogram, or image. The choice applies to
 every checkout in the project group and appears on connected clients. Choose **Automatic** to let
-T3 Code detect an icon again.
+ViewCode detect an icon again.
 
 Choose **Monogram** in the icon picker to set one or two letters or numbers and a color.
 
@@ -211,6 +209,6 @@ In Source Control, enable **Automatically pull** to keep the default-branch chec
 with its configured upstream. Choose an environment to set the default or a project to override it.
 On mobile, use **Settings → Source control** to change selected environment defaults or project overrides.
 
-T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
+ViewCode only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.

@@ -1,168 +1,93 @@
-# Install T3 Code
+# Install ViewCode
 
-T3 Code runs coding agents on your computer and lets you control them from its
+ViewCode runs coding agents on your computer and lets you control them from its
 desktop, web, or mobile app. Set up the machine where the agents will work first.
-
-## Requirements
-
-You need an installed, authenticated provider before starting a thread. You can
-launch T3 Code and configure providers afterwards.
+You need an installed, authenticated provider before starting a thread; you can
+configure providers after opening ViewCode.
 
 ## ViewCode from npm
 
-ViewCode is on npm as `viewcode-app`. It needs Node.js 24.13 or newer and runs in
-your browser:
+Use Node.js 24.13.1 or newer:
 
-```bash
+```sh
 npm install -g viewcode-app
 viewcode
 ```
 
-`viewcode` starts the server and opens ViewCode in your browser. Update it with
-`npm install -g viewcode-app@latest`. The `update`, `uninstall` and `service`
-commands below belong to the `t3` install and do not apply to this one.
+`viewcode` starts the server and opens ViewCode in your browser. To try it without
+a global install, run `npx viewcode-app@latest`.
 
-If `viewcode` is `command not found` in a new terminal although it worked before,
-check `node --version`. With nvm, a default alias that points at a version that
-is not installed (such as `lts/*`) leaves new terminals without `node`; run
-`nvm alias default 24`.
+If a new terminal cannot find `viewcode`, check `node --version` and the global
+npm binary directory on your `PATH`. With nvm, choose an installed default, such
+as `nvm alias default 24`.
 
 On a company network that inspects TLS, add `export NODE_OPTIONS=--use-system-ca`
 to your shell profile so Node trusts the certificates your company installed.
-
-### Company-managed Macs
-
-- Use `viewcode` in the browser.
-- A new install starts with every AI tool off. Turn on only the ones your company
-  allows: endpoint security can end your session the moment a blocked tool runs.
-- Leave the background service, a desktop app you built yourself and Computer use
-  off until IT approves them.
+Enable only providers and remote-access tools your company allows. An IT provider
+policy takes precedence over choices made during setup or in a project.
 
 ## Command line
 
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
+| Task                                         | Command                              |
+| -------------------------------------------- | ------------------------------------ |
+| Start the server and open the web app        | `viewcode`                           |
+| Start without opening a browser              | `viewcode serve`                     |
+| Create a pairing link for a reachable server | `viewcode pair`                      |
+| Show available commands                      | `viewcode --help`                    |
+| Update the npm installation                  | `npm install -g viewcode-app@latest` |
+| Remove the npm installation                  | `npm uninstall -g viewcode-app`      |
 
-On Windows, in PowerShell:
+To open a project from a terminal, use an explicit path such as
+`viewcode ./my-project`. A bare directory name is accepted only if it already
+exists. If a server is already running, connect to it instead of starting another
+against the same data directory. Use `--base-dir <path>` for an independent home.
+The default home is `~/.viewcode`; runtime state is under its `userdata` directory.
+An existing installation configured with another home keeps that location.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
-
-This installs the `t3` binary to `~/.local/bin`. If your shell reports `command not found`
-afterwards, that directory is not on your `PATH` yet; the installer prints the
-line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
-`T3CODE_VERSION` to pin an exact version.
-
-| Task                                             | Command                                                                 |
-| ------------------------------------------------ | ----------------------------------------------------------------------- |
-| Start the server and open the web app            | `t3`                                                                    |
-| Start the server without a browser               | `t3 serve`                                                              |
-| Keep it running in the background (macOS, Linux) | `t3 service install` ([details](./background-service.md))               |
-| Move to the newest release                       | `t3 update`                                                             |
-| Reclaim database space                           | `t3 doctor` ([details](./background-service.md#reclaim-database-space)) |
-| Remove it again                                  | `t3 uninstall`                                                          |
-
-Run `t3 help` or `t3 --help` for the full reference. To start in a new working
-directory, use an explicit path such as `t3 ./my-project`. A bare directory name
-is accepted only if it already exists.
-
-If `t3` or `t3 start` reports an already running server, connect to that server
-instead. Stop it before starting a replacement, or use a different `--base-dir`
-for an independent server.
-
-To try T3 Code once without installing it, run `npx t3@latest` instead (needs
-Node.js for `npx`).
-
-### Intel Macs
-
-There is no `t3` executable for Intel Macs (the desktop app is available). To
-run a server there, build it from source with Node.js 24 and `vp`
-([Install vp](https://github.com/pingdotgg/t3code#install-vp)):
-
-```bash
-git clone https://github.com/pingdotgg/t3code
-cd t3code && vp i && vp run build:desktop
-node apps/server/dist/bin.mjs
-```
-
-`t3 update` and the background service do not apply to a server run this way;
-update it with `git pull` and a rebuild.
+ViewCode does not offer the upstream standalone runtime installer, managed service
+installation or CLI self-update. npm updates are manual; see [Updating ViewCode](./updating.md).
+Removing the npm package leaves your data directory intact.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
-or use a package manager:
+Use a ViewCode desktop release from the
+[ViewCode repository](https://github.com/CreatorGhost/ViewCode/releases), or build
+from its source. Upstream T3 Code installers and package-manager entries install
+a separate application.
 
-| Platform           | Install                            |
-| ------------------ | ---------------------------------- |
-| Windows            | `winget install T3Tools.T3Code`    |
-| macOS              | `brew install --cask t3-code`      |
-| Debian, Ubuntu     | `sudo apt install ./T3-Code-*.deb` |
-| Arch Linux         | `yay -S t3code-bin`                |
-| Arch Linux nightly | `yay -S t3code-nightly-bin`        |
+A macOS build that is not notarized, including one you built yourself, may be
+blocked the first time. Right-click it in Applications and choose **Open**, or use
+**Open Anyway** in **System Settings → Privacy & Security**. For builds that cannot
+install updates themselves, download the replacement ViewCode build and replace
+the app in Applications.
 
-A macOS build that is not notarized, such as one you built yourself, is blocked
-the first time you open it. Right-click the app in Applications, choose **Open**,
-and confirm, or click **Open Anyway** in **System Settings → Privacy & Security**.
-You only need to do this once per install. Such a build cannot install its own
-updates: when one is available, the update button opens its GitHub release, where
-you download the new DMG and replace the app in Applications.
-
-The `.deb` updates itself like the other desktop builds. It asks for your
-password to install each update. If your desktop has no password prompt, the
-update fails. Download the new `.deb` and install it the same way.
-
-### The `t3` command
-
-The desktop app includes the `t3` command-line tool. To run it from any
-terminal, open **Settings → General → About** and choose **Install** next to
-**t3 command**. On macOS and Linux it adds a `t3` link to a folder on your
-`PATH`; on Windows it adds the app's command folder to your `PATH`. Open a new
-terminal afterwards. **Remove** takes it off again. If you already have `t3`
-from npm, it stays as it is.
+The command-line installation above is separate from the desktop app. ViewCode
+keeps the upstream Settings action for installing its command hidden.
 
 ### Windows Subsystem for Linux
 
-Choose a WSL distro in **Settings → Connections** to run agents and projects
-there. Install the provider CLIs inside that distro. T3 Code installs its own
-server runtime there automatically; the first launch after an app update can
-take longer.
+Choose a WSL distro in **Settings → Connections** to run agents and projects there.
+Install provider CLIs inside that distro. The desktop app prepares its server
+runtime there; the first launch after an app update can take longer.
 
 ### Open a project from a terminal
 
-With the desktop app already running on the same machine:
+With the ViewCode desktop app already running on the same machine:
 
-```bash
-t3 app
+```sh
+viewcode app
 ```
 
-This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
-the desktop app, so a standalone server or an SSH session is not enough. If the
-command cannot reach the app, start or update the desktop app and try again.
+This opens a thread for the current directory, adding the project if needed.
+Pass a path, such as `viewcode app ../my-project`, to open another directory.
+A standalone server or an SSH session cannot open the local desktop app this way.
 
 ## Mobile app
 
-Install T3 Code from the
-[App Store](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824) or
-[Google Play](https://play.google.com/store/apps/details?id=com.t3tools.t3code).
-The phone connects to a server on another machine. Follow
-[remote access](./remote-access.md) to link it through T3 Connect or a pairing URL.
-
-Store links and QR codes are also available in **Settings → General → Mobile app**
-on web and desktop. The store apps work with both stable and Nightly servers. Test builds are optional:
-
-- **iPhone and iPad:** TestFlight is invite-only.
-- **Android:** download an APK from the
-  [Android beta releases](https://github.com/pingdotgg/t3code/releases?q=android-beta-).
-
-If the app crashes during launch, open Settings → Diagnostics on the next launch
-that succeeds. It lists startup crashes from the last 7 days with the error and
-component stack that store crash reports leave out. Copy the report and paste it
-into a GitHub issue. Error messages can quote values from the app, so read it over
-before sharing.
+Use a ViewCode mobile build that matches your server's orchestration protocol.
+See [ViewCode Android app](./android-app.md) for Android build and installation.
+Pair the phone with your server using [remote access](./remote-access.md).
+The phone uses the server's provider installations and credentials.
 
 ## Providers
 
@@ -178,13 +103,14 @@ computer.
 | Cursor       | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
 | Grok Build   | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
 | OpenCode     | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
-| Antigravity  | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
+| Antigravity  | Install and sign in with Google from ViewCode's provider settings.                                                                                        |
 | Command Code | Install [Command Code](https://commandcode.ai) (`npm i -g command-code`), then run `cmd login`.                                                           |
 | Droid        | Install [Droid](https://docs.factory.ai/cli/getting-started/quickstart), then run `droid` and log in, or set `FACTORY_API_KEY`.                           |
 | Devin        | Install the [Devin CLI](https://docs.devin.ai/cli), then run `devin auth login`, or set `WINDSURF_API_KEY`.                                               |
+| Muse Code    | Install [Muse Code](https://dev.meta.ai/docs/muse-code), then run `muse login`.                                                                           |
 | Pi           | Install [Pi](https://pi.dev) (`npm i -g @earendil-works/pi-coding-agent`), then run `pi` and use `/login`.                                                |
 
-Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
+Provider CLIs must be on the server's `PATH`. If ViewCode cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
 Cursor's executable is `cursor-agent`, although its login command is
 `agent login`. Codex connected through ChatGPT and Antigravity can use their
@@ -192,11 +118,11 @@ managed runtimes without a `PATH` entry.
 
 A new install starts with every provider off. The welcome screen asks which ones
 you use and shows which CLIs it found, without running any of them; nothing starts
-until you turn a provider on there or in **Settings → Providers**. An install from
-before this keeps its providers as they were, and turns Command Code, Droid, Devin
-and Pi on when `cmd`, `droid`, `devin` or `pi` is on the server's `PATH`.
+until you turn a provider on there or in **Settings → Providers**. Existing installs
+keep their saved provider choices. A company administrator can block providers;
+that policy takes precedence over user choices and per-project provider toggles.
 
-T3 Code warns when a provider version has known compatibility problems with your
+ViewCode warns when a provider version has known compatibility problems with your
 release. Check **Settings → Providers** on that environment for the recommended
 version or range. When its package manager supports installing a specific version,
 you can install the recommendation there. Otherwise use the provider's installer
@@ -205,14 +131,14 @@ on the environment's machine. An unlisted version is unverified.
 When a provider CLI is behind its latest release, its provider card shows the
 available version. **Update now** runs the installer that owns the CLI
 (Homebrew, or a global npm, pnpm, Yarn, Bun, Volta, or Vite+ install), or the
-CLI's own update command when T3 Code cannot tell. Update a CLI installed with
-mise through mise. Cursor and Antigravity update with T3 Code. Homebrew installs
+CLI's own update command when ViewCode cannot tell. Update a CLI installed with
+mise through mise. Cursor and Antigravity update with ViewCode. Homebrew installs
 compare against the version Homebrew offers, which can trail the npm release by
 a few hours.
 
 Add another provider instance for a separate account or configuration. Each
 instance can have its own environment variables, such as API keys or a custom
-base URL. Mark secret values as sensitive; after saving, T3 Code does not display
+base URL. Mark secret values as sensitive; after saving, ViewCode does not display
 their original values.
 
 For provider-specific setup and accounts, see [Codex](./providers-codex.md),
@@ -225,5 +151,5 @@ For provider-specific setup and accounts, see [Codex](./providers-codex.md),
 - [Working with threads](./thread-sidebar.md): start tasks and organize parallel work.
 - [Permission modes](./permission-modes.md): choose when agents ask before acting.
 - [Remote access](./remote-access.md): connect from another device.
-- [Running in the background](./background-service.md): keep a Linux or macOS host available.
-- [Updating T3 Code](./updating.md): update the app and connected servers.
+- [Running in the background](./background-service.md): keep a host available.
+- [Updating ViewCode](./updating.md): update the app and connected servers.

@@ -10,7 +10,7 @@ and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in
 an existing worktree, use **New thread in this worktree** from the branch toolbar.
 
-When you change a new thread's project, T3 Code stays in the current environment
+When you change a new thread's project, ViewCode stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
 The **New** menu at the top of the sidebar starts a **New chat** (Shift-click it to start in
@@ -27,8 +27,8 @@ list. It starts on your current machine; before sending, pick another machine
 from the machine menu to move it there. To move a draft into a project, pick the
 project in the heading.
 
-Each thread without a project works in its own folder under `~/.t3/scratch` (the
-`scratch` folder of your T3 data directory), named after its date, the first words
+Each thread without a project works in its own folder under `~/.viewcode/scratch` (the
+`scratch` folder of your ViewCode home), named after its date, the first words
 of its first message, and a short id, like
 `2026-09-25-convert-these-pngs-to-webp-a1b2c3d4`. Deleting a thread keeps its
 folder, so the files the agent wrote stay until you delete them. Branch, worktree, and diff controls stay hidden because
@@ -134,7 +134,7 @@ keep the positions you gave them. Settling clears a thread's active position, so
 move it again. An agent working in a thread does not change the order. The settled shelf continues
 to use settlement time.
 
-If dragging is unavailable for one environment, update the T3 Code server running in that
+If dragging is unavailable for one environment, update the ViewCode server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
 
@@ -142,7 +142,7 @@ To generate a fresh title from the conversation, open a thread's menu and choose
 **Regenerate title**. The action is unavailable while title generation is in progress
 or when the connected environment needs a server update.
 
-Agents connected through T3 Code can use the same server-owned metadata workflow to
+Agents connected through ViewCode can use the same server-owned metadata workflow to
 rename a thread, regenerate its title, or link and unlink a pull request. These changes
 appear on web, desktop, and mobile without requiring the originating browser to remain
 open.
@@ -270,13 +270,11 @@ or interrupted turn manually.
 Queued messages stay saved while the limit blocks the thread. They run after
 the continuation finishes. If the queue was held by a restart, resume it then.
 
-When the provider reports a reset time, choose **Resume at reset** to schedule a
-continuation. You can cancel it from the thread. Enable **Auto-resume limited
-threads** in **Settings → General** on web and desktop, or **Settings → Thread
-behavior** on mobile, to schedule limit stops by default.
-The environment must be running when the reset arrives; it resumes overdue
-continuations after a restart. Sending a new message, archiving, or settling the
-thread prevents a pending continuation from starting.
+When the provider reports a reset time, ViewCode shows it on the thread. Enable
+**Resume after usage limits** in Settings to schedule a continuation about a minute
+after the reset. The host must stay awake and ViewCode must be running. You can
+resume immediately or cancel a waiting continuation from its notice. On desktop,
+**Keep the computer awake** can prevent sleep while a continuation is waiting.
 
 Choose **Snooze until reset** to hide the thread until its allowance returns.
 Snooze and auto-resume are independent: snooze alone wakes the thread without
@@ -285,12 +283,16 @@ the snooze. Enable **Snooze limited threads** in thread behavior settings to
 snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
-On web and desktop, use **Agents** to follow work delegated to subagents.
-Stop on a thread also stops the subagents it delegated to.
+On web and desktop, use **Agents** to follow delegated work. To start one yourself,
+open a thread's menu, choose **New child agent**, and enter its name and task.
+The child uses the parent's model and its own worktree. The parent needs an active
+native run or at least one finished native turn; for an empty or imported thread,
+send a message first. Agents can also delegate tasks and message one another.
 
-Subagent threads started by the agent can't take messages; message the parent
-thread instead. When such a subagent needs an approval or an answer, the parent
-thread asks for it.
+Child threads appear under their parent in the sidebar. Stop on a thread also
+stops the subagents it delegated to. Provider-native subagents that cannot accept
+direct messages are controlled through their parent; approvals and questions are
+shown there.
 
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it

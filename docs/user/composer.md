@@ -45,7 +45,7 @@ before an upload finishes requires you to attach that file again.
 You can drag or paste images into the web or desktop composer. HEIC and HEIF
 photos are converted to JPEG there and when selected from the mobile photo
 library; photos over the image limit are also resized to fit. On mobile, you can
-also send files to T3 Code through another app's system share sheet.
+also send files to ViewCode through another app's system share sheet.
 
 See [images and videos](#images-and-videos-in-messages) for previewing and saving media.
 
@@ -76,8 +76,8 @@ keyboard. The button only offers Steer when the running agent supports it.
 
 Mobile keeps local copies of draft attachments, so you can preview them and queue
 messages while disconnected. Uploads resume when you reconnect. Drafts and queued
-messages survive app restarts. Signing out of T3 Connect keeps that work on your
-device until you sign back into the same account.
+messages survive app restarts. Keep the saved environment to send them when it
+reconnects.
 
 ## Custom models
 
@@ -102,7 +102,7 @@ instance:
 
 ## Model defaults
 
-T3 Code remembers your provider, model, and model options for new threads. A
+ViewCode remembers your provider, model, and model options for new threads. A
 project's configured model takes precedence; resetting that project setting
 returns to the remembered selection.
 
@@ -135,10 +135,11 @@ and `Esc` closes the bar. The shortcut is left alone in the terminal, editors an
 
 ## Fork from a message
 
-Choose **Fork from here** on any message to open a new thread, "Fork of <title>", in the same
-project with the conversation up to that message. The fork starts a fresh agent session that is
-briefed with the earlier transcript, and a divider at the top links back to the original thread.
-Nothing you do in the fork affects the original.
+Choose **Fork from here** on a finished user message to open a new thread in the
+same project with the conversation through that message. Its assistant reply and
+later messages are excluded. The fork keeps an independent copy of that prefix;
+continuing it starts a fresh provider session. Working-tree files are not rewound.
+See [portable handoffs](./portable-handoffs.md#fork-at-a-user-message).
 
 ## Files edited while the agent works
 
@@ -204,7 +205,7 @@ for example, put **Other Bluetooth** above your AirPods so a new headset is pref
 while the AirPods microphone stays low. By default, CarPlay comes after the built-in
 microphone.
 
-Transcription runs on your device. T3 Code deletes the temporary audio after
+Transcription runs on your device. ViewCode deletes the temporary audio after
 transcription or cancellation; only the message text is sent when you submit.
 
 ## Voice input on Android
@@ -231,7 +232,7 @@ After you add or change skills, plugins, or MCP servers, use **Restart agent
 session** in the command palette on web and desktop. The conversation continues,
 and your next message starts the agent again with the new setup.
 
-Provider commands must start the message to run. T3 Code commands such as
+Provider commands must start the message to run. ViewCode commands such as
 `/model` and `/plan`, and skill mentions, work on any line. `/goal`, `/debug` and
 `/default` set the thread's goal and debug mode; see
 [Goals and debug mode](./goals-and-debug-mode.md).
@@ -241,16 +242,11 @@ provider supports it. Web and desktop also offer compaction from the context met
 
 ## Goals
 
-With Codex and Claude, send `/goal` followed by what "done" means, for example
-`/goal all tests in packages/api pass`. The agent keeps working across turns
-until it judges the goal met. The thread shows **Goal** while it works, and a
-row above the composer shows the goal and its progress.
-
-- `/goal` alone shows the current goal. `/goal clear` removes it.
-- Codex also supports `/goal pause` and `/goal resume`. Stopping a Codex goal
-  pauses it.
-- Stopping Claude ends the current turn, but the goal stays set. Claude checks it
-  again at the end of your next message.
+Send `/goal` followed by what "done" means to set a thread goal on any provider.
+The goal stays with the thread across provider and account changes. Use `/goal`
+alone to edit it, or `/goal pause`, `/goal resume` and `/goal clear` to manage it.
+This is ViewCode's goal feature; it does not start autonomous turns between your
+messages. See [Goals and debug mode](./goals-and-debug-mode.md).
 
 ## Context in your message
 
@@ -291,7 +287,7 @@ exist only as chips: deleting a file's last chip removes the file from the messa
 Copy text that holds chips and paste it into another draft, in the same thread or another one,
 and the chips come along with what they point to. Images and files are fetched again from the
 environment they came from; while that happens the chip shows a dashed outline, and if it cannot
-complete T3 Code tells you and leaves the chip for you to remove or replace. A chip whose
+complete ViewCode tells you and leaves the chip for you to remove or replace. A chip whose
 context is no longer available shows the same dashed outline; hover it for what to do.
 
 Copying a message with the copy button, or copying text out of it, gives other apps readable
@@ -346,7 +342,7 @@ styles, or images from neighboring files.
 
 On web and desktop, HTML and PDF files open as rendered pages. Switch an HTML
 file to source view to read its markup; a link to a specific line opens source
-automatically. HTML previews cannot access your T3 Code session.
+automatically. HTML previews cannot access your ViewCode session.
 
 The file viewer recognizes images, HTML, and PDF files by their filename extension,
 including filenames or folders containing `#` or `?`.
