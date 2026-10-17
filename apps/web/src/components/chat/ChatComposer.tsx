@@ -284,6 +284,7 @@ import {
   type ComposerModelEffortView,
 } from "./ComposerModelEffortPicker";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
+import { ComposerUsageLimitsPopover } from "./ComposerUsageLimitsPopover";
 import {
   type ComposerCommandItem,
   ComposerCommandMenu,
@@ -1342,6 +1343,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 });
 
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
+  threadRef: ScopedThreadRef | null;
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
@@ -1396,6 +1398,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         <ContextWindowMeterPlaceholder />
       ) : null}
       <ComposerPrimaryActions
+        threadRef={props.threadRef}
         compact={props.compact}
         canOperateThread={props.canOperateThread}
         pendingAction={props.pendingAction}
@@ -7329,7 +7332,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </Tooltip>
                     </>
                   ) : null}
+                  {isComposerResting || showProviderUnavailable ? null : (
+                    <ComposerUsageLimitsPopover
+                      environmentId={environmentId}
+                      leadInstanceId={selectedInstanceId}
+                      instanceEntries={providerInstanceEntries}
+                      contextWindow={activeContextWindow}
+                    />
+                  )}
                   <ComposerFooterPrimaryActions
+                    threadRef={routeKind === "server" ? routeThreadRef : null}
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
                     activeContextWindow={

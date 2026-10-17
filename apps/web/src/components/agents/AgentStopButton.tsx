@@ -1,7 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
 import { useParams } from "@tanstack/react-router";
-import { type ReactElement, useMemo } from "react";
+import { type ReactElement } from "react";
 
 import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
 import { composerFloatingLayerProps } from "../chat/composerEventScope";
@@ -14,7 +14,8 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
-import { collectAgentTree } from "@t3tools/client-runtime/state/child-agents";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { agentStopState } from "./agentStop.logic";
 import { useAgentControlActions } from "./useAgentControlActions";
 
 /**
@@ -24,29 +25,38 @@ import { useAgentControlActions } from "./useAgentControlActions";
  * `render` draws the button; it gets `onClick` only in the direct case.
  */
 export function AgentStopButton(props: {
+  threadRef?: ScopedThreadRef | null | undefined;
+  disabled?: boolean | undefined;
+  tooltip?: string | undefined;
   onStopThis: () => void;
   render: (buttonProps: { readonly onClick?: () => void }) => ReactElement;
 }) {
   const { onStopThis, render } = props;
   const params = useParams({ strict: false });
   const threads = useThreadShells();
-  const ref =
+  const routeRef =
     params.environmentId && params.threadId
       ? scopeThreadRef(EnvironmentId.make(params.environmentId), ThreadId.make(params.threadId))
       : null;
-  const othersRunning =
-    ref === null
-      ? []
-      : collectAgentTree(threads, ref).filter(
-          (entry) => entry.running && entry.thread.id !== ref.threadId,
-        );
+  const { ref, othersRunning } = agentStopState(threads, props.threadRef, routeRef);
   const { stop } = useAgentControlActions();
+  const withTooltip = (trigger: ReactElement) =>
+    props.tooltip ? (
+      <Tooltip>
+        <TooltipTrigger render={trigger} />
+        <TooltipPopup>{props.tooltip}</TooltipPopup>
+      </Tooltip>
+    ) : (
+      trigger
+    );
 
-  if (ref === null || othersRunning.length === 0) return render({ onClick: onStopThis });
+  if (props.disabled) return withTooltip(render({}));
+  if (ref === null || othersRunning.length === 0)
+    return withTooltip(render({ onClick: onStopThis }));
 
   return (
     <Menu>
-      <MenuTrigger render={render({})} />
+      {withTooltip(<MenuTrigger render={render({})} />)}
       <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
         <MenuItem onClick={onStopThis}>Stop this agent</MenuItem>
         <MenuItem onClick={() => void stop(ref, "tree")}>

@@ -1,4 +1,5 @@
 import { memo, type MouseEventHandler, type PointerEventHandler } from "react";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, Minimize2Icon, PlayIcon } from "lucide-react";
 import { CornerUpRight, ListPlus } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -6,6 +7,7 @@ import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
 import { cn } from "~/lib/utils";
 import { useShortcutModifierState } from "../../shortcutModifierState";
+import { AgentStopButton } from "../agents/AgentStopButton";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -26,6 +28,7 @@ interface PendingActionState {
 }
 
 interface ComposerPrimaryActionsProps {
+  threadRef?: ScopedThreadRef | null | undefined;
   compact: boolean;
   canOperateThread: boolean;
   pendingAction: PendingActionState | null;
@@ -81,6 +84,7 @@ const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
 };
 
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
+  threadRef,
   compact,
   canOperateThread,
   pendingAction,
@@ -129,30 +133,30 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   );
 
   const renderStopGenerationButton = (insidePendingAction: boolean) => (
-    <Tooltip key="interrupt">
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            className={cn(
-              "flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-control-highlight transition-colors duration-150 hover:bg-destructive active:inset-shadow-control-pressed active:shadow-none [&_svg]:pointer-events-none",
-              insidePendingAction ? "size-8 sm:size-7" : "size-8 sm:h-8 sm:w-8",
-            )}
-            {...pointerFocusProps}
-            disabled={!canOperateThread}
-            onClick={() => {
-              if (canOperateThread) onInterrupt();
-            }}
-            aria-label="Stop generation"
-          />
-        }
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-          <rect x="2" y="2" width="8" height="8" rx="1.5" />
-        </svg>
-      </TooltipTrigger>
-      <TooltipPopup>Interrupt</TooltipPopup>
-    </Tooltip>
+    <AgentStopButton
+      key="interrupt"
+      threadRef={threadRef}
+      disabled={!canOperateThread}
+      tooltip="Interrupt"
+      onStopThis={onInterrupt}
+      render={(stopProps) => (
+        <button
+          type="button"
+          className={cn(
+            "flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 transition-colors duration-150 hover:bg-destructive active:shadow-none [&_svg]:pointer-events-none",
+            insidePendingAction ? "size-8 sm:size-7" : "size-8 sm:h-8 sm:w-8",
+          )}
+          {...pointerFocusProps}
+          disabled={!canOperateThread}
+          {...stopProps}
+          aria-label="Stop generation"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+            <rect x="2" y="2" width="8" height="8" rx="1.5" />
+          </svg>
+        </button>
+      )}
+    />
   );
 
   if (pendingAction) {
@@ -308,7 +312,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     <button
       type={showResume ? "button" : "submit"}
       className={cn(
-        "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-control-highlight hover:scale-105 active:inset-shadow-control-pressed active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
+        "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer hover:scale-105 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
         stageBackdropVariant
           ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
           : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
@@ -357,9 +361,15 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       <TooltipPopup>{submitTooltip}</TooltipPopup>
     </Tooltip>
   );
-  const submitWithInterrupt = canInterrupt && isQueuing && !isEditingQueuedMessage
-    ? <div className="flex items-center gap-2">{renderStopGenerationButton(false)}{submit}</div>
-    : submit;
+  const submitWithInterrupt =
+    canInterrupt && isQueuing && !isEditingQueuedMessage ? (
+      <div className="flex items-center gap-2">
+        {renderStopGenerationButton(false)}
+        {submit}
+      </div>
+    ) : (
+      submit
+    );
   if (compactTokens === null) return submitWithInterrupt;
 
   return (
