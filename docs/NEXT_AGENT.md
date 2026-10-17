@@ -85,6 +85,9 @@ API behavior that were not actually observed.
 - Hide doctor and its prompts, Settings command installation, Nightly/Discord/
   beta notices, T3 Connect promotions and anonymous-usage onboarding text. Keep
   ViewCode's `vc/` generated branches and product/package identities.
+- Keep anonymous analytics off by default. Native CLI managed installation and
+  self-update remain disabled until a ViewCode release source is configured;
+  upstream's resolver installs T3 binaries. Preserve manual `viewcode-app` guidance.
 
 ## References and operating constraints
 

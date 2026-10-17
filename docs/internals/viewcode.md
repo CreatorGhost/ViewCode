@@ -179,6 +179,13 @@ notices, T3 Connect promotions and anonymous-usage onboarding copy stay hidden.
 Database cleanup is documented as a deliberate manual task, not an automatic
 upgrade side effect.
 
+Anonymous analytics default to disabled with no bundled collection key; explicit
+operator configuration is required to enable collection. Native CLI self-update
+and background-service installation stay behind `nativeCliManagedRuntime` until
+ViewCode has its own release source. Upstream's managed runtime resolver downloads
+T3 binaries, so enabling that path would replace the fork. Manual npm guidance
+uses the optional installation package identity and preserves `viewcode-app`.
+
 ### Visual and media constraints
 
 Droppy Code's MIT-licensed composer and chrome are visual references, not a
