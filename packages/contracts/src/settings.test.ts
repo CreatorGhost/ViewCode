@@ -367,8 +367,8 @@ describe("ClientSettings diff colors", () => {
 });
 
 describe("ClientSettings chat width", () => {
-  it("keeps the comfortable width for existing settings without a saved width", () => {
-    expect(decodeClientSettings({}).chatWidth).toBe("comfortable");
+  it("keeps the ViewCode normal width for existing settings without a saved width", () => {
+    expect(decodeClientSettings({}).chatWidth).toBe("normal");
   });
 
   it.each(["comfortable", "wide", "full"])("round-trips the %s width", (chatWidth) => {
@@ -1050,10 +1050,10 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
 });
 
 describe("branch naming settings", () => {
-  it("defaults existing settings to the t3 static prefix", () => {
+  it("defaults existing settings to the ViewCode static prefix", () => {
     expect(decodeServerSettings({})).toMatchObject({
       branchNamingMode: "static",
-      branchNamePrefix: "t3",
+      branchNamePrefix: "vc",
       branchNameInstructions: "",
     });
   });
@@ -1201,5 +1201,12 @@ describe("server model preferences", () => {
     expect(decodeServerSettingsPatch({ migrateModelPreferences: input })).toEqual({
       migrateModelPreferences: input,
     });
+  });
+});
+
+it("preserves an explicitly configured ViewCode branch prefix", () => {
+  expect(decodeServerSettings({ branchNamePrefix: "feature" }).branchNamePrefix).toBe("feature");
+  expect(decodeServerSettingsPatch({ branchNamePrefix: "feature" })).toEqual({
+    branchNamePrefix: "feature",
   });
 });
