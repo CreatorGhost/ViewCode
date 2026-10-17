@@ -10,6 +10,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
+import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -91,6 +92,7 @@ it.effect("imports messages once and preserves the provider native resume bindin
           recordImportedTranscript: (input) => Effect.sync(() => void recorded.push(input)),
         }),
         IdAllocator.layer,
+        ThreadCommandExecutor.layer,
       ),
     ),
   );

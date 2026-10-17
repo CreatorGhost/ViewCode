@@ -37,6 +37,7 @@ import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
+import * as ViewCodeImportedLineage from "./ViewCodeImportedLineage.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
 import * as ProjectService from "./ProjectService.ts";
 
@@ -169,6 +170,7 @@ function messageEvents(input: {
 
 const make = Effect.gen(function* () {
   const scanner = yield* AgentSessionScanner.AgentSessionScanner;
+  const linkImportedParents = yield* ViewCodeImportedLineage.make;
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const projects = yield* ProjectService.ProjectService;
   const eventSink = yield* EventSink.EventSinkV2;
@@ -213,9 +215,17 @@ const make = Effect.gen(function* () {
       }
       return payload.value.importedTranscripts ?? [];
     });
-    const selected = input.sessions === undefined ? null : new Set(input.sessions.map((session) => `${session.providerInstanceId}\u0000${session.providerSessionId}`));
+    const selected =
+      input.sessions === undefined
+        ? null
+        : new Set(
+            input.sessions.map(
+              (session) => `${session.providerInstanceId}\u0000${session.providerSessionId}`,
+            ),
+          );
     const outcomes = scanner.recentThreads(project.workspaceRoot, completedSources);
     const importedThreadIds = new Set<ThreadId>();
+    const parentLinks: ViewCodeImportedLineage.ImportedParentLink[] = [];
     let importedCount = 0;
     let skippedCount = 0;
 
@@ -230,11 +240,26 @@ const make = Effect.gen(function* () {
           return;
         }
         const source = outcome.source;
-        if (selected !== null && !selected.has(`${source.providerInstanceId}\u0000${source.providerSessionId}`)) return;
-        if (outcome._tag === "Importable" && selected === null && outcome.thread.hiddenReason === "internal") return;
-        const threadId = ThreadId.make(
-          `import:${source.provider === "t3code" ? "t3code" : source.providerInstanceId}:${source.providerSessionId}`,
-        );
+        if (
+          selected !== null &&
+          !selected.has(`${source.providerInstanceId}\u0000${source.providerSessionId}`)
+        )
+          return;
+        if (
+          outcome._tag === "Importable" &&
+          selected === null &&
+          outcome.thread.hiddenReason === "internal"
+        )
+          return;
+        const threadId = ViewCodeImportedLineage.importedThreadId(source);
+        if (outcome._tag === "Importable" && outcome.thread.parentProviderSessionId !== undefined)
+          parentLinks.push({
+            childThreadId: threadId,
+            parentThreadId: ViewCodeImportedLineage.importedThreadId({
+              ...source,
+              providerSessionId: outcome.thread.parentProviderSessionId,
+            }),
+          });
         if (outcome._tag === "AlreadyImported") {
           importedThreadIds.add(threadId);
           importedCount += 1;
@@ -275,7 +300,11 @@ const make = Effect.gen(function* () {
           }
 
           const driver = thread.driver ?? ProviderDriverKind.make(thread.source);
-          const resume = thread.resume ?? (thread.source === "codex" || thread.source === "claudeAgent" ? { provider: thread.source, sessionId: thread.providerSessionId } : undefined);
+          const resume =
+            thread.resume ??
+            (thread.source === "codex" || thread.source === "claudeAgent"
+              ? { provider: thread.source, sessionId: thread.providerSessionId }
+              : undefined);
           const nativeSessionId = resume?.sessionId ?? thread.providerSessionId;
           const model = thread.model ?? DEFAULT_MODEL_BY_PROVIDER[driver] ?? DEFAULT_MODEL;
           const providerThreadId = idAllocator.derive.providerThread({
@@ -327,11 +356,14 @@ const make = Effect.gen(function* () {
             providerSessionId: null,
             appThreadId: threadId,
             ownerNodeId: null,
-            nativeThreadRef: resume === undefined ? null : {
-              driver,
-              nativeId: nativeSessionId,
-              strength: "strong",
-            },
+            nativeThreadRef:
+              resume === undefined
+                ? null
+                : {
+                    driver,
+                    nativeId: nativeSessionId,
+                    strength: "strong",
+                  },
             nativeConversationHeadRef: null,
             status: "idle",
             firstRunOrdinal: null,
@@ -353,9 +385,17 @@ const make = Effect.gen(function* () {
               status: "stopped",
               lastSeenAt: thread.updatedAt,
               resumeCursor:
-                resume === undefined ? null : resume.provider === "codex"
-                  ? { threadId: resume.sessionId }
-                  : { threadId, resume: resume.sessionId, ...(resume.resumeSessionAt === undefined ? {} : { resumeSessionAt: resume.resumeSessionAt }) },
+                resume === undefined
+                  ? null
+                  : resume.provider === "codex"
+                    ? { threadId: resume.sessionId }
+                    : {
+                        threadId,
+                        resume: resume.sessionId,
+                        ...(resume.resumeSessionAt === undefined
+                          ? {}
+                          : { resumeSessionAt: resume.resumeSessionAt }),
+                      },
               runtimePayload: { cwd: project.workspaceRoot },
             },
             { onConflict: "ignore" },
@@ -404,50 +444,115 @@ const make = Effect.gen(function* () {
       }),
     );
 
+    yield* linkImportedParents(input.projectId, parentLinks).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("Imported conversation text, but could not restore every parent link", {
+          cause,
+        }),
+      ),
+    );
     return { importedCount, skippedCount } satisfies AgentSessionImportResult;
   });
 
-  const listImportableAgentSessions = Effect.fn("listImportableAgentSessionsV2")(function* (input: AgentSessionListInput) {
+  const listImportableAgentSessions = Effect.fn("listImportableAgentSessionsV2")(function* (
+    input: AgentSessionListInput,
+  ) {
     const project = yield* projects.getById(input.projectId).pipe(
       Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-projects", cause })),
-      Effect.flatMap(Option.match({ onNone: () => Effect.fail(new AgentSessionImportProjectNotFoundError({projectId:input.projectId})), onSome: Effect.succeed })),
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.fail(new AgentSessionImportProjectNotFoundError({ projectId: input.projectId })),
+          onSome: Effect.succeed,
+        }),
+      ),
     );
-    if (input.expectedWorkspaceRoot !== undefined && normalizeProjectPathForComparison(project.workspaceRoot) !== normalizeProjectPathForComparison(input.expectedWorkspaceRoot)) return yield* new AgentSessionImportProjectChangedError({projectId:input.projectId});
-    const runtimeRows = yield* runtimes.list().pipe(Effect.mapError((cause) => new AgentSessionScanError({operation:"read-projects", cause})));
-    const imported = new Set(runtimeRows.flatMap((row) => {
-      const payload = decodeImportedTranscriptPayload(row.runtimePayload);
-      return Option.isSome(payload) && payload.value.cwd !== undefined && normalizeProjectPathForComparison(payload.value.cwd) === normalizeProjectPathForComparison(project.workspaceRoot)
-        ? (payload.value.importedTranscripts ?? []).map((source) => `${source.provider}\u0000${source.providerInstanceId}\u0000${source.providerSessionId}`) : [];
-    }));
-    const owned = new Set(runtimeRows.filter((row) => !row.threadId.startsWith("import:")).flatMap((row) => {
-      const cursor = row.resumeCursor;
-      if (typeof cursor !== "object" || cursor === null) return [];
-      const record = cursor as Record<string,unknown>;
-      const id = record.resume ?? record.sessionId ?? record.threadId;
-      return typeof id === "string" ? [`${row.providerInstanceId}\u0000${id}`] : [];
-    }));
+    if (
+      input.expectedWorkspaceRoot !== undefined &&
+      normalizeProjectPathForComparison(project.workspaceRoot) !==
+        normalizeProjectPathForComparison(input.expectedWorkspaceRoot)
+    )
+      return yield* new AgentSessionImportProjectChangedError({ projectId: input.projectId });
+    const runtimeRows = yield* runtimes
+      .list()
+      .pipe(
+        Effect.mapError(
+          (cause) => new AgentSessionScanError({ operation: "read-projects", cause }),
+        ),
+      );
+    const imported = new Set(
+      runtimeRows.flatMap((row) => {
+        const payload = decodeImportedTranscriptPayload(row.runtimePayload);
+        return Option.isSome(payload) &&
+          payload.value.cwd !== undefined &&
+          normalizeProjectPathForComparison(payload.value.cwd) ===
+            normalizeProjectPathForComparison(project.workspaceRoot)
+          ? (payload.value.importedTranscripts ?? []).map(
+              (source) =>
+                `${source.provider}\u0000${source.providerInstanceId}\u0000${source.providerSessionId}`,
+            )
+          : [];
+      }),
+    );
+    const owned = new Set(
+      runtimeRows
+        .filter((row) => !row.threadId.startsWith("import:"))
+        .flatMap((row) => {
+          const cursor = row.resumeCursor;
+          if (typeof cursor !== "object" || cursor === null) return [];
+          const record = cursor as Record<string, unknown>;
+          const id = record.resume ?? record.sessionId ?? record.threadId;
+          return typeof id === "string" ? [`${row.providerInstanceId}\u0000${id}`] : [];
+        }),
+    );
     const warnings = new Set<string>();
     const sessions: Array<AgentSessionListResult["sessions"][number]> = [];
     const inT3 = new Set<string>();
     const outcomes = yield* scanner.recentThreads(project.workspaceRoot).pipe(Stream.runCollect);
-    for (const outcome of outcomes) if (outcome._tag === "Importable" && outcome.thread.source === "t3code" && outcome.thread.resume !== undefined) inT3.add(`${outcome.thread.providerInstanceId}\u0000${outcome.thread.resume.sessionId}`);
+    for (const outcome of outcomes)
+      if (
+        outcome._tag === "Importable" &&
+        outcome.thread.source === "t3code" &&
+        outcome.thread.resume !== undefined
+      )
+        inT3.add(`${outcome.thread.providerInstanceId}\u0000${outcome.thread.resume.sessionId}`);
     const seen = new Set<string>();
     for (const outcome of outcomes) {
-      if (outcome._tag === "Warning") { warnings.add(outcome.message); continue; }
+      if (outcome._tag === "Warning") {
+        warnings.add(outcome.message);
+        continue;
+      }
       if (outcome._tag !== "Importable") continue;
       const thread = outcome.thread;
       const key = `${thread.source}\u0000${thread.providerInstanceId}\u0000${thread.providerSessionId}`;
       if (seen.has(key)) continue;
       seen.add(key);
       const providerKey = `${thread.providerInstanceId}\u0000${thread.providerSessionId}`;
-      const hiddenReason = owned.has(providerKey) ? "in-viewcode" : thread.source !== "t3code" && inT3.has(providerKey) ? "in-t3code" : thread.hiddenReason ?? null;
-      sessions.push({ providerInstanceId:thread.providerInstanceId, providerSessionId:thread.providerSessionId, provider:thread.source, title:thread.title, firstActivityAt:thread.createdAt, lastActivityAt:thread.updatedAt,
-        userMessageCount:thread.userMessageCount ?? thread.messages.filter((m) => m.role === "user").length, alreadyImported:imported.has(key), hidden:hiddenReason !== null, hiddenReason,
-        ...(thread.model === null ? {} : {model:thread.model}),
+      const hiddenReason = owned.has(providerKey)
+        ? "in-viewcode"
+        : thread.source !== "t3code" && inT3.has(providerKey)
+          ? "in-t3code"
+          : (thread.hiddenReason ?? null);
+      sessions.push({
+        providerInstanceId: thread.providerInstanceId,
+        providerSessionId: thread.providerSessionId,
+        provider: thread.source,
+        title: thread.title,
+        firstActivityAt: thread.createdAt,
+        lastActivityAt: thread.updatedAt,
+        userMessageCount:
+          thread.userMessageCount ?? thread.messages.filter((m) => m.role === "user").length,
+        alreadyImported: imported.has(key),
+        hidden: hiddenReason !== null,
+        hiddenReason,
+        ...(thread.model === null ? {} : { model: thread.model }),
       });
     }
-    sessions.sort((a,b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
-    return { sessions, ...(warnings.size === 0 ? {} : {warning:[...warnings].join(" ")}) } satisfies AgentSessionListResult;
+    sessions.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+    return {
+      sessions,
+      ...(warnings.size === 0 ? {} : { warning: [...warnings].join(" ") }),
+    } satisfies AgentSessionListResult;
   });
   return { importRecentAgentThreads, listImportableAgentSessions };
 });
