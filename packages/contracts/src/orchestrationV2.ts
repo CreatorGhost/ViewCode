@@ -132,6 +132,7 @@ export const OrchestrationV2ContextSourcePoint = Schema.Struct({
   runId: Schema.optional(RunId),
   checkpointId: Schema.optional(CheckpointId),
   turnItemId: Schema.optional(TurnItemId),
+  messageId: Schema.optional(MessageId),
   providerThreadRef: Schema.optional(OrchestrationV2ProviderRef),
   providerTurnRef: Schema.optional(OrchestrationV2ProviderRef),
 });
@@ -2920,6 +2921,7 @@ export const OrchestrationV2Command = Schema.Union([
     sourceThreadId: ThreadId,
     targetThreadId: ThreadId,
     sourcePoint: OrchestrationV2ThreadForkSourcePoint,
+    sourceMessageId: Schema.optional(MessageId),
     title: Schema.optional(TrimmedNonEmptyString),
     kind: ViewCodeThreadSettings.fields.kind,
     createdAt: Schema.optional(Schema.DateTimeUtc),

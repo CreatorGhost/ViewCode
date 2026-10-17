@@ -16,6 +16,9 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as ProjectionStore from "./ProjectionStore.ts";
+import { encodeThreadHistoryCursor } from "./threadHistoryPaging.ts";
 
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import { ClaudeProviderCapabilitiesV2 } from "./Adapters/ClaudeAdapterV2.ts";
@@ -371,5 +374,391 @@ it.effect(
         );
         assert.equal(target.thread.providerInstanceId, instanceId);
       }).pipe(Effect.provide(layer));
+    }),
+);
+
+it.effect.each([
+  { driver: "codex", imported: false },
+  { driver: "claudeAgent", imported: false },
+  { driver: "codex", imported: true },
+  { driver: "claudeAgent", imported: true },
+])(
+  "copies an exact immutable $driver user prefix (imported=$imported) into full, paged and portable history",
+  ({ driver, imported }) =>
+    Effect.gen(function* () {
+      const testCase = forkCases.find((entry) => entry.driver === driver)!;
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const store = orchestrator;
+        const now = yield* DateTime.now;
+        const sourceThreadId = ThreadId.make("exact-source");
+        const targetThreadId = ThreadId.make("exact-target");
+        const runId = RunId.make("exact-run");
+        const sourceProviderThreadId = ProviderThreadId.make("exact-native");
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("exact-create"),
+          threadId: sourceThreadId,
+          projectId: ProjectId.make("exact-project"),
+          title: "Source",
+          modelSelection: testCase.modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const sourceThread = (yield* store.getThreadProjection(sourceThreadId)).thread;
+        if (imported)
+          yield* eventSink.write({
+            events: [
+              {
+                type: "thread.created",
+                id: EventId.make("exact-imported"),
+                threadId: sourceThreadId,
+                occurredAt: now,
+                payload: { ...sourceThread, historyOrigin: "v1_import" },
+              },
+            ],
+          });
+        if (!imported)
+          yield* eventSink.write({
+            events: [
+              {
+                type: "provider-thread.updated",
+                id: EventId.make("exact-provider"),
+                threadId: sourceThreadId,
+                occurredAt: now,
+                payload: {
+                  id: sourceProviderThreadId,
+                  driver: testCase.driver,
+                  providerInstanceId: testCase.instanceId,
+                  providerSessionId: null,
+                  appThreadId: sourceThreadId,
+                  ownerNodeId: null,
+                  nativeThreadRef: {
+                    driver: testCase.driver,
+                    nativeId: "strong-exact-source",
+                    strength: "strong",
+                  },
+                  nativeConversationHeadRef: null,
+                  status: "not_loaded",
+                  firstRunOrdinal: 1,
+                  lastRunOrdinal: 1,
+                  handoffIds: [],
+                  forkedFrom: null,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              },
+              {
+                type: "run.created",
+                id: EventId.make("exact-run-created"),
+                threadId: sourceThreadId,
+                runId,
+                occurredAt: now,
+                payload: {
+                  id: runId,
+                  threadId: sourceThreadId,
+                  ordinal: 1,
+                  providerInstanceId: testCase.instanceId,
+                  modelSelection: testCase.modelSelection,
+                  providerThreadId: sourceProviderThreadId,
+                  userMessageId: MessageId.make("selected-user"),
+                  rootNodeId: null,
+                  activeAttemptId: null,
+                  status: "completed",
+                  queuePosition: null,
+                  requestedAt: now,
+                  startedAt: now,
+                  completedAt: now,
+                  checkpointId: null,
+                  contextHandoffId: null,
+                },
+              },
+            ],
+          });
+        // More than 100 copied rows exercise ordering against the first new run's native ordinal.
+        for (let ordinal = 1; ordinal <= 124; ordinal++) {
+          const isUser = ordinal % 2 === 1;
+          const selected = ordinal === 121;
+          yield* eventSink.write({
+            events: [
+              {
+                type: "turn-item.updated",
+                id: EventId.make(`exact-item-${ordinal}`),
+                threadId: sourceThreadId,
+                occurredAt: now,
+                payload: {
+                  id: TurnItemId.make(`exact-item-${ordinal}`),
+                  threadId: sourceThreadId,
+                  runId: imported ? null : runId,
+                  nodeId: null,
+                  providerThreadId: imported ? null : sourceProviderThreadId,
+                  providerTurnId: null,
+                  nativeItemRef: null,
+                  parentItemId: null,
+                  ordinal,
+                  status: "completed",
+                  title: null,
+                  startedAt: now,
+                  completedAt: now,
+                  updatedAt: now,
+                  ...(isUser
+                    ? {
+                        type: "user_message" as const,
+                        messageId: MessageId.make(
+                          selected ? "selected-user" : `exact-message-${ordinal}`,
+                        ),
+                        createdBy: "user" as const,
+                        creationSource: "web" as const,
+                        inputIntent: "turn_start" as const,
+                        text: selected
+                          ? "SELECTED_USER"
+                          : ordinal > 121
+                            ? "FORBIDDEN_LATER_USER"
+                            : `prefix-${ordinal}`,
+                        attachments: [],
+                      }
+                    : {
+                        type: "assistant_message" as const,
+                        messageId: MessageId.make(`exact-message-${ordinal}`),
+                        text: ordinal > 121 ? "FORBIDDEN_ASSISTANT_REPLY" : `prefix-${ordinal}`,
+                        streaming: false,
+                      }),
+                },
+              },
+            ],
+          });
+        }
+        const fork = (id: string, messageId: string) =>
+          orchestrator.dispatch({
+            type: "thread.fork",
+            commandId: CommandId.make(id),
+            sourceThreadId,
+            targetThreadId,
+            sourcePoint: { type: "latest_stable" },
+            sourceMessageId: MessageId.make(messageId),
+            createdBy: "user",
+            creationSource: "web",
+          });
+        for (const [id, messageId] of [
+          ["missing", "missing"],
+          ["assistant", "exact-message-122"],
+        ]) {
+          const error = yield* fork(id!, messageId!).pipe(Effect.flip);
+          assert.equal(error._tag, "OrchestratorDispatchError");
+          assert.isNull(yield* store.getThreadShell(targetThreadId));
+        }
+        if (!imported) {
+          const originalRun = (yield* store.getThreadProjection(sourceThreadId)).runs[0]!;
+          for (const status of ["running", "queued", "rolled_back"] as const) {
+            yield* eventSink.write({
+              events: [
+                {
+                  type: "run.updated",
+                  id: EventId.make(`exact-unsafe-${status}`),
+                  threadId: sourceThreadId,
+                  runId,
+                  occurredAt: now,
+                  payload: { ...originalRun, status },
+                },
+              ],
+            });
+            const error = yield* fork(`unsafe-${status}`, "selected-user").pipe(Effect.flip);
+            assert.equal(error._tag, "OrchestratorDispatchError");
+            assert.isNull(yield* store.getThreadShell(targetThreadId));
+          }
+          yield* eventSink.write({
+            events: [
+              {
+                type: "run.updated",
+                id: EventId.make("exact-stable-again"),
+                threadId: sourceThreadId,
+                runId,
+                occurredAt: now,
+                payload: originalRun,
+              },
+            ],
+          });
+        }
+        const foreignThreadId = ThreadId.make("exact-other-project");
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("exact-create-other-project"),
+          threadId: foreignThreadId,
+          projectId: ProjectId.make("foreign-project"),
+          title: "Other project",
+          modelSelection: testCase.modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const crossProject = yield* orchestrator
+          .dispatch({
+            type: "thread.fork",
+            commandId: CommandId.make("exact-cross-project"),
+            sourceThreadId,
+            targetThreadId: foreignThreadId,
+            sourcePoint: { type: "latest_stable" },
+            sourceMessageId: MessageId.make("selected-user"),
+            createdBy: "user",
+            creationSource: "web",
+          })
+          .pipe(Effect.flip);
+        assert.equal(crossProject._tag, "OrchestratorDispatchError");
+        assert.equal(
+          (yield* store.getThreadProjection(foreignThreadId)).thread.projectId,
+          "foreign-project",
+        );
+        yield* fork("exact-fork", "selected-user");
+        const target = yield* store.getThreadProjection(targetThreadId);
+        assert.equal(
+          target.thread.historyOrigin,
+          imported ? "v1_import" : sourceThread.historyOrigin,
+        );
+        assert.equal(target.thread.viewcodeMessageFork?.messageId, "selected-user");
+        assert.isNull(target.thread.forkedFrom);
+        assert.lengthOf(target.messages, 121);
+        assert.lengthOf(target.visibleTurnItems, 121);
+        assert.equal(target.contextTransfers[0]?.sourcePoint.messageId, "selected-user");
+        assert.equal(target.contextTransfers[0]?.sourcePoint.turnItemId, "exact-item-121");
+        assert.notInclude(JSON.stringify(target), "FORBIDDEN_");
+        const replayStore = yield* Effect.gen(function* () {
+          return yield* ProjectionStore.ProjectionStoreV2;
+        }).pipe(Effect.provide(ProjectionStore.layerMemory));
+        yield* eventSink
+          .readByCommandId({ commandId: CommandId.make("exact-fork") })
+          .pipe(Stream.runForEach((stored) => replayStore.apply(stored.event)));
+        const replayed = yield* replayStore.getThreadProjection(targetThreadId);
+        assert.deepEqual(replayed.thread, target.thread);
+        assert.deepEqual(replayed.visibleTurnItems, target.visibleTurnItems);
+        assert.deepEqual(replayed.contextTransfers, target.contextTransfers);
+        const historyPage = yield* store.getThreadHistoryPage(
+          targetThreadId,
+          encodeThreadHistoryCursor({
+            snapshotSequence: 0,
+            sourceThreadId: targetThreadId,
+            sourceItemId: target.turnItems[100]!.id,
+            position: 100,
+          }),
+        );
+        assert.isNotEmpty(historyPage.items);
+        assert.notInclude(JSON.stringify(historyPage), "FORBIDDEN_");
+        const page = yield* store.getTimelinePage(targetThreadId, {
+          view: "messages",
+          limit: 20,
+          afterPosition: 100,
+        });
+        assert.equal(page.totalItems, 121);
+        assert.equal(page.items.at(-1)?.item.type, "user_message");
+        assert.notInclude(JSON.stringify(page), "FORBIDDEN_");
+        const bounded = yield* store.getThreadSnapshotWindow(targetThreadId, { rowLimit: 20 });
+        assert.equal(
+          bounded.projection.visibleTurnItems.at(-1)?.item.id,
+          target.visibleTurnItems.at(-1)?.item.id,
+        );
+        assert.notInclude(JSON.stringify(bounded), "FORBIDDEN_");
+        const older = yield* store.getThreadSnapshotWindow(targetThreadId, {
+          rowLimit: 20,
+          anchorItemId: target.turnItems[50]!.id,
+        });
+        assert.equal(older.projection.visibleTurnItems.at(-1)?.item.id, target.turnItems[50]!.id);
+        // Source edits after fork creation cannot change its visible or portable prefix.
+        const selectedSource = (yield* store.getThreadProjection(sourceThreadId)).turnItems.find(
+          (item) => item.id === "exact-item-121",
+        )!;
+        yield* eventSink.write({
+          events: [
+            {
+              type: "turn-item.updated",
+              id: EventId.make("exact-source-edited"),
+              threadId: sourceThreadId,
+              occurredAt: now,
+              payload: {
+                ...selectedSource,
+                ...(selectedSource.type === "user_message"
+                  ? { text: "FORBIDDEN_SOURCE_EDIT" }
+                  : {}),
+              },
+            },
+          ],
+        });
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("exact-continue"),
+          threadId: targetThreadId,
+          messageId: MessageId.make("exact-followup"),
+          text: "Continue the selected user request",
+          attachments: [],
+          modelSelection: testCase.modelSelection,
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const continued = yield* store.getThreadProjection(targetThreadId);
+        assert.equal(continued.contextTransfers[0]?.resolution?.strategy, "portable_context");
+        assert.isNull(continued.providerThreads[0]?.forkedFrom);
+        assert.lengthOf(continued.contextHandoffs, 1);
+        const context = JSON.stringify(continued.contextHandoffs);
+        assert.include(context, "SELECTED_USER");
+        assert.notInclude(context, "FORBIDDEN_");
+        assert.equal(continued.visibleTurnItems.at(-1)?.item.type, "user_message");
+        assert.equal(continued.messages.at(-1)?.id, "exact-followup");
+        // An ordinary run fork of the snapshot keeps its prefix in inherited paging,
+        // and an exact fork can select that inherited runless user message again.
+        const completed = { ...continued.runs[0]!, status: "completed" as const, completedAt: now };
+        yield* eventSink.write({
+          events: [
+            {
+              type: "run.updated",
+              id: EventId.make("exact-finish"),
+              threadId: targetThreadId,
+              runId: completed.id,
+              occurredAt: now,
+              payload: completed,
+            },
+          ],
+        });
+        const nestedThreadId = ThreadId.make("exact-nested-native-fork");
+        yield* orchestrator.dispatch({
+          type: "thread.fork",
+          commandId: CommandId.make("exact-nested-native"),
+          sourceThreadId: targetThreadId,
+          targetThreadId: nestedThreadId,
+          sourcePoint: { type: "run", runId: completed.id },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const nested = yield* store.getThreadProjection(nestedThreadId);
+        assert.isUndefined(nested.thread.viewcodeMessageFork);
+        assert.include(JSON.stringify(nested.visibleTurnItems), "SELECTED_USER");
+        assert.notInclude(JSON.stringify(nested.visibleTurnItems), "FORBIDDEN_");
+        const nestedShell = yield* store.getThreadShell(nestedThreadId);
+        assert.equal(nestedShell?.visibleItemCount, nested.visibleTurnItems.length);
+        const nestedPage = yield* store.getThreadSnapshotWindow(nestedThreadId, { rowLimit: 150 });
+        assert.include(JSON.stringify(nestedPage.projection.visibleTurnItems), "SELECTED_USER");
+        assert.notInclude(JSON.stringify(nestedPage), "FORBIDDEN_");
+        const exactAgainThreadId = ThreadId.make("exact-again");
+        yield* orchestrator.dispatch({
+          type: "thread.fork",
+          commandId: CommandId.make("exact-again-create"),
+          sourceThreadId: nestedThreadId,
+          targetThreadId: exactAgainThreadId,
+          sourcePoint: { type: "latest_stable" },
+          sourceMessageId: MessageId.make(`fork:${targetThreadId}:selected-user`),
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const exactAgain = yield* store.getThreadProjection(exactAgainThreadId);
+        assert.lengthOf(exactAgain.messages, 121);
+        assert.notInclude(JSON.stringify(exactAgain), "exact-followup");
+        assert.notInclude(JSON.stringify(exactAgain), "FORBIDDEN_");
+      }).pipe(Effect.provide(testCase.layer));
     }),
 );

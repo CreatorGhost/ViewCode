@@ -1,3 +1,4 @@
+import { hasRunlessConversationPrefix } from "./ViewCodeMessageFork.ts";
 import { viewCodeThreadMetadata } from "./ViewCodeThreadMetadata.ts";
 import { applyThreadPullRequestLinkUpdate } from "@t3tools/shared/threadPullRequests";
 import { projectTurnItemForWire } from "./WireProjection.ts";
@@ -1323,12 +1324,13 @@ function makeForkMarkerTurnItem(input: {
 
 export function isTurnItemAtOrBeforeRun(input: {
   readonly historyOrigin: OrchestrationV2ThreadProjection["thread"]["historyOrigin"];
+  readonly hasRunlessPrefix?: boolean;
   readonly itemRunId: OrchestrationV2TurnItem["runId"];
   readonly runOrdinalById: ReadonlyMap<NonNullable<OrchestrationV2TurnItem["runId"]>, number>;
   readonly sourceRunOrdinal: number;
 }): boolean {
   if (input.itemRunId === null) {
-    return input.historyOrigin === "v1_import";
+    return input.historyOrigin === "v1_import" || input.hasRunlessPrefix === true;
   }
   const ordinal = input.runOrdinalById.get(input.itemRunId);
   return ordinal !== undefined && ordinal <= input.sourceRunOrdinal;
@@ -1367,6 +1369,7 @@ function visibleTurnItemsThroughRun(input: {
       }
       return isTurnItemAtOrBeforeRun({
         historyOrigin: input.sourceProjection.thread.historyOrigin,
+        hasRunlessPrefix: hasRunlessConversationPrefix(input.sourceProjection.thread),
         itemRunId: item.runId,
         runOrdinalById,
         sourceRunOrdinal: sourceRun.ordinal,
@@ -1679,7 +1682,7 @@ function itemCountThroughRun(input: {
     return 0;
   }
 
-  let count = input.state.thread.historyOrigin === "v1_import" ? input.state.runlessItemCount : 0;
+  let count = hasRunlessConversationPrefix(input.state.thread) ? input.state.runlessItemCount : 0;
   for (const [runId, itemCount] of input.state.itemCountByRunId) {
     const itemRunOrdinal = input.state.runOrdinalById.get(runId);
     if (itemRunOrdinal !== undefined && itemRunOrdinal <= runOrdinal) {
@@ -2803,7 +2806,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                           SELECT 1
                           FROM orchestration_v2_projection_threads AS source_thread
                           WHERE source_thread.thread_id = item.thread_id
-                            AND json_extract(source_thread.payload_json, '$.historyOrigin') = 'v1_import'
+                            AND (
+                              json_extract(source_thread.payload_json, '$.historyOrigin') = 'v1_import'
+                              OR json_extract(source_thread.payload_json, '$.viewcodeMessageFork') IS NOT NULL
+                            )
                         )
                       )
                       OR run.ordinal <= (
@@ -3471,7 +3477,14 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                         FROM orchestration_v2_projection_turn_items
                         WHERE thread_id = ${forkedFrom.threadId}
                           AND run_id IS NULL
-                          AND json_extract(payload_json, '$.historyOrigin') = 'v1_import'
+                          AND (
+                            json_extract(payload_json, '$.historyOrigin') = 'v1_import'
+                            OR EXISTS (
+                              SELECT 1 FROM orchestration_v2_projection_threads AS source_thread
+                              WHERE source_thread.thread_id = ${forkedFrom.threadId}
+                                AND json_extract(source_thread.payload_json, '$.viewcodeMessageFork') IS NOT NULL
+                            )
+                          )
                         ORDER BY ordinal DESC, turn_item_id DESC
                         LIMIT 1
                       ),
@@ -4999,6 +5012,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 }) &&
                 isTurnItemAtOrBeforeRun({
                   historyOrigin: source.records.thread.historyOrigin,
+                  hasRunlessPrefix: hasRunlessConversationPrefix(source.records.thread),
                   itemRunId: row.item.runId,
                   runOrdinalById: ordinals,
                   sourceRunOrdinal: sourceRun.ordinal,

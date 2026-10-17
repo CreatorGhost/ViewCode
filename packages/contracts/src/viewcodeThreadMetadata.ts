@@ -1,6 +1,12 @@
 import * as Schema from "effect/Schema";
 
-import { IsoDateTime, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  MessageId,
+  ThreadId,
+  TrimmedNonEmptyString,
+  TurnItemId,
+} from "./baseSchemas.ts";
 
 export const ThreadKind = Schema.Literal("sidechat");
 export type ThreadKind = typeof ThreadKind.Type;
@@ -24,5 +30,12 @@ export const ViewCodeThreadSettings = Schema.Struct({
 export const ViewCodeThreadMetadata = Schema.Struct({
   ...ViewCodeThreadSettings.fields,
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  viewcodeMessageFork: Schema.optional(
+    Schema.Struct({
+      sourceThreadId: ThreadId,
+      messageId: MessageId,
+      turnItemId: TurnItemId,
+    }),
+  ),
 });
 export type ViewCodeThreadMetadata = typeof ViewCodeThreadMetadata.Type;

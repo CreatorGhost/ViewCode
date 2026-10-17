@@ -1,3 +1,4 @@
+import * as ViewCodeMessageFork from "./ViewCodeMessageFork.ts";
 import { sidechatExpiryArchiveIsCurrent } from "./viewcodeSidechatExpiryPolicy.ts";
 import * as ViewCodeSidechatBootstrap from "./ViewCodeSidechatBootstrap.ts";
 import { viewCodeThreadMetadata } from "./ViewCodeThreadMetadata.ts";
@@ -1466,15 +1467,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 run.ordinal <= latestHandoffRun.ordinal,
             );
       const needsFullContext = deliveryProviderThread.nativeThreadRef === null;
-      const legacyImportItems =
-        projection.thread.historyOrigin === "v1_import"
-          ? yield* readHandoffItems(threadId, [null])
-          : latestCompletedRun === undefined
-            ? yield* ViewCodeSidechatBootstrap.readItems(projection.thread).pipe(
-                Effect.provideService(ProjectionStoreV2, projectionStore),
-                Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
-              )
-            : [];
+      const legacyImportItems = ViewCodeMessageFork.hasRunlessConversationPrefix(projection.thread)
+        ? yield* readHandoffItems(threadId, [null])
+        : latestCompletedRun === undefined
+          ? yield* ViewCodeSidechatBootstrap.readItems(projection.thread).pipe(
+              Effect.provideService(ProjectionStoreV2, projectionStore),
+              Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
+            )
+          : [];
       const handoffStrategy = needsFullContext
         ? ("full_thread_summary" as const)
         : ("delta_since_target_last_seen" as const);
@@ -3626,6 +3626,87 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     // command copies, not an earlier read the source's user could outrun.
     yield* refuseAboveDispatchModeLimit(command, command.sourceThreadId, sourceProjection.thread);
 
+    if (command.sourceMessageId !== undefined) {
+      const existing = yield* projectionStore
+        .getThreadShell(command.targetThreadId)
+        .pipe(mapDispatchError(command));
+      if (existing !== null)
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            existing.projectId !== sourceProjection.thread.projectId
+              ? "Fork target belongs to another project."
+              : "Fork target already exists.",
+        });
+      const source = yield* projectionStore
+        .getThreadProjection(command.sourceThreadId)
+        .pipe(mapDispatchError(command));
+      yield* refuseAboveDispatchModeLimit(command, command.sourceThreadId, source.thread);
+      const now = command.createdAt ?? (yield* DateTime.now);
+      const transferId = yield* mapDispatchError(command)(
+        idAllocator.allocate.contextTransfer({
+          sourceThreadId: command.sourceThreadId,
+          targetThreadId: command.targetThreadId,
+          type: "fork",
+        }),
+      );
+      const selected = source.visibleTurnItems.find(
+        (row) => row.item.type === "user_message" && row.item.messageId === command.sourceMessageId,
+      )?.item;
+      let boundaryRun: OrchestrationV2Run | undefined;
+      let runlessBoundary = false;
+      if (selected !== undefined && selected.threadId !== source.thread.id) {
+        const origin = yield* projectionStore
+          .getThreadRecords(selected.threadId, ["runs"])
+          .pipe(mapDispatchError(command));
+        if (origin.thread.projectId !== source.thread.projectId)
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "Fork source message belongs to another project.",
+          });
+        boundaryRun = origin.runs.find((run) => run.id === selected.runId);
+        runlessBoundary = ViewCodeMessageFork.hasRunlessConversationPrefix(origin.thread);
+      }
+      const plan = yield* ViewCodeMessageFork.plan({
+        source,
+        command,
+        transferId,
+        now,
+        runlessBoundary,
+        ...(boundaryRun === undefined ? {} : { boundaryRun }),
+      }).pipe(mapDispatchError(command));
+      const emitEvent = emit(events, command);
+      yield* emitEvent({
+        type: "thread.created",
+        threadId: command.targetThreadId,
+        occurredAt: now,
+        payload: plan.targetThread,
+      });
+      yield* emitEvent({
+        type: "context-transfer.created",
+        threadId: command.targetThreadId,
+        occurredAt: now,
+        payload: plan.transfer,
+      });
+      for (const item of plan.items)
+        yield* emitEvent({
+          type: "turn-item.updated",
+          threadId: command.targetThreadId,
+          occurredAt: now,
+          payload: item,
+        });
+      for (const message of plan.messages)
+        yield* emitEvent({
+          type: "message.updated",
+          threadId: command.targetThreadId,
+          occurredAt: now,
+          payload: message,
+        });
+      return;
+    }
+
     const sourceRun = runForSourcePoint(sourceProjection, command.sourcePoint);
 
     if (
@@ -5306,15 +5387,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const runId = idAllocator.derive.run({ threadId: command.threadId, ordinal });
       const latestCompletedRun = projection.runs.findLast((run) => run.status === "completed");
       const latestHandoffRun = projection.runs.findLast(isHandoffSourceRun);
-      const legacyImportItems =
-        projection.thread.historyOrigin === "v1_import"
-          ? yield* readHandoffItems(command.threadId, [null])
-          : latestCompletedRun === undefined
-            ? yield* ViewCodeSidechatBootstrap.readItems(projection.thread).pipe(
-                Effect.provideService(ProjectionStoreV2, projectionStore),
-                mapDispatchError(command),
-              )
-            : [];
+      const legacyImportItems = ViewCodeMessageFork.hasRunlessConversationPrefix(projection.thread)
+        ? yield* readHandoffItems(command.threadId, [null])
+        : latestCompletedRun === undefined
+          ? yield* ViewCodeSidechatBootstrap.readItems(projection.thread).pipe(
+              Effect.provideService(ProjectionStoreV2, projectionStore),
+              mapDispatchError(command),
+            )
+          : [];
       const isProviderSwitch =
         activeProviderThread !== undefined &&
         activeProviderThread.providerInstanceId !== modelSelection.instanceId;
@@ -5371,7 +5451,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           });
         const legacyImportHandoff = shouldPrepareLegacyImportHandoff({
           historyOrigin: projection.thread.historyOrigin,
-          sidechatBootstrap: ViewCodeSidechatBootstrap.needsBootstrap(projection.thread),
+          sidechatBootstrap:
+            ViewCodeSidechatBootstrap.needsBootstrap(projection.thread) ||
+            projection.thread.viewcodeMessageFork !== undefined,
           hasCompletedRun: latestCompletedRun !== undefined,
           legacyImportItemCount: legacyImportItems.length,
         })
@@ -5719,8 +5801,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (candidate) => candidate.id === sourceRun.activeAttemptId,
             )?.providerTurnId ??
             undefined);
+      const exactMessageFork = pendingForkTransfer?.sourcePoint.messageId !== undefined;
       if (pendingForkTransfer !== undefined) {
-        if (sourceRun === null || sourceProviderThread === undefined) {
+        if (!exactMessageFork && (sourceRun === null || sourceProviderThread === undefined)) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
@@ -5785,8 +5868,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             }),
         ),
       );
-      const forkExecution =
-        pendingForkTransfer === undefined || sourceRun === null
+      const forkExecution = exactMessageFork
+        ? "portable_context"
+        : pendingForkTransfer === undefined || sourceRun === null
           ? null
           : yield* enforceCommandPolicy(command)(
               commandPolicy.decideForkExecution({
@@ -5801,6 +5885,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 fromSpecificTurn: sourceRun !== null,
               }),
             );
+      if (exactMessageFork) {
+        yield* enforceCommandPolicy(command)(
+          commandPolicy.ensureContextHandoff({
+            commandId: command.commandId,
+            threadId: command.threadId,
+            providerInstanceId: modelSelection.instanceId,
+            capabilities,
+            strategy: "full_thread_summary",
+          }),
+        );
+      }
       const canResolveForkNatively = forkExecution === "native_fork";
       const requiresPortableFork = forkExecution === "portable_context";
 
@@ -5852,20 +5947,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               providerSessionId,
               updatedAt: now,
             };
-      const portableForkItems =
-        !requiresPortableFork || sourceProjection === null || sourceRun === null
-          ? []
-          : yield* readHandoffItems(sourceProjection.thread.id, [
-              ...sourceProjection.runs
-                .filter((run) => run.ordinal <= sourceRun.ordinal)
-                .map((run) => run.id),
-              ...(sourceProjection.thread.historyOrigin === "v1_import" ? [null] : []),
-            ]);
+      const portableForkItems = !requiresPortableFork
+        ? []
+        : exactMessageFork
+          ? yield* readHandoffItems(command.threadId, [null])
+          : sourceProjection === null || sourceRun === null
+            ? []
+            : yield* readHandoffItems(sourceProjection.thread.id, [
+                ...sourceProjection.runs
+                  .filter((run) => run.ordinal <= sourceRun.ordinal)
+                  .map((run) => run.id),
+                ...(ViewCodeMessageFork.hasRunlessConversationPrefix(sourceProjection.thread)
+                  ? [null]
+                  : []),
+              ]);
       const portableForkHandoff =
         !requiresPortableFork ||
         pendingForkTransfer === undefined ||
         sourceProjection === null ||
-        sourceRun === null
+        (!exactMessageFork && sourceRun === null)
           ? null
           : yield* contextHandoffService
               .prepareProviderHandoff({
@@ -5875,12 +5975,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 fromProviderThreadIds:
                   sourceProviderThread === undefined ? [] : [sourceProviderThread.id],
                 toProviderThreadId: ensuredProviderThread.id,
-                fromProviderInstanceId: sourceRun.providerInstanceId,
+                fromProviderInstanceId:
+                  pendingForkTransfer.sourceProviderInstanceId ??
+                  sourceProjection.thread.providerInstanceId,
                 toProviderInstanceId: modelSelection.instanceId,
                 coveredRunOrdinals: visibleDeltaRunOrdinals(sourceProjection, portableForkItems),
                 strategy: "full_thread_summary",
                 items: portableForkItems,
-                runs: sourceProjection.runs,
+                runs: exactMessageFork ? [] : sourceProjection.runs,
                 createdAt: now,
               })
               .pipe(
@@ -6236,7 +6338,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         providerTurnId: null,
         nativeItemRef: null,
         parentItemId: null,
-        ordinal: ordinal * 100,
+        ordinal:
+          projection.thread.viewcodeMessageFork === undefined
+            ? ordinal * 100
+            : (yield* nextTurnItemOrdinal(projection)) + 1,
         status: "completed",
         title: null,
         startedAt: now,
@@ -6283,7 +6388,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               providerTurnId: null,
               nativeItemRef: null,
               parentItemId: null,
-              ordinal: ordinal * 100 - 1,
+              ordinal:
+                projection.thread.viewcodeMessageFork === undefined
+                  ? ordinal * 100 - 1
+                  : yield* nextTurnItemOrdinal(projection),
               status: "completed",
               title:
                 portableForkHandoff !== null

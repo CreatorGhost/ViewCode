@@ -6,10 +6,12 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Struct from "effect/Struct";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
 export const needsBootstrap = (thread: OrchestrationV2AppThread) =>
   thread.kind === "sidechat" &&
+  thread.viewcodeMessageFork === undefined &&
   thread.forkedFrom === null &&
   thread.lineage.parentThreadId !== null;
 
@@ -21,7 +23,7 @@ export function plan(
   now: DateTime.Utc,
 ): OrchestrationV2AppThread {
   return {
-    ...source,
+    ...Struct.omit(source, ["viewcodeMessageFork"]),
     id: command.targetThreadId,
     title: command.title ?? "Side chat",
     createdBy: command.createdBy,

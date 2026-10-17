@@ -6,6 +6,7 @@ import {
   type OrchestrationV2Command,
   type OrchestrationV2ThreadProjection,
   ProviderInstanceId,
+  ProviderDriverKind,
   type ProviderReplayTranscript,
   ThreadId,
 } from "@t3tools/contracts";
@@ -28,6 +29,7 @@ import {
   THREAD_FORK_NATIVE_TARGET_PROMPT,
 } from "./fixtures/shared.ts";
 import { runOrchestratorV2ProviderReplayScenario } from "./ProviderReplayHarness.ts";
+import { materializeReplayTranscriptRuntimeInstructions } from "./ReplayRuntimeInstructions.ts";
 import {
   decodeProviderReplayNdjson,
   materializeReplayTranscriptWorkspace,
@@ -104,7 +106,12 @@ function readTranscript(transcriptPath: string = TRANSCRIPT_PATH) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const text = yield* fs.readFileString(transcriptPath);
-    return yield* decodeProviderReplayNdjson(text);
+    const recorded = yield* decodeProviderReplayNdjson(text);
+    const claude = transcriptPath.includes("/claude_");
+    return materializeReplayTranscriptRuntimeInstructions(recorded, {
+      driver: ProviderDriverKind.make(claude ? "claudeAgent" : "codex"),
+      model: claude ? CLAUDE_MODEL_SELECTION.model : CODEX_MODEL_SELECTION.model,
+    });
   });
 }
 
