@@ -27,7 +27,14 @@ function providerDisplayName(driver: ProviderDriverKind): string {
  * has every provider off; this only looks on disk for their CLIs, so nothing
  * runs until the user ticks a provider and turns it on.
  */
-export function ProviderPicker({ environmentId }: { readonly environmentId: EnvironmentId }) {
+export function ProviderPicker({
+  environmentId,
+  blockedDrivers,
+}: {
+  readonly environmentId: EnvironmentId;
+  /** Blocked by the machine's administrator policy: shown, never pickable. */
+  readonly blockedDrivers: ReadonlyArray<ProviderDriverKind>;
+}) {
   const detectProviders = useAtomCommand(serverEnvironment.detectProviders, {
     reportFailure: false,
   });
@@ -89,6 +96,7 @@ export function ProviderPicker({ environmentId }: { readonly environmentId: Envi
             row={row}
             checked={picked.has(row.driver)}
             disabled={saving}
+            blocked={blockedDrivers.includes(row.driver)}
             onCheckedChange={(on) => toggle(row.driver, on)}
           />
         ))}
@@ -115,11 +123,13 @@ function ProviderPickerRowView({
   row,
   checked,
   disabled,
+  blocked,
   onCheckedChange,
 }: {
   readonly row: ProviderPickerRow;
   readonly checked: boolean;
   readonly disabled: boolean;
+  readonly blocked: boolean;
   readonly onCheckedChange: (checked: boolean) => void;
 }) {
   const Icon = getDriverOption(row.driver)?.icon;
@@ -127,8 +137,8 @@ function ProviderPickerRowView({
   return (
     <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
       <Checkbox
-        checked={checked}
-        disabled={disabled}
+        checked={checked && !blocked}
+        disabled={disabled || blocked}
         onCheckedChange={(next) => onCheckedChange(next === true)}
         aria-label={`Let ViewCode start ${name}`}
       />
@@ -141,10 +151,16 @@ function ProviderPickerRowView({
       <span
         className={cn(
           "shrink-0 text-xs",
-          row.found ? "text-success-foreground" : "text-muted-foreground",
+          row.found && !blocked ? "text-success-foreground" : "text-muted-foreground",
         )}
       >
-        {row.found === null ? "Checking..." : row.found ? "Found on this computer" : "Not found"}
+        {blocked
+          ? "Blocked by your organization"
+          : row.found === null
+            ? "Checking..."
+            : row.found
+              ? "Found on this computer"
+              : "Not found"}
       </span>
     </label>
   );

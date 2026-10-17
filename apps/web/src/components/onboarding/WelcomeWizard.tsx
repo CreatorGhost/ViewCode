@@ -753,7 +753,10 @@ function ConnectedAgentsStep({
           <p className="text-xs text-muted-foreground">Checking agents...</p>
         ) : (
           // Nothing is on yet (a new install starts that way): pick what may run.
-          <ProviderPicker environmentId={environmentId} />
+          <ProviderPicker
+            environmentId={environmentId}
+            blockedDrivers={serverConfig?.blockedProviderDrivers ?? []}
+          />
         )
       ) : null}
       <div className="space-y-1.5">

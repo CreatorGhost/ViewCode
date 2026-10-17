@@ -25,6 +25,7 @@ import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as ServerConfig from "./config.ts";
+import { AdminProviderPolicyRef } from "./provider/AdminProviderPolicy.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import * as ServerSettingsModule from "./serverSettings.ts";
 import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.ts";
@@ -976,6 +977,23 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           Effect.provideService(HostProcessEnvironment, { ...process.env, PATH: binDir }),
         );
       }).pipe(Effect.scoped),
+  );
+
+  it.effect("keeps a provider the admin policy blocks off, even when the user enables it", () =>
+    Effect.gen(function* () {
+      yield* markExistingInstall;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+
+      assert.isFalse((yield* serverSettings.getSettings).providers.codex.enabled);
+      const next = yield* serverSettings.updateSettings({
+        providers: { codex: { enabled: true } },
+      });
+      assert.isFalse(next.providers.codex.enabled);
+      assert.isTrue(next.providers.claudeAgent.enabled);
+    }).pipe(
+      Effect.provide(makeServerSettingsLayer()),
+      Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: ["codex"], problem: null }),
+    ),
   );
 
   it.effect("keeps the default providers of an install that has run one", () =>

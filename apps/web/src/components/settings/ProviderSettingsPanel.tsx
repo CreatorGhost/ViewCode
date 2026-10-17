@@ -607,6 +607,9 @@ export function EnvironmentProviderSettings({
   const updateClientSettings = useUpdateClientSettings();
   const serverProviders =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
+  const blockedProviderDrivers = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+  )?.blockedProviderDrivers;
   const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -953,6 +956,7 @@ export function EnvironmentProviderSettings({
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         onSelect={mode === "list" ? () => setSelectedInstanceId(row.instanceId) : undefined}
         readOnly={readOnly}
+        blockedByPolicy={blockedProviderDrivers?.includes(row.driver)}
         runtime={
           mode === "editor" &&
           row.driver === "codex" &&
