@@ -3,11 +3,14 @@ import { AuthOrchestrationOperateScope, type ScopedThreadRef } from "@t3tools/co
 import { createContext, use, useEffect, useState, type ReactNode } from "react";
 
 import { useSplitPaneFocused } from "../../splitView/SplitPaneContext";
-import { useServerConfigs, useThreadProjection } from "../../state/entities";
+import { useServerConfigs, useThreadProjection, useThreadShells } from "../../state/entities";
 import { useEnvironmentScope } from "../../state/session";
 import { Button } from "../ui/button";
 import { REVIEW_FIX_UNDO_OPEN_EVENT, ReviewFixUndoDialog } from "./ReviewFixUndoDialog";
-import { viewCodeReviewFixUndo } from "./viewcodeReviewFixUndo";
+import {
+  viewCodeReviewFixUndo,
+  viewCodeReviewFixUndoUnavailableReason,
+} from "./viewcodeReviewFixUndo";
 
 const UndoContext = createContext<{ readonly turnCount: number; readonly open: () => void } | null>(
   null,
@@ -23,6 +26,11 @@ export function ViewCodeReviewFixUndoHost({
 }) {
   const projection = useThreadProjection(threadRef)?.projection ?? null;
   const configs = useServerConfigs();
+  const shells = useThreadShells(threadRef !== null);
+  const blockedReason = viewCodeReviewFixUndoUnavailableReason(
+    projection,
+    shells.filter((shell) => shell.environmentId === threadRef?.environmentId),
+  );
   const canOperate = useEnvironmentScope(
     threadRef?.environmentId ?? null,
     AuthOrchestrationOperateScope,
@@ -53,6 +61,7 @@ export function ViewCodeReviewFixUndoHost({
           key={threadKey}
           threadRef={threadRef}
           undoneTurns={target.undoneTurns}
+          blockedReason={blockedReason}
           onClose={() => setOpenThreadKey(null)}
         />
       ) : null}

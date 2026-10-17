@@ -29,3 +29,30 @@ export function viewCodeReviewFixUndo(projection: OrchestrationV2ThreadProjectio
       .map((run) => ({ checkpointTurnCount: run.ordinal })),
   });
 }
+
+/** Known unsafe workspaces can be explained before submitting; native admission remains authoritative. */
+export function viewCodeReviewFixUndoUnavailableReason(
+  projection: OrchestrationV2ThreadProjection | null,
+  otherThreads: ReadonlyArray<{
+    readonly id: string;
+    readonly worktreePath: string | null;
+    readonly deletedAt?: unknown;
+  }> = [],
+): string | null {
+  if (projection === null) return null;
+  const thread = projection.thread;
+  if (thread.worktreePath === null) {
+    return "Undo review fixes requires an exclusive worktree. This session uses a root checkout. Review and revert its changes manually with Git.";
+  }
+  if (
+    otherThreads.some(
+      (other) =>
+        other.id !== thread.id &&
+        other.deletedAt == null &&
+        other.worktreePath === thread.worktreePath,
+    )
+  ) {
+    return "Undo review fixes requires an exclusive worktree. Another thread uses this worktree, including idle or archived threads. Review and revert its changes manually with Git.";
+  }
+  return null;
+}

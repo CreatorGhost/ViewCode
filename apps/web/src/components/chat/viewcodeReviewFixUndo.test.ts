@@ -1,7 +1,10 @@
 import { EventId, RunId, TurnItemId, ThreadId } from "@t3tools/contracts";
 import { expect, it } from "vite-plus/test";
 import { makeThread, fixStarted, threadRef } from "./reviewFixUndo.test.fixtures";
-import { viewCodeReviewFixUndo } from "./viewcodeReviewFixUndo";
+import {
+  viewCodeReviewFixUndo,
+  viewCodeReviewFixUndoUnavailableReason,
+} from "./viewcodeReviewFixUndo";
 
 it("uses the newest fix marker even when older visible history follows the current run", () => {
   const initial = makeThread();
@@ -64,5 +67,30 @@ it("does not treat inherited parent review history as a fix started in the fork"
         },
       ],
     }),
+  ).toBeNull();
+});
+
+it("blocks known root/shared workspaces including archived owners while leaving native safety authoritative", () => {
+  const projection = makeThread();
+  expect(
+    viewCodeReviewFixUndoUnavailableReason({
+      ...projection,
+      thread: { ...projection.thread, worktreePath: null },
+    }),
+  ).toContain("root checkout");
+  expect(
+    viewCodeReviewFixUndoUnavailableReason(projection, [
+      { id: "other", worktreePath: projection.thread.worktreePath, deletedAt: null },
+    ]),
+  ).toContain("Another thread");
+  expect(
+    viewCodeReviewFixUndoUnavailableReason(projection, [
+      { id: "other", worktreePath: projection.thread.worktreePath, deletedAt: "deleted" },
+    ]),
+  ).toBeNull();
+  expect(
+    viewCodeReviewFixUndoUnavailableReason(projection, [
+      { id: projection.thread.id, worktreePath: projection.thread.worktreePath, deletedAt: null },
+    ]),
   ).toBeNull();
 });

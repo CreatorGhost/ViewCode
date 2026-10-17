@@ -11,7 +11,10 @@ import { randomUUID } from "../../lib/utils";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { environmentThreadDetails } from "../../state/threads";
-import { viewCodeReviewFixUndo } from "./viewcodeReviewFixUndo";
+import {
+  viewCodeReviewFixUndo,
+  viewCodeReviewFixUndoUnavailableReason,
+} from "./viewcodeReviewFixUndo";
 import { waitForRevertedMessage } from "../ChatView.logic";
 
 /** Holds the send lock until review-fix rollback is observed, even if the dialog unmounts. */
@@ -24,6 +27,8 @@ export async function undoReviewFixes<E>(
   const projection = Option.getOrNull(
     appAtomRegistry.get(environmentThreadDetails.stateAtom(threadRef)).data,
   );
+  const blockedReason = viewCodeReviewFixUndoUnavailableReason(projection);
+  if (blockedReason !== null) throw new Error(blockedReason);
   const target = viewCodeReviewFixUndo(projection);
   const message = projection?.messages.findLast(
     (message) =>

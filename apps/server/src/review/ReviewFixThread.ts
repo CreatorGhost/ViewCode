@@ -24,6 +24,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
+import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ReviewActivityStore from "../review/ReviewActivityStoreV2.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -219,8 +220,14 @@ const make = Effect.gen(function* () {
   const undo = Effect.fn("ReviewFixThread.undo")(function* (input: ReviewUndoFixesInput) {
     const failure =
       (stage: ReviewUndoFixesError["stage"]) =>
-      (cause: unknown): ReviewUndoFixesError =>
-        new ReviewUndoFixesError({ stage, cause });
+      (cause: unknown): ReviewUndoFixesError => {
+        const detail = stage === "revert" ? userFacingDispatchErrorMessage(cause) : undefined;
+        return new ReviewUndoFixesError({
+          stage,
+          cause,
+          ...(detail === undefined ? {} : { detail }),
+        });
+      };
     const detail = yield* readThread(input.threadId, {
       activityKinds: [REVIEW_FIX_STARTED_ACTIVITY_KIND],
     }).pipe(Effect.mapError(failure("thread")));
@@ -245,7 +252,9 @@ const make = Effect.gen(function* () {
     yield* threads
       .dispatch({
         type: "checkpoint.rollback",
-        commandId: input.commandId ?? CommandId.make(`server:review-fix-undo:${input.threadId}:${yield* uuid}`),
+        commandId:
+          input.commandId ??
+          CommandId.make(`server:review-fix-undo:${input.threadId}:${yield* uuid}`),
         threadId: input.threadId,
         checkpointId: checkpoint.id,
         scopeId: checkpoint.scopeId,

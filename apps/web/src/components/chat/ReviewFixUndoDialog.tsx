@@ -26,17 +26,19 @@ export const REVIEW_FIX_UNDO_OPEN_EVENT = "viewcode:review-fix-undo-open";
 export function ReviewFixUndoDialog({
   threadRef,
   undoneTurns,
+  blockedReason,
   onClose,
 }: {
   threadRef: ScopedThreadRef;
   undoneTurns: number;
+  blockedReason?: string | null;
   onClose: () => void;
 }) {
   const undoFixes = useAtomCommand(reviewEnvironment.undoFixes, { reportFailure: false });
   const [pending, setPending] = useState(false);
 
   const undo = async () => {
-    if (pending) return;
+    if (pending || blockedReason) return;
     setPending(true);
     try {
       const completed = await undoReviewFixes(threadRef, (commandId) =>
@@ -68,15 +70,23 @@ export function ReviewFixUndoDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Undo review fixes?</AlertDialogTitle>
           <AlertDialogDescription>
-            Reverts this session to before the fixes: {undoneTurns}{" "}
-            {undoneTurns === 1 ? "turn" : "turns"} and their file changes.
+            {blockedReason ?? (
+              <>
+                Reverts this session to before the fixes: {undoneTurns}{" "}
+                {undoneTurns === 1 ? "turn" : "turns"} and their file changes.
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="outline" disabled={pending} />}>
             Cancel
           </AlertDialogClose>
-          <Button variant="destructive" disabled={pending} onClick={() => void undo()}>
+          <Button
+            variant="destructive"
+            disabled={pending || Boolean(blockedReason)}
+            onClick={() => void undo()}
+          >
             {pending ? "Undoing..." : "Undo fixes"}
           </Button>
         </AlertDialogFooter>

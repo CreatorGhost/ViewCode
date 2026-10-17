@@ -252,9 +252,14 @@ review of local changes reads the whole change again but still reports them. Thu
 rate a finding (click again to take the rating back); ratings follow you to every device, and
 later reviews of the project lean away from the kinds of findings you turned down.
 
-A fix is an ordinary message in your chat, so you take it back like any other: **Edit from here**
-on that message rewinds the conversation, or revert the turn's changes. Sessions started to fix findings by earlier versions can
-still be undone with **Undo review fixes** on their first message, or in the command palette.
+A fix is an ordinary message in your chat, so **Edit from here** can rewind its conversation.
+Sessions started with **Fix with agent** offer **Undo review fixes** on their first message.
+It restores the conversation and files only when the session owns an exclusive worktree and
+its provider supports rollback. Root checkouts and worktrees shared with another thread,
+including idle or archived threads, cannot use this action. The dialog explains this
+restriction; review and revert those file changes manually with Git. Starting a fix session
+keeps its existing checkout and pull-request branch routing, so it does not automatically
+create an exclusive worktree.
 
 In the mobile app, agent review sits at the top of a chat's **Review changes** (from the chat's Git
 menu, the Git sheet or the command palette). **Find issues** reviews what the diff on screen is

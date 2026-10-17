@@ -10,11 +10,31 @@ const controls = vi.hoisted(() => ({
   canOperate: true,
   capable: true,
   focused: true,
+  rootCheckout: false,
+  sharedCheckout: false,
   command: vi.fn(),
   toast: vi.fn(),
 }));
 vi.mock("../../state/entities", () => ({
-  useThreadProjection: () => ({ projection: makeThread() }),
+  useThreadProjection: () => {
+    const projection = makeThread();
+    return {
+      projection: controls.rootCheckout
+        ? { ...projection, thread: { ...projection.thread, worktreePath: null } }
+        : projection,
+    };
+  },
+  useThreadShells: () =>
+    controls.sharedCheckout
+      ? [
+          {
+            environmentId: threadRef.environmentId,
+            id: "other-thread",
+            worktreePath: makeThread().thread.worktreePath,
+            deletedAt: null,
+          },
+        ]
+      : [],
   useServerConfigs: () =>
     new Map([
       [
@@ -81,6 +101,8 @@ beforeEach(() => {
   controls.canOperate = true;
   controls.capable = true;
   controls.focused = true;
+  controls.rootCheckout = false;
+  controls.sharedCheckout = false;
   controls.command.mockReset();
   controls.toast.mockReset();
   state = stateAtom();
@@ -173,3 +195,20 @@ it.each(["permission", "capability"])("hides undo when the server lacks %s", (re
   expect(renderer.root.findAllByProps({ role: "dialog" })).toHaveLength(0);
   expect(controls.command).not.toHaveBeenCalled();
 });
+
+it.each(["root", "shared"])(
+  "explains %s checkout admission without submitting an unsafe undo",
+  (mode) => {
+    controls.rootCheckout = mode === "root";
+    controls.sharedCheckout = mode === "shared";
+    act(() => {
+      renderer = create(content());
+    });
+    act(() => button("Undo review fixes").props.onClick());
+    expect(button("Undo fixes").props.disabled).toBe(true);
+    expect(renderer.root.findByType("p").children.join("")).toContain("exclusive worktree");
+    act(() => button("Undo fixes").props.onClick());
+    expect(controls.command).not.toHaveBeenCalled();
+    expect(useComposerDraftStore.getState().rewindingThreadKeys.size).toBe(0);
+  },
+);

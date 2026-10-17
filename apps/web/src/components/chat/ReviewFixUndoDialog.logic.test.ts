@@ -131,3 +131,13 @@ describe("review-fix undo rewind lock", () => {
     expect(useComposerDraftStore.getState().rewindingThreadKeys.has(threadKey)).toBe(true);
   });
 });
+
+it("rejects a known root checkout before acquiring the send lock or submitting a rollback", async () => {
+  const atom = observeThread();
+  const projection = makeThread();
+  updateThread(atom, { ...projection, thread: { ...projection.thread, worktreePath: null } });
+  const dispatch = vi.fn(async () => AsyncResult.success({ turnCount: 0, undoneTurns: 1 }));
+  await expect(undoReviewFixes(threadRef, dispatch)).rejects.toThrow("exclusive worktree");
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(useComposerDraftStore.getState().rewindingThreadKeys.has(threadKey)).toBe(false);
+});

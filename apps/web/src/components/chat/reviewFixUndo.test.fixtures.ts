@@ -54,7 +54,7 @@ function makeThread(
       runtimeMode: "full-access",
       interactionMode: "default",
       branch: null,
-      worktreePath: null,
+      worktreePath: "/workspace/worktrees/review-fix",
       activeProviderThreadId: null,
       lineage: {
         parentThreadId: null,
