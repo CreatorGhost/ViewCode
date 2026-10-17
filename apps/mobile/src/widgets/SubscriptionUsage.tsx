@@ -35,21 +35,55 @@ function SubscriptionUsage(
     family === "systemSmall" || accessory || environment.levelOfDetail === "simplified";
   // Budget short cards for two quotas per provider, including their secondary text.
   const dense = family === "systemSmall" || family === "systemMedium";
-  const limit = family === "systemExtraLarge" ? 6 : family === "systemLarge" ? 4 : 2;
+  const familyLimit = family === "systemExtraLarge" ? 6 : family === "systemLarge" ? 4 : 2;
   const monochrome =
     environment.widgetRenderingMode !== "fullColor" || environment.isLuminanceReduced;
-  const providers = props.providers ?? [
-    { name: "Codex", detail: "Open T3 to connect", windows: [], expiresAt: 0 },
-    { name: "Claude", detail: "Open T3 to connect", windows: [], expiresAt: 0 },
-  ];
+  const day = (ms: number) => {
+    const date = new Date(ms);
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  };
+  // Today shows the time, the coming week the weekday, anything else the date.
+  const when = (ms: number) => {
+    const date = new Date(ms);
+    const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const days = Math.round((day(ms) - day(now)) / 86_400_000);
+    if (days === 0) return time;
+    if (days > 0 && days < 7)
+      return `${date.toLocaleDateString(undefined, { weekday: "short" })} ${time}`;
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  // Codex and Claude lead the snapshot; wider families make room for more.
+  const allProviders = props.providers ?? [];
+  const providers = allProviders.slice(
+    0,
+    family === "systemExtraLarge" ? 4 : family === "systemLarge" ? 3 : 2,
+  );
+  // More than two providers stack as rows rather than squeezing into columns.
+  const stacked = compact || providers.length > 2;
+  const limit = stacked && !compact ? 2 : familyLimit;
   const columns = providers.map((provider) => {
-    const stale = provider.windows.length > 0 && now >= provider.expiresAt;
     const period =
-      environment.configuration?.[provider.name === "Claude" ? "claudePeriod" : "codexPeriod"] ??
-      "auto";
-    const windows = stale
-      ? []
-      : provider.windows.filter((window) => period === "auto" || window.kind === period);
+      provider.driver === "claudeAgent"
+        ? (environment.configuration?.claudePeriod ?? "auto")
+        : provider.driver === "codex"
+          ? (environment.configuration?.codexPeriod ?? "auto")
+          : "auto";
+    // A reading stays until the app publishes a newer one; a window whose
+    // refill has passed is full again, whatever it read before.
+    const windows = provider.windows
+      .filter((window) => period === "auto" || window.kind === period)
+      .map((window) => {
+        const refilled = window.resetAt > 0 && now >= window.resetAt;
+        return {
+          ...window,
+          remaining: refilled ? 100 : window.remaining,
+          reset: refilled
+            ? "Reset"
+            : window.resetAt > 0
+              ? `Resets ${when(window.resetAt)}`
+              : "Reset time unavailable",
+        };
+      });
     // Lock Screen widgets surface the tightest selected limit.
     const tightest = windows.reduce<(typeof windows)[number] | undefined>(
       (result, window) => (!result || window.remaining < result.remaining ? window : result),
@@ -72,15 +106,14 @@ function SubscriptionUsage(
                 ...windows.filter((window) => !compactWindows.includes(window)),
               ].slice(0, limit)
             : windows.slice(0, limit);
-    const detail = stale
-      ? "Open T3 to refresh"
-      : period !== "auto" && windows.length === 0 && provider.windows.length > 0
+    const detail =
+      period !== "auto" && windows.length === 0 && provider.windows.length > 0
         ? `No ${period} limit reported`
         : provider.detail;
     const barModifiers = [
       progressViewStyle("linear"),
       frame({ height: 4 }),
-      ...(monochrome ? [] : [tint(provider.name === "Claude" ? "#d97757" : "#8e8e93")]),
+      ...(monochrome ? [] : [tint(provider.driver === "claudeAgent" ? "#d97757" : "#8e8e93")]),
     ];
     if (accessory) {
       return (
@@ -119,9 +152,9 @@ function SubscriptionUsage(
             >
               {tightest
                 ? `${tightest.remaining}% left`
-                : period !== "auto" && !stale && provider.windows.length > 0
+                : period !== "auto" && provider.windows.length > 0
                   ? "N/A"
-                  : "Open T3"}
+                  : "No data"}
             </Text>
           </HStack>
           {tightest ? (
@@ -157,7 +190,7 @@ function SubscriptionUsage(
               lineLimit(1),
             ]}
           >
-            {detail === "Subscription remaining" ? " " : detail}
+            {detail || " "}
           </Text>
         ) : null}
         {shown.map((window) => (
@@ -212,7 +245,6 @@ function SubscriptionUsage(
           </VStack>
         ))}
         {!compact &&
-        !stale &&
         (period === "auto" ? (provider.totalWindows ?? windows.length) : windows.length) > limit ? (
           <Text
             modifiers={[
@@ -223,7 +255,7 @@ function SubscriptionUsage(
           >
             {(period === "auto" ? (provider.totalWindows ?? windows.length) : windows.length) -
               limit}{" "}
-            more in T3
+            more in ViewCode
           </Text>
         ) : null}
       </VStack>
@@ -237,9 +269,9 @@ function SubscriptionUsage(
     >
       {providers.length === 0 ? (
         <Text modifiers={[font({ textStyle: "caption" }), foregroundStyle("secondary")]}>
-          No subscription limits available.
+          {props.providers ? "No subscription limits to show yet." : "Open ViewCode to connect."}
         </Text>
-      ) : compact ? (
+      ) : stacked ? (
         <VStack alignment="leading" spacing={accessory || dense ? 4 : 8}>
           {columns}
         </VStack>
@@ -253,9 +285,14 @@ function SubscriptionUsage(
         <Text
           modifiers={[font({ textStyle: "caption2" }), foregroundStyle("secondary"), lineLimit(1)]}
         >
-          {props.checkedAt
-            ? `As of ${new Date(props.checkedAt).toLocaleString(undefined, { hour: "numeric", minute: "2-digit", month: "short", day: "numeric" })}`
-            : "Tap to connect in T3"}
+          {[
+            props.checkedAt ? `As of ${when(props.checkedAt)}` : "",
+            allProviders.length > providers.length
+              ? `${allProviders.length - providers.length} more in ViewCode`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" · ") || " "}
         </Text>
       ) : null}
     </VStack>
