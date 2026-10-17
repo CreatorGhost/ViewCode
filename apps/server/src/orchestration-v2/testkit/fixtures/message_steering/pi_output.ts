@@ -33,13 +33,19 @@ export function assertPiMessageSteeringOutput(
     entry.type === "expect_outbound" ? [entry.frame] : [],
   );
   const prompts = outbound.filter((frame) => frameField(frame, "type") === "prompt");
-  assert.deepEqual(
-    prompts.map((frame) => [frameField(frame, "message"), frameField(frame, "streamingBehavior")]),
-    [
-      [MESSAGE_STEERING_INITIAL_PROMPT, "steer"],
-      [MESSAGE_STEERING_STEER_PROMPT, "steer"],
-    ],
+  assert.lengthOf(prompts, 2);
+  const initialPrompt = frameField(prompts[0], "message");
+  // ViewCode adds its context to the initial turn; steering reuses that turn's context.
+  assert.isTrue(
+    typeof initialPrompt === "string" &&
+      (initialPrompt === MESSAGE_STEERING_INITIAL_PROMPT ||
+        initialPrompt.endsWith(`\n\n${MESSAGE_STEERING_INITIAL_PROMPT}`)),
   );
+  assert.deepEqual(
+    prompts.map((frame) => frameField(frame, "streamingBehavior")),
+    ["steer", "steer"],
+  );
+  assert.equal(frameField(prompts[1], "message"), MESSAGE_STEERING_STEER_PROMPT);
   assert.isFalse(
     outbound.some((frame) => frameField(frame, "type") === "abort"),
     "steering must not abort the running Pi turn",

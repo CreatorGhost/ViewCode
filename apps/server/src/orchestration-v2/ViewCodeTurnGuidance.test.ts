@@ -100,6 +100,17 @@ describe("ViewCode goal/debug turn guidance", () => {
     expect(slash.message.text).toBe("/compact");
     expect(slash.appContext.some((entry) => entry.text === help)).toBe(true);
   });
+  it("keeps Cursor dollar skills at the start while still supplying ViewCode context", () => {
+    const text = "$review README.md";
+    const turn = withViewCodeTurnGuidance(
+      { ...input, message: { text } },
+      { driver: "cursor", playbookPath: null, computerUseText: "Computer policy guidance" },
+    );
+    expect(turn.message.text.startsWith(`${text}\n\n`)).toBe(true);
+    expect(turn.message.text).toContain("<viewcode_goal>");
+    expect(turn.message.text).toContain("<viewcode_debug_mode>");
+    expect(turn.message.text).toContain("Computer policy guidance");
+  });
   it("does not rewrite native slash commands or compact control turns", () => {
     for (const message of ["/compact", "  /usage", "/clear"]) {
       const turn = withViewCodeTurnGuidance(

@@ -1,11 +1,14 @@
 import type { ProviderDriverKind, ProviderReplayTranscript } from "@t3tools/contracts";
 
+import { materializeViewCodeReplayGuidance } from "./ViewCodeReplayGuidance.ts";
+
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 
 export function materializeReplayTranscriptRuntimeInstructions(
   transcript: ProviderReplayTranscript,
   runtime: { readonly driver: ProviderDriverKind; readonly model: string },
 ): ProviderReplayTranscript {
+  transcript = materializeViewCodeReplayGuidance(transcript, runtime);
   const harness =
     runtime.driver === "cursor"
       ? "Cursor"

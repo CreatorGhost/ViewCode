@@ -84,6 +84,13 @@ export function withViewCodeTurnGuidance<
   return {
     ...input,
     appContext,
-    message: { ...input.message, text: `${prelude}${userText === "" ? "" : `\n\n${userText}`}` },
+    message: {
+      ...input.message,
+      // Cursor turns a leading $skill into a native /skill invocation.
+      text:
+        options.driver === "cursor" && userText.trimStart().startsWith("$")
+          ? `${userText}\n\n${prelude}`
+          : `${prelude}${userText === "" ? "" : `\n\n${userText}`}`,
+    },
   };
 }
