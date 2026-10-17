@@ -157,17 +157,20 @@ it.effect("keeps large text and blob parameters off cached statements", () =>
 
     const small = "small";
     const queries = [
-      (value: string | Uint8Array | ArrayBuffer) => sql`SELECT length(${value}) AS size`,
-      (value: string | Uint8Array | ArrayBuffer) =>
+      (value: string | Uint8Array | DataView) => sql`SELECT length(${value}) AS size`,
+      (value: string | Uint8Array | DataView) =>
         sql.unsafe("SELECT length($value) AS size", [{ $value: value }]),
-      (value: string | Uint8Array | ArrayBuffer) =>
+      (value: string | Uint8Array | DataView) =>
         sql.unsafe("SELECT length($value) AS callable", [
           Object.assign(() => {}, { $value: value }),
         ]),
     ];
     const cached = new Set<NodeSqlite.StatementSync>();
     const large = new Set<NodeSqlite.StatementSync>();
-    const largeBlobs = [new Uint8Array(64 * 1024 + 1), new ArrayBuffer(64 * 1024 + 1)];
+    const largeBlobs = [
+      new Uint8Array(64 * 1024 + 1),
+      new DataView(new ArrayBuffer(64 * 1024 + 1)),
+    ];
     for (const value of [small, largeText, ...largeBlobs, small]) {
       const expected = typeof value === "string" ? value.length : value.byteLength;
       for (const query of queries) {
@@ -182,6 +185,71 @@ it.effect("keeps large text and blob parameters off cached statements", () =>
     assert.equal(cached.size, queries.length);
     assert.equal(large.size, queries.length * 6);
     assert.isTrue(cached.isDisjointFrom(large));
+  }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+);
+
+it.effect("keeps raw ArrayBuffer bindings uncached with native SQLite behavior", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const value = new ArrayBuffer(64 * 1024 + 1);
+    const bindings = [
+      { text: "SELECT length(?) AS size", params: [value] },
+      { text: "SELECT length($value) AS size", params: [{ $value: value }] },
+      {
+        text: "SELECT length($value) AS callable",
+        params: [Object.assign(() => {}, { $value: value })],
+      },
+    ];
+    const native = new NodeSqlite.DatabaseSync(":memory:");
+    // Node 24 accepts raw ArrayBuffer blobs, while Node 26 treats a positional
+    // one as named parameters and rejects a named one. Keep the native contract.
+    const expected = bindings.map(({ text, params }) => {
+      try {
+        const statement = native.prepare(text);
+        const rows = Reflect.apply(statement.all, statement, params) as ReturnType<
+          NodeSqlite.StatementSync["all"]
+        >;
+        return { rows: rows.map(Object.values) };
+      } catch {
+        return { error: "execute" };
+      }
+    });
+    native.close();
+
+    const statements = new Set<NodeSqlite.StatementSync>();
+    const all = NodeSqlite.StatementSync.prototype.all;
+    yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        vi.spyOn(NodeSqlite.StatementSync.prototype, "all").mockImplementation(function (
+          this: NodeSqlite.StatementSync,
+          ...params
+        ) {
+          statements.add(this);
+          return all.apply(this, params);
+        }),
+      ),
+      (spy) => Effect.sync(() => spy.mockRestore()),
+    );
+    for (let repeat = 0; repeat < 2; repeat++) {
+      for (const [index, { text, params }] of bindings.entries()) {
+        const query = sql.unsafe(text, params);
+        const rows = yield* query.pipe(
+          Effect.match({
+            onSuccess: (rows) => ({ rows: rows.map(Object.values) }),
+            onFailure: (error) => ({ error: error.reason.operation }),
+          }),
+        );
+        const values = yield* query.values.pipe(
+          Effect.match({
+            onSuccess: (rows) => ({ rows }),
+            onFailure: (error) => ({ error: error.reason.operation }),
+          }),
+        );
+        assert.deepEqual(rows, expected[index]);
+        assert.deepEqual(values, expected[index]);
+      }
+    }
+    assert.equal(statements.size, bindings.length * 4);
   }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
 );
 
