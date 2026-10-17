@@ -1033,9 +1033,10 @@ export const make = Effect.gen(function* () {
     readonly viewer: string;
     readonly observedAt: number;
   }): PullRequestListEntry => {
-    const viewer = input.viewer.toLowerCase();
+    const viewer = (input.item.viewerLogin ?? input.viewer).toLowerCase();
     return {
       ...(input.item.stack === undefined ? {} : { stack: input.item.stack }),
+      ...(input.item.viewerLogin === undefined ? {} : { viewerLogin: input.item.viewerLogin }),
       provider: input.project.api.kind,
       host: input.project.host,
       projectId: input.project.project.id,
@@ -1196,7 +1197,9 @@ export const make = Effect.gen(function* () {
                 return {
                   key,
                   entries: items
-                    .filter((item) => matchesRowFilters(item, input.filters, viewer))
+                    .filter((item) =>
+                      matchesRowFilters(item, input.filters, item.viewerLogin ?? viewer),
+                    )
                     .map((item) => toEntry({ project, item, viewer, observedAt })),
                   errors: [],
                   truncated: page.truncated,
@@ -1303,7 +1306,9 @@ export const make = Effect.gen(function* () {
                   return Effect.succeed({
                     key: project.cursorKey,
                     entries: items
-                      .filter((item) => matchesRowFilters(item, input.filters, viewer))
+                      .filter((item) =>
+                        matchesRowFilters(item, input.filters, item.viewerLogin ?? viewer),
+                      )
                       .map((item) => toEntry({ project, item, viewer, observedAt })),
                     errors: [],
                     truncated: page.truncated,
@@ -1351,6 +1356,13 @@ export const make = Effect.gen(function* () {
       return {
         viewers: viewers as PullRequestListResult["viewers"],
         providers,
+        accounts: Object.fromEntries(
+          batches
+            .flatMap((batch) => batch.entries)
+            .flatMap((entry) =>
+              entry.viewerLogin === undefined ? [] : [[entry.projectId, entry.viewerLogin]],
+            ),
+        ),
         entries: batches
           .flatMap((batch) => batch.entries)
           .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
@@ -1366,10 +1378,19 @@ export const make = Effect.gen(function* () {
         credential !== null
           ? Effect.succeed(credential.viewer)
           : project.api.getRoutingIdentity !== undefined
-            ? project.api.getRoutingIdentity({ cwd: project.project.workspaceRoot, host: project.host, repository: project.repository }).pipe(
-                Effect.map((identity) => identity.viewer), Effect.orElseSucceed(() => null),
-              )
-            : resolveViewers([project], new Map()).pipe(Effect.map(([resolved]) => resolved?.viewer ?? null)),
+            ? project.api
+                .getRoutingIdentity({
+                  cwd: project.project.workspaceRoot,
+                  host: project.host,
+                  repository: project.repository,
+                })
+                .pipe(
+                  Effect.map((identity) => identity.viewer),
+                  Effect.orElseSucceed(() => null),
+                )
+            : resolveViewers([project], new Map()).pipe(
+                Effect.map(([resolved]) => resolved?.viewer ?? null),
+              ),
       ),
     );
 
@@ -1415,7 +1436,11 @@ export const make = Effect.gen(function* () {
       }
       const result = yield* api
         .withVerifiedCredential(
-          { cwd: project.project.workspaceRoot, host: project.host, repository: project.repository },
+          {
+            cwd: project.project.workspaceRoot,
+            host: project.host,
+            repository: project.repository,
+          },
           (identity) =>
             identity.accountId === input.expectedAccountId
               ? operation.pipe(Effect.provideService(routingCredential, identity), Effect.result)
@@ -1594,7 +1619,9 @@ export const make = Effect.gen(function* () {
             mergeCapabilities: changeRequest.mergeCapabilities,
             viewerPermissions: changeRequest.viewerPermissions,
             ...(viewer === null || viewer.trim().length === 0 ? {} : { viewer }),
-            ...(changeRequest.viewerLogins === undefined ? {} : { viewerLogins: changeRequest.viewerLogins }),
+            ...(changeRequest.viewerLogins === undefined
+              ? {}
+              : { viewerLogins: changeRequest.viewerLogins }),
             ...(changeRequest.baseComparison === undefined
               ? {}
               : { baseComparison: changeRequest.baseComparison }),
@@ -1924,7 +1951,11 @@ export const make = Effect.gen(function* () {
         return input.action === "delete-branch" && project.api.withVerifiedCredential !== undefined
           ? project.api
               .withVerifiedCredential(
-                { cwd: project.project.workspaceRoot, host: project.host, repository: project.repository },
+                {
+                  cwd: project.project.workspaceRoot,
+                  host: project.host,
+                  repository: project.repository,
+                },
                 () => operation.pipe(Effect.result),
               )
               .pipe(

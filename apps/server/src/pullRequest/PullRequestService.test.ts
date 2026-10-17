@@ -1422,7 +1422,11 @@ it.effect("routing verifies the current account on the requested host without ca
       providers: [
         fakeProvider(SourceControlProviderKind.make("github"), {
           getRoutingIdentity: (input) => {
-            assert.deepStrictEqual(input, { cwd: "/a", host: "github.example.test" });
+            assert.deepStrictEqual(input, {
+              cwd: "/a",
+              host: "github.example.test",
+              repository: "acme/web",
+            });
             return Effect.succeed({
               viewer,
               accountId: viewer === "first-account" ? "123" : "456",
@@ -7833,4 +7837,86 @@ it.effect("checks expanded files against a diff too large to cache without fetch
     }
     assert.strictEqual(diffReads, 1);
   }),
+);
+
+it.effect.each([false, true])(
+  "keeps the repository account for author:me and review requests (batched: %s)",
+  (batched) =>
+    Effect.gen(function* () {
+      const rows = (repository: string) => {
+        const work = repository === "work/private";
+        const viewerLogin = work ? "work-user" : "personal-user";
+        return [
+          {
+            ...changeRequest(work ? 11 : 1, "2026-07-02T00:00:00Z"),
+            viewerLogin,
+            author: { login: viewerLogin, name: null, avatarUrl: null },
+            reviewRequestLogins: [viewerLogin],
+          },
+          {
+            ...changeRequest(work ? 12 : 2, "2026-07-01T00:00:00Z"),
+            viewerLogin,
+            author: { login: "another-author", name: null, avatarUrl: null },
+            reviewRequestLogins: [viewerLogin],
+          },
+        ];
+      };
+      const service = yield* makeService({
+        projects: [
+          project({
+            id: "personal",
+            title: "personal",
+            workspaceRoot: "/personal",
+            repository: "personal/public",
+          }),
+          project({
+            id: "work",
+            title: "work",
+            workspaceRoot: "/work",
+            repository: "work/private",
+          }),
+        ],
+        providers: [
+          fakeProvider(SourceControlProviderKind.make("github"), {
+            getViewer: () => Effect.succeed("personal-user"),
+            listChangeRequests: ({ repository }) =>
+              Effect.succeed({ items: rows(repository), truncated: false, continues: false }),
+            ...(batched
+              ? {
+                  listChangeRequestsAcross: ({
+                    repositories,
+                  }: {
+                    repositories: ReadonlyArray<string>;
+                  }) =>
+                    Effect.succeed({
+                      items: repositories.flatMap((repository) =>
+                        rows(repository).map((row) => ({ ...row, repository })),
+                      ),
+                      truncated: false,
+                    }),
+                }
+              : {}),
+          }),
+        ],
+      });
+      const mine = yield* service.list({ state: "open", filters: { author: "me" } });
+      assert.deepStrictEqual(
+        mine.entries.map((row) => row.number).sort((a, b) => a - b),
+        [1, 11],
+      );
+      assert.deepStrictEqual(mine.accounts, {
+        ["personal" as ProjectId]: "personal-user",
+        ["work" as ProjectId]: "work-user",
+      });
+      const all = yield* service.list({ state: "open" });
+      assert.deepStrictEqual(
+        all.entries
+          .filter((row) => row.viewerReviewRequested)
+          .map((row) => row.number)
+          .sort((a, b) => a - b),
+        [2, 12],
+      );
+      assert.strictEqual(all.entries.find((row) => row.number === 11)?.viewerLogin, "work-user");
+      assert.strictEqual(all.viewers["github.com"], "personal-user");
+    }),
 );

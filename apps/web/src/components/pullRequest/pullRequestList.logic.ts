@@ -150,7 +150,9 @@ export function pullRequestEntryViewer(
     entry.environmentId === undefined
       ? undefined
       : accounts?.[`${entry.environmentId}:${entry.projectId}`];
-  return normalize(account ?? viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
+  return normalize(
+    entry.viewerLogin ?? account ?? viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host],
+  );
 }
 
 /**

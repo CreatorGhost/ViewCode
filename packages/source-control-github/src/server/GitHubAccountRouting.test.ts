@@ -5,6 +5,11 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
+import * as GitHubPullRequestApi from "./GitHubPullRequestApi.ts";
+import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
+import * as GitHubRoutedPullRequestProvider from "./GitHubRoutedPullRequestProvider.ts";
+import type { GitHubPullRequestListItem } from "./gitHubPullRequestJson.ts";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/http";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
@@ -56,7 +61,8 @@ function harness(options: { readonly limited?: boolean; readonly writeStatus?: n
       run: (input) =>
         Effect.sync(() => {
           commands.push(input.args);
-          if (input.command === "ssh") return TestSourceControlHost.processOutput("hostname github.com\n");
+          if (input.command === "ssh")
+            return TestSourceControlHost.processOutput("hostname github.com\n");
           if (input.command === "git") return TestSourceControlHost.processOutput("");
           if (input.args[1] === "status")
             return TestSourceControlHost.processOutput(
@@ -244,7 +250,11 @@ it.effect(
       const input = {
         cwd: directory,
         context: {
-          provider: { kind: SourceControlProviderKind.make("github"), name: "github.com-work", baseUrl: "https://github.com-work" },
+          provider: {
+            kind: SourceControlProviderKind.make("github"),
+            name: "github.com-work",
+            baseUrl: "https://github.com-work",
+          },
           remoteName: "origin",
           remoteUrl: "git@github.com-work:work/private.git",
         },
@@ -261,8 +271,94 @@ it.effect(
         { path: "/repos/work/private/pulls", method: "POST", account: "work" },
       ]);
       expect(commands.some((args) => args[0] === "-G" && args[1] === "github.com-work")).toBe(true);
-      expect(commands.some((args) => args.includes("github.com-work") && args[0] === "auth")).toBe(false);
+      expect(commands.some((args) => args.includes("github.com-work") && args[0] === "auth")).toBe(
+        false,
+      );
       expect(commands.some((args) => args[0] === "pr" || args.includes("switch"))).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(Layer.merge(layer, NodeServices.layer)));
+  },
+);
+
+it.effect(
+  "carries each pinned repository account through single and mixed-account PR list rows",
+  () => {
+    const { layer, commands } = harness();
+    const reads: Array<{ viewer: string; credential: string; repository: string }> = [];
+    const currentViewer = Effect.map(GitHubRequestPolicy.PinnedGitHubCredential, (credential) => {
+      if (credential === null)
+        throw new Error("Listing was not inside its pinned account boundary");
+      return Redacted.value(credential.token) === "credential-work" ? "work" : "personal";
+    });
+    const row = (repository: string, viewer: string): GitHubPullRequestListItem => ({
+      authorId: null,
+      number: 1,
+      title: "Account-specific review",
+      url: `https://github.com/${repository}/pull/1`,
+      author: { login: viewer, name: null, avatarUrl: null },
+      headBranch: "feature",
+      baseBranch: "main",
+      state: "open",
+      isDraft: false,
+      mergeability: "mergeable",
+      reviewDecision: null,
+      additions: 1,
+      deletions: 0,
+      createdAt: "2026-10-18T00:00:00Z",
+      updatedAt: "2026-10-18T00:00:00Z",
+      reviewRequestLogins: [],
+      hasTeamReviewRequest: false,
+      labels: [],
+      checksState: null,
+    });
+    const mockApi = Layer.mock(GitHubPullRequestApi.GitHubPullRequestApi)({
+      getViewerLogin: () => currentViewer,
+      listActorAvatars: () => Effect.succeed(new Map()),
+      listPullRequests: (input) =>
+        Effect.map(currentViewer, (credential) => {
+          reads.push({ viewer: input.viewer, credential, repository: input.repository });
+          return {
+            items: [row(input.repository, input.viewer)],
+            truncated: false,
+            continues: false,
+          };
+        }),
+      searchPullRequests: (input) =>
+        Effect.map(currentViewer, (credential) => ({
+          items: input.repositories.map((repository) => {
+            reads.push({ viewer: input.viewer, credential, repository });
+            return { ...row(repository, input.viewer), repository };
+          }),
+          truncated: false,
+        })),
+    });
+    return Effect.gen(function* () {
+      const provider = yield* GitHubRoutedPullRequestProvider.make;
+      const input = {
+        cwd: "/repo",
+        host: "github.com",
+        state: "open" as const,
+        involvement: "all" as const,
+        viewer: "personal",
+        limit: 20,
+        filters: { author: "me" },
+      };
+      const work = yield* provider.listChangeRequests({ ...input, repository: "work/private" });
+      expect(work.items[0]?.viewerLogin).toBe("work");
+      const mixed = yield* provider.listChangeRequestsAcross!({
+        ...input,
+        repositories: ["personal/public", "work/private"],
+      });
+      expect(mixed.items.map((item) => [item.repository, item.viewerLogin]).sort()).toEqual([
+        ["personal/public", "personal"],
+        ["work/private", "work"],
+      ]);
+      expect(reads.every((read) => read.viewer === read.credential)).toBe(true);
+      expect(
+        reads
+          .filter((read) => read.repository === "work/private")
+          .every((read) => read.viewer === "work"),
+      ).toBe(true);
+      expect(commands.some((args) => args.includes("switch"))).toBe(false);
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(layer, mockApi, NodeServices.layer)));
   },
 );

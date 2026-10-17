@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, SourceControlProviderKind, type PullRequestListEntry, type PullRequestListResult } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  SourceControlProviderKind,
+  type PullRequestListEntry,
+  type PullRequestListResult,
+} from "@t3tools/contracts";
 import {
   appendPullRequestListPage,
   DEFAULT_PR_LIST_CONTROLS,
@@ -428,4 +433,36 @@ describe("groupPullRequestListByProject", () => {
       "#1",
     ]);
   });
+});
+
+it("retains the repository viewer on continued rows when the host's active account is personal", () => {
+  const work = entry(91, {
+    viewerLogin: "work-user",
+    author: { login: "work-user", name: null, avatarUrl: null },
+  });
+  const viewers = { "github.com": "personal-user" };
+  expect(
+    filterPullRequestList(
+      [work],
+      { ...DEFAULT_PR_LIST_CONTROLS, involvement: "authored" },
+      viewers,
+      "",
+      new Set(),
+    ).map((row) => row.number),
+  ).toEqual([91]);
+  expect(
+    filterPullRequestList(
+      [work],
+      { ...DEFAULT_PR_LIST_CONTROLS, filters: { author: "me" } },
+      viewers,
+      "",
+      new Set(),
+    ).map((row) => row.number),
+  ).toEqual([91]);
+  expect(
+    pullRequestListRowsAreEqual(
+      { ...work, environmentId: EnvironmentId.make("cups") },
+      { ...work, environmentId: EnvironmentId.make("cups"), viewerLogin: "personal-user" },
+    ),
+  ).toBe(false);
 });

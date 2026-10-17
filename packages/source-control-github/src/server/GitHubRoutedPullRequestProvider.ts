@@ -75,9 +75,16 @@ export const make = Effect.gen(function* () {
     listChangeRequests: (input) =>
       route(
         input,
-        provider
-          .getViewer({ cwd: input.cwd, host: input.host })
-          .pipe(Effect.flatMap((viewer) => provider.listChangeRequests({ ...input, viewer }))),
+        provider.getViewer({ cwd: input.cwd, host: input.host }).pipe(
+          Effect.flatMap((viewer) =>
+            provider.listChangeRequests({ ...input, viewer }).pipe(
+              Effect.map((page) => ({
+                ...page,
+                items: page.items.map((item) => ({ ...item, viewerLogin: viewer })),
+              })),
+            ),
+          ),
+        ),
       ).pipe(
         Effect.mapError((error) =>
           error._tag === "PullRequestProviderError" ? error : routeError(error),
@@ -95,7 +102,12 @@ export const make = Effect.gen(function* () {
                     ...input,
                     repositories: group.map((entry) => entry.repository),
                     viewer,
-                  }),
+                  }).pipe(
+                    Effect.map((page) => ({
+                      ...page,
+                      items: page.items.map((item) => ({ ...item, viewerLogin: viewer })),
+                    })),
+                  ),
                 ),
                 Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, {
                   host: input.host,

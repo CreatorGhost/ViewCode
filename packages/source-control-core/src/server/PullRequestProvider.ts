@@ -72,6 +72,8 @@ export interface PullRequestProviderFailure {
 }
 
 export interface ProviderChangeRequest {
+  /** Account pinned to the repository read; absent for single-account providers. */
+  readonly viewerLogin?: string;
   readonly stack?: PullRequestStackMembership;
   readonly number: number;
   readonly title: string;

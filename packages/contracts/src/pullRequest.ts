@@ -314,6 +314,8 @@ export const PullRequestStackMembership = Schema.Struct({
 export type PullRequestStackMembership = typeof PullRequestStackMembership.Type;
 
 export const PullRequestListEntry = Schema.Struct({
+  /** The account used for this repository read, including after pagination. */
+  viewerLogin: Schema.optional(TrimmedNonEmptyString),
   stack: Schema.optional(PullRequestStackMembership),
   provider: SourceControlProviderKind,
   host: TrimmedNonEmptyString,

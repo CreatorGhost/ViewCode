@@ -1788,3 +1788,16 @@ describe("refresh page size", () => {
     expect(largestPullRequestReadCount(twoPagesAcrossFourRepositories("github"))).toBe(792);
   });
 });
+
+it("uses each routed row's viewer for authored filters after pagination or account changes", () => {
+  const work = entry({
+    number: 91,
+    viewerLogin: "work-user",
+    author: { login: "work-user", name: null, avatarUrl: null },
+  });
+  const viewers = { "github.com": "personal-user" };
+  expect(pullRequestEntryViewer(work, viewers)).toBe("work-user");
+  expect(
+    filterPullRequestsByInvolvement([work], viewers, "authored").map((row) => row.number),
+  ).toEqual([91]);
+});
