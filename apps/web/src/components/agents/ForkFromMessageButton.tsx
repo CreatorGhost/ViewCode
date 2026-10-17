@@ -3,16 +3,20 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { CommandId, type MessageId, type ScopedThreadRef } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  CommandId,
+  type MessageId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { GitForkIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useState } from "react";
 
 import { newThreadId, randomUUID } from "~/lib/utils";
 import { readThreadShell } from "../../state/entities";
-import { environmentThreadDetails } from "../../state/threads";
 import { orchestrationEnvironment } from "../../state/orchestration";
-import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -33,16 +37,6 @@ export function useForkThreadFromMessage() {
   return async (source: ScopedThreadRef, messageId: MessageId) => {
     const shell = readThreadShell(source);
     if (shell === null) return;
-    const projection = appAtomRegistry.get(environmentThreadDetails.threadAtom(source))?.projection;
-    const runId = projection?.messages.find((message) => message.id === messageId)?.runId;
-    if (runId == null) {
-      toastManager.add({
-        type: "error",
-        title: "Could not fork thread",
-        description: "Continue this imported thread once before forking it.",
-      });
-      return;
-    }
     const threadId = newThreadId();
     const result = await createThread({
       environmentId: source.environmentId,
@@ -51,7 +45,8 @@ export function useForkThreadFromMessage() {
         commandId: CommandId.make(randomUUID()),
         sourceThreadId: source.threadId,
         targetThreadId: threadId,
-        sourcePoint: { type: "run", runId },
+        sourcePoint: { type: "latest_stable" },
+        sourceMessageId: messageId,
         title: forkThreadTitle(shell.title),
         createdBy: "user",
         creationSource: "web",
@@ -81,10 +76,14 @@ export function useForkThreadFromMessage() {
 export function ForkFromMessageButton({
   threadRef,
   messageId,
+  disabled = false,
 }: {
   threadRef: ScopedThreadRef;
   messageId: MessageId;
+  disabled?: boolean;
 }) {
+  const canOperate = useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope);
+  const [busy, setBusy] = useState(false);
   const fork = useForkThreadFromMessage();
   return (
     <Tooltip>
@@ -94,7 +93,11 @@ export function ForkFromMessageButton({
             aria-label="Fork from here"
             size="xs"
             variant="ghost"
-            onClick={() => void fork(threadRef, messageId)}
+            disabled={disabled || busy || !canOperate}
+            onClick={() => {
+              setBusy(true);
+              void fork(threadRef, messageId).finally(() => setBusy(false));
+            }}
           >
             <GitForkIcon />
           </Button>

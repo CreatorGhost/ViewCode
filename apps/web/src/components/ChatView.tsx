@@ -8534,15 +8534,14 @@ export default function ChatView(props: ChatViewProps) {
               onPrepared={handlePreparedPullRequestThreadStable}
             />
           </ThreadFindCanvas>
+          {isServerThread ? (
+            <SidechatHost
+              thread={activeThreadShell}
+              keybindings={keybindings}
+              markdownCwd={gitCwd ?? undefined}
+            />
+          ) : null}
         </div>
-
-        {isServerThread ? (
-          <SidechatHost
-            thread={activeThreadShell}
-            keybindings={keybindings}
-            markdownCwd={gitCwd ?? undefined}
-          />
-        ) : null}
 
         {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
           <PersistentThreadTerminalDrawer

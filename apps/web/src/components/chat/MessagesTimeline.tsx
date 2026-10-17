@@ -1,3 +1,5 @@
+import { ForkFromMessageButton } from "../agents/ForkFromMessageButton";
+import { ViewCodeReviewFixUndoButton } from "./ViewCodeReviewFixUndoHost";
 import { ReadAloudButton } from "./ReadAloudButton";
 import { parseAgentMessage } from "@t3tools/shared/agentMessages";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
@@ -840,11 +842,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
       ? new Set(paintedExpandedAttemptIds).add(activeFindAttemptId)
       : paintedExpandedAttemptIds;
 
+  const collapseFinishedTurns = useClientSettings((settings) => settings.collapseFinishedTurns);
   const rawRows = useIncrementalTimelineRows(`${listIdentityKey}\0${workspaceRoot ?? ""}`, {
     timelineEntries,
     latestRun,
     runningRunId,
     expandedRunIds: visibleExpandedRunIds,
+    collapseFinishedTurns,
     expandedAttemptIds: visibleExpandedAttemptIds,
     expandedWorkGroupIds,
     isWorking,
@@ -2089,6 +2093,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 function NativeUserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const { onImageExpand, onFileOpen } = ctx;
+  const activity = use(TimelineRowActivityCtx);
   const senderThreadId = row.message.senderThreadId;
   const resources = selectMessageImageResources(row.message.attachments);
   const previewUrls = useAssetUrls(ctx.activeThreadEnvironmentId, resources);
@@ -2396,6 +2401,17 @@ function NativeUserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mes
           <div className="flex items-center gap-0.5">
             {typeof revertTurnCount === "number" && (
               <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
+            )}
+            <ViewCodeReviewFixUndoButton
+              runOrdinal={ctx.runs.find((run) => run.id === row.message.runId)?.ordinal ?? null}
+              disabled={activity.isWorking || activity.isRevertingCheckpoint}
+            />
+            {ctx.threadRef !== null && (
+              <ForkFromMessageButton
+                threadRef={ctx.threadRef}
+                messageId={row.message.id}
+                disabled={activity.isWorking || activity.isRevertingCheckpoint}
+              />
             )}
             {resolvedContext.text && (
               <MessageCopyButton

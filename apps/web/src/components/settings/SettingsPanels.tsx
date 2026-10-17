@@ -1392,7 +1392,7 @@ export function AppearanceSettingsPanel() {
       </SettingsSection>
 
       <ProjectColorSettings />
-      <ChatAppearanceSettings showChatWidth={false} showCollapseFinishedTurns={false} />
+      <ChatAppearanceSettings showChatWidth={false} />
       <ReadAloudSettings />
 
       <SettingsSection id="motion" title="Motion">
