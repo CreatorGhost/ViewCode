@@ -1,10 +1,21 @@
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import { Command, GlobalFlag } from "effect/unstable/cli";
 
 import { ServerConfig, type StartupPresentation } from "../config.ts";
 import { recordFatalCause, recordFatalErrors } from "../fatalLog.ts";
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
+
+/** A listen that failed because something already holds the port. */
+function isAddressInUse(error: unknown): boolean {
+  return (
+    Predicate.isTagged(error, "ServeError") &&
+    Predicate.hasProperty(error, "cause") &&
+    Predicate.hasProperty(error.cause, "code") &&
+    error.cause.code === "EADDRINUSE"
+  );
+}
 
 export const runServerCommand = (
   flags: CliServerFlags,
@@ -18,6 +29,16 @@ export const runServerCommand = (
     const config = yield* resolveServerConfig(flags, logLevel, options);
     yield* recordFatalErrors(config.logsDir);
     return yield* runServer.pipe(
+      // A busy port (only an explicit one: the default moves to a free one) is a
+      // usage problem, not a crash, so it gets one line instead of a stack.
+      Effect.catchIf(isAddressInUse, () =>
+        Effect.sync(() => {
+          process.stderr.write(
+            `Port ${config.port} is already in use. Stop what is using it, or start ViewCode on another port with --port <number>.\n`,
+          );
+          process.exitCode = 1;
+        }),
+      ),
       recordFatalCause(config.logsDir),
       Effect.provideService(ServerConfig, config),
     );

@@ -325,7 +325,15 @@ export const resolveServerConfig = (
           if (mode === "desktop" || listenPath !== undefined) {
             return Effect.succeed(ServerConfig.DEFAULT_PORT);
           }
-          return findAvailablePort(ServerConfig.DEFAULT_PORT);
+          return findAvailablePort(ServerConfig.DEFAULT_PORT).pipe(
+            Effect.tap((port) =>
+              port === ServerConfig.DEFAULT_PORT
+                ? Effect.void
+                : Effect.logInfo(
+                    `Port ${ServerConfig.DEFAULT_PORT} is in use, so ViewCode is using ${port}. Pass --port to choose one.`,
+                  ),
+            ),
+          );
         },
       },
     );
