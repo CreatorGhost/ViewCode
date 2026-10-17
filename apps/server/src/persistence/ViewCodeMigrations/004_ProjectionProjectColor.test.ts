@@ -8,13 +8,12 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
-layer("058_ProjectionProjectColor", (it) => {
+layer("004_ProjectionProjectColor", (it) => {
   it.effect("adds the nullable project colour to project projections", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 57 });
-      yield* runMigrations({ toMigrationInclusive: 58 });
+      yield* runMigrations();
 
       const columns = yield* sql<{ readonly name: string; readonly notnull: number }>`
         PRAGMA table_info(projection_projects)

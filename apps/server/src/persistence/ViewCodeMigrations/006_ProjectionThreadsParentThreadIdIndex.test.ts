@@ -4,16 +4,15 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { runMigrations } from "../Migrations.ts";
-import migration from "./060_ProjectionThreadsParentThreadIdIndex.ts";
+import migration from "./006_ProjectionThreadsParentThreadIdIndex.ts";
 
 it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })))(
-  "060_ProjectionThreadsParentThreadIdIndex",
+  "006_ProjectionThreadsParentThreadIdIndex",
   (it) => {
     it.effect("indexes parent lookups on an existing database and can rerun safely", () =>
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        yield* runMigrations({ toMigrationInclusive: 59 });
-        yield* runMigrations({ toMigrationInclusive: 60 });
+        yield* runMigrations();
         yield* migration;
         const columns = yield* sql<{
           readonly name: string;

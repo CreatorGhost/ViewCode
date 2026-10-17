@@ -12,6 +12,8 @@ import * as Migrator from "effect/unstable/sql/Migrator";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
+import { repairViewCodeMigrationLedger, runViewCodeMigrations } from "./ViewCodeMigrations.ts";
+
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
@@ -67,12 +69,6 @@ import Migration0051 from "./Migrations/051_ProjectionThreadMessageContext.ts";
 import Migration0052 from "./Migrations/052_ProjectionThreadTitleState.ts";
 import Migration0053 from "./Migrations/053_PullRequestFilesViewed.ts";
 import Migration0054 from "./Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts";
-import Migration0055 from "./Migrations/055_ProjectionThreadsParentThreadId.ts";
-import Migration0056 from "./Migrations/056_ProjectionThreadPullRequestWatch.ts";
-import Migration0057 from "./Migrations/057_ProjectionThreadsKind.ts";
-import Migration0058 from "./Migrations/058_ProjectionProjectColor.ts";
-import Migration0059 from "./Migrations/059_ProjectionThreadsGoalDebugMode.ts";
-import Migration0060 from "./Migrations/060_ProjectionThreadsParentThreadIdIndex.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -139,12 +135,6 @@ const migrationEntries = [
   [52, "ProjectionThreadTitleState", Migration0052],
   [53, "PullRequestFilesViewed", Migration0053],
   [54, "ProjectionThreadsAutoSettleDisabledAt", Migration0054],
-  [55, "ProjectionThreadsParentThreadId", Migration0055],
-  [56, "ProjectionThreadPullRequestWatch", Migration0056],
-  [57, "ProjectionThreadsKind", Migration0057],
-  [58, "ProjectionProjectColor", Migration0058],
-  [59, "ProjectionThreadsGoalDebugMode", Migration0059],
-  [60, "ProjectionThreadsParentThreadIdIndex", Migration0060],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -158,47 +148,20 @@ const makeMigrationLoader = (throughId?: number) =>
     ),
   );
 
-// ViewCode's migrations from 55 on are its own; upstream T3 Code's ids from 55
-// on are its V2 schema. Renumbering these must keep that in mind.
-const FIRST_VIEWCODE_MIGRATION_ID = 55;
-
-/**
- * Fail before migrating when the migrator would skip one of ViewCode's own
- * migrations. It skips every id up to the highest recorded one, whatever name
- * was recorded, so a database that T3 Code (or another build) migrated past 55
- * would start without ViewCode's schema and fail on first use. Earlier ids are
- * shared with upstream and are not checked.
- */
-const assertViewCodeMigrationsCanRun = Effect.fn("assertViewCodeMigrationsCanRun")(function* (
-  throughId?: number,
-) {
+// V1 cannot open an upstream V2 database. The v2 merge replaces this guard with
+// upstream's manifest validation after the known ViewCode ledger repair.
+const assertLegacyDatabase = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const tables = yield* sql`
-    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
-  `;
+  const tables = yield* sql`SELECT name FROM sqlite_master WHERE name = 'effect_sql_migrations'`;
   if (tables.length === 0) return;
-  const recorded = yield* sql<{
-    readonly migration_id: number;
-    readonly name: string;
-  }>`SELECT migration_id, name FROM effect_sql_migrations`;
-  const latestRecordedId = Math.max(0, ...recorded.map((row) => row.migration_id));
-  const recordedNames = new Map(recorded.map((row) => [row.migration_id, row.name]));
-  const skipped = migrationEntries.flatMap(([id, name]) => {
-    if (
-      id < FIRST_VIEWCODE_MIGRATION_ID ||
-      id > latestRecordedId ||
-      (throughId !== undefined && id > throughId)
-    )
-      return [];
-    const recordedName = recordedNames.get(id);
-    if (recordedName === name) return [];
-    return [`${id}_${name} (recorded: ${recordedName ?? "nothing"})`];
-  });
-  if (skipped.length === 0) return;
-  return yield* new Migrator.MigrationError({
-    kind: "BadState",
-    message: `This database's migration history would skip required schema migrations: ${skipped.join(", ")}. The migrator skips every id up to the highest recorded id (${latestRecordedId}), regardless of name. It was probably written by a different build, such as T3 Code sharing this home directory. Start the build that wrote it, or point ViewCode at its own home directory.`,
-  });
+  const rows = yield* sql`SELECT migration_id FROM effect_sql_migrations WHERE migration_id >= 55`;
+  if (rows.length > 0) {
+    return yield* new Migrator.MigrationError({
+      kind: "BadState",
+      message:
+        "This database contains migrations newer than the legacy ViewCode schema. Open it with the build that wrote it.",
+    });
+  }
 });
 
 /**
@@ -224,10 +187,12 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
-  if (toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_VIEWCODE_MIGRATION_ID) {
-    yield* assertViewCodeMigrationsCanRun(toMigrationInclusive);
-  }
+  yield* repairViewCodeMigrationLedger();
+  yield* assertLegacyDatabase;
   const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
+  if (toMigrationInclusive === undefined) {
+    yield* runViewCodeMigrations();
+  }
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")

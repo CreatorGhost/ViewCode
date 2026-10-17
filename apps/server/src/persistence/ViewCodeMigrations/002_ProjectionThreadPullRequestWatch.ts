@@ -1,9 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-// ViewCode pull request watches. Idempotent on purpose, like 055: when an upstream T3 Code
-// migration claims this number, renumber this one after it and it re-runs harmlessly on
-// databases that already have the column.
+// Kept in ViewCode's separate migration ledger. Safe to reapply during ledger repair.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ readonly name: string }>`
