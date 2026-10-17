@@ -1525,6 +1525,7 @@ export interface ChatComposerProps {
   isPreparingWorktree: boolean;
   isCompacting: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  agentsBar?: ReactNode;
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -6420,7 +6421,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             key={activeThreadId}
             className="relative z-0"
             items={bannerStackItems}
-            attachedAbove={props.queuedRunsControl}
+            attachedAbove={
+              <>
+                {props.agentsBar}
+                {props.queuedRunsControl}
+              </>
+            }
           />
           {!activityStackItem && (shownSyncPhase || inlineTasksBadge) ? (
             <ComposerBanner.Attachment>

@@ -1,10 +1,8 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { useMemo } from "react";
 
 import { openSideChat } from "../../sidechatDockStore";
 import { useThreadShell } from "../../state/entities";
 import { quoteForComposer } from "./selectionQuote";
-import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 
 /**
  * Opens the side chat beside the source thread with the selection quoted in its composer.
@@ -14,6 +12,6 @@ export function useAskInSideChat(source: ScopedThreadRef | null) {
   const shell = useThreadShell(source);
   const eligible = shell !== null && shell.source.kind !== "sidechat";
   return eligible && source
-        ? (quotedText: string) => openSideChat(source, quoteForComposer(quotedText))
-        : null;
+    ? (quotedText: string) => openSideChat(source, quoteForComposer(quotedText))
+    : null;
 }

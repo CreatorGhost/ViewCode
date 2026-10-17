@@ -193,6 +193,7 @@ import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
+import { useAskInSideChat } from "./useAskInSideChat";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import {
   AssistantCitationSource,
@@ -644,6 +645,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     setExpandedAttemptIds(paintedExpandedAttemptIds);
   }
   const citationThreadRef = parseScopedThreadKey(routeThreadKey);
+  const askInSideChat = useAskInSideChat(citationThreadRef);
   const openPullRequest = useOpenPrLink(citationThreadRef ?? undefined);
   const expandCitedRun = (runId: RunId) => {
     setExpandedRunIds((current) => (current.has(runId) ? current : new Set([...current, runId])));
@@ -1427,6 +1429,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 viewport={timelineViewportElement}
                 threadRef={citationThreadRef}
                 onCite={onCiteAssistantText}
+                {...(askInSideChat ? { onAskInSideChat: askInSideChat } : {})}
               />
             ) : null}
             <LegendList<MessagesTimelineRow>

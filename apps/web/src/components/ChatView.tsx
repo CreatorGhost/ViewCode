@@ -414,6 +414,9 @@ import {
   resolveScrollToEndClearance,
 } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ActiveAgentsBar } from "./agents/ActiveAgentsBar";
+import { SidechatHost } from "./chat/SidechatHost";
+import { SidechatHeaderButton } from "./chat/SidechatHeaderButton";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
@@ -7870,11 +7873,20 @@ export default function ChatView(props: ChatViewProps) {
               inlineRightPanelOwnsTitleBar ? 1 : shouldUsePlanSidebarSheet ? 3 : 4
             }
             actions={
-              <ViewCodeThreadControls
-                threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
-                isServerThread={isServerThread}
-                draftTarget={composerDraftTarget}
-              />
+              <div data-chat-header-actions className="flex shrink-0 items-center gap-1">
+                <ViewCodeThreadControls
+                  threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
+                  isServerThread={isServerThread}
+                  draftTarget={composerDraftTarget}
+                />
+                {isServerThread && activeThreadShell?.source.kind !== "sidechat" ? (
+                  <SidechatHeaderButton
+                    environmentId={activeThread.environmentId}
+                    threadId={activeThread.id}
+                    keybindings={keybindings}
+                  />
+                ) : null}
+              </div>
             }
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
             {...(activeDraftLogicalProjectKey
@@ -8219,6 +8231,14 @@ export default function ChatView(props: ChatViewProps) {
                               isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
                               queuedRunsControl={queuedRunsControl}
                               bannerItems={composerBannerItems}
+                              agentsBar={
+                                isServerThread && activeThreadRef ? (
+                                  <ActiveAgentsBar
+                                    threadRef={activeThreadRef}
+                                    providers={providerStatuses}
+                                  />
+                                ) : null
+                              }
                               resumeCompactionTokens={resumeCompactionTokens}
                               keepFullHistory={keepFullHistory}
                               onToggleKeepFullHistory={toggleKeepFullHistoryStable}
@@ -8488,6 +8508,14 @@ export default function ChatView(props: ChatViewProps) {
             />
           </ThreadFindCanvas>
         </div>
+
+        {isServerThread ? (
+          <SidechatHost
+            thread={activeThreadShell}
+            keybindings={keybindings}
+            markdownCwd={gitCwd ?? undefined}
+          />
+        ) : null}
 
         {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
           <PersistentThreadTerminalDrawer
