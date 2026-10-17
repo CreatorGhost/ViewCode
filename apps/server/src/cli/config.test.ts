@@ -17,6 +17,7 @@ import {
   type DesktopBackendBootstrap as DesktopBackendBootstrapValue,
 } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -59,6 +60,45 @@ const makeDesktopBootstrap = (
 });
 
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
+  it.effect(
+    "resolves default and explicit upstream-compatible homes inside an isolated environment",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const home = yield* fs.makeTempDirectoryScoped({ prefix: "viewcode-cli-home-" });
+        for (const configured of [undefined, "~/.t3"]) {
+          const resolved = yield* resolveServerConfig(
+            {
+              ...minimalWebFlags(home),
+              listenPath: Option.none(),
+              baseDir: Option.none(),
+              cwd: Option.some(path.join(home, "project")),
+            },
+            Option.none(),
+          ).pipe(
+            Effect.provideService(HostProcess.HomeDirectory, home),
+            Effect.provide(
+              Layer.merge(
+                NetService.layer,
+                ConfigProvider.layer(
+                  ConfigProvider.fromEnv({
+                    env: configured === undefined ? {} : { T3CODE_HOME: configured },
+                  }),
+                ),
+              ),
+            ),
+          );
+          assert.equal(
+            resolved.baseDir,
+            path.join(home, configured === undefined ? ".viewcode" : ".t3"),
+          );
+          assert.equal(resolved.stateDir, path.join(resolved.baseDir, "userdata"));
+          assert.isTrue(yield* fs.exists(resolved.stateDir));
+        }
+      }),
+  );
+
   const defaultObservabilityConfig = {
     traceMinLevel: "Info",
     traceTimingEnabled: true,

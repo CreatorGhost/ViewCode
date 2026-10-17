@@ -148,6 +148,23 @@ describe("t3 server command safety", () => {
     ),
   );
 
+  it.effect(
+    "keeps upstream doctor and Connect setup unavailable even with cloud configuration",
+    () =>
+      withTempDirectory("viewcode-cli-policy-", (root) =>
+        Effect.gen(function* () {
+          const baseDir = NodePath.join(root, "home");
+          const command = Command.runWith(makeCli({ cloudEnabled: true }), { version: "0.0.0" });
+          const doctor = yield* command(["doctor", "--base-dir", baseDir]).pipe(Effect.flip);
+          expect(String(doctor)).toContain('Unknown command "doctor"');
+          const connect = yield* command(["connect", "link"]).pipe(Effect.flip);
+          expect(connect).toMatchObject({ _tag: "ShowHelp", commandPath: ["t3", "connect"] });
+          expect(String(connect)).not.toContain("T3 Connect");
+          expect(yield* pathExists(baseDir)).toBe(false);
+        }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NetService.layer))),
+      ),
+  );
+
   it.effect("shows help without creating state", () =>
     withTempDirectory("t3-cli-help-", (root) =>
       Effect.gen(function* () {
@@ -193,7 +210,7 @@ describe("t3 server command safety", () => {
             ),
             Effect.flip,
           );
-          expect(String(error)).toContain("A T3 Code server is already running");
+          expect(String(error)).toContain("A ViewCode server is already running");
           expect(yield* Effect.promise(() => NodeFSP.readFile(statePath, "utf8"))).toBe(record);
           expect(yield* pathExists(newDirectory)).toBe(false);
           expect(yield* Effect.promise(() => NodeFSP.readdir(stateDir))).toEqual([
@@ -253,7 +270,7 @@ describe("t3 app", () => {
           _tag: "DesktopAppUnreachableError",
           candidateAddresses: [expect.any(String)],
           workspaceRoot: yield* HostProcess.WorkingDirectory,
-          message: expect.stringContaining("Could not reach the T3 Code desktop app."),
+          message: expect.stringContaining("Could not reach the ViewCode desktop app."),
           cause: { code: "ENOENT" },
         });
         expect(yield* pathExists(baseDir)).toBe(false);
@@ -285,7 +302,7 @@ describe("t3 app", () => {
   it.effect("prefers the installed desktop app when a dev desktop is also running", () =>
     withTempDirectory("t3-app-preferred-test-", (root) =>
       Effect.gen(function* () {
-        const baseDir = NodePath.join(root, ".t3");
+        const baseDir = NodePath.join(root, ".viewcode");
         const desktop = yield* fakeDesktop({ baseDir });
         const development = yield* fakeDesktop({ baseDir, stateSubdirectory: "dev" });
 
@@ -300,7 +317,7 @@ describe("t3 app", () => {
   it.effect("finds the dev desktop when the default desktop socket is absent", () =>
     withTempDirectory("t3-app-dev-test-", (root) =>
       Effect.gen(function* () {
-        const baseDir = NodePath.join(root, ".t3");
+        const baseDir = NodePath.join(root, ".viewcode");
         const development = yield* fakeDesktop({ baseDir, stateSubdirectory: "dev" });
 
         yield* runCli(["app"]);
@@ -333,7 +350,7 @@ describe("t3 app", () => {
     (responseKind) =>
       withTempDirectory("t3-app-response-test-", (root) =>
         Effect.gen(function* () {
-          const baseDir = NodePath.join(root, ".t3");
+          const baseDir = NodePath.join(root, ".viewcode");
           const desktop = yield* fakeDesktop({
             baseDir,
             reply: (request) =>

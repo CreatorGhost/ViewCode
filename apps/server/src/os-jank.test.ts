@@ -3,12 +3,13 @@ import { it as effectIt } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { CommandAvailability, WindowsShellEnvironment } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
+import * as Path from "effect/Path";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Observe the existing synchronous shell probe without launching the user's login shell.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
 import { assert, it, vi } from "vite-plus/test";
 
-import { fixPath, hydratePosixHome } from "./os-jank.ts";
+import { fixPath, hydratePosixHome, resolveBaseDir } from "./os-jank.ts";
 
 vi.mock("node:child_process", { spy: true });
 
@@ -169,4 +170,43 @@ effectIt.effect("replaces a Path-spelled Windows PATH instead of adding a second
 
     assert.deepEqual(env, { PATH: "C:\\Tools;C:\\Windows" });
   }),
+);
+
+effectIt.effect("keeps the installed ViewCode home when no explicit home is supplied", () =>
+  Effect.gen(function* () {
+    for (const input of [undefined, "", " \t"]) {
+      assert.equal(yield* resolveBaseDir(input), "/home/viewcode-user/.viewcode");
+    }
+  }).pipe(
+    Effect.provideService(HostProcess.HomeDirectory, "/home/viewcode-user"),
+    Effect.provide(Path.layer),
+  ),
+);
+
+effectIt.effect(
+  "honors an explicit copied state directory, including the former upstream default",
+  () =>
+    Effect.gen(function* () {
+      assert.equal(yield* resolveBaseDir(" /isolated/real-data-copy "), "/isolated/real-data-copy");
+      assert.equal(yield* resolveBaseDir("/home/viewcode-user/.t3"), "/home/viewcode-user/.t3");
+      const path = yield* Path.Path;
+      assert.equal(yield* resolveBaseDir("./isolated-copy"), path.resolve("./isolated-copy"));
+    }).pipe(
+      Effect.provideService(HostProcess.HomeDirectory, "/home/viewcode-user"),
+      Effect.provide(Path.layer),
+    ),
+);
+
+effectIt.effect(
+  "expands a tilde home from the injected environment without changing explicit choices",
+  () =>
+    Effect.gen(function* () {
+      assert.equal(yield* resolveBaseDir("~"), "/home/viewcode-user");
+      assert.equal(yield* resolveBaseDir(" ~/.t3 "), "/home/viewcode-user/.t3");
+      assert.equal(yield* resolveBaseDir("~/test-copy"), "/home/viewcode-user/test-copy");
+      assert.equal(yield* resolveBaseDir("~\\test-copy"), "/home/viewcode-user/test-copy");
+    }).pipe(
+      Effect.provideService(HostProcess.HomeDirectory, "/home/viewcode-user"),
+      Effect.provide(Path.layer),
+    ),
 );

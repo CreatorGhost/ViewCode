@@ -1,4 +1,5 @@
 export const viewcodeProductPolicy = {
+  homeDirectoryName: ".viewcode",
   nativeProviderGoalUi: false,
   nativeUsageRecoveryUi: false,
   doctor: false,
