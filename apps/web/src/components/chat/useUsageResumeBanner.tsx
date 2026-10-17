@@ -1,11 +1,9 @@
 import type { OrchestrationLatestTurn } from "@t3tools/client-runtime/viewcodeThread";
 import { deriveUsageResumeNotice } from "@t3tools/client-runtime/usage-resume";
-import type {
-  OrchestrationThreadActivity,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { OrchestrationThreadActivity, ScopedThreadRef } from "@t3tools/contracts";
 import { AlarmClockIcon } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
+import { useNowMinute } from "../../hooks/useNowMinute";
 
 import { agentControlEnvironment } from "../../state/agentControl";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -27,32 +25,32 @@ export function useUsageResumeBanner(input: {
   const cancel = useAtomCommand(agentControlEnvironment.cancelUsageResume);
   const resumeNow = useAtomCommand(agentControlEnvironment.resumeUsageNow);
   const [busy, setBusy] = useState(false);
+  const nowMinute = useNowMinute();
 
-  const notice = useMemo(
-    () =>
-      threadRef === null
-        ? null
-        : deriveUsageResumeNotice({ activities, session, latestTurn, nowMs: Date.now() }),
-    [activities, latestTurn, session, threadRef],
-  );
+  const notice = (() =>
+    threadRef === null
+      ? null
+      : deriveUsageResumeNotice({
+          activities,
+          session,
+          latestTurn,
+          nowMs: Date.parse(`${nowMinute}:00.000Z`),
+        }))();
 
-  const run = useCallback(
-    async (command: typeof cancel) => {
-      if (threadRef === null) return;
-      setBusy(true);
-      try {
-        await command({
-          environmentId: threadRef.environmentId,
-          input: { threadId: threadRef.threadId },
-        });
-      } finally {
-        setBusy(false);
-      }
-    },
-    [threadRef],
-  );
+  const run = async (command: typeof cancel) => {
+    if (threadRef === null) return;
+    setBusy(true);
+    try {
+      await command({
+        environmentId: threadRef.environmentId,
+        input: { threadId: threadRef.threadId },
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  return useMemo(() => {
+  return (() => {
     if (notice === null || threadRef === null) return null;
     return {
       id: `usage-resume:${threadRef.threadId}`,
@@ -72,5 +70,5 @@ export function useUsageResumeBanner(input: {
         </>
       ),
     };
-  }, [busy, cancel, notice, resumeNow, run, threadRef]);
+  })();
 }

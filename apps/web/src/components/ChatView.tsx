@@ -1,3 +1,4 @@
+import { useViewCodeThreadBanners } from "./chat/useViewCodeThreadBanners";
 import { threadShellHasStarted } from "./ChatView.logic";
 import { ViewCodeThreadControls } from "./chat/ViewCodeThreadControls";
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
@@ -5337,8 +5338,27 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const viewcodeBanners = useViewCodeThreadBanners({
+    threadRef: isServerThread ? activeThreadRef : null,
+    projection: serverProjection,
+    provider: selectedProvider,
+    running: isWorking,
+    entries: serverTimelineEntries.flatMap((entry) => (entry.kind === "work" ? [entry.entry] : [])),
+    runningRunId: activeRunningTurnId,
+    workspaceRoot: activeWorkspaceRoot,
+    contextWindow: activeContextWindow,
+    onCompact:
+      compactDisabled || !manualCompactionProviderAvailable ? null : () => void onCompactContext(),
+    onOpenWorkingTreeDiff: (filePath) => {
+      if (activeThreadRef === null) return;
+      useDiffPanelStore.getState().selectWorkingTreeFile(activeThreadRef, filePath);
+      useRightPanelStore.getState().open(activeThreadRef, "diff");
+      onDiffPanelOpen?.();
+    },
+  });
   const composerBannerItems = (() => {
-    const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
+    const limitRecoveryItems =
+      viewcodeBanners.usage !== null || limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const backgroundWorkItems = [
       childInputBannerItem,
       goalBannerItem,
@@ -5349,6 +5369,7 @@ export default function ChatView(props: ChatViewProps) {
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
+        ...viewcodeBanners.items,
         ...limitRecoveryItems,
         ...usageLimitsItems,
         ...projectCloneItems,
@@ -5358,6 +5379,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     return [
       ...feedbackBannerItems,
+      ...viewcodeBanners.items,
       ...limitRecoveryItems,
       ...usageLimitsItems,
       ...projectCloneItems,

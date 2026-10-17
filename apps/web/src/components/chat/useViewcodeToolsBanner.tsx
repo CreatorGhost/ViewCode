@@ -1,7 +1,7 @@
 import { deriveViewcodeToolsNotice } from "@t3tools/client-runtime/viewcode-tools";
 import type { OrchestrationThreadActivity } from "@t3tools/contracts";
 import { WrenchIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -42,15 +42,12 @@ export function useViewcodeToolsBanner(input: {
 }): ComposerBannerStackItem | null {
   const { threadId, activities, sessionProviderName } = input;
   const [dismissed, setDismissed] = useState(readDismissed);
-  const notice = useMemo(
-    () =>
-      threadId === null
-        ? null
-        : deriveViewcodeToolsNotice({ threadId, activities, sessionProviderName }),
-    [activities, sessionProviderName, threadId],
-  );
+  const notice = (() =>
+    threadId === null
+      ? null
+      : deriveViewcodeToolsNotice({ threadId, activities, sessionProviderName }))();
 
-  return useMemo(() => {
+  return (() => {
     if (notice === null || dismissed.has(notice.key)) return null;
     return {
       id: notice.key,
@@ -82,5 +79,5 @@ export function useViewcodeToolsBanner(input: {
         setDismissed((current) => new Set([...current, notice.key]));
       },
     };
-  }, [dismissed, notice]);
+  })();
 }

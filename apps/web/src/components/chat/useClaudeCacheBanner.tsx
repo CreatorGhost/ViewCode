@@ -4,7 +4,7 @@ import {
   CLAUDE_DEFAULT_CACHE_TTL_SECONDS,
 } from "@t3tools/shared/claudePromptCache";
 import { SnowflakeIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { ContextWindowSnapshot } from "~/lib/contextWindow";
 import { Button } from "../ui/button";
@@ -28,17 +28,14 @@ export function useClaudeCacheBanner(input: {
   readonly onCompact: (() => void) | null;
 }): { readonly item: ComposerBannerStackItem | null } {
   const { threadId, isClaude, running, model, contextWindow, onCompact } = input;
-  const usage = useMemo(
-    () =>
-      isClaude && contextWindow
-        ? {
-            contextTokens: contextWindow.usedTokens,
-            lastUsedAt: contextWindow.updatedAt,
-            ttlSeconds: contextWindow.promptCacheTtlSeconds ?? undefined,
-          }
-        : null,
-    [contextWindow, isClaude],
-  );
+  const usage = (() =>
+    isClaude && contextWindow
+      ? {
+          contextTokens: contextWindow.usedTokens,
+          lastUsedAt: contextWindow.updatedAt,
+          ttlSeconds: contextWindow.promptCacheTtlSeconds ?? undefined,
+        }
+      : null)();
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [dismissedThreads, setDismissedThreads] = useState<ReadonlySet<string>>(new Set());
   const usageKey = threadId && usage ? `${threadId}:${usage.lastUsedAt}` : null;
@@ -56,22 +53,19 @@ export function useClaudeCacheBanner(input: {
     return () => window.clearTimeout(timer);
   }, [running, usage]);
 
-  const assessment = useMemo(
-    () =>
-      usage === null || running
-        ? null
-        : assessClaudePromptCache({
-            contextTokens: usage.contextTokens,
-            lastUsedAt: usage.lastUsedAt,
-            ttlSeconds: usage.ttlSeconds,
-            model,
-            nowMs,
-          }),
-    [model, nowMs, running, usage],
-  );
+  const assessment = (() =>
+    usage === null || running
+      ? null
+      : assessClaudePromptCache({
+          contextTokens: usage.contextTokens,
+          lastUsedAt: usage.lastUsedAt,
+          ttlSeconds: usage.ttlSeconds,
+          model,
+          nowMs,
+        }))();
   const visible = assessment?.warn === true && threadId !== null && !dismissedThreads.has(threadId);
 
-  const item = useMemo<ComposerBannerStackItem | null>(() => {
+  const item: ComposerBannerStackItem | null = (() => {
     if (!visible || assessment === null || usageKey === null || threadId === null) return null;
     const dismiss = () => setDismissedThreads((previous) => new Set(previous).add(threadId));
     return {
@@ -94,7 +88,7 @@ export function useClaudeCacheBanner(input: {
         </Button>
       ) : undefined,
     };
-  }, [assessment, onCompact, threadId, usageKey, visible]);
+  })();
 
   return { item };
 }

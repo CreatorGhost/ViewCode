@@ -53,3 +53,7 @@
     }
   }
 }
+
+@utility messages-timeline-row-frame {
+  padding-inline: 0;
+}

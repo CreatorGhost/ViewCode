@@ -1,3 +1,4 @@
+import { ReadAloudButton } from "./ReadAloudButton";
 import { parseAgentMessage } from "@t3tools/shared/agentMessages";
 import { IncomingAgentMessageCard, OutgoingAgentMessageCard } from "./AgentMessageCard";
 import { SpawnedAgentRows } from "./SpawnedAgentRows";
@@ -2772,6 +2773,7 @@ function AssistantCopyButton({
   showCopyButton: boolean;
   streaming: boolean;
 }) {
+  const ctx = use(TimelineRowCtx);
   const assistantCopyState = resolveAssistantMessageCopyState({
     text: message.text ?? null,
     showCopyButton,
@@ -2782,7 +2784,17 @@ function AssistantCopyButton({
     return null;
   }
 
-  return <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />;
+  return (
+    <>
+      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      {!streaming ? (
+        <ReadAloudButton
+          messageKey={`${ctx.threadRef?.environmentId ?? ctx.activeThreadEnvironmentId}:${ctx.threadRef?.threadId ?? "draft"}:${message.id}`}
+          markdown={assistantCopyState.text ?? ""}
+        />
+      ) : null}
+    </>
+  );
 }
 
 function ProposedPlanTimelineRow({

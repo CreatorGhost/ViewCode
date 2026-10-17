@@ -1,7 +1,7 @@
 import { threadImagePayloadBytes } from "@t3tools/client-runtime/viewcodeThreadAtoms";
 import type { OrchestrationMessage } from "@t3tools/client-runtime/viewcodeThread";
 import { ImagesIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 
@@ -26,13 +26,10 @@ export function useImagePayloadBanner(input: {
 }): ComposerBannerStackItem | null {
   const { threadId, messages, providerName } = input;
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
-  const bytes = useMemo(
-    () => (providerName === "cursor" ? threadImagePayloadBytes(messages) : 0),
-    [messages, providerName],
-  );
+  const bytes = (() => (providerName === "cursor" ? threadImagePayloadBytes(messages) : 0))();
   const key = threadId === null ? null : imagePayloadWarningKey(threadId, bytes);
 
-  return useMemo(() => {
+  return (() => {
     if (key === null || key === dismissedKey) return null;
     const megabytes = (bytes / (1024 * 1024)).toFixed(1);
     return {
@@ -45,5 +42,5 @@ export function useImagePayloadBanner(input: {
       dismissLabel: "Dismiss image size warning",
       onDismiss: () => setDismissedKey(key),
     };
-  }, [bytes, dismissedKey, key]);
+  })();
 }

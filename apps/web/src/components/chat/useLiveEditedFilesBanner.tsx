@@ -1,5 +1,4 @@
 import { FileDiffIcon } from "lucide-react";
-import { useMemo } from "react";
 
 import type { WorkLogEntry } from "../../session-logic";
 import { Button } from "../ui/button";
@@ -25,12 +24,9 @@ export function useLiveEditedFilesBanner(input: {
   readonly onOpenWorkingTreeDiff: (filePath?: string) => void;
 }): ComposerBannerStackItem | null {
   const { entries, runningTurnId, workspaceRoot, onOpenWorkingTreeDiff } = input;
-  const files = useMemo(
-    () => deriveLiveEditedFiles(entries, runningTurnId),
-    [entries, runningTurnId],
-  );
+  const files = (() => deriveLiveEditedFiles(entries, runningTurnId))();
 
-  return useMemo(() => {
+  return (() => {
     if (runningTurnId === null || files.length === 0) return null;
     const turnId = runningTurnId;
     const collapsed = files.length > LIVE_EDITED_FILES_INLINE_LIMIT;
@@ -62,5 +58,5 @@ export function useLiveEditedFilesBanner(input: {
         </div>
       ),
     };
-  }, [files, onOpenWorkingTreeDiff, runningTurnId, workspaceRoot]);
+  })();
 }

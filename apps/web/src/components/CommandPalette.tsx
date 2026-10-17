@@ -1,5 +1,13 @@
 "use client";
 
+import { Volume2Icon, SquareIcon } from "lucide-react";
+import { scopeThread } from "@t3tools/client-runtime/viewcodeThread";
+import { readLatestReplyAloud } from "../lib/readAloudActions";
+import { latestReadableReply } from "../lib/readAloud.logic";
+import { isReadAloudSupported, stopReadAloud, useReadAloudStore } from "../lib/readAloudPlayer";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { environmentThreadDetails } from "../state/threads";
+import { useThreadProjection } from "../state/entities";
 import { useThreadGoalControls } from "./chat/useThreadGoalControls";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { TargetIcon, BugIcon } from "lucide-react";
@@ -585,6 +593,18 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         });
         return;
       }
+      if (command === "readAloud.stop" || command === "readAloud.latest") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        if (command === "readAloud.stop") stopReadAloud();
+        else if (routeThreadRef !== null) {
+          const thread = appAtomRegistry.get(environmentThreadDetails.threadAtom(routeThreadRef));
+          if (thread !== null)
+            readLatestReplyAloud(scopeThread(thread.environmentId, thread.projection));
+        }
+        return;
+      }
       if (command === "usage.open") {
         event.preventDefault();
         event.stopPropagation();
@@ -607,6 +627,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     keybindings,
     navigate,
     previewOpen,
+    routeThreadRef,
     resolvedTheme,
     setAppearanceMode,
     setOpen,
@@ -769,6 +790,12 @@ function OpenCommandPaletteDialog(props: {
       : activeDraftThread !== null
         ? scopeThreadRef(activeDraftThread.environmentId, activeDraftThread.threadId)
         : null;
+  const speechProjection = useThreadProjection(activeThread === null ? null : goalThreadRef);
+  const speechThread =
+    speechProjection === null
+      ? null
+      : scopeThread(speechProjection.environmentId, speechProjection.projection);
+  const readingAloud = useReadAloudStore((store) => store.playingKey !== null);
   const viewcodeGoalControls = useThreadGoalControls({
     threadKey: goalThreadRef === null ? "" : scopedThreadKey(goalThreadRef),
     environmentId: goalThreadRef?.environmentId ?? null,
@@ -1623,6 +1650,36 @@ function OpenCommandPaletteDialog(props: {
   };
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  if (
+    isReadAloudSupported() &&
+    speechThread !== null &&
+    latestReadableReply(speechThread) !== null
+  ) {
+    const thread = speechThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:read-aloud-latest",
+      title: "Read latest reply aloud",
+      searchTerms: ["read aloud", "speak", "voice", "listen", "tts"],
+      icon: <Volume2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "readAloud.latest",
+      run: async () => {
+        readLatestReplyAloud(thread);
+      },
+    });
+  }
+  if (readingAloud)
+    actionItems.push({
+      kind: "action",
+      value: "action:read-aloud-stop",
+      title: "Stop reading",
+      searchTerms: ["stop reading", "silence"],
+      icon: <SquareIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "readAloud.stop",
+      run: async () => {
+        stopReadAloud();
+      },
+    });
   if (goalThreadRef !== null) {
     const disabled = !readEnvironmentScope(
       goalThreadRef.environmentId,
