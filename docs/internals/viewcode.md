@@ -235,4 +235,4 @@ remote client. Keep the system-voice fallback.
 
 Use `vp i`, focused `vp test run <files>`, and targeted checks as described in
 `AGENTS.md`. A worktree's gitignored `.t3` is the default isolated development
-home; an explicit `--home-dir` must always name disposable copied state.
+home; an explicit `--base-dir` must always name disposable copied state.

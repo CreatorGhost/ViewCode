@@ -41,7 +41,7 @@ handoff is also a good choice when the old conversation contains conflicting ins
 
 ViewCode does not currently have a whole-thread export command. Before a major server update, stop
 the server and copy its `userdata` directory to a safe location. The default is
-`~/.viewcode/userdata`. Existing servers configured to use `~/.t3` keep that location; a server started with `--home-dir <path>` uses `<path>/userdata`.
+`~/.viewcode/userdata`. Existing servers configured to use `~/.t3` keep that location; a server started with `--base-dir <path>` uses `<path>/userdata`.
 
 If a migrated transcript is missing from the app, keep that copy unchanged. You can inspect the
 old transcript without starting a server against it:
@@ -84,7 +84,7 @@ of the whole `userdata` directory. The v2 app uses `statev2.sqlite`; the leftove
 Quit ViewCode and stop the server before removing files. For an install whose
 data directory is `~/.viewcode/userdata`, the old file is exactly
 `~/.viewcode/userdata/state.sqlite`. If you use another home, including
-`~/.t3` or `--home-dir <path>`, use that home's `userdata` directory
+`~/.t3` or `--base-dir <path>`, use that home's `userdata` directory
 instead. Check the path before proceeding.
 
 After backing up, move `state.sqlite` to a separate recovery folder using your
