@@ -3627,9 +3627,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     yield* refuseAboveDispatchModeLimit(command, command.sourceThreadId, sourceProjection.thread);
 
     if (command.sourceMessageId !== undefined) {
-      const existing = yield* projectionStore
-        .getThreadShell(command.targetThreadId)
-        .pipe(mapDispatchError(command));
+      // Shell reads hide tombstones; reusing one would mix the old target's retained history.
+      const existing = yield* projectionStore.getThreadRecords(command.targetThreadId, []).pipe(
+        Effect.map((records) => records.thread),
+        Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+        mapDispatchError(command),
+      );
       if (existing !== null)
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,

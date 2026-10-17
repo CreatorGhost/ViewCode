@@ -616,6 +616,54 @@ it.effect.each([
           (yield* store.getThreadProjection(foreignThreadId)).thread.projectId,
           "foreign-project",
         );
+        // A deleted target is still owned data, even though it is absent from the shell.
+        yield* eventSink.write({
+          events: [
+            {
+              id: EventId.make("foreign-retained-message"),
+              type: "message.updated",
+              threadId: foreignThreadId,
+              occurredAt: now,
+              payload: {
+                id: MessageId.make("foreign-retained-message"),
+                threadId: foreignThreadId,
+                role: "user",
+                text: "RETAINED_OTHER_PROJECT_DATA",
+                attachments: [],
+                runId: null,
+                nodeId: null,
+                createdBy: "user",
+                creationSource: "web",
+                createdAt: now,
+                updatedAt: now,
+                streaming: false,
+              },
+            },
+          ],
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.delete",
+          commandId: CommandId.make("delete-owned-target"),
+          threadId: foreignThreadId,
+        });
+        const tombstoneBefore = yield* store.getThreadProjection(foreignThreadId);
+        assert.isNotNull(tombstoneBefore.thread.deletedAt);
+        assert.isNull(yield* store.getThreadShell(foreignThreadId));
+        const deletedTargetResult = yield* Effect.exit(
+          orchestrator.dispatch({
+            type: "thread.fork",
+            commandId: CommandId.make("exact-deleted-target"),
+            sourceThreadId,
+            targetThreadId: foreignThreadId,
+            sourcePoint: { type: "latest_stable" },
+            sourceMessageId: MessageId.make("selected-user"),
+            createdBy: "user",
+            creationSource: "web",
+          }),
+        );
+        assert.equal(deletedTargetResult._tag, "Failure");
+        assert.deepEqual(yield* store.getThreadProjection(foreignThreadId), tombstoneBefore);
+
         yield* fork("exact-fork", "selected-user");
         const target = yield* store.getThreadProjection(targetThreadId);
         assert.equal(
