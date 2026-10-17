@@ -77,7 +77,7 @@ export const readItems = Effect.fn("ViewCodeSidechatBootstrap.readItems")(functi
 export const labelHandoff = (handoff: OrchestrationV2ContextHandoff) => ({
   ...handoff,
   summaryText: handoff.summaryText.replace(
-    "Imported conversation history from the previous T3 Code orchestrator.",
+    "Imported conversation history from the previous ViewCode orchestrator.",
     "Parent conversation snapshot for this side chat. The parent may still be working; its tools and unfinished work are not copied.",
   ),
 });

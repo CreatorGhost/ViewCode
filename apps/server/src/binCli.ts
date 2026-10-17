@@ -34,7 +34,7 @@ import { triageCommand } from "./cli/triage.ts";
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
 const connectPublicConfigMissingMessage =
-  "T3 Connect commands are unavailable: this build is missing T3 Connect public configuration.";
+  "This upstream connection option is unavailable in ViewCode. Use Quick connect in Settings > Connections.";
 
 class ConnectPublicConfigMissingError extends CliError.UserError {
   override get message() {
@@ -45,7 +45,7 @@ class ConnectPublicConfigMissingError extends CliError.UserError {
 const connectUnavailableCommand = Command.make("connect", {
   command: Argument.String("command").pipe(Argument.variadic),
 }).pipe(
-  Command.withDescription("T3 Connect is unavailable in builds without public configuration."),
+  Command.withDescription("This upstream connection option is unavailable."),
   Command.unlisted,
   Command.withHandler(() =>
     Effect.fail(
@@ -59,7 +59,7 @@ const connectUnavailableCommand = Command.make("connect", {
 
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
-    Command.withDescription("Run the T3 Code server."),
+    Command.withDescription("Run the ViewCode server."),
     Command.withHandler(runDefaultServerCommand),
     Command.withSubcommands([
       Command.make("help").pipe(
@@ -89,7 +89,9 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       traceCommand,
       ...(viewcodeProductPolicy.doctor ? [doctorCommand] : []),
       triageCommand,
-      cloudEnabled ? connectCommand : connectUnavailableCommand,
+      viewcodeProductPolicy.upstreamPromotions && cloudEnabled
+        ? connectCommand
+        : connectUnavailableCommand,
     ]),
   );
 

@@ -1,3 +1,4 @@
+import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -237,10 +238,14 @@ export const offerServiceDuringOnboarding = Effect.gen(function* () {
       message: installed
         ? "The installed ViewCode service needs an update or repair. Update it now?"
         : platform === "darwin"
-          ? "Run ViewCode in the background whenever you log in to this Mac? " +
-            "It stays reachable through T3 Connect while you are logged in."
-          : "Run ViewCode in the background whenever this machine boots? " +
-            "It stays reachable through T3 Connect even after you log out.",
+          ? "Run ViewCode in the background whenever you log in to this Mac?" +
+            (viewcodeProductPolicy.upstreamPromotions
+              ? " It stays reachable through T3 Connect while you are logged in."
+              : "")
+          : "Run ViewCode in the background whenever this machine boots?" +
+            (viewcodeProductPolicy.upstreamPromotions
+              ? " It stays reachable through T3 Connect even after you log out."
+              : ""),
       initial: true,
     }),
   );
