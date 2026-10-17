@@ -61,6 +61,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
+import { materializeViewCodeReplayGuidance } from "../testkit/ViewCodeReplayGuidance.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
@@ -71,6 +72,9 @@ const encodeUnknownJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.
 const replayTranscriptJson = Schema.fromJsonString(CodexReplay.CodexAppServerReplayTranscript);
 const encodeReplayTranscriptJson = Schema.encodeEffect(replayTranscriptJson);
 const decodeReplayTranscriptJson = Schema.decodeUnknownEffect(replayTranscriptJson);
+const decodeCodexReplayTranscript = Schema.decodeUnknownEffect(
+  CodexReplay.CodexAppServerReplayTranscript,
+);
 const encodeStringJson = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
 describe("Codex context usage compatibility", () => {
@@ -1105,6 +1109,11 @@ describe("CodexAdapterV2 native protocol logging", () => {
           params: {
             id: "evt-1",
             http_headers: { Authorization: "Bearer secret-codex-token" },
+            config: {
+              "shell_environment_policy.set.VIEWCODE_COMPUTER_AUTH": "Bearer computer-secret",
+              "shell_environment_policy.set.VIEWCODE_BROWSER_AUTH": "Bearer browser-secret",
+              "shell_environment_policy.set.VIEWCODE_REVIEW_AUTH": "review-secret",
+            },
             usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 },
           },
         },
@@ -1131,6 +1140,11 @@ describe("CodexAdapterV2 native protocol logging", () => {
             params: {
               id: "evt-1",
               http_headers: { Authorization: "[REDACTED]" },
+              config: {
+                "shell_environment_policy.set.VIEWCODE_COMPUTER_AUTH": "[REDACTED]",
+                "shell_environment_policy.set.VIEWCODE_BROWSER_AUTH": "[REDACTED]",
+                "shell_environment_policy.set.VIEWCODE_REVIEW_AUTH": "[REDACTED]",
+              },
               usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 },
             },
           },
@@ -4838,11 +4852,17 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-bg-stop-workspace-" });
-        const localTranscript = yield* decodeReplayTranscriptJson(
+        const recordedTranscript = yield* decodeReplayTranscriptJson(
           (yield* encodeReplayTranscriptJson(transcript)).replaceAll(
             yield* encodeStringJson("/workspace"),
             yield* encodeStringJson(cwd),
           ),
+        );
+        const localTranscript = yield* decodeCodexReplayTranscript(
+          materializeViewCodeReplayGuidance(recordedTranscript, {
+            driver: "codex",
+            model: "gpt-5.4",
+          }),
         );
         const replayDriver = yield* CodexReplay.makeReplayDriver(localTranscript);
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -4973,11 +4993,17 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             { type: "runtime_exit", status: "success" },
           ],
         });
-        const localTranscript = yield* decodeReplayTranscriptJson(
+        const recordedTranscript = yield* decodeReplayTranscriptJson(
           (yield* encodeReplayTranscriptJson(staleTranscript)).replaceAll(
             yield* encodeStringJson("/workspace"),
             yield* encodeStringJson(cwd),
           ),
+        );
+        const localTranscript = yield* decodeCodexReplayTranscript(
+          materializeViewCodeReplayGuidance(recordedTranscript, {
+            driver: "codex",
+            model: "gpt-5.4",
+          }),
         );
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
         for (const args of [

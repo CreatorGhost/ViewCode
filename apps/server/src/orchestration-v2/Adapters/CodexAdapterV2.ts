@@ -116,6 +116,12 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import {
+  codexThreadEnvironment,
+  codexThreadEnvironmentOverrides,
+  makeCodexThreadEnvironmentTracker,
+  withoutCodexThreadEnvironment,
+} from "./ViewCodeCodexThreadEnvironment.ts";
 import { autoApprovesComputerUseCommand } from "@t3tools/provider-core/server/computerUseCommand";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
@@ -1299,6 +1305,7 @@ const CODEX_T3_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
 
 export function codexThreadRuntimeParams(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
+  readonly environmentOverrides?: Readonly<Record<string, Schema.Json>>;
   readonly modelSelection?: { readonly model: string };
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
 }): {
@@ -1312,12 +1319,22 @@ export function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...input.environmentOverrides,
       ...(mcpSession === undefined
         ? {}
         : {
             mcp_servers: {
               "t3-code": {
-                ...(mcpSession.stdio ? { command: mcpSession.stdio.command, args: [...mcpSession.stdio.args], env: { ...mcpSession.stdio.env } } : { url: mcpSession.endpoint, http_headers: { Authorization: mcpSession.authorizationHeader } }),
+                ...(mcpSession.stdio
+                  ? {
+                      command: mcpSession.stdio.command,
+                      args: [...mcpSession.stdio.args],
+                      env: { ...mcpSession.stdio.env },
+                    }
+                  : {
+                      url: mcpSession.endpoint,
+                      http_headers: { Authorization: mcpSession.authorizationHeader },
+                    }),
                 tool_timeout_sec: CODEX_T3_MCP_TOOL_TIMEOUT_SEC,
               },
             },
@@ -1486,6 +1503,7 @@ function isSensitiveCodexProtocolKey(key: string): boolean {
   const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
   return (
     normalized.endsWith("authorization") ||
+    normalized.endsWith("auth") ||
     normalized.endsWith("apikey") ||
     normalized.endsWith("token") ||
     normalized.endsWith("password") ||
@@ -1708,10 +1726,35 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
           settings: resolvedRuntime?.config ?? adapterOptions.settings,
-          environment: McpProviderSession.withAgentDeviceEnvironment(
+          environment: withoutCodexThreadEnvironment(
             resolvedRuntime?.environment ?? adapterOptions.environment,
-            yield* readMcpSession(input.threadId),
           ),
+        });
+        const threadEnvironmentTracker = yield* makeCodexThreadEnvironmentTracker;
+        yield* client.handleServerNotification("thread/closed", ({ threadId }) =>
+          threadEnvironmentTracker.closed(threadId),
+        );
+        const threadRuntimeParams = Effect.fn("codex.thread_runtime_params")(function* (
+          params: Parameters<typeof codexThreadRuntimeParams>[0],
+        ) {
+          const environment = codexThreadEnvironment(params.mcpSession);
+          if (params.mcpSession === undefined) return codexThreadRuntimeParams(params);
+          yield* ensureInitialized;
+          const config =
+            environment.PATH === undefined
+              ? undefined
+              : yield* client.request("config/read", {
+                  includeLayers: false,
+                  ...(params.runtimePolicy?.cwd == null ? {} : { cwd: params.runtimePolicy.cwd }),
+                });
+          return codexThreadRuntimeParams({
+            ...params,
+            environmentOverrides: codexThreadEnvironmentOverrides({
+              environment,
+              processEnvironment: resolvedRuntime?.environment ?? adapterOptions.environment,
+              shellConfig: config?.config.shell_environment_policy,
+            }),
+          });
         });
         const additionalContextByThread = yield* Ref.make(
           new Map<
@@ -5039,8 +5082,15 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
-            if (autoApprovesComputerUseCommand(yield* readMcpSession(context.projectionThreadId), payload.command)) {
-              return { decision: "accept" } satisfies CodexSchema.CommandExecutionRequestApprovalResponse;
+            if (
+              autoApprovesComputerUseCommand(
+                yield* readMcpSession(context.projectionThreadId),
+                payload.command,
+              )
+            ) {
+              return {
+                decision: "accept",
+              } satisfies CodexSchema.CommandExecutionRequestApprovalResponse;
             }
             const allowance = sessionAllowance(payload.threadId, context);
             if (allowance.has("command")) {
@@ -5325,7 +5375,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
-            if (autoApprovesComputerUseCommand(yield* readMcpSession(context.projectionThreadId), payload.command)) {
+            if (
+              autoApprovesComputerUseCommand(
+                yield* readMcpSession(context.projectionThreadId),
+                payload.command,
+              )
+            ) {
               return { decision: "approved" } satisfies CodexSchema.ExecCommandApprovalResponse;
             }
             const allowance = sessionAllowance(payload.conversationId, context);
@@ -6464,14 +6519,21 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             ensureInitialized.pipe(
               Effect.andThen(mcpSessions.read(threadInput.threadId)),
               Effect.flatMap((mcpSession) =>
-                client.request(
-                  "thread/start",
-                  codexThreadRuntimeParams({
-                    mcpSession,
-                    modelSelection: threadInput.modelSelection,
-                    runtimePolicy: threadInput.runtimePolicy,
-                  }),
-                ),
+                Effect.gen(function* () {
+                  const response = yield* client.request(
+                    "thread/start",
+                    yield* threadRuntimeParams({
+                      mcpSession,
+                      modelSelection: threadInput.modelSelection,
+                      runtimePolicy: threadInput.runtimePolicy,
+                    }),
+                  );
+                  yield* threadEnvironmentTracker.remember(
+                    response.thread.id,
+                    mcpSession?.providerSessionId ?? null,
+                  );
+                  return response;
+                }),
               ),
               Effect.map((response): OrchestrationV2ProviderThread =>
                 providerThreadFromCodexThread({
@@ -6495,21 +6557,37 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           resumeThread: (threadInput) =>
             Effect.gen(function* () {
               const nativeThreadId = yield* getNativeThreadId(threadInput.providerThread);
+              const mcpSession = yield* readMcpSession(
+                threadInput.threadId ?? threadInput.providerThread.appThreadId,
+              );
+              yield* threadEnvironmentTracker.refreshIfChanged({
+                nativeThreadId,
+                credentialId: mcpSession?.providerSessionId ?? null,
+                hasPendingWork: Effect.gen(function* () {
+                  for (const context of (yield* Ref.get(activeTurns)).values()) {
+                    if (context.providerThread.id === threadInput.providerThread.id) return true;
+                  }
+                  return yield* runtime.hasPendingBackgroundWorkForThread!(
+                    threadInput.providerThread,
+                  );
+                }),
+                unsubscribe: client
+                  .request("thread/unsubscribe", { threadId: nativeThreadId })
+                  .pipe(Effect.map((response) => response.status)),
+              });
               // excludeTurns is not in the generated request schema yet.
               const resume = client.raw.request("thread/resume", {
                 threadId: nativeThreadId,
                 excludeTurns: true,
-                ...codexThreadRuntimeParams({
-                  mcpSession: yield* readMcpSession(
-                    threadInput.threadId ?? threadInput.providerThread.appThreadId,
-                  ),
+                ...(yield* threadRuntimeParams({
+                  mcpSession,
                   ...(threadInput.modelSelection === undefined
                     ? {}
                     : { modelSelection: threadInput.modelSelection }),
                   ...(threadInput.runtimePolicy === undefined
                     ? {}
                     : { runtimePolicy: threadInput.runtimePolicy }),
-                }),
+                })),
               });
               const response = yield* ensureInitialized.pipe(
                 Effect.andThen(
@@ -6531,6 +6609,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   ),
                 ),
                 Effect.flatMap(decodeCodexResumeMetadata),
+              );
+              yield* threadEnvironmentTracker.remember(
+                response.thread.id,
+                mcpSession?.providerSessionId ?? null,
               );
               return {
                 ...threadInput.providerThread,
@@ -7218,11 +7300,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 yield* client.raw.request("thread/resume", {
                   threadId,
                   excludeTurns: true,
-                  ...codexThreadRuntimeParams({
+                  ...(yield* threadRuntimeParams({
                     mcpSession: yield* readMcpSession(threadInput.providerThread.appThreadId),
                     modelSelection: input.modelSelection,
                     runtimePolicy: input.runtimePolicy,
-                  }),
+                  })),
                 });
               }
               const response = yield* ensureInitialized.pipe(
@@ -7267,7 +7349,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     ...(boundary.lastTurnId === undefined
                       ? {}
                       : { lastTurnId: boundary.lastTurnId }),
-                    ...codexThreadRuntimeParams({
+                    ...(yield* threadRuntimeParams({
                       mcpSession: yield* mcpSessions.read(threadInput.targetThreadId),
                       ...(threadInput.modelSelection === undefined
                         ? {}
@@ -7275,7 +7357,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                       ...(threadInput.runtimePolicy === undefined
                         ? {}
                         : { runtimePolicy: threadInput.runtimePolicy }),
-                    }),
+                    })),
                   }),
                 ),
                 Effect.mapError(
@@ -7286,6 +7368,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                       cause: normalizeCodexCause(cause),
                     }),
                 ),
+              );
+              yield* threadEnvironmentTracker.remember(
+                response.thread.id,
+                (yield* mcpSessions.read(threadInput.targetThreadId))?.providerSessionId ?? null,
               );
               let forkedThread = response.thread;
               if (boundary.rollbackTurnCount > 0) {
