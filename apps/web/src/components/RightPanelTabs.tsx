@@ -31,6 +31,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileDiff,
+  ListChecks,
   Files,
   Globe2,
   Plus,
@@ -136,6 +137,7 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
+  onAddReview?: (() => void) | undefined;
   onAddDevice: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -313,6 +315,7 @@ function RightPanelEmptyState(props: {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
+  onAddReview?: (() => void) | undefined;
   onAddDevice: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -373,6 +376,18 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequests,
       onClick: props.onAddPullRequests,
     },
+    ...(props.onAddReview === undefined
+      ? []
+      : [
+          {
+            label: "Review",
+            icon: ListChecks,
+            shortcut: "R",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddReview,
+          },
+        ]),
     {
       label: "Device",
       description: "Watch an iOS Simulator or Android Emulator.",
@@ -1077,6 +1092,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.pullRequests,
       onClick: props.onAddPullRequests,
     },
+    ...(props.onAddReview === undefined
+      ? []
+      : [
+          {
+            label: "Review",
+            icon: ListChecks,
+            shortcut: "R",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddReview,
+          },
+        ]),
     {
       label: "Device",
       icon: Smartphone,
@@ -1457,6 +1484,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddFiles={props.onAddFiles}
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
+            onAddReview={props.onAddReview}
             onAddDevice={props.onAddDevice}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}

@@ -1,5 +1,4 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { reviewFixUndo } from "@t3tools/client-runtime/review-findings";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -12,6 +11,7 @@ import { randomUUID } from "../../lib/utils";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { environmentThreadDetails } from "../../state/threads";
+import { viewCodeReviewFixUndo } from "./viewcodeReviewFixUndo";
 import { waitForRevertedMessage } from "../ChatView.logic";
 
 /** Holds the send lock until review-fix rollback is observed, even if the dialog unmounts. */
@@ -21,12 +21,15 @@ export async function undoReviewFixes<E>(
 ) {
   const threadKey = scopedThreadKey(threadRef);
   if (useComposerDraftStore.getState().rewindingThreadKeys.has(threadKey)) return false;
-  const projection = Option.getOrNull(appAtomRegistry.get(environmentThreadDetails.stateAtom(threadRef)).data);
-  const target = projection === null ? null : reviewFixUndo({
-    activities:[...projection.turnItems,...projection.visibleTurnItems.map((row) => row.item)].flatMap((item) => item.type === "system_notice" && item.viewcodeActivity !== undefined ? [item.viewcodeActivity] : []),
-    checkpoints:projection.runs.filter((run) => run.status !== "rolled_back").map((run) => ({checkpointTurnCount:run.ordinal})),
-  });
-  const message = projection?.messages.findLast((message) => message.role === "user" && projection.runs.some((run) => run.id === message.runId && run.status !== "rolled_back"));
+  const projection = Option.getOrNull(
+    appAtomRegistry.get(environmentThreadDetails.stateAtom(threadRef)).data,
+  );
+  const target = viewCodeReviewFixUndo(projection);
+  const message = projection?.messages.findLast(
+    (message) =>
+      message.role === "user" &&
+      projection.runs.some((run) => run.id === message.runId && run.status !== "rolled_back"),
+  );
   if (!target || target.undoneTurns === 0 || !message) {
     throw new Error("The review fixes to undo are no longer available.");
   }

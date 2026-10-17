@@ -1,3 +1,6 @@
+import { ViewCodeHeaderProjectActions } from "./chat/ViewCodeHeaderProjectActions";
+import { ReviewHeaderButton } from "./chat/ReviewHeaderButton";
+import { ViewCodeReviewFixUndoHost } from "./chat/ViewCodeReviewFixUndoHost";
 import { useViewCodeThreadBanners } from "./chat/useViewCodeThreadBanners";
 import { threadShellHasStarted } from "./ChatView.logic";
 import { ViewCodeThreadControls } from "./chat/ViewCodeThreadControls";
@@ -7873,20 +7876,44 @@ export default function ChatView(props: ChatViewProps) {
               inlineRightPanelOwnsTitleBar ? 1 : shouldUsePlanSidebarSheet ? 3 : 4
             }
             actions={
-              <div data-chat-header-actions className="flex shrink-0 items-center gap-1">
-                <ViewCodeThreadControls
-                  threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
-                  isServerThread={isServerThread}
-                  draftTarget={composerDraftTarget}
-                />
-                {isServerThread && activeThreadShell?.source.kind !== "sidechat" ? (
-                  <SidechatHeaderButton
-                    environmentId={activeThread.environmentId}
-                    threadId={activeThread.id}
-                    keybindings={keybindings}
+              settings.headerActionsVisible ? (
+                <div data-chat-header-actions className="flex shrink-0 items-center gap-1">
+                  <ViewCodeHeaderProjectActions
+                    projectCwd={activeProject?.workspaceRoot ?? null}
+                    scripts={{
+                      environmentId: activeThread.environmentId,
+                      scripts: activeProjectScripts,
+                      preferredScriptId: activeProject
+                        ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
+                        : null,
+                      onRunScript: runProjectScriptStable,
+                      onAddScript: saveProjectScriptStable,
+                      onUpdateScript: updateProjectScriptStable,
+                      onDeleteScript: deleteProjectScriptStable,
+                    }}
+                    git={{ gitCwd, activeThreadRef, ...(draftId ? { draftId } : {}) }}
                   />
-                ) : null}
-              </div>
+                  {isServerThread ? (
+                    <ReviewHeaderButton
+                      environmentId={activeThread.environmentId}
+                      threadId={activeThread.id}
+                      compact
+                    />
+                  ) : null}
+                  <ViewCodeThreadControls
+                    threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
+                    isServerThread={isServerThread}
+                    draftTarget={composerDraftTarget}
+                  />
+                  {isServerThread && activeThreadShell?.source.kind !== "sidechat" ? (
+                    <SidechatHeaderButton
+                      environmentId={activeThread.environmentId}
+                      threadId={activeThread.id}
+                      keybindings={keybindings}
+                    />
+                  ) : null}
+                </div>
+              ) : null
             }
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
             {...(activeDraftLogicalProjectKey
@@ -8571,6 +8598,11 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurfaceStable}
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
+          onAddReview={
+            isServerThread && activeThreadRef !== null
+              ? () => useRightPanelStore.getState().open(activeThreadRef, "review")
+              : undefined
+          }
           onAddDevice={addDeviceSurfaceStable}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
@@ -8626,6 +8658,11 @@ export default function ChatView(props: ChatViewProps) {
             onAddFiles={addFilesSurfaceStable}
             onAddPullRequest={addPullRequestSurfaceStable}
             onAddPullRequests={addPullRequestsSurfaceStable}
+            onAddReview={
+              isServerThread && activeThreadRef !== null
+                ? () => useRightPanelStore.getState().open(activeThreadRef, "review")
+                : undefined
+            }
             onAddDevice={addDeviceSurfaceStable}
             browserAvailable={canOperatePreview && browserAvailable}
             terminalAvailable={activeProject !== null && canOperateTerminal}
@@ -8652,7 +8689,9 @@ export default function ChatView(props: ChatViewProps) {
       cwd={activeWorkspaceRoot}
       checkpoints={serverProjection?.checkpoints}
     >
-      {content}
+      <ViewCodeReviewFixUndoHost threadRef={isServerThread ? activeThreadRef : null}>
+        {content}
+      </ViewCodeReviewFixUndoHost>
     </FileMetadataThreadProvider>
   );
 }
