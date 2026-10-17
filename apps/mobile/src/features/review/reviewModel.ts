@@ -1,7 +1,7 @@
 import type { OrchestrationCheckpointSummary } from "@t3tools/client-runtime/viewcodeThread";
 
-import { parsePatchFiles } from "@pierre/diffs";
-import type { ChangeTypes, FileDiffMetadata } from "@pierre/diffs";
+import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
+import type { ChangeTypes, FileDiffMetadata } from "@pierre/diffs/types";
 import type { ReviewDiffPreviewSource } from "@t3tools/contracts";
 import { unquoteGitPatchPath } from "@t3tools/shared/gitPatchPath";
 import * as Arr from "effect/Array";
