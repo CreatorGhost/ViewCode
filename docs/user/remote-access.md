@@ -213,9 +213,11 @@ reachable address. You can also forward its port with your usual SSH tools.
 Provider CLIs and credentials belong on that host.
 
 Automatic installation of the upstream managed SSH runtime is disabled in
-ViewCode. A development build with an explicitly configured remote ViewCode
-server entry can use desktop-managed SSH; packaged builds should use manual
-installation and direct pairing until a ViewCode runtime source is configured.
+ViewCode. To use desktop-managed SSH with a server you installed yourself, set
+`T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH` in the desktop app's environment to that
+server's absolute JavaScript entry path on the remote host, then restart the app.
+The remote host also needs the supported Node.js version. Without an explicit
+entry, use manual installation and direct pairing or your own SSH port forward.
 
 ## Browser on a remote environment
 
