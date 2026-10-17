@@ -452,3 +452,40 @@ it.effect("denies manual cleanup before the handler without settings permission"
     expect(handled).toBe(false);
   }).pipe(Effect.scoped),
 );
+
+it.effect.each([
+  { scopes: [AuthOrchestrationOperateScope], allowed: false },
+  { scopes: [AuthSourceControlWriteScope], allowed: true },
+])(
+  "uses the same exact source-control grant in scope discovery and effective RPC authorization ($allowed)",
+  ({ scopes, allowed }) =>
+    Effect.gen(function* () {
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof WS_METHODS.vcsInit> =>
+            tag !== WS_METHODS.vcsInit,
+        ),
+      );
+      let writes = 0;
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.vcsInit, () =>
+              Effect.sync(() => {
+                writes++;
+              }),
+            ),
+            RpcAuthorization.layer(scopes),
+          ),
+        ),
+      );
+      expect(requiredScopeForRpcMethod(WS_METHODS.vcsInit)).toBe(AuthSourceControlWriteScope);
+      const result = yield* client[WS_METHODS.vcsInit]({ cwd: "/isolated/repo" }).pipe(
+        Effect.result,
+      );
+      expect(result._tag).toBe(allowed ? "Success" : "Failure");
+      expect(writes).toBe(allowed ? 1 : 0);
+      if (result._tag === "Failure")
+        expect(result.failure).toMatchObject({ requiredPermission: AuthSourceControlWriteScope });
+    }).pipe(Effect.scoped),
+);

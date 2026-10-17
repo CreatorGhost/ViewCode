@@ -5,7 +5,6 @@ import {
   authScopeRequiredResponse,
   AssetCreateUrlInput,
   AuthAccessReadScope,
-  AuthAccessWriteScope,
   AuthSourceControlWriteScope,
   ServerSettingsPatch,
   ProviderInstanceMutation,
@@ -43,7 +42,6 @@ export const RPC_REQUIRED_SCOPES = {
   ...CLIENT_GUARDED_RPC_SCOPES,
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,
-  [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getTurnDiff]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.getFullThreadDiff]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.searchThreads]: AuthOrchestrationReadScope,
@@ -210,62 +208,13 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetProviderWorkspaceSnapshot]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetComputerUseStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetComputerUseActivity]: AuthOrchestrationReadScope,
-  [WS_METHODS.providerAccountAdd]: AuthSettingsWriteScope,
-  [WS_METHODS.providerAccountPrepareSignIn]: AuthProvidersManageScope,
   [WS_METHODS.serverDetectProviders]: AuthOrchestrationReadScope,
-  [WS_METHODS.pullRequestsStartReview]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsRunAction]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsUpdate]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsComment]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsUpdateComment]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsSubmitReview]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsReplyToThread]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsSetThreadResolution]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsSetReaction]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsSetFilesViewed]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsRequestReviewers]: AuthOrchestrationOperateScope,
-  [WS_METHODS.pullRequestsSetLabels]: AuthOrchestrationOperateScope,
-  [WS_METHODS.sourceControlCloneRepository]: AuthOrchestrationOperateScope,
-  [WS_METHODS.sourceControlPublishRepository]: AuthOrchestrationOperateScope,
-  [WS_METHODS.projectCloneStart]: AuthOrchestrationOperateScope,
-  [WS_METHODS.projectCloneCancel]: AuthOrchestrationOperateScope,
-  [WS_METHODS.projectCloneRetry]: AuthOrchestrationOperateScope,
-  [WS_METHODS.agentsStop]: AuthOrchestrationOperateScope,
-  [WS_METHODS.agentsResume]: AuthOrchestrationOperateScope,
-  [WS_METHODS.agentsDiscard]: AuthOrchestrationOperateScope,
-  [WS_METHODS.usageResumeCancel]: AuthOrchestrationOperateScope,
-  [WS_METHODS.usageResumeNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.subscribeAgentControl]: AuthOrchestrationReadScope,
-  [WS_METHODS.voiceModelsDownload]: AuthOrchestrationOperateScope,
-  [WS_METHODS.voiceModelsCancel]: AuthOrchestrationOperateScope,
-  [WS_METHODS.voiceModelsRemove]: AuthOrchestrationOperateScope,
   [WS_METHODS.subscribeVoiceModels]: AuthOrchestrationReadScope,
-  [WS_METHODS.pushRegister]: AuthOrchestrationReadScope,
-  [WS_METHODS.pushUnregister]: AuthOrchestrationReadScope,
-  [WS_METHODS.viewcodeRelaySetupStart]: AuthAccessWriteScope,
-  [WS_METHODS.viewcodeRelaySetupCancel]: AuthAccessWriteScope,
-  [WS_METHODS.viewcodeRelaySetupContinue]: AuthAccessWriteScope,
-  [WS_METHODS.viewcodeRelaySetupChooseAccount]: AuthAccessWriteScope,
-  [WS_METHODS.viewcodeRelayRemove]: AuthAccessWriteScope,
   [WS_METHODS.projectsListIconCandidates]: AuthOrchestrationReadScope,
   [WS_METHODS.agentSessionsList]: AuthOrchestrationReadScope,
-  [WS_METHODS.vcsPull]: AuthOrchestrationOperateScope,
-  [WS_METHODS.gitRunStackedAction]: AuthOrchestrationOperateScope,
-  [WS_METHODS.gitPreparePullRequestThread]: AuthOrchestrationOperateScope,
-  [WS_METHODS.vcsCreateWorktree]: AuthOrchestrationOperateScope,
-  [WS_METHODS.vcsRemoveWorktree]: AuthOrchestrationOperateScope,
-  [WS_METHODS.vcsCreateRef]: AuthOrchestrationOperateScope,
-  [WS_METHODS.vcsSwitchRef]: AuthOrchestrationOperateScope,
-  [WS_METHODS.vcsInit]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewListCommits]: AuthSourceControlWriteScope,
-  [WS_METHODS.reviewStartFixThread]: AuthOrchestrationOperateScope,
-  [WS_METHODS.reviewStartLocal]: AuthOrchestrationOperateScope,
-  [WS_METHODS.reviewPostFindings]: AuthOrchestrationOperateScope,
-  [WS_METHODS.reviewRateFinding]: AuthOrchestrationOperateScope,
-  [WS_METHODS.reviewUndoFixes]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewGetLearnedStyle]: AuthOrchestrationReadScope,
-  [WS_METHODS.reviewLearnStyle]: AuthOrchestrationOperateScope,
-  [WS_METHODS.reviewForgetLearnedStyle]: AuthOrchestrationOperateScope,
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {
@@ -290,8 +239,11 @@ const SettingsUpdate = Schema.Struct({
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
 });
 
+const decodeSettingsUpdate = Schema.decodeUnknownSync(SettingsUpdate);
+const decodeAssetCreateUrl = Schema.decodeUnknownSync(AssetCreateUrlInput);
+
 const requiredScopesForSettingsUpdate = (payload: unknown) => {
-  const input = Schema.decodeUnknownSync(SettingsUpdate)(payload);
+  const input = decodeSettingsUpdate(payload);
   const scopes = requiredScopesForServerSettingsPatch(input.patch);
   if (input.providerInstanceMutation === undefined) return scopes;
   // An atomic provider mutation carries an empty patch unless it also changes settings.
@@ -310,7 +262,7 @@ const requiredScopesForRpcCall = (
     return [AuthEnvironmentMaintainScope, AuthDiagnosticsReadScope];
   }
   if (method === WS_METHODS.assetsCreateUrl) {
-    const { resource } = Schema.decodeUnknownSync(AssetCreateUrlInput)(payload);
+    const { resource } = decodeAssetCreateUrl(payload);
     return [
       resource._tag === "workspace-file" ||
       resource._tag === "media-file" ||

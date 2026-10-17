@@ -8,6 +8,11 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  AuthAccessWriteScope,
+  AuthProvidersManageScope,
+  ProviderInstanceId,
+  type AuthEnvironmentScope,
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
   ThreadId,
@@ -22,6 +27,8 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
+import type { ConnectionCatalogEntry } from "../connection/catalog.ts";
+import type { NetworkStatus } from "../connection/model.ts";
 import { EnvironmentRegistry } from "../connection/registry.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
 import { createEnvironmentRpcCommand } from "./runtime.ts";
@@ -308,4 +315,155 @@ it.effect("rejects protected unary and streamed RPCs outside a guarded command",
     expect(streamed._tag).toBe("EnvironmentAuthorizationError");
     expect(writes).toBe(0);
   }),
+);
+
+const viewCodeMutations = [
+  [WS_METHODS.agentsStop, AuthOrchestrationOperateScope],
+  [WS_METHODS.agentsResume, AuthOrchestrationOperateScope],
+  [WS_METHODS.agentsDiscard, AuthOrchestrationOperateScope],
+  [WS_METHODS.usageResumeCancel, AuthOrchestrationOperateScope],
+  [WS_METHODS.usageResumeNow, AuthOrchestrationOperateScope],
+  [WS_METHODS.providerAccountAdd, AuthSettingsWriteScope],
+  [WS_METHODS.providerAccountPrepareSignIn, AuthProvidersManageScope],
+  [WS_METHODS.viewcodeRelaySetupStart, AuthAccessWriteScope],
+  [WS_METHODS.viewcodeRelaySetupCancel, AuthAccessWriteScope],
+  [WS_METHODS.viewcodeRelaySetupContinue, AuthAccessWriteScope],
+  [WS_METHODS.viewcodeRelaySetupChooseAccount, AuthAccessWriteScope],
+  [WS_METHODS.viewcodeRelayRemove, AuthAccessWriteScope],
+  [WS_METHODS.pullRequestsStartReview, AuthOrchestrationOperateScope],
+  [WS_METHODS.reviewStartFixThread, AuthOrchestrationOperateScope],
+  [WS_METHODS.reviewStartLocal, AuthOrchestrationOperateScope],
+  [WS_METHODS.reviewPostFindings, AuthOrchestrationOperateScope],
+  [WS_METHODS.reviewRateFinding, AuthOrchestrationOperateScope],
+  [WS_METHODS.reviewUndoFixes, AuthOrchestrationOperateScope],
+  [WS_METHODS.reviewLearnStyle, AuthOrchestrationOperateScope],
+  [WS_METHODS.reviewForgetLearnedStyle, AuthOrchestrationOperateScope],
+  [WS_METHODS.voiceModelsDownload, AuthOrchestrationOperateScope],
+  [WS_METHODS.voiceModelsCancel, AuthOrchestrationOperateScope],
+  [WS_METHODS.voiceModelsRemove, AuthOrchestrationOperateScope],
+  [WS_METHODS.pushRegister, AuthOrchestrationReadScope],
+  [WS_METHODS.pushUnregister, AuthOrchestrationReadScope],
+] as const;
+
+const withScope = (scope: AuthEnvironmentScope): AuthSessionState => ({
+  ...grant(false),
+  scopes: [scope],
+  permissions: [scope],
+});
+
+it.effect.each(viewCodeMutations)(
+  "rechecks %s against its destination grant after revocation",
+  ([method, scope]) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const protectedCommand = createCommandPermissions(runtime, method);
+        expect(protectedCommand.requiredScopes()).toEqual([scope]);
+        registry.mount(protectedCommand.permissionAtom(env));
+        registry.mount(protectedCommand.permissionAtom(other));
+        registry.set(sessions(env), AsyncResult.success(withScope(scope)));
+        registry.set(sessions(other), AsyncResult.success(withScope(scope)));
+        expect(registry.get(protectedCommand.permissionAtom(env))).toBe(true);
+        yield* protectedCommand.authorize(registry, env);
+        registry.set(sessions(env), AsyncResult.success({ ...withScope(scope), permissions: [] }));
+        expect(registry.get(sessions(env))).toMatchObject({ value: { permissions: [] } });
+        const denied = yield* protectedCommand.authorize(registry, env).pipe(Effect.flip);
+        expect(registry.get(protectedCommand.permissionAtom(env))).toBe(false);
+        expect(registry.get(protectedCommand.permissionAtom(other))).toBe(true);
+        expect(denied).toMatchObject({
+          _tag: "EnvironmentAuthorizationError",
+          requiredPermission: scope,
+        });
+      }),
+    ),
+);
+
+const routedMutations = [
+  {
+    tag: WS_METHODS.usageResumeNow,
+    scope: AuthOrchestrationOperateScope,
+    input: { threadId: ThreadId.make("usage-thread") },
+    result: { changed: true },
+  },
+  {
+    tag: WS_METHODS.providerAccountAdd,
+    scope: AuthSettingsWriteScope,
+    input: {
+      driver: "codex",
+      instanceId: ProviderInstanceId.make("account"),
+      displayName: "Second account",
+    },
+    result: { instanceId: ProviderInstanceId.make("account"), homePath: "/isolated/account" },
+  },
+  {
+    tag: WS_METHODS.providerAccountPrepareSignIn,
+    scope: AuthProvidersManageScope,
+    input: { instanceId: ProviderInstanceId.make("account") },
+    result: {
+      instanceId: ProviderInstanceId.make("account"),
+      cwd: "/isolated/login",
+      command: "codex login",
+    },
+  },
+  {
+    tag: WS_METHODS.viewcodeRelaySetupCancel,
+    scope: AuthAccessWriteScope,
+    input: {},
+    result: undefined,
+  },
+  {
+    tag: WS_METHODS.pushUnregister,
+    scope: AuthOrchestrationReadScope,
+    input: {},
+    result: { changed: true },
+  },
+] as const;
+
+it.effect.each(routedMutations)(
+  "blocks $tag at the actual RPC destination while the origin remains authorized",
+  (test) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        let calls = 0;
+        const session = {
+          client: {
+            [test.tag]: () =>
+              Effect.sync(() => {
+                calls++;
+                return test.result;
+              }),
+          },
+        } as unknown as RpcSession;
+        const supervisor = {
+          target: { environmentId: other, label: "routed destination" },
+          session: yield* SubscriptionRef.make(Option.some(session)),
+        } as unknown as EnvironmentSupervisor["Service"];
+        const routedRuntime = Atom.runtime(
+          Layer.mock(EnvironmentRegistry)({
+            entries: yield* SubscriptionRef.make<
+              ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>
+            >(new Map()),
+            networkStatus: yield* SubscriptionRef.make<NetworkStatus>("online"),
+            run: (_id, task) => Effect.provideService(task, EnvironmentSupervisor, supervisor),
+          }),
+        );
+        const command = createEnvironmentRpcCommand(routedRuntime, {
+          label: `test.${test.tag}`,
+          tag: test.tag,
+        });
+        registry.set(sessions(env), AsyncResult.success(withScope(test.scope)));
+        registry.set(sessions(other), AsyncResult.success(withScope(test.scope)));
+        const target = { environmentId: env, input: test.input };
+        expect((yield* Effect.promise(() => command.run(registry, target)))._tag).toBe("Success");
+        expect(calls).toBe(1);
+        registry.set(
+          sessions(other),
+          AsyncResult.success({ ...withScope(test.scope), permissions: [] }),
+        );
+        expect(registry.get(command.permissionAtom(env, test.input))).toBe(true);
+        expect((yield* Effect.promise(() => command.run(registry, target)))._tag).toBe("Failure");
+        expect(calls).toBe(1);
+      }),
+    ),
 );

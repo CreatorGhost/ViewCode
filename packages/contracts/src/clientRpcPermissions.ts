@@ -2,6 +2,9 @@ import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput } from "./git.ts";
 import {
   AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  AuthProvidersManageScope,
+  AuthAccessWriteScope,
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
   type AuthEnvironmentScope,
@@ -46,6 +49,33 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
+
+  [WS_METHODS.providerAccountAdd]: AuthSettingsWriteScope,
+  [WS_METHODS.providerAccountPrepareSignIn]: AuthProvidersManageScope,
+  [WS_METHODS.pullRequestsStartReview]: AuthOrchestrationOperateScope,
+  [WS_METHODS.agentsStop]: AuthOrchestrationOperateScope,
+  [WS_METHODS.agentsResume]: AuthOrchestrationOperateScope,
+  [WS_METHODS.agentsDiscard]: AuthOrchestrationOperateScope,
+  [WS_METHODS.usageResumeCancel]: AuthOrchestrationOperateScope,
+  [WS_METHODS.usageResumeNow]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceModelsDownload]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceModelsCancel]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceModelsRemove]: AuthOrchestrationOperateScope,
+  [WS_METHODS.viewcodeRelaySetupStart]: AuthAccessWriteScope,
+  [WS_METHODS.viewcodeRelaySetupCancel]: AuthAccessWriteScope,
+  [WS_METHODS.viewcodeRelaySetupContinue]: AuthAccessWriteScope,
+  [WS_METHODS.viewcodeRelaySetupChooseAccount]: AuthAccessWriteScope,
+  [WS_METHODS.viewcodeRelayRemove]: AuthAccessWriteScope,
+  [WS_METHODS.reviewStartFixThread]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewStartLocal]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewPostFindings]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewRateFinding]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewUndoFixes]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewLearnStyle]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewForgetLearnedStyle]: AuthOrchestrationOperateScope,
+  // Registration belongs to the authenticated phone session; preserve the server's read grant.
+  [WS_METHODS.pushRegister]: AuthOrchestrationReadScope,
+  [WS_METHODS.pushUnregister]: AuthOrchestrationReadScope,
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 
