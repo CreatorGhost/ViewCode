@@ -1,3 +1,4 @@
+import { sidechatExpiryArchiveIsCurrent } from "./viewcodeSidechatExpiryPolicy.ts";
 import * as ViewCodeSidechatBootstrap from "./ViewCodeSidechatBootstrap.ts";
 import { viewCodeThreadMetadata } from "./ViewCodeThreadMetadata.ts";
 import type {
@@ -2555,6 +2556,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandId: command.commandId,
           commandType: command.type,
           cause: `Thread ${command.threadId} is no longer empty.`,
+        });
+    }
+    if (command.type === "thread.archive" && command.expectedUpdatedAt !== undefined) {
+      const records = yield* loadProjectionForCommand(command, ["runs", "runtimeRequests"]);
+      if (
+        !sidechatExpiryArchiveIsCurrent({
+          ...records,
+          expectedUpdatedAt: command.expectedUpdatedAt,
+        })
+      )
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "The side chat changed or has unfinished work since its expiry check.",
         });
     }
     if (command.type === "thread.archive" && thread.archivedAt !== null) {

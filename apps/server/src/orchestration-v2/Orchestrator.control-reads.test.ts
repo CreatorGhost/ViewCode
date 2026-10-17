@@ -1040,3 +1040,103 @@ it.effect(
       assert.isTrue(Exit.isFailure(rejected));
     }).pipe(Effect.provide(layerTest)),
 );
+
+it.effect("guards sidechat expiry under the command lock and keeps archive reversible", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const eventSink = yield* EventSink.EventSinkV2;
+    const leadId = ThreadId.make("expiry:lead");
+    const sideId = ThreadId.make("expiry:side");
+    for (const id of [leadId, sideId])
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`create:${id}`),
+        threadId: id,
+        projectId: ProjectId.make("expiry:project"),
+        title: id,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+        ...(id === sideId ? { parentThreadId: leadId, kind: "sidechat" as const } : {}),
+      });
+    const first = (yield* orchestrator.getThreadRecords(sideId, [])).thread;
+    const stale = yield* Effect.exit(
+      orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("expiry:stale"),
+        threadId: sideId,
+        expectedUpdatedAt: DateTime.subtract(first.updatedAt, { milliseconds: 1 }),
+      }),
+    );
+    assert.isTrue(Exit.isFailure(stale));
+    const run = {
+      id: RunId.make("expiry:run"),
+      threadId: sideId,
+      ordinal: 1,
+      providerInstanceId: instanceId,
+      modelSelection,
+      providerThreadId: null,
+      userMessageId: MessageId.make("expiry:message"),
+      rootNodeId: null,
+      activeAttemptId: null,
+      status: "running" as const,
+      requestedAt: first.updatedAt,
+      startedAt: first.updatedAt,
+      completedAt: null,
+      checkpointId: null,
+      contextHandoffId: null,
+    };
+    yield* eventSink.write({
+      events: [
+        {
+          id: EventId.make("expiry:run-started"),
+          type: "run.updated",
+          threadId: sideId,
+          occurredAt: first.updatedAt,
+          payload: run,
+        },
+      ],
+    });
+    const active = (yield* orchestrator.getThreadRecords(sideId, [])).thread;
+    const raced = yield* Effect.exit(
+      orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("expiry:raced"),
+        threadId: sideId,
+        expectedUpdatedAt: active.updatedAt,
+      }),
+    );
+    assert.isTrue(Exit.isFailure(raced));
+    assert.isNull((yield* orchestrator.getThreadRecords(sideId, [])).thread.archivedAt);
+    yield* eventSink.write({
+      events: [
+        {
+          id: EventId.make("expiry:run-completed"),
+          type: "run.updated",
+          threadId: sideId,
+          occurredAt: first.updatedAt,
+          payload: { ...run, status: "completed", completedAt: first.updatedAt },
+        },
+      ],
+    });
+    const idle = (yield* orchestrator.getThreadRecords(sideId, [])).thread;
+    yield* orchestrator.dispatch({
+      type: "thread.archive",
+      commandId: CommandId.make("expiry:accepted"),
+      threadId: sideId,
+      expectedUpdatedAt: idle.updatedAt,
+    });
+    assert.isNotNull((yield* orchestrator.getThreadRecords(sideId, [])).thread.archivedAt);
+    assert.isNull((yield* orchestrator.getThreadRecords(leadId, [])).thread.archivedAt);
+    yield* orchestrator.dispatch({
+      type: "thread.unarchive",
+      commandId: CommandId.make("expiry:restore"),
+      threadId: sideId,
+    });
+    assert.isNull((yield* orchestrator.getThreadRecords(sideId, [])).thread.archivedAt);
+  }).pipe(Effect.provide(layerTest)),
+);

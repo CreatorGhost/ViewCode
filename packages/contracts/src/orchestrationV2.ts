@@ -1,5 +1,9 @@
 import { OrchestrationThreadActivity } from "./viewcodeActivity.ts";
-import { ThreadGoal, ViewCodeThreadMetadata, ViewCodeThreadSettings } from "./viewcodeThreadMetadata.ts";
+import {
+  ThreadGoal,
+  ViewCodeThreadMetadata,
+  ViewCodeThreadSettings,
+} from "./viewcodeThreadMetadata.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -2580,6 +2584,7 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.archive"),
     commandId: CommandId,
     threadId: ThreadId,
+    expectedUpdatedAt: Schema.optional(Schema.DateTimeUtc),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.unarchive"),

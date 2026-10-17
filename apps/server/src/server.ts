@@ -71,6 +71,7 @@ import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrid
 import * as TerminalManager from "./terminal/Manager.ts";
 import { VoiceModelStore } from "./voiceModels/VoiceModelStore.ts";
 import { reviewCliRouteLayer } from "./reviewCli/ReviewCliRoute.ts";
+import * as ViewCodeSidechatExpiry from "./orchestration-v2/ViewCodeSidechatExpiry.ts";
 import * as ViewCodeReviewLayers from "./server/viewcodeReviewLayers.ts";
 import * as ViewCodeAgentsLayers from "./server/viewcodeAgentsLayers.ts";
 import * as ViewCodeComputerUseLayers from "./server/viewcodeComputerUseLayers.ts";
@@ -593,6 +594,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     ),
     Layer.provideMerge(ViewCodeComputerUseLayers.layer),
   ),
+  Layer.effectDiscard(
+    Effect.flatMap(ViewCodeSidechatExpiry.ViewCodeSidechatExpiry, (service) => service.start()),
+  ).pipe(Layer.provide(ViewCodeSidechatExpiry.layer)),
   AgentAwarenessRelay.layer,
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
