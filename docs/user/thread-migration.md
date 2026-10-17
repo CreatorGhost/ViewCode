@@ -1,8 +1,8 @@
-# Threads from older T3 Code versions
+# Upgrading older ViewCode threads
 
-On your first V2 launch, T3 Code copies the V1 database, `state.sqlite`, into `statev2.sqlite`
-in the same data directory and migrates the copy. Your threads appear automatically, with full
-transcripts imported as needed. You do not need to run an import command.
+On your first V2 launch, ViewCode copies the V1 database, `state.sqlite`, into `statev2.sqlite`
+in the same data directory and migrates the copy. Your threads appear automatically, with user and assistant
+conversation text imported as needed. You do not need to run an import command.
 
 V1 continues using its original database while V2 uses the copy. The database import can run while
 V1 is open. Opening V2 again resumes your V2 history. The copy happens only once: later conversations
@@ -16,7 +16,8 @@ change in V2 afterwards stays in V2.
 
 The migrated thread keeps its title, project, provider and model selection, permission and
 interaction modes, branch or worktree, archive state, settlement state, snooze and pin state, and
-linked pull request. T3 Code also brings over user and assistant messages, their timestamps, and
+linked pull request. ViewCode also preserves child-agent parent relationships, side-chat kind,
+thread goals, debug mode, project colors and PR watches. ViewCode brings over user and assistant messages, their timestamps, and
 supported attachments. Large histories may appear in stages while the server imports transcripts.
 
 The migration does not recreate the old provider's live session. It also does not convert old run
@@ -26,7 +27,7 @@ present.
 
 ## Continuing a migrated thread
 
-The first new message starts a fresh provider session. T3 Code selects intact user and assistant
+The first new message starts a fresh provider session. ViewCode selects intact user and assistant
 messages using the same [handoff budget](./portable-handoffs.md) as a provider switch. Omitted text
 remains in the thread and can be retrieved by the agent. The migration retains its separate
 32,000-character recovery excerpt; neither that excerpt nor the handoff replaces the full imported
@@ -38,9 +39,9 @@ handoff is also a good choice when the old conversation contains conflicting ins
 
 ## Keeping a recovery copy
 
-T3 Code does not currently have a whole-thread export command. Before a major server update, stop
+ViewCode does not currently have a whole-thread export command. Before a major server update, stop
 the server and copy its `userdata` directory to a safe location. The default is
-`~/.t3/userdata`; a server started with `--home-dir <path>` uses `<path>/userdata`.
+`~/.viewcode/userdata`. Existing servers configured to use `~/.t3` keep that location; a server started with `--home-dir <path>` uses `<path>/userdata`.
 
 If a migrated transcript is missing from the app, keep that copy unchanged. You can inspect the
 old transcript without starting a server against it:
@@ -72,3 +73,24 @@ ORDER BY created_at, message_id;
 Open only the copied database. Do not edit it or point a newer or older server at your recovery
 copy. If the affected environment is remote, make and inspect the copy on the machine that runs
 that environment.
+
+## Removing the old database after the upgrade
+
+Keep the old database until you have checked your important projects and
+threads, continued an old conversation successfully, and made a separate backup
+of the whole `userdata` directory. The v2 app uses `statev2.sqlite`; the leftover
+`state.sqlite` is a recovery copy and is no longer synchronized.
+
+Quit ViewCode and stop the server before removing files. For an install whose
+data directory is `~/.viewcode/userdata`, the old file is exactly
+`~/.viewcode/userdata/state.sqlite`. If you use another home, including
+`~/.t3` or `--home-dir <path>`, use that home's `userdata` directory
+instead. Check the path before proceeding.
+
+After backing up, move `state.sqlite` to a separate recovery folder using your
+file manager. If `state.sqlite-wal` or `state.sqlite-shm` remain after shutdown,
+move those siblings with it. To reclaim the space immediately after your separate backup is verified, delete
+only those old `state.sqlite` files by hand instead of moving them. Otherwise,
+delete the recovery folder later when you no longer need the old history. Keep `statev2.sqlite`, its siblings,
+settings, secrets, attachments and workspace files. Removing `state.sqlite`
+does not restore the old checkpoints or other history omitted during import.
