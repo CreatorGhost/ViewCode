@@ -79,7 +79,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       projectCommand,
       serviceCommand,
       ...(viewcodeProductPolicy.nativeCliManagedRuntime ? [updateCommand] : []),
-      uninstallCommand,
+      ...(viewcodeProductPolicy.nativeCliManagedRuntime ? [uninstallCommand] : []),
       serviceLauncherCommand,
       claudeHistoryCommand,
       sshHelperCommand,

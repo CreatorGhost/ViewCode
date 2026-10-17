@@ -12,6 +12,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
+import * as Console from "effect/Console";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { Command } from "effect/cli";
@@ -149,7 +150,7 @@ describe("t3 server command safety", () => {
   );
 
   it.effect(
-    "keeps upstream doctor, self-update and Connect setup unavailable even with cloud configuration",
+    "keeps upstream doctor, self-update, uninstall and Connect setup unavailable even with cloud configuration",
     () =>
       withTempDirectory("viewcode-cli-policy-", (root) =>
         Effect.gen(function* () {
@@ -159,6 +160,26 @@ describe("t3 server command safety", () => {
           expect(String(doctor)).toContain('Unknown command "doctor"');
           const update = yield* command(["update", "--base-dir", baseDir]).pipe(Effect.flip);
           expect(String(update)).toContain('Unknown command "update"');
+          const output: string[] = [];
+          const currentConsole = yield* Console.Console;
+          const capture = {
+            ...currentConsole,
+            log: (...args: ReadonlyArray<unknown>) => {
+              output.push(args.map(String).join(" "));
+            },
+          };
+          yield* command(["--help"]).pipe(Effect.provideService(Console.Console, capture));
+          const rootHelp = output.join("\n");
+          expect(rootHelp).not.toMatch(/\buninstall\b/);
+          expect(rootHelp).toContain("Manage ViewCode's headless browser");
+          for (const action of ["status", "restart", "uninstall"]) {
+            output.length = 0;
+            // Help only: never execute a restart or uninstall during verification.
+            yield* command(["service", action, "--help"]).pipe(
+              Effect.provideService(Console.Console, capture),
+            );
+            expect(output.join("\n")).toContain(`t3 service ${action}`);
+          }
           for (const action of ["install", "update"]) {
             const service = yield* command(["service", action, "--base-dir", baseDir]).pipe(
               Effect.flip,
