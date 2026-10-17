@@ -5,6 +5,9 @@ import {
   PortSchema,
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
+import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import * as FileSystem from "effect/FileSystem";
+import { normalizeRelayOrigin } from "../relay/relayOrigin.ts";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
@@ -65,9 +68,9 @@ export class NoRunningServerError extends Schema.TaggedError<NoRunningServerErro
 ) {
   override get message(): string {
     return [
-      "No running T3 Code server found.",
+      "No running ViewCode server found.",
       ...this.checkedStatePaths.map((statePath) => `  checked ${statePath}`),
-      "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`.",
+      "Start ViewCode, or run `viewcode serve`.",
     ].join("\n");
   }
 }
@@ -95,7 +98,7 @@ export class ServesOtherEnvironmentError extends Schema.TaggedError<ServesOtherE
   { servePort: Schema.Number },
 ) {
   override get message(): string {
-    return `Tailscale Serve on HTTPS port ${String(this.servePort)} already fronts a different T3 Code server. Pass --tailscale-serve-port to publish this one on another port.`;
+    return `Tailscale Serve on HTTPS port ${String(this.servePort)} already fronts a different ViewCode server. Pass --tailscale-serve-port to publish this one on another port.`;
   }
 }
 
@@ -113,12 +116,31 @@ export class ServePortOccupiedError extends Schema.TaggedError<ServePortOccupied
   { servePort: Schema.Number },
 ) {
   override get message(): string {
-    return `HTTPS port ${String(this.servePort)} on the tailnet already serves something that is not a T3 Code server. Pass --tailscale-serve-port to publish this one on another port.`;
+    return `HTTPS port ${String(this.servePort)} on the tailnet already serves something that is not a ViewCode server. Pass --tailscale-serve-port to publish this one on another port.`;
   }
 }
 
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
   state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
+
+export class RelayNotConfiguredError extends Schema.TaggedError<RelayNotConfiguredError>()(
+  "RelayNotConfiguredError",
+  { settingsPath: Schema.String },
+) {
+  override get message(): string {
+    return [
+      "Quick connect is not set up, so there is no relay origin to pair through.",
+      `  checked ${this.settingsPath}`,
+      "Set it up with `node scripts/viewcode-relay.ts deploy`, then pair again with --relay.",
+    ].join("\n");
+  }
+}
+const RelaySettingsJson = fromLenientJson(
+  Schema.Struct({
+    viewcodeRelay: Schema.optional(Schema.Struct({ url: Schema.optional(Schema.String) })),
+  }),
+);
+const decodeRelaySettingsJson = Schema.decodeUnknownEffect(RelaySettingsJson);
 
 export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
@@ -436,9 +458,37 @@ const labelFlag = Flag.String("label").pipe(
   Flag.optional,
 );
 
+const resolveRelayPairingBase = Effect.fn("pair.resolveRelayPairingBase")(function* (
+  target: DiscoveredPairTarget,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const derivedPaths = yield* ServerConfig.deriveServerPaths(
+    target.baseDir,
+    target.variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
+    {},
+  );
+  const { settingsPath } = derivedPaths;
+  const origin = (yield* fs.exists(settingsPath))
+    ? yield* fs.readFileString(settingsPath).pipe(
+        Effect.flatMap(decodeRelaySettingsJson),
+        Effect.map((decoded) => normalizeRelayOrigin(decoded.viewcodeRelay?.url)),
+        Effect.catch(() => Effect.succeed(null)),
+      )
+    : null;
+  if (origin === null) return yield* new RelayNotConfiguredError({ settingsPath });
+  return origin;
+});
+
 const tailscaleFlag = Flag.Boolean("tailscale").pipe(
   Flag.withDescription(
     "Publish the server over Tailscale Serve HTTPS and pair through the tailnet URL.",
+  ),
+  Flag.withDefault(false),
+);
+
+const relayFlag = Flag.Boolean("relay").pipe(
+  Flag.withDescription(
+    "Pair through the stored Quick connect relay origin, so the token works off-network.",
   ),
   Flag.withDefault(false),
 );
@@ -455,21 +505,32 @@ export const pairCommand = Command.make("pair", {
   ttl: ttlFlag,
   label: labelFlag,
   tailscale: tailscaleFlag,
+  relay: relayFlag,
   tailscaleServePort: tailscaleServePortFlag,
 }).pipe(
   Command.withDescription(
-    "Mint a pairing token for a running T3 Code server and print it as a QR code.",
+    "Mint a pairing token for a running ViewCode server and print it as a QR code.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const cliLogLevel = yield* GlobalFlag.LogLevel;
       const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
 
+      if (flags.tailscale && flags.relay)
+        return yield* Effect.die(
+          "Pass only one of --tailscale or --relay; they choose different pairing URLs.",
+        );
+
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
 
       const notes: Array<string> = [];
       let pairingBaseUrl: string;
-      if (flags.tailscale) {
+      if (flags.relay) {
+        pairingBaseUrl = yield* resolveRelayPairingBase(target);
+        notes.push(
+          "Pairing through your Quick connect relay. The phone reaches this computer through your Cloudflare Worker.",
+        );
+      } else if (flags.tailscale) {
         const resolved = yield* resolveTailscalePairingBase({
           target,
           servePort: flags.tailscaleServePort,

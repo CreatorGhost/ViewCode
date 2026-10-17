@@ -37,14 +37,8 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-/** A Quick connect address is a credential-free HTTPS origin. */
-export function normalizeRelayOrigin(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.username === "" && url.password === "" ? url.origin : null;
-  } catch { return null; }
-}
+import { normalizeRelayOrigin } from "./relayOrigin.ts";
+export { normalizeRelayOrigin } from "./relayOrigin.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { createRelayForwarder, type RelayForwarder } from "./relayForwarder.ts";
 import {
@@ -89,7 +83,6 @@ export interface RelayLink {
 }
 
 export type RelayDial = (config: RelayConnectionConfig) => Effect.Effect<RelayLink, DialFailure>;
-
 
 /**
  * Serves one open connection until it ends, and returns why (a phrase for the
@@ -149,7 +142,6 @@ export const runRelaySession = (input: {
       Effect.ensuring(Effect.sync(() => forwarder.closeAll()).pipe(Effect.andThen(link.close))),
     );
   });
-
 
 export interface RelayStateHolder {
   readonly state: SubscriptionRef.SubscriptionRef<ViewCodeRelayState>;
@@ -288,7 +280,6 @@ export const followRelayDesire = (input: {
     Stream.runDrain,
   );
 
-
 /** Stored origins are always https; plain http exists so tests can talk to a local workerd. */
 export const relayHostUrl = (origin: string): string => {
   const url = new URL(origin);
@@ -400,7 +391,6 @@ export const dialRelay: RelayDial = (config) =>
   openRelaySocket(config).pipe(
     Effect.catch((dialError) => probeRelayFailure(config, dialError).pipe(Effect.flip)),
   );
-
 
 export class ViewCodeRelayConnector extends Context.Service<
   ViewCodeRelayConnector,

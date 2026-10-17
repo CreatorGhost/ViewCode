@@ -317,8 +317,8 @@ describe("t3 pair", () => {
         typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
       );
       assert.include(rendered, "No running ViewCode server found.");
-      assert.include(rendered, "npx t3 serve");
-      assert.include(rendered, "npx t3 connect");
+      assert.include(rendered, "viewcode serve");
+      assert.notInclude(rendered, "T3 Connect");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
