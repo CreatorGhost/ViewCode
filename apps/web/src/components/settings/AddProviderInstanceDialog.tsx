@@ -1,5 +1,8 @@
 "use client";
 
+import { useAtomValue } from "@effect/atom-react";
+import { serverEnvironment } from "../../state/server";
+import { providerSetupUnavailableReason } from "../../viewcode/providerPolicyUi";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
@@ -111,6 +114,8 @@ export function AddProviderInstanceDialog({
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
   const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
 
+  const policyConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+
   const [wizardStep, setWizardStep] = useState(0);
   const [addingChatGptAccount, setAddingChatGptAccount] = useState(false);
   const [driver, setDriver] = useState<ProviderDriverKind>(DEFAULT_DRIVER_KIND);
@@ -164,6 +169,14 @@ export function AddProviderInstanceDialog({
   const previewLabel = label.trim() || `${driverOption.label} Workspace`;
 
   const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
+  const setupReason = (candidate: { readonly driver: string; readonly config?: unknown }) =>
+    providerSetupUnavailableReason({
+      instance: candidate,
+      blockedDrivers: policyConfig?.adminBlockedProviderDrivers ?? [],
+      hasConfiguration: policyConfig !== null,
+      canManage: canManageProviders,
+    });
+  const selectedSetupReason = setupReason({ driver, config: configDraft });
   const isLocalAcp = isAcpRegistry && isManualAcpConfiguration && configDraft.source === "local";
   const localCommandPath =
     typeof configDraft.commandPath === "string" ? configDraft.commandPath.trim() : "";
@@ -202,6 +215,7 @@ export function AddProviderInstanceDialog({
 
   const applyWizardNavigation = (navigation: WizardNavigation) => {
     if (isSaving || isPreparingRegistryAgent || createdInstanceId) return;
+    if (navigation.step > wizardStep && selectedSetupReason !== null) return;
     if (navigation.kind === "blocked") {
       setHasAttemptedSubmit(true);
     }
@@ -296,7 +310,11 @@ export function AddProviderInstanceDialog({
   };
 
   const handleSave = async () => {
-    if (!readEnvironmentScope(environmentId, AuthProvidersManageScope)) return;
+    if (
+      !readEnvironmentScope(environmentId, AuthProvidersManageScope) ||
+      selectedSetupReason !== null
+    )
+      return;
     if (isSaving || createdInstanceId) return;
     setHasAttemptedSubmit(true);
     if (instanceIdError !== null || (isAcpRegistry && acpSelectionError !== null)) return;
@@ -348,7 +366,7 @@ export function AddProviderInstanceDialog({
     onOpenChange(false);
   };
 
-  if (addingChatGptAccount) {
+  if (addingChatGptAccount && setupReason({ driver: "codex" }) === null) {
     return (
       <AddManagedCodexAccountDialog
         environmentId={environmentId}
@@ -404,7 +422,9 @@ export function AddProviderInstanceDialog({
                   Provider
                 </div>
                 <RadioGroup
-                  disabled={isPreparingRegistryAgent}
+                  disabled={
+                    isPreparingRegistryAgent || !canManageProviders || policyConfig === null
+                  }
                   value={driver}
                   onValueChange={(value) => {
                     setDriver(ProviderDriverKind.make(value));
@@ -421,6 +441,7 @@ export function AddProviderInstanceDialog({
                         <RadioPrimitive.Root
                           key={option.driverKind}
                           value={option.driverKind}
+                          disabled={setupReason({ driver: option.driverKind }) !== null}
                           className="relative flex cursor-pointer items-center gap-3 rounded-lg bg-card px-3 py-3 text-left text-muted-foreground outline-none ring-1 ring-black/5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-checked:bg-primary/8 data-checked:text-foreground data-checked:ring-2 data-checked:ring-inset data-checked:ring-primary data-checked:hover:bg-primary/8 dark:bg-white/3 dark:ring-white/5 dark:hover:bg-white/5 dark:data-checked:bg-primary/15 dark:data-checked:ring-primary dark:data-checked:hover:bg-primary/15"
                         >
                           <ProviderInstanceIcon
@@ -430,6 +451,11 @@ export function AddProviderInstanceDialog({
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                             {option.label}
+                            {setupReason({ driver: option.driverKind }) ? (
+                              <span className="block text-xs font-normal text-muted-foreground">
+                                {setupReason({ driver: option.driverKind })}
+                              </span>
+                            ) : null}
                           </span>
                           <RadioPrimitive.Indicator
                             className="grid size-5 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"
@@ -645,6 +671,9 @@ export function AddProviderInstanceDialog({
               ) : null}
             </WizardPanel>
 
+            {selectedSetupReason ? (
+              <p className="px-5 text-xs text-muted-foreground">{selectedSetupReason}</p>
+            ) : null}
             <WizardFooter>
               <Button
                 variant={wizardStep === 0 ? "ghost-muted" : "outline"}
@@ -662,10 +691,16 @@ export function AddProviderInstanceDialog({
               </Button>
               {wizardStep === 0 && driver === "codex" ? (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => navigateToStep(1)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={selectedSetupReason !== null}
+                    onClick={() => navigateToStep(1)}
+                  >
                     Configure manually
                   </Button>
                   <ChatGptConnectionButton
+                    disabled={selectedSetupReason !== null}
                     size="sm"
                     onClick={() => setAddingChatGptAccount(true)}
                   />
@@ -673,7 +708,7 @@ export function AddProviderInstanceDialog({
               ) : wizardStep < (isAcpRegistry ? 1 : 2) ? (
                 <Button
                   size="sm"
-                  disabled={isPreparingRegistryAgent}
+                  disabled={isPreparingRegistryAgent || selectedSetupReason !== null}
                   onClick={() => navigateToStep(wizardStep + 1)}
                 >
                   Next
@@ -681,7 +716,7 @@ export function AddProviderInstanceDialog({
               ) : (
                 <Button
                   size="sm"
-                  disabled={isSaving || !canManageProviders}
+                  disabled={isSaving || selectedSetupReason !== null}
                   onClick={() => void handleSave()}
                 >
                   {isSaving

@@ -58,6 +58,16 @@ export function buildProviderPickerRows(
   });
 }
 
+/** Only actionable rows count as choices, including when policy arrives after a click. */
+export function selectedProviderPickerDrivers(
+  rows: ReadonlyArray<ProviderPickerRow>,
+  picked: ReadonlySet<ProviderDriverKind>,
+): ReadonlySet<ProviderDriverKind> {
+  return new Set(
+    rows.filter((row) => !row.blockedByAdmin && picked.has(row.driver)).map((row) => row.driver),
+  );
+}
+
 /** Turns on exactly the picked providers; the rest keep their current state. */
 export function providerPickerPatch(
   picked: ReadonlySet<ProviderDriverKind>,

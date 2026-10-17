@@ -2,6 +2,9 @@ import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandCodeSettings,
+  CheckpointId,
+  ProviderTurnId,
+  RuntimeRequestId,
   EnvironmentId,
   MessageId,
   NodeId,
@@ -201,6 +204,63 @@ const makeHarness = Effect.gen(function* () {
 const event = (frame: Record<string, unknown>) => ({ type: "event", event: frame });
 
 describe("Command Code v2 adapter", () => {
+  it.effect("rejects unsupported native operations instead of reporting success", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness;
+      const capabilities = yield* h.adapter.getCapabilities();
+      assert.isFalse(capabilities.turns.supportsActiveSteering);
+      assert.isFalse(capabilities.turns.supportsSteeringByInterruptRestart);
+      assert.isFalse(capabilities.threads.canReadThreadSnapshot);
+      assert.isFalse(capabilities.threads.canRollbackThread);
+      assert.isFalse(capabilities.threads.canForkThread);
+      assert.isFalse(capabilities.approvals.supportsCommandApproval);
+      assert.isFalse(capabilities.tools.supportsMcpTools);
+      const steer = yield* h.runtime
+        .steerTurn({
+          threadId,
+          runId: RunId.make("run-unsupported"),
+          providerThread: h.providerThread,
+          providerTurnId: ProviderTurnId.make("turn-unsupported"),
+          message: {
+            messageId: MessageId.make("message-unsupported"),
+            createdBy: "user",
+            creationSource: "web",
+            text: "follow up",
+            attachments: [],
+          },
+        })
+        .pipe(Effect.result);
+      assert.equal(steer._tag, "Failure");
+      if (steer._tag === "Failure")
+        assert.equal(steer.failure._tag, "ProviderAdapterSteerRunUnsupportedError");
+      const operations = [
+        h.runtime.readThreadSnapshot({ providerThread: h.providerThread }),
+        h.runtime.rollbackThread({
+          providerThread: h.providerThread,
+          target: {
+            type: "thread_start",
+            checkpointId: CheckpointId.make("checkpoint-unsupported"),
+            appRunOrdinal: 0,
+          },
+          providerThreadTurns: [],
+        }),
+        h.runtime.forkThread({
+          sourceProviderThread: h.providerThread,
+          targetThreadId: ThreadId.make("fork-unsupported"),
+        }),
+        h.runtime.respondToRuntimeRequest({
+          requestId: RuntimeRequestId.make("request-unsupported"),
+          response: {},
+        }),
+      ];
+      for (const operation of operations) {
+        const result = yield* operation.pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure")
+          assert.equal(result.failure._tag, "ProviderAdapterProtocolError");
+      }
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
   it.effect(
     "projects native frames and resumes with portable context, keeping prompts out of argv",
     () =>

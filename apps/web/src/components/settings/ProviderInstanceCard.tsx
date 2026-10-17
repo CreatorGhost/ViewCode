@@ -1,5 +1,8 @@
 "use client";
 
+import { useAtomValue } from "@effect/atom-react";
+import { serverEnvironment } from "../../state/server";
+import { isAdminBlockedProvider } from "../../viewcode/providerPolicyUi";
 import { Spinner } from "~/components/ui/spinner";
 
 import { ProviderAccountActions } from "../../viewcode/ProviderAccountActions";
@@ -645,7 +648,10 @@ export function ProviderInstanceCard({
   acpProjects = EMPTY_ACP_PROJECTS,
   projectOverride,
 }: ProviderInstanceCardProps) {
-  const blockedByAdmin = liveProvider?.disabledByAdmin === true;
+  const policyConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId ?? null));
+  const blockedByAdmin =
+    liveProvider?.disabledByAdmin === true ||
+    isAdminBlockedProvider(instance, policyConfig?.adminBlockedProviderDrivers ?? []);
   const enabled =
     !blockedByAdmin &&
     (projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance));
@@ -1040,7 +1046,7 @@ export function ProviderInstanceCard({
           </span>
         </div>
         <span className="flex h-5 shrink-0 items-center gap-1">
-          {projectOverride?.value !== undefined ? (
+          {!blockedByAdmin && projectOverride?.value !== undefined ? (
             <span className="flex items-center">
               <ProjectOverrideInheritance
                 projectEnabled={projectOverride.value}

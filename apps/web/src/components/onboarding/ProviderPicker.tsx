@@ -1,5 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { DetectedProvider, EnvironmentId, ProviderDriverKind } from "@t3tools/contracts";
+import {
+  AuthProvidersManageScope,
+  type DetectedProvider,
+  type EnvironmentId,
+  type ProviderDriverKind,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -10,8 +15,10 @@ import { cn } from "../../lib/utils";
 import {
   buildProviderPickerRows,
   providerPickerPatch,
+  selectedProviderPickerDrivers,
   type ProviderPickerRow,
 } from "../../onboarding/onboardingAgents.logic";
+import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { providerClients } from "../settings/providerDriverMeta";
@@ -53,9 +60,11 @@ export function ProviderPicker({ environmentId }: { readonly environmentId: Envi
     };
   }, [detectProviders, environmentId]);
 
+  const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const blockedDrivers = config?.adminBlockedProviderDrivers ?? [];
   const rows = buildProviderPickerRows(detected, blockedDrivers);
+  const selected = selectedProviderPickerDrivers(rows, picked);
 
   const toggle = (driver: ProviderDriverKind, on: boolean) =>
     setPicked((current) => {
@@ -66,12 +75,18 @@ export function ProviderPicker({ environmentId }: { readonly environmentId: Envi
     });
 
   const turnOn = async () => {
+    if (
+      !config ||
+      selected.size === 0 ||
+      !readEnvironmentScope(environmentId, AuthProvidersManageScope)
+    )
+      return;
     setSaving(true);
     setError(null);
     const result = await updateSettings({
       environmentId,
       input: {
-        patch: providerPickerPatch(picked, config?.settings.providerInstances, blockedDrivers),
+        patch: providerPickerPatch(selected, config.settings.providerInstances, blockedDrivers),
       },
     });
     setSaving(false);
@@ -94,23 +109,32 @@ export function ProviderPicker({ environmentId }: { readonly environmentId: Envi
             key={row.driver}
             row={row}
             checked={!row.blockedByAdmin && picked.has(row.driver)}
-            disabled={saving || row.blockedByAdmin === true}
+            disabled={saving || !canManage || config === null || row.blockedByAdmin === true}
             onCheckedChange={(on) => toggle(row.driver, on)}
           />
         ))}
       </div>
+      {!canManage ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          This connection cannot change providers.
+        </p>
+      ) : null}
       {error ? (
         <Alert variant="error" className="mt-3">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
       <div className="mt-3 flex justify-end">
-        <Button size="sm" onClick={() => void turnOn()} disabled={picked.size === 0 || saving}>
+        <Button
+          size="sm"
+          onClick={() => void turnOn()}
+          disabled={selected.size === 0 || saving || !canManage || config === null}
+        >
           {saving
             ? "Turning on..."
-            : picked.size === 1
+            : selected.size === 1
               ? "Turn on 1 tool"
-              : `Turn on ${picked.size} tools`}
+              : `Turn on ${selected.size} tools`}
         </Button>
       </div>
     </div>

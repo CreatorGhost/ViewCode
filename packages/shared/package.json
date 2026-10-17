@@ -550,6 +550,10 @@
     "./viewcodeProductPolicy": {
       "types": "./src/viewcodeProductPolicy.ts",
       "import": "./src/viewcodeProductPolicy.ts"
+    },
+    "./viewcodeProviderPolicy": {
+      "types": "./src/viewcodeProviderPolicy.ts",
+      "import": "./src/viewcodeProviderPolicy.ts"
     }
   },
   "scripts": {

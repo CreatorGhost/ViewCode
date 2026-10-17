@@ -5,6 +5,7 @@ import {
   type EnvironmentId,
   type ProviderInstanceId,
 } from "@t3tools/contracts";
+import { providerAccountActionsAvailable } from "./providerPolicyUi";
 import { isAccountDriver } from "@t3tools/shared/providerAccounts";
 import { useState } from "react";
 import {
@@ -32,39 +33,51 @@ export function ProviderAccountActions(props: {
     readonly instanceId: ProviderInstanceId;
     readonly label: string;
   } | null>(null);
-  if (!isAccountDriver(props.driver) || props.blocked || !canManage || !canWrite) return null;
+  const actions = providerAccountActionsAvailable({
+    driver: props.driver,
+    blocked: props.blocked,
+    canManage,
+    canWrite,
+  });
+  if (!isAccountDriver(props.driver) || (!actions.canAdd && !actions.canSignIn)) return null;
   return (
     <SettingsSection title="Accounts">
-      <SettingsRow
-        title="Sign in to this account"
-        description="Use a separate login for this provider instance."
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setSigningIn({ instanceId: props.instanceId, label: props.label })}
+      {actions.canSignIn ? (
+        <SettingsRow
+          title="Sign in to this account"
+          description="Use a separate login for this provider instance."
         >
-          Sign in
-        </Button>
-      </SettingsRow>
-      <SettingsRow
-        title="Add another account"
-        description="Switch accounts from the model picker while keeping your conversation."
-      >
-        <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
-          Add account
-        </Button>
-      </SettingsRow>
-      {adding ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSigningIn({ instanceId: props.instanceId, label: props.label })}
+          >
+            Sign in
+          </Button>
+        </SettingsRow>
+      ) : null}
+      {actions.canAdd ? (
+        <SettingsRow
+          title="Add another account"
+          description="Switch accounts from the model picker while keeping your conversation."
+        >
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+            Add account
+          </Button>
+        </SettingsRow>
+      ) : null}
+      {adding && actions.canAdd ? (
         <AddProviderAccountDialog
           environmentId={props.environmentId}
           driver={props.driver}
           existingIds={new Set(Object.keys(config?.settings.providerInstances ?? {}))}
           onClose={() => setAdding(false)}
-          onSignIn={(added, label) => setSigningIn({ instanceId: added.instanceId, label })}
+          onSignIn={(added, label) => {
+            if (actions.canSignIn) setSigningIn({ instanceId: added.instanceId, label });
+          }}
         />
       ) : null}
-      {signingIn ? (
+      {signingIn && actions.canSignIn ? (
         <ProviderSignInDialog
           environmentId={props.environmentId}
           instanceId={signingIn.instanceId}

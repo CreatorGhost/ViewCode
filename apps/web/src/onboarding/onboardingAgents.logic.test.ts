@@ -5,6 +5,7 @@ import {
   buildProviderPickerRows,
   providerPickerPatch,
   resolveOnboardingAgentDrivers,
+  selectedProviderPickerDrivers,
 } from "./onboardingAgents.logic";
 
 const driver = (value: string) => ProviderDriverKind.make(value);
@@ -90,5 +91,32 @@ describe("provider picker", () => {
       buildProviderPickerRows([], [driver("codex")]).find((row) => row.driver === "codex")
         ?.blockedByAdmin,
     ).toBe(true);
+  });
+});
+
+describe("provider selection changes", () => {
+  it("drops blocked and unknown selections before counting or enabling providers", () => {
+    const picked = new Set([driver("codex"), driver("muse"), driver("unknown")]);
+    const rows = buildProviderPickerRows([], [driver("codex")]);
+    const selected = selectedProviderPickerDrivers(rows, picked);
+    expect([...selected]).toEqual([driver("muse")]);
+    expect(providerPickerPatch(selected)).toEqual({
+      providerInstances: { muse: { driver: driver("muse"), enabled: true } },
+    });
+    expect(
+      selectedProviderPickerDrivers(
+        buildProviderPickerRows([], [driver("codex"), driver("muse")]),
+        picked,
+      ).size,
+    ).toBe(0);
+  });
+  it("allows a provider again after the administrator removes its restriction", () => {
+    const picked = new Set([driver("codex")]);
+    expect(
+      selectedProviderPickerDrivers(buildProviderPickerRows([], [driver("codex")]), picked).size,
+    ).toBe(0);
+    expect([...selectedProviderPickerDrivers(buildProviderPickerRows([]), picked)]).toEqual([
+      driver("codex"),
+    ]);
   });
 });

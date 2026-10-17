@@ -1,3 +1,5 @@
+import { useAtomValue } from "@effect/atom-react";
+import { providerSetupUnavailableReason } from "../../viewcode/providerPolicyUi";
 import { AuthProvidersManageScope } from "@t3tools/contracts";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import {
@@ -65,6 +67,17 @@ export function AcpRegistrySearchStep({
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
+  const policyConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const setupReason = (agentId?: string) =>
+    providerSetupUnavailableReason({
+      instance: {
+        driver: "acpRegistry",
+        ...(agentId === undefined ? {} : { config: { agentId } }),
+      },
+      blockedDrivers: policyConfig?.adminBlockedProviderDrivers ?? [],
+      hasConfiguration: policyConfig !== null,
+      canManage: canManageProviders,
+    });
   const [preparingId, setPreparingId] = useState<string | null>(null);
   const [prepareError, setPrepareError] = useState<string | null>(null);
   const prepareGeneration = useRef(0);
@@ -106,7 +119,8 @@ export function AcpRegistrySearchStep({
   };
 
   const handlePrepare = async (agent: AcpRegistrySearchAgent) => {
-    if (!readEnvironmentScope(environmentId, AuthProvidersManageScope)) return;
+    if (!readEnvironmentScope(environmentId, AuthProvidersManageScope) || setupReason(agent.id))
+      return;
     const generation = ++prepareGeneration.current;
     setPrepareError(null);
     setPreparingId(agent.id);
@@ -165,7 +179,7 @@ export function AcpRegistrySearchStep({
           />
         </InputGroup>
         <Button
-          disabled={preparingId !== null}
+          disabled={preparingId !== null || setupReason() !== null}
           onClick={onManualConfiguration}
           size="sm"
           type="button"
@@ -175,7 +189,7 @@ export function AcpRegistrySearchStep({
         </Button>
         {onLocalConfiguration ? (
           <Button
-            disabled={preparingId !== null}
+            disabled={preparingId !== null || setupReason() !== null}
             onClick={onLocalConfiguration}
             size="sm"
             type="button"
@@ -196,6 +210,7 @@ export function AcpRegistrySearchStep({
               : ""}
       </div>
 
+      {setupReason() ? <p className="text-xs text-muted-foreground">{setupReason()}</p> : null}
       {search.error || prepareError ? (
         <Alert variant="error" role="status" aria-live="polite">
           <AlertDescription>{prepareError ?? search.error}</AlertDescription>
@@ -221,7 +236,8 @@ export function AcpRegistrySearchStep({
                 <AcpRegistryAgentRow
                   agent={agent}
                   alreadyAdded={isConfiguredAcpRegistryAgent(providerInstances, agent.id)}
-                  canAdd={canManageProviders && preparingId === null}
+                  canAdd={setupReason(agent.id) === null && preparingId === null}
+                  unavailableReason={setupReason(agent.id)}
                   isPreparing={preparingId === agent.id}
                   key={agent.id}
                   onAdd={handlePrepare}
@@ -239,12 +255,14 @@ function AcpRegistryAgentRow({
   agent,
   alreadyAdded,
   canAdd,
+  unavailableReason,
   isPreparing,
   onAdd,
 }: {
   readonly agent: AcpRegistrySearchAgent;
   readonly alreadyAdded: boolean;
   readonly canAdd: boolean;
+  readonly unavailableReason: string | null;
   readonly isPreparing: boolean;
   readonly onAdd: (agent: AcpRegistrySearchAgent) => void;
 }) {
@@ -265,6 +283,9 @@ function AcpRegistryAgentRow({
             <div className="flex min-w-0 items-baseline gap-2">
               <h4 className="min-w-0 truncate text-sm font-medium text-foreground">{agent.name}</h4>
             </div>
+            {unavailableReason ? (
+              <p className="mt-0.5 text-xs text-muted-foreground">{unavailableReason}</p>
+            ) : null}
             {agent.description ? (
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{agent.description}</p>
             ) : null}
