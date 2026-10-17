@@ -1,4 +1,4 @@
-import { EventId, RunId, TurnItemId } from "@t3tools/contracts";
+import { EventId, RunId, TurnItemId, ThreadId } from "@t3tools/contracts";
 import { expect, it } from "vite-plus/test";
 import { makeThread, fixStarted, threadRef } from "./reviewFixUndo.test.fixtures";
 import { viewCodeReviewFixUndo } from "./viewcodeReviewFixUndo";
@@ -44,4 +44,25 @@ it("stops offering completed rollback turns and ignores ordinary threads", () =>
   ).toEqual({ turnCount: 0, undoneTurns: 0 });
   expect(viewCodeReviewFixUndo(makeThread({ turnItems: [] }))).toBeNull();
   expect(viewCodeReviewFixUndo(null)).toBeNull();
+});
+
+it("does not treat inherited parent review history as a fix started in the fork", () => {
+  const initial = makeThread();
+  const parentId = ThreadId.make("parent-fix-thread");
+  const inherited = { ...initial.turnItems[0]!, threadId: parentId };
+  expect(
+    viewCodeReviewFixUndo({
+      ...initial,
+      turnItems: [],
+      visibleTurnItems: [
+        {
+          position: 0,
+          visibility: "inherited",
+          sourceThreadId: parentId,
+          sourceItemId: inherited.id,
+          item: inherited,
+        },
+      ],
+    }),
+  ).toBeNull();
 });

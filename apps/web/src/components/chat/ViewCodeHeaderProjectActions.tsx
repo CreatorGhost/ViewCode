@@ -29,7 +29,7 @@ export function ViewCodeHeaderProjectActions({
       <MenuTrigger render={<Button variant="chip" size="icon-chip" aria-label="Project actions" />}>
         <EllipsisIcon />
       </MenuTrigger>
-      <MenuPopup align="end">
+      <MenuPopup align="end" keepMounted>
         <ProjectScriptsControl
           {...scripts}
           presentation="menu"
