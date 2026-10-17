@@ -64,6 +64,16 @@ describe("split view logic", () => {
     expect(pickSplitCompanion(threads, ref("a"))?.id).toBe("c");
   });
 
+  it("excludes side chats from native protocol-2 shell metadata", () => {
+    const threads = [
+      { environmentId: "env", id: "side", archivedAt: null, source: { kind: "sidechat" } },
+      { environmentId: "env", id: "current", archivedAt: null, source: {} },
+      { environmentId: "env", id: "other", archivedAt: null, source: {} },
+    ];
+    expect(pickSplitCompanion(threads, ref("current"))?.id).toBe("other");
+    expect(pickSplitCompanion(threads.slice(0, 2), ref("current"))).toBeNull();
+  });
+
   it("treats a pane as gone only when absence is proven", () => {
     const loaded = {
       shellExists: true,

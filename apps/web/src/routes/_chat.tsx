@@ -5,6 +5,8 @@ import { useEffect } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { ThreadRouteView } from "../components/ThreadRouteView";
+import { ViewCodeChatRouteContent } from "../components/ViewCodeChatRouteContent";
+import { useSplitActions } from "../splitView/useSplitView";
 import { ThreadLinkPrompt } from "../components/promptLinks/ThreadLinkPrompt";
 import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
@@ -41,6 +43,7 @@ function ChatRouteGlobalShortcuts() {
     AuthPreviewOperateScope,
   );
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const { toggleSplit } = useSplitActions();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();
@@ -95,6 +98,13 @@ function ChatRouteGlobalShortcuts() {
       if (event.key === "Escape" && selectedThreadKeysSize > 0) {
         event.preventDefault();
         clearSelection();
+        return;
+      }
+
+      if (command === "thread.split") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleSplit();
         return;
       }
 
@@ -200,6 +210,7 @@ function ChatRouteGlobalShortcuts() {
     startScratchThread,
     legacySidebarEnabled,
     terminalOpen,
+    toggleSplit,
   ]);
 
   return null;
@@ -215,7 +226,9 @@ function ChatRouteLayout() {
       {threadTarget?.kind === "server" ? (
         <ThreadLinkPrompt threadRef={threadTarget.threadRef} />
       ) : null}
-      {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
+      <ViewCodeChatRouteContent target={threadTarget}>
+        {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
+      </ViewCodeChatRouteContent>
     </>
   );
 }
