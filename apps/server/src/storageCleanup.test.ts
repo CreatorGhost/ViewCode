@@ -245,9 +245,25 @@ const cleanupFixture = (
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const config = yield* ServerConfig.ServerConfig;
+    const configured = yield* ServerConfig.ServerConfig;
+    for (const directory of [
+      configured.worktreesDir,
+      configured.browserArtifactsDir,
+      configured.logsDir,
+    ]) {
+      yield* fs.makeDirectory(directory, { recursive: true });
+    }
+    // Cleanup intentionally reports canonical paths; macOS temp paths may use /var aliases.
+    const config = {
+      ...configured,
+      worktreesDir: yield* fs.realPath(configured.worktreesDir),
+      browserArtifactsDir: yield* fs.realPath(configured.browserArtifactsDir),
+      logsDir: yield* fs.realPath(configured.logsDir),
+    };
     const git = yield* GitVcsDriver.GitVcsDriver;
-    const repo = yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-repo-" });
+    const repo = yield* fs
+      .makeTempDirectoryScoped({ prefix: "cleanup-repo-" })
+      .pipe(Effect.flatMap(fs.realPath));
     const command = (cwd: string, args: string[]) =>
       git.execute({ operation: "cleanup-test", cwd, args });
     yield* command(repo, ["init", "-b", "main"]);
@@ -275,6 +291,7 @@ const cleanupFixture = (
     let events: Stream.Stream<OrchestrationV2DomainEvent> = Stream.empty;
     const activated = yield* Deferred.make<void>();
     const context = yield* Layer.build(StorageCleanup.layer).pipe(
+      Effect.provideService(ServerConfig.ServerConfig, config),
       Effect.provideService(GitVcsDriver.GitVcsDriver, {
         ...git,
         execute: (input) =>
