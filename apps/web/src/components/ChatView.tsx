@@ -7866,15 +7866,17 @@ export default function ChatView(props: ChatViewProps) {
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
+            actions={
+              <ViewCodeThreadControls
+                threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
+                isServerThread={isServerThread}
+                draftTarget={composerDraftTarget}
+              />
+            }
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
               : {})}
-          />
-          <ViewCodeThreadControls
-            threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
-            isServerThread={isServerThread}
-            draftTarget={composerDraftTarget}
           />
         </header>
 
