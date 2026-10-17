@@ -47,6 +47,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 import { GitIcon, JujutsuIcon, type Icon } from "../Icons";
 import { SourceControlHostSettings } from "./SourceControlHostSettings";
+import { ViewCodeReviewStyleAccounts } from "./ViewCodeReviewStyleAccounts";
 import { GitHubAccountSettings } from "./GitHubAccountSettings";
 import { GitHubTokenSettings } from "./GitHubTokenSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
@@ -622,6 +623,11 @@ export function SourceControlSettingsPanel() {
                             onSaved={handleScan}
                           />
                         ) : null}
+                        <ViewCodeReviewStyleAccounts
+                          key={`review-style-${environmentId}`}
+                          environmentId={environmentId}
+                          auth={item.auth}
+                        />
                       </div>
                     </SettingsSearchTarget>
                   ) : (

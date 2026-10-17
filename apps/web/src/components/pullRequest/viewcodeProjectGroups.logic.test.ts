@@ -4,7 +4,10 @@ import {
   partitionPullRequestsWithPriority,
   type EnvironmentPullRequestEntry,
 } from "./pullRequestList.logic";
-import { viewCodePullRequestProjectGroups } from "./viewcodeProjectGroups.logic";
+import {
+  viewCodePullRequestProjectGroups,
+  viewCodeUnreadableProjectReasons,
+} from "./viewcodeProjectGroups.logic";
 
 function row(number: number, project = "work", environment = "local"): EnvironmentPullRequestEntry {
   return {
@@ -70,4 +73,23 @@ describe("ViewCode project groups over native priority reads", () => {
     ]);
     expect(groups[1]?.label).toBe("owner/work");
   });
+});
+
+it("keeps each unreadable project reason when two environments use the same project name", () => {
+  const reasons = viewCodeUnreadableProjectReasons(
+    [
+      { environmentId: "local", projectTitle: "Work", message: "Work account denied" },
+      { environmentId: "remote", projectTitle: "Work", message: "Remote credential missing" },
+      { environmentId: "local", projectTitle: "Work", message: "Second local repository denied" },
+    ],
+    new Map([
+      ["local", "Desktop"],
+      ["remote", "Server"],
+    ]),
+  );
+  expect([...reasons]).toEqual([
+    ["Work (Desktop)", "Work account denied"],
+    ["Work (Server)", "Remote credential missing"],
+    ["Work (Desktop) · 2", "Second local repository denied"],
+  ]);
 });

@@ -103,7 +103,7 @@ export function PullRequestListEmptyState({
     );
   }
 
-  if (query.length > 0) {
+  if (query.length > 0 && (unavailableProjects?.size ?? 0) === 0) {
     return (
       <Empty>
         <BranchMark joined={false} />

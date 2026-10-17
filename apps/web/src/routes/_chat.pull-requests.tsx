@@ -1,3 +1,4 @@
+import { PullRequestListUnreadableNotice } from "../components/pullRequest/PullRequestListUnreadableNotice";
 import {
   applyPullRequestDraftFilterChange,
   parsePullRequestQuery,
@@ -162,7 +163,10 @@ import { useAllEnvironmentShellsBootstrapped, useProjects } from "../state/entit
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useSidebarProjectSnapshots } from "../components/sidebar/useSidebarProjectGroups";
 import { ViewCodePullRequestProjectGroup } from "../components/pullRequest/ViewCodePullRequestProjectGroup";
-import { viewCodePullRequestProjectGroups } from "../components/pullRequest/viewcodeProjectGroups.logic";
+import {
+  viewCodePullRequestProjectGroups,
+  viewCodeUnreadableProjectReasons,
+} from "../components/pullRequest/viewcodeProjectGroups.logic";
 import { useEnvironments } from "../state/environments";
 import {
   pullRequestEnvironment,
@@ -1243,6 +1247,7 @@ function PullRequestsRouteView() {
     selectSurfaceInUrl(selectedPullRequestSurface);
   };
 
+  const unavailableProjectReasons = viewCodeUnreadableProjectReasons(listErrors, environmentLabels);
   const unavailableProjects = new Map(
     listErrors.map(
       (error) =>
@@ -1331,6 +1336,7 @@ function PullRequestsRouteView() {
       ) : shownCount === 0 ? (
         <PullRequestListEmptyState
           hasProjects={!projectsKnown || projects.length > 0}
+          unavailableProjects={unavailableProjectReasons}
           refreshing={refreshing}
           onRefresh={() => void refreshFromHost()}
           query={typedQuery}
@@ -1349,6 +1355,7 @@ function PullRequestsRouteView() {
         />
       ) : (
         <div className={cn("space-y-3", closeSweepKeys.size > 0 && "**:pointer-events-none")}>
+          <PullRequestListUnreadableNotice unavailableProjects={unavailableProjectReasons} />
           {displayGroups.map((group) => (
             <ViewCodePullRequestProjectGroup
               key={group.key}
