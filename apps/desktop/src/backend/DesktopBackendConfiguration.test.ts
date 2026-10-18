@@ -12,6 +12,11 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
+import { vi } from "vite-plus/test";
+
+vi.mock("electron", () => {
+  throw new Error("Backend configuration must not load the Electron runtime.");
+});
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
