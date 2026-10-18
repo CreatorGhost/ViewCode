@@ -4,6 +4,11 @@ import {
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
   T3_CODE_ORCHESTRATION_SECTIONS,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
+import {
+  BROWSER_CLI_GUIDANCE,
+  VIEWCODE_DIAGRAMS_GUIDANCE,
+  VIEWCODE_DRAFTS_GUIDANCE,
+} from "@t3tools/provider-core/server/runtimeInstructions";
 import { describe, it } from "vite-plus/test";
 
 import {
@@ -16,6 +21,7 @@ describe("buildCodexAdditionalContext", () => {
   describe.each([
     { model: "gpt-5.3-codex", reasoningEffort: "high" },
     { model: "custom-model", modelName: "Custom 🦊 Model", reasoningEffort: "xhigh" },
+    { model: "gpt-5.3-codex", reasoningEffort: "high", browserCli: true },
   ])("with runtime $model", (runtime) => {
     it.each([
       undefined,
@@ -38,6 +44,19 @@ describe("buildCodexAdditionalContext", () => {
         );
       }
     });
+  });
+
+  it("sends diagrams and drafts guidance, and the browser CLI only when the thread has it", () => {
+    const runtime = { model: "gpt-5.3-codex", reasoningEffort: "high" };
+    const context = buildCodexAdditionalContext(runtime);
+    NodeAssert.equal(context.viewcode_diagrams?.value, VIEWCODE_DIAGRAMS_GUIDANCE);
+    NodeAssert.equal(context.viewcode_drafts?.value, VIEWCODE_DRAFTS_GUIDANCE);
+    NodeAssert.equal(context.viewcode_browser, undefined);
+    NodeAssert.doesNotMatch(context.t3_code_runtime!.value, /viewcode_diagrams/);
+    NodeAssert.equal(
+      buildCodexAdditionalContext({ ...runtime, browserCli: true }).viewcode_browser?.value,
+      BROWSER_CLI_GUIDANCE,
+    );
   });
 
   it("delivers all orchestration sections in authored order when keys are sorted", () => {

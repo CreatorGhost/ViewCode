@@ -1130,6 +1130,8 @@ export function makeClaudeQueryOptions(input: {
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
+  /** The session's environment has the `viewcode-browser` CLI. */
+  readonly browserCli?: boolean;
   readonly tools?: ClaudeAgentSdkQueryTools;
   readonly allowedTools?: ReadonlyArray<string>;
   readonly disallowedTools?: ReadonlyArray<string>;
@@ -1221,7 +1223,7 @@ export function makeClaudeQueryOptions(input: {
       type: "preset" as const,
       preset: "claude_code" as const,
       append:
-        buildRuntimeInstructions({ harness: "Claude Code" }) +
+        buildRuntimeInstructions({ harness: "Claude Code", browserCli: input.browserCli }) +
         (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
     },
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
@@ -8580,6 +8582,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 adapterOptions.environment,
                 providerMcpSession,
               ),
+              browserCli: McpProviderSession.browserCliAvailable(providerMcpSession),
               tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
               ...(mcpOverrides.allowedTools === undefined
                 ? {}

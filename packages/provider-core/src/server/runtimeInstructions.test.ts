@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildRuntimeInstructions } from "./runtimeInstructions.ts";
+import {
+  BROWSER_CLI_GUIDANCE,
+  buildRuntimeInstructions,
+  VIEWCODE_DIAGRAMS_GUIDANCE,
+  VIEWCODE_DRAFTS_GUIDANCE,
+} from "./runtimeInstructions.ts";
 
 describe("buildRuntimeInstructions", () => {
   it("requires explicit registration of every PR and stack layer", () => {
@@ -33,5 +38,29 @@ describe("buildRuntimeInstructions", () => {
     const instructions = buildRuntimeInstructions({ harness: "Cursor", model });
     expect(instructions).toContain("through the Cursor harness.");
     expect(instructions).not.toContain("reasoning effort");
+  });
+
+  it("tells every session how diagrams and drafts render, without needing MCP", () => {
+    const instructions = buildRuntimeInstructions({ harness: "Claude Code" });
+    expect(instructions).toContain(`<viewcode_diagrams>\n${VIEWCODE_DIAGRAMS_GUIDANCE}`);
+    expect(instructions).toContain(`<viewcode_drafts>\n${VIEWCODE_DRAFTS_GUIDANCE}`);
+  });
+
+  it("offers the browser CLI only to a session that has it", () => {
+    expect(buildRuntimeInstructions({ harness: "Grok" })).not.toContain("viewcode-browser");
+    expect(buildRuntimeInstructions({ harness: "Grok", browserCli: true })).toContain(
+      `<viewcode_browser>\n${BROWSER_CLI_GUIDANCE}`,
+    );
+  });
+
+  it("leaves the guidance blocks to a caller that sends them as separate entries", () => {
+    const instructions = buildRuntimeInstructions(
+      { harness: "Codex", browserCli: true },
+      { separateEntries: true },
+    );
+    expect(instructions).toContain("<runtime_info>");
+    expect(instructions).not.toContain("viewcode_diagrams");
+    expect(instructions).not.toContain("viewcode_drafts");
+    expect(instructions).not.toContain("viewcode-browser");
   });
 });

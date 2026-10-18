@@ -1,6 +1,11 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
 import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
-import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
+import {
+  BROWSER_CLI_GUIDANCE,
+  buildRuntimeInstructions,
+  VIEWCODE_DIAGRAMS_GUIDANCE,
+  VIEWCODE_DRAFTS_GUIDANCE,
+} from "@t3tools/provider-core/server/runtimeInstructions";
 
 import {
   T3_CODE_BROWSER_TOOL_INSTRUCTIONS,
@@ -191,6 +196,8 @@ export interface CodexRuntimeInfo {
   readonly model: string;
   readonly modelName?: string | undefined;
   readonly reasoningEffort: string;
+  /** The thread's shell environment has the `viewcode-browser` CLI. */
+  readonly browserCli?: boolean | undefined;
 }
 
 export function buildCodexDeveloperInstructions(interactionMode: ProviderInteractionMode): string {
@@ -220,8 +227,13 @@ export function buildCodexAdditionalContext(
     ),
     t3_code_runtime: {
       kind: "application",
-      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
+      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }, { separateEntries: true }),
     },
+    viewcode_diagrams: { kind: "application", value: VIEWCODE_DIAGRAMS_GUIDANCE },
+    viewcode_drafts: { kind: "application", value: VIEWCODE_DRAFTS_GUIDANCE },
+    ...(runtime.browserCli === true
+      ? { viewcode_browser: { kind: "application", value: BROWSER_CLI_GUIDANCE } }
+      : {}),
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
   };
 }
