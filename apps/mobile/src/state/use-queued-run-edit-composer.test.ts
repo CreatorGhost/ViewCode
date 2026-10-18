@@ -143,8 +143,8 @@ const workflow = (): ThreadQueueWorkflowState => ({
 function composer() {
   return useQueuedRunEditComposer(thread, appAtomRegistry.get(state.queueAtom));
 }
-function startEdit() {
-  beginQueuedRunEdit(threadKey, {
+async function startEdit() {
+  await beginQueuedRunEdit(threadKey, {
     runId,
     messageId,
     originalText: "original queued message",
@@ -169,7 +169,7 @@ beforeEach(async () => {
     pendingAttachmentIds: [],
   }));
   setComposerDraftText(threadKey, "untouched normal draft");
-  startEdit();
+  await startEdit();
 });
 afterEach(async () => {
   await flushComposerDrafts();

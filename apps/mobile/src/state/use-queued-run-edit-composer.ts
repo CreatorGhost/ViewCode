@@ -15,6 +15,7 @@ import {
   endQueuedRunEdit,
   getQueuedRunEdit,
   queuedEditDraftKey,
+  queuedRunEditSourceChanged,
   removeQueuedRunEditAttachment,
   resolveQueuedEditPayload,
   useQueuedRunEdit,
@@ -61,15 +62,23 @@ export function useQueuedRunEditComposer(
         : queuedEditDraftKey(threadKey, queuedRunEdit.runId);
 
   useEffect(() => {
-    if (
-      threadKey !== null &&
-      queuedRunEdit !== null &&
-      workflow !== null &&
-      !workflow.queuedRuns.some((entry) => entry.run.id === queuedRunEdit.runId)
-    ) {
+    if (threadKey === null || queuedRunEdit === null || workflow === null) return;
+    const current = workflow.queuedRuns.find((entry) => entry.run.id === queuedRunEdit.runId);
+    if (!current) {
       // Preserve the separate edit draft: returning it to normal Send would
       // accidentally recreate work already consumed by another client.
       setThreadComposerError(threadKey, CONSUMED_MESSAGE);
+    } else if (
+      queuedRunEditSourceChanged(queuedRunEdit, {
+        originalText: current.text,
+        existingAttachments: current.attachments,
+        ...(current.context === undefined ? {} : { context: current.context }),
+      })
+    ) {
+      setThreadComposerError(
+        threadKey,
+        "The queued message changed since this edit began. Your edit is preserved; review the current message and attachments before saving over it.",
+      );
     }
   }, [queuedRunEdit, threadKey, workflow]);
 

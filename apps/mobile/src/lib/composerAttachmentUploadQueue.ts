@@ -3,6 +3,7 @@ import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/at
 
 import { parseLegacyNewTaskDraftKey } from "../state/new-task-draft-key";
 import type { DraftComposerAttachment } from "./composerImages";
+import { queuedEditThreadKey } from "./queuedEditDraftKey";
 
 export interface ComposerAttachmentUploadRequest {
   readonly environmentId: EnvironmentId;
@@ -48,8 +49,9 @@ export function composerDraftEnvironmentId(
     const legacy = parseLegacyNewTaskDraftKey(draftKey);
     return legacy === null ? null : EnvironmentId.make(legacy.environmentId);
   }
-  const separator = draftKey.lastIndexOf(":");
-  return separator > 0 ? EnvironmentId.make(draftKey.slice(0, separator)) : null;
+  const threadKey = queuedEditThreadKey(draftKey) ?? draftKey;
+  const separator = threadKey.lastIndexOf(":");
+  return separator > 0 ? EnvironmentId.make(threadKey.slice(0, separator)) : null;
 }
 
 type UploadServerConfig = {
