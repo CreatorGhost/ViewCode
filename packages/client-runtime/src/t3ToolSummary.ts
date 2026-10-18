@@ -372,6 +372,33 @@ export function summarizeT3ToolCalls(
       );
       break;
     }
+    case "review-start":
+      label = phrase("Started", "start", quantity(selected.length, "review"));
+      break;
+    case "review-submit":
+      label = phrase("Recorded", "record", `review findings ${times}`);
+      break;
+    case "review-post":
+      label = phrase("Posted", "post", `review findings ${times}`);
+      break;
+    case "agent-list":
+      label = phrase("Listed", "list", `agents ${times}`);
+      break;
+    case "model-list":
+      label = phrase("Listed", "list", `available models ${times}`);
+      break;
+    case "goal-read":
+      label = phrase("Read", "read", `the thread goal ${times}`);
+      break;
+    case "goal-update":
+      label = phrase("Updated", "update", `the thread goal ${times}`);
+      break;
+    case "debug-read":
+      label = phrase("Read", "read", `thread debug mode ${times}`);
+      break;
+    case "debug-update":
+      label = phrase("Updated", "update", `thread debug mode ${times}`);
+      break;
     case "link-pr":
       label = phrase("Linked", "link", quantity(selected.length, "pull request"));
       break;

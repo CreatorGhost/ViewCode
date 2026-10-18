@@ -28,6 +28,36 @@ describe("summarizeT3ToolCalls", () => {
     ).toBe("Created 1 thread");
   });
 
+  it.each([
+    ["review-start", "Started 1 review", "Tried to start 1 review"],
+    ["review-submit", "Recorded review findings 1 time", "Tried to record review findings 1 time"],
+    ["review-post", "Posted review findings 1 time", "Tried to post review findings 1 time"],
+    ["agent-list", "Listed agents 1 time", "Tried to list agents 1 time"],
+    ["model-list", "Listed available models 1 time", "Tried to list available models 1 time"],
+    ["goal-read", "Read the thread goal 1 time", "Tried to read the thread goal 1 time"],
+    ["goal-update", "Updated the thread goal 1 time", "Tried to update the thread goal 1 time"],
+    ["debug-read", "Read thread debug mode 1 time", "Tried to read thread debug mode 1 time"],
+    [
+      "debug-update",
+      "Updated thread debug mode 1 time",
+      "Tried to update thread debug mode 1 time",
+    ],
+  ] as const)(
+    "describes completed and refused ViewCode %s calls truthfully",
+    (action, done, failed) => {
+      expect(summarizeT3ToolCalls(action, [completed({})])).toEqual({
+        label: done,
+        failedCount: 0,
+      });
+      expect(
+        summarizeT3ToolCalls(action, [{ input: {}, output: undefined, outcome: "failed" }]),
+      ).toEqual({
+        label: failed,
+        failedCount: 1,
+      });
+    },
+  );
+
   it("reports review guides by outcome, and a call where none started as a failure", () => {
     const guides = (...outcomes: ReadonlyArray<string>) => ({
       guides: outcomes.map((outcome, index) => ({ number: index + 1, outcome })),

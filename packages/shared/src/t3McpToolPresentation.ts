@@ -1,3 +1,8 @@
+import {
+  VIEWCODE_MCP_TOOL_DEFINITIONS,
+  type ViewCodeMcpToolSummaryAction,
+} from "./viewcodeMcpToolDefinitions.ts";
+
 export type T3McpToolLogo = "t3-code";
 
 export interface T3McpToolPresentation {
@@ -6,6 +11,7 @@ export interface T3McpToolPresentation {
 }
 
 export type T3McpToolSummaryAction =
+  | ViewCodeMcpToolSummaryAction
   | "capabilities"
   | "delegate"
   | "task-status"
@@ -85,6 +91,7 @@ function tool(
 const T3_MCP_SERVER_ALIASES = new Set(["t3-code", "t3_code", "t3code"]);
 
 const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
+  ...VIEWCODE_MCP_TOOL_DEFINITIONS,
   link_pull_request: tool(
     ["Link", "Linking", "Linked", "a pull request"],
     "link-pr",
