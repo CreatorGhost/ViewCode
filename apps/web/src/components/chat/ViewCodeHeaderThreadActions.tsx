@@ -1,5 +1,5 @@
 import type { ResolvedKeybindingsConfig, ScopedThreadRef } from "@t3tools/contracts";
-import { TerminalIcon } from "lucide-react";
+import { SquareTerminalIcon } from "lucide-react";
 
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -27,7 +27,10 @@ export function ViewCodeHeaderThreadActions(props: {
   const terminalDisabled = !props.terminalAvailable;
   const draftReason = "Send a message to start this thread before";
   return (
-    <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
+    <div
+      data-header-actions-group
+      className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]"
+    >
       <Tooltip>
         <TooltipTrigger render={<span className="flex shrink-0" />}>
           <Button
@@ -42,7 +45,7 @@ export function ViewCodeHeaderThreadActions(props: {
               props.onToggleTerminal();
             }}
           >
-            <TerminalIcon />
+            <SquareTerminalIcon />
           </Button>
         </TooltipTrigger>
         <TooltipPopup>
