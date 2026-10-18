@@ -1076,6 +1076,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         Effect.gen(function* () {
           const env = yield* shareSpawnedEnv({ ambientBundledDev: undefined });
           assert.equal(env?.T3CODE_BUNDLED_DEV, "1");
+          assert.equal(
+            env?.PATH?.split(NodePath.delimiter)[0],
+            NodePath.join(import.meta.dirname, "..", "node_modules", ".bin"),
+          );
         }),
       );
 
