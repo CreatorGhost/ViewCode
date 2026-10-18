@@ -147,6 +147,8 @@ const TabItem = memo(function TabItem(props: {
   /** Header-supplied behaviour for the active tab: leading glyph, rename field, thread menu. */
   activeExtras?: ActiveTabExtras | undefined;
   closable?: boolean;
+  /** The only tab in the header: it gives way to the header's actions and truncates its title. */
+  alone?: boolean;
 }) {
   const extras = props.active ? props.activeExtras : undefined;
   const title = threadTabTitle(props.title, extras?.hideLeadTitle ? null : props.leadTitle);
@@ -191,7 +193,8 @@ const TabItem = memo(function TabItem(props: {
         if (event.button === 1) event.preventDefault();
       }}
       className={cn(
-        "group/tab relative flex h-7 min-w-24 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "group/tab relative flex h-7 max-w-56 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        props.alone ? "min-w-0 shrink" : "min-w-24 shrink-0",
         props.active
           ? "bg-foreground/10 text-foreground"
           : "text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
@@ -317,9 +320,10 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
       <div
         role="tablist"
         aria-label="Open threads"
-        className="flex min-w-0 items-center [-webkit-app-region:no-drag]"
+        className="flex min-w-0 items-center overflow-hidden [-webkit-app-region:no-drag]"
       >
         <TabItem
+          alone
           threadKey={activeKey ?? ""}
           title={props.fallbackTitle}
           leadTitle={shell ? leadTitleOf(shell) : null}

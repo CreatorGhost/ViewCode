@@ -610,3 +610,11 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   clip: auto;
   white-space: nowrap;
 }
+
+/* A narrow header (right panel open on a small window) keeps the thread title readable: the
+   open-in-editor group goes first, since the command palette and its shortcut still reach it. */
+@container header-actions (max-width: 26rem) {
+  html[data-theme-id] [data-chat-header] [data-chat-header-actions] > [data-slot="group"] {
+    display: none;
+  }
+}
