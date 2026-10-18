@@ -625,6 +625,12 @@ function ProjectDetail({
             open
             onOpenChange={setIconPickerOpen}
             onSelect={(icon) => void setProjectIcon({ faviconPath: null, projectIcon: icon })}
+            logos={{
+              environmentId: representative.environmentId,
+              cwd: representative.workspaceRoot,
+              savedPath: representative.faviconPath ?? null,
+              onSelect: (faviconPath) => void setProjectIcon({ faviconPath, projectIcon: null }),
+            }}
           />
         </Suspense>
       ) : null}
