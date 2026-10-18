@@ -184,6 +184,9 @@ export const getAutoBootstrapThreadModelSelection = (): ModelSelection => ({
 interface AutoBootstrapWelcomeTargets {
   readonly bootstrapProjectId?: ProjectId;
   readonly bootstrapThreadId?: ThreadId;
+  readonly bootstrapProjectCreated?: boolean;
+  readonly bootstrapThreadCreated?: boolean;
+  readonly bootstrapStatus?: "complete";
 }
 
 export const autoPullProjects = Effect.fn("autoPullProjects")(function* (
@@ -260,6 +263,8 @@ export const resolveWelcomeBase = Effect.gen(function* () {
 const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
   let bootstrapProjectId: ProjectId | undefined;
   let bootstrapThreadId: ThreadId | undefined;
+  let bootstrapProjectCreated: boolean | undefined;
+  let bootstrapThreadCreated: boolean | undefined;
   let stage = "project";
   yield* Effect.gen(function* () {
     const crypto = yield* Crypto.Crypto;
@@ -269,13 +274,14 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
     const threads = yield* ThreadManagement.ThreadManagementService;
     const path = yield* Path.Path;
     if (!serverConfig.autoBootstrapProjectFromCwd) return;
-    const { project } = yield* projects.bootstrap({
+    const { project, created } = yield* projects.bootstrap({
       commandId: CommandId.make(yield* randomUUID),
       projectId: ProjectId.make(yield* randomUUID),
       title: path.basename(serverConfig.cwd) || "project",
       workspaceRoot: serverConfig.cwd,
     });
     bootstrapProjectId = project.id;
+    bootstrapProjectCreated = created;
     stage = "threads";
     const shell = yield* threads.getShellSnapshot();
     const existingThread = shell.threads.find(
@@ -316,8 +322,10 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
         creationSource: "server",
       });
       bootstrapThreadId = launched.threadId;
+      bootstrapThreadCreated = !launched.resumed;
     } else {
       bootstrapThreadId = existingThread.id;
+      bootstrapThreadCreated = false;
     }
   }).pipe(
     Effect.catchCause((cause) =>
@@ -330,6 +338,9 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
   return {
     ...(bootstrapProjectId ? { bootstrapProjectId } : {}),
     ...(bootstrapThreadId ? { bootstrapThreadId } : {}),
+    ...(bootstrapProjectCreated === undefined ? {} : { bootstrapProjectCreated }),
+    ...(bootstrapThreadCreated === undefined ? {} : { bootstrapThreadCreated }),
+    bootstrapStatus: "complete",
   } satisfies AutoBootstrapWelcomeTargets;
 });
 
@@ -565,13 +576,15 @@ const make = (options?: StartupOptions) =>
             workerFiberRef: effectWorkerFiber,
           }),
         ),
-        autoBootstrap: (serverConfig.autoBootstrapProjectFromCwd
+        autoBootstrap: serverConfig.autoBootstrapProjectFromCwd
           ? runStartupPhase(
               "welcome.autobootstrap",
-              resolveAutoBootstrapWelcomeTargets.pipe(Effect.provideService(Crypto.Crypto, crypto)),
+              resolveAutoBootstrapWelcomeTargets.pipe(
+                Effect.provideService(Crypto.Crypto, crypto),
+                Effect.map((targets): AutoBootstrapWelcomeTargets => targets),
+              ),
             )
-          : Effect.succeed({})
-        ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
+          : Effect.succeed<AutoBootstrapWelcomeTargets>({}),
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
       // Runs after activation: the status check fetches every enabled project's
@@ -729,5 +742,3 @@ const make = (options?: StartupOptions) =>
 
 export const layerWithOptions = (options?: StartupOptions) =>
   Layer.effect(ServerRuntimeStartup, make(options));
-
-const layer = layerWithOptions();

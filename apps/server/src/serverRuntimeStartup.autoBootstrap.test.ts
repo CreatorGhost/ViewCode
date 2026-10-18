@@ -385,6 +385,9 @@ it.effect(
           if (welcome?.type === "welcome") {
             assert.equal(welcome.payload.bootstrapProjectId, snapshot.projects[0]?.id);
             assert.isUndefined(welcome.payload.bootstrapThreadId);
+            assert.isTrue(welcome.payload.bootstrapProjectCreated);
+            assert.isUndefined(welcome.payload.bootstrapThreadCreated);
+            assert.equal(welcome.payload.bootstrapStatus, "complete");
           }
         }),
       ),
@@ -405,11 +408,15 @@ it.effect.each(["admin", "project"] as const)(
 );
 it.effect("launches the enabled project model without falling back to canonical Codex", () =>
   runStartup("enabled").pipe(
-    Effect.tap(({ shell, launchCalls }) =>
+    Effect.tap(({ shell, launchCalls, welcome }) =>
       Effect.sync(() => {
         assert.equal(launchCalls, 1);
         assert.lengthOf(shell.threads, 1);
         assert.deepEqual(shell.threads[0]?.modelSelection, modelSelection);
+        if (welcome?.type === "welcome") {
+          assert.isFalse(welcome.payload.bootstrapProjectCreated);
+          assert.isTrue(welcome.payload.bootstrapThreadCreated);
+        }
       }),
     ),
   ),
@@ -420,8 +427,11 @@ it.effect("reuses an existing thread even after its provider is disabled", () =>
       Effect.sync(() => {
         assert.equal(launchCalls, 0);
         assert.lengthOf(shell.threads, 1);
-        if (welcome?.type === "welcome")
+        if (welcome?.type === "welcome") {
           assert.equal(welcome.payload.bootstrapThreadId, existingThreadId);
+          assert.isFalse(welcome.payload.bootstrapProjectCreated);
+          assert.isFalse(welcome.payload.bootstrapThreadCreated);
+        }
       }),
     ),
   ),
