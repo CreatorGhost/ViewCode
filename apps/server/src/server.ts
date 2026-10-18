@@ -15,10 +15,6 @@ import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodeHttp from "node:http";
-
-import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentHttpApi, type RepositoryIdentity } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -37,7 +33,7 @@ import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
 import { withUntracedRequests } from "./http.ts";
 import * as ServerHttp from "./http.ts";
-import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
+import * as ViewCodeHttpServer from "./server/viewcodeHttpServer.ts";
 import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
@@ -211,10 +207,6 @@ const HTTP_ROUTER_CONFIG = {
   maxParamLength: 512,
 } as const;
 
-// Effect's default preemptive shutdown waits 20s before finalizing request scopes.
-// T3's primary transport is long-lived WebSocket RPC, whose Effect scope finalizer
-// already closes the websocket gracefully.
-const HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS = 0;
 const layerResourceAttribution = ResourceAttribution.layer;
 const layerApplicationObservability = EventLoopMonitor.layer.pipe(
   Layer.provideMerge(Observability.layer),
@@ -304,21 +296,7 @@ const layerRelayClient = Layer.unwrap(
   }),
 );
 
-const layerHttpServer = Layer.unwrap(
-  Effect.gen(function* () {
-    const config = yield* ServerConfig.ServerConfig;
-    return NodeHttpServer.layer(() => guardHttpResponseWriteErrors(NodeHttp.createServer()), {
-      host: config.host ?? "127.0.0.1",
-      port: config.port,
-      gracefulShutdownTimeout: HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS,
-      // Context takeover stays enabled (ws default) so the compression
-      // window is shared across frames — that also makes small frames cheap
-      // to compress, so no size threshold is set (ws only honors
-      // `threshold` when context takeover is disabled).
-      websocket: { perMessageDeflate: true },
-    });
-  }),
-);
+const layerHttpServer = ViewCodeHttpServer.layer;
 
 const layerPlatformServices = NodeServices.layer;
 
@@ -806,14 +784,19 @@ const layerMakeServer = Layer.unwrap(
         yield* awaitActivation;
         const server = yield* HttpServer.HttpServer;
         const address = server.address;
-        if (typeof address === "string" || !("port" in address)) {
+        const listenPath = address._tag === "UnixPathAddress" ? address.path : undefined;
+        if (listenPath === undefined && !("port" in address)) {
           return;
         }
 
         const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
         const state = yield* makePersistedServerRuntimeState({
-          config,
-          port: address.port,
+          config: {
+            host: config.host,
+            devUrl: config.devUrl,
+            ...(listenPath === undefined ? {} : { listenPath }),
+          },
+          port: "port" in address ? address.port : config.port,
           serviceManaged: launcher.managed,
         });
         yield* ownership

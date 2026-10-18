@@ -118,6 +118,28 @@ describe("server ownership", () => {
 });
 
 describe("serverRuntimeState", () => {
+  it.effect("records an optional socket address without changing the nominal TCP fields", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-runtime-uds-" });
+      const statePath = path.join(directory, "server-runtime.json");
+      const listenPath = path.join(directory, "local.sock");
+      const state = yield* ServerRuntimeState.makePersistedServerRuntimeState({
+        config: { host: "127.0.0.1", devUrl: undefined, listenPath },
+        port: 3773,
+      });
+      assert.equal(state.listenPath, listenPath);
+      assert.equal(state.origin, "http://127.0.0.1:3773");
+      assert.equal(state.port, 3773);
+      yield* ServerRuntimeState.persistServerRuntimeState({ path: statePath, state });
+      assert.deepEqual(
+        Option.getOrThrow(yield* ServerRuntimeState.readPersistedServerRuntimeState(statePath)),
+        state,
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("persists and reads the runtime state", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

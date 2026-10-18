@@ -15,6 +15,7 @@ export const PersistedServerRuntimeState = Schema.Struct({
   ownerId: Schema.optional(Schema.String),
   host: Schema.optional(Schema.String),
   port: Schema.Int,
+  listenPath: Schema.optional(Schema.String),
   origin: Schema.String,
   // Dev is single-origin: browsers must pair through this URL, not `origin`.
   devUrl: Schema.optional(Schema.String),
@@ -51,7 +52,9 @@ const runtimeOriginForConfig = (
 };
 
 export const makePersistedServerRuntimeState = (input: {
-  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl">;
+  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl"> & {
+    readonly listenPath?: string;
+  };
   readonly port: number;
   readonly serviceManaged?: boolean;
 }): Effect.Effect<PersistedServerRuntimeState> =>
@@ -60,6 +63,7 @@ export const makePersistedServerRuntimeState = (input: {
     pid: process.pid,
     ...(input.config.host ? { host: input.config.host } : {}),
     port: input.port,
+    ...(input.config.listenPath === undefined ? {} : { listenPath: input.config.listenPath }),
     origin: runtimeOriginForConfig(input.config, input.port),
     ...(input.config.devUrl ? { devUrl: input.config.devUrl.toString() } : {}),
     startedAt: DateTime.formatIso(now),

@@ -223,6 +223,47 @@ const resolveWithServe = (probeStatus: number) =>
   );
 
 describe("DirectEndpoints Tailscale Serve", () => {
+  effectIt.effect("advertises no direct endpoint or Serve probe for socket-only binding", () => {
+    let spawned = 0;
+    let probed = 0;
+    const layerSocketConfig = Layer.effect(
+      ServerConfig.ServerConfig,
+      Effect.map(ServerConfig.ServerConfig, (config) => ({
+        ...config,
+        host: "0.0.0.0",
+        listenPath: "/fixture/socket-only.sock",
+      })),
+    ).pipe(Layer.provide(layerServeConfig));
+    const layerUnexpectedNetwork = Layer.mergeAll(
+      Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make(() => {
+          spawned++;
+          return Effect.die("Socket-only discovery must not run Tailscale.");
+        }),
+      ),
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() => {
+          probed++;
+          return Effect.die("Socket-only discovery must not probe an unrelated TCP server.");
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const endpoints = yield* DirectEndpoints.DirectEndpoints;
+      expect(yield* endpoints.resolve()).toEqual([]);
+      expect(spawned).toBe(0);
+      expect(probed).toBe(0);
+    }).pipe(
+      Effect.provide(
+        DirectEndpoints.layer.pipe(
+          Layer.provide(Layer.merge(layerSocketConfig, layerUnexpectedNetwork)),
+        ),
+      ),
+    );
+  });
+
   effectIt.effect("lists the tailnet name once Serve answers for this server", () =>
     Effect.gen(function* () {
       expect(yield* resolveWithServe(200)).toEqual([

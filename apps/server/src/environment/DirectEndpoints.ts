@@ -100,6 +100,8 @@ export const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
 
   const resolve = Effect.gen(function* () {
+    // Socket mode has no TCP origin for LAN clients or Tailscale Serve to reach.
+    if (config.listenPath !== undefined) return [];
     const endpoints = [
       ...resolveBoundEndpoints({
         host: config.host,
