@@ -4,7 +4,10 @@ import {
 } from "./provider/AdminProviderPolicy.ts";
 import { disableFirstRunProviders } from "./provider/viewcode/firstRunProviders.ts";
 import {
-  DEFAULT_SERVER_SETTINGS,
+  VIEWCODE_DEFAULT_RUNTIME_MODE,
+  VIEWCODE_DEFAULT_SERVER_SETTINGS,
+} from "./provider/viewcode/serverSettingsDefaults.ts";
+import {
   ModelSelection,
   ProjectId,
   ProjectScript,
@@ -17,6 +20,7 @@ import {
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
   ResponseStreamingMode,
+  RuntimeMode,
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
@@ -212,7 +216,7 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
   Effect.gen(function* () {
     const { automaticGitFetchInterval, providerHealthRefreshInterval, ...overridesForMerge } =
       overrides;
-    const merged = deepMerge(DEFAULT_SERVER_SETTINGS, overridesForMerge);
+    const merged = deepMerge(VIEWCODE_DEFAULT_SERVER_SETTINGS, overridesForMerge);
     const initialSettings = yield* normalizeServerSettings({
       ...merged,
       ...(automaticGitFetchInterval !== undefined
@@ -288,6 +292,9 @@ const PersistedResponseStreamingMode = Schema.Union([
 const ServerSettingsJson = fromLenientJson(
   Schema.Struct({
     ...ServerSettings.fields,
+    defaultRuntimeMode: RuntimeMode.pipe(
+      Schema.withDecodingDefault(Effect.succeed(VIEWCODE_DEFAULT_RUNTIME_MODE)),
+    ),
     responseStreamingMode: PersistedResponseStreamingMode.pipe(
       Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
     ),
@@ -616,7 +623,7 @@ const make = Effect.gen(function* () {
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (settings: ServerSettings) {
       const sparseSettingsJson = yield* encodeServerSettingsJson(
-        stripDefaultServerSettings(settings, DEFAULT_SERVER_SETTINGS) ?? {},
+        stripDefaultServerSettings(settings, VIEWCODE_DEFAULT_SERVER_SETTINGS) ?? {},
       );
 
       return yield* writeFileStringAtomically({
@@ -667,7 +674,7 @@ const make = Effect.gen(function* () {
     });
 
   const loadSettingsFromDisk = Effect.gen(function* () {
-    let settings = DEFAULT_SERVER_SETTINGS;
+    let settings = VIEWCODE_DEFAULT_SERVER_SETTINGS;
     let legacyProviders: Readonly<Record<string, unknown>> | undefined;
     let legacySourceControl: Parameters<typeof migrateLegacySourceControlSettings>[1] = {};
     // A file that failed to decode must stay on disk for the user to repair;
@@ -690,7 +697,7 @@ const make = Effect.gen(function* () {
         const failure = decoded._tag === "Failure" ? decoded : legacySettings;
         settingsFileTrusted = false;
         // The file may hold an opt-out we can no longer read; never resume threads on a guess.
-        settings = { ...DEFAULT_SERVER_SETTINGS, continueThreadsAfterServerUpdate: false };
+        settings = { ...VIEWCODE_DEFAULT_SERVER_SETTINGS, continueThreadsAfterServerUpdate: false };
         if (failure._tag === "Failure") {
           yield* Effect.logWarning("failed to parse settings.json, using defaults", {
             path: settingsPath,

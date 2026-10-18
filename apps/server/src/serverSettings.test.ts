@@ -37,6 +37,10 @@ import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.t
 const decodeSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 const decodeServerSettingsJson = Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings));
+const encodeModelSelectionJson = Schema.encodeEffect(Schema.fromJsonString(ModelSelection));
+const encodeProjectScriptsJson = Schema.encodeEffect(
+  Schema.fromJsonString(Schema.Array(ProjectScript)),
+);
 
 const layerServerSettings = () =>
   ServerSettingsModule.layer.pipe(
@@ -98,6 +102,69 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
+  it.effect(
+    "defaults new ViewCode environments to Auto and keeps that default across a save and reload",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        assert.equal((yield* service.getSettings).defaultRuntimeMode, "auto");
+        yield* service.updateSettings({ addProjectBaseDirectory: "~/Development" });
+        const raw = JSON.parse(yield* fs.readFileString(config.settingsPath));
+        assert.isUndefined(raw.defaultRuntimeMode);
+        const reloaded = yield* ServerSettingsModule.ServerSettingsService.pipe(
+          Effect.provide(ServerSettingsModule.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+        );
+        assert.equal((yield* reloaded.getSettings).defaultRuntimeMode, "auto");
+      }).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect.each(["auto", "full-access", "approval-required", "auto-accept-edits"] as const)(
+    "preserves explicit saved runtime mode %s and project overrides through unrelated writes",
+    (mode) =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const projectId = ProjectId.make("existing-runtime-project");
+        yield* fs.writeFileString(
+          config.settingsPath,
+          JSON.stringify({
+            defaultRuntimeMode: mode,
+            projectSettingsOverrides: { [projectId]: { defaultRuntimeMode: "full-access" } },
+          }),
+        );
+        const loaded = yield* service.getSettings;
+        assert.equal(loaded.defaultRuntimeMode, mode);
+        assert.equal(loaded.projectSettingsOverrides[projectId]?.defaultRuntimeMode, "full-access");
+        yield* service.updateSettings({ addProjectBaseDirectory: "~/Development" });
+        const raw = JSON.parse(yield* fs.readFileString(config.settingsPath));
+        assert.equal(raw.defaultRuntimeMode, mode === "auto" ? undefined : mode);
+        const reloaded = yield* ServerSettingsModule.ServerSettingsService.pipe(
+          Effect.provide(ServerSettingsModule.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+        );
+        const settings = yield* reloaded.getSettings;
+        assert.equal(settings.defaultRuntimeMode, mode);
+        assert.equal(
+          settings.projectSettingsOverrides[projectId]?.defaultRuntimeMode,
+          "full-access",
+        );
+      }).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect("uses Auto for an existing sparse file while preserving its other settings", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(config.settingsPath, '{"addProjectBaseDirectory":"~/Existing"}');
+      const settings = yield* service.getSettings;
+      assert.equal(settings.defaultRuntimeMode, "auto");
+      assert.equal(settings.addProjectBaseDirectory, "~/Existing");
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("serializes concurrent model preference edits without cancelling duplicate adds", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;
@@ -1199,6 +1266,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       );
 
       assert.isFalse(settings.continueThreadsAfterServerUpdate);
+      assert.equal(settings.defaultRuntimeMode, "auto");
       assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), raw);
     }).pipe(Effect.provide(layerServerSettings())),
   );
@@ -2153,10 +2221,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         runOnWorktreeCreate: false,
       };
       const model = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.5");
-      const modelJson = yield* Schema.encodeEffect(Schema.fromJsonString(ModelSelection))(model);
-      const scriptsJson = yield* Schema.encodeEffect(
-        Schema.fromJsonString(Schema.Array(ProjectScript)),
-      )([script]);
+      const modelJson = yield* encodeModelSelectionJson(model);
+      const scriptsJson = yield* encodeProjectScriptsJson([script]);
       for (const [projectId, modelColumn, envMode, autoPull, scripts] of [
         [legacyProject, modelJson, "worktree", 1, scriptsJson],
         [scriptedProject, null, null, 0, scriptsJson],
