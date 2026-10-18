@@ -151,6 +151,7 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
             aria-label={label}
             variant="header"
             size="header"
+            data-panel-maximize
           >
             <MorphIcon icon={maximized ? Minimize2 : Maximize2} />
           </Toggle>
