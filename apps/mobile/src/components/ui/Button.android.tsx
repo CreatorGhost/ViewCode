@@ -14,7 +14,7 @@ import { defaultMinSize, fillMaxWidth, size } from "@expo/ui/jetpack-compose/mod
 import { View } from "react-native";
 
 import { useControlTheme } from "./useControlTheme";
-import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
+import { useScaledTextRole } from "../../lib/useScaledTextRole";
 import type { ButtonProps } from "./Button";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 

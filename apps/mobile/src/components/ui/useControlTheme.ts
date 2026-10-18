@@ -1,4 +1,4 @@
-import { useAppearancePreferences } from "../../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../../lib/appearancePreferencesContext";
 
 /** Palette and type size for native controls hosted outside the RN style tree. */
 export function useControlTheme() {

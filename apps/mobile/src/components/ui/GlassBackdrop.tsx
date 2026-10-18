@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View, type ColorValue } from "react-native";
 
-import { useAppearancePreferences } from "../../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../../lib/appearancePreferencesContext";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
 
 export function GlassBackdrop(props: { readonly fallbackColor?: ColorValue }) {

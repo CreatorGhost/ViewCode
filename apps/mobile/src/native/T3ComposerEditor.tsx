@@ -3,7 +3,7 @@ import { useImperativeHandle, useRef } from "react";
 import { TextInput, type TextInputInstance } from "react-native";
 
 import { useFontFamily } from "../lib/useFontFamily";
-import { useScaledTextRole } from "../features/settings/appearance/useScaledTextRole";
+import { useScaledTextRole } from "../lib/useScaledTextRole";
 import { useNativePaste } from "../lib/useNativePaste";
 import type { ComposerEditorProps } from "./T3ComposerEditor.types";
 

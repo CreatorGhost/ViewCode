@@ -11,8 +11,8 @@ import {
   useNativeState,
 } from "@expo/ui/jetpack-compose";
 
-import { useAppearancePreferences } from "../../features/settings/appearance/AppearancePreferencesProvider";
-import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
+import { useAppearancePreferences } from "../../lib/appearancePreferencesContext";
+import { useScaledTextRole } from "../../lib/useScaledTextRole";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { themeColorWithContrast } from "../../lib/mobileTheme";

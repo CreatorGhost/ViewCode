@@ -8,7 +8,7 @@ import { NativeAppBar } from "./NativeAppBar.android";
 import { IconButton } from "./IconButton";
 import { AndroidAnchoredMenu } from "./AndroidAnchoredMenu";
 import { splitAndroidHeaderActions } from "./headerMenu.android";
-import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
+import { useScaledTextRole } from "../../lib/useScaledTextRole";
 import { useToolbarLayout } from "./useToolbarLayout";
 import { useControlTheme } from "./useControlTheme";
 

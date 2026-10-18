@@ -1,6 +1,10 @@
 import { SourceFileSurface } from "../features/files/SourceFileSurface";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
-import type { ComposerContextRecord, ElementContextSource, EnvironmentId } from "@t3tools/contracts";
+import type {
+  ComposerContextRecord,
+  ElementContextSource,
+  EnvironmentId,
+} from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { videoMimeType } from "@t3tools/shared/video";
 import { useState } from "react";
@@ -28,7 +32,7 @@ import { ComposerContextAttachment } from "./ComposerContextAttachment";
 import { AppText as Text } from "./AppText";
 import { SymbolView } from "./AppSymbol";
 import { ContextSheetSize } from "./ContextSheetSize";
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 import { getMobileTerminalTheme } from "../features/terminal/terminalTheme";
 
 function ContextField(props: { label: string; value: string | null | undefined; code?: boolean }) {

@@ -1,7 +1,11 @@
 import {
-  createContext,
+  AppearancePreferencesContext,
+  type AppearancePreferencesContextValue,
+} from "../../../lib/appearancePreferencesContext";
+export { useAppearancePreferences } from "../../../lib/appearancePreferencesContext";
+
+import {
   startTransition,
-  use,
   useCallback,
   useEffect,
   useState,
@@ -20,22 +24,20 @@ import { ScopedTheme, ScopedVariables, Uniwind } from "uniwind";
 import {
   resolveAppearance,
   resolveAppearancePreferences,
-  type ResolvedAppearance,
 } from "../../../lib/appearancePreferences";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../../state/preferences";
 import type { Preferences } from "../../../persistence/mobile-preferences";
 import { isSystemColorsAvailable, readSystemColorPalettes } from "../../../lib/materialYouPalette";
 import { materialYouPaletteToMobileThemeVariables } from "../../../lib/materialYouTheme";
 import { getMobileThemeRuntimeVariables } from "../../../lib/mobileThemeVariables";
-import type { MobileThemeVariables } from "../../../lib/mobileTheme";
 import {
   createMobileThemeCardPatch,
   createMobileThemeSelectionPatch,
   normalizeMobileThemeMode,
   resolveMobileThemeIds,
   type MobileThemeAppearance,
-  type MobileThemeId,
   type MobileThemeIds,
+  type MobileThemeId,
   type MobileThemeMode,
 } from "../../../lib/mobileTheme";
 import {
@@ -43,38 +45,6 @@ import {
   getMobileUniwindThemeName,
   type MobileThemeRuntimeState,
 } from "../../../lib/mobileThemeRuntime";
-
-interface AppearancePreferencesContextValue {
-  /** Effective values with base-size derivation applied. Use this for rendering. */
-  readonly appearance: ResolvedAppearance;
-  readonly themeId: MobileThemeId;
-  readonly themeIds: MobileThemeIds;
-  readonly themeMode: MobileThemeMode;
-  readonly themeAppearance: MobileThemeAppearance;
-  readonly systemColorsAvailable: boolean;
-  readonly systemColorsActive: boolean;
-  readonly themeVariables: MobileThemeVariables;
-  readonly themeVariablesByAppearance: Readonly<
-    Record<MobileThemeAppearance, MobileThemeVariables>
-  >;
-  readonly systemColorPalettes: ReturnType<typeof readSystemColorPalettes>;
-  readonly isReady: boolean;
-  readonly setThemeIdForAppearance: (
-    appearance: MobileThemeAppearance,
-    value: MobileThemeId,
-  ) => void;
-  /** Both appearances, or only its own for a one-appearance theme. */
-  readonly selectTheme: (value: MobileThemeId) => void;
-  readonly setThemeMode: (value: MobileThemeMode) => void;
-  readonly setBaseFontSize: (value: number) => void;
-  /** Pass null to clear the override and follow the base font size. */
-  readonly setTerminalFontSize: (value: number | null) => void;
-  /** Pass null to clear the override and follow the base font size. */
-  readonly setCodeFontSize: (value: number | null) => void;
-  readonly setCodeWordBreak: (value: boolean) => void;
-}
-
-const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
 
 export function AppearancePreferencesProvider(props: { readonly children: ReactNode }) {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
@@ -322,12 +292,4 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       </ScopedTheme>
     </AppearancePreferencesContext.Provider>
   );
-}
-
-export function useAppearancePreferences(): AppearancePreferencesContextValue {
-  const context = use(AppearancePreferencesContext);
-  if (!context) {
-    throw new Error("useAppearancePreferences must be used within AppearancePreferencesProvider");
-  }
-  return context;
 }

@@ -1,7 +1,7 @@
 import { useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
+import { useScaledTextRole } from "../../lib/useScaledTextRole";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 
 /** Shared Android header geometry; class-based spacing uses the app's 14dp rem. */

@@ -10,8 +10,8 @@ import {
 import { defaultMinSize, height, size, width } from "@expo/ui/jetpack-compose/modifiers";
 import { View } from "react-native";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
-import { useAppearancePreferences } from "../../features/settings/appearance/AppearancePreferencesProvider";
-import { useScaledTextRole } from "../../features/settings/appearance/useScaledTextRole";
+import { useAppearancePreferences } from "../../lib/appearancePreferencesContext";
+import { useScaledTextRole } from "../../lib/useScaledTextRole";
 import { SymbolView } from "./AppSymbol";
 
 export function FloatingActionButton(props: FloatingActionButtonProps) {

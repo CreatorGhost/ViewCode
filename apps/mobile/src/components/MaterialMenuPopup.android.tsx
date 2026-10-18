@@ -12,7 +12,7 @@ import { View } from "react-native";
 import { resolveScaledTextRole } from "../lib/appearancePreferences";
 
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 import type { MaterialMenuPopupProps } from "./MaterialMenuPopup";
 import { useFontFamily } from "../lib/useFontFamily";
 import { MENU_CORNER_RADIUS } from "./menuCornerRadius";
