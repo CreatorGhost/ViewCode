@@ -26,6 +26,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { ViewCodeUsageResumeEnabled } from "../agents/UsageResumePolicy.ts";
 import * as Scheduler from "./Scheduler.ts";
 
 it.effect.each(["on time", "after restart"])(
@@ -117,7 +118,11 @@ it.effect.each(["on time", "after restart"])(
       );
       const layerWorkers = Layer.mergeAll(
         ScheduledTasks.layer,
-        UsageLimitRecoveryWorker.layer,
+        // This fixture exercises upstream's persisted retry owner. ViewCode's
+        // durable retry owner has separate integration coverage.
+        UsageLimitRecoveryWorker.layer.pipe(
+          Layer.provide(Layer.succeed(ViewCodeUsageResumeEnabled, false)),
+        ),
       ).pipe(Layer.provide(layerDependencies), Layer.provide(Scheduler.layer));
       yield* Effect.gen(function* () {
         const tasks = yield* ScheduledTasks.ScheduledTaskService;
