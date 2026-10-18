@@ -47,7 +47,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
-import { useCreateChildAgent } from "../components/agents/useCreateChildAgent";
+import { createChildAgentHandler } from "../components/agents/useCreateChildAgent";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -90,7 +90,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
-  const createChildAgent = useCreateChildAgent();
+  const createChildAgent = createChildAgentHandler();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);

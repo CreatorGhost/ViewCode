@@ -102,7 +102,7 @@ import { sourceControlClients } from "@t3tools/client-runtime/source-control-cli
 import { PullRequestThreadLinks } from "./PullRequestThreadLinks";
 import {
   PullRequestAgentReviewDialog,
-  useReviewStartedHandler,
+  createReviewStartedHandler,
 } from "./PullRequestAgentReviewDialog";
 import { usePullRequestReviewFindings } from "../chat/useReviewFindingsSource";
 import { vcsEnvironment } from "~/state/vcs";
@@ -957,7 +957,7 @@ export function PullRequestDetailPanel({
     context === "thread" && threadRef !== null && threadRef.environmentId === actingEnvironmentId
       ? threadRef
       : null;
-  const onReviewStarted = useReviewStartedHandler(reviewSourceChat, showReviewTab);
+  const onReviewStarted = createReviewStartedHandler(reviewSourceChat, showReviewTab);
   const sendReviewFixToChat = useSendReviewFixToChat();
 
   const prepareThread = usePreparePullRequestThreadAction({

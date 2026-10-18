@@ -14,7 +14,7 @@ import { resolveScaledTextRole } from "../lib/appearancePreferences";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 import type { MaterialMenuPopupProps } from "./MaterialMenuPopup";
-import { useFontFamily } from "../lib/useFontFamily";
+import { FONT_FAMILIES } from "../lib/fontFamilies";
 import { MENU_CORNER_RADIUS } from "./menuCornerRadius";
 import { isAppSymbolName, SymbolView, type AppSymbolName } from "./AppSymbol";
 
@@ -56,8 +56,8 @@ export function MaterialMenuPopup(props: MaterialMenuPopupProps) {
   const foreground = colors["--color-foreground"];
   const muted = colors["--color-foreground-muted"];
   // Compose falls back to Roboto; name the app's face so menus match the screen behind them.
-  const regular = useFontFamily("regular");
-  const medium = useFontFamily("medium");
+  const regular = FONT_FAMILIES.regular;
+  const medium = FONT_FAMILIES.medium;
   // A fixed native item height clips wrapped labels; a minimum lets each row grow.
   const itemModifiers = [width(props.menuWidth), defaultMinSize({ minHeight: menuItemHeight })];
   const items = (

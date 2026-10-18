@@ -3,7 +3,12 @@ import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import * as Dialog from "../../components/ui/Dialog";
 import { useIsFocused, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { EnvironmentId, FILL_PREVIEW_VIEWPORT, ThreadId, type PreviewSessionSnapshot } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  FILL_PREVIEW_VIEWPORT,
+  ThreadId,
+  type PreviewSessionSnapshot,
+} from "@t3tools/contracts";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform, TextInput, View } from "react-native";
@@ -250,6 +255,7 @@ function BrowserAddressBar({
         keyboardType="url"
         returnKeyType="go"
         selectTextOnFocus
+        lineBreakModeIOS="tail"
         className="h-10 min-w-0 flex-1 rounded-full border border-input-border bg-input px-4 font-sans text-sm text-foreground"
       />
       <ControlPill

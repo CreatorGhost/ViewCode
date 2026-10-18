@@ -141,7 +141,11 @@ export interface AgentSessionThread {
   readonly updatedAt: string;
   readonly messages: ReadonlyArray<AgentSessionThreadMessage>;
   readonly driver?: ProviderDriverKind;
-  readonly resume?: { readonly provider: "codex" | "claudeAgent"; readonly sessionId: string; readonly resumeSessionAt?: string };
+  readonly resume?: {
+    readonly provider: "codex" | "claudeAgent";
+    readonly sessionId: string;
+    readonly resumeSessionAt?: string;
+  };
   readonly parentProviderSessionId?: string;
   readonly userMessageCount?: number;
   readonly hiddenReason?: import("@t3tools/contracts").AgentSessionHiddenReason | null;
@@ -256,6 +260,16 @@ function codexTurnId(metadata: unknown): string | null {
   return decoded.value.turn_id;
 }
 
+// Codex records setup context as user text ahead of the real request. Skip
+// these leading blocks when deriving a title; imported messages keep them.
+const CODEX_TITLE_PREAMBLE =
+  /^(?:\s*(?:<(recommended_plugins|environment_context|user_instructions|INSTRUCTIONS|in-app-browser-context)(?:\s[^>]*)?>[\s\S]*?<\/\1>|# AGENTS\.md instructions\b[^\n]*|## My request for Codex:))+/;
+
+function deriveTitle(source: AgentSessionSource, text: string): string | undefined {
+  const request = source === "codex" ? text.replace(CODEX_TITLE_PREAMBLE, "") : text;
+  return ViewCodeSessionSources.titleFromUserText(request) ?? undefined;
+}
+
 export function parseAgentSessionTranscript(
   input: AgentSessionTranscriptMetadata & {
     readonly contents: string;
@@ -276,6 +290,7 @@ function parseAgentSessionRecords(
   // timestamp text, so only transcript metadata can provide a resumable ID.
   let providerSessionId = input.source === "codex" ? "" : input.fallbackSessionId;
   let title: string | null = null;
+  let derivedTitle: string | undefined;
   let model: string | null = null;
   let hasCodexSessionId = false;
   const messages: Array<AgentSessionThreadMessage & { readonly codexResponseUser: boolean }> = [];
@@ -340,6 +355,9 @@ function parseAgentSessionRecords(
   ) => {
     if (firstUserMessage === undefined && message.role === "user") {
       firstUserMessage = message;
+    }
+    if (derivedTitle === undefined && message.role === "user") {
+      derivedTitle = deriveTitle(input.source, message.text);
     }
     messages.push(message);
     if (messages.length > MAX_IMPORTED_MESSAGES) messages.shift();
@@ -461,15 +479,21 @@ function parseAgentSessionRecords(
   const retainedMessages = firstUserMessageRetained
     ? visibleMessages
     : [visibleFirstUserMessage, ...visibleMessages.slice(-(MAX_IMPORTED_MESSAGES - 1))];
-  const origin = ViewCodeSessionSources.codexSessionOrigin(records.find((record) => record.type === "session_meta")?.payload?.source);
-  const classification = ViewCodeSessionSources.classifyAgentSession({ origin: origin.kind, userTexts: retainedMessages.filter((message) => message.role === "user").map((message) => message.text) });
-  const derivedTitle = retainedMessages.filter((message) => message.role === "user").map((message) => ViewCodeSessionSources.titleFromUserText(message.text)).find((title) => title !== null);
+  const origin = ViewCodeSessionSources.codexSessionOrigin(
+    records.find((record) => record.type === "session_meta")?.payload?.source,
+  );
+  const classification = ViewCodeSessionSources.classifyAgentSession({
+    origin: origin.kind,
+    userTexts: retainedMessages
+      .filter((message) => message.role === "user")
+      .map((message) => message.text),
+  });
 
   return {
     source: input.source,
     providerInstanceId: input.providerInstanceId,
     providerSessionId,
-    title: title ?? (derivedTitle && derivedTitle.length > 0 ? derivedTitle : "Imported thread"),
+    title: title ?? derivedTitle ?? "Imported thread",
     model,
     createdAt: retainedMessages[0]?.createdAt ?? fallbackTimestamp,
     updatedAt: fallbackTimestamp,
@@ -589,7 +613,9 @@ export const make = Effect.gen(function* () {
   const projectStore = yield* ProjectStore.ProjectStoreV2;
   const baseDir = path.resolve(serverConfig.baseDir);
   const worktreesDir = path.resolve(serverConfig.worktreesDir);
-  const realWorktreesDir = yield* fileSystem.realPath(worktreesDir).pipe(Effect.orElseSucceed(() => worktreesDir));
+  const realWorktreesDir = yield* fileSystem
+    .realPath(worktreesDir)
+    .pipe(Effect.orElseSucceed(() => worktreesDir));
   const foldWorktreeCase = (yield* HostProcess.Platform) === "win32";
   const hostEnvironment = yield* HostProcess.Environment;
   const homeDir = yield* HostProcess.HomeDirectory;
@@ -614,7 +640,8 @@ export const make = Effect.gen(function* () {
     normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
       normalizeForWorktreeMatch(baseDir, foldWorktreeCase),
     ) ||
-    (isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase) || isT3ManagedWorktree(candidatePath, realWorktreesDir, foldWorktreeCase));
+    isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase) ||
+    isT3ManagedWorktree(candidatePath, realWorktreesDir, foldWorktreeCase);
 
   const listDirectory = (directory: string) =>
     fileSystem.readDirectory(directory).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
@@ -1120,7 +1147,9 @@ export const make = Effect.gen(function* () {
       truncated ||= metadataBudget.truncated;
     }
 
-    const external = yield* externalSources.discover(DateTime.toEpochMillis(yield* DateTime.now) - RECENT_THREAD_WINDOW_MS);
+    const external = yield* externalSources.discover(
+      DateTime.toEpochMillis(yield* DateTime.now) - RECENT_THREAD_WINDOW_MS,
+    );
     raw.push(...external.candidates);
     return { candidates: raw, truncated, warnings: external.warnings };
   });
@@ -1407,7 +1436,9 @@ export const make = Effect.gen(function* () {
       Stream.flattenIterable,
     );
 
-    const settings = yield* serverSettings.getSettings.pipe(Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-settings", cause })));
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-settings", cause })),
+    );
     const external = yield* externalSources.recent(matchingCandidates, cutoffMs, settings);
     return Stream.concat(Stream.fromIterable(external), transcripts);
   });
@@ -1422,4 +1453,10 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(AgentSessionScanner, make);
 
-export { classifyAgentSession, codexSessionOrigin, cursorThreadToAgentSession, t3CodeThreadToAgentSession, titleFromUserText } from "./ViewCodeSessionSources.ts";
+export {
+  classifyAgentSession,
+  codexSessionOrigin,
+  cursorThreadToAgentSession,
+  t3CodeThreadToAgentSession,
+  titleFromUserText,
+} from "./ViewCodeSessionSources.ts";

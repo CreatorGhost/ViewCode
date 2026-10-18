@@ -4,7 +4,7 @@ import type { ContextWindowSnapshot } from "~/lib/contextWindow";
 import type { WorkLogEntry } from "../../session-logic";
 import { useClaudeCacheBanner } from "./useClaudeCacheBanner";
 import { useImagePayloadBanner } from "./useImagePayloadBanner";
-import { useLiveEditedFilesBanner } from "./useLiveEditedFilesBanner";
+import { liveEditedFilesBanner } from "./useLiveEditedFilesBanner";
 import { useUsageResumeBanner } from "./useUsageResumeBanner";
 import { useViewcodeToolsBanner } from "./useViewcodeToolsBanner";
 
@@ -46,7 +46,7 @@ export function useViewCodeThreadBanners(input: {
     contextWindow: input.contextWindow,
     onCompact: input.onCompact,
   });
-  const files = useLiveEditedFilesBanner({
+  const files = liveEditedFilesBanner({
     entries: input.entries,
     runningTurnId: input.runningRunId,
     workspaceRoot: input.workspaceRoot,

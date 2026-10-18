@@ -52,12 +52,12 @@ export function resolveThemeEnvironmentIdentificationMode(
   return mode === "artwork" ? "pill" : mode;
 }
 
-export function useStageArtworkAllowed(): boolean {
+export function stageArtworkAllowed(): boolean {
   return false;
 }
 
 export function useSidebarStageBackdropVariant(enabled = true): SidebarStageBackdropVariant | null {
-  const artworkAllowed = useStageArtworkAllowed();
+  const artworkAllowed = stageArtworkAllowed();
   return resolveSidebarStageBackdropVariant(useEnvironmentStageLabel(), enabled && artworkAllowed);
 }
 

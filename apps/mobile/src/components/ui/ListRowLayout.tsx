@@ -3,7 +3,7 @@ import { Platform, useWindowDimensions, View } from "react-native";
 
 import { cn } from "../../lib/cn";
 import { AppText } from "./AppText";
-import { SymbolView, type AppSymbolName } from "./AppSymbol";
+import { SymbolView, type AppSymbolName } from "../AppSymbol";
 
 export interface ListRowContentProps {
   readonly icon?: AppSymbolName;

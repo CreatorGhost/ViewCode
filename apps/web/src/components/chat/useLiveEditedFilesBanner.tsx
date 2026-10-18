@@ -17,7 +17,7 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
  * tree diff at that file (a workspace-relative path, as the diff names it);
  * past a few files it collapses to a count that opens the whole working tree.
  */
-export function useLiveEditedFilesBanner(input: {
+export function liveEditedFilesBanner(input: {
   readonly entries: ReadonlyArray<WorkLogEntry>;
   readonly runningTurnId: string | null;
   readonly workspaceRoot: string | undefined;

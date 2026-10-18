@@ -38,7 +38,7 @@ function recordEffect(action: string) {
 
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
 vi.mock("../components/agents/useCreateChildAgent", () => ({
-  useCreateChildAgent: () => () => recordEffect("create-child-agent"),
+  createChildAgentHandler: () => () => recordEffect("create-child-agent"),
 }));
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ navigate: async () => recordEffect("project-settings") }),

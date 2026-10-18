@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
-import { SymbolView } from "../../components/ui/AppSymbol";
+import { SymbolView } from "../../components/AppSymbol";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { cn } from "../../lib/cn";
 import { useEnvironmentServerConfig, useProject, useThreadShell } from "../../state/entities";
@@ -114,11 +114,7 @@ function SubagentMetadata(props: {
   });
   return (
     <View className="min-w-0 flex-row items-center gap-1.5">
-      <ProviderIcon
-        provider={provider?.driver ?? subagent.driver}
-        iconUrl={provider?.iconUrl}
-        size={12}
-      />
+      <ProviderIcon provider={provider?.driver ?? subagent.driver} size={12} />
       <Text className="min-w-0 shrink text-xs text-foreground-muted" numberOfLines={1}>
         {provider ? `${resolveProviderInstanceDisplayName(provider)} · ` : ""}
         {modelLabel}

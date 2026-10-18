@@ -291,7 +291,7 @@ export function announceReviewStarted(
  * chat's agent and the chat's Review panel opens; on the pull request page, `onShow` brings the
  * Review tab forward. The reader stays where they are either way.
  */
-export function useReviewStartedHandler(
+export function createReviewStartedHandler(
   besideChat: ScopedThreadRef | null,
   onShow: () => void,
 ): (started: StartedAgentReview) => void {

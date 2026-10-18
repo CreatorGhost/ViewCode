@@ -55,7 +55,7 @@ function useLinkedReviewThreads(key: LinkedReviewsKey | null): ReadonlyArray<Lin
 }
 
 /** Which findings of the source were posted, and how they are rated, from its thread's records. */
-function useFindingRecords(
+function findingRecords(
   source: ReviewFindingsSource | null,
   sourceActivities: ReadonlyArray<OrchestrationThreadActivity>,
 ): {
@@ -86,7 +86,7 @@ export interface LatestReviewStatus {
   readonly progress: ReviewProgress;
 }
 
-function useLatestReview(threads: ReadonlyArray<LinkedReviewThread>): LatestReviewStatus | null {
+function latestReviewStatus(threads: ReadonlyArray<LinkedReviewThread>): LatestReviewStatus | null {
   const latest = (() => selectLatestReview(threads))();
   return (() =>
     latest === null
@@ -141,8 +141,8 @@ export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
         ? activities
         : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
           NO_ACTIVITIES);
-  const { posted, ratings } = useFindingRecords(source, sourceActivities);
-  const review = useLatestReview(linkedThreads);
+  const { posted, ratings } = findingRecords(source, sourceActivities);
+  const review = latestReviewStatus(linkedThreads);
   return { source, posted, ratings, pullRequests, projectId: shell?.projectId ?? null, review };
 }
 
@@ -172,13 +172,13 @@ export function usePullRequestReviewFindings(
   );
   const source = (() =>
     selectPullRequestReviewFindings({ pullRequests, threads: linkedThreads }))();
-  const review = useLatestReview(linkedThreads);
+  const review = latestReviewStatus(linkedThreads);
   const sourceActivities =
     source === null
       ? NO_ACTIVITIES
       : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
         NO_ACTIVITIES);
-  const { posted, ratings } = useFindingRecords(source, sourceActivities);
+  const { posted, ratings } = findingRecords(source, sourceActivities);
   const dismissedByIdentity = useReviewFixSentStore((state) =>
     source === null
       ? NO_DISMISSED

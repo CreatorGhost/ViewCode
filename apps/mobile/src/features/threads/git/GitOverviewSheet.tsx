@@ -16,9 +16,9 @@ import { SymbolView } from "../../../components/AppSymbol";
 import { useCallback, useMemo, useState } from "react";
 import { Alert, Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
 
-import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
+import { ScreenStack } from "react-native-screens";
+import { NativeHeader, NativeScreen } from "../../../native/ThemedScreenStack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useUniwindTheme } from "../../../lib/useUniwindTheme";
 import {
   AndroidHeaderIconButton,
   AndroidSheetHeader,
@@ -79,9 +79,6 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
   });
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
-  const theme = useUniwindTheme();
-  const foregroundColor = theme["--color-foreground"];
-  const sheetColor = theme["--color-sheet"];
 
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
@@ -347,28 +344,28 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
     return (
       <View collapsable={false} className="flex-1 border-l border-border bg-sheet">
         <ScreenStack style={{ flex: 1 }}>
-          <Screen
+          <NativeScreen
             activityState={2}
             enabled
             isNativeStack
             screenId="thread-git-inspector-native"
             scrollEdgeEffects={HEADER_SCROLL_EDGE_EFFECTS}
-            style={{ backgroundColor: sheetColor, flex: 1 }}
+            className="flex-1 bg-sheet"
           >
             {content}
-            <ScreenStackHeaderConfig
+            <NativeHeader
               backgroundColor="rgba(0,0,0,0)"
-              color={foregroundColor}
+              tintColorClassName="accent-foreground"
               hideBackButton
               hideShadow={false}
               navigationItemStyle="editor"
               title={currentBranchLabel}
-              titleColor={foregroundColor}
+              titleColorClassName="accent-foreground"
               titleFontSize={17}
               titleFontWeight="700"
               translucent
             />
-          </Screen>
+          </NativeScreen>
         </ScreenStack>
       </View>
     );
@@ -383,28 +380,28 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
     return (
       <View collapsable={false} className="flex-1 bg-sheet">
         <ScreenStack style={{ flex: 1 }}>
-          <Screen
+          <NativeScreen
             activityState={2}
             enabled
             isNativeStack
             screenId="thread-git-sheet-native"
             scrollEdgeEffects={HEADER_SCROLL_EDGE_EFFECTS}
-            style={{ backgroundColor: sheetColor, flex: 1 }}
+            className="flex-1 bg-sheet"
           >
             {content}
-            <ScreenStackHeaderConfig
+            <NativeHeader
               backgroundColor="rgba(0,0,0,0)"
-              color={foregroundColor}
+              tintColorClassName="accent-foreground"
               hideBackButton
               hideShadow={false}
               navigationItemStyle="editor"
               title={currentBranchLabel}
-              titleColor={foregroundColor}
+              titleColorClassName="accent-foreground"
               titleFontSize={18}
               titleFontWeight="800"
               translucent
             />
-          </Screen>
+          </NativeScreen>
         </ScreenStack>
       </View>
     );

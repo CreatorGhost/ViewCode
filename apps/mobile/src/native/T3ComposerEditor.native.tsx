@@ -27,7 +27,7 @@ import {
 import { resolveMarkdownFileIcon } from "@t3tools/mobile-markdown-text/links";
 import { MOBILE_TYPOGRAPHY } from "../lib/typography";
 import { useNativePaste } from "../lib/useNativePaste";
-import { useFontFamily } from "../lib/useFontFamily";
+import { FONT_FAMILIES } from "../lib/fontFamilies";
 import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 import { useUniwindTheme } from "../lib/useUniwindTheme";
 import { createNativeComposerTheme } from "../lib/nativeComposerTheme";
@@ -266,7 +266,7 @@ export function ComposerEditor({
     selection: Platform.OS === "android" || systemColorsActive ? theme["--color-focus"] : null,
   });
   const resolvedTextStyle = StyleSheet.flatten(textStyle) ?? {};
-  const regularFontFamily = useFontFamily("regular");
+  const regularFontFamily = FONT_FAMILIES.regular;
   return (
     <TextInputWrapper onPaste={handlePaste} style={[{ minHeight: 0 }, style]}>
       <NativeView

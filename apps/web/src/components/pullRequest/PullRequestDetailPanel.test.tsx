@@ -118,7 +118,7 @@ vi.mock("~/browser/useOpenLink", () => ({ useOpenLink: () => vi.fn() }));
 vi.mock("./PullRequestThreadLinks", () => ({ PullRequestThreadLinks: () => null }));
 vi.mock("./PullRequestAgentReviewDialog", () => ({
   PullRequestAgentReviewDialog: () => null,
-  useReviewStartedHandler: () => vi.fn(),
+  createReviewStartedHandler: () => vi.fn(),
 }));
 vi.mock("../chat/useReviewFindingsSource", () => ({
   usePullRequestReviewFindings: () => ({

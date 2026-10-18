@@ -2,10 +2,9 @@ import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
 import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, PullRequestAction } from "@t3tools/contracts";
-import * as Clipboard from "expo-clipboard";
 import { Atom } from "effect/reactivity";
 import { use, useCallback, useMemo, useRef, useState } from "react";
-import { Alert, Linking, Platform, Share } from "react-native";
+import { Alert, Linking, Platform } from "react-native";
 import type { ControlPillMenuProps } from "../../components/ControlPillMenu.types";
 import { composerPullRequests } from "../../state/pull-requests";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -15,6 +14,7 @@ import {
   PR_ACTION_LABELS,
 } from "./pullRequestActions";
 import { scopedPullRequestListKey, type EnvironmentPullRequestListEntry } from "./pullRequestList";
+import { copyPullRequestLink, sharePullRequestLink } from "./pullRequestLink";
 import { pullRequestTarget } from "./usePullRequestDiff";
 
 export function usePullRequestListActions(
@@ -115,7 +115,7 @@ export function usePullRequestListActions(
         return;
       }
       if (action === "copy") {
-        void Clipboard.setStringAsync(entry.url);
+        copyPullRequestLink(entry);
         return;
       }
       if (action === "provider") {
@@ -123,11 +123,7 @@ export function usePullRequestListActions(
         return;
       }
       if (action === "share") {
-        void Share.share(
-          Platform.OS === "ios"
-            ? { url: entry.url, title: entry.title }
-            : { message: entry.url, title: entry.title },
-        );
+        sharePullRequestLink(entry);
         return;
       }
       const supported = (["close", "reopen", "ready", "draft"] as const).find(

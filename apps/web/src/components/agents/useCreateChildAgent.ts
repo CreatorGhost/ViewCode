@@ -25,7 +25,7 @@ export function waitForThreadShell(ref: ScopedThreadRef, timeoutMs = 5_000): Pro
 }
 
 /** Opens the native delegated-task prompt for this specific parent pane. */
-export function useCreateChildAgent() {
+export function createChildAgentHandler() {
   return (parent: EnvironmentThreadShell) =>
     openCreateChildAgentDialog(scopeThreadRef(parent.environmentId, parent.id));
 }

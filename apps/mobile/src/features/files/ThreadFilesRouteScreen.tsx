@@ -564,6 +564,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
             error={entriesQuery.error}
             isPending={entriesQuery.isPending}
             searchQuery={searchQuery}
+            searchResultPaths={entriesQuery.searchResultPaths}
             searchTruncated={entriesQuery.searchTruncated}
             selectedPath={null}
             onPreviewFile={handlePreviewFile}

@@ -2,7 +2,7 @@ import { Platform, View } from "react-native";
 import { useResolveClassNames } from "uniwind";
 
 import { cn } from "../../lib/cn";
-import { SymbolView } from "./AppSymbol";
+import { SymbolView } from "../AppSymbol";
 import { ListRowLayout } from "./ListRowLayout";
 import { RadioIndicator } from "./RadioIndicator";
 import { RowPressable } from "./RowPressable";

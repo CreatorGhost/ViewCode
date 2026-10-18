@@ -310,19 +310,35 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
       if (provider === undefined || !provider.enabled || provider.disabledByAdmin === true) return;
       stage = "thread-launch";
       const threadLaunch = yield* ThreadLaunch.ThreadLaunchService;
-      const launched = yield* threadLaunch.launch({
-        commandId: CommandId.make(yield* randomUUID),
-        projectId: project.id,
-        title: "New thread",
-        modelSelection,
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: projectSettings.defaultRuntimeMode,
-        workspaceStrategy: { type: "root" },
-        createdBy: "system",
-        creationSource: "server",
-      });
-      bootstrapThreadId = launched.threadId;
-      bootstrapThreadCreated = !launched.resumed;
+      const launched = yield* threadLaunch
+        .launch({
+          commandId: CommandId.make(yield* randomUUID),
+          projectId: project.id,
+          title: "New thread",
+          modelSelection,
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: projectSettings.defaultRuntimeMode,
+          workspaceStrategy: { type: "root" },
+          createdBy: "system",
+          creationSource: "server",
+        })
+        .pipe(
+          // The bootstrap thread is optional; its launch must not prevent opening the app.
+          Effect.catchTags({
+            ThreadManagementProviderInstanceDisabledError: (error) =>
+              Effect.logInfo("Skipped bootstrap thread because its provider instance is disabled", {
+                projectId: project.id,
+                instanceId: error.instanceId,
+              }).pipe(Effect.as(undefined)),
+            ThreadLaunchError: (error) =>
+              Effect.logWarning("Failed to launch bootstrap thread", {
+                projectId: project.id,
+                operation: error.operation,
+              }).pipe(Effect.as(undefined)),
+          }),
+        );
+      bootstrapThreadId = launched?.threadId;
+      bootstrapThreadCreated = launched !== undefined && !launched.resumed;
     } else {
       bootstrapThreadId = existingThread.id;
       bootstrapThreadCreated = false;

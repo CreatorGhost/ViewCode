@@ -1,4 +1,4 @@
-import { SymbolView } from "./AppSymbol";
+import { SymbolView } from "../AppSymbol";
 
 /** The enclosing radio row owns selection, touch and accessibility. */
 export function RadioIndicator({ selected }: { readonly selected: boolean }) {

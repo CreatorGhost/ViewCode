@@ -106,7 +106,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeIn, FadeOut, ReduceMotion, type SharedValue } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
-import { useFontFamily } from "../../lib/useFontFamily";
+import { FONT_FAMILIES } from "../../lib/fontFamilies";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
@@ -1072,8 +1072,8 @@ function useMarkdownStyles(
   const inlineSkillForeground = theme["--color-inline-skill-foreground"];
   const userBubbleSkillForeground = theme["--color-user-bubble-skill-foreground"];
   const userBubbleForegroundMuted = theme["--color-user-bubble-foreground-muted"];
-  const regularFontFamily = useFontFamily("regular");
-  const boldFontFamily = useFontFamily("bold");
+  const regularFontFamily = FONT_FAMILIES.regular;
+  const boldFontFamily = FONT_FAMILIES.bold;
 
   return useMemo(() => {
     const baseTheme: PartialMarkdownTheme = {

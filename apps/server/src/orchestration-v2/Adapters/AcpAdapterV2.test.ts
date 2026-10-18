@@ -511,19 +511,19 @@ function rawProtocolRequestParam(
   return typeof params === "object" && params !== null ? Reflect.get(params, key) : undefined;
 }
 
-function rawProtocolPromptText(event: EffectAcpProtocol.AcpProtocolLogEvent): string {
+function rawProtocolPromptTextBlocks(
+  event: EffectAcpProtocol.AcpProtocolLogEvent,
+): Array<{ type: "text"; text: string }> {
   const prompt = rawProtocolRequestParam(event, "prompt");
-  if (!Array.isArray(prompt)) return "";
-  return prompt
-    .flatMap((block) =>
-      typeof block === "object" &&
-      block !== null &&
-      Reflect.get(block, "type") === "text" &&
-      typeof Reflect.get(block, "text") === "string"
-        ? [Reflect.get(block, "text") as string]
-        : [],
-    )
-    .join("\n");
+  if (!Array.isArray(prompt)) return [];
+  return prompt.flatMap((block) =>
+    typeof block === "object" &&
+    block !== null &&
+    Reflect.get(block, "type") === "text" &&
+    typeof Reflect.get(block, "text") === "string"
+      ? [{ type: "text" as const, text: Reflect.get(block, "text") as string }]
+      : [],
+  );
 }
 
 const pollProtocolMethods = (events: Queue.Queue<EffectAcpProtocol.AcpProtocolLogEvent>) =>
@@ -859,7 +859,12 @@ describe("AcpAdapterV2", () => {
           if (method === undefined) continue;
           methods.push(method);
           if (method === "session/prompt") {
-            return { methods, prompt: rawProtocolPromptText(event) };
+            const promptBlocks = rawProtocolPromptTextBlocks(event);
+            return {
+              methods,
+              prompt: promptBlocks.map((block) => block.text).join("\n"),
+              textBlockCount: promptBlocks.length,
+            };
           }
         }
       });
@@ -867,7 +872,13 @@ describe("AcpAdapterV2", () => {
       const command = yield* runTurn(0, defaultPolicy, "/compact");
       assert.isTrue(command.prompt.startsWith("/compact"));
       assert.notInclude(command.prompt, "<t3_code_instructions>");
-      const firstDefault = yield* runTurn(1, defaultPolicy, "First default request.");
+      assert.equal(command.textBlockCount, 1);
+      const whitespaceCommand = yield* runTurn(1, defaultPolicy, "  /repro-skill");
+      assert.equal(whitespaceCommand.prompt, "  /repro-skill");
+      assert.equal(whitespaceCommand.textBlockCount, 1);
+      assert.notInclude(whitespaceCommand.prompt, "<t3_code_instructions>");
+      const firstDefault = yield* runTurn(2, defaultPolicy, "First default request.");
+      assert.equal(firstDefault.textBlockCount, 2);
       assert.include(firstDefault.prompt, "ViewCode interaction mode: Default");
       assert.include(firstDefault.prompt, "ViewCode collaborative browser");
       assert.include(firstDefault.prompt, "ViewCode orchestration");
@@ -877,19 +888,19 @@ describe("AcpAdapterV2", () => {
         "Build should preserve the agent's advertised mode default",
       );
       assert.include(
-        (yield* runTurn(2, defaultPolicy, "Second default request.")).prompt,
+        (yield* runTurn(3, defaultPolicy, "Second default request.")).prompt,
         "Second default request.",
       );
 
       const planPolicy = policy("plan");
-      const firstPlan = yield* runTurn(3, planPolicy, "Plan this change.");
+      const firstPlan = yield* runTurn(4, planPolicy, "Plan this change.");
       assert.include(firstPlan.prompt, "ViewCode interaction mode: Plan");
       assert.include(firstPlan.methods, "session/set_config_option");
       assert.include(
-        (yield* runTurn(4, planPolicy, "Continue planning.")).prompt,
+        (yield* runTurn(5, planPolicy, "Continue planning.")).prompt,
         "Continue planning.",
       );
-      const restoredBuild = yield* runTurn(5, defaultPolicy, "Implement the change.");
+      const restoredBuild = yield* runTurn(6, defaultPolicy, "Implement the change.");
       assert.include(restoredBuild.prompt, "ViewCode interaction mode: Default");
       assert.include(
         restoredBuild.methods,
@@ -1850,7 +1861,7 @@ describe("AcpAdapterV2", () => {
       );
       assert.isTrue(items.some((item) => item.type === "user_message" && item.text.length === 0));
       assert.equal(
-        items.filter((item) => item.type === "assistant_message").at(-1)?.text,
+        items.findLast((item) => item.type === "assistant_message")?.text,
         "authoritative answer",
       );
       assert.isTrue(
@@ -3497,7 +3508,7 @@ describe("AcpAdapterV2", () => {
           settings: DEFAULT_GROK_SETTINGS,
           environment: {},
           hostPlatform: yield* HostProcess.Platform,
-          selfInvocation: yield* resolveSelfInvocation(),
+          selfInvocation,
           makeRuntime: (input) =>
             makeMockRuntime({ childProcessSpawner, mockAgentPath, protocolEvents })(input).pipe(
               Effect.flatMap(makeXAiPromptCompletionRuntime),
@@ -3543,7 +3554,7 @@ describe("AcpAdapterV2", () => {
         settings: DEFAULT_GROK_SETTINGS,
         environment: {},
         hostPlatform: yield* HostProcess.Platform,
-        selfInvocation: yield* resolveSelfInvocation(),
+        selfInvocation,
         makeRuntime: (input) =>
           makeMockRuntime({ childProcessSpawner, mockAgentPath, protocolEvents })(input).pipe(
             Effect.flatMap(makeXAiPromptCompletionRuntime),

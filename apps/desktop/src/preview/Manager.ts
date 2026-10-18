@@ -1495,12 +1495,14 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         }).pipe(Effect.ignore),
       );
     };
+    // Not getFocusedWebContents(): every guest of a focused window reports focus.
+    // An agent's keys reach a guest without a focused frame through GuestInput.
+    const holdsKeyboardFocus = (contents: Electron.WebContents) =>
+      contents.isFocused() && contents.focusedFrame !== null;
     const syncMenuShortcuts = (contents: Electron.WebContents, input: Electron.Input): void => {
       if (input.type !== "keyDown") return;
-      // Background automation must not edit whichever other renderer has focus.
       contents.setIgnoreMenuShortcuts(
-        !isPreviewEditingShortcut(input, hostPlatform) ||
-          webContents.getFocusedWebContents() !== contents,
+        !isPreviewEditingShortcut(input, hostPlatform) || !holdsKeyboardFocus(contents),
       );
     };
     // A popup opens with Electron's default handler, so the page inside it could
@@ -1521,7 +1523,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         !input.isComposing &&
         host &&
         !host.isDestroyed() &&
-        webContents.getFocusedWebContents() === wc &&
+        holdsKeyboardFocus(wc) &&
         !(
           hostPlatform !== "darwin" &&
           input.control &&
@@ -2441,19 +2443,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc,
       ),
     ]);
-    const uuid = yield* crypto
-      .randomUUIDv4()
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new PreviewOperationError({
-              operation: "captureScreenshot.randomUUID",
-              tabId,
-              webContentsId: wc.id,
-              cause,
-            }),
-        ),
-      );
+    const uuid = yield* crypto.randomUUIDv4().pipe(
+      Effect.mapError(
+        (cause) =>
+          new PreviewOperationError({
+            operation: "captureScreenshot.randomUUID",
+            tabId,
+            webContentsId: wc.id,
+            cause,
+          }),
+      ),
+    );
     const id = `browser-screenshot-${artifactSiteSlug(wc.getURL())}-${millis.toString(36)}-${uuid.slice(0, 8)}`;
     const artifactPath = path.join(resolvedArtifactDirectory, `${id}.png`);
     const data = image.toPNG();
@@ -3126,14 +3126,20 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         yield* attempt({ operation: "recording.cursor", tabId, webContentsId: wc.id }, () =>
           wc.send(RECORDING_CURSOR_CHANNEL, true, options, tab?.controller),
         );
-        yield* attemptPromise(
-          {
-            operation: "recording.warmSource",
-            tabId,
-            webContentsId: wc.id,
-          },
-          () => wc.capturePage().then(() => undefined),
-        ).pipe(Effect.retry({ times: 1 }), Effect.ignore);
+        const warmupContext = { operation: "recording.warmSource", tabId, webContentsId: wc.id };
+        yield* Effect.tryPromise({
+          // Electron cannot cancel capturePage, but a stalled warmup must release the tab lock.
+          try: (_signal) => wc.capturePage(),
+          catch: (cause) => new PreviewOperationError({ ...warmupContext, cause }),
+        }).pipe(
+          Effect.timeout(CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS),
+          Effect.catchTags({
+            TimeoutError: (cause) =>
+              Effect.fail(new PreviewOperationError({ ...warmupContext, cause })),
+          }),
+          Effect.retry({ times: 1 }),
+          Effect.ignore,
+        );
         const currentWebContents = yield* requireWebContents(tabId);
         if (currentWebContents !== wc || wc.isDestroyed()) {
           return yield* new PreviewWebContentsNotFoundError({

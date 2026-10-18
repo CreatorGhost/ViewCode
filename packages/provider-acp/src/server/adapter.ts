@@ -224,6 +224,10 @@ export interface AcpAdapterV2Flavor {
     ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Scope.Scope
   >;
   readonly resolveModelId?: (selection: ModelSelection) => string | undefined;
+  readonly getModelContextWindow?: (
+    selection: ModelSelection,
+    session: AcpSessionRuntime.AcpSessionRuntimeStartResult,
+  ) => number | undefined;
   readonly applyModelSelection?: (input: {
     readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
     readonly startResult: AcpSessionRuntime.AcpSessionRuntimeStartResult;
@@ -561,12 +565,16 @@ function acpMcpContext(
       {
         name: "t3-code",
         command: session.stdio?.command ?? self.command,
-        args: session.stdio ? [...session.stdio.args] : [...selfInvocationArgs(self, ["acp-mcp-bridge"])],
-        env: session.stdio ? Object.entries(session.stdio.env).map(([name, value]) => ({ name, value })) : [
-          { name: "ELECTRON_RUN_AS_NODE", value: "1" },
-          { name: "T3_ACP_MCP_ENDPOINT", value: session.endpoint },
-          { name: "T3_ACP_MCP_AUTHORIZATION", value: session.authorizationHeader },
-        ],
+        args: session.stdio
+          ? [...session.stdio.args]
+          : [...selfInvocationArgs(self, ["acp-mcp-bridge"])],
+        env: session.stdio
+          ? Object.entries(session.stdio.env).map(([name, value]) => ({ name, value }))
+          : [
+              { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+              { name: "T3_ACP_MCP_ENDPOINT", value: session.endpoint },
+              { name: "T3_ACP_MCP_AUTHORIZATION", value: session.authorizationHeader },
+            ],
       },
     ],
     acpServers: [{ type: "acp", name: "t3-code", serverId: "t3-code" }],
@@ -5253,10 +5261,20 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 Effect.gen(function* () {
                   const context = yield* activeContext;
                   const computerOption = acpComputerUseAllowOnceOption(
-                    yield* mcpSessions.read(context.input.threadId), params,
-                    { commandFields: ["command", "command_line", "commandLine"], allowMissingKind: flavor.driver === "antigravity" },
+                    yield* mcpSessions.read(context.input.threadId),
+                    params,
+                    {
+                      commandFields: ["command", "command_line", "commandLine"],
+                      allowMissingKind: flavor.driver === "antigravity",
+                    },
                   );
-                  if (computerOption !== undefined) return { _tag: "Immediate" as const, response: { outcome: { outcome: "selected", optionId: computerOption } } as const };
+                  if (computerOption !== undefined)
+                    return {
+                      _tag: "Immediate" as const,
+                      response: {
+                        outcome: { outcome: "selected", optionId: computerOption },
+                      } as const,
+                    };
                   const disposition = (flavor.permissionDisposition ?? acpPermissionDisposition)(
                     context.input.runtimePolicy,
                     params,
@@ -6333,6 +6351,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             attachments: turnInput.message.attachments,
             resolveAttachmentPath: host.resolveAttachmentPath,
           });
+          const isNativeSlashCommand = turnInput.message.text.trimStart().startsWith("/");
           const text = t3AcpPromptWithInstructions({
             prompt: messageText,
             state: instructionState,
@@ -6382,13 +6401,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               detail: "ACP turn requires non-empty text or attachments",
             });
           }
-          prompt.push({
-            type: "text",
-            text: buildRuntimeInstructions({
-              harness: flavor.runtimeHarness ?? driver,
-              model: turnInput.modelSelection.model,
-            }),
-          });
+          if (!isNativeSlashCommand) {
+            prompt.push({
+              type: "text",
+              text: buildRuntimeInstructions({
+                harness: flavor.runtimeHarness ?? driver,
+                model: turnInput.modelSelection.model,
+              }),
+            });
+          }
           return { prompt, instructionState: text === messageText ? undefined : instructionState };
         });
 
@@ -6825,6 +6846,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           providerSessionId: input.providerSessionId,
           providerSession,
           events: Stream.fromEffectRepeat(Queue.take(events)),
+          ...(flavor.getModelContextWindow === undefined
+            ? {}
+            : {
+                getModelContextWindow: (selection) => {
+                  const session = Ref.getUnsafe(activeSessionSetup);
+                  return session === null
+                    ? undefined
+                    : flavor.getModelContextWindow?.(selection, session);
+                },
+              }),
           ...(postSettleContinuationEnabled
             ? {
                 hasPendingBackgroundWork: Effect.gen(function* () {
