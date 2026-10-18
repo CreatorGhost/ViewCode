@@ -734,11 +734,8 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     // the runner is started with plain `node` and no global vp is installed.
     const repoBin = NodePath.join(import.meta.dirname, "..", "node_modules", ".bin");
     env.PATH = [repoBin, env.PATH].filter(Boolean).join(NodePath.delimiter);
-    const spawnCommand = yield* resolveSpawnCommand(
-      "vp",
-      [...MODE_ARGS[input.mode], ...input.runArgs],
-      { env },
-    );
+    const args = [...MODE_ARGS[input.mode], ...input.runArgs];
+    const spawnCommand = yield* resolveSpawnCommand("vp", args, { env });
     const processContext = {
       mode: input.mode,
       executable: "vp" as const,
