@@ -31,6 +31,7 @@ import {
 import {
   COMPOSER_CONTEXT_KINDS,
   ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
+  REVIEW_FINDINGS_ACTIVITY_KIND,
   type AssistantCitation,
   type EnvironmentId,
   type MessageId,
@@ -5684,6 +5685,19 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
               onKeyDown={stopRowToggle}
             >
               Open subagent
+            </InlineButton>
+          ) : null}
+          {workEntry.sourceActivityKind === REVIEW_FINDINGS_ACTIVITY_KIND && threadRef ? (
+            // The findings themselves live in the Review panel; the row only says they arrived.
+            <InlineButton
+              aria-label="Open review findings in panel"
+              onClick={(event) => {
+                event.stopPropagation();
+                useRightPanelStore.getState().open(threadRef, "review");
+              }}
+              onKeyDown={stopRowToggle}
+            >
+              Open in panel
             </InlineButton>
           ) : null}
           {showFailedIndicator &&
