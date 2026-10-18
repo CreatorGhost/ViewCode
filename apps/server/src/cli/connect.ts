@@ -1,3 +1,4 @@
+import { withLocalServerTransport } from "./viewcodeLocalServerTransport.ts";
 import {
   AuthRelayWriteScope,
   EnvironmentHttpApi,
@@ -296,6 +297,7 @@ const runLiveCloudUnlink = Effect.fn("cloud.cli.run_live_unlink")(function* () {
           client.connect.unlink({ headers: { authorization: `Bearer ${token}` } }),
         ),
         Effect.timeout(CLOUD_CLI_LIVE_SERVER_TIMEOUT),
+        withLocalServerTransport(runtimeState.value),
       ),
     ),
   );

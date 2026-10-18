@@ -27,6 +27,7 @@ import {
 } from "../serverRuntimeState.ts";
 import {
   DevServerNotProxiableError,
+  SocketServerNotNetworkAccessibleError,
   resolveDirectPairingBaseUrl,
   resolveTailscaleLocalTarget,
 } from "./pair.ts";
@@ -141,7 +142,97 @@ const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A,
     (server) => Effect.sync(() => server.close()),
   );
 
+const withSocketDescriptorServer = <A, E, R>(run: (listenPath: string) => Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pairuds-"));
+    const listenPath =
+      HostProcess.Platform.defaultValue() === "win32"
+        ? `\\\\.\\pipe\\${NodePath.basename(directory)}`
+        : NodePath.join(directory, "s.sock");
+    const server = NodeHttp.createServer((request, response) => {
+      assert.equal(request.url, "/.well-known/t3/environment");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(testDescriptor));
+    });
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(
+        () =>
+          new Promise<void>((resolve) => {
+            server.closeAllConnections();
+            server.close(() => {
+              NodeFS.rmSync(directory, { recursive: true, force: true });
+              resolve();
+            });
+          }),
+      ),
+    );
+    yield* Effect.promise(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(listenPath, resolve);
+        }),
+    );
+    assert.equal(server.address(), listenPath);
+    return yield* run(listenPath);
+  }).pipe(Effect.scoped);
+
 describe("t3 pair", () => {
+  it.effect.each([
+    { mode: "direct", flags: [] },
+    { mode: "Tailscale", flags: ["--tailscale"] },
+  ])("refuses $mode pairing for a socket-only server", ({ flags }) =>
+    withSocketDescriptorServer((listenPath) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-local-"));
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => NodeFS.rmSync(baseDir, { recursive: true, force: true })),
+        );
+        yield* persistServerRuntimeState({
+          path: NodePath.join(baseDir, "userdata/server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined, listenPath },
+            port: 3773,
+          }),
+        });
+        const result = yield* runCli(["pair", "--base-dir", baseDir, ...flags]).pipe(
+          provideCliTestLayers,
+          Effect.flip,
+        );
+        assert.instanceOf(result, SocketServerNotNetworkAccessibleError);
+        assert.include(result.message, "Enable network access");
+        assert.include(result.message, "--relay");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("discovers a socket-only server and pairs through its configured relay", () =>
+    withSocketDescriptorServer((listenPath) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-relayuds-"));
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => NodeFS.rmSync(baseDir, { recursive: true, force: true })),
+        );
+        const stateDir = NodePath.join(baseDir, "userdata");
+        yield* persistServerRuntimeState({
+          path: NodePath.join(stateDir, "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined, listenPath },
+            port: 3773,
+          }),
+        });
+        NodeFS.writeFileSync(
+          NodePath.join(stateDir, "settings.json"),
+          JSON.stringify({
+            viewcodeRelay: { enabled: true, url: "https://relay.example.workers.dev" },
+          }),
+        );
+        const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir, "--relay"]));
+        assert.include(output, "Pairing URL: https://relay.example.workers.dev/pair#token=");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("mints a token and prints a QR pairing URL for a live server", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {

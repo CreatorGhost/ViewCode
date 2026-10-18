@@ -2,6 +2,8 @@ import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 // @effect-diagnostics nodeBuiltinImport:off - CLI integration uses temporary Node paths.
 import * as NodeFS from "node:fs";
+import * as NodeHttp from "node:http";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
@@ -28,6 +30,9 @@ import { Command } from "effect/cli";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { cli } from "../binCli.ts";
 import * as ServerConfig from "../config.ts";
+import * as ServerOwnership from "../serverOwnership.ts";
+import * as ServerRuntimeState from "../serverRuntimeState.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -446,3 +451,83 @@ it.layer(NodeServices.layer)("project lookup with unavailable workspaces", (it) 
     }),
   );
 });
+
+it.effect(
+  "routes project mutations to the active socket server without writing its project database offline",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-prjuds-" });
+      const baseDir = NodePath.join(root, "state");
+      const workspaceRoot = NodePath.join(root, "workspace");
+      yield* fs.makeDirectory(workspaceRoot);
+      yield* runCli(["project", "add", workspaceRoot, "--title", "Before", "--base-dir", baseDir]);
+      const snapshot = yield* readProjects(baseDir);
+      const project = snapshot.projects[0]!;
+      const listenPath =
+        HostProcess.Platform.defaultValue() === "win32"
+          ? `\\\\.\\pipe\\${NodePath.basename(root)}`
+          : NodePath.join(root, "s.sock");
+      const requests: Array<{ path: string; authenticated: boolean; body: unknown }> = [];
+      const server = NodeHttp.createServer((request, response) => {
+        let body = "";
+        request.setEncoding("utf8");
+        request.on("data", (chunk) => {
+          body += chunk;
+        });
+        request.on("end", () => {
+          requests.push({
+            path: request.url ?? "",
+            authenticated: request.headers.authorization?.startsWith("Bearer ") === true,
+            body: body === "" ? null : JSON.parse(body),
+          });
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify(
+              request.url === "/api/projects" ? snapshot : { ...project, title: "Socket rename" },
+            ),
+          );
+        });
+      });
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(
+          () =>
+            new Promise<void>((resolve) => {
+              server.closeAllConnections();
+              server.close(() => resolve());
+            }),
+        ),
+      );
+      yield* Effect.promise(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(listenPath, resolve);
+          }),
+      );
+      assert.equal(server.address(), listenPath);
+      const config = yield* makeConfig(baseDir);
+      const owner = yield* ServerOwnership.acquireServerOwnership(config.serverRuntimeStatePath);
+      yield* owner.publish(
+        yield* ServerRuntimeState.makePersistedServerRuntimeState({
+          config: { host: "127.0.0.1", devUrl: undefined, listenPath },
+          port: 1,
+        }),
+      );
+      yield* runCli(["project", "rename", project.id, "Socket rename", "--base-dir", baseDir]);
+      assert.deepEqual(
+        requests.map(({ path }) => path),
+        ["/api/projects", "/api/projects", "/api/projects/mutate"],
+      );
+      assert.isTrue(requests.every(({ authenticated }) => authenticated));
+      assert.containSubset(requests.at(-1)?.body, {
+        type: "project.update",
+        projectId: project.id,
+        title: "Socket rename",
+      });
+      assert.equal((yield* readProjects(baseDir)).projects[0]?.title, "Before");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer))),
+    ),
+);

@@ -483,6 +483,10 @@
       "types": "./src/atomicWrite.ts",
       "import": "./src/atomicWrite.ts"
     },
+    "./socketFetch": {
+      "types": "./src/socketFetch.ts",
+      "import": "./src/socketFetch.ts"
+    },
     "./mcpResponsePayloads": {
       "types": "./src/mcpResponsePayloads.ts",
       "import": "./src/mcpResponsePayloads.ts"

@@ -1,4 +1,8 @@
 import {
+  withLocalServerTransport,
+  type LocalServerTarget,
+} from "./viewcodeLocalServerTransport.ts";
+import {
   AuthStandardClientScopes,
   CommandId,
   EnvironmentHttpApi,
@@ -316,30 +320,32 @@ const findActiveProjectTarget = Effect.fn("findActiveProjectTarget")(function* (
   } satisfies ProjectMutationTarget;
 });
 
-const fetchLiveOrchestrationSnapshot = (origin: string, bearerToken: string) =>
+const fetchLiveOrchestrationSnapshot = (target: LocalServerTarget, bearerToken: string) =>
   Effect.gen(function* () {
-    const client = yield* makeLiveServerClient(origin);
+    const client = yield* makeLiveServerClient(target.origin);
     return yield* client.projects.snapshot({
       headers: { authorization: `Bearer ${bearerToken}` },
     });
   }).pipe(
     withProjectCliLiveServerTimeout,
+    withLocalServerTransport(target),
     Effect.mapError(projectCommandErrorFromLiveServerRequest),
   );
 
 const dispatchLiveOrchestrationCommand = (
-  origin: string,
+  target: LocalServerTarget,
   bearerToken: string,
   command: ProjectCliDispatchCommand,
 ) =>
   Effect.gen(function* () {
-    const client = yield* makeLiveServerClient(origin);
+    const client = yield* makeLiveServerClient(target.origin);
     yield* client.projects.mutate({
       headers: { authorization: `Bearer ${bearerToken}` },
       payload: command,
     } as Parameters<typeof client.projects.mutate>[0]);
   }).pipe(
     withProjectCliLiveServerTimeout,
+    withLocalServerTransport(target),
     Effect.mapError(projectCommandErrorFromLiveServerRequest),
   );
 
@@ -355,13 +361,16 @@ const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecu
   ) {
     const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
     if (Option.isNone(runtimeState)) {
-      return Option.none<{ readonly origin: string }>();
+      return Option.none<LocalServerTarget>();
     }
 
     const attempt = withProjectCliSessionToken(environmentAuth, (token) =>
-      fetchLiveOrchestrationSnapshot(runtimeState.value.origin, token).pipe(
+      fetchLiveOrchestrationSnapshot(runtimeState.value, token).pipe(
         Effect.as({
           origin: runtimeState.value.origin,
+          ...(runtimeState.value.listenPath === undefined
+            ? {}
+            : { listenPath: runtimeState.value.listenPath }),
         }),
       ),
     );
@@ -375,7 +384,7 @@ const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecu
       origin: runtimeState.value.origin,
       cause: attempted.failure,
     });
-    return Option.none<{ readonly origin: string }>();
+    return Option.none<LocalServerTarget>();
   },
 );
 
@@ -408,11 +417,10 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
     if (Option.isSome(liveMode)) {
       return yield* withProjectCliSessionToken(environmentAuth, (token) =>
         Effect.gen(function* () {
-          const snapshot = yield* fetchLiveOrchestrationSnapshot(liveMode.value.origin, token);
+          const snapshot = yield* fetchLiveOrchestrationSnapshot(liveMode.value, token);
           const output = yield* run({
             snapshot,
-            dispatch: (command) =>
-              dispatchLiveOrchestrationCommand(liveMode.value.origin, token, command),
+            dispatch: (command) => dispatchLiveOrchestrationCommand(liveMode.value, token, command),
             mode: "live",
           });
           yield* Console.log(output);

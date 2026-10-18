@@ -1,3 +1,9 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
+// @effect-diagnostics nodeBuiltinImport:off -- Native MCP-over-ACP transport regression uses a scoped Unix HTTP listener.
+import * as NodeFSP from "node:fs/promises";
+import * as NodeHttp from "node:http";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -116,3 +122,92 @@ describe("AcpMcpOverAcpBridge", () => {
     }),
   );
 });
+
+it.effect("negotiates and calls native MCP over a socket without a TCP fallback", () =>
+  Effect.gen(function* () {
+    const directory = yield* Effect.promise(() =>
+      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-acpmcp-")),
+    );
+    const socketPath =
+      HostProcess.Platform.defaultValue() === "win32"
+        ? `\\\\.\\pipe\\${NodePath.basename(directory)}`
+        : NodePath.join(directory, "s.sock");
+    const requests: Array<{
+      method: string | undefined;
+      path: string | undefined;
+      headers: NodeHttp.IncomingHttpHeaders;
+    }> = [];
+    const server = NodeHttp.createServer((request, response) => {
+      requests.push({ method: request.method, path: request.url, headers: request.headers });
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        if (request.method === "DELETE") {
+          response.writeHead(204);
+          response.end();
+          return;
+        }
+        const input = JSON.parse(body) as { id?: number; method: string | undefined };
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "mcp-session-id": "socket-session",
+        });
+        response.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: input.id,
+            result:
+              input.method === "initialize"
+                ? { protocolVersion: "2025-06-18" }
+                : { content: [{ type: "text", text: "native socket tool" }] },
+          }),
+        );
+      });
+    });
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(async () => {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        await NodeFSP.rm(directory, { recursive: true, force: true });
+      }),
+    );
+    yield* Effect.promise(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(socketPath, resolve);
+        }),
+    );
+    expect(server.address()).toBe(socketPath);
+    const bridge = yield* makeAcpMcpOverAcpBridge({
+      endpoint: `unix:${socketPath}`,
+      authorization: "Bearer socket-test-only",
+      allocateConnectionId: Effect.succeed("socket-connection"),
+    });
+    const { connectionId } = yield* bridge.connect({ serverId: "t3-code" });
+    expect(yield* bridge.message({ connectionId, method: "initialize" })).toEqual({
+      protocolVersion: "2025-06-18",
+    });
+    expect(
+      yield* bridge.message({
+        connectionId,
+        method: "tools/call",
+        params: { name: "delegate_task", arguments: {} },
+      }),
+    ).toEqual({ content: [{ type: "text", text: "native socket tool" }] });
+    yield* bridge.disconnect({ connectionId });
+    expect(requests.map((request) => [request.method, request.path])).toEqual([
+      ["POST", "/mcp"],
+      ["POST", "/mcp"],
+      ["DELETE", "/mcp"],
+    ]);
+    expect(
+      requests.every((request) => request.headers.authorization === "Bearer socket-test-only"),
+    ).toBe(true);
+    expect(requests[1]?.headers["mcp-session-id"]).toBe("socket-session");
+    expect(requests[1]?.headers["mcp-protocol-version"]).toBe("2025-06-18");
+  }).pipe(Effect.scoped),
+);

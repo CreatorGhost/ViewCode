@@ -1,3 +1,4 @@
+import { fetchMcpEndpoint } from "@t3tools/shared/socketFetch";
 // @effect-diagnostics preferSchemaOverJson:off
 import * as Effect from "effect/Effect";
 import * as Semaphore from "effect/Semaphore";
@@ -81,7 +82,7 @@ export interface AcpMcpOverAcpBridge {
 export const makeAcpMcpOverAcpBridge = Effect.fn("AcpMcpOverAcpBridge.make")(function* (
   options: AcpMcpOverAcpBridgeOptions,
 ): Effect.fn.Return<AcpMcpOverAcpBridge> {
-  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const fetchImplementation = options.fetchImplementation ?? fetchMcpEndpoint;
   const connections = new Map<string, Connection>();
 
   const connectionFor = (connectionId: string): Effect.Effect<Connection, AcpMcpOverAcpError> =>

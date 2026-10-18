@@ -1,3 +1,4 @@
+import { withLocalServerTransport } from "./viewcodeLocalServerTransport.ts";
 import {
   type AuthEnvironmentScope,
   AuthStandardClientScopes,
@@ -122,6 +123,15 @@ export class ServePortOccupiedError extends Schema.TaggedError<ServePortOccupied
 
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
   state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
+
+export class SocketServerNotNetworkAccessibleError extends Schema.TaggedError<SocketServerNotNetworkAccessibleError>()(
+  "SocketServerNotNetworkAccessibleError",
+  {},
+) {
+  override get message(): string {
+    return "This desktop server listens only on a local socket. Enable network access in Settings > Connections, or pair through Quick connect with --relay.";
+  }
+}
 
 export class RelayNotConfiguredError extends Schema.TaggedError<RelayNotConfiguredError>()(
   "RelayNotConfiguredError",
@@ -271,7 +281,9 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       if (!isProcessAlive(state.value.pid)) {
         continue;
       }
-      const probed = yield* probeEnvironmentDescriptor(state.value.origin);
+      const probed = yield* probeEnvironmentDescriptor(state.value.origin).pipe(
+        withLocalServerTransport(state.value),
+      );
       if (probed._tag !== "descriptor") {
         continue;
       }
@@ -522,6 +534,9 @@ export const pairCommand = Command.make("pair", {
         );
 
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
+      if (target.state.listenPath !== undefined && !flags.relay) {
+        return yield* new SocketServerNotNetworkAccessibleError();
+      }
 
       const notes: Array<string> = [];
       let pairingBaseUrl: string;
