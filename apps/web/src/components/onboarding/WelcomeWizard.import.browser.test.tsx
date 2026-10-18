@@ -2,7 +2,10 @@ import { RegistryContext } from "@effect/atom-react";
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  ProviderDriverKind,
+  ProviderInstanceId,
   ProjectId,
   type AgentSessionProjectCandidate,
   type AuthEnvironmentScope,
@@ -234,6 +237,7 @@ async function mountImport(remote = false) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   for (const id of [primaryId, remoteId]) {
     state.sessions.set(
       id,
@@ -244,7 +248,20 @@ beforeEach(() => {
   }
   state.projects = Atom.make<ReadonlyArray<Project>>([]).pipe(Atom.keepAlive);
   state.providers = Atom.make<ReadonlyArray<never>>([]).pipe(Atom.keepAlive);
-  state.config = Atom.make(null).pipe(Atom.keepAlive);
+  // These permission tests exercise import after an existing provider choice,
+  // rather than the separate all-providers-off first-run picker.
+  state.config = Atom.make({
+    settings: {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [ProviderInstanceId.make("codex")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+        },
+      },
+    },
+    adminBlockedProviderDrivers: [],
+  }).pipe(Atom.keepAlive);
   state.candidates = [candidate("/projects/first"), candidate("/projects/second")];
   state.createProject
     .mockReset()
@@ -264,6 +281,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   document.body.replaceChildren();
   state.sessions.clear();
+  vi.unstubAllGlobals();
 });
 
 it("keeps scanning, choosing and skipping available to a paired read-only environment", async () => {

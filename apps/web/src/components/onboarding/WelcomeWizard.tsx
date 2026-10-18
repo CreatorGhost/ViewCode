@@ -1,5 +1,6 @@
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { ProviderPicker } from "./ProviderPicker";
+import { resolveProviderSetup } from "./providerSetup.logic";
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
 import type {
@@ -223,6 +224,7 @@ export function WelcomeWizard({
     <Dialog open disablePointerDismissal onOpenChange={(_, event) => event.cancel()}>
       <WizardPopup
         size="wide"
+        scrollMode="native"
         bottomStickOnMobile={false}
         showCloseButton={false}
         initialFocus={() => document.getElementById("onboarding-pairing-url") ?? true}
@@ -230,11 +232,9 @@ export function WelcomeWizard({
         <WizardHeader
           title="Set up ViewCode"
           identity={
-            <div className="flex items-baseline gap-1.5" role="img" aria-label="ViewCode">
-              <T3Wordmark className="h-4 w-auto shrink-0" aria-hidden />
-              <span className="text-2xl font-medium tracking-tight text-muted-foreground">
-                Code
-              </span>
+            <div className="flex items-center gap-2" role="img" aria-label="ViewCode">
+              <T3Wordmark className="h-5 w-auto shrink-0" aria-hidden />
+              <span className="text-2xl font-medium tracking-tight">ViewCode</span>
             </div>
           }
         >
@@ -667,7 +667,7 @@ function AgentsStep({
   return (
     <StepShell
       title="Connect your agents"
-      description="Choose an agent to start coding. You can add more later."
+      description="Choose the AI tools to start coding with. You can add more later in Settings."
     >
       <ScrollArea scrollFade className="mt-5 h-auto max-h-[min(32rem,55dvh)]">
         <div className="space-y-5 pr-3">
@@ -713,12 +713,18 @@ function ConnectedAgentsStep({
     autoStart: boolean;
   } | null>(null);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
+  const setup = resolveProviderSetup({
+    instances: serverConfig?.settings.providerInstances ?? null,
+    blockedDrivers: serverConfig?.adminBlockedProviderDrivers ?? [],
+    providers,
+  });
 
   useEffect(() => {
+    if (!setup.refreshEnabledProviders) return;
     void refreshProviders({ environmentId, input: {} });
-  }, [environmentId, refreshProviders]);
+  }, [environmentId, refreshProviders, setup.refreshEnabledProviders]);
 
-  if (providers !== null && !providers.some((provider) => provider.enabled)) {
+  if (setup.showPicker) {
     return (
       <section>
         <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
@@ -726,6 +732,7 @@ function ConnectedAgentsStep({
       </section>
     );
   }
+  if (setup.pending) return <Spinner className="size-4" aria-label="Loading provider settings" />;
 
   const byDriver = selectOnboardingProvidersByDriver(providers);
 

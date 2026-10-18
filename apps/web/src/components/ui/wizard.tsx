@@ -9,15 +9,27 @@ import { ScrollArea } from "./scroll-area";
 export function WizardPopup({
   children,
   size = "default",
+  scrollMode = "custom",
   ...props
 }: Omit<ComponentProps<typeof DialogPopup>, "className" | "style"> & {
   readonly size?: "default" | "wide";
+  readonly scrollMode?: "custom" | "native";
 }) {
   return (
-    <DialogPopup {...props} className={size === "wide" ? "max-w-3xl" : "max-w-xl"}>
-      <ScrollArea className="*:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4">
+    <DialogPopup
+      {...props}
+      className={cn(
+        size === "wide" ? "max-w-3xl" : "max-w-xl",
+        scrollMode === "native" && "overflow-x-hidden overflow-y-auto",
+      )}
+    >
+      {scrollMode === "native" ? (
         <div className="flex min-h-0 flex-col">{children}</div>
-      </ScrollArea>
+      ) : (
+        <ScrollArea className="*:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4">
+          <div className="flex min-h-0 flex-col">{children}</div>
+        </ScrollArea>
+      )}
     </DialogPopup>
   );
 }

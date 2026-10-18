@@ -1,3 +1,4 @@
+import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ScrollArea } from "../ui/scroll-area";
@@ -27,23 +28,25 @@ export function ThreadDetailsCard({
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
   const canvas = useChatCanvas();
-  const preferredPlacement = canvas
-    ? resolveThreadDetailsCardLayout({
-        container: canvas.container,
-        lane: canvas.lane,
-        frame: null,
-        topInset: canvas.detailsCardTopInset,
-      })
-    : null;
-  const placement = canvas
-    ? resolveThreadDetailsCardLayout({
-        container: canvas.container,
-        lane: canvas.lane,
-        frame: canvas.layout.frame,
-        overlapsDetailsCard: canvas.layout.overlapsDetailsCard,
-        topInset: canvas.detailsCardTopInset,
-      })
-    : null;
+  const preferredPlacement =
+    canvas && viewcodeProductPolicy.inlineThreadDetails
+      ? resolveThreadDetailsCardLayout({
+          container: canvas.container,
+          lane: canvas.lane,
+          frame: null,
+          topInset: canvas.detailsCardTopInset,
+        })
+      : null;
+  const placement =
+    canvas && viewcodeProductPolicy.inlineThreadDetails
+      ? resolveThreadDetailsCardLayout({
+          container: canvas.container,
+          lane: canvas.lane,
+          frame: canvas.layout.frame,
+          overlapsDetailsCard: canvas.layout.overlapsDetailsCard,
+          topInset: canvas.detailsCardTopInset,
+        })
+      : null;
   const mode = placement ? "inline" : "popover";
   const topInset = canvas?.detailsCardTopInset ?? 0;
   const inlineOpen = useRightPanelStore((state) =>

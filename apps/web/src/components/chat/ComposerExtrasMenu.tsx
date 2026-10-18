@@ -14,6 +14,7 @@ import { useComposerMenuProps } from "./composerEventScope";
  */
 export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
   showAttach: boolean;
+  disabled?: boolean;
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
   debugMode: boolean;
@@ -30,6 +31,7 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
             <MenuTrigger
               render={
                 <ComposerControl
+                  disabled={props.disabled}
                   data-composer-extras-trigger="true"
                   className="shrink-0 px-1.5!"
                   aria-label="Add to message"
@@ -44,13 +46,14 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
       </Tooltip>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
         {props.showAttach ? (
-          <MenuItem onClick={props.onAttach}>
+          <MenuItem disabled={props.disabled} onClick={props.onAttach}>
             <PaperclipIcon />
             Attach files
           </MenuItem>
         ) : null}
         {props.showInteractionModeToggle ? (
           <MenuCheckboxItem
+            disabled={props.disabled}
             checked={props.interactionMode === "plan"}
             onCheckedChange={props.onToggleInteractionMode}
           >
@@ -60,7 +63,11 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
             </span>
           </MenuCheckboxItem>
         ) : null}
-        <MenuCheckboxItem checked={props.debugMode} onCheckedChange={props.onDebugModeChange}>
+        <MenuCheckboxItem
+          disabled={props.disabled}
+          checked={props.debugMode}
+          onCheckedChange={props.onDebugModeChange}
+        >
           <span className="inline-flex items-center gap-2">
             <BugIcon className="size-4" />
             Debug mode

@@ -4,6 +4,8 @@ import {
   parseThreadSlashCommand,
 } from "@t3tools/client-runtime/threadGoal";
 import { useThreadGoalControls } from "./useThreadGoalControls";
+import { ComposerExtrasMenu } from "./ComposerExtrasMenu";
+import { ProviderModelPicker } from "./ProviderModelPicker";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -1054,7 +1056,7 @@ import { toastManager } from "../ui/toast";
 import {
   BotIcon,
   CircleAlertIcon,
-  PaperclipIcon,
+  BugIcon,
   PencilRulerIcon,
   PlayIcon,
   ShieldIcon,
@@ -1228,6 +1230,9 @@ const supervisedRuntimeModeOption = {
 const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
+  debugMode: boolean;
+  onDebugModeChange: (enabled: boolean) => void;
+  disabled: boolean;
   runtimeMode: RuntimeMode;
   runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   size?: "sm" | "xs";
@@ -1257,6 +1262,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
               size={size}
               className="shrink-0 whitespace-nowrap"
               aria-pressed={props.interactionMode === "plan"}
+              disabled={props.disabled}
               type="button"
               onClick={props.onToggleInteractionMode}
               aria-label={interactionModeTooltip}
@@ -1294,11 +1300,13 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           open={open}
           onOpenChange={setOpen}
           value={props.runtimeMode}
+          disabled={props.disabled}
           onValueChange={(value) => props.onRuntimeModeChange(value!)}
         >
           <TooltipTrigger
             render={
               <ComposerSelectControl
+                data-runtime-mode={props.runtimeMode}
                 data-composer-shortcut="composer.mode"
                 size={size}
                 aria-label="Runtime mode"
@@ -1338,6 +1346,37 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
       </Tooltip>
 
       {interactionModeToggle}
+      {props.debugMode ? (
+        <>
+          <ComposerControlSeparator size={size} />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <ComposerControl
+                  size={size}
+                  disabled={props.disabled}
+                  aria-pressed
+                  data-debug-mode="on"
+                  onClick={() => props.onDebugModeChange(false)}
+                  aria-label="Debug mode — click to leave"
+                />
+              }
+            >
+              <ComposerControlIcon
+                icon={BugIcon}
+                size={size}
+                className="text-current opacity-100"
+              />
+              <span data-composer-control-label className="sr-only sm:not-sr-only">
+                Debug
+              </span>
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              Debug mode: the agent reproduces and gathers evidence before fixing. Click to leave.
+            </TooltipPopup>
+          </Tooltip>
+        </>
+      ) : null}
     </>
   );
 });
@@ -1567,6 +1606,8 @@ export interface ChatComposerProps {
 
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
+  debugMode: boolean;
+  onDebugModeChange: (enabled: boolean) => void;
 
   lockedProvider: ProviderDriverKind | null;
   providerStatuses: ServerProvider[];
@@ -2915,7 +2956,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
-  const providerTraitsPicker = null;
+  const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
@@ -5084,13 +5125,92 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const iconOnlyBlockCount = composerControlsCollapsed
     ? restingControlsIconOnlyBlockCount
     : expandedControlsIconOnlyBlockCount;
+  const useModelEffortPicker = !(
+    routeKind === "draft" &&
+    supportsMultipleModels &&
+    multipleModelSelections !== null
+  );
+  const toggleDraftModel =
+    routeKind === "draft" && supportsMultipleModels
+      ? (instanceId: ProviderInstanceId, model: string) => {
+          const current = multipleModelSelections ?? [selectedModelSelection];
+          const matchesModel = (selection: ModelSelection) => {
+            if (selection.instanceId !== instanceId) return false;
+            const entry = providerInstanceEntries.find(
+              (entry) => entry.instanceId === selection.instanceId,
+            );
+            const resolvedModel = resolveModelPickerSelectedModel({
+              driverKind: entry?.driverKind,
+              model: selection.model,
+              options: modelOptionsByInstance.get(selection.instanceId) ?? [],
+            });
+            return (resolvedModel?.slug ?? selection.model) === model;
+          };
+          const exists = current.some(matchesModel);
+          const next = exists
+            ? current.filter((selection) => !matchesModel(selection))
+            : [...current, createModelSelection(instanceId, model)];
+          if (next.length > 1) {
+            setMultipleModelSelections(next);
+          } else {
+            setMultipleModelSelections(null);
+            const remaining = next[0] ?? selectedModelSelection;
+            onProviderModelSelect(remaining.instanceId, remaining.model, {
+              focusComposer: false,
+            });
+          }
+        }
+      : undefined;
+  const modelEffortPicker = (
+    <ComposerModelEffortPicker
+      environmentId={environmentId}
+      disabled={!canOperateThread || providerCatalogPending || isSendBusy}
+      {...(toggleDraftModel ? { onToggleModel: toggleDraftModel } : {})}
+      activeInstanceId={
+        providerCatalogPending
+          ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
+          : selectedInstanceId
+      }
+      model={
+        providerCatalogPending
+          ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
+          : selectedModelForPickerWithCustomFallback
+      }
+      lockedProvider={lockedProvider}
+      lockedContinuationGroupKey={lockedContinuationGroupKey}
+      instanceEntries={providerInstanceEntries}
+      keybindings={keybindings}
+      modelOptionsByInstance={modelOptionsByInstance}
+      size={composerControlsCollapsed ? "xs" : "sm"}
+      terminalOpen={terminalOpen}
+      {...(multipleModelSelections === null ? {} : { selectedModels: multipleModelSelections })}
+      traits={providerTraitsPickerInput}
+      view={composerModelEffortView}
+      onViewChange={setComposerModelEffortView}
+      {...(composerProviderState.modelPickerIconClassName || composerControlsCollapsed
+        ? {
+            activeProviderIconClassName: cn(
+              composerProviderState.modelPickerIconClassName,
+              composerControlsCollapsed &&
+                "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-icon-detail]]:fill-transparent! [&[data-provider-package-icon]]:opacity-70 [&[data-provider-package-icon]_path:not([data-icon-detail])]:fill-muted-foreground!",
+            ),
+          }
+        : {})}
+      getModelDisabledReason={getModelDisabledReason}
+      onInstanceModelChange={(instanceId, model) => {
+        setMultipleModelSelections(null);
+        onProviderModelSelect(instanceId, model, { focusComposer: false });
+      }}
+      onOpenProviderSetup={onOpenProviderSetup}
+    />
+  );
   const restingProviderTraitsPicker = renderProviderTraitsPicker({
     ...providerTraitsPickerInput,
     size: composerControlsCollapsed ? "xs" : "sm",
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
-    ...(providerTraitsPicker
+    ...(providerTraitsPicker && !useModelEffortPicker
       ? [
           {
             id: "traits",
@@ -5109,6 +5229,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         <ComposerFooterModeControls
           showInteractionModeToggle={planModeUiEnabled}
           interactionMode={interactionMode}
+          debugMode={props.debugMode}
+          onDebugModeChange={props.onDebugModeChange}
+          disabled={!canOperateThread}
           runtimeMode={compatibleRuntimeMode}
           runtimeModeOptions={compatibleRuntimeModeOptions}
           size={composerControlsCollapsed ? "xs" : "sm"}
@@ -5148,78 +5271,36 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           data-resting-controls-separator="true"
         />
       ) : null}
-      <ComposerModelEffortPicker
-        environmentId={environmentId}
-        disabled={providerCatalogPending || isSendBusy}
-        {...(routeKind === "draft" && supportsMultipleModels
-          ? {
-              onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
-                const current = multipleModelSelections ?? [selectedModelSelection];
-                const matchesModel = (selection: ModelSelection) => {
-                  if (selection.instanceId !== instanceId) return false;
-                  const entry = providerInstanceEntries.find(
-                    (entry) => entry.instanceId === selection.instanceId,
-                  );
-                  const resolvedModel = resolveModelPickerSelectedModel({
-                    driverKind: entry?.driverKind,
-                    model: selection.model,
-                    options: modelOptionsByInstance.get(selection.instanceId) ?? [],
-                  });
-                  return (resolvedModel?.slug ?? selection.model) === model;
-                };
-                const exists = current.some(matchesModel);
-                const next = exists
-                  ? current.filter((selection) => !matchesModel(selection))
-                  : [...current, createModelSelection(instanceId, model)];
-                if (next.length > 1) {
-                  setMultipleModelSelections(next);
-                } else {
-                  setMultipleModelSelections(null);
-                  const remaining = next[0] ?? selectedModelSelection;
-                  onProviderModelSelect(remaining.instanceId, remaining.model, {
-                    focusComposer: false,
-                  });
-                }
-              },
-            }
-          : {})}
-        activeInstanceId={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
-            : selectedInstanceId
-        }
-        model={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
-            : selectedModelForPickerWithCustomFallback
-        }
-        lockedProvider={lockedProvider}
-        lockedContinuationGroupKey={lockedContinuationGroupKey}
-        instanceEntries={providerInstanceEntries}
-        keybindings={keybindings}
-        modelOptionsByInstance={modelOptionsByInstance}
-        size={composerControlsCollapsed ? "xs" : "sm"}
-        terminalOpen={terminalOpen}
-        {...(multipleModelSelections === null ? {} : { selectedModels: multipleModelSelections })}
-        traits={providerTraitsPickerInput}
-        view={composerModelEffortView}
-        onViewChange={setComposerModelEffortView}
-        {...(composerProviderState.modelPickerIconClassName || composerControlsCollapsed
-          ? {
-              activeProviderIconClassName: cn(
-                composerProviderState.modelPickerIconClassName,
-                composerControlsCollapsed &&
-                  "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-icon-detail]]:fill-transparent! [&[data-provider-package-icon]]:opacity-70 [&[data-provider-package-icon]_path:not([data-icon-detail])]:fill-muted-foreground!",
-              ),
-            }
-          : {})}
-        getModelDisabledReason={getModelDisabledReason}
-        onInstanceModelChange={(instanceId, model) => {
-          setMultipleModelSelections(null);
-          onProviderModelSelect(instanceId, model);
-        }}
-        onOpenProviderSetup={onOpenProviderSetup}
-      />
+      {useModelEffortPicker ? (
+        composerControlsCollapsed ? (
+          modelEffortPicker
+        ) : null
+      ) : (
+        <ProviderModelPicker
+          environmentId={environmentId}
+          isComposerOwned
+          disabled={!canOperateThread || providerCatalogPending || isSendBusy}
+          activeInstanceId={selectedInstanceId}
+          model={selectedModelForPickerWithCustomFallback}
+          selectedModels={multipleModelSelections ?? []}
+          {...(toggleDraftModel ? { onToggleModel: toggleDraftModel } : {})}
+          lockedProvider={lockedProvider}
+          lockedContinuationGroupKey={lockedContinuationGroupKey}
+          instanceEntries={providerInstanceEntries}
+          keybindings={keybindings}
+          modelOptionsByInstance={modelOptionsByInstance}
+          size={composerControlsCollapsed ? "xs" : "sm"}
+          terminalOpen={terminalOpen}
+          open={isComposerModelPickerOpen}
+          onOpenChange={setIsComposerModelPickerOpen}
+          getModelDisabledReason={getModelDisabledReason}
+          onOpenProviderSetup={onOpenProviderSetup}
+          onInstanceModelChange={(instanceId, model) => {
+            setMultipleModelSelections(null);
+            onProviderModelSelect(instanceId, model);
+          }}
+        />
+      )}
 
       <>
         {restingBlockDefs.map((def, index) => {
@@ -6609,6 +6690,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <div className="relative">
         <ComposerSurface.Main
           ref={composerMainSurfaceRef}
+          data-agent-live={phase === "running" ? "true" : undefined}
           data-inline-resting-controls={restingControlsHost === null ? "true" : undefined}
           data-model-only-strip={
             restingControlsHost?.closest("[data-composer-model-strip]") ? "true" : undefined
@@ -7283,6 +7365,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isComposerResting && "hidden",
                   )}
                 >
+                  {composerControlsCollapsed ? null : (
+                    <ComposerExtrasMenu
+                      disabled={!canOperateThread}
+                      showAttach={showComposerAttachAction}
+                      showInteractionModeToggle={planModeUiEnabled}
+                      interactionMode={interactionMode}
+                      debugMode={props.debugMode}
+                      onDebugModeChange={props.onDebugModeChange}
+                      onAttach={() => attachmentInputRef.current?.click()}
+                      onToggleInteractionMode={toggleInteractionMode}
+                    />
+                  )}
                   {composerControlsCollapsed ? null : composerControls}
                 </div>
 
@@ -7295,6 +7389,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {useModelEffortPicker && !composerControlsCollapsed && !showProviderUnavailable
+                    ? modelEffortPicker
+                    : null}
                   {showComposerAttachAction ? (
                     <>
                       <input
@@ -7313,23 +7410,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           });
                         }}
                       />
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              onPointerDown={(event) => event.preventDefault()}
-                              onClick={() => attachmentInputRef.current?.click()}
-                              aria-label="Attach files"
-                            />
-                          }
-                        >
-                          <PaperclipIcon />
-                        </TooltipTrigger>
-                        <TooltipPopup>Attach files</TooltipPopup>
-                      </Tooltip>
                     </>
                   ) : null}
                   {isComposerResting || showProviderUnavailable ? null : (
@@ -7423,6 +7503,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
             ) : null}
           </div>
+          {phase === "running" ? <ComposerSurface.LiveRing /> : null}
         </ComposerSurface.Main>
       </div>
     </form>

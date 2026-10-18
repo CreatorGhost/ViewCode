@@ -1,9 +1,11 @@
 import { ViewCodeHeaderProjectActions } from "./chat/ViewCodeHeaderProjectActions";
-import { ReviewHeaderButton } from "./chat/ReviewHeaderButton";
+import { ViewCodeHeaderThreadActions } from "./chat/ViewCodeHeaderThreadActions";
 import { ViewCodeReviewFixUndoHost } from "./chat/ViewCodeReviewFixUndoHost";
 import { useViewCodeThreadBanners } from "./chat/useViewCodeThreadBanners";
 import { threadShellHasStarted } from "./ChatView.logic";
-import { ViewCodeThreadControls } from "./chat/ViewCodeThreadControls";
+import { useThreadGoalControls } from "./chat/useThreadGoalControls";
+import { ThreadGoalDialog } from "./chat/ThreadGoalDialog";
+import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
@@ -276,7 +278,6 @@ import {
   WifiOffIcon,
 } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
-import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { projectScriptIdFromCommand } from "~/projectScripts";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
@@ -419,7 +420,6 @@ import {
 import { ChatHeader } from "./chat/ChatHeader";
 import { ActiveAgentsBar } from "./agents/ActiveAgentsBar";
 import { SidechatHost } from "./chat/SidechatHost";
-import { SidechatHeaderButton } from "./chat/SidechatHeaderButton";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
@@ -1575,6 +1575,17 @@ export default function ChatView(props: ChatViewProps) {
     widthStorageKey: `t3code:preview-panel-width:${activeThreadKey}`,
   });
   const activeThreadShell = useQuietThreadShell(isServerThread ? activeThreadRef : null);
+  const threadGoalControls = useThreadGoalControls({
+    threadKey: activeThreadKey ?? routeThreadKey,
+    environmentId: activeThreadRef?.environmentId ?? null,
+    threadId: activeThreadRef?.threadId ?? null,
+    isServerThread,
+    serverGoal: activeThreadShell?.source.viewcodeGoal,
+    serverDebugMode: activeThreadShell?.source.debugMode,
+    draftTarget: composerDraftTarget,
+    draftGoal: draftThread?.goal,
+    draftDebugMode: draftThread?.debugMode,
+  });
   const timelineThreadError =
     serverRuntime?.status === "failed" &&
     serverRuntime.lastErrorClass === "usage_limit" &&
@@ -7782,6 +7793,7 @@ export default function ChatView(props: ChatViewProps) {
     <PanelLayoutControls
       {...panelToggleControlProps}
       showThreadPanelControl={!inlineRightPanelOwnsTitleBar}
+      showTerminalControl={false}
     />
   );
   const threadPanelHeaderControl = (
@@ -7799,7 +7811,7 @@ export default function ChatView(props: ChatViewProps) {
   const panelLayoutControls = (
     <div
       className={cn(
-        "pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]",
+        "pointer-events-none fixed top-[calc(var(--workspace-controls-top)+var(--workspace-sheet-inset-top,0px))] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]",
       )}
       data-workspace-titlebar-controls
     >
@@ -7849,31 +7861,24 @@ export default function ChatView(props: ChatViewProps) {
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
-        <header
+        <WorkspacePageHeader
           ref={threadPanelPopoverAnchorRef}
           data-chat-header
-          className={cn(
-            "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
-            isElectron
-              ? cn(
-                  "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
-                  reserveTitleBarControlInset &&
-                    !inlineRightPanelOwnsTitleBar &&
-                    "wco:pr-(--workspace-native-controls-inset)",
-                )
-              : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
-            COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
-          )}
+          electron={isElectron}
+          reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
+          className="relative bg-background [--control-radius:9999px]"
         >
           {isElectron && rightPanelControlsAtRoot ? (
             <span
               aria-hidden
-              className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
+              className="pointer-events-none fixed top-[calc(var(--workspace-controls-top)+var(--workspace-sheet-inset-top,0px))] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
             />
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
           <ChatHeader
+            threadGoal={threadGoalControls.goal}
+            onEditThreadGoal={threadGoalControls.openEditor}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
             isServerThread={isServerThread}
@@ -7883,46 +7888,62 @@ export default function ChatView(props: ChatViewProps) {
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
             toolbarControlCount={
-              inlineRightPanelOwnsTitleBar ? 1 : shouldUsePlanSidebarSheet ? 3 : 4
+              inlineRightPanelOwnsTitleBar ? 1 : shouldUsePlanSidebarSheet ? 2 : 3
             }
             actions={
               <div data-chat-header-actions className="flex shrink-0 items-center gap-1">
-                {settings.headerActionsVisible ? (
-                  <ViewCodeHeaderProjectActions
-                    projectCwd={activeProject?.workspaceRoot ?? null}
-                    scripts={{
-                      environmentId: activeThread.environmentId,
-                      scripts: activeProjectScripts,
-                      preferredScriptId: activeProject
-                        ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
-                        : null,
-                      onRunScript: runProjectScriptStable,
-                      onAddScript: saveProjectScriptStable,
-                      onUpdateScript: updateProjectScriptStable,
-                      onDeleteScript: deleteProjectScriptStable,
-                    }}
-                    git={{ gitCwd, activeThreadRef, ...(draftId ? { draftId } : {}) }}
-                  />
-                ) : null}
-                {isServerThread ? (
-                  <ReviewHeaderButton
-                    environmentId={activeThread.environmentId}
-                    threadId={activeThread.id}
-                    compact
-                  />
-                ) : null}
-                <ViewCodeThreadControls
+                <ViewCodeHeaderProjectActions
+                  projectCwd={activeProject?.workspaceRoot ?? null}
+                  {...(showOpenInPicker
+                    ? {
+                        openIn: {
+                          environmentId: activeThread.environmentId,
+                          keybindings,
+                          availableEditors,
+                          openInCwd: gitCwd,
+                        },
+                      }
+                    : {})}
+                  environment={{
+                    environmentId: activeThread.environmentId,
+                    availableEnvironments: logicalProjectEnvironments,
+                    envLocked,
+                    onEnvironmentChange: onEnvironmentChangeStable,
+                    autoEnvironmentLabel,
+                    onAutoEnvironment:
+                      draftId &&
+                      !envLocked &&
+                      canAutoBalanceEnvironments &&
+                      loadBalancingSettings.loadBalancingEnabled
+                        ? onAutoEnvironmentStable
+                        : undefined,
+                  }}
+                  onOpenThreadDetails={toggleThreadPanelStable}
+                  scripts={{
+                    environmentId: activeThread.environmentId,
+                    scripts: activeProjectScripts,
+                    preferredScriptId: activeProject
+                      ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
+                      : null,
+                    onRunScript: runProjectScriptStable,
+                    onAddScript: saveProjectScriptStable,
+                    onUpdateScript: updateProjectScriptStable,
+                    onDeleteScript: deleteProjectScriptStable,
+                  }}
+                  git={{ gitCwd, activeThreadRef, ...(draftId ? { draftId } : {}) }}
+                />
+                <ViewCodeHeaderThreadActions
                   threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
                   isServerThread={isServerThread}
-                  draftTarget={composerDraftTarget}
+                  isSidechat={activeThreadShell?.source.kind === "sidechat"}
+                  keybindings={keybindings}
+                  terminalAvailable={activeProject !== null && canOperateTerminal}
+                  terminalOpen={terminalUiState.terminalOpen}
+                  terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
+                  onToggleTerminal={toggleTerminalVisibilityStable}
+                  disabled={!canOperateThread}
+                  disabledReason="You do not have permission to operate this thread"
                 />
-                {isServerThread && activeThreadShell?.source.kind !== "sidechat" ? (
-                  <SidechatHeaderButton
-                    environmentId={activeThread.environmentId}
-                    threadId={activeThread.id}
-                    keybindings={keybindings}
-                  />
-                ) : null}
               </div>
             }
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
@@ -7930,7 +7951,7 @@ export default function ChatView(props: ChatViewProps) {
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
               : {})}
           />
-        </header>
+        </WorkspacePageHeader>
 
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <ThreadFindCanvas
@@ -8372,6 +8393,8 @@ export default function ChatView(props: ChatViewProps) {
                               toggleInteractionMode={toggleInteractionModeStable}
                               handleRuntimeModeChange={handleRuntimeModeChangeStable}
                               handleInteractionModeChange={handleInteractionModeChangeStable}
+                              debugMode={threadGoalControls.debugMode}
+                              onDebugModeChange={threadGoalControls.setDebugMode}
                               focusComposer={focusComposerStable}
                               scheduleComposerFocus={scheduleComposerFocusStable}
                               setThreadError={setThreadError}
@@ -8498,7 +8521,7 @@ export default function ChatView(props: ChatViewProps) {
               }
               keybindings={keybindings}
               availableEditors={availableEditors}
-              showOpenInPicker={showOpenInPicker}
+              showOpenInPicker={false}
               gitCwd={gitCwd}
               isGitRepo={isGitRepo}
               envLocked={envLocked}
@@ -8686,6 +8709,16 @@ export default function ChatView(props: ChatViewProps) {
         </RightPanelSheet>
       ) : null}
 
+      {canOperateThread && threadGoalControls.editorOpen ? (
+        <ThreadGoalDialog
+          goal={threadGoalControls.goal}
+          canPause={isServerThread}
+          onSave={threadGoalControls.saveGoal}
+          onSetPaused={threadGoalControls.setGoalPaused}
+          onClear={threadGoalControls.clearGoal}
+          onClose={threadGoalControls.closeEditor}
+        />
+      ) : null}
       <RevertConfirmHost threadKey={routeThreadKey} onConfirm={onConfirmRevertStable} />
       <LinkPullRequestDialogHost />
       <ThreadVisitWatermark threadRef={routeThreadRef} />

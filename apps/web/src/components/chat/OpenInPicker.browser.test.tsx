@@ -1,7 +1,13 @@
-import { AuthOrchestrationOperateScope, EnvironmentId, type EditorId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  EnvironmentId,
+  ThreadId,
+  type EditorId,
+} from "@t3tools/contracts";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { AsyncResult } from "effect/reactivity";
-import { act } from "react";
+import { act, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -65,7 +71,14 @@ vi.mock(import("../../remoteOpen"), async (importOriginal) => ({
   openRemoteEditorUrl: state.openUrl,
 }));
 
+vi.mock(import("../../hooks/useT3ProjectFileScripts"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useT3ProjectFileScripts: () => [],
+}));
+
 import { OpenInPicker } from "./OpenInPicker";
+import { ViewCodeHeaderProjectActions } from "./ViewCodeHeaderProjectActions";
+import { MenuItem } from "../ui/menu";
 
 const primary = EnvironmentId.make("primary");
 const selected = EnvironmentId.make("selected");
@@ -233,4 +246,137 @@ describe("client editor links", () => {
     expect(state.setPreferred).not.toHaveBeenCalled();
     expect(state.markHintSeen).not.toHaveBeenCalled();
   });
+});
+
+function ExtraDialogAction({ closeMenu }: { closeMenu: () => void }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <>
+      <MenuItem
+        onClick={() => {
+          setEditing(true);
+          closeMenu();
+        }}
+      >
+        Edit script draft
+      </MenuItem>
+      {editing
+        ? createPortal(
+            <dialog open>
+              <input aria-label="Script draft" defaultValue="Unsaved command" />
+            </dialog>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+it("retains a project editor dialog when its compact parent menu closes", async () => {
+  state.allowed.add(selected);
+  await act(async () =>
+    root.render(
+      <OpenInPicker
+        environmentId={selected}
+        keybindings={DEFAULT_RESOLVED_KEYBINDINGS}
+        availableEditors={editors}
+        openInCwd="/work/project"
+        compact
+        menuLabel="Project actions"
+        additionalMenuItems={(closeMenu) => <ExtraDialogAction closeMenu={closeMenu} />}
+      />,
+    ),
+  );
+  await click(byLabel("Project actions"));
+  await click(menuItems().find((item) => item.textContent?.includes("Edit script draft"))!);
+  await vi.waitFor(() =>
+    expect(document.querySelector('[role="menu"]:not([data-closed])')).toBeNull(),
+  );
+  const draft = document.querySelector<HTMLInputElement>('[aria-label="Script draft"]');
+  expect(draft?.value).toBe("Unsaved command");
+  draft!.value = "Keep this draft";
+  await click(byLabel("Project actions"));
+  expect(document.querySelector<HTMLInputElement>('[aria-label="Script draft"]')?.value).toBe(
+    "Keep this draft",
+  );
+  expect(state.run).not.toHaveBeenCalled();
+});
+
+function ProjectMenuFixture({ locked = false }: { locked?: boolean }) {
+  const [environmentId, setEnvironmentId] = useState(selected);
+  return (
+    <ViewCodeHeaderProjectActions
+      projectCwd="/work/project"
+      openIn={{
+        environmentId,
+        keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+        availableEditors: editors,
+        openInCwd: "/work/project",
+      }}
+      environment={{
+        environmentId,
+        envLocked: locked,
+        onEnvironmentChange: setEnvironmentId,
+        availableEnvironments: [
+          {
+            environmentId: selected,
+            projectId: null,
+            label: "Selected host",
+            isPrimary: false,
+            machine: "server",
+          },
+          {
+            environmentId: primary,
+            projectId: null,
+            label: "Other host",
+            isPrimary: true,
+            machine: "desktop",
+          },
+        ],
+      }}
+      scripts={{
+        environmentId,
+        scripts: [],
+        preferredScriptId: null,
+        onRunScript: vi.fn(),
+        onAddScript: vi.fn(),
+        onUpdateScript: vi.fn(),
+        onDeleteScript: vi.fn(),
+      }}
+      git={{
+        gitCwd: null,
+        activeThreadRef: { environmentId, threadId: ThreadId.make("header-fixture") },
+      }}
+    />
+  );
+}
+
+it("keeps environment choice reachable with shortcuts hidden and the host editor denied", async () => {
+  await act(async () => root.render(<ProjectMenuFixture />));
+  expect(primaryButton().disabled).toBe(true);
+  expect(byLabel("Project actions").disabled).toBe(false);
+  await click(byLabel("Project actions"));
+  expect(menuItems().some((item) => item.textContent?.includes("Run script"))).toBe(false);
+  await click(menuItems().find((item) => item.textContent?.includes("Run on Selected host"))!);
+  const other = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+    item.textContent?.includes("Other host"),
+  );
+  expect(other).toBeDefined();
+  await click(other!);
+  await click(byLabel("Project actions"));
+  expect(menuItems().some((item) => item.textContent?.includes("Run on Other host"))).toBe(true);
+  expect(primaryButton().disabled).toBe(true);
+  expect(state.run).not.toHaveBeenCalled();
+});
+
+it("keeps a locked environment fixed while its editor menu remains available", async () => {
+  await act(async () => root.render(<ProjectMenuFixture locked />));
+  await click(byLabel("Project actions"));
+  const environment = menuItems().find((item) =>
+    item.textContent?.includes("Run on Selected host"),
+  )!;
+  expect(environment.getAttribute("aria-disabled")).toBe("true");
+  await click(environment);
+  expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+  expect(state.run).not.toHaveBeenCalled();
 });

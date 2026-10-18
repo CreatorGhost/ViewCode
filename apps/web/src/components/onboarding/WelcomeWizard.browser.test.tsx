@@ -1,13 +1,39 @@
+import { RegistryContext } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  EnvironmentId,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerConfig,
+  type ServerProvider,
+  type ServerSettingsPatch,
+} from "@t3tools/contracts";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+
+type WizardServerConfig = Pick<ServerConfig, "settings" | "adminBlockedProviderDrivers">;
 
 const mocks = vi.hoisted(() => ({
   importThreads: vi.fn(),
   createProject: vi.fn(),
   complete: vi.fn(),
   refresh: vi.fn(),
+  detect: vi.fn(),
+  update:
+    vi.fn<
+      (input: {
+        environmentId: EnvironmentId;
+        input: { patch: ServerSettingsPatch };
+      }) => Promise<{ _tag: "Success"; value: undefined }>
+    >(),
+  providerAction: vi.fn(),
+  config: null as WizardServerConfig | null,
+  configAtom: null as unknown,
+  providersAtom: null as unknown,
+  providers: [] as readonly ServerProvider[],
   toast: vi.fn(),
   projects: [] as Array<{ id: string; environmentId: string; workspaceRoot: string }>,
 }));
@@ -25,7 +51,13 @@ vi.mock("../../state/use-atom-command", () => ({
       ? mocks.importThreads
       : command === "create"
         ? mocks.createProject
-        : mocks.refresh,
+        : command === "refresh"
+          ? mocks.refresh
+          : command === "detect"
+            ? mocks.detect
+            : command === "update"
+              ? mocks.update
+              : mocks.providerAction,
 }));
 vi.mock("../../onboarding/firstRun", () => ({ useCompleteOnboarding: () => mocks.complete }));
 vi.mock("../../state/entities", () => ({
@@ -46,14 +78,12 @@ vi.mock("../../state/environments", () => {
 });
 vi.mock("../../state/server", () => ({
   serverEnvironment: {
-    providersValueAtom: () => [],
-    configValueAtom: () => null,
+    providersValueAtom: () => mocks.providersAtom,
+    configValueAtom: () => mocks.configAtom,
     refreshProviders: "refresh",
+    detectProviders: "detect",
+    updateSettings: "update",
   },
-}));
-vi.mock("@effect/atom-react", async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  useAtomValue: (value: unknown) => value,
 }));
 vi.mock("../../onboarding/useProjectScans", () => ({
   useProjectScans: () => [
@@ -96,6 +126,7 @@ vi.mock("../ui/toast", () => ({
 }));
 
 import { WelcomeWizard } from "./WelcomeWizard";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -116,7 +147,27 @@ beforeEach(() => {
   });
   mocks.projects = [{ id: "test-project", environmentId: "test-env", workspaceRoot: "/project" }];
   mocks.complete.mockResolvedValue(undefined);
-  mocks.refresh.mockResolvedValue(undefined);
+  // Import tests represent an already configured environment. A new install
+  // with all providers off is exercised separately below.
+  mocks.config = {
+    settings: {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [ProviderInstanceId.make("codex")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+        },
+      },
+    },
+    adminBlockedProviderDrivers: [],
+  };
+  mocks.providers = [];
+  mocks.configAtom = Atom.make(mocks.config).pipe(Atom.keepAlive);
+  mocks.providersAtom = Atom.make(mocks.providers).pipe(Atom.keepAlive);
+  mocks.refresh.mockResolvedValue({ _tag: "Success", value: undefined });
+  mocks.detect.mockResolvedValue({ _tag: "Success", value: { providers: [] } });
+  mocks.update.mockResolvedValue({ _tag: "Success", value: undefined });
+  mocks.providerAction.mockResolvedValue({ _tag: "Success", value: undefined });
   mocks.importThreads.mockResolvedValue({
     _tag: "Success",
     value: { importedCount: 28, skippedCount: 1 },
@@ -129,7 +180,18 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.unstubAllGlobals();
 });
+
+async function renderWizard(onDone: Parameters<typeof WelcomeWizard>[0]["onDone"]) {
+  await act(async () =>
+    root.render(
+      <RegistryContext.Provider value={appAtomRegistry}>
+        <WelcomeWizard localAvailable onDone={onDone} />
+      </RegistryContext.Provider>,
+    ),
+  );
+}
 
 async function click(label: string) {
   const button = [...document.querySelectorAll("button")].find(
@@ -145,7 +207,7 @@ it("enters the workspace after a partial import and warns after navigation finis
     finishNavigation = resolve;
   });
   const onDone = vi.fn(() => navigation);
-  await act(async () => root.render(<WelcomeWizard localAvailable onDone={onDone} />));
+  await renderWizard(onDone);
   await click("Continue");
   await click("Continue");
   await click("Import 1 project");
@@ -180,7 +242,7 @@ it.each([
       value: { importedCount, skippedCount },
     });
     const onDone = vi.fn();
-    await act(async () => root.render(<WelcomeWizard localAvailable onDone={onDone} />));
+    await renderWizard(onDone);
     await click("Continue");
     await click("Continue");
     await click("Import 1 project");
@@ -203,7 +265,7 @@ it.each([
 it("keeps setup open when saving completion fails and preserves the import warning on retry", async () => {
   mocks.complete.mockRejectedValueOnce(new Error("settings unavailable"));
   const onDone = vi.fn();
-  await act(async () => root.render(<WelcomeWizard localAvailable onDone={onDone} />));
+  await renderWizard(onDone);
   await click("Continue");
   await click("Continue");
   await click("Import 1 project");
@@ -220,4 +282,104 @@ it("keeps setup open when saving completion fails and preserves the import warni
       description: "Imported 28 threads. 1 thread could not be imported.",
     }),
   );
+});
+
+it("shows the fresh-install AI picker and only permits provider refresh after Turn on", async () => {
+  const rows = [
+    "claudeAgent",
+    "codex",
+    "cursor",
+    "grok",
+    "opencode",
+    "antigravity",
+    "commandCode",
+    "droid",
+    "devin",
+    "pi",
+    "muse",
+  ];
+  const off = Object.fromEntries(
+    rows.map((driver) => [
+      ProviderInstanceId.make(driver),
+      { driver: ProviderDriverKind.make(driver), enabled: false },
+    ]),
+  );
+  mocks.config = {
+    settings: { ...DEFAULT_SERVER_SETTINGS, providerInstances: off },
+    adminBlockedProviderDrivers: [],
+  };
+  appAtomRegistry.set(mocks.configAtom as Atom.Writable<WizardServerConfig | null>, mocks.config);
+  mocks.detect.mockResolvedValue({
+    _tag: "Success",
+    value: {
+      providers: [
+        { driver: ProviderDriverKind.make("codex"), installed: true, path: "/test/bin/codex" },
+        {
+          driver: ProviderDriverKind.make("claudeAgent"),
+          installed: true,
+          path: "/test/bin/claude",
+        },
+      ],
+    },
+  });
+  const onDone = vi.fn();
+  await renderWizard(onDone);
+  expect(document.body.textContent).toContain("Set up ViewCode");
+  expect(mocks.refresh).not.toHaveBeenCalled();
+  expect(mocks.providerAction).not.toHaveBeenCalled();
+  expect(mocks.update).not.toHaveBeenCalled();
+  await click("Continue");
+  expect(document.body.textContent).toContain("Which AI tools do you use?");
+  expect(document.body.textContent).toContain("Found on this computer");
+  expect(mocks.detect).toHaveBeenCalledExactlyOnceWith({
+    environmentId: EnvironmentId.make("test-env"),
+    input: {},
+  });
+  const choices = [...document.querySelectorAll<HTMLElement>('[role="checkbox"]')];
+  expect(choices).toHaveLength(11);
+  expect(choices.every((row) => row.getAttribute("aria-checked") === "false")).toBe(true);
+  const codex = document.querySelector<HTMLElement>(
+    '[role="checkbox"][aria-label="Let ViewCode start Codex"]',
+  );
+  expect(codex).not.toBeNull();
+  await act(async () => codex!.click());
+  expect(codex!.getAttribute("aria-checked")).toBe("true");
+  expect(mocks.update).not.toHaveBeenCalled();
+  expect(mocks.refresh).not.toHaveBeenCalled();
+  expect(mocks.providerAction).not.toHaveBeenCalled();
+  expect(Object.values(off).every((provider) => provider.enabled === false)).toBe(true);
+  await click("Turn on 1 tool");
+  expect(mocks.update).toHaveBeenCalledOnce();
+  const request = mocks.update.mock.calls[0]?.[0];
+  expect(request?.environmentId).toBe("test-env");
+  expect(request?.input.patch.providerInstances).toEqual({
+    ...off,
+    [ProviderInstanceId.make("codex")]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+  });
+  expect(mocks.refresh).not.toHaveBeenCalled();
+  expect(mocks.providerAction).not.toHaveBeenCalled();
+  expect(mocks.complete).not.toHaveBeenCalled();
+  expect(onDone).not.toHaveBeenCalled();
+  // Only the authoritative settings acknowledgement unlocks provider refresh.
+  mocks.config = {
+    ...mocks.config,
+    settings: {
+      ...mocks.config.settings,
+      providerInstances: {
+        ...off,
+        [ProviderInstanceId.make("codex")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+        },
+      },
+    },
+  };
+  await act(async () => {
+    appAtomRegistry.set(mocks.configAtom as Atom.Writable<WizardServerConfig | null>, mocks.config);
+  });
+  expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith({
+    environmentId: EnvironmentId.make("test-env"),
+    input: {},
+  });
+  expect(mocks.providerAction).not.toHaveBeenCalled();
 });

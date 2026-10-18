@@ -2,6 +2,7 @@ import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
   type ThreadId,
+  type ThreadGoal,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -19,7 +20,6 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
@@ -27,23 +27,18 @@ import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectFavicon } from "../ProjectFavicon";
-import {
-  WorkspaceBreadcrumb,
-  WorkspaceBreadcrumbItem,
-  WorkspaceBreadcrumbSeparator,
-  WorkspaceBreadcrumbText,
-} from "../WorkspaceBreadcrumb";
-import { observeResize } from "~/lib/observeResize";
-import { cn } from "~/lib/utils";
-import { useClientSettings } from "../../hooks/useSettings";
 import { OpenThreadTabs, type ActiveTabExtras } from "../tabs/OpenThreadTabs";
 import { useSplitPaneActions } from "../../splitView/SplitPaneContext";
 import { SplitPaneControls } from "../../splitView/SplitPaneControls";
+import { ThreadGoalChip } from "./ThreadGoalChip";
+import { cn } from "~/lib/utils";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   activeThreadTitle: string;
+  threadGoal?: ThreadGoal | null;
+  onEditThreadGoal?: () => void;
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
@@ -75,22 +70,17 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
   activeThreadTitle,
+  threadGoal,
+  onEditThreadGoal,
   isServerThread,
   activeProject,
-  parentThreadLink,
-  onOpenThread,
   rightPanelOpen,
   actions,
   toolbarControlCount,
-  onNewThreadInProject,
   onOpenProjectSettings,
 }: ChatHeaderProps) {
   const splitPane = useSplitPaneActions();
-  const activeProjectName = activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
-  const interfaceFont = useClientSettings((settings) => settings.fontFamilySans);
-  const breadcrumbContainerRef = useRef<HTMLDivElement>(null);
-  const [collapseParentTitle, setCollapseParentTitle] = useState(false);
   const activeThreadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
   const canOperateThread = useEnvironmentScope(
     activeThreadEnvironmentId,
@@ -118,46 +108,6 @@ export const ChatHeader = memo(function ChatHeader({
     renaming.environmentId === activeThreadEnvironmentId
       ? renaming.title
       : null;
-  const isRenamingTitle = renamingTitle !== null;
-  useEffect(() => {
-    const list = breadcrumbContainerRef.current?.querySelector("ol");
-    if (!list || !parentThreadLink) return;
-    const measure = () => {
-      const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0;
-      const width = Array.from(list.children).reduce(
-        (total, item) => {
-          const label = item.querySelector('[data-slot="workspace-breadcrumb-text"]');
-          const ellipsis = item.querySelector("[data-parent-breadcrumb-ellipsis]");
-          return (
-            total +
-            (item.firstElementChild?.getBoundingClientRect().width ?? 0) +
-            (label && getComputedStyle(label).maxWidth === "none"
-              ? label.scrollWidth - label.clientWidth
-              : 0) -
-            (ellipsis?.getBoundingClientRect().width ?? 0)
-          );
-        },
-        gap * (list.children.length - 1),
-      );
-      setCollapseParentTitle(width > list.clientWidth);
-    };
-    measure();
-    const frame = requestAnimationFrame(measure);
-    document.fonts.addEventListener("loadingdone", measure);
-    const stopObserving = observeResize(list, measure);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.fonts.removeEventListener("loadingdone", measure);
-      stopObserving();
-    };
-  }, [
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Title, font and rename changes resize the breadcrumb text without resizing the list, so it re-measures.
-    activeProjectName,
-    activeThreadTitle,
-    parentThreadLink,
-    interfaceFont,
-    isRenamingTitle,
-  ]);
   const renameCommittedRef = useRef(false);
   const startRename = () => {
     if (
@@ -282,7 +232,6 @@ export const ChatHeader = memo(function ChatHeader({
     ...(activeProject
       ? { glyph: <ProjectFavicon project={activeProject} className="size-3.5 shrink-0" /> }
       : {}),
-    hideLeadTitle: parentThreadLink !== null,
     ...(renamingTitle === null
       ? {}
       : {
@@ -290,7 +239,7 @@ export const ChatHeader = memo(function ChatHeader({
             <input
               autoFocus
               aria-label="Thread title"
-              className="min-w-0 flex-1 rounded-sm bg-transparent text-sm font-medium text-foreground outline-none ring-1 ring-inset ring-ring/50 focus:ring-ring"
+              className="min-w-0 flex-1 rounded-sm bg-transparent text-xs font-medium text-foreground outline-none ring-1 ring-inset ring-ring/50 focus:ring-ring"
               defaultValue={renamingTitle}
               onClick={(event) => event.stopPropagation()}
               onBlur={(event) => {
@@ -323,9 +272,8 @@ export const ChatHeader = memo(function ChatHeader({
   };
   return (
     <div
-      ref={breadcrumbContainerRef}
       className={cn(
-        "flex min-w-0 flex-1 items-center gap-2 sm:gap-3",
+        "@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3",
         rightPanelOpen ? "pr-10" : "pr-24",
       )}
       style={
@@ -335,84 +283,21 @@ export const ChatHeader = memo(function ChatHeader({
       }
       onContextMenu={handleHeaderContextMenu}
     >
-      <WorkspaceBreadcrumb
-        ariaLabel="Thread breadcrumb"
-        className="flex-1 overflow-clip [overflow-clip-margin:2px]"
-      >
-        {activeProject ? (
-          <>
-            <WorkspaceBreadcrumbItem className="shrink">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={`New thread in ${activeProjectName}`}
-                      onClick={onNewThreadInProject}
-                      className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    />
-                  }
-                >
-                  <ProjectFavicon project={activeProject} className="size-3.5" />
-                  <WorkspaceBreadcrumbText className="max-w-40">
-                    {activeProjectName}
-                  </WorkspaceBreadcrumbText>
-                </TooltipTrigger>
-                <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
-              </Tooltip>
-            </WorkspaceBreadcrumbItem>
-            <WorkspaceBreadcrumbSeparator>
-              <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
-            </WorkspaceBreadcrumbSeparator>
-          </>
-        ) : null}
-        {parentThreadLink ? (
-          <>
-            <WorkspaceBreadcrumbItem>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={`Open parent thread: ${parentThreadLink.title}`}
-                      onClick={() => onOpenThread(parentThreadLink.threadId)}
-                      className="inline-flex min-w-0 max-w-full cursor-pointer items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    />
-                  }
-                >
-                  <WorkspaceBreadcrumbText
-                    aria-hidden
-                    className={collapseParentTitle ? "w-0" : undefined}
-                  >
-                    {parentThreadLink.title}
-                  </WorkspaceBreadcrumbText>
-                  {collapseParentTitle ? (
-                    <span aria-hidden data-parent-breadcrumb-ellipsis>
-                      ...
-                    </span>
-                  ) : null}
-                </TooltipTrigger>
-                <TooltipPopup side="top">{parentThreadLink.title}</TooltipPopup>
-              </Tooltip>
-            </WorkspaceBreadcrumbItem>
-            <WorkspaceBreadcrumbSeparator>
-              <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
-            </WorkspaceBreadcrumbSeparator>
-          </>
-        ) : null}
-        <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
-          <OpenThreadTabs
-            activeRef={activeThreadRef}
-            fallbackTitle={activeThreadTitle}
-            paneOnly={splitPane !== null}
-            activeExtras={activeTabExtras}
-          />
-        </WorkspaceBreadcrumbItem>
-      </WorkspaceBreadcrumb>
+      <div className="min-w-0 flex-1" aria-label="Thread" role="group">
+        <OpenThreadTabs
+          activeRef={activeThreadRef}
+          fallbackTitle={activeThreadTitle}
+          paneOnly={splitPane !== null}
+          activeExtras={activeTabExtras}
+        />
+      </div>
       {splitPane ? (
         <div data-chat-header-actions>
           <SplitPaneControls {...splitPane} />
         </div>
+      ) : null}
+      {threadGoal && onEditThreadGoal ? (
+        <ThreadGoalChip goal={threadGoal} onEdit={onEditThreadGoal} disabled={!canOperateThread} />
       ) : null}
       {actions}
     </div>

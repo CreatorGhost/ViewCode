@@ -6,7 +6,7 @@ import {
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, type ReactNode } from "react";
 import { isOpenFavoriteEditorShortcut, shortcutLabelForCommand } from "../../keybindings";
 import { usePreferredEditor } from "../../editorPreferences";
 import { editorLabelForPlatform } from "../../editorLabels";
@@ -26,6 +26,7 @@ import {
   MenuItemLabel,
   MenuPopup,
   MenuShortcut,
+  MenuSeparator,
   MenuSub,
   MenuSubTrigger,
   MenuSubPopup,
@@ -212,6 +213,8 @@ export const OpenInPicker = memo(function OpenInPicker({
   compact = false,
   enableShortcut = true,
   displayMode = "toolbar",
+  additionalMenuItems,
+  menuLabel,
 }: {
   environmentId: EnvironmentId;
   keybindings: ResolvedKeybindingsConfig;
@@ -221,6 +224,8 @@ export const OpenInPicker = memo(function OpenInPicker({
   compact?: boolean;
   enableShortcut?: boolean;
   displayMode?: "toolbar" | "panel";
+  additionalMenuItems?: (closeMenu: () => void) => ReactNode;
+  menuLabel?: string;
 }) {
   const isPanel = displayMode === "panel";
   const ActionGroup = isPanel ? "div" : Group;
@@ -230,7 +235,9 @@ export const OpenInPicker = memo(function OpenInPicker({
   const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const isHostEditorDenied = remote.mode === "local-exec" && !canOperateHost;
   const canOpenEditor = remote.mode !== "remote-unavailable" && !isHostEditorDenied;
-  const [menuOpen, setMenuOpen] = useComposerMenuState(isHostEditorDenied);
+  const [menuOpen, setMenuOpen] = useComposerMenuState(
+    isHostEditorDenied && additionalMenuItems === undefined,
+  );
   const remoteCapableEditors = useRemoteCapableEditors();
   const [remoteHintSeen, markRemoteHintSeen] = useRemoteOpenHint();
   const environmentLabel = useEnvironment(environmentId)?.label ?? "this machine";
@@ -385,12 +392,14 @@ export const OpenInPicker = memo(function OpenInPicker({
       role="group"
       {...(isPanel
         ? { className: THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS, ref: panelAnchorRef }
-        : {})}
+        : compact
+          ? { chip: true }
+          : {})}
     >
       <ThreadDetailsControl
         aria-label={compact ? "Open file in preferred editor" : primaryLabel}
-        size={isPanel ? "sm" : "xs"}
-        variant={isPanel ? "ghost" : "outline"}
+        size={isPanel ? "sm" : compact ? "chip" : "xs"}
+        variant={isPanel ? "ghost" : compact ? "chip" : "outline"}
         part="primary"
         panel={isPanel}
         disabled={!preferredEditor || !openInCwd || !canOpenEditor}
@@ -404,10 +413,10 @@ export const OpenInPicker = memo(function OpenInPicker({
               getOpenInIconClass(primaryOption.kind),
             )}
           />
-        ) : isPanel ? (
+        ) : isPanel || compact ? (
           <SquareArrowOutUpRightIcon
             aria-hidden="true"
-            className={THREAD_DETAILS_PANEL_ICON_CLASS}
+            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3.5"}
           />
         ) : null}
         <span
@@ -428,12 +437,12 @@ export const OpenInPicker = memo(function OpenInPicker({
       )}
       <Menu open={menuOpen} onOpenChange={setMenuOpen}>
         <MenuTrigger
-          disabled={isHostEditorDenied}
+          disabled={isHostEditorDenied && additionalMenuItems === undefined}
           render={
             <ThreadDetailsControl
-              aria-label="Choose editor"
-              size={isPanel ? "sm" : "icon-xs"}
-              variant={isPanel ? "ghost" : "outline"}
+              aria-label={menuLabel ?? "Choose editor"}
+              size={isPanel ? "sm" : compact ? "icon-chip" : "icon-xs"}
+              variant={isPanel ? "ghost" : compact ? "chip" : "outline"}
               part="secondary"
               panel={isPanel}
             />
@@ -446,10 +455,17 @@ export const OpenInPicker = memo(function OpenInPicker({
         </MenuTrigger>
         <MenuPopup
           align="end"
+          keepMounted={additionalMenuItems !== undefined}
           {...(isPanel ? { anchor: panelAnchorRef } : {})}
           className={isPanel ? "w-(--anchor-width)" : undefined}
         >
           {editorItems}
+          {additionalMenuItems ? (
+            <>
+              <MenuSeparator />
+              {additionalMenuItems(() => setMenuOpen(false))}
+            </>
+          ) : null}
         </MenuPopup>
       </Menu>
     </ActionGroup>
