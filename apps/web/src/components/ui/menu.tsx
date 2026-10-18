@@ -5,9 +5,13 @@ import { CheckIcon, ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
 
 import { cn } from "~/lib/utils";
+import { useDismissOnSuspend } from "./use-dismiss-on-suspend";
 import { buttonVariants } from "./button";
 
-const Menu = MenuPrimitive.Root;
+function Menu<Payload>(props: MenuPrimitive.Root.Props<Payload>) {
+  const actionsRef = useDismissOnSuspend<MenuPrimitive.Root.Actions>(props.actionsRef);
+  return <MenuPrimitive.Root {...props} {...(actionsRef ? { actionsRef } : {})} />;
+}
 
 function MenuTrigger({ className, children, ...props }: MenuPrimitive.Trigger.Props) {
   return (

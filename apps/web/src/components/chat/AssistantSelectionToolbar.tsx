@@ -23,8 +23,10 @@ export function AssistantSelectionToolbar({
   threadRef,
   onCite,
   onAskInSideChat,
+  activationKey = null,
 }: {
   viewport: HTMLElement | null;
+  activationKey?: object | null;
   threadRef: ScopedThreadRef;
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
   /** Opens the side chat with the selection quoted; hidden where side chats do not apply. */
@@ -39,13 +41,23 @@ export function AssistantSelectionToolbar({
   const groupRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
 
+  const [selectionActivation, setSelectionActivation] = useState(activationKey);
+  if (selectionActivation !== activationKey) {
+    setSelectionActivation(activationKey);
+    setSelection(null);
+  }
   useLayoutEffect(() => {
     const toolbar = groupRef.current;
-    if (!toolbar || !selection) return;
+    if (!toolbar || !selection || !viewport) return;
+    // Activity disconnects effects without hiding portals outside its DOM subtree.
+    toolbar.style.removeProperty("display");
     const rect = toolbar.getBoundingClientRect();
     toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
     toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
-  }, [selection]);
+    return () => {
+      toolbar.style.display = "none";
+    };
+  }, [selection, viewport]);
 
   useEffect(() => {
     if (!viewport) return;

@@ -3,6 +3,7 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { useDismissOnSuspend } from "./use-dismiss-on-suspend";
 import { Button } from "~/components/ui/button";
 import {
   DIALOG_BACKDROP_CLASS,
@@ -13,7 +14,10 @@ import {
 } from "~/components/ui/dialog-styles";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
-const Dialog = DialogPrimitive.Root;
+function Dialog<Payload>(props: DialogPrimitive.Root.Props<Payload>) {
+  const actionsRef = useDismissOnSuspend<DialogPrimitive.Root.Actions>(props.actionsRef);
+  return <DialogPrimitive.Root {...props} {...(actionsRef ? { actionsRef } : {})} />;
+}
 
 const DialogPortal = DialogPrimitive.Portal;
 

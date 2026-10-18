@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { cn } from "~/lib/utils";
+import { useDismissOnSuspend } from "./use-dismiss-on-suspend";
 import { useNativeTitlebarHeight } from "~/lib/windowControlsOverlay";
 
 // Base UI's default, restated because a padding object zeroes the sides it omits.
@@ -64,10 +65,17 @@ function TooltipScrollDismissArea({ onScrollCapture, ...props }: ComponentProps<
 function Tooltip<Payload>(props: TooltipPrimitive.Root.Props<Payload>) {
   const tracker = use(TooltipScrollContext);
   const localActionsRef = useRef<TooltipPrimitive.Root.Actions | null>(null);
-  const actionsRef = props.actionsRef ?? localActionsRef;
+  const suspendActionsRef = useDismissOnSuspend<TooltipPrimitive.Root.Actions>(props.actionsRef);
+  const actionsRef = suspendActionsRef ?? localActionsRef;
   useEffect(() => () => tracker?.release(actionsRef), [actionsRef, tracker]);
 
-  if (!tracker) return <TooltipPrimitive.Root {...props} />;
+  if (!tracker)
+    return (
+      <TooltipPrimitive.Root
+        {...props}
+        {...(suspendActionsRef ? { actionsRef: suspendActionsRef } : {})}
+      />
+    );
   return (
     <TooltipHoverContext value={actionsRef}>
       <TooltipPrimitive.Root

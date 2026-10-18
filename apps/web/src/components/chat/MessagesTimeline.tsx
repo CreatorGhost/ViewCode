@@ -379,14 +379,19 @@ const WorkGroupViewCtx = createContext<{
   state: WorkGroupViewState;
   onToggleEntry: (collapsed: boolean) => void;
 } | null>(null);
-function timelineListStateFor(identity: string): {
+function timelineListStateFor(
+  identity: string,
+  activationKey: object | null,
+): {
   readonly identity: string;
+  readonly activationKey: object | null;
   readonly rememberedPosition: RememberedTimelinePosition | undefined;
   readonly workGroupViewState: WorkGroupViewState;
 } {
   const rememberedPosition = readTimelinePosition(identity);
   return {
     identity,
+    activationKey,
     rememberedPosition,
     workGroupViewState: rememberedPosition?.disclosures?.workGroupState ?? {
       scrollPositions: new Map(),
@@ -468,6 +473,7 @@ interface MessagesTimelineProps {
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
   routeThreadKey: string;
   displayThreadKey?: string;
+  activationKey?: object | null;
   paintOnly?: boolean;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
@@ -572,6 +578,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   turnDiffSummaries,
   routeThreadKey,
   displayThreadKey,
+  activationKey = null,
   paintOnly = false,
   onOpenTurnDiff,
   onOpenThread,
@@ -610,9 +617,11 @@ const ConversationTimeline = memo(function ConversationTimeline({
   loadEarlier = null,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
-  // The remembered position is a snapshot taken when the list identity changes;
-  // scrolling keeps rewriting the stored entry, which must not move the restore.
-  const [listState, setListState] = useState(() => timelineListStateFor(listIdentityKey));
+  // Activity reconnects LegendList layout effects on reveal. Refresh its position
+  // snapshot then, while scrolling itself must not move an in-progress restore.
+  const [listState, setListState] = useState(() =>
+    timelineListStateFor(listIdentityKey, activationKey),
+  );
   const [expandedRunIds, setExpandedRunIds] = useState<ReadonlySet<RunId>>(
     () => listState.rememberedPosition?.disclosures?.runs ?? new Set(),
   );
@@ -632,13 +641,23 @@ const ConversationTimeline = memo(function ConversationTimeline({
   let paintedExpandedWorkGroupIds = expandedWorkGroupIds;
   let paintedExpandedAttemptIds = expandedAttemptIds;
   const identityChanged = listState.identity !== listIdentityKey;
-  const { rememberedPosition, workGroupViewState } = identityChanged
-    ? timelineListStateFor(listIdentityKey)
-    : listState;
-  if (identityChanged) {
-    setListState({ identity: listIdentityKey, rememberedPosition, workGroupViewState });
+  const activationChanged = listState.activationKey !== activationKey;
+  const nextListState =
+    identityChanged || activationChanged
+      ? timelineListStateFor(listIdentityKey, activationKey)
+      : listState;
+  const { rememberedPosition } = nextListState;
+  const workGroupViewState = identityChanged
+    ? nextListState.workGroupViewState
+    : listState.workGroupViewState;
+  if (identityChanged || activationChanged) {
+    setListState({ ...nextListState, workGroupViewState });
+    // Activity can reset the DOM scroll offset while retaining Legend's row range.
+    // Reconcile both end-following and reading positions before revealing the list.
     setPositionedThreadKey(null);
     setSettlingListIdentity(listIdentityKey);
+  }
+  if (identityChanged) {
     paintedExpandedRunIds = rememberedPosition?.disclosures?.runs ?? new Set();
     paintedExpandedWorkGroupIds = rememberedPosition?.disclosures?.workGroups ?? new Set();
     paintedExpandedAttemptIds = rememberedPosition?.disclosures?.attempts ?? new Set();
@@ -1437,6 +1456,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         >
           {onCiteAssistantText && citationThreadRef ? (
             <AssistantSelectionToolbar
+              activationKey={activationKey}
               viewport={timelineViewportElement}
               threadRef={citationThreadRef}
               onCite={onCiteAssistantText}

@@ -410,7 +410,8 @@ import {
   RevertConfirmHost,
 } from "./chat/ChatOverlayHosts";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
-import { MessagesTimeline, type MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
+import type { MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
+import { RecentMessagesTimelines } from "./chat/RecentMessagesTimelines";
 import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
@@ -8032,7 +8033,7 @@ export default function ChatView(props: ChatViewProps) {
               />
             </div>
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
-              <MessagesTimeline
+              <RecentMessagesTimelines
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
                 {...(!paintOnlyDisplayedTimeline

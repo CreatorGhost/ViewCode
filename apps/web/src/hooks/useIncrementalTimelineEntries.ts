@@ -4,7 +4,7 @@ import {
   type TimelineEntriesInput,
   type TimelineEntriesProjection,
 } from "../session-logic";
-
+const CAPACITY = 3;
 function sameInput(left: TimelineEntriesInput, right: TimelineEntriesInput): boolean {
   return (
     left.visibleTurnItems === right.visibleTurnItems &&
@@ -16,27 +16,39 @@ function sameInput(left: TimelineEntriesInput, right: TimelineEntriesInput): boo
     left.plans === right.plans
   );
 }
-
-/**
- * Timeline entries for a thread, derived from the previous projection so
- * unchanged rows keep their identity and memoized rows skip rendering. A new
- * thread starts from scratch.
- */
 export function useIncrementalTimelineEntries(
   threadKey: string | null,
   input: TimelineEntriesInput,
 ): TimelineEntriesProjection["entries"] {
-  const [state, setState] = useState(() => ({
-    threadKey,
-    projection: deriveTimelineEntriesFromVisibleTurnItemsWithState(input),
-  }));
-  if (state.threadKey === threadKey && sameInput(state.projection.input, input)) {
+  const [state, setState] = useState(() => {
+    const projection = deriveTimelineEntriesFromVisibleTurnItemsWithState(input);
+    return {
+      threadKey,
+      projection,
+      recent: new Map<string, TimelineEntriesProjection>(
+        threadKey === null ? [] : [[threadKey, projection]],
+      ),
+    };
+  });
+  if (state.threadKey === threadKey && sameInput(state.projection.input, input))
     return state.projection.entries;
+  const previous =
+    state.threadKey === threadKey
+      ? state.projection
+      : threadKey === null
+        ? null
+        : (state.recent.get(threadKey) ?? null);
+  const projection = deriveTimelineEntriesFromVisibleTurnItemsWithState(input, previous);
+  const recent = new Map(state.recent);
+  if (threadKey !== null) {
+    recent.delete(threadKey);
+    recent.set(threadKey, projection);
+    while (recent.size > CAPACITY) {
+      const oldest = recent.keys().next().value;
+      if (oldest === undefined) break;
+      recent.delete(oldest);
+    }
   }
-  const projection = deriveTimelineEntriesFromVisibleTurnItemsWithState(
-    input,
-    state.threadKey === threadKey ? state.projection : null,
-  );
-  setState({ threadKey, projection });
+  setState({ threadKey, projection, recent });
   return projection.entries;
 }

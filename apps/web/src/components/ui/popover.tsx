@@ -3,10 +3,14 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 
 import { cn } from "~/lib/utils";
+import { useDismissOnSuspend } from "./use-dismiss-on-suspend";
 
 const PopoverCreateHandle = PopoverPrimitive.createHandle;
 
-const Popover = PopoverPrimitive.Root;
+function Popover<Payload>(props: PopoverPrimitive.Root.Props<Payload>) {
+  const actionsRef = useDismissOnSuspend<PopoverPrimitive.Root.Actions>(props.actionsRef);
+  return <PopoverPrimitive.Root {...props} {...(actionsRef ? { actionsRef } : {})} />;
+}
 
 function PopoverTrigger({ className, children, ...props }: PopoverPrimitive.Trigger.Props) {
   return (
