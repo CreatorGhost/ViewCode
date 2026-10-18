@@ -171,9 +171,7 @@ export function effortTrackStyle(kind: EffortTrackKind, brand: EffortBrand): Eff
   };
 }
 
-// ---------------------------------------------------------------------------
 // The live effect, drawn into a canvas clipped to the fill.
-// ---------------------------------------------------------------------------
 
 /** A stable pseudo-random value in [0, 1) for an element and one of its traits. */
 export function effortRandom(index: number, trait: number): number {
