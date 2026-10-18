@@ -1,6 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { ProviderDriverKind, type ProviderReplayEntry } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  type ProviderReplayEntry,
+  type ProviderReplayTranscript,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -25,6 +29,7 @@ import * as ProviderReplayHarness from "./ProviderReplayHarness.ts";
 import { runOrchestratorV2Scenario } from "./OrchestratorScenario.ts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import { readProviderReplayTranscript } from "@t3tools/provider-testing/replayTranscript";
+import { materializeReplayTranscriptRuntimeInstructions } from "./ReplayRuntimeInstructions.ts";
 
 const SCENARIO = "claude_background_subagent_after_root";
 const SESSION_ID = "cca274e4-25ae-4171-b972-bbb31118517e";
@@ -109,7 +114,7 @@ const readRestartTranscript = Effect.fn("readRestartTranscript")(function* (
       },
     },
   ];
-  return yield* ClaudeOrchestratorReplayHarness.decodeTranscript({
+  const transcript = {
     ...recorded,
     entries: [
       ...recorded.entries.slice(0, rootResult + 1),
@@ -122,7 +127,13 @@ const readRestartTranscript = Effect.fn("readRestartTranscript")(function* (
       },
       ...resumedPrompts.flatMap((prompt, index) => resumedTurn(String(index + 1), prompt)),
     ],
-  });
+  } satisfies ProviderReplayTranscript;
+  return yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
+    materializeReplayTranscriptRuntimeInstructions(transcript, {
+      driver: ProviderDriverKind.make("claudeAgent"),
+      model: CLAUDE_MODEL_SELECTION.model,
+    }),
+  );
 });
 
 const runRestart = Effect.fn("runRestart")(function* (input: {

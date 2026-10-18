@@ -68,18 +68,27 @@ const readCodexTranscript = Effect.fn("readCodexRecoveryTranscript")(function* (
   const transcript = yield* readRawTranscript(
     new URL("./fixtures/provider_thread_resume/codex_transcript.ndjson", import.meta.url),
   );
-  return yield* decodeCodexTranscript(materializeReplayTranscriptWorkspace(transcript, workspace));
+  return yield* decodeCodexTranscript(
+    materializeReplayTranscriptRuntimeInstructions(
+      materializeReplayTranscriptWorkspace(transcript, workspace),
+      { driver: ProviderDriverKind.make("codex"), model: CODEX_MODEL_SELECTION.model },
+    ),
+  );
 });
 const decodePromptPair = Schema.decodeUnknownEffect(Schema.Tuple([Schema.String, Schema.String]));
 const readClaudeSubagentResumeTranscript = Effect.fn("readClaudeSubagentResumeTranscript")(
   function* () {
-    return yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
-      yield* readRawTranscript(
-        new URL(
-          "./fixtures/claude_subagent_resume_after_restart/claude_transcript.ndjson",
-          import.meta.url,
-        ),
+    const transcript = yield* readRawTranscript(
+      new URL(
+        "./fixtures/claude_subagent_resume_after_restart/claude_transcript.ndjson",
+        import.meta.url,
       ),
+    );
+    return yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
+      materializeReplayTranscriptRuntimeInstructions(transcript, {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        model: CLAUDE_MODEL_SELECTION.model,
+      }),
     );
   },
 );
@@ -141,7 +150,15 @@ const readClaudeCancelledSubagentResumeTranscript = Effect.fn(
         },
       };
     });
-  return yield* ClaudeOrchestratorReplayHarness.decodeTranscript({ ...recorded, entries });
+  return yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
+    materializeReplayTranscriptRuntimeInstructions(
+      { ...recorded, entries },
+      {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        model: CLAUDE_MODEL_SELECTION.model,
+      },
+    ),
+  );
 });
 const readCursorTranscript = Effect.fn("readCursorRecoveryTranscript")(function* () {
   const transcript = yield* readRawTranscript(
