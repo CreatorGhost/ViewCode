@@ -49,6 +49,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import { McpSchema, McpServer } from "effect/ai";
 
 import { ClaudeProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
@@ -57,6 +58,7 @@ import { CodexOrchestratorReplayHarness } from "../orchestration-v2/Adapters/Cod
 import { threadShellFromProjection } from "../orchestration-v2/ProjectionStore.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
+import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -82,6 +84,8 @@ import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { delegatedTaskRun, hasPendingChildRuns } from "./OrchestratorMcpService.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import { withViewCodeTurnGuidance } from "../orchestration-v2/ViewCodeTurnGuidance.ts";
+import { materializeReplayTranscriptRuntimeInstructions } from "../orchestration-v2/testkit/ReplayRuntimeInstructions.ts";
 
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
@@ -298,13 +302,27 @@ function makeDeterministicAdapter(input: {
                   },
                 },
               ]);
-              const terminalGate = input.terminalGate?.(turnInput);
+              const prelude = withViewCodeTurnGuidance(
+                { appThread: turnInput.appThread, message: { text: "" } },
+                { driver: input.driver, playbookPath: null, computerUseText: null },
+              ).message.text;
+              const fixtureInput = {
+                ...turnInput,
+                message: {
+                  ...turnInput.message,
+                  text:
+                    prelude !== "" && turnInput.message.text.startsWith(`${prelude}\n\n`)
+                      ? turnInput.message.text.slice(prelude.length + 2)
+                      : turnInput.message.text,
+                },
+              };
+              const terminalGate = input.terminalGate?.(fixtureInput);
               if (terminalGate !== undefined) {
                 yield* Deferred.await(terminalGate);
-              } else if (!input.shouldComplete(turnInput)) {
+              } else if (!input.shouldComplete(fixtureInput)) {
                 return;
               }
-              const response = input.response(turnInput);
+              const response = input.response(fixtureInput);
               yield* publish([
                 {
                   type: "provider_turn.updated",
@@ -422,15 +440,19 @@ function waitForProjection(
   predicate: (projection: OrchestrationV2ThreadProjection) => boolean,
 ) {
   return Effect.gen(function* () {
-    for (let attempt = 0; attempt < 1_000; attempt += 1) {
-      const projection = yield* orchestrator.getThreadProjection(threadId);
-      if (predicate(projection)) {
-        return projection;
-      }
-      yield* Effect.sleep("5 millis");
-    }
-    return yield* Effect.die(
-      new Error(`Timed out waiting for orchestration projection ${threadId}.`),
+    const afterSequence = yield* orchestrator.getThreadEventSequence(threadId);
+    const projection = yield* orchestrator.getThreadProjection(threadId);
+    if (predicate(projection)) return projection;
+    return yield* orchestrator.streamStoredEventsFrom({ threadId, afterSequence }).pipe(
+      Stream.mapEffect(() => orchestrator.getThreadProjection(threadId)),
+      Stream.filter(predicate),
+      Stream.runHead,
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.die(new Error(`Projection event stream ended for ${threadId}.`)),
+          onSome: Effect.succeed,
+        }),
+      ),
     );
   });
 }
@@ -566,34 +588,33 @@ describe("orchestrator MCP toolkit", () => {
                   : `Claude completed: ${turn.message.text}`,
             }),
           ]);
-          const continuationOffers = yield* Ref.make<
+          const continuationOffers = yield* SubscriptionRef.make<
             ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
           >([]);
           const layerContinuationProbe = Layer.succeed(
             ProviderContinuationRequests.ProviderContinuationRequests,
             {
               offer: (request) =>
-                Ref.update(continuationOffers, (existing) => [...existing, request]),
+                SubscriptionRef.update(continuationOffers, (existing) => [...existing, request]),
               take: Effect.never,
             },
           );
           const waitForContinuationOffers = (count: number) =>
-            Effect.gen(function* () {
-              for (let attempt = 0; attempt < 1_000; attempt += 1) {
-                const current = yield* Ref.get(continuationOffers);
-                if (current.length >= count) {
-                  return current;
-                }
-                yield* Effect.sleep("5 millis");
-              }
-              return yield* Ref.get(continuationOffers);
-            });
+            SubscriptionRef.changes(continuationOffers).pipe(
+              Stream.filter((offers) => offers.length >= count),
+              Stream.runHead,
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.die(new Error("Continuation offer stream ended.")),
+                  onSome: Effect.succeed,
+                }),
+              ),
+            );
           const expectOffersToStay = (count: number) =>
             Effect.gen(function* () {
-              for (let sample = 0; sample < 4; sample += 1) {
-                yield* Effect.sleep("50 millis");
-                expect(yield* Ref.get(continuationOffers)).toHaveLength(count);
-              }
+              const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+              yield* worker.drain();
+              expect(yield* SubscriptionRef.get(continuationOffers)).toHaveLength(count);
             });
           const layerOrchestrator = ProviderReplayHarness.layerWithRegistry(
             {
@@ -1038,7 +1059,7 @@ describe("orchestrator MCP toolkit", () => {
               acknowledgedCoalesced.runs.find((run) => run.id === parentRun.id)?.delegatedCompletion
                 ?.delivery,
             ).toBeNull();
-            yield* Ref.set(continuationOffers, []);
+            yield* SubscriptionRef.set(continuationOffers, []);
 
             const directRead = yield* queueAutomaticCompletion(
               "direct-child-read",
@@ -1195,7 +1216,7 @@ describe("orchestrator MCP toolkit", () => {
               acknowledgedByDirectRead.subagents.find((task) => task.id === directRead.task.id)
                 ?.completionDelivery,
             ).toMatchObject({ state: "acknowledged", observedByRunId: parentRun.id });
-            yield* Ref.set(continuationOffers, []);
+            yield* SubscriptionRef.set(continuationOffers, []);
 
             const queueRace = yield* queueAutomaticCompletion(
               "queue-race",
@@ -1381,7 +1402,7 @@ describe("orchestrator MCP toolkit", () => {
                 projection.runs.find((run) => run.id === parentRun.id)?.delegatedCompletion
                   ?.disposition === "open",
             );
-            yield* Ref.set(continuationOffers, []);
+            yield* SubscriptionRef.set(continuationOffers, []);
 
             const capabilitiesTool = server.tools.find(
               ({ tool }) => tool.name === "orchestrator_capabilities",
@@ -1553,19 +1574,11 @@ describe("orchestrator MCP toolkit", () => {
               placeholder: "Paste the webhook secret",
               clientRequestId: "release-webhook-secret",
             }).pipe(Effect.forkChild);
-            const asked = yield* Effect.gen(function* () {
-              while (true) {
-                const projection = yield* orchestrator.getThreadProjection(parentThreadId);
-                if (
-                  projection.turnItems.some(
-                    (item) => item.type === "secret_request" && item.secretStatus === "pending",
-                  )
-                ) {
-                  return projection;
-                }
-                yield* Effect.sleep("5 millis");
-              }
-            });
+            const asked = yield* waitForProjection(orchestrator, parentThreadId, (projection) =>
+              projection.turnItems.some(
+                (item) => item.type === "secret_request" && item.secretStatus === "pending",
+              ),
+            );
             const card = asked.turnItems.find((item) => item.type === "secret_request");
             if (card?.type !== "secret_request") {
               return yield* Effect.die(new Error("Secret request card missing."));
@@ -1725,7 +1738,10 @@ describe("orchestrator MCP toolkit", () => {
               {
                 instanceId: claudeInstanceId,
                 threadId: delegated.childThreadId,
-                text: delegatedPrompt,
+                text: withViewCodeTurnGuidance(
+                  { appThread: child.thread, message: { text: delegatedPrompt } },
+                  { driver: "claudeAgent", playbookPath: null, computerUseText: null },
+                ).message.text,
               },
             ]);
             expect(
@@ -1900,7 +1916,7 @@ describe("orchestrator MCP toolkit", () => {
             yield* expectOffersToStay(2);
             yield* invoke("task_status", { taskId: childFollowup.taskId });
             yield* invoke("task_status", { taskId: activeChildFollowup.taskId });
-            yield* Ref.set(continuationOffers, []);
+            yield* SubscriptionRef.set(continuationOffers, []);
 
             const repeatedDelegatedCall = yield* invoke("delegate_task", {
               task: delegatedPrompt,
@@ -2838,7 +2854,7 @@ describe("orchestrator MCP toolkit", () => {
             if (queuedStopDeliveryRun === undefined) {
               return yield* Effect.die(new Error("Queued stop barrier delivery missing."));
             }
-            yield* Ref.set(continuationOffers, []);
+            yield* SubscriptionRef.set(continuationOffers, []);
 
             const parentStop = yield* orchestrator.dispatch({
               type: "run.interrupt",
@@ -2926,7 +2942,7 @@ describe("orchestrator MCP toolkit", () => {
             const lateDeliveryGate = yield* Deferred.make<void>();
             parentTerminalGates.set(lateParentThreadId, lateParentGate);
             deliveryTerminalGates.set(lateParentThreadId, lateDeliveryGate);
-            yield* Ref.set(continuationOffers, []);
+            yield* SubscriptionRef.set(continuationOffers, []);
             yield* orchestrator.dispatch({
               type: "thread.create",
               createdBy: "user",
@@ -3432,7 +3448,7 @@ describe("orchestrator MCP toolkit", () => {
             if (removeQueuedRun === undefined) {
               return yield* Effect.die(new Error("Queue Remove delivery did not queue."));
             }
-            yield* Ref.set(continuationOffers, []);
+            yield* SubscriptionRef.set(continuationOffers, []);
             yield* orchestrator.dispatch({
               type: "queued-run.cancel",
               commandId: CommandId.make("command:mcp-late-parent:remove-queued-delivery"),
@@ -3465,7 +3481,7 @@ describe("orchestrator MCP toolkit", () => {
             const secondFanoutDeliveryGate = yield* Deferred.make<void>();
             parentTerminalGates.set(fanoutParentThreadId, fanoutParentGate);
             deliveryTerminalGates.set(fanoutParentThreadId, firstFanoutDeliveryGate);
-            yield* Ref.set(continuationOffers, []);
+            yield* SubscriptionRef.set(continuationOffers, []);
             yield* orchestrator.dispatch({
               type: "thread.create",
               createdBy: "user",
@@ -3745,7 +3761,7 @@ describe("orchestrator MCP toolkit", () => {
             );
             expect(sortedIds(deliveredTaskIds)).toEqual(idsOf(fanoutTasks));
             const offeredDeliveries = new Set(
-              (yield* Ref.get(continuationOffers)).map(
+              (yield* SubscriptionRef.get(continuationOffers)).map(
                 (offer) => offer.delegatedCompletion?.messageId,
               ),
             );
@@ -3767,7 +3783,10 @@ describe("orchestrator MCP toolkit", () => {
         const cwd = yield* checkpointWorkspace("delegated-task-status");
         const rawTranscript = yield* readDelegatedTaskStatusTranscript();
         const transcript = yield* CodexOrchestratorReplayHarness.decodeTranscript(
-          materializeReplayTranscriptWorkspace(rawTranscript, cwd),
+          materializeReplayTranscriptRuntimeInstructions(
+            materializeReplayTranscriptWorkspace(rawTranscript, cwd),
+            { driver: ProviderDriverKind.make("codex"), model: codexModel },
+          ),
         );
         const layerOrchestrator = ProviderReplayHarness.layerProviderReplay(
           {
