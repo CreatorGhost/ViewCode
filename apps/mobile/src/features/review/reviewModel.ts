@@ -1,4 +1,4 @@
-import type { OrchestrationCheckpointSummary } from "@t3tools/client-runtime/viewcodeThread";
+import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 
 import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import type { ChangeTypes, FileDiffMetadata } from "@pierre/diffs/types";
@@ -7,6 +7,11 @@ import { unquoteGitPatchPath } from "@t3tools/shared/gitPatchPath";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Order from "effect/Order";
+
+type ReviewCheckpointSummary = Pick<
+  ThreadCheckpointSummary,
+  "checkpointTurnCount" | "status" | "files"
+>;
 
 export type ReviewSectionKind = "turn" | "working-tree" | "branch-range";
 
@@ -96,11 +101,11 @@ export type ReviewParsedDiff =
       readonly notice: string | null;
     };
 
-function checkpointTitle(checkpoint: OrchestrationCheckpointSummary): string {
+function checkpointTitle(checkpoint: ReviewCheckpointSummary): string {
   return `Turn ${checkpoint.checkpointTurnCount}`;
 }
 
-function checkpointSubtitle(checkpoint: OrchestrationCheckpointSummary): string {
+function checkpointSubtitle(checkpoint: ReviewCheckpointSummary): string {
   const fileCount = checkpoint.files.length;
   if (checkpoint.status !== "ready") {
     return `Diff ${checkpoint.status}`;
@@ -109,8 +114,8 @@ function checkpointSubtitle(checkpoint: OrchestrationCheckpointSummary): string 
 }
 
 function compareCheckpointTurnCountDescending(
-  left: OrchestrationCheckpointSummary,
-  right: OrchestrationCheckpointSummary,
+  left: ReviewCheckpointSummary,
+  right: ReviewCheckpointSummary,
 ): -1 | 0 | 1 {
   if (left.checkpointTurnCount === right.checkpointTurnCount) {
     return 0;
@@ -119,7 +124,7 @@ function compareCheckpointTurnCountDescending(
   return left.checkpointTurnCount > right.checkpointTurnCount ? -1 : 1;
 }
 
-const readyCheckpointOrder = Order.make<OrchestrationCheckpointSummary>(
+const readyCheckpointOrder = Order.make<ReviewCheckpointSummary>(
   compareCheckpointTurnCountDescending,
 );
 
@@ -397,14 +402,14 @@ function mapRenderableFile(file: FileDiffMetadata): ReviewRenderableFile {
 }
 
 export function getReviewSectionIdForCheckpoint(
-  checkpoint: Pick<OrchestrationCheckpointSummary, "checkpointTurnCount">,
+  checkpoint: Pick<ReviewCheckpointSummary, "checkpointTurnCount">,
 ): string {
   return `turn:${checkpoint.checkpointTurnCount}`;
 }
 
-export function getReadyReviewCheckpoints(
-  checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>,
-): ReadonlyArray<OrchestrationCheckpointSummary> {
+export function getReadyReviewCheckpoints<Checkpoint extends ReviewCheckpointSummary>(
+  checkpoints: ReadonlyArray<Checkpoint>,
+): ReadonlyArray<Checkpoint> {
   return pipe(
     checkpoints,
     Arr.filter((checkpoint) => checkpoint.status === "ready"),
@@ -413,7 +418,7 @@ export function getReadyReviewCheckpoints(
 }
 
 export function buildReviewSectionItems(input: {
-  readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
+  readonly checkpoints: ReadonlyArray<ReviewCheckpointSummary>;
   readonly gitSections: ReadonlyArray<ReviewDiffPreviewSource>;
   readonly turnDiffById: Readonly<Record<string, string | undefined>>;
   readonly loadingTurnIds: Readonly<Record<string, boolean | undefined>>;
