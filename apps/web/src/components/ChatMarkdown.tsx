@@ -86,6 +86,7 @@ import ReactMarkdown from "react-markdown";
 import { toHtml } from "hast-util-to-html";
 import { createIncrementalMarkdownPlugin } from "../markdown-incremental";
 import { observeResize } from "../lib/observeResize";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { defaultUrlTransform } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -857,16 +858,16 @@ function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
   const expandLabel = expanded ? "Collapse table cells" : "Expand table cells";
   const copyLabel = copied ? "Copied" : "Copy table";
 
-  const measureClippedCells = () => {
+  const measureClippedCells = useStableCallback(() => {
     const container = containerRef.current;
     const table = tableRef.current;
     if (!container || !table) return;
     setHasClippedCells(tableHasClippedCells(container, table));
-  };
+  });
 
-  // A streamed cell can grow until it clips while the table keeps its size,
-  // so remeasure after every render, not only on resize.
-  useLayoutEffect(measureClippedCells);
+  // Streamed cells can clip without changing table size. Content and wrap
+  // changes need a measurement; copy feedback and measurement state do not.
+  useLayoutEffect(measureClippedCells, [children, expanded, measureClippedCells]);
 
   // Column width changes can clip a cell without rendering this table.
   useLayoutEffect(() => {

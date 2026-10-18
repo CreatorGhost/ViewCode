@@ -5,6 +5,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
 import { MarkdownFindContext } from "./chat/markdownFindContext";
 import { useThreadFindHighlights } from "./chat/threadFindHighlights";
@@ -849,4 +850,133 @@ describe("ChatMarkdown thread find", () => {
       ).toBe(count);
     },
   );
+});
+
+describe("ChatMarkdown table measurements", () => {
+  beforeEach(() => {
+    __setClientSettingsForTests({ ...getClientSettings(), wordWrap: true });
+    const style = document.body.appendChild(document.createElement("style"));
+    style.textContent = `
+      .chat-markdown-table-container { width:100%; }
+      .chat-markdown-table-container table { table-layout:fixed; width:100%; }
+      .chat-markdown-table-container th,.chat-markdown-table-container td { display:block; width:100%; box-sizing:border-box; }
+      .chat-markdown-table-container[data-expanded="false"] th,
+      .chat-markdown-table-container[data-expanded="false"] td { white-space:nowrap; overflow:hidden; }
+      .chat-markdown-table-container[data-expanded="true"] td { white-space:normal; overflow-wrap:anywhere; }
+    `;
+  });
+
+  it("remeasures streamed cell content even when table dimensions stay unchanged", async () => {
+    const text = "| Field |\n| --- |\n| short";
+    const { container, rerender } = await render(
+      <ChatMarkdown cwd="/tmp/project" text={text} isStreaming />,
+    );
+    const style = document.body.appendChild(document.createElement("style"));
+    style.textContent =
+      ".chat-markdown-table-container th,.chat-markdown-table-container td { height:24px; overflow:hidden; }";
+    const table = container.querySelector("table")!;
+    const height = table.getBoundingClientRect().height;
+    expect(buttonsLabelled(container, "Collapse table cells")).toHaveLength(0);
+    await rerender(<ChatMarkdown cwd="/tmp/project" text={text + "x".repeat(1000)} isStreaming />);
+    expect(container.querySelector("table")).toBe(table);
+    expect(table.getBoundingClientRect().height).toBe(height);
+    expect(buttonsLabelled(container, "Collapse table cells")).toHaveLength(1);
+    expect(table.closest<HTMLElement>("[data-expanded]")!.dataset.expanded).toBe("true");
+  });
+
+  it("remeasures when the table resizes without a React render", async () => {
+    const { container } = await render(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={"| Field |\n| --- |\n| " + "medium ".repeat(15) + " |"}
+      />,
+    );
+    const table = container.querySelector("table")!;
+    let finishResize!: () => void;
+    const resized = new Promise<void>((resolve) => {
+      finishResize = resolve;
+    });
+    const observer = new ResizeObserver((entries) => {
+      if (entries.some((entry) => entry.contentRect.width < 200)) finishResize();
+    });
+    observer.observe(table);
+    try {
+      await act(async () => {
+        container.style.width = "160px";
+        await resized;
+      });
+      expect(buttonsLabelled(container, "Collapse table cells")).toHaveLength(1);
+      expect(table.closest<HTMLElement>("[data-expanded]")!.dataset.expanded).toBe("true");
+    } finally {
+      observer.disconnect();
+    }
+  });
+
+  it("keeps wrap toggles and table copying working after batched clipping detection", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const value = "long ".repeat(250).trim();
+    const container = await renderText(`| Field |\n| --- |\n| ${value} |`);
+    const tableContainer = container.querySelector<HTMLElement>(".chat-markdown-table-container")!;
+    expect(buttonsLabelled(container, "Collapse table cells")).toHaveLength(1);
+    await act(async () => buttonsLabelled(container, "Collapse table cells")[0]!.click());
+    expect(tableContainer.dataset.expanded).toBe("false");
+    await act(async () => buttonsLabelled(container, "Expand table cells")[0]!.click());
+    expect(tableContainer.dataset.expanded).toBe("true");
+    await act(async () => buttonsLabelled(container, "Copy table")[0]!.click());
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((element) =>
+      element.textContent?.includes("Copy as Markdown"),
+    );
+    expect(item).toBeDefined();
+    await act(async () => item!.click());
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(`| Field |\n| --- |\n| ${value} |`);
+    expect(tableContainer.dataset.expanded).toBe("true");
+  });
+
+  it("does not remeasure unchanged cells when table copy feedback rerenders", async () => {
+    vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const container = await renderText(`| Field |\n| --- |\n| ${"long ".repeat(250)} |`);
+    const table = container.querySelector("table")!;
+    let ready!: () => void;
+    const observed = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const observer = new ResizeObserver(() => ready());
+    observer.observe(table);
+    await act(async () => observed);
+    observer.disconnect();
+    const nativeWidth = Object.getOwnPropertyDescriptor(Element.prototype, "scrollWidth")!.get!;
+    let reads = 0;
+    vi.spyOn(Element.prototype, "scrollWidth", "get").mockImplementation(function (this: Element) {
+      if (this instanceof HTMLTableCellElement && table.contains(this)) reads += 1;
+      return nativeWidth.call(this);
+    });
+    await act(async () => buttonsLabelled(container, "Copy table")[0]!.click());
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((element) =>
+      element.textContent?.includes("Copy as Markdown"),
+    );
+    await act(async () => item!.click());
+    expect(buttonsLabelled(container, "Copied")).toHaveLength(1);
+    expect(reads).toBe(0);
+  });
+
+  it("preserves sideways scroll when streamed content temporarily collapses an expanded table", async () => {
+    const text = `| Field |\n| --- |\n| ${"long ".repeat(250)}`;
+    const { container, rerender } = await render(
+      <ChatMarkdown cwd="/tmp/project" text={text} isStreaming />,
+    );
+    const style = document.body.appendChild(document.createElement("style"));
+    style.textContent = `
+      .chat-markdown-table-container { width:160px; }
+      .chat-markdown-table-container[data-expanded="true"] table { width:1200px; }
+      .chat-markdown-table-container[data-expanded="false"] table { width:160px; }
+    `;
+    const table = container.querySelector("table")!;
+    const viewport = table.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')!;
+    viewport.scrollLeft = 75;
+    expect(viewport.scrollLeft).toBe(75);
+    await rerender(<ChatMarkdown cwd="/tmp/project" text={text + " more"} isStreaming />);
+    expect(container.querySelector("table")).toBe(table);
+    expect(table.closest<HTMLElement>("[data-expanded]")!.dataset.expanded).toBe("true");
+    expect(viewport.scrollLeft).toBe(75);
+  });
 });
