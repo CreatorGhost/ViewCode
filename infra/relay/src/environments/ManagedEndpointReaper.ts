@@ -23,6 +23,12 @@ export const MANAGED_ENDPOINT_SWEEP_LIST_REQUEST_LIMIT = 10;
 // Age buckets for legacy candidates, in days since the tunnel went down (or
 // was created, for one that never connected).
 const MANAGED_ENDPOINT_LEGACY_AGE_BUCKET_DAYS = [7, 30, 90] as const;
+// Older hosts cannot replace a deleted tunnel until they update to a recovery-capable build.
+const MANAGED_ENDPOINT_LEGACY_GRACE_PERIOD_DAYS = 7;
+// Each deletion holds a database connection; leave room under the shared 20-connection limit.
+export const MANAGED_ENDPOINT_SWEEP_DELETE_CONCURRENCY = 4;
+// Leave time under the two-minute cron deadline to finish in-flight deletions and record counters.
+const MANAGED_ENDPOINT_SWEEP_DELETE_BUDGET_MS = 90_000;
 
 export interface ManagedEndpointSweepResult {
   readonly mode: RelayConfiguration.ManagedEndpointCleanupMode;

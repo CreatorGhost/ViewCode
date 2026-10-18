@@ -1641,7 +1641,7 @@ describe("ManagedEndpointProvider", () => {
           }),
         ),
     });
-    const layer = providerLayer(tunnelClient, makeDnsClient(), makeAllocations());
+    const layer = layerProvider(tunnelClient, makeDnsClient(), makeAllocations());
 
     return Effect.gen(function* () {
       const provider = yield* ManagedEndpointProvider.ManagedEndpointProvider;

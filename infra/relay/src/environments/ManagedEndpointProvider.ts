@@ -928,6 +928,10 @@ export const make = Effect.gen(function* () {
                 (error) => isManagedEndpointTunnelInUse(error.cause),
                 () => Effect.succeed(false),
               ),
+              Effect.catchTags({
+                ManagedEndpointDeprovisioningFailed: (failure) =>
+                  confirmTunnelGone(failure).pipe(Effect.as(true)),
+              }),
             );
           }),
         )
