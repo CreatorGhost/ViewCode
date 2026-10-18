@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { ThreadActionMenuId } from "../components/threadActionMenu.logic";
 
+type MenuActionId = ThreadActionMenuId | "new-child-agent";
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((complete) => {
@@ -23,9 +25,9 @@ const state = vi.hoisted(() => ({
   completed: deferred<void>(),
   show: vi.fn<
     (
-      items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>>,
+      items: ReadonlyArray<ContextMenuItem<MenuActionId>>,
       position: { x: number; y: number },
-    ) => Promise<ThreadActionMenuId | null>
+    ) => Promise<MenuActionId | null>
   >(),
 }));
 
@@ -35,9 +37,8 @@ function recordEffect(action: string) {
 }
 
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
-vi.mock("react", () => ({
-  useCallback: (callback: unknown) => callback,
-  useMemo: (factory: () => unknown) => factory(),
+vi.mock("../components/agents/useCreateChildAgent", () => ({
+  useCreateChildAgent: () => () => recordEffect("create-child-agent"),
 }));
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ navigate: async () => recordEffect("project-settings") }),
@@ -174,6 +175,16 @@ describe("thread menu permissions", () => {
     expect(items.find((item) => item.id === "copy")?.disabled).not.toBe(true);
   });
 
+  it("hides child creation without permission and opens it only for the selected environment", async () => {
+    createMenu().openMenu(position);
+    expect(state.show.mock.calls[0]![0].some((item) => item.id === "new-child-agent")).toBe(false);
+    state.granted = new Set(["secondary"]);
+    state.show.mockResolvedValue("new-child-agent");
+    createMenu().openMenu(position);
+    await state.completed.promise;
+    expect(state.effects).toEqual(["create-child-agent"]);
+  });
+
   it("allows the target grant even when the primary environment is denied", () => {
     state.granted = new Set(["secondary"]);
     createMenu().openMenu(position);
@@ -193,19 +204,24 @@ describe("thread menu permissions", () => {
     );
   });
 
-  it.each(["rename", "regenerate-title", "delete", "pin", "settle", "archive"] as const)(
-    "%s rechecks after the native menu closes",
-    async (action) => {
-      state.granted.add("secondary");
-      const choice = deferred<ThreadActionMenuId | null>();
-      state.show.mockReturnValue(choice.promise);
-      createMenu().openMenu(position);
-      state.granted.delete("secondary");
-      choice.resolve(action);
-      await state.completed.promise;
-      expect(state.effects).toEqual([]);
-    },
-  );
+  it.each([
+    "rename",
+    "regenerate-title",
+    "delete",
+    "pin",
+    "settle",
+    "archive",
+    "new-child-agent",
+  ] as const)("%s rechecks after the native menu closes", async (action) => {
+    state.granted.add("secondary");
+    const choice = deferred<MenuActionId | null>();
+    state.show.mockReturnValue(choice.promise);
+    createMenu().openMenu(position);
+    state.granted.delete("secondary");
+    choice.resolve(action);
+    await state.completed.promise;
+    expect(state.effects).toEqual([]);
+  });
 
   it.each([
     ["new-thread-on-branch", "draft"],
