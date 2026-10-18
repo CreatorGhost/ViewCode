@@ -566,6 +566,31 @@ describe("resolveInitialServerAuthGateState", () => {
     expect(testApi.calls.browserSession).toEqual([{ credential: "bad-token" }]);
   });
 
+  it("says when a pairing token was already used", async () => {
+    await installAuthApi({
+      browserSession: () =>
+        Effect.fail(
+          new EnvironmentAuthInvalidError({
+            code: "auth_invalid",
+            reason: "invalid_credential",
+            pairingProblem: "used",
+            traceId: "trace-used-credential",
+          }),
+        ),
+    });
+
+    const { submitServerAuthCredential } = await import("./environments/primary");
+
+    const error = await submitServerAuthCredential("used-token").then(
+      () => null,
+      (failure: unknown) => failure,
+    );
+    expect(error).toMatchObject({
+      _tag: "PrimaryEnvironmentPairingCredentialRejectedError",
+      message: "This pairing code was already used. Make a new one and try again.",
+    });
+  });
+
   it("derives primary request messages from structural request context", async () => {
     const cause = new Error("private transport detail");
     const { PrimaryEnvironmentRequestError } = await import("./environments/primary");

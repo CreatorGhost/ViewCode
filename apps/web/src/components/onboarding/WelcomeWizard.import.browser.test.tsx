@@ -32,7 +32,6 @@ const state = vi.hoisted(() => ({
   config: null as unknown,
   candidates: [] as AgentSessionProjectCandidate[],
   createProject: vi.fn(),
-  importThreads: vi.fn(),
   refreshProviders: vi.fn(),
   connectPairing: vi.fn(),
   completeOnboarding: vi.fn(),
@@ -100,10 +99,6 @@ vi.mock(import("../../state/projects"), async (original) => ({
   ...(await original()),
   projectEnvironment: { create: "createProject" } as never,
 }));
-vi.mock(import("../../state/agentSessions"), async (original) => ({
-  ...(await original()),
-  agentSessionImport: "importThreads" as never,
-}));
 vi.mock(import("../../onboarding/useProjectScans"), async (original) => ({
   ...(await original()),
   useProjectScans: (ids: readonly EnvironmentId[]) =>
@@ -124,9 +119,8 @@ vi.mock(import("../../connection/onboarding"), async (original) => ({
 }));
 vi.mock(import("../../state/use-atom-command"), async (original) => ({
   ...(await original()),
-  useAtomCommand: ((
-    command: "createProject" | "importThreads" | "refreshProviders" | "connectPairing",
-  ) => state[command]) as never,
+  useAtomCommand: ((command: "createProject" | "refreshProviders" | "connectPairing") =>
+    state[command]) as never,
 }));
 vi.mock(import("../settings/ChatGptWelcomeCoordinator"), async (original) => ({
   ...(await original()),
@@ -214,10 +208,6 @@ async function click(label: string) {
   await act(async () => target.click());
 }
 
-function projectCheckboxes() {
-  return [...document.querySelectorAll<HTMLElement>('[role="checkbox"]')];
-}
-
 async function mountImport(remote = false) {
   state.selectedEnvironment = remote ? "remote" : "primary";
   const container = document.createElement("div");
@@ -233,7 +223,7 @@ async function mountImport(remote = false) {
   );
   await click("Continue");
   await click("Continue");
-  expect(pageText()).toContain("Import your projects");
+  expect(pageText()).toContain("Start fresh, or add projects");
 }
 
 beforeEach(() => {
@@ -266,9 +256,6 @@ beforeEach(() => {
   state.createProject
     .mockReset()
     .mockImplementation(async (input: CreateProjectInput) => recordProject(input));
-  state.importThreads
-    .mockReset()
-    .mockResolvedValue(AsyncResult.success({ importedCount: 1, skippedCount: 0 }));
   state.refreshProviders.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   state.connectPairing.mockReset().mockResolvedValue(AsyncResult.success(remoteId));
   state.completeOnboarding.mockReset().mockResolvedValue(undefined);
@@ -284,136 +271,110 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("keeps scanning, choosing and skipping available to a paired read-only environment", async () => {
+it("keeps scanning, choosing and starting fresh available to a paired read-only environment", async () => {
   setGrant(remoteId, false);
   await mountImport(true);
   expect(state.scan).toHaveBeenCalledWith(expect.objectContaining({ environmentId: remoteId }));
   expect(pageText()).toContain("/projects/first");
-  expect(button("Import 2 projects").disabled).toBe(true);
+  await click("Select all");
+  expect(button("Add 2 projects").disabled).toBe(true);
   expect(pageText()).toContain(permissionMessage);
-  await click("Do not import projects");
+  await click("Start fresh");
   expect(state.createProject).not.toHaveBeenCalled();
-  expect(state.importThreads).not.toHaveBeenCalled();
   expect(state.completeOnboarding).toHaveBeenCalledOnce();
   expect(state.onDone).toHaveBeenCalledOnce();
 });
 
-it("waits for the selected grant and enables import when it arrives", async () => {
+it("selects nothing up front, so Start fresh adds no projects", async () => {
+  await mountImport();
+  expect(pageText()).toContain("0 of 2 selected");
+  await click("Start fresh");
+  expect(state.createProject).not.toHaveBeenCalled();
+  expect(state.onDone).toHaveBeenCalledOnce();
+});
+
+it("waits for the selected grant, adds the projects and leaves past sessions to the person", async () => {
   appAtomRegistry.set(sessionAtom(primaryId), AsyncResult.initial());
   await mountImport();
-  expect(button("Import 2 projects").disabled).toBe(true);
+  await click("Select all");
+  expect(button("Add 2 projects").disabled).toBe(true);
   await act(async () => setGrant(primaryId, true));
-  await click("Import 2 projects");
+  await click("Add 2 projects");
   expect(state.createProject).toHaveBeenCalledTimes(2);
-  expect(state.importThreads).toHaveBeenCalledTimes(2);
+  expect(pageText()).toContain("Bring in past conversations?");
+  expect(button("Choose sessions…").disabled).toBe(false);
+  expect(state.onDone).not.toHaveBeenCalled();
+  await click("Done");
   expect(state.onDone).toHaveBeenCalledWith(expect.objectContaining({ environmentId: primaryId }));
 });
 
-it("preserves selections and denies a click that lands as the paired environment's grant is revoked", async () => {
+it("denies a click that lands as the paired environment's grant is revoked", async () => {
   await mountImport(true);
-  await act(async () => projectCheckboxes()[1]!.click());
-  expect(projectCheckboxes()[1]!.getAttribute("aria-checked")).toBe("false");
-  const importButton = button("Import 1 project");
+  await click("Select all");
+  const addButton = button("Add 2 projects");
   // The click reaches the still-enabled button before React re-renders the revocation.
   await act(async () => {
     setGrant(remoteId, false);
-    importButton.click();
+    addButton.click();
   });
-  expect(button("Import 1 project").disabled).toBe(true);
-  expect(projectCheckboxes()[1]!.getAttribute("aria-checked")).toBe("false");
+  expect(button("Add 2 projects").disabled).toBe(true);
   expect(pageText()).toContain(permissionMessage);
   expect(state.createProject).not.toHaveBeenCalled();
-  expect(state.importThreads).not.toHaveBeenCalled();
   expect(state.onDone).not.toHaveBeenCalled();
 
   await act(async () => setGrant(remoteId, true));
   expect(pageText()).not.toContain(permissionMessage);
-  await click("Import 1 project");
-  expect(state.createProject).toHaveBeenCalledExactlyOnceWith(
-    expect.objectContaining({ environmentId: remoteId }),
-  );
-  expect(state.importThreads).toHaveBeenCalledExactlyOnceWith(
+  await click("Add 2 projects");
+  expect(state.createProject).toHaveBeenCalledTimes(2);
+  expect(state.createProject).toHaveBeenCalledWith(
     expect.objectContaining({ environmentId: remoteId }),
   );
 });
 
-it("rechecks after project creation and can retry its history without recreating the project", async () => {
+it("rechecks before the next project write and retries without recreating the first", async () => {
   const creation = deferred<void>();
   state.createProject.mockImplementationOnce(async (input: CreateProjectInput) => {
     await creation.promise;
     return recordProject(input);
   });
   await mountImport();
-  await click("Import 2 projects");
+  await click("Select all");
+  await click("Add 2 projects");
   expect(state.createProject).toHaveBeenCalledOnce();
   await act(async () => {
     setGrant(primaryId, false);
     creation.resolve();
     await creation.promise;
   });
-  expect(state.importThreads).not.toHaveBeenCalled();
   expect(state.createProject).toHaveBeenCalledOnce();
   expect(state.onDone).not.toHaveBeenCalled();
   expect(pageText()).toContain(permissionMessage);
 
   await act(async () => setGrant(primaryId, true));
-  await click("Import 2 projects");
+  await click("Add 2 projects");
   expect(state.createProject).toHaveBeenCalledTimes(2);
-  expect(state.importThreads).toHaveBeenCalledTimes(2);
+  await click("Done");
   expect(state.onDone).toHaveBeenCalledOnce();
 });
 
-it.each([false, true])(
-  "rechecks after history import before the next project write (existing: %s)",
-  async (existing) => {
-    if (existing) {
-      const projectId = ProjectId.make("second-existing");
-      state.candidates[1] = { ...state.candidates[1]!, projectId };
-      appAtomRegistry.set(projectsAtom(), [
-        { id: projectId, environmentId: primaryId, workspaceRoot: "/projects/second" },
-      ]);
-    }
-    const imported = deferred<{ importedCount: number; skippedCount: number }>();
-    state.importThreads.mockImplementationOnce(async () =>
-      AsyncResult.success(await imported.promise),
-    );
-    await mountImport();
-    await click("Import 2 projects");
-    expect(state.createProject).toHaveBeenCalledOnce();
-    expect(state.importThreads).toHaveBeenCalledOnce();
-    await act(async () => {
-      setGrant(primaryId, false);
-      imported.resolve({ importedCount: 1, skippedCount: 0 });
-      await imported.promise;
-    });
-    expect(state.createProject).toHaveBeenCalledOnce();
-    expect(state.importThreads).toHaveBeenCalledOnce();
-    expect(state.onDone).not.toHaveBeenCalled();
-    expect(pageText()).toContain(permissionMessage);
-
-    await act(async () => setGrant(primaryId, true));
-    await click("Import 2 projects");
-    expect(state.createProject).toHaveBeenCalledTimes(existing ? 1 : 2);
-    expect(state.importThreads).toHaveBeenCalledTimes(2);
-    expect(state.onDone).toHaveBeenCalledOnce();
-  },
-);
-
-it("completes accepted imports when permission is revoked after the final server write", async () => {
+it("finishes setup when permission is revoked after the final project write", async () => {
   state.candidates = state.candidates.slice(0, 1);
-  const imported = deferred<{ importedCount: number; skippedCount: number }>();
-  state.importThreads.mockImplementationOnce(async () =>
-    AsyncResult.success(await imported.promise),
-  );
+  const creation = deferred<void>();
+  state.createProject.mockImplementationOnce(async (input: CreateProjectInput) => {
+    await creation.promise;
+    return recordProject(input);
+  });
   await mountImport();
-  await click("Import 1 project");
+  await click("Select all");
+  await click("Add 1 project");
   await act(async () => {
     setGrant(primaryId, false);
-    imported.resolve({ importedCount: 1, skippedCount: 0 });
-    await imported.promise;
+    creation.resolve();
+    await creation.promise;
   });
   expect(state.createProject).toHaveBeenCalledOnce();
-  expect(state.importThreads).toHaveBeenCalledOnce();
+  expect(pageText()).toContain("Bring in past conversations?");
+  await click("Done");
   expect(state.completeOnboarding).toHaveBeenCalledOnce();
   expect(state.onDone).toHaveBeenCalledOnce();
 });

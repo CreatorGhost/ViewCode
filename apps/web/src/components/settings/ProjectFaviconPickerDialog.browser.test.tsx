@@ -12,6 +12,7 @@ vi.mock(import("../files/projectFilesQueryState"), async (original) => ({
     isPending: false,
     matchedQuery: "",
   }),
+  useProjectIconCandidates: () => ({ paths: [], isPending: false }),
 }));
 vi.mock(import("../ui/toast"), async (original) => {
   const actual = await original();
