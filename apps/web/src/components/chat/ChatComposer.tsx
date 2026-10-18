@@ -5371,6 +5371,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             }
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
+            {...(hiddenRestingBlockIds.includes("mode")
+              ? { debugMode: { on: props.debugMode, onChange: props.onDebugModeChange } }
+              : {})}
           />
         </div>
       </>

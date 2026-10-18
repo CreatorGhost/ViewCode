@@ -1,9 +1,12 @@
 import { requestOlderThreadTurns } from "../../state/threads";
 import {
   threadHasOlderTurns,
-  undeliveredUserMessages,
+  undeliveredRunMessages,
 } from "@t3tools/client-runtime/viewcodeThreadAtoms";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+import type {
+  EnvironmentThread,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/viewcodeThread";
 
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
@@ -62,7 +65,10 @@ import {
   useRemoteEnvironmentRuntime,
 } from "../../state/use-remote-environment-registry";
 import { useKnownTerminalSessions } from "../../state/use-terminal-session";
-import { useSelectedThreadDetailState } from "../../state/use-thread-detail";
+import {
+  useSelectedThreadDetailState,
+  useSelectedThreadProjection,
+} from "../../state/use-thread-detail";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { GitActionProgressOverlay } from "./GitActionProgressOverlay";
 import {
@@ -335,6 +341,18 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   );
 }
 
+function undeliveredMessagesSignature(thread: EnvironmentThread | null): string | null {
+  return thread === null ? null : JSON.stringify([...undeliveredRunMessages(thread.projection)]);
+}
+
+function parseUndeliveredMessages(
+  signature: string | null,
+): ReadonlyMap<string, string> | undefined {
+  return signature === null
+    ? undefined
+    : new Map(JSON.parse(signature) as Array<[string, string]>);
+}
+
 function ThreadRouteContent(
   props: ThreadRouteScreenProps & {
     readonly selectedThreadDetailState: ReturnType<typeof useSelectedThreadDetailState>;
@@ -359,9 +377,13 @@ function ThreadRouteContent(
   );
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
+  const selectedThreadProjection = useSelectedThreadProjection();
+  // Keyed by contents: the projection changes with every streamed item, and a new map
+  // would re-render every feed row.
+  const undeliveredSignature = undeliveredMessagesSignature(selectedThreadProjection);
   const undeliveredMessages = useMemo(
-    () => undeliveredUserMessages(selectedThreadDetail?.activities ?? []),
-    [selectedThreadDetail?.activities],
+    () => parseUndeliveredMessages(undeliveredSignature),
+    [undeliveredSignature],
   );
   // "Load earlier turns" header state for windowed (paginated) thread loads.
   const loadEarlierTurns = useMemo(() => {

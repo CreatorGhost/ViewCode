@@ -51,6 +51,8 @@ import { TimelineSystemDivider } from "./TimelineSystemDivider";
 import { subagentResumedSince } from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
 import { T3Wordmark } from "../T3Wordmark";
+import { useV2ItemSupport } from "../../state/v2ItemSupport";
+import { MessageCopyButton } from "./MessageCopyButton";
 
 const LIFECYCLE_TYPES = new Set<OrchestrationV2TurnItem["type"]>([
   "run_interrupt_request",
@@ -128,6 +130,7 @@ export function V2LifecycleRow(props: {
     return (
       <EnvironmentHandoffRow
         environmentId={props.environmentId}
+        item={item}
         endpoints={resolveHandoffEndpoints(item, props.runs)}
         failed={item.status === "failed"}
       />
@@ -567,15 +570,25 @@ function SubagentTimelineTooltip(
 
 function EnvironmentHandoffRow({
   environmentId,
+  item,
   ...props
 }: {
   readonly environmentId: EnvironmentId;
+  readonly item: Extract<OrchestrationV2TurnItem, { type: "handoff" }>;
   readonly endpoints: HandoffEndpoints;
   readonly failed: boolean;
 }) {
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
-  return <HandoffRow {...props} providers={providers} />;
+  const { contextHandoff } = useV2ItemSupport({
+    environmentId,
+    sourceThreadId: item.threadId,
+    sourceItemId: item.id,
+  });
+  const transferredContext = contextHandoff?.summaryText.trim() ? contextHandoff.summaryText : null;
+  return (
+    <HandoffRow {...props} providers={providers} transferredContext={transferredContext} />
+  );
 }
 
 export function HandoffRow(props: {
@@ -583,6 +596,8 @@ export function HandoffRow(props: {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly pending?: boolean;
   readonly failed?: boolean;
+  /** The context the new provider was given, offered for copying. */
+  readonly transferredContext?: string | null;
 }) {
   const { from: fromEndpoints, to } = props.endpoints;
   return (
@@ -591,6 +606,16 @@ export function HandoffRow(props: {
       icon={ArrowRightLeftIcon}
       showDetailSeparator={false}
       tone={props.failed ? "danger" : "neutral"}
+      trailing={
+        props.transferredContext ? (
+          <MessageCopyButton
+            text={props.transferredContext}
+            label="Copy transferred context"
+            size="icon-xs"
+            variant="ghost"
+          />
+        ) : null
+      }
       detail={
         <span className="inline-flex min-w-0 flex-wrap items-center justify-center gap-1.5">
           {fromEndpoints.map((endpoint, index) => (

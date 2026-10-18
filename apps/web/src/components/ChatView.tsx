@@ -99,6 +99,7 @@ import {
 import { readPastedComposerContext } from "./composerInlineTokenPaste";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
+import { undeliveredRunMessages } from "@t3tools/client-runtime/viewcodeThreadAtoms";
 import { childThreadInputsTitle } from "@t3tools/client-runtime/state/threads";
 import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadActions";
 import {
@@ -1163,6 +1164,8 @@ export default function ChatView(props: ChatViewProps) {
   const activeThreadLiveTokenUsage = latestProviderTurnTokenUsage(
     serverProjection?.providerTurns ?? [],
   );
+  const undeliveredMessages =
+    serverProjection === null ? undefined : undeliveredRunMessages(serverProjection);
   const serverVisibleTurnItems = useThreadVisibleTurnItems(routeThreadDetailRef);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {
@@ -8149,6 +8152,7 @@ export default function ChatView(props: ChatViewProps) {
                 supportsConversationRollback={
                   !paintOnlyDisplayedTimeline && supportsConversationRollback
                 }
+                undeliveredMessages={paintOnlyDisplayedTimeline ? undefined : undeliveredMessages}
                 onRevertToTurnCount={
                   paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertTimelineTurnStable
                 }

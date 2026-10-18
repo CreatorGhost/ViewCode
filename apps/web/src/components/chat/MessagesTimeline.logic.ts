@@ -575,6 +575,8 @@ type MessagesTimelineRowContent =
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
+      /** Set on a user message the provider never received; the run's failure. */
+      undeliveredReason?: string | undefined;
     }
   | {
       kind: "assistant-meta";
@@ -1341,6 +1343,8 @@ export function deriveMessagesTimelineRows(input: {
   supportsConversationRollback: boolean;
   liveAgentTaskIds?: ReadonlySet<string> | undefined;
   worktreeSetup?: WorktreeSetupSnapshot | null;
+  /** User messages the agent never received, by id (see `undeliveredRunMessages`). */
+  undeliveredMessages?: ReadonlyMap<string, string> | undefined;
 }): MessagesTimelineRow[] {
   const timelineEntries = timelineRowEntries(input.timelineEntries);
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
@@ -1831,6 +1835,10 @@ export function deriveMessagesTimelineRows(input: {
         timelineEntry.message.role === "user"
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
           : undefined,
+      undeliveredReason:
+        timelineEntry.message.role === "user"
+          ? input.undeliveredMessages?.get(timelineEntry.message.id)
+          : undefined,
     });
   }
 
@@ -2043,6 +2051,7 @@ function replaceStreamingMessageRows(
     expandedRunIds: previousExpandedRuns,
     expandedAttemptIds: previousExpandedAttempts,
     expandedWorkGroupIds: previousExpandedGroups,
+    undeliveredMessages: previousUndelivered,
     ...previousContext
   } = previous.input;
   const {
@@ -2052,6 +2061,7 @@ function replaceStreamingMessageRows(
     expandedRunIds,
     expandedAttemptIds,
     expandedWorkGroupIds,
+    undeliveredMessages,
     ...context
   } = input;
   // V2 shell and checkpoint selectors produce fresh summaries for each event.
@@ -2063,6 +2073,7 @@ function replaceStreamingMessageRows(
     !shallow(previousExpandedRuns, expandedRunIds) ||
     !shallow(previousExpandedAttempts, expandedAttemptIds) ||
     !shallow(previousExpandedGroups, expandedWorkGroupIds) ||
+    !shallow(previousUndelivered, undeliveredMessages) ||
     !sameCheckpointSummaries(previousCheckpoints, turnDiffSummaries)
   ) {
     return null;
@@ -2254,7 +2265,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
-        a.revertTurnCount === bm.revertTurnCount
+        a.revertTurnCount === bm.revertTurnCount &&
+        a.undeliveredReason === bm.undeliveredReason
       );
     }
   }

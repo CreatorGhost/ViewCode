@@ -66,6 +66,11 @@ export function deriveLatestContextWindowSnapshot(
       cachedInputTokens: liveUsage.cachedInputTokens ?? null,
       outputTokens: liveUsage.outputTokens ?? null,
       reasoningOutputTokens: liveUsage.reasoningOutputTokens ?? null,
+      // Claude reports the cache write's lifetime; the cache-expiry banner reads it in seconds.
+      promptCacheTtlSeconds:
+        liveUsage.promptCacheTtlMs === undefined
+          ? null
+          : Math.max(1, Math.round(liveUsage.promptCacheTtlMs / 1_000)),
       lastUsedTokens: null,
       lastInputTokens: null,
       lastCachedInputTokens: null,

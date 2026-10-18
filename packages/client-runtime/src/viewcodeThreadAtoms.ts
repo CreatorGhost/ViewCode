@@ -1,5 +1,4 @@
 import type {
-  OrchestrationThreadActivity,
   OrchestrationV2ThreadProjection,
   ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -184,21 +183,46 @@ export function threadImagePayloadBytes(messages: ReadonlyArray<OrchestrationMes
 }
 
 const NO_UNDELIVERED_MESSAGES: ReadonlyMap<string, string> = new Map();
-export function undeliveredUserMessages(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
+const UNDELIVERED_RUN_REASON = "The provider never started a turn for this message.";
+
+/**
+ * Sent user messages the provider never received, keyed by message id, with the
+ * failure the run reported. A run that failed before its provider started a turn
+ * (a refused turn start, or a failed run preparation) has no provider turn; its
+ * message is in ViewCode's history but not in the provider's session, which is
+ * what the agent resumes from. Only a message's latest run counts, so a retry
+ * that got through clears it. Returns one shared empty map when there is none.
+ */
+export function undeliveredRunMessages(
+  projection: Pick<
+    OrchestrationV2ThreadProjection,
+    "runs" | "attempts" | "providerTurns" | "turnItems"
+  >,
 ): ReadonlyMap<string, string> {
+  const latestRunByMessage = new Map<string, OrchestrationV2ThreadProjection["runs"][number]>();
+  for (const run of projection.runs) {
+    const latest = latestRunByMessage.get(run.userMessageId);
+    if (latest === undefined || run.ordinal > latest.ordinal)
+      latestRunByMessage.set(run.userMessageId, run);
+  }
   let result: Map<string, string> | undefined;
-  for (const activity of activities) {
-    if (activity.kind !== "provider.turn.start.failed") continue;
-    const payload =
-      typeof activity.payload === "object" && activity.payload !== null
-        ? (activity.payload as { readonly requestId?: unknown; readonly detail?: unknown })
-        : null;
-    if (typeof payload?.requestId !== "string") continue;
+  for (const [messageId, run] of latestRunByMessage) {
+    if (run.status !== "failed") continue;
+    const attempts = projection.attempts.filter((attempt) => attempt.runId === run.id);
+    const started = projection.providerTurns.some(
+      (turn) =>
+        attempts.some(
+          (attempt) => turn.runAttemptId === attempt.id || turn.id === attempt.providerTurnId,
+        ),
+    );
+    if (started) continue;
+    const failure = projection.turnItems.findLast(
+      (item) => item.type === "error" && item.runId === run.id,
+    );
     result ??= new Map();
     result.set(
-      payload.requestId,
-      typeof payload.detail === "string" ? payload.detail : activity.summary,
+      messageId,
+      failure?.type === "error" ? failure.failure.message : UNDELIVERED_RUN_REASON,
     );
   }
   return result ?? NO_UNDELIVERED_MESSAGES;

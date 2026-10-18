@@ -31,6 +31,7 @@ import {
 import {
   COMPOSER_CONTEXT_KINDS,
   ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
+  REVIEW_FINDINGS_ACTIVITY_KIND,
   type AssistantCitation,
   type EnvironmentId,
   type MessageId,
@@ -196,7 +197,7 @@ import {
   rememberTimelinePosition,
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
-import { MessageCopyButton } from "./MessageCopyButton";
+import { MessageCopyButton, ReplyCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
@@ -494,6 +495,8 @@ interface MessagesTimelineProps {
     readonly scopeId: string;
   }) => void;
   supportsConversationRollback: boolean;
+  /** User messages the agent never received, by id, with the run's failure. */
+  undeliveredMessages?: ReadonlyMap<string, string> | undefined;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onSendAppMessage?: (text: string) => Promise<void>;
@@ -590,6 +593,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onForkFromRun,
   onRollbackCheckpoint,
   supportsConversationRollback,
+  undeliveredMessages,
   onRevertToTurnCount,
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
   onSendAppMessage,
@@ -868,6 +872,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     turnDiffSummaries,
     supportsConversationRollback,
     worktreeSetup,
+    undeliveredMessages,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
   // Run status/timestamps churn on every stream event; the shared row context
@@ -2434,6 +2439,9 @@ function NativeUserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mes
           </span>
         </div>
       ) : null}
+      {row.undeliveredReason !== undefined ? (
+        <UndeliveredMessageNotice reason={row.undeliveredReason} />
+      ) : null}
       <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
@@ -2525,6 +2533,27 @@ function UserMessageIntentMarker({
           : intent === "promoted_queued_to_steer"
             ? "Originally queued, then promoted to steer the active turn"
             : "Steered the active turn"}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/**
+ * A sent message the provider never started a turn for. It stays in the
+ * history, so without this it reads as delivered while the agent, which
+ * resumes the provider's own session, may never have seen it.
+ */
+function UndeliveredMessageNotice({ reason }: { reason: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<p className="flex max-w-[80%] items-center gap-1 pe-1 text-destructive text-xs" />}
+      >
+        <CircleAlertIcon className="size-3 shrink-0" aria-hidden />
+        Not delivered. The agent may not have received this message.
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        <span className="block max-w-sm">{reason}</span>
       </TooltipPopup>
     </Tooltip>
   );
@@ -2798,7 +2827,7 @@ function AssistantMessageMeta({
         "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
         alwaysVisible
           ? "opacity-100"
-          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
+          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100 has-[[data-popup-open]]:opacity-100",
         className,
       )}
     >
@@ -2851,7 +2880,16 @@ function AssistantCopyButton({
 
   return (
     <>
-      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <ReplyCopyButton
+        markdown={assistantCopyState.text ?? ""}
+        target={() => {
+          const viewport = ctx.listRef.current?.getScrollableNode();
+          if (!(viewport instanceof HTMLElement)) return null;
+          return viewport.querySelector(
+            `[data-assistant-citation-source="${CSS.escape(message.id)}"]`,
+          );
+        }}
+      />
       {!streaming ? (
         <ReadAloudButton
           messageKey={`${ctx.threadRef?.environmentId ?? ctx.activeThreadEnvironmentId}:${ctx.threadRef?.threadId ?? "draft"}:${message.id}`}
@@ -4793,6 +4831,7 @@ function sameRowsInput(left: MessagesTimelineRowsInput, right: MessagesTimelineR
     const next = right[key];
     if (Object.is(previous, next)) continue;
     if (previous instanceof Set && next instanceof Set && shallow(previous, next)) continue;
+    if (previous instanceof Map && next instanceof Map && shallow(previous, next)) continue;
     return false;
   }
   return Object.keys(left).length === Object.keys(right).length;
@@ -5646,6 +5685,19 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
               onKeyDown={stopRowToggle}
             >
               Open subagent
+            </InlineButton>
+          ) : null}
+          {workEntry.sourceActivityKind === REVIEW_FINDINGS_ACTIVITY_KIND && threadRef ? (
+            // The findings themselves live in the Review panel; the row only says they arrived.
+            <InlineButton
+              aria-label="Open review findings in panel"
+              onClick={(event) => {
+                event.stopPropagation();
+                useRightPanelStore.getState().open(threadRef, "review");
+              }}
+              onKeyDown={stopRowToggle}
+            >
+              Open in panel
             </InlineButton>
           ) : null}
           {showFailedIndicator &&

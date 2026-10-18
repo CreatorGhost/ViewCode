@@ -12,6 +12,8 @@ export function TimelineSystemDivider(props: {
   readonly showDetailSeparator?: boolean;
   readonly actionLabel?: string;
   readonly onAction?: () => void;
+  /** A control beside the label, such as a copy button. */
+  readonly trailing?: ReactNode;
 }) {
   const Icon = props.icon;
   const content = (
@@ -61,6 +63,7 @@ export function TimelineSystemDivider(props: {
           {content}
         </span>
       )}
+      {props.trailing}
       <span aria-hidden="true" className="h-px flex-1 bg-border/70" />
     </div>
   );
