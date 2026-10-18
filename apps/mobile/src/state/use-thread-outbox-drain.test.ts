@@ -1,5 +1,13 @@
 import { acknowledgedThreadMessagesAtom } from "./acknowledged-thread-messages";
-import { CommandId, ComposerContextId, EnvironmentId, MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  ComposerContextId,
+  EnvironmentId,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { PreparedTurnAttachments } from "../lib/attachmentUpload";
@@ -68,6 +76,8 @@ vi.mock("../lib/uuid", () => ({
 vi.mock("../lib/attachmentUpload", () => ({
   prepareTurnAttachments: harness.prepareTurnAttachments,
 }));
+
+vi.mock("./session", () => ({ readEnvironmentScope: () => true }));
 
 vi.mock("./entities", () => ({
   useProjects: () => [],

@@ -1,5 +1,11 @@
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
-import type { EnvironmentId, ModelSelection, RuntimeMode, ServerConfig } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ModelSelection,
+  RuntimeMode,
+  ServerConfig,
+} from "@t3tools/contracts";
 import { useCallback, useEffect, useId, useMemo, useRef } from "react";
 import { Keyboard } from "react-native";
 
@@ -18,6 +24,7 @@ import {
  */
 export function SidechatModelPicker(props: {
   readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
   readonly serverConfig: ServerConfig | null;
   readonly selection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
@@ -33,8 +40,8 @@ export function SidechatModelPicker(props: {
   const ownerId = useId();
   const presentedRef = useRef(false);
   const modelOptions = useMemo(
-    () => buildModelOptions(props.serverConfig, props.selection),
-    [props.serverConfig, props.selection],
+    () => buildModelOptions(props.serverConfig, props.selection, undefined, props.projectId),
+    [props.serverConfig, props.selection, props.projectId],
   );
   const providerGroups = useMemo(() => groupByProvider(modelOptions), [modelOptions]);
   const currentModelOption = modelOptions.find(

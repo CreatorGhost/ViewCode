@@ -1,4 +1,12 @@
-import { AuthOrchestrationOperateScope, CommandId, EnvironmentId, MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  CommandId,
+  EnvironmentId,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult, type Atom } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -133,6 +141,7 @@ vi.mock("./use-composer-drafts", async () => {
     undoComposerDraftMerge: vi.fn(),
     updateComposerDraftSettings: vi.fn(),
     waitForComposerDraftsLoaded: vi.fn(),
+    waitForLegacyArchiveRestore: vi.fn(async () => {}),
   };
 });
 

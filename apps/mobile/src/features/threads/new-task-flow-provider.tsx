@@ -1,7 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { EnvironmentId, ModelSelection, ProjectReadFileResult, ProviderInteractionMode, ProviderOptionSelection, RuntimeMode, ServerProvider } from "@t3tools/contracts";
-import { CommandId, DEFAULT_PROVIDER_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, DEFAULT_SERVER_SETTINGS, MessageId, repositoryGroupingKeyOf, T3_PROJECT_FILE_NAME, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ModelSelection,
+  ProjectReadFileResult,
+  ProviderInteractionMode,
+  ProviderOptionSelection,
+  RuntimeMode,
+  ServerProvider,
+} from "@t3tools/contracts";
+import {
+  CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  DEFAULT_SERVER_SETTINGS,
+  MessageId,
+  repositoryGroupingKeyOf,
+  T3_PROJECT_FILE_NAME,
+  ThreadId,
+} from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
@@ -514,27 +531,33 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const draftModelSelection = resolveSelectableModelSelection(
     selectedEnvironmentServerConfig,
     selectedProjectDraft.modelSelection ?? null,
+    selectedProject?.id ?? null,
   );
   const projectDefaultModelSelection = resolveDefaultableModelSelection(
     selectedEnvironmentServerConfig,
     projectSettings.settings.defaultModelSelection,
+    selectedProject?.id ?? null,
   );
   const storedStickyModelSelection = useStickyComposerModelSelection();
   const stickyModelSelection = resolveDefaultableModelSelection(
     selectedEnvironmentServerConfig,
     storedStickyModelSelection,
+    selectedProject?.id ?? null,
   );
   const modelOptions = useMemo(
     () =>
       buildModelOptions(
         selectedEnvironmentServerConfig,
         draftModelSelection ?? projectDefaultModelSelection ?? stickyModelSelection,
+        undefined,
+        selectedProject?.id ?? null,
       ),
     [
       selectedEnvironmentServerConfig,
       draftModelSelection,
       projectDefaultModelSelection,
       stickyModelSelection,
+      selectedProject?.id,
     ],
   );
 
@@ -1001,6 +1024,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         resolveSelectableModelSelection(
           selectedEnvironmentServerConfig,
           draft.modelSelection ?? null,
+          selectedProject.id,
         ) ?? selectedModel;
       // A shared image or file is a task on its own; text is optional.
       if ((text.length === 0 && draft.attachments.length === 0) || !draftModelSelection) {

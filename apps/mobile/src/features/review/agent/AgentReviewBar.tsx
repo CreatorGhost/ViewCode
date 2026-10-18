@@ -16,7 +16,13 @@ import {
   reviewStatusText,
 } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { AGENT_REVIEW_MODES, type AgentReviewMode, type EnvironmentId, type ModelSelection, type ThreadId } from "@t3tools/contracts";
+import {
+  AGENT_REVIEW_MODES,
+  type AgentReviewMode,
+  type EnvironmentId,
+  type ModelSelection,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { REVIEW_VERDICT_LABELS } from "@t3tools/shared/reviewFindings";
 import {
   resolveThreadCurrentPullRequestLink,
@@ -327,6 +333,7 @@ export function AgentReviewBar(props: {
             {modelSelection !== null ? (
               <SidechatModelPicker
                 environmentId={environmentId}
+                projectId={shell.projectId}
                 serverConfig={serverConfig}
                 selection={modelSelection}
                 runtimeMode={shell.runtimeMode}

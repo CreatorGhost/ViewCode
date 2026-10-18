@@ -1,8 +1,17 @@
+import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
+import { environmentSession } from "./session";
+import { useEnvironmentPresentation } from "./presentation";
 import type { OrchestrationThread } from "@t3tools/client-runtime/viewcodeThread";
 
 import { filterComposerPullRequestMatches } from "@t3tools/shared/composerPullRequestMatches";
 import type { VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
-import type { EnvironmentId, ProjectId, ThreadId, VcsListRefsResult, VcsRef } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  ThreadId,
+  VcsListRefsResult,
+  VcsRef,
+} from "@t3tools/contracts";
 import {
   createThreadSearchResultsAtomFamily,
   makeThreadSearchKey,
@@ -290,18 +299,19 @@ export function usePaginatedBranches(target: VcsRefTarget) {
       appAtomRegistry.refresh(firstPage);
     }
   }, [pageAtoms, targetKey]);
+  const nextCursor = data?.nextCursor;
   const loadNext = useCallback(() => {
-    if (targetKey === null || data?.nextCursor === null || data?.nextCursor === undefined) {
+    if (targetKey === null || nextCursor === null || nextCursor === undefined) {
       return;
     }
     setPagination((current) => {
       const currentCursors =
         current.targetKey === targetKey ? current.cursors : INITIAL_BRANCH_CURSORS;
-      return currentCursors.includes(data.nextCursor!)
+      return currentCursors.includes(nextCursor)
         ? { targetKey, cursors: currentCursors }
-        : { targetKey, cursors: [...currentCursors, data.nextCursor!] };
+        : { targetKey, cursors: [...currentCursors, nextCursor] };
     });
-  }, [data?.nextCursor, targetKey]);
+  }, [nextCursor, targetKey]);
 
   return {
     data,
@@ -324,39 +334,64 @@ export function useComposerPathSearch(target: ComposerPathSearchTarget) {
     [target.cwd, target.environmentId, target.query],
   );
   const debouncedTarget = useDebouncedValue(normalizedTarget, COMPOSER_PATH_SEARCH_DEBOUNCE_MS);
-  const result = useEnvironmentQuery(
+  const fileAccessSession = useEnvironmentQuery(
+    debouncedTarget.environmentId === null
+      ? null
+      : environmentSession.sessionStateAtom(debouncedTarget.environmentId),
+  );
+  const fileEnvironment = useEnvironmentPresentation(debouncedTarget.environmentId);
+  const fileAccess = resolveFilesystemReadAccess({
+    isCatalogReady: fileEnvironment.isReady,
+    connection: fileEnvironment.presentation?.connection ?? null,
+    session: fileAccessSession.data,
+    sessionError: fileAccessSession.error,
+  });
+  const { canReadFiles } = fileAccess;
+  const searchTarget =
     debouncedTarget.environmentId !== null &&
-      debouncedTarget.cwd !== null &&
-      debouncedTarget.query.length > 0
-      ? projectEnvironment.searchEntries({
+    debouncedTarget.cwd !== null &&
+    debouncedTarget.query.length > 0
+      ? {
           environmentId: debouncedTarget.environmentId,
           input: {
             cwd: debouncedTarget.cwd,
             query: debouncedTarget.query,
             limit: COMPOSER_PATH_SEARCH_LIMIT,
           },
-        })
-      : null,
+        }
+      : null;
+  const result = useEnvironmentQuery(
+    canReadFiles && searchTarget !== null ? projectEnvironment.searchEntries(searchTarget) : null,
   );
+  const hasTarget = searchTarget !== null;
 
   return {
     entries: result.data?.entries ?? [],
-    error: result.error,
-    isPending: normalizedTarget.query !== debouncedTarget.query || result.isPending,
+    error:
+      !hasTarget || fileAccess.isPending
+        ? null
+        : canReadFiles
+          ? result.error
+          : (fileAccess.error ?? "This connection cannot search host files."),
+    isPending:
+      normalizedTarget.query !== debouncedTarget.query ||
+      (hasTarget && (fileAccess.isPending || result.isPending)),
     refresh: result.refresh,
   };
 }
 
 export function useCheckpointDiff(target: CheckpointDiffTarget) {
+  const { environmentId, fromTurnCount, ignoreWhitespace, threadId, toTurnCount } = target;
   const targets = useMemo(
-    () => buildCheckpointDiffTargets(target),
-    [
-      target.environmentId,
-      target.fromTurnCount,
-      target.ignoreWhitespace,
-      target.threadId,
-      target.toTurnCount,
-    ],
+    () =>
+      buildCheckpointDiffTargets({
+        environmentId,
+        fromTurnCount,
+        ignoreWhitespace,
+        threadId,
+        toTurnCount,
+      }),
+    [environmentId, fromTurnCount, ignoreWhitespace, threadId, toTurnCount],
   );
   const fullThread = useEnvironmentQuery(
     targets.fullThread === null

@@ -391,6 +391,7 @@ function SideChatContent({ route }: SideChatSheetProps) {
                 {selection && parent ? (
                   <SidechatModelPicker
                     environmentId={environmentId}
+                    projectId={parent.projectId}
                     serverConfig={serverConfig}
                     selection={selection}
                     runtimeMode={active?.runtimeMode ?? parent.runtimeMode}

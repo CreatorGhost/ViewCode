@@ -28,7 +28,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useFontFamily } from "../../lib/useFontFamily";
 import { modelChipLabel } from "../../lib/providerOptions";
-import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, PROVIDER_SEND_TURN_MAX_INPUT_CHARS, resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import {
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  resolveEnvironmentMachineKind,
+} from "@t3tools/contracts";
 
 import {
   ComposerEditor,
@@ -108,9 +112,9 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ProjectCloneBanner } from "../../components/ProjectCloneBanner";
 import {
   isModelSelectionUnavailable,
+  describeUnavailableModelSelection,
   resolveSelectableModelSelection,
 } from "../../lib/modelOptions";
-import { deriveThreadTitleFromPrompt } from "../../lib/projectThreadStartTurn";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
 import { useRemoteConnectionStatus } from "../../state/use-remote-environment-registry";
 import { useNewTaskFlow } from "./new-task-flow-provider";
@@ -1220,6 +1224,7 @@ export function NewTaskDraftScreen(props: {
       resolveSelectableModelSelection(
         selectedEnvironmentServerConfig,
         draft.modelSelection ?? null,
+        selectedProject?.id ?? null,
       ) ?? flow.selectedModel;
     const workspaceMode = draft.workspaceSelection?.mode ?? flow.workspaceMode;
     const selectedBranchName = draft.workspaceSelection?.branch ?? flow.selectedBranchName;
@@ -1236,12 +1241,18 @@ export function NewTaskDraftScreen(props: {
     }
     if (
       environmentConnected &&
-      isModelSelectionUnavailable(selectedEnvironmentServerConfig, modelSelection)
+      isModelSelectionUnavailable(
+        selectedEnvironmentServerConfig,
+        modelSelection,
+        selectedProject?.id ?? null,
+      )
     ) {
-      Alert.alert(
-        "Antigravity model unavailable",
-        "Set up Antigravity on web or desktop, or choose another model.",
+      const { title, detail } = describeUnavailableModelSelection(
+        selectedEnvironmentServerConfig,
+        modelSelection,
+        selectedProject?.id ?? null,
       );
+      Alert.alert(title, detail);
       return;
     }
     // T3's own limits command is answered by the thread composer; a new task would

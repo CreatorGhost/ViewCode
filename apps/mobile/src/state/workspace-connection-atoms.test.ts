@@ -11,7 +11,8 @@ import * as Option from "effect/Option";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { createWorkspaceConnectionAtoms } from "./workspace-connection-atoms";
-import { projectWorkspaceEnvironment, projectWorkspaceState } from "./workspaceModel";
+import { projectEnvironmentConnectionSummary as projectWorkspaceEnvironment } from "@t3tools/client-runtime/state/presentation";
+import { projectWorkspaceState } from "./workspaceModel";
 
 const ID = EnvironmentId.make("environment-1");
 function presentation(): EnvironmentPresentation {

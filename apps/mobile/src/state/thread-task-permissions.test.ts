@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   clearDraft: vi.fn(),
   approve: vi.fn(),
   answer: vi.fn(),
+  dismiss: vi.fn(),
   feedback: vi.fn(),
   updateSettings: vi.fn(),
   question: {
@@ -36,6 +37,7 @@ const state = vi.hoisted(() => ({
 vi.mock("react", () => ({
   useCallback: <A>(callback: A) => callback,
   useEffect: () => {},
+  useLayoutEffect: () => {},
   useRef: <A>(current: A) => ({ current }),
   useMemo: <A>(factory: () => A) => factory(),
   useState: <A>(initial: A | (() => A)) => [
@@ -78,6 +80,7 @@ vi.mock("./use-thread-selection", () => ({
   }),
 }));
 vi.mock("./use-thread-detail", () => ({
+  useSelectedThreadDetail: () => null,
   useSelectedThreadProjection: () => null,
   useSelectedThreadVisibleTurnItems: () => [],
   useSelectedThreadPendingRequests: () => state.pendingRequests,
@@ -90,6 +93,7 @@ vi.mock("./threads", async () => {
     threadEnvironment: {
       respondToApproval: state.approve,
       respondToUserInput: state.answer,
+      dismissUserInput: state.dismiss,
       uploadFeedback: state.feedback,
     },
   };
@@ -111,6 +115,8 @@ vi.mock("./use-composer-drafts", async () => {
   const { Atom } = await import("effect/reactivity");
   return {
     composerDraftsAtom: Atom.make({}),
+    composerDraftNeedsThreadReconcile: () => false,
+    reconcileComposerDraftWithThread: vi.fn(),
     composerContextImportsAtom: Atom.make({}),
     getComposerDraftSnapshot: () => state.draft,
     clearComposerDraftContent: state.clearDraft,
@@ -166,6 +172,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.approve.mockResolvedValue(AsyncResult.success(undefined));
   state.answer.mockResolvedValue(AsyncResult.success(undefined));
+  state.dismiss.mockResolvedValue(AsyncResult.success(undefined));
   state.feedback.mockResolvedValue(AsyncResult.success({ feedbackId: "feedback" }));
 });
 
@@ -256,5 +263,51 @@ describe("mobile task permissions", () => {
       environmentId: "secondary",
       input: { threadId: "thread", requestId: "input", answers: { language: "TypeScript" } },
     });
+  });
+
+  it("blocks a retained dismissal after revocation and accepts it after regrant", async () => {
+    state.pendingRequests = {
+      approvals: [],
+      userInputs: [
+        {
+          requestId: RuntimeRequestId.make("dismiss-input"),
+          createdAt: "2026-09-05T00:00:00.000Z",
+          responseCapability: "live",
+          dismissible: true,
+          questions: [state.question],
+        },
+      ],
+    };
+    state.grantedEnvironments.add("secondary");
+    const requests = useSelectedThreadRequests();
+    state.grantedEnvironments.delete("secondary");
+    await requests.onDismissUserInput();
+    expect(state.dismiss).not.toHaveBeenCalled();
+    state.grantedEnvironments.add("secondary");
+    await requests.onDismissUserInput();
+    expect(state.dismiss).toHaveBeenCalledWith({
+      environmentId: "secondary",
+      input: { threadId: "thread", requestId: "dismiss-input" },
+    });
+  });
+
+  it("does not respond to an approval whose provider can no longer resume", async () => {
+    state.grantedEnvironments.add("secondary");
+    state.pendingRequests = {
+      approvals: [
+        {
+          requestId: RuntimeRequestId.make("unavailable-approval"),
+          requestKind: "command",
+          createdAt: "2026-09-05T00:00:00.000Z",
+          responseCapability: "not_resumable",
+        },
+      ],
+      userInputs: [],
+    };
+    await useSelectedThreadRequests().onRespondToApproval(
+      RuntimeRequestId.make("unavailable-approval"),
+      "accept",
+    );
+    expect(state.approve).not.toHaveBeenCalled();
   });
 });
