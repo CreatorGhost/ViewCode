@@ -176,6 +176,35 @@ describe("web cloud link environment client", () => {
     }),
   );
 
+  it.effect("keeps gateway timeout recovery and trace without replaying an untyped failure", () =>
+    Effect.gen(function* () {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json({ challenge: "challenge", expiresAt: "2026-06-06T00:05:00.000Z" }),
+        )
+        .mockResolvedValueOnce(Response.json("signed-proof"))
+        .mockResolvedValueOnce(
+          new Response("Gateway Timeout", {
+            status: 504,
+            headers: { traceparent: "00-4684d7d140f34f0393d42744d240e207-0baf648c44f4bce6-01" },
+          }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      const error = yield* withServices(
+        linkPrimaryEnvironmentToCloud({
+          target: TARGET,
+          clerkToken: "clerk-token",
+        }),
+      ).pipe(Effect.flip);
+      expect(error.message).toContain("HTTP 504");
+      expect(error.message).toContain("Try again");
+      expect(error.message).not.toContain("/v1/client/");
+      expect(error.traceId).toBe("4684d7d140f34f0393d42744d240e207");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    }),
+  );
+
   it.effect("keeps the relay rejection reason and trace ID in the setup error", () =>
     Effect.gen(function* () {
       const fetchMock = vi
