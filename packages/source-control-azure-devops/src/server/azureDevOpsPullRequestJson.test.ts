@@ -238,6 +238,24 @@ describe("decodeViewerJson", () => {
     ).toEqual({ name: "0b6e2c1d-0000-0000-0000-000000000000", isPerson: false });
   });
 
+  it("trims account names and does not assume an unknown account type is a person", () => {
+    expect(
+      expectSuccess(
+        decodeViewerJson(asJson({ user: { name: " bilal@acme.dev ", type: " User " } })),
+      ),
+    ).toEqual({
+      name: "bilal@acme.dev",
+      isPerson: true,
+    });
+    expect(expectSuccess(decodeViewerJson(asJson({ user: { name: "automation" } })))).toEqual({
+      name: "automation",
+      isPerson: false,
+    });
+    expect(
+      expectSuccess(decodeViewerJson(asJson({ user: { name: " ", type: "user" } }))),
+    ).toBeNull();
+  });
+
   it("returns nothing when nobody is signed in", () => {
     expect(expectSuccess(decodeViewerJson(asJson({ user: null })))).toBeNull();
   });

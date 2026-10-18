@@ -499,9 +499,10 @@ export const make = Effect.gen(function* () {
               }),
             );
           }
-          return decoded.success === null
+          // A service principal's Azure account name is its application id, not its DevOps identity.
+          return decoded.success === null || !decoded.success.isPerson
             ? Effect.fail(new AzureDevOpsViewerUnavailableError({ command: "az", cwd: input.cwd }))
-            : Effect.succeed(decoded.success);
+            : Effect.succeed(decoded.success.name);
         }),
         // `az devops login` signs in with a personal access token, which `az account show` knows
         // nothing about, and nothing in `az` prints whose token it is. `--creator me` is resolved

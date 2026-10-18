@@ -430,6 +430,56 @@ layer("AzureDevOpsPullRequestCli.layer", (it) => {
     }),
   );
 
+  it.effect(
+    "resolves a service principal through DevOps instead of treating its appId as a person",
+    () =>
+      Effect.gen(function* () {
+        mockedExecute
+          .mockReturnValueOnce(
+            Effect.succeed(
+              output(
+                JSON.stringify({
+                  name: "0b6e2c1d-0000-0000-0000-000000000000",
+                  type: "servicePrincipal",
+                }),
+              ),
+            ),
+          )
+          .mockReturnValueOnce(
+            Effect.succeed(
+              output(
+                JSON.stringify([
+                  { ...pullRequestRow, createdBy: { uniqueName: "build-identity@acme.dev" } },
+                ]),
+              ),
+            ),
+          );
+        const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
+        assert.strictEqual(yield* cli.getViewer({ cwd: "/w" }), "build-identity@acme.dev");
+        expect(argsOfCall(1)).toEqual(expect.arrayContaining(["--creator", "me", "--top", "1"]));
+      }),
+  );
+
+  it.effect("does not return a service principal appId when DevOps cannot name its viewer", () =>
+    Effect.gen(function* () {
+      mockedExecute
+        .mockReturnValueOnce(
+          Effect.succeed(
+            output(
+              JSON.stringify({
+                name: "0b6e2c1d-0000-0000-0000-000000000000",
+                type: "servicePrincipal",
+              }),
+            ),
+          ),
+        )
+        .mockReturnValueOnce(Effect.succeed(output("[]")));
+      const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
+      const error = yield* Effect.flip(cli.getViewer({ cwd: "/w" }));
+      assert.strictEqual(error._tag, "AzureDevOpsViewerUnavailableError");
+    }),
+  );
+
   it.effect("names a token sign-in by the viewer's own pull request", () =>
     Effect.gen(function* () {
       const notLoggedIn = new AzureDevOpsCli.AzureDevOpsCliAuthenticationError({

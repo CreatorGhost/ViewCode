@@ -60,7 +60,11 @@ const RawPullRequestSchema = Schema.Struct({
         name: Schema.optional(Schema.NullOr(Schema.String)),
         webUrl: Schema.optional(Schema.NullOr(Schema.String)),
         project: Schema.optional(
-          Schema.NullOr(Schema.Struct({ name: Schema.optional(Schema.NullOr(Schema.String)) })),
+          Schema.NullOr(
+            Schema.Struct({
+              name: Schema.optional(Schema.NullOr(Schema.String)),
+            }),
+          ),
         ),
       }),
     ),
@@ -104,9 +108,23 @@ const RawThreadPageSchema = Schema.Struct({
 
 const RawViewerSchema = Schema.Struct({
   user: Schema.optional(
-    Schema.NullOr(Schema.Struct({ name: Schema.optional(Schema.NullOr(Schema.String)) })),
+    Schema.NullOr(
+      Schema.Struct({
+        name: Schema.optional(Schema.NullOr(Schema.String)),
+        type: Schema.optional(Schema.NullOr(Schema.String)),
+      }),
+    ),
   ),
 });
+
+const RawIdentitySelfSchema = Schema.Struct({
+  accountName: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+export interface AzureDevOpsViewer {
+  readonly name: string;
+  readonly isPerson: boolean;
+}
 
 export interface AzureDevOpsRepositoryLocation {
   readonly project: string;
@@ -251,6 +269,7 @@ const decodePullRequest = decodeJsonResult(RawPullRequestSchema);
 const decodeThreadPage = decodeJsonResult(RawThreadPageSchema);
 const decodeThreadEntry = Schema.decodeUnknownExit(RawThreadSchema);
 const decodeViewer = decodeJsonResult(RawViewerSchema);
+const decodeIdentitySelf = decodeJsonResult(RawIdentitySelfSchema);
 
 type DecodeFailure = Cause.Cause<Schema.SchemaError>;
 
@@ -292,10 +311,26 @@ export function decodePullRequestJson(
     : Result.fail(decoded.failure);
 }
 
-export function decodeViewerJson(raw: string): Result.Result<string | null, DecodeFailure> {
+export function decodeViewerJson(
+  raw: string,
+): Result.Result<AzureDevOpsViewer | null, DecodeFailure> {
   const decoded = decodeViewer(raw);
+  if (!Result.isSuccess(decoded)) return Result.fail(decoded.failure);
+  const name = trimmed(decoded.success.user?.name);
+  return Result.succeed(
+    name === null
+      ? null
+      : {
+          name,
+          isPerson: decoded.success.user?.type?.trim().toLowerCase() === "user",
+        },
+  );
+}
+
+export function decodeIdentitySelfJson(raw: string): Result.Result<string | null, DecodeFailure> {
+  const decoded = decodeIdentitySelf(raw);
   return Result.isSuccess(decoded)
-    ? Result.succeed(trimmed(decoded.success.user?.name))
+    ? Result.succeed(trimmed(decoded.success.accountName))
     : Result.fail(decoded.failure);
 }
 
