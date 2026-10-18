@@ -196,7 +196,7 @@ import {
   rememberTimelinePosition,
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
-import { MessageCopyButton } from "./MessageCopyButton";
+import { MessageCopyButton, ReplyCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
@@ -2798,7 +2798,7 @@ function AssistantMessageMeta({
         "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
         alwaysVisible
           ? "opacity-100"
-          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
+          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100 has-[[data-popup-open]]:opacity-100",
         className,
       )}
     >
@@ -2851,7 +2851,16 @@ function AssistantCopyButton({
 
   return (
     <>
-      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <ReplyCopyButton
+        markdown={assistantCopyState.text ?? ""}
+        target={() => {
+          const viewport = ctx.listRef.current?.getScrollableNode();
+          if (!(viewport instanceof HTMLElement)) return null;
+          return viewport.querySelector(
+            `[data-assistant-citation-source="${CSS.escape(message.id)}"]`,
+          );
+        }}
+      />
       {!streaming ? (
         <ReadAloudButton
           messageKey={`${ctx.threadRef?.environmentId ?? ctx.activeThreadEnvironmentId}:${ctx.threadRef?.threadId ?? "draft"}:${message.id}`}

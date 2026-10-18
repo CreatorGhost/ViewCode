@@ -1,4 +1,3 @@
-import { CheckIcon, CopyIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { memo, useRef } from "react";
 import { Check, Copy } from "lucide";
@@ -129,11 +128,10 @@ export function ReplyCopyButton({
             />
           }
         >
-          {isCopied ? (
-            <CheckIcon className="size-3 text-primary" />
-          ) : (
-            <CopyIcon className="size-3" />
-          )}
+          <MorphIcon
+            className={cn("size-3", isCopied && "text-primary")}
+            icon={isCopied ? Check : Copy}
+          />
         </TooltipTrigger>
         <TooltipPopup>
           <p>{label}</p>
