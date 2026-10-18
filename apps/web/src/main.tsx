@@ -11,6 +11,7 @@ import { hasCloudPublicConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
 import {
   syncDocumentElectronPlatformClasses,
+  syncDocumentMacosWindowControls,
   syncDocumentWindowControlsOverlayClass,
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
@@ -47,6 +48,7 @@ const router = getRouter(history);
 if (isElectron) {
   syncDocumentElectronPlatformClasses(navigator.platform);
   syncDocumentWindowControlsOverlayClass();
+  syncDocumentMacosWindowControls(navigator.platform, window.desktopBridge ?? null);
 }
 
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
