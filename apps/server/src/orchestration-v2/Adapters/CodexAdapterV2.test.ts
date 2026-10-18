@@ -60,6 +60,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
+import { userFacingDispatchErrorMessage } from "../UserFacingErrors.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import { materializeViewCodeReplayGuidance } from "../testkit/ViewCodeReplayGuidance.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -1777,6 +1778,7 @@ describe("CodexAdapterV2 session initialize", () => {
   const openReplaySession = (
     transcript: CodexReplay.CodexAppServerReplayTranscript,
     beforeEmitInbound?: CodexReplay.CodexAppServerReplayDriver["beforeEmitInbound"],
+    initializeFailure?: CodexError.CodexAppServerError,
   ) =>
     Effect.gen(function* () {
       const driver = yield* CodexReplay.makeReplayDriver(
@@ -1801,7 +1803,13 @@ describe("CodexAdapterV2 session initialize", () => {
                     request: (method, params) =>
                       Effect.sync(() => {
                         if (method === "initialize") initializeRequests++;
-                      }).pipe(Effect.andThen(client.request(method, params))),
+                      }).pipe(
+                        Effect.andThen(
+                          method === "initialize" && initializeFailure !== undefined
+                            ? Effect.fail(initializeFailure)
+                            : client.request(method, params),
+                        ),
+                      ),
                   }) satisfies CodexClient.CodexAppServerClient["Service"],
               ),
               Effect.mapError(
@@ -1884,6 +1892,39 @@ describe("CodexAdapterV2 session initialize", () => {
         Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
       ),
     ),
+  );
+
+  it.effect.each(["decode-wire-message", "decode-response-payload"] as const)(
+    "normalizes only invalid wire output during native thread creation, operation=%s",
+    (operation) =>
+      Effect.gen(function* () {
+        const original = new CodexError.CodexAppServerProtocolParseError({
+          operation,
+          cause: new Error("SENSITIVE_RAW_PROVIDER_OUTPUT"),
+        });
+        const session = yield* openReplaySession(
+          makeCodexReplayTranscript({ scenario: `initialize-${operation}`, entries: [] }),
+          undefined,
+          original,
+        );
+        const failure = yield* session.ensureThread("thread-invalid-wire").pipe(Effect.flip);
+        assert.equal(failure._tag, "ProviderAdapterEnsureThreadError");
+        if (operation === "decode-wire-message") {
+          assert.equal(
+            failure.cause,
+            "Codex returned invalid app-server output. Update the Codex CLI, or select a current executable in Settings → Providers → Codex → Binary path.",
+          );
+          assert.equal(userFacingDispatchErrorMessage(failure), failure.cause);
+          assert.notInclude(JSON.stringify(failure), "SENSITIVE_RAW_PROVIDER_OUTPUT");
+        } else {
+          assert.strictEqual(failure.cause, original);
+        }
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
   );
 
   it.effect("retries initialize after a failed handshake", () =>

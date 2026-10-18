@@ -35,6 +35,7 @@ import {
 } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
+import { codexProtocolErrorHint } from "./viewcode/codexProtocolErrorHint.ts";
 import {
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
@@ -683,7 +684,8 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         status: "error",
         auth: { status: "unknown" },
         message: installed
-          ? `Codex app-server provider probe failed: ${error.message}.`
+          ? (codexProtocolErrorHint(error) ??
+            `Codex app-server provider probe failed: ${error.message}.`)
           : `Could not start Codex CLI (\`${codexSettings.binaryPath}\`). Check Settings → Providers → Codex → Binary path on the server.` +
             (codexSettings.binaryPath === "codex"
               ? " Installing ChatGPT or Codex desktop may not add codex to PATH."
