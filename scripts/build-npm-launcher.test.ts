@@ -143,7 +143,12 @@ it.layer(NodeServices.layer)("build-npm-launcher", (it) => {
           cwd: root,
           env,
         });
-        assert.equal(first.stdout.trim(), `stub serve a b launcher=${launcher}`, first.stderr);
+        const canonicalLauncher = yield* fs.realPath(launcher);
+        assert.equal(
+          first.stdout.trim(),
+          `stub serve a b launcher=${canonicalLauncher}`,
+          first.stderr,
+        );
         assert.equal(first.exitCode, 7);
         // The same layout the install scripts and `t3 update` use.
         const versionDir = path.join(home, "runtime/versions", VERSION);
