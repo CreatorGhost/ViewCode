@@ -27,6 +27,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import { makeAntigravityAcpRuntime } from "../../provider/acp/AntigravityAcpSupport.ts";
+import { writeAntigravityClientTextFile } from "../../provider/acp/AntigravityClientFiles.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import {
@@ -508,5 +509,50 @@ describe("AntigravityAdapterV2 client file system under restrictive policies", (
         assert.isFalse(yield* fileSystem.exists(path.join(outside, "x.ts")), name);
       }
     }).pipe(Effect.provide(layerSession), Effect.scoped),
+  );
+});
+
+describe("AntigravityAdapterV2 canonical client paths", () => {
+  it.effect(
+    "creates nested workspace files through an alias but refuses linked outside ancestors",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-ag-canonical-" });
+        const workspace = path.join(root, "workspace");
+        const outside = path.join(root, "outside");
+        yield* fileSystem.makeDirectory(workspace);
+        yield* fileSystem.makeDirectory(outside);
+        const alias = path.join(root, "workspace-alias");
+        yield* fileSystem.symlink(workspace, alias);
+        const write = (target: string) =>
+          writeAntigravityClientTextFile({
+            fileSystem,
+            path,
+            allowedRoots: [alias],
+            request: { sessionId: "canonical-test", path: target, content: "nested" },
+          });
+        yield* write(path.join(alias, "new", "nested", "inside.ts"));
+        assert.equal(
+          yield* fileSystem.readFileString(path.join(workspace, "new", "nested", "inside.ts")),
+          "nested",
+        );
+
+        yield* fileSystem.symlink(outside, path.join(workspace, "outside-link"));
+        const linkedWrite = yield* write(
+          path.join(alias, "outside-link", "missing", "file.ts"),
+        ).pipe(Effect.exit);
+        assert.isTrue(Exit.isFailure(linkedWrite));
+        assert.isFalse(yield* fileSystem.exists(path.join(outside, "missing")));
+
+        const missingTarget = path.join(outside, "uncreated");
+        yield* fileSystem.symlink(missingTarget, path.join(workspace, "dangling-dir"));
+        const danglingWrite = yield* write(
+          path.join(alias, "dangling-dir", "nested", "file.ts"),
+        ).pipe(Effect.exit);
+        assert.isTrue(Exit.isFailure(danglingWrite));
+        assert.isFalse(yield* fileSystem.exists(missingTarget));
+      }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 });
