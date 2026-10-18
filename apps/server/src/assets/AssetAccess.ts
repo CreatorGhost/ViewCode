@@ -488,6 +488,24 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
   },
 );
 
+/**
+ * The favicon a project-favicon asset URL serves. The saved path is authoritative, except that
+ * an icon picker may preview another image inside the project
+ * (ProjectFaviconResolver.listCandidates) by naming it relative to the root. Absolute paths only
+ * ever come from the saved project.
+ */
+export function projectFaviconPathForRequest(input: {
+  readonly requestedPath: string | undefined;
+  readonly savedPath: string | null | undefined;
+  readonly isAbsolute: (path: string) => boolean;
+}): string | undefined {
+  const { requestedPath, savedPath } = input;
+  if (requestedPath && !input.isAbsolute(requestedPath) && !/^[a-z]:/i.test(requestedPath)) {
+    return requestedPath;
+  }
+  return savedPath ?? undefined;
+}
+
 export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (input: {
   readonly resource: AssetResource;
   readonly workspaceRoot?: string;

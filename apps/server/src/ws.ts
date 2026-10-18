@@ -202,7 +202,7 @@ import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { remoteSshDeviceHosts } from "./device/localSshDeviceHost.ts";
 import * as PreviewManager from "./preview/Manager.ts";
-import { issueAssetUrl } from "./assets/AssetAccess.ts";
+import { issueAssetUrl, projectFaviconPathForRequest } from "./assets/AssetAccess.ts";
 import {
   attachmentRelativePath,
   chatAttachmentStableKey,
@@ -2781,11 +2781,14 @@ const layerWsRpc = (
               // A cloned project exists before its files do. Clients ask again
               // when the clone lands (see createProjectFaviconUrlAtomFamily).
               const clone = yield* projectCloneTracker.get(project.value.projectId);
+              const projectFaviconPath = projectFaviconPathForRequest({
+                requestedPath: input.resource.path,
+                savedPath: project.value.faviconPath,
+                isAbsolute: (candidate) => path.isAbsolute(candidate),
+              });
               return yield* issueAssetUrl({
                 resource: input.resource,
-                ...(project.value.faviconPath
-                  ? { projectFaviconPath: project.value.faviconPath }
-                  : {}),
+                ...(projectFaviconPath ? { projectFaviconPath } : {}),
                 projectCheckoutPending:
                   clone !== null &&
                   clone.phase !== "done" &&

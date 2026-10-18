@@ -2,6 +2,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeFSP from "node:fs/promises";
+import * as NodePath from "node:path";
 import {
   AssetAccessError,
   AssetPreviewTypeValidationError,
@@ -31,7 +32,13 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { assetFileResponse } from "../http.ts";
-import { ASSET_ROUTE_PREFIX, issueAssetUrl, readMcpAppHtml, resolveAsset } from "./AssetAccess.ts";
+import {
+  ASSET_ROUTE_PREFIX,
+  issueAssetUrl,
+  projectFaviconPathForRequest,
+  readMcpAppHtml,
+  resolveAsset,
+} from "./AssetAccess.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import { openMediaFile } from "./MediaFile.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
@@ -1329,6 +1336,16 @@ describe("AssetAccess", () => {
       expect(result.relativeUrl).toMatch(/\/v[0-9a-f]{64}-saved\.svg$/);
     }).pipe(Effect.provide(layerTest)),
   );
+
+  it("previews a project-relative logo but takes absolute paths only from the saved project", () => {
+    const pick = (requestedPath: string | undefined, savedPath: string | null) =>
+      projectFaviconPathForRequest({ requestedPath, savedPath, isAbsolute: NodePath.isAbsolute });
+    expect(pick("apps/web/public/logo.svg", "brand/saved.svg")).toBe("apps/web/public/logo.svg");
+    expect(pick("/home/someone/secret.png", "brand/saved.svg")).toBe("brand/saved.svg");
+    expect(pick("C:\\Users\\someone\\secret.png", "brand/saved.svg")).toBe("brand/saved.svg");
+    expect(pick(undefined, "brand/saved.svg")).toBe("brand/saved.svg");
+    expect(pick(undefined, null)).toBeUndefined();
+  });
 
   it.effect("keeps automatic favicon resolution separate from a saved override", () =>
     Effect.gen(function* () {
