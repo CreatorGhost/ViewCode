@@ -1,5 +1,7 @@
 import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
 import { guardProviderInstance } from "./viewcode/providerLaunchGate.ts";
+import { resolveInstanceExecutable } from "./viewcode/providerDetection.ts";
+import * as AntigravityInstallation from "./AntigravityInstallation.ts";
 import { isAdminBlockedProvider } from "./viewcode/providerPolicyDrivers.ts";
 import {
   providerInstanceConfigEnabledFlag,
@@ -14,6 +16,7 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -158,10 +161,19 @@ const buildEntry = <R>(input: {
       };
     }
 
+    const antigravity = yield* Effect.serviceOption(
+      AntigravityInstallation.AntigravityInstallation,
+    );
+    const executableMissing = resolveInstanceExecutable(entry.driver, entry).pipe(
+      Option.isSome(antigravity)
+        ? Effect.provideService(AntigravityInstallation.AntigravityInstallation, antigravity.value)
+        : (effect) => effect,
+      Effect.map((path) => path === null),
+    );
     return {
       kind: "live" as const,
       live: {
-        instance: guardProviderInstance(createResult.success, blockedByAdmin),
+        instance: guardProviderInstance(createResult.success, blockedByAdmin, executableMissing),
         scope: childScope,
         entry,
       },

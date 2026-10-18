@@ -124,4 +124,35 @@ describe("ViewCode provider launch gate", () => {
       assert.deepEqual(calls, ["open", "turn", "interrupt"]);
     }).pipe(Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: [], problem: null })),
   );
+
+  it.effect("refuses to launch a provider whose executable is missing, with a clear reason", () =>
+    Effect.gen(function* () {
+      const { calls, original } = makeFixture(true);
+      let missing = false;
+      const instance = guardProviderInstance(
+        original,
+        false,
+        Effect.sync(() => missing),
+      );
+      const runtime = yield* instance.orchestrationAdapter.openSession({} as never);
+      missing = true;
+      const refused = yield* Effect.all([
+        instance.orchestrationAdapter.openSession({} as never).pipe(Effect.flip),
+        runtime.startTurn({} as never).pipe(Effect.flip),
+        runtime.compactThread!({} as never).pipe(Effect.flip),
+        instance.textGeneration.generateThreadTitle({} as never).pipe(Effect.flip),
+      ]);
+      for (const error of refused) {
+        assert.include(
+          "detail" in error ? error.detail : "",
+          "The executable for provider instance 'muse' was not found, so it was not launched.",
+        );
+      }
+      // The session already running stays reachable; probes keep reporting install state.
+      yield* runtime.respondToRuntimeRequest({} as never);
+      yield* runtime.interruptTurn({} as never);
+      yield* instance.snapshot.refresh;
+      assert.deepEqual(calls, ["open", "approval", "interrupt", "probe"]);
+    }).pipe(Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: [], problem: null })),
+  );
 });

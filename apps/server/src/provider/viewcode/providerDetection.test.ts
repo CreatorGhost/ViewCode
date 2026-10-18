@@ -7,7 +7,7 @@ import {
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
-import { detectProviders } from "./providerDetection.ts";
+import { detectProviders, resolveInstanceExecutable } from "./providerDetection.ts";
 
 describe("first-run filesystem discovery", () => {
   it.effect(
@@ -61,5 +61,32 @@ describe("first-run filesystem discovery", () => {
         Effect.provideService(HostProcess.HomeDirectory, "/test-home"),
         Effect.provideService(HostProcess.Environment, { PATH: "/original" }),
       ),
+  );
+
+  it.effect("resolves an instance's own executable before it is launched", () =>
+    Effect.gen(function* () {
+      const codex = ProviderDriverKind.make("codex");
+      const workCodex = (config: Record<string, unknown>) => ({ driver: codex, config });
+      assert.equal(
+        yield* resolveInstanceExecutable(codex, workCodex({ binaryPath: "~/bin/codex" })),
+        "/test-home/bin/codex",
+      );
+      assert.isNull(yield* resolveInstanceExecutable(codex, workCodex({ binaryPath: "/gone" })));
+      assert.isUndefined(
+        yield* resolveInstanceExecutable(codex, workCodex({ setupMode: "managed" })),
+      );
+      assert.isUndefined(
+        yield* resolveInstanceExecutable(ProviderDriverKind.make("acpRegistry"), undefined),
+      );
+      assert.isUndefined(
+        yield* resolveInstanceExecutable(ProviderDriverKind.make("constructor"), undefined),
+      );
+    }).pipe(
+      Effect.provideService(SpawnExecutableResolution, (command) =>
+        command === "/test-home/bin/codex" ? command : undefined,
+      ),
+      Effect.provideService(HostProcess.HomeDirectory, "/test-home"),
+      Effect.provideService(HostProcess.Environment, { PATH: "/original" }),
+    ),
   );
 });
