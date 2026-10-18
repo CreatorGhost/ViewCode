@@ -1,4 +1,5 @@
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
+import { codexProtocolErrorHint } from "../../provider/viewcode/codexProtocolErrorHint.ts";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
 import {
@@ -343,7 +344,7 @@ function toProtocolError(
 }
 
 function normalizeCodexCause(error: unknown): unknown {
-  return error;
+  return codexProtocolErrorHint(error) ?? error;
 }
 
 function codexTimestamp(seconds: number | null | undefined): DateTime.Utc {
