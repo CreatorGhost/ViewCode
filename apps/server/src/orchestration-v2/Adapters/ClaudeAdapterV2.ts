@@ -8474,10 +8474,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         ) {
           const queryPolicy = claudeRuntimeQueryPolicyForRuntimePolicy(turnInput.runtimePolicy);
           const mcpManaged = enterpriseMcpRefused || (yield* hasClaudeManagedMcpConfig);
+          // The session keeps its CLI environment (review/browser/computer shims) either way.
+          const toolsOff = adapterOptions.settings.runWithoutViewCodeTools;
           const providerMcpSession = yield* mcpSessions.read(turnInput.threadId);
           const bypassDisabled = yield* isClaudeBypassPermissionsDisabled;
           const mcpOverrides = claudeMcpQueryOverrides({
-            mcpSession: mcpManaged ? undefined : providerMcpSession,
+            mcpSession: mcpManaged || toolsOff ? undefined : providerMcpSession,
             readOnlySandbox:
               sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",
             ...(queryPolicy.allowedTools === undefined
@@ -8595,7 +8597,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               onUserDialog,
               supportedDialogKinds: ["resume_return"],
             }),
-            { mcpManaged, bypassDisabled },
+            { mcpManaged, bypassDisabled, toolsOff },
           );
           const querySession = yield* queryRunner
             .open({
