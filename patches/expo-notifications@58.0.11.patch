@@ -28,24 +28,23 @@ diff --git a/ios/ExpoNotifications/Notifications/NotificationCenterManager.swift
    }
  }
  
-@@ -162,12 +170,13 @@
+@@ -162,12 +170,10 @@
    }
  
    public func addDelegate(_ delegate: NotificationDelegate) {
 -    var handled = false
--    for pendingResponse in registry.add(delegate) {
-+    let responses = registry.add(delegate)
-+    var handled = false
-+    for pendingResponse in responses {
-       handled = delegate.didReceive(pendingResponse, completionHandler: {}) || handled
-     }
-     if handled {
+     for pendingResponse in registry.add(delegate) {
+-      handled = delegate.didReceive(pendingResponse, completionHandler: {}) || handled
+-    }
+-    if handled {
 -      registry.removeAllPendingResponses()
-+      registry.removePendingResponses(responses)
++      if delegate.didReceive(pendingResponse, completionHandler: {}) {
++        registry.removePendingResponses([pendingResponse])
++      }
      }
    }
  
-@@ -228,11 +237,11 @@
+@@ -228,11 +234,11 @@
      withCompletionHandler completionHandler: @escaping () -> Void
    ) {
      var handled = false

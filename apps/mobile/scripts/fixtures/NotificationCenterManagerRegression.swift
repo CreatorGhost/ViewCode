@@ -151,6 +151,26 @@ private func responseDuringReplay() throws {
   manager.removeDelegate(receiver)
 }
 
+private func partiallyHandledReplay() throws {
+  let manager = NotificationCenterManager.shared
+  deliver("A")
+  deliver("B")
+  let first = TestDelegate()
+  first.onResponse = { $0.identifier == "A" }
+  manager.addDelegate(first)
+  try require(first.events == ["A", "B"], "The first delegate must be offered both pending responses")
+  let second = TestDelegate()
+  second.onResponse = { _ in true }
+  manager.addDelegate(second)
+  try require(second.events == ["B"], "The next delegate must receive B once and never the handled A")
+  let third = TestDelegate()
+  manager.addDelegate(third)
+  try require(third.events.isEmpty, "Handled responses must not be replayed to another delegate")
+  manager.removeDelegate(first)
+  manager.removeDelegate(second)
+  manager.removeDelegate(third)
+}
+
 private func concurrentRegistrations() throws {
   let manager = NotificationCenterManager.shared
   let delegates = (0..<512).map { _ in
@@ -190,6 +210,7 @@ private enum RegressionTests {
       case "reentrant": try reentrantCallbacks()
       case "handoff": try registrationDuringDelivery()
       case "pending": try responseDuringReplay()
+      case "partial": try partiallyHandledReplay()
       case "concurrent": try concurrentRegistrations()
       default: throw NSError(domain: "NotificationCenterManagerRegression", code: 2)
       }
