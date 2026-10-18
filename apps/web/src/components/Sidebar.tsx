@@ -1,3 +1,4 @@
+import { SidebarThreadRowControls } from "./sidebar/SidebarThreadRowControls";
 import { readEnvironmentScope } from "../state/session";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import {
@@ -1320,66 +1321,72 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         ) : null}
         {terminalStatusIcon}
         {prBadge}
-        {/* Resting state (unread dot, machine, time) yields to the row actions
-            on hover or keyboard focus inside the row. */}
-        <span className="flex shrink-0 items-center gap-1.5 group-hover/sidebar-row:hidden group-focus-visible/sidebar-row:hidden group-has-[:focus-visible]/sidebar-row:hidden">
-          {isUnread ? (
-            <span
-              role="img"
-              aria-label="Unread"
-              className="size-[7px] shrink-0 rounded-full bg-primary"
-            />
-          ) : null}
-          {isRemote ? (
-            <EnvironmentMachineIcon
-              aria-hidden
-              kind={props.environmentMachine}
-              className="size-3 text-sidebar-muted-foreground"
-            />
-          ) : null}
-          {agentGroup !== null ? (
-            <span
-              className={cn(
-                "text-2xs tabular-nums",
-                agentGroup === "needs-you"
-                  ? "text-warning-foreground"
-                  : agentGroup === "failed"
-                    ? "text-destructive-foreground"
-                    : "text-sidebar-muted-foreground",
+        <SidebarThreadRowControls
+          resting={
+            <>
+              {isUnread ? (
+                <span
+                  role="img"
+                  aria-label="Unread"
+                  className="size-[7px] shrink-0 rounded-full bg-primary"
+                />
+              ) : null}
+              {isRemote ? (
+                <EnvironmentMachineIcon
+                  aria-hidden
+                  kind={props.environmentMachine}
+                  className="size-3 text-sidebar-muted-foreground"
+                />
+              ) : null}
+              {agentGroup !== null ? (
+                <span
+                  className={cn(
+                    "text-2xs tabular-nums",
+                    agentGroup === "needs-you"
+                      ? "text-warning-foreground"
+                      : agentGroup === "failed"
+                        ? "text-destructive-foreground"
+                        : "text-sidebar-muted-foreground",
+                  )}
+                >
+                  {agentTimeLabel(thread, agentGroup, nowMs)}
+                </span>
+              ) : (
+                <span className="text-2xs text-sidebar-muted-foreground tabular-nums">
+                  {props.settled ? settledTimeLabel(thread, nowMs) : threadTimeLabel(thread, nowMs)}
+                </span>
               )}
-            >
-              {agentTimeLabel(thread, agentGroup, nowMs)}
-            </span>
-          ) : (
-            <span className="text-2xs text-sidebar-muted-foreground tabular-nums">
-              {props.settled ? settledTimeLabel(thread, nowMs) : threadTimeLabel(thread, nowMs)}
-            </span>
-          )}
-        </span>
-        {/* Collapsed rather than display:none, so Tab can reach the actions: hidden ones are not
-            focusable, and they hide the moment focus leaves the previous control. */}
-        <span className="flex w-0 shrink-0 items-center gap-0.5 overflow-hidden opacity-0 group-hover/sidebar-row:w-auto group-hover/sidebar-row:opacity-100 group-focus-visible/sidebar-row:w-auto group-focus-visible/sidebar-row:opacity-100 group-has-[:focus-visible]/sidebar-row:w-auto group-has-[:focus-visible]/sidebar-row:opacity-100">
-          {hasUnsentDraft ? (
-            <SidebarRowAction label="Discard draft" onClick={handleDiscardDraftClick}>
-              <XIcon className="size-3" />
-            </SidebarRowAction>
-          ) : null}
-          {props.pinningSupported && !isChild ? (
-            <SidebarRowAction
-              label={props.isPinned ? "Unpin thread" : "Pin thread"}
-              onClick={handlePinClick}
-            >
-              {props.isPinned ? <PinOffIcon className="size-3" /> : <PinIcon className="size-3" />}
-            </SidebarRowAction>
-          ) : null}
-          <SidebarRowAction
-            label="Archive thread"
-            disabled={isRunning}
-            onClick={handleArchiveClick}
-          >
-            <ArchiveIcon className="size-3" />
-          </SidebarRowAction>
-        </span>
+            </>
+          }
+          actions={
+            <>
+              {hasUnsentDraft ? (
+                <SidebarRowAction label="Discard draft" onClick={handleDiscardDraftClick}>
+                  <XIcon className="size-3" />
+                </SidebarRowAction>
+              ) : null}
+              {props.pinningSupported && !isChild ? (
+                <SidebarRowAction
+                  label={props.isPinned ? "Unpin thread" : "Pin thread"}
+                  onClick={handlePinClick}
+                >
+                  {props.isPinned ? (
+                    <PinOffIcon className="size-3" />
+                  ) : (
+                    <PinIcon className="size-3" />
+                  )}
+                </SidebarRowAction>
+              ) : null}
+              <SidebarRowAction
+                label="Archive thread"
+                disabled={isRunning}
+                onClick={handleArchiveClick}
+              >
+                <ArchiveIcon className="size-3" />
+              </SidebarRowAction>
+            </>
+          }
+        />
         {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
         {hasAgentLine ? (
           // The chat's agents at a glance, and the branch they work on, under the title.
