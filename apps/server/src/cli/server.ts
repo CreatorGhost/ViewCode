@@ -7,6 +7,7 @@ import { Command, GlobalFlag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
 import * as ServerConfig from "../config.ts";
+import { recordFatalCause, recordFatalErrors } from "../fatalLog.ts";
 import { awaitLauncherLoss } from "../launcherWatch.ts";
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
@@ -24,7 +25,12 @@ const runServerCommand = (
   Effect.gen(function* () {
     const logLevel = yield* GlobalFlag.LogLevel;
     const config = yield* resolveServerConfig(flags, logLevel, options);
-    const run = runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
+    // ViewCode: a dying server leaves its last error in server-fatal.log.
+    yield* recordFatalErrors(config.logsDir);
+    const run = runServer.pipe(
+      recordFatalCause(config.logsDir),
+      Effect.provideService(ServerConfig.ServerConfig, config),
+    );
     if (config.mode !== "desktop" || config.desktopBootstrapToken === undefined) return yield* run;
     return yield* Effect.raceFirst(
       run,
@@ -33,7 +39,7 @@ const runServerCommand = (
         Effect.andThen(Effect.interrupt),
       ),
     );
-  });
+  }).pipe(Effect.scoped);
 
 export const runDefaultServerCommand = (flags: CliServerFlags) =>
   Effect.gen(function* () {
