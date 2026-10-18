@@ -21,6 +21,24 @@ describe("PR media previews", () => {
     expect(mediaVideoThumbnailKey(source)).toContain("github-media");
   });
 
+  it("separates private video thumbnail identities by environment, repository, and media URL", () => {
+    const key = (url: string, environmentId = location.environmentId, cwd = location.cwd) =>
+      mediaVideoThumbnailKey({
+        type: "media",
+        name: "Video",
+        mimeType: "video/mp4",
+        ...pullRequestMediaSource(url, { environmentId, cwd }),
+      });
+    expect(
+      new Set([
+        key(url),
+        key(`${url}-second`),
+        key(url, EnvironmentId.make("other")),
+        key(url, location.environmentId, "/other-repo"),
+      ]).size,
+    ).toBe(4);
+  });
+
   it("keeps every gallery image resolvable and the tapped image appears only once", () => {
     const first = pullRequestImageSource(url, location);
     const second = pullRequestImageSource(`${url}-second`, location);
