@@ -43,7 +43,10 @@ vi.mock("../../state/session", () => ({
     new Set(environments.map((entry) => entry.environmentId)),
   readEnvironmentScope: () => true,
 }));
-vi.mock("../../state/agentSessions", () => ({ agentSessionImport: "import" }));
+vi.mock("../../state/agentSessions", () => ({
+  agentSessionImport: "import",
+  agentSessionList: "list",
+}));
 vi.mock("../../state/projects", () => ({ projectEnvironment: { create: "create" } }));
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: (command: string) =>
@@ -201,87 +204,48 @@ async function click(label: string) {
   await act(async () => button!.click());
 }
 
-it("enters the workspace after a partial import and warns after navigation finishes", async () => {
-  let finishNavigation = () => {};
-  const navigation = new Promise<void>((resolve) => {
-    finishNavigation = resolve;
-  });
-  const onDone = vi.fn(() => navigation);
+it("adds a chosen project, offers its past sessions and lands in it", async () => {
+  const onDone = vi.fn();
   await renderWizard(onDone);
   await click("Continue");
   await click("Continue");
-  await click("Import 1 project");
+  await click("Select all");
+  await click("Add 1 project");
+  expect(document.body.textContent).toContain("Bring in past conversations?");
+  expect(document.body.textContent).toContain("Choose sessions…");
+  expect(onDone).not.toHaveBeenCalled();
+  await click("Done");
   expect(onDone).toHaveBeenCalledWith({
     environmentId: EnvironmentId.make("test-env"),
     projectId: ProjectId.make("test-project"),
   });
-  expect(mocks.toast).not.toHaveBeenCalled();
-  await act(async () => finishNavigation());
-  expect(mocks.toast).toHaveBeenCalledWith(
-    expect.objectContaining({
-      type: "warning",
-      description: "Imported 28 threads. 1 thread could not be imported.",
-    }),
-  );
-  expect(mocks.toast.mock.invocationCallOrder[0]).toBeGreaterThan(
-    onDone.mock.invocationCallOrder[0]!,
-  );
+  expect(mocks.importThreads).not.toHaveBeenCalled();
 });
 
-it.each([
-  [0, 0, null],
-  [29, 0, null],
-  [1, 0, null],
-  [0, 1, "1 thread could not be imported."],
-  [0, 2, "2 threads could not be imported."],
-] as const)(
-  "finishes setup with %i imported and %i skipped threads",
-  async (importedCount, skippedCount, warning) => {
-    mocks.importThreads.mockResolvedValue({
-      _tag: "Success",
-      value: { importedCount, skippedCount },
-    });
-    const onDone = vi.fn();
-    await renderWizard(onDone);
-    await click("Continue");
-    await click("Continue");
-    await click("Import 1 project");
-    expect(onDone).toHaveBeenCalledOnce();
-    if (warning === null && importedCount > 0) {
-      expect(mocks.toast).toHaveBeenCalledWith({
-        type: "success",
-        title: `Imported ${importedCount} ${importedCount === 1 ? "thread" : "threads"}`,
-      });
-    } else if (warning === null) {
-      expect(mocks.toast).not.toHaveBeenCalled();
-    } else {
-      expect(mocks.toast).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "warning", description: warning }),
-      );
-    }
-  },
-);
+it("starts fresh without adding a project", async () => {
+  const onDone = vi.fn();
+  await renderWizard(onDone);
+  await click("Continue");
+  await click("Continue");
+  await click("Start fresh");
+  expect(onDone).toHaveBeenCalledOnce();
+  expect(onDone).toHaveBeenCalledWith(undefined);
+  expect(mocks.createProject).not.toHaveBeenCalled();
+});
 
-it("keeps setup open when saving completion fails and preserves the import warning on retry", async () => {
+it("keeps setup open when saving completion fails and finishes on retry", async () => {
   mocks.complete.mockRejectedValueOnce(new Error("settings unavailable"));
   const onDone = vi.fn();
   await renderWizard(onDone);
   await click("Continue");
   await click("Continue");
-  await click("Import 1 project");
+  await click("Start fresh");
   expect(onDone).not.toHaveBeenCalled();
   expect(mocks.toast).toHaveBeenCalledWith(
     expect.objectContaining({ type: "error", title: "Could not finish setup" }),
   );
-  await click("Do not import projects");
+  await click("Start fresh");
   expect(onDone).toHaveBeenCalledOnce();
-  expect(mocks.importThreads).toHaveBeenCalledOnce();
-  expect(mocks.toast).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      type: "warning",
-      description: "Imported 28 threads. 1 thread could not be imported.",
-    }),
-  );
 });
 
 it("shows the fresh-install AI picker and only permits provider refresh after Turn on", async () => {

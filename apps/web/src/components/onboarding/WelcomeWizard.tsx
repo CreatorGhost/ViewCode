@@ -45,7 +45,6 @@ import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
 import { completeOnboarding } from "../../onboarding/firstRun";
 import {
   groupOnboardingProjects,
-  partitionOnboardingProjects,
   onboardingProjectKey,
   resolveOnboardingLandingProject,
   resolveOnboardingProjectId,
@@ -59,7 +58,6 @@ import {
   selectOnboardingProvidersByDriver,
 } from "../../onboarding/providerReadiness.logic";
 import { newProjectId, randomUUID } from "../../lib/utils";
-import { agentSessionImport } from "../../state/agentSessions";
 import { readProjects, useProjects } from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import {
@@ -101,6 +99,10 @@ import { WizardPanel, WizardSteps, WizardPopup, WizardHeader } from "../ui/wizar
 import { Dialog } from "../ui/dialog";
 import { toastManager } from "../ui/toast";
 import { cn } from "../../lib/utils";
+import {
+  ImportSessionsDialog,
+  type ImportSessionsTarget,
+} from "../agentSessions/ImportSessionsDialog";
 import { formatRelativeTime } from "../../timestampFormat";
 
 type WizardStep = "connection" | "agents" | "import";
@@ -164,11 +166,7 @@ export function WelcomeWizard({
     setStep("agents");
   };
   const stageIndex = step === "agents" ? 1 : step === "import" ? 2 : 0;
-  const finish = (
-    projectRef?: ScopedProjectRef,
-    importWarning?: string,
-    importedThreadCount = 0,
-  ) => {
+  const finish = (projectRef?: ScopedProjectRef) => {
     if (finishingPromiseRef.current !== null) return finishingPromiseRef.current;
     if (completionErrorToastIdRef.current !== null) {
       toastManager.close(completionErrorToastIdRef.current);
@@ -182,19 +180,6 @@ export function WelcomeWizard({
           completionErrorToastIdRef.current = null;
         }
         await onDone(projectRef);
-        if (importWarning) {
-          toastManager.add({
-            type: "warning",
-            title: "Some history was not imported",
-            description: importWarning,
-            timeout: 0,
-          });
-        } else if (importedThreadCount > 0) {
-          toastManager.add({
-            type: "success",
-            title: `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}`,
-          });
-        }
         return true;
       })
       .catch(() => {
@@ -1211,33 +1196,35 @@ function ImportStep({
   readonly scans: ReturnType<typeof useProjectScans>;
   readonly isImporting: boolean;
   readonly setIsImporting: (value: boolean) => void;
-  readonly onDone: (
-    projectRef?: ScopedProjectRef,
-    importWarning?: string,
-    importedThreadCount?: number,
-  ) => Promise<boolean>;
+  readonly onDone: (projectRef?: ScopedProjectRef) => Promise<boolean>;
 }) {
   const { environments } = useEnvironments();
   const writableEnvironments = useEnvironmentsWithScope(scans, AuthOrchestrationOperateScope);
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
-  const importThreads = useAtomCommand(agentSessionImport, { reportFailure: false });
   const projects = useProjects();
-  const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string> | null>(null);
-  const importWarningRef = useRef("");
-  const importedThreadCountRef = useRef(0);
+  // Clean start: nothing is selected until the person picks it.
+  const [selectedKeys, setSelectedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [addError, setAddError] = useState("");
   const [landingProject, setLandingProject] = useState<ScopedProjectRef | null>(null);
-  const importedProjectsRef = useRef(new Map<string, ScopedProjectRef>());
+  const [addedProjects, setAddedProjects] = useState<ReadonlyArray<AddedProject> | null>(null);
+  const [sessionTarget, setSessionTarget] = useState<AddedProject | null>(null);
+  const [importedSessionCounts, setImportedSessionCounts] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  // Keep project creation attempts separate from completed adds so both can retry.
+  const addedProjectsRef = useRef(new Map<string, ScopedProjectRef>());
   const projectsWithImportedHistoryRef = useRef(new Map<string, ScopedProjectRef>());
-  const lastImportSelectionRef = useRef<ReadonlyArray<string>>([]);
+  const lastAddSelectionRef = useRef<ReadonlyArray<string>>([]);
   const projectAttemptsRef = useRef(
     new Map<string, { readonly projectId: ProjectId; readonly commandId: CommandId }>(),
   );
-  const importGenerationRef = useRef(0);
+  const addGenerationRef = useRef(0);
 
+  // Ignore command completions after leaving the import step.
   useEffect(() => {
-    importGenerationRef.current += 1;
+    addGenerationRef.current += 1;
     return () => {
-      importGenerationRef.current += 1;
+      addGenerationRef.current += 1;
     };
   }, []);
 
@@ -1252,51 +1239,46 @@ function ImportStep({
     ) {
       // oxlint-disable-next-line react/set-state-in-effect -- The landing project is known only once the projects subscription delivers it.
       setLandingProject(null);
-      void onDone(landingProject, importWarningRef.current, importedThreadCountRef.current).then(
-        (completed) => {
-          if (!completed) setIsImporting(false);
-        },
-      );
+      void onDone(landingProject).then((completed) => {
+        if (!completed) setIsImporting(false);
+      });
     }
   }, [landingProject, onDone, projects, setIsImporting]);
 
-  const { available: candidates, recent } = partitionOnboardingProjects(
-    scans.flatMap((scan) =>
-      (scan.data?.candidates ?? []).map((candidate) => ({
-        ...candidate,
-        environmentId: scan.environmentId,
-        key: onboardingProjectKey(scan.environmentId, candidate.path),
-      })),
-    ),
+  const candidates = scans.flatMap((scan) =>
+    (scan.data?.candidates ?? []).map((candidate) => ({
+      ...candidate,
+      environmentId: scan.environmentId,
+      key: onboardingProjectKey(scan.environmentId, candidate.path),
+    })),
   );
-  const selectedKeys = selectedPaths ?? new Set(recent.map((candidate) => candidate.key));
   const selected = candidates.filter((candidate) => selectedKeys.has(candidate.key));
 
-  const canImport = selected.every((candidate) =>
-    writableEnvironments.has(candidate.environmentId),
-  );
-  const [importError, setImportError] = useState("");
-  const visibleImportError = !canImport
+  const canAdd = selected.every((candidate) => writableEnvironments.has(candidate.environmentId));
+  const visibleAddError = !canAdd
     ? IMPORT_PERMISSION_MESSAGE
-    : importError === IMPORT_PERMISSION_MESSAGE
+    : addError === IMPORT_PERMISSION_MESSAGE
       ? ""
-      : importError;
+      : addError;
+  // Some creates failed: offer to go on with the projects that were added.
+  const addFailed = visibleAddError !== "" && visibleAddError !== IMPORT_PERMISSION_MESSAGE;
 
-  const finishAfterImport = () => {
+  const finishWithProjects = () => {
     const projectRef = resolveOnboardingLandingProject(
-      lastImportSelectionRef.current,
+      lastAddSelectionRef.current,
       projectsWithImportedHistoryRef.current,
-      importedProjectsRef.current,
+      addedProjectsRef.current,
     );
     if (projectRef === undefined) {
-      void onDone(undefined, importWarningRef.current, importedThreadCountRef.current);
+      void onDone();
       return;
     }
     setIsImporting(true);
     setLandingProject(projectRef);
   };
 
-  const runImport = async (selection: typeof candidates) => {
+  /** Create the selected projects. Their past sessions are a separate, explicit choice. */
+  const addProjects = async (selection: typeof candidates) => {
     if (isImporting) return;
     const hasAccess = () =>
       selection.every((candidate) =>
@@ -1304,7 +1286,7 @@ function ImportStep({
       );
     const stopForDeniedAccess = () => {
       setIsImporting(false);
-      setImportError(IMPORT_PERMISSION_MESSAGE);
+      setAddError(IMPORT_PERMISSION_MESSAGE);
     };
     if (!hasAccess()) {
       stopForDeniedAccess();
@@ -1315,32 +1297,21 @@ function ImportStep({
       return;
     }
     setIsImporting(true);
-    importWarningRef.current = "";
-    importedThreadCountRef.current = 0;
-    lastImportSelectionRef.current = selection.map((candidate) => candidate.key);
-    const importGeneration = importGenerationRef.current;
-    const importedProjects = importedProjectsRef.current;
+    setAddError("");
+    lastAddSelectionRef.current = selection.map((candidate) => candidate.key);
+    const addGeneration = addGenerationRef.current;
+    const added = addedProjectsRef.current;
     const projectAttempts = projectAttemptsRef.current;
-    let importedProjectsCount =
-      importedProjects.size > 0
-        ? selection.filter((candidate) => importedProjects.has(candidate.key)).length
-        : 0;
-    let importedThreadCount = 0;
-    let skippedThreadCount = 0;
     const refreshEnvironments = new Set<EnvironmentId>();
+    let failedCount = 0;
     for (const candidate of selection) {
       const { environmentId } = candidate;
-      if (
-        importGeneration !== importGenerationRef.current ||
-        importedProjects !== importedProjectsRef.current
-      ) {
-        return;
-      }
+      if (addGeneration !== addGenerationRef.current) return;
+      if (added.has(candidate.key)) continue;
       if (!hasAccess()) {
         stopForDeniedAccess();
         return;
       }
-      if (importedProjects.has(candidate.key)) continue;
       let projectId = resolveOnboardingProjectId(readProjects(), environmentId, candidate);
       if (projectId === null) {
         let attempt = projectAttempts.get(candidate.key);
@@ -1364,71 +1335,115 @@ function ImportStep({
             defaultModelSelection: null,
           },
         });
-        if (
-          importGeneration !== importGenerationRef.current ||
-          importedProjects !== importedProjectsRef.current
-        ) {
-          return;
-        }
+        if (addGeneration !== addGenerationRef.current) return;
         if (result._tag !== "Success") {
+          // Interrupted creates were superseded, not refused; retry them as-is.
           if (!isAtomCommandInterrupted(result)) {
             projectAttempts.delete(candidate.key);
             refreshEnvironments.add(environmentId);
           }
+          failedCount += 1;
           continue;
         }
       }
-
-      if (!hasAccess()) {
-        stopForDeniedAccess();
-        return;
-      }
-      const threadImportResult = await importThreads({
-        environmentId,
-        input: { projectId, expectedWorkspaceRoot: candidate.path },
-      });
-      if (
-        importGeneration !== importGenerationRef.current ||
-        importedProjects !== importedProjectsRef.current
-      ) {
-        return;
-      }
-      if (threadImportResult._tag === "Success") {
-        importedThreadCount += threadImportResult.value.importedCount;
-        skippedThreadCount += threadImportResult.value.skippedCount;
-        if (threadImportResult.value.importedCount > 0) {
-          projectsWithImportedHistoryRef.current.set(
-            candidate.key,
-            scopeProjectRef(environmentId, projectId),
-          );
-        }
-        if (threadImportResult.value.skippedCount === 0) {
-          importedProjectsCount += 1;
-          importedProjects.set(candidate.key, scopeProjectRef(environmentId, projectId));
-        }
-      } else if (!isAtomCommandInterrupted(threadImportResult)) {
-        projectAttempts.delete(candidate.key);
-        refreshEnvironments.add(environmentId);
-      }
+      added.set(candidate.key, scopeProjectRef(environmentId, projectId));
     }
     for (const scan of scans) {
       if (refreshEnvironments.has(scan.environmentId)) scan.refresh();
     }
     setIsImporting(false);
-    importedThreadCountRef.current = importedThreadCount;
-    if (importedProjectsCount < selection.length) {
-      if (importedThreadCount > 0 && skippedThreadCount > 0) {
-        importWarningRef.current = `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. ${skippedThreadCount} ${skippedThreadCount === 1 ? "thread" : "threads"} could not be imported.`;
-      } else if (skippedThreadCount > 0) {
-        importWarningRef.current = `${skippedThreadCount} ${skippedThreadCount === 1 ? "thread could" : "threads could"} not be imported.`;
-      } else if (importedThreadCount > 0) {
-        importWarningRef.current = `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. Some thread history could not be imported.`;
-      } else {
-        importWarningRef.current = "Could not import thread history.";
-      }
+    if (failedCount > 0) {
+      setAddError(
+        `${failedCount} ${failedCount === 1 ? "project could" : "projects could"} not be added.`,
+      );
+      return;
     }
-    finishAfterImport();
+    showAddedProjects();
   };
+
+  /** Move on to the per-project session choice with whatever was added. */
+  const showAddedProjects = () => {
+    const added = candidates.flatMap((candidate) => {
+      if (!lastAddSelectionRef.current.includes(candidate.key)) return [];
+      const ref = addedProjectsRef.current.get(candidate.key);
+      return ref === undefined
+        ? []
+        : [
+            {
+              key: candidate.key,
+              environmentId: ref.environmentId,
+              projectId: ref.projectId,
+              workspaceRoot: candidate.path,
+              title: candidate.title,
+            },
+          ];
+    });
+    if (added.length === 0) {
+      void onDone();
+      return;
+    }
+    setAddedProjects(added);
+  };
+
+  if (addedProjects !== null) {
+    return (
+      <StepShell
+        title="Bring in past conversations?"
+        description="Your projects start empty. Pick specific T3 Code, Claude Code, Codex or Cursor conversations to continue, or skip this. You can do it later from a project's menu in the sidebar."
+      >
+        <ScrollArea scrollFade className="mt-5 h-auto max-h-80">
+          <div className="space-y-0.5 pr-3">
+            {addedProjects.map((project) => {
+              const importedCount = importedSessionCounts.get(project.key) ?? 0;
+              return (
+                <div
+                  key={project.key}
+                  className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/40"
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {project.title}
+                  </span>
+                  {importedCount > 0 ? (
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {importedCount} imported
+                    </span>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    disabled={isImporting}
+                    onClick={() => setSessionTarget(project)}
+                  >
+                    Choose sessions…
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+          <Button autoFocus disabled={isImporting} onClick={finishWithProjects}>
+            {isImporting ? "Opening…" : "Done"}
+          </Button>
+        </div>
+        <ImportSessionsDialog
+          target={sessionTarget}
+          onClose={() => setSessionTarget(null)}
+          onImported={(count) => {
+            const project = sessionTarget;
+            if (project === null || count === 0) return;
+            projectsWithImportedHistoryRef.current.set(
+              project.key,
+              scopeProjectRef(project.environmentId, project.projectId),
+            );
+            setImportedSessionCounts((current) =>
+              new Map(current).set(project.key, (current.get(project.key) ?? 0) + count),
+            );
+          }}
+        />
+      </StepShell>
+    );
+  }
 
   if (scans.every((scan) => scan.data === null) && scans.some((scan) => scan.isPending)) {
     return (
@@ -1442,7 +1457,7 @@ function ImportStep({
         </div>
         <div className="flex justify-end">
           <Button variant="ghost-muted" onClick={() => void onDone()}>
-            Do not import projects
+            Start fresh
           </Button>
         </div>
       </div>
@@ -1451,8 +1466,8 @@ function ImportStep({
 
   return (
     <StepShell
-      title="Import your projects"
-      description="Import projects and conversations from Claude Code and Codex on your selected computers."
+      title="Start fresh, or add projects"
+      description="ViewCode starts with a clean sidebar. Add folders you have used with Claude Code or Codex as projects if you like. Adding a project does not bring in its conversations; you choose those next."
     >
       {candidates.length > 0 ? (
         <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -1464,7 +1479,7 @@ function ImportStep({
               variant="ghost"
               size="xs"
               disabled={isImporting || selected.length === candidates.length}
-              onClick={() => setSelectedPaths(new Set(candidates.map((item) => item.key)))}
+              onClick={() => setSelectedKeys(new Set(candidates.map((item) => item.key)))}
             >
               Select all
             </Button>
@@ -1472,7 +1487,7 @@ function ImportStep({
               variant="ghost"
               size="xs"
               disabled={isImporting || selected.length === 0}
-              onClick={() => setSelectedPaths(new Set())}
+              onClick={() => setSelectedKeys(new Set())}
             >
               Select none
             </Button>
@@ -1522,47 +1537,53 @@ function ImportStep({
                     {SCAN_LIMIT_MESSAGE}
                   </p>
                 ) : null}
+                {scan.data?.warning ? (
+                  <p className="text-xs text-muted-foreground" role="status">
+                    {scan.data.warning}
+                  </p>
+                ) : null}
                 <ImportCandidateList
                   candidates={scanCandidates}
                   selectedKeys={selectedKeys}
-                  onSelectionChange={setSelectedPaths}
+                  onSelectionChange={setSelectedKeys}
                 />
               </fieldset>
             );
           })}
         </div>
       </ScrollArea>
-      {visibleImportError ? (
-        <p className="mt-3 text-sm text-destructive">{visibleImportError}</p>
-      ) : null}
+      {visibleAddError ? <p className="mt-3 text-sm text-destructive">{visibleAddError}</p> : null}
       <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-        {candidates.length === 0 ? (
-          // Nothing to import: one way forward, not a dead "Import 0 projects".
-          <Button autoFocus onClick={finishAfterImport}>
-            Continue
-            <ArrowRightIcon className="size-3.5" />
+        {selected.length > 0 || addFailed ? (
+          <Button
+            variant="ghost-muted"
+            disabled={isImporting}
+            onClick={addFailed ? showAddedProjects : () => void onDone()}
+          >
+            {addFailed ? "Continue without the rest" : "Start fresh"}
+          </Button>
+        ) : null}
+        {selected.length === 0 && !addFailed ? (
+          <Button autoFocus disabled={isImporting} onClick={() => void onDone()}>
+            Start fresh
           </Button>
         ) : (
-          <>
-            <Button variant="ghost-muted" disabled={isImporting} onClick={finishAfterImport}>
-              Do not import projects
-            </Button>
-            <Button
-              autoFocus
-              disabled={!canImport || isImporting || selected.length === 0}
-              onClick={() => void runImport(selected)}
-            >
-              {isImporting
-                ? "Importing…"
-                : selected.length === 0
-                  ? "Import projects"
-                  : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
-            </Button>
-          </>
+          <Button
+            disabled={!canAdd || isImporting || selected.length === 0}
+            onClick={() => void addProjects(selected)}
+          >
+            {isImporting
+              ? "Adding…"
+              : `Add ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
+          </Button>
         )}
       </div>
     </StepShell>
   );
+}
+
+interface AddedProject extends ImportSessionsTarget {
+  readonly key: string;
 }
 
 type ImportCandidate = AgentSessionProjectCandidate & {
