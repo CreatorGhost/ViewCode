@@ -19,6 +19,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { hasValidClaudeManifestAdapters } from "./ClaudeModelManifest.ts";
 import bundledManifestJson from "./model-manifest.json" with { type: "json" };
 import { ProviderCompatibilityPolicy } from "./providerCompatibility.ts";
+import { VIEWCODE_PROVIDER_COMPATIBILITY } from "./viewcode/compatibility.ts";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
 
 const MODEL_MANIFEST_URL =
@@ -103,8 +104,12 @@ export type ModelManifestData = typeof ModelManifestSchema.Type;
 
 const decodeManifest = Schema.decodeUnknownEffect(ModelManifestSchema);
 
-export const BUNDLED_MODEL_MANIFEST: ModelManifestData =
-  Schema.decodeUnknownSync(ModelManifestSchema)(bundledManifestJson);
+export const BUNDLED_MODEL_MANIFEST: ModelManifestData = Schema.decodeUnknownSync(
+  ModelManifestSchema,
+)({
+  ...bundledManifestJson,
+  compatibility: [...bundledManifestJson.compatibility, ...VIEWCODE_PROVIDER_COMPATIBILITY],
+});
 
 function manifestUpdatedAtMs(manifest: ModelManifestData): number {
   if (manifest.updatedAt === undefined) return 0;

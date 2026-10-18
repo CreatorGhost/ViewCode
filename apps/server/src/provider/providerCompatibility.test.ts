@@ -68,6 +68,22 @@ describe("provider compatibility", () => {
     }
   });
 
+  it("keeps uncertified ViewCode harness versions unknown without recommending a release", () => {
+    for (const driver of ["commandCode", "droid", "devin"] as const) {
+      for (const version of [null, "0.0.1", "1.0.0", "999.0.0"]) {
+        assert.deepStrictEqual(
+          resolveProviderCompatibility(
+            ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
+            ProviderDriverKind.make(driver),
+            version,
+            "0.1.0",
+          ),
+          { status: "unknown", message: null, recommendedVersion: null, recommendedRange: null },
+        );
+      }
+    }
+  });
+
   it("keeps releases before V2 on the OpenCode 1 policy they shipped with", () => {
     // Every installed build fetches main's manifest, and 0.0.45 and older run the
     // V1 orchestrator, which cannot drive OpenCode 2.
