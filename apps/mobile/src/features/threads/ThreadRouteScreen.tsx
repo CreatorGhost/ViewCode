@@ -1,5 +1,8 @@
 import { requestOlderThreadTurns } from "../../state/threads";
-import { threadHasOlderTurns, undeliveredUserMessages } from "@t3tools/client-runtime/viewcodeThreadAtoms";
+import {
+  threadHasOlderTurns,
+  undeliveredUserMessages,
+} from "@t3tools/client-runtime/viewcodeThreadAtoms";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
@@ -24,7 +27,14 @@ import {
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
-import { CommandId, MessageId, DEFAULT_SERVER_SETTINGS, EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
+import {
+  CommandId,
+  MessageId,
+  DEFAULT_SERVER_SETTINGS,
+  EnvironmentId,
+  ThreadId,
+  type ProjectScript,
+} from "@t3tools/contracts";
 
 import {
   projectScriptCwd,
@@ -69,7 +79,7 @@ import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetail
 import { resolveComposerCheckout } from "./composerChrome";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { agentControlEnvironment } from "../../state/agentControl";
+import { useThreadUsageResume } from "./useThreadUsageResume";
 import { deriveUsageResumeNotice } from "@t3tools/client-runtime/usage-resume";
 import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
 import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
@@ -166,7 +176,7 @@ function ThreadHeader(
         subtitle={props.subtitle}
         sidebar={native.sidebar}
         options={native.options}
-        optionsVersion={[props.gitControls.projectScripts, Boolean(props.onOpenSideChat)]}
+        optionsVersion={native.optionsVersion}
         trailing={
           props.fileInspectorSupported && props.hasThreadCwd ? (
             <ScreenHeaderButton
@@ -342,6 +352,11 @@ function ThreadRouteContent(
     selectedThreadProject,
     selectedEnvironmentConnection,
   } = useThreadSelection();
+  const usageResumeControls = useThreadUsageResume(
+    selectedThread === null
+      ? null
+      : { environmentId: selectedThread.environmentId, threadId: selectedThread.id },
+  );
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
   const undeliveredMessages = useMemo(
@@ -989,27 +1004,12 @@ function ThreadRouteContent(
           connectionState: routeConnectionState,
         });
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
-  const cancelUsageResume = useAtomCommand(agentControlEnvironment.cancelUsageResume);
-  const resumeUsageNow = useAtomCommand(agentControlEnvironment.resumeUsageNow);
-  const [usageResumeBusy, setUsageResumeBusy] = useState(false);
   const usageResumeNotice = deriveUsageResumeNotice({
     activities: selectedThreadDetail?.activities ?? [],
     session: selectedThread?.session ?? null,
     latestTurn: selectedThreadDetail?.latestTurn ?? null,
     nowMs: Date.now(),
   });
-  const runUsageResume = (command: typeof cancelUsageResume) => async () => {
-    if (selectedThread === null) return;
-    setUsageResumeBusy(true);
-    try {
-      await command({
-        environmentId: selectedThread.environmentId,
-        input: { threadId: selectedThread.id },
-      });
-    } finally {
-      setUsageResumeBusy(false);
-    }
-  };
   const renderThreadRouteBody = () => (
     <>
       <GitActionProgressOverlay
@@ -1027,9 +1027,9 @@ function ThreadRouteContent(
               ? {
                   text: usageResumeNotice.text,
                   canCancel: usageResumeNotice.canCancel,
-                  busy: usageResumeBusy,
-                  onCancel: runUsageResume(cancelUsageResume),
-                  onResumeNow: runUsageResume(resumeUsageNow),
+                  busy: usageResumeControls.busy,
+                  onCancel: usageResumeControls.onCancel,
+                  onResumeNow: usageResumeControls.onResumeNow,
                 }
               : null
           }
