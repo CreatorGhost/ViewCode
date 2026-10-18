@@ -1,4 +1,10 @@
-import { AuthFilesystemReadScope, EnvironmentAuthorizationError, EnvironmentId, ThreadId, type AuthSessionState } from "@t3tools/contracts";
+import {
+  AuthFilesystemReadScope,
+  EnvironmentAuthorizationError,
+  EnvironmentId,
+  ThreadId,
+  type AuthSessionState,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
@@ -104,4 +110,18 @@ it("lets the server authorize an explicit refresh before the client grant loads"
   });
   state.mint.mockResolvedValue(AsyncResult.failure(Cause.fail(denied)));
   await expect(useRefreshAssetUrl(environmentId, resource)()).resolves.toBeNull();
+});
+
+it("revokes an already resolved host preview and recovers on a fresh grant", () => {
+  state.session = { authenticated: true, scopes: [AuthFilesystemReadScope] };
+  expect(useAssetUrlState(environmentId, resource)._tag).toBe("Success");
+  state.assetQuery.mockClear();
+  state.session = { authenticated: true, scopes: [] };
+  expect(useAssetUrlState(environmentId, resource)).toEqual({
+    _tag: "Failure",
+    reason: "missing-file-access",
+  });
+  expect(state.assetQuery).not.toHaveBeenCalled();
+  state.session = { authenticated: true, scopes: [AuthFilesystemReadScope] };
+  expect(useAssetUrlState(environmentId, resource)._tag).toBe("Success");
 });
