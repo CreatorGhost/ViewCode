@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   baseDirectory: "",
   projects: [] as string[],
   createRequests: [] as { environmentId: string; workspaceRoot: string }[],
+  browseResult: undefined as Promise<unknown> | undefined,
 }));
 
 vi.mock("react", async (importOriginal) => ({
@@ -24,11 +25,11 @@ vi.mock("react", async (importOriginal) => ({
   useRef: (current: unknown) => ({ current }),
   useEffect: () => {},
 }));
-vi.mock("../../components/ui/NavigationRow", () => ({ NavigationRow: "NavigationRow" }));
-vi.mock("../../components/ui/Button", () => ({ Button: "Button" }));
-vi.mock("../../components/ui/ScreenScrollView", () => ({ ScreenScrollView: "ScrollView" }));
+vi.mock("../../components/MaterialListRow", () => ({ MaterialListRow: "MaterialListRow" }));
+vi.mock("../../components/MaterialButton", () => ({ MaterialButton: "MaterialButton" }));
+vi.mock("../../components/ScreenScrollView", () => ({ ScreenScrollView: "ScrollView" }));
 vi.mock("../settings/components/SettingsScreen", () => ({ SettingsScreen: "SettingsScreen" }));
-vi.mock("../../components/ui/ThemedSwitch", () => ({ ThemedSwitch: "Switch" }));
+vi.mock("../../components/ThemedSwitch", () => ({ ThemedSwitch: "Switch" }));
 vi.mock("react-native", () => ({
   Platform: { OS: "ios" },
   ActivityIndicator: "ActivityIndicator",
@@ -45,13 +46,13 @@ vi.mock("@react-navigation/native", () => ({
 vi.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ bottom: 0 }),
 }));
-vi.mock("../../components/ui/AppSymbol", () => ({ SymbolView: "SymbolView" }));
-vi.mock("../../components/ui/AppText", () => ({ AppText: "Text", AppTextInput: "TextInput" }));
+vi.mock("../../components/AppSymbol", () => ({ SymbolView: "SymbolView" }));
+vi.mock("../../components/AppText", () => ({ AppText: "Text", AppTextInput: "TextInput" }));
 vi.mock("../../components/EnvironmentMachineSymbol", () => ({
   EnvironmentMachineSymbol: "EnvironmentMachineSymbol",
 }));
-vi.mock("../../components/ui/ErrorBanner", () => ({ ErrorBanner: "ErrorBanner" }));
-vi.mock("./SourceControlIcon", () => ({ SourceControlIcon: "SourceControlIcon" }));
+vi.mock("../../components/ErrorBanner", () => ({ ErrorBanner: "ErrorBanner" }));
+vi.mock("../../components/SourceControlIcon", () => ({ SourceControlIcon: "SourceControlIcon" }));
 vi.mock("../../lib/uuid", () => ({ uuidv4: () => "project" }));
 vi.mock("../../state/session", () => ({
   useEnvironmentScope: (environmentId: string, scope: string) =>
@@ -95,7 +96,9 @@ vi.mock("../../state/use-remote-environment-registry", () => ({
   }),
 }));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: (command: unknown) => command }));
-vi.mock("../../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => () => {} }));
+vi.mock("../../state/use-atom-query-runner", () => ({
+  useAtomQueryRunner: () => () => state.browseResult,
+}));
 vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: null }) }));
 vi.mock("../../state/presentation", () => ({
   useEnvironmentPresentation: () => ({ isReady: true, presentation: null }),
@@ -217,6 +220,22 @@ describe("local project permissions", () => {
     state.otherScopes = new Set();
     state.projects = [];
     state.createRequests = [];
+    state.browseResult = undefined;
+  });
+
+  it("rechecks the task grant after resolving a home-relative path", async () => {
+    state.baseDirectory = "~/workspace/project";
+    state.scopes.add(AuthOrchestrationOperateScope);
+    let completeBrowse!: (result: unknown) => void;
+    state.browseResult = new Promise((resolve) => {
+      completeBrowse = resolve;
+    });
+    const pending = localProjectAction()();
+    state.scopes.delete(AuthOrchestrationOperateScope);
+    completeBrowse(AsyncResult.success({ parentPath: "/home/test/workspace/project" }));
+    await pending;
+    expect(state.createRequests).toEqual([]);
+    expect(state.projects).toEqual([]);
   });
 
   it.each([false, true])(
