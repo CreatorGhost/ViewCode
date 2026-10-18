@@ -87,8 +87,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       servicePreflightCommand,
       themeCommand,
       traceCommand,
-      ...(viewcodeProductPolicy.doctor ? [doctorCommand] : []),
-      triageCommand,
+      ...(viewcodeProductPolicy.doctor ? [doctorCommand, triageCommand] : []),
       viewcodeProductPolicy.upstreamPromotions && cloudEnabled
         ? connectCommand
         : connectUnavailableCommand,

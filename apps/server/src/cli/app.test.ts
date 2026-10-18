@@ -150,7 +150,7 @@ describe("t3 server command safety", () => {
   );
 
   it.effect(
-    "keeps upstream doctor, self-update, uninstall and Connect setup unavailable even with cloud configuration",
+    "keeps upstream doctor, triage, self-update, uninstall and Connect setup unavailable even with cloud configuration",
     () =>
       withTempDirectory("viewcode-cli-policy-", (root) =>
         Effect.gen(function* () {
@@ -158,6 +158,8 @@ describe("t3 server command safety", () => {
           const command = Command.runWith(makeCli({ cloudEnabled: true }), { version: "0.0.0" });
           const doctor = yield* command(["doctor", "--base-dir", baseDir]).pipe(Effect.flip);
           expect(String(doctor)).toContain('Unknown command "doctor"');
+          const triage = yield* command(["triage", "--base-dir", baseDir]).pipe(Effect.flip);
+          expect(String(triage)).toContain('Unknown command "triage"');
           const update = yield* command(["update", "--base-dir", baseDir]).pipe(Effect.flip);
           expect(String(update)).toContain('Unknown command "update"');
           const output: string[] = [];
@@ -170,7 +172,7 @@ describe("t3 server command safety", () => {
           };
           yield* command(["--help"]).pipe(Effect.provideService(Console.Console, capture));
           const rootHelp = output.join("\n");
-          expect(rootHelp).not.toMatch(/\buninstall\b/);
+          expect(rootHelp).not.toMatch(/\b(?:uninstall|triage|doctor)\b/);
           expect(rootHelp).toContain("Manage ViewCode's headless browser");
           for (const action of ["status", "restart", "uninstall"]) {
             output.length = 0;

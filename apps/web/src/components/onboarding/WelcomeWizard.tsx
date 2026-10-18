@@ -424,19 +424,19 @@ function ConnectionStep({
       ) : null}
       <div className="mt-6 flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         {viewcodeProductPolicy.anonymousUsageOnboarding ? (
-        <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
-          ViewCode collects anonymous usage data to help us improve it. To read more about how your
-          data is used and how to opt out, see our{" "}
-          <a
-            className="underline underline-offset-2 hover:text-foreground"
-            href={PRIVACY_POLICY_URL}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            privacy policy
-          </a>
-          .
-        </p>
+          <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
+            ViewCode collects anonymous usage data to help us improve it. To read more about how
+            your data is used and how to opt out, see our{" "}
+            <a
+              className="underline underline-offset-2 hover:text-foreground"
+              href={PRIVACY_POLICY_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              privacy policy
+            </a>
+            .
+          </p>
         ) : null}
         <Button
           className="shrink-0 self-end"
@@ -631,9 +631,10 @@ function PairingForm({
             <p className="pt-3 text-sm text-muted-foreground">
               Run this on the computer with your code.
             </p>
-            <CommandBlock command="npx t3 pair" className="mt-2" />
+            <CommandBlock command="npx --yes viewcode-app pair" className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Start ViewCode first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
+              Start ViewCode first, or run{" "}
+              <code className="font-mono">npx --yes viewcode-app serve</code>. Add{" "}
               <code className="font-mono">--tailscale</code> to use your tailnet.
             </p>
           </CollapsiblePanel>
