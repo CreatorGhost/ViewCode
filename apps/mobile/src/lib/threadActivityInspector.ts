@@ -1,5 +1,5 @@
 import type { V2ItemSupport } from "@t3tools/client-runtime/state/item-support";
-import { toolItemForDisplay } from "@t3tools/client-runtime/viewcode-work-log/presentation";
+import { toolItemForDisplay } from "@t3tools/client-runtime/work-log/presentation";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 import type { ThreadId } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/client-runtime/viewcodeTiming";
