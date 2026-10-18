@@ -439,7 +439,7 @@ function ConnectionStep({
           </p>
         ) : null}
         <Button
-          className="shrink-0 self-end"
+          className="shrink-0 self-end sm:ml-auto"
           ref={continueRef}
           autoFocus={!expandPairingInitially}
           disabled={!ready || isPairing}
@@ -1537,18 +1537,30 @@ function ImportStep({
         <p className="mt-3 text-sm text-destructive">{visibleImportError}</p>
       ) : null}
       <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-        <Button variant="ghost-muted" disabled={isImporting} onClick={finishAfterImport}>
-          Do not import projects
-        </Button>
-        <Button
-          autoFocus
-          disabled={!canImport || isImporting || selected.length === 0}
-          onClick={() => void runImport(selected)}
-        >
-          {isImporting
-            ? "Importing…"
-            : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
-        </Button>
+        {candidates.length === 0 ? (
+          // Nothing to import: one way forward, not a dead "Import 0 projects".
+          <Button autoFocus onClick={finishAfterImport}>
+            Continue
+            <ArrowRightIcon className="size-3.5" />
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost-muted" disabled={isImporting} onClick={finishAfterImport}>
+              Do not import projects
+            </Button>
+            <Button
+              autoFocus
+              disabled={!canImport || isImporting || selected.length === 0}
+              onClick={() => void runImport(selected)}
+            >
+              {isImporting
+                ? "Importing…"
+                : selected.length === 0
+                  ? "Import projects"
+                  : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
+            </Button>
+          </>
+        )}
       </div>
     </StepShell>
   );

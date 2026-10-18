@@ -79,6 +79,93 @@ html[data-theme-id] [data-chat-header] [data-slot="group"] [data-slot="separator
   display: none;
 }
 
+/* Header toolbar (upstream's `header` button and toggle variants): one quiet
+   style for every control, so the open-in, terminal, side chat, review and
+   pane toggles read as one row. A faint resting fill marks each hit area, no
+   border, 32px targets with 16px icons; hover and pressed only deepen the fill.
+   Beats index.css, which paints each header button with the toolbar surface. */
+html[data-theme-id]
+  [data-chat-header]
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"],
+    [data-toolbar-control]
+  ):not(.vc-chip) {
+  --control-icon-color: currentColor;
+  height: 2rem;
+  min-width: 2rem;
+  border-color: transparent;
+  box-shadow: none;
+  background-color: color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: color-mix(in srgb, var(--foreground) 78%, transparent);
+}
+html[data-theme-id]
+  [data-chat-header]
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"]
+  ):not(.vc-chip)::before {
+  box-shadow: none;
+}
+html[data-theme-id]
+  [data-chat-header]
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"]
+  ):not(.vc-chip).size-9 {
+  width: 2rem;
+}
+html[data-theme-id]
+  [data-chat-header]
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"]
+  ):not(.vc-chip)
+  svg:not([class*="size-"]) {
+  width: 1rem;
+  height: 1rem;
+}
+html[data-theme-id]
+  [data-chat-header]
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"],
+    [data-toolbar-control]
+  ):not(.vc-chip):is(:hover, [data-pressed], [data-popup-open], [aria-pressed="true"]) {
+  background-color: color-mix(in srgb, var(--foreground) 11%, transparent);
+  color: var(--foreground);
+}
+/* Open-in-editor and its editor menu are one split control. */
+html[data-theme-id] [data-chat-header] [data-slot="group"]:has(> [data-slot="menu-trigger"]) {
+  gap: 1px;
+}
+html[data-theme-id]
+  [data-chat-header]
+  [data-slot="group"]:has(> [data-slot="menu-trigger"])
+  > :first-child:not(:last-child) {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+html[data-theme-id]
+  [data-chat-header]
+  [data-slot="group"]:has(> [data-slot="menu-trigger"])
+  > [data-slot="menu-trigger"]:last-child:not(:first-child) {
+  min-width: 1.5rem;
+  width: 1.5rem;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
 /* Composer: borderless-feeling shell, 1px low-contrast edge, soft diffuse
    shadow, larger radius. Focus only strengthens the edge a little. */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
