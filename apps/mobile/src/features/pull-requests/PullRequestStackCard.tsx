@@ -6,6 +6,7 @@ import { PullRequestCardGroup, PullRequestCardRow } from "./PullRequestControls"
 import { pullRequestStatus } from "./pullRequestStatus";
 import type { PullRequestParams } from "./usePullRequestDiff";
 import type { PullRequestStackState } from "./usePullRequestStack";
+import { PullRequestGlyph } from "./pullRequestGlyphs";
 
 export function PullRequestStackCard(props: {
   readonly params: PullRequestParams;
@@ -24,7 +25,7 @@ export function PullRequestStackCard(props: {
       <PullRequestCardGroup>
         <PullRequestCardRow
           title="Stack"
-          icon="square.3.layers.3d"
+          icon={PullRequestGlyph.stack}
           value={`${summary.position} of ${summary.size}`}
           last
         />
@@ -36,7 +37,7 @@ export function PullRequestStackCard(props: {
     <PullRequestCardGroup>
       <PullRequestCardRow
         title="Stack"
-        icon="square.3.layers.3d"
+        icon={PullRequestGlyph.stack}
         value={`${position} of ${stack.layers.length}`}
         accessibilityLabel={`Stack, ${position} of ${stack.layers.length}${props.state.isFresh ? "" : ", showing saved stack"}`}
         expanded={expanded}

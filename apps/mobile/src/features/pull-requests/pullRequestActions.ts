@@ -1,6 +1,14 @@
 import { resolveChangeRequestPresentation } from "@t3tools/shared/sourceControl";
-import type { PullRequestAction, PullRequestDetail, PullRequestMergeMethod, PullRequestReviewVerdict, SourceControlProviderKind } from "@t3tools/contracts";
+import type {
+  PullRequestAction,
+  PullRequestDetail,
+  PullRequestMergeMethod,
+  PullRequestReviewVerdict,
+  SourceControlProviderKind,
+} from "@t3tools/contracts";
 import type { AppSymbolName } from "../../components/AppSymbol";
+
+import { PullRequestGlyph } from "./pullRequestGlyphs";
 
 type ActionDetail = Pick<
   PullRequestDetail,
@@ -41,7 +49,7 @@ export const PR_ACTION_LABELS = {
 } as const satisfies Record<PullRequestAction, string>;
 
 export const PR_ACTION_ICONS = {
-  merge: "arrow.triangle.merge",
+  merge: PullRequestGlyph.merged,
   ready: "checkmark.circle",
   draft: "pencil",
   close: "xmark",

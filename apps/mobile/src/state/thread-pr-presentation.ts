@@ -1,7 +1,10 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 
-
-import type { ExecutionEnvironmentCapabilities, ThreadPullRequestLink, VcsStatusResult } from "@t3tools/contracts";
+import type {
+  ExecutionEnvironmentCapabilities,
+  ThreadPullRequestLink,
+  VcsStatusResult,
+} from "@t3tools/contracts";
 import { resolveChangeRequestPresentation } from "@t3tools/shared/sourceControl";
 
 import {
@@ -119,4 +122,10 @@ export function resolveThreadPrSource(
           ? thread.branchPullRequest
           : (thread.linkedPullRequest ?? thread.branchPullRequest)) ?? null);
   return { linkedPresentation, pullRequestRef };
+}
+
+export function resolveThreadPrBadgeAction(pr: ThreadPrPresentation) {
+  return pr.kind === "stack" || pr.others > 0
+    ? { kind: "list" as const, accessibilityLabel: `Show ${pr.accessibilityLabel}` }
+    : { kind: "open" as const, accessibilityLabel: `Open ${pr.accessibilityLabel}` };
 }

@@ -5,12 +5,36 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useThreadShell } from "../state/entities";
 import { tryOpenExternalUrl } from "../lib/openExternalUrl";
 
-/** Use the thread's environment; the shared router resolves the repository's project there. */
+type PullRequestContext = {
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly threadId?: string;
+};
+
+// Navigator layouts have no route context, so list badges pass their source thread explicitly.
+export function useNavigateToPullRequest(options?: { readonly replace?: boolean }) {
+  const navigation = useNavigation();
+  const replace = options?.replace;
+  return useCallback(
+    async (url: string, context: PullRequestContext | null) => {
+      const destination = nativePullRequestDestination(url, context);
+      if (!destination) return tryOpenExternalUrl(url, "pull-request");
+      // Agent reviews run as the chat the pull request was opened from.
+      const params = context?.threadId
+        ? { ...destination, threadId: context.threadId }
+        : destination;
+      if (replace) navigation.dispatch(StackActions.replace("PullRequest", params));
+      else navigation.navigate("PullRequest", params);
+      return true;
+    },
+    [navigation, replace],
+  );
+}
+
 export function useOpenPullRequest(options?: {
   readonly replace?: boolean;
-  readonly context?: { readonly environmentId: string; readonly projectId: string };
+  readonly context?: PullRequestContext;
 }) {
-  const navigation = useNavigation();
   const route = useRoute();
   const routeContext = route.params as
     | {
@@ -24,7 +48,7 @@ export function useOpenPullRequest(options?: {
     return text?.trim() ? text : undefined;
   };
   const environmentId = options?.context?.environmentId ?? first(routeContext?.environmentId);
-  const threadId = first(routeContext?.threadId);
+  const threadId = options?.context?.threadId ?? first(routeContext?.threadId);
   const thread = useThreadShell(
     environmentId && threadId
       ? { environmentId: EnvironmentId.make(environmentId), threadId: ThreadId.make(threadId) }
@@ -32,22 +56,19 @@ export function useOpenPullRequest(options?: {
   );
   const projectId =
     options?.context?.projectId ?? first(routeContext?.projectId) ?? thread?.projectId;
-  const replace = options?.replace;
+  const navigateToPullRequest = useNavigateToPullRequest({ replace: options?.replace });
   return useCallback(
-    async (url: string) => {
-      const destination = nativePullRequestDestination(
+    (url: string) =>
+      navigateToPullRequest(
         url,
         environmentId && projectId
-          ? { environmentId: String(environmentId), projectId: String(projectId) }
+          ? {
+              environmentId: String(environmentId),
+              projectId: String(projectId),
+              ...(threadId ? { threadId } : {}),
+            }
           : null,
-      );
-      if (!destination) return tryOpenExternalUrl(url, "pull-request");
-      // ViewCode: an agent review started from the PR runs as the chat it was opened from.
-      const params = threadId ? { ...destination, threadId } : destination;
-      if (replace) navigation.dispatch(StackActions.replace("PullRequest", params));
-      else navigation.navigate("PullRequest", params);
-      return true;
-    },
-    [environmentId, projectId, threadId, navigation, replace],
+      ),
+    [environmentId, projectId, threadId, navigateToPullRequest],
   );
 }

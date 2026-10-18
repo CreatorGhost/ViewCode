@@ -355,6 +355,10 @@
       "types": "./src/work-log/scrollAnchor.ts",
       "default": "./src/work-log/scrollAnchor.ts"
     },
+    "./pull-request-link-input": {
+      "types": "./src/pullRequestLinkInput.ts",
+      "default": "./src/pullRequestLinkInput.ts"
+    },
     "./thread-pull-request-compatibility": {
       "types": "./src/threadPullRequestCompatibility.ts",
       "default": "./src/threadPullRequestCompatibility.ts"
@@ -552,17 +556,17 @@
     "@t3tools/source-control-github": "workspace:*",
     "@t3tools/source-control-gitlab": "workspace:*",
     "effect": "catalog:",
-    "three": "0.180.0",
     "mdast-util-directive": "^3.1.0",
     "micromark-extension-directive": "^4.0.0",
     "micromark-util-character": "^2.1.1",
     "remark-parse": "^11.0.0",
+    "three": "0.180.0",
     "unified": "^11.0.5"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/three": "0.180.0",
-    "vite-plus": "catalog:",
-    "micromark-util-types": "^2.0.2"
+    "micromark-util-types": "^2.0.2",
+    "vite-plus": "catalog:"
   }
 }

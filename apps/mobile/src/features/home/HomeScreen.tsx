@@ -9,7 +9,11 @@ import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
-import { type EnvironmentId, resolveEnvironmentMachineKind, type SidebarProjectGroupingMode } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  resolveEnvironmentMachineKind,
+  type SidebarProjectGroupingMode,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -43,6 +47,8 @@ import {
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { useThreadRowProviderInstanceResolver } from "../threads/thread-provider-instance";
+import { useOpenThreadPullRequests } from "../threads/use-open-thread-pull-requests";
+import type { ThreadPrPresentation } from "../../state/thread-pr-presentation";
 import { getThreadListV2OrderedSection } from "../threads/threadListV2";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
@@ -294,6 +300,14 @@ export function HomeScreen(props: HomeScreenProps) {
     openSwipeableRef.current?.close();
   }, []);
   const onMaterialFabScroll = useMaterialFabScroll();
+  const openThreadPullRequests = useOpenThreadPullRequests();
+  const handleOpenThreadPullRequests = useCallback(
+    (thread: EnvironmentThreadShell, pr: ThreadPrPresentation) => {
+      openSwipeableRef.current?.close();
+      openThreadPullRequests(thread, pr);
+    },
+    [openThreadPullRequests],
+  );
   const listRef = useRef<LegendListRef>(null);
   const swipeRowActivation = useMemo(() => createSwipeRowActivation(), []);
   const activateVisibleRows = useCallback(
@@ -902,6 +916,7 @@ export function HomeScreen(props: HomeScreenProps) {
       return (
         <HomeFolderCardSlice edge={folderEdge}>
           <ThreadListV2Row
+            onOpenThreadPullRequests={handleOpenThreadPullRequests}
             inFolderCard={folderEdge != null}
             foldedAgentCount={listItem.type === "folder-lead" ? listItem.foldedAgentCount : 0}
             onNewThreadOnBranch={props.onNewThreadOnBranch}
@@ -979,6 +994,7 @@ export function HomeScreen(props: HomeScreenProps) {
       agentActions.runMenuEvent,
       handleAgentMenuEvent,
       handleDeleteThread,
+      handleOpenThreadPullRequests,
       activeReorderEnvironmentIds,
       handleMoveThread,
       handlePinThread,
