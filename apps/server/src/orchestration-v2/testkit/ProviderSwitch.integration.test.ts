@@ -63,6 +63,7 @@ import {
 import * as ProviderReplayHarness from "./ProviderReplayHarness.ts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import { withViewCodeTurnGuidance } from "../ViewCodeTurnGuidance.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
@@ -85,6 +86,13 @@ interface CapturedTurn {
   readonly nativeThreadId?: string | null;
   readonly providerTurnOrdinal?: number;
   readonly nativeThreadHasTurns?: boolean;
+}
+
+function expectedCurrentTurnText(turn: CapturedTurn, text: string): string {
+  return withViewCodeTurnGuidance(
+    { appThread: { viewcodeGoal: undefined, debugMode: undefined }, message: { text } },
+    { driver: turn.driver, playbookPath: null, computerUseText: null },
+  ).message.text;
 }
 
 function unimplemented(driver: ProviderDriverKind, detail: string) {
@@ -879,7 +887,8 @@ describe("orchestration v2 provider switching", () => {
             );
           } else {
             assert.equal(handoff.delivery?.status, "injected");
-            assert.equal((yield* Ref.get(capturedTurns)).at(-1)!.text, current);
+            const currentTurn = (yield* Ref.get(capturedTurns)).at(-1)!;
+            assert.equal(currentTurn.text, expectedCurrentTurnText(currentTurn, current));
             assert.include(
               yield* encodeJson(yield* Ref.get(injectedHistory)),
               "Original request with constraints",
@@ -1007,7 +1016,7 @@ describe("orchestration v2 provider switching", () => {
             yield* wait(3, "completed");
             const retried = yield* orchestrator.getThreadProjection(threadId);
             const lastTurn = (yield* Ref.get(capturedTurns)).at(-1)!;
-            assert.equal(lastTurn.text, retryText);
+            assert.equal(lastTurn.text, expectedCurrentTurnText(lastTurn, retryText));
             if (failure !== "injection") {
               const delta = yield* encodeJson(
                 (yield* Ref.get(injectedHistory)).slice(historyBeforeRetry),
@@ -1041,7 +1050,8 @@ describe("orchestration v2 provider switching", () => {
             const followup = "z".repeat(6_000);
             yield* dispatch(4, followup, CLAUDE_MODEL_SELECTION);
             yield* wait(4, "completed");
-            assert.equal((yield* Ref.get(capturedTurns)).at(-1)!.text, followup);
+            const followupTurn = (yield* Ref.get(capturedTurns)).at(-1)!;
+            assert.equal(followupTurn.text, expectedCurrentTurnText(followupTurn, followup));
             assert.deepEqual(yield* Ref.get(injectedHistory), beforeFollowup);
             assert.equal(
               (yield* orchestrator.getThreadProjection(threadId)).contextHandoffs.length,
@@ -1431,7 +1441,7 @@ describe("orchestration v2 provider switching", () => {
           assert.include(deliveredHistory, partialResponse);
           assert.include(deliveredHistory, `run-status=${status}`);
           if (native) {
-            assert.equal(delivered.text, "Continue");
+            assert.equal(delivered.text, expectedCurrentTurnText(delivered, "Continue"));
             assert.notInclude(deliveredHistory, '"text":"Continue"');
             assert.include(deliveredHistory, '"role":"assistant"');
             assert.include(deliveredHistory, '"role":"user"');
