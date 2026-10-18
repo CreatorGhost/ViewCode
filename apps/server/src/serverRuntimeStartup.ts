@@ -7,6 +7,7 @@ import {
   type Project,
   ProjectId,
   ProviderInstanceId,
+  resolveProjectProviderInstanceEnabled,
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -40,6 +41,7 @@ import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts
 import * as ProjectService from "./project/ProjectService.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
+import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
@@ -256,54 +258,74 @@ export const resolveWelcomeBase = Effect.gen(function* () {
 });
 
 const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
-  const randomUUID = crypto.randomUUIDv4();
-  const serverConfig = yield* ServerConfig.ServerConfig;
-  const projects = yield* ProjectService.ProjectService;
-  const threads = yield* ThreadManagement.ThreadManagementService;
-  const threadLaunch = yield* ThreadLaunch.ThreadLaunchService;
-  const path = yield* Path.Path;
-
   let bootstrapProjectId: ProjectId | undefined;
   let bootstrapThreadId: ThreadId | undefined;
-
-  if (serverConfig.autoBootstrapProjectFromCwd) {
-    const threadModelSelection = getAutoBootstrapThreadModelSelection();
+  let stage = "project";
+  yield* Effect.gen(function* () {
+    const crypto = yield* Crypto.Crypto;
+    const randomUUID = crypto.randomUUIDv4();
+    const serverConfig = yield* ServerConfig.ServerConfig;
+    const projects = yield* ProjectService.ProjectService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const path = yield* Path.Path;
+    if (!serverConfig.autoBootstrapProjectFromCwd) return;
     const { project } = yield* projects.bootstrap({
       commandId: CommandId.make(yield* randomUUID),
       projectId: ProjectId.make(yield* randomUUID),
       title: path.basename(serverConfig.cwd) || "project",
       workspaceRoot: serverConfig.cwd,
     });
+    bootstrapProjectId = project.id;
+    stage = "threads";
     const shell = yield* threads.getShellSnapshot();
     const existingThread = shell.threads.find(
       (thread) =>
         thread.projectId === project.id && thread.lineage.relationshipToParent !== "subagent",
     );
     if (existingThread === undefined) {
+      stage = "settings";
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const settings = yield* serverSettings.getSettings;
+      const resolved = resolveProjectSettings(settings, project.id, project);
+      const projectSettings = resolved.settings;
+      // Resolution omits blocked defaults; bootstrap must skip that choice, not pick another provider.
+      const modelSelection =
+        resolved.overrides.defaultModelSelection ??
+        projectSettings.defaultModelSelection ??
+        getAutoBootstrapThreadModelSelection();
+      if (!resolveProjectProviderInstanceEnabled(settings, project.id, modelSelection.instanceId))
+        return;
+      stage = "providers";
+      const registry = yield* ProviderRegistry.ProviderRegistry;
+      // This is the cached snapshot: welcome setup must never probe or enable a provider.
+      const provider = (yield* registry.getProviders).find(
+        (entry) => entry.instanceId === modelSelection.instanceId,
+      );
+      if (provider === undefined || !provider.enabled || provider.disabledByAdmin === true) return;
+      stage = "thread-launch";
+      const threadLaunch = yield* ThreadLaunch.ThreadLaunchService;
       const launched = yield* threadLaunch.launch({
         commandId: CommandId.make(yield* randomUUID),
         projectId: project.id,
         title: "New thread",
-        modelSelection:
-          resolveProjectSettings(settings, project.id, project).settings.defaultModelSelection ??
-          threadModelSelection,
+        modelSelection,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: resolveProjectSettings(settings, project.id, project).settings
-          .defaultRuntimeMode,
+        runtimeMode: projectSettings.defaultRuntimeMode,
         workspaceStrategy: { type: "root" },
         createdBy: "system",
         creationSource: "server",
       });
-      bootstrapProjectId = project.id;
       bootstrapThreadId = launched.threadId;
     } else {
-      bootstrapProjectId = project.id;
       bootstrapThreadId = existingThread.id;
     }
-  }
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterrupts(cause)
+        ? Effect.interrupt
+        : Effect.logWarning("Optional welcome setup failed; continuing server startup", { stage }),
+    ),
+  );
 
   return {
     ...(bootstrapProjectId ? { bootstrapProjectId } : {}),
