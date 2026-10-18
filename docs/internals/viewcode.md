@@ -9,7 +9,8 @@ remain the authority for the native runtime.
 
 ViewCode follows upstream by ordinary `git merge` again. The v2 port merges
 `13aa882c22d584de5388dfce3b3ca413387ba059` (0.1.0), replacing the cherry-pick-only
-policy used after common base `024d49520`. Future updates start with
+policy used after common base `024d49520`. The latest merge includes upstream
+`8f026485df097cca71f80218a514f4d2e13bbf43`. Future updates start with
 `git fetch upstream main` and merge on a review branch. See
 [NEXT_AGENT.md](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
 
@@ -931,6 +932,10 @@ All clients share protocol 2. Web and desktop use the same native client state;
 mobile keeps ViewCode's screens while adapting contracts and commands. The
 upstream mobile navigation redesign, iPad columns, tab bar, Enriched Markdown,
 native segmented controls and offline PR redesign are intentionally excluded.
+The mobile React Compiler remains off through `upstreamMobileCompiler`; the
+upstream coverage/lint ratchet is retained behind that policy until the existing
+ViewCode screens are validated for compiler adoption. Android foldable/rail and
+layout changes stay excluded with the navigation redesign.
 
 Remote use is a first-class path. Do not bake origins into Vite bundles.
 Pairing links are credentials: never consume the owner's link while testing or

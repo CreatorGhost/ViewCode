@@ -1,4 +1,5 @@
 import "vite-plus/test/config";
+import { viewcodeProductPolicy } from "./packages/shared/src/viewcodeProductPolicy.ts";
 import { defineConfig } from "vite-plus";
 import * as NodeURL from "node:url";
 
@@ -360,6 +361,17 @@ export default defineConfig({
         ],
         excludeFiles: ["**/*.test.ts", "**/*.test.tsx"],
         rules: { "t3code/no-hermes-unsupported-apis": "error" },
+      },
+      {
+        // Mobile is ratcheting toward full React Compiler coverage
+        // (apps/mobile/src/reactCompilerCoverage.test.ts). Directives would hide bailouts from it;
+        // the manual memo hooks go once the allowlist there is empty.
+        files: ["apps/mobile/src/**/*.{ts,tsx}"],
+        rules: {
+          "t3code/no-manual-memo": viewcodeProductPolicy.upstreamMobileCompiler
+            ? ["error", { allowMemoHooks: true }]
+            : "off",
+        },
       },
       {
         files: [

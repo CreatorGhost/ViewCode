@@ -8,7 +8,8 @@ choices, agent tools, and existing mobile screens.
 ## Staying mergeable with upstream T3 Code
 
 ViewCode follows upstream by **ordinary Git merges again**. The v2 port merges
-upstream `13aa882c22d584de5388dfce3b3ca413387ba059` (0.1.0). The earlier common
+upstream `13aa882c22d584de5388dfce3b3ca413387ba059` (0.1.0), followed by
+`8f026485df097cca71f80218a514f4d2e13bbf43`. The earlier common
 base was `024d49520`; the intervening cherry-pick policy is retired. Check the
 actual graph with `git merge-base HEAD upstream/main` before the next update.
 

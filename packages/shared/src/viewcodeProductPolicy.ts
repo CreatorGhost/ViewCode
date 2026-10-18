@@ -6,6 +6,7 @@ export const viewcodeProductPolicy = {
   doctor: false,
   installCliFromSettings: false,
   upstreamPromotions: false,
+  upstreamMobileCompiler: false,
   anonymousUsageOnboarding: false,
   anonymousTelemetryEnabled: false,
   anonymousTelemetryKey: "",

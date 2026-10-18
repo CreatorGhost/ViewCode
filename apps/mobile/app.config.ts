@@ -1,4 +1,5 @@
 import type { ExpoConfig } from "expo/config";
+import { viewcodeProductPolicy } from "../../packages/shared/src/viewcodeProductPolicy.ts";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
@@ -482,6 +483,10 @@ const config: ExpoConfig = {
     ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
   },
   ...(easOwner ? { owner: easOwner } : {}),
+  experiments: {
+    // The retained ViewCode screens have not adopted upstream's compiler ratchet.
+    reactCompiler: viewcodeProductPolicy.upstreamMobileCompiler,
+  },
 };
 
 export default config;

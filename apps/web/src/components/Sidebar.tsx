@@ -1,6 +1,9 @@
 import { readEnvironmentScope } from "../state/session";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
-import { readViewCodeThreadShell as readThreadShell, useViewCodeThreadShells as useThreadShells } from "../state/viewcodeThreadShells";
+import {
+  readViewCodeThreadShell as readThreadShell,
+  useViewCodeThreadShells as useThreadShells,
+} from "../state/viewcodeThreadShells";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useAtomValue } from "@effect/atom-react";
@@ -144,10 +147,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import {
-  useAllEnvironmentProjectSnapshotsReady,
-  useProjects,
-} from "../state/entities";
+import { useAllEnvironmentProjectSnapshotsReady, useProjects } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
@@ -285,16 +285,18 @@ function compactSidebarTimeLabel(label: string): string {
   return label.endsWith(" ago") ? label.slice(0, -4) : label;
 }
 
-function threadTimeLabel(thread: SidebarThreadSummary): string {
+function threadTimeLabel(thread: SidebarThreadSummary, nowMs: number): string {
   const timestamp = thread.latestUserMessageAt ?? thread.updatedAt;
-  return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
+  return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp, nowMs));
 }
 
 // Settled rows read "how long ago did this wrap up", matching the Settled
 // group's sort key.
-function settledTimeLabel(thread: SidebarThreadSummary): string {
+function settledTimeLabel(thread: SidebarThreadSummary, nowMs: number): string {
   const timestamp = resolveSettledThreadTimestamp(thread);
-  return timestamp === null ? "" : compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
+  return timestamp === null
+    ? ""
+    : compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp, nowMs));
 }
 
 // Working, or waiting on the user: a tree holding such a thread stays active.
@@ -351,14 +353,18 @@ function AgentStatusDot(props: { group: AgentStatusGroup }) {
 
 // What an agent row's trailing text says: how long it has run, what it waits
 // for, or how long ago it finished.
-function agentTimeLabel(thread: SidebarThreadSummary, group: AgentStatusGroup): string {
+function agentTimeLabel(
+  thread: SidebarThreadSummary,
+  group: AgentStatusGroup,
+  nowMs: number,
+): string {
   if (group === "needs-you") return thread.hasPendingApprovals ? "approval" : "question";
   const turn = thread.latestTurn;
   if (group === "working") {
     const started = turn?.startedAt ?? turn?.requestedAt ?? null;
-    return started ? compactSidebarTimeLabel(formatRelativeTimeLabel(started)) : "starting";
+    return started ? compactSidebarTimeLabel(formatRelativeTimeLabel(started, nowMs)) : "starting";
   }
-  return formatRelativeTimeLabel(turn?.completedAt ?? thread.updatedAt);
+  return formatRelativeTimeLabel(turn?.completedAt ?? thread.updatedAt, nowMs);
 }
 
 function agentSummaryLabel(counts: AgentGroupCounts): string {
@@ -423,6 +429,7 @@ function terminalProcessLabel(count: number): string {
 
 function SidebarThreadTooltip({
   thread,
+  nowMs,
   project,
   projectDisplayName,
   environmentLabel,
@@ -436,6 +443,7 @@ function SidebarThreadTooltip({
   terminalProcessCount,
 }: {
   thread: SidebarThreadSummary;
+  nowMs: number;
   project: ProjectFaviconProject | null;
   projectDisplayName: string | null;
   environmentLabel: string | null;
@@ -465,7 +473,7 @@ function SidebarThreadTooltip({
             <span className="min-w-0 truncate">
               {threadStatusLabel(resolveSidebarThreadStatus(thread))}
               {" · "}
-              {formatRelativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt)}
+              {formatRelativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt, nowMs)}
             </span>
           </div>
           {projectDisplayName ? (
@@ -946,7 +954,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     renamingTitle,
     thread,
   } = props;
-  void props.nowMinute;
+  const nowMs = Date.parse(`${props.nowMinute}:00.000Z`);
   const threadRef = useMemo(
     () => scopeThreadRef(thread.environmentId, thread.id),
     [thread.environmentId, thread.id],
@@ -1436,11 +1444,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     : "text-sidebar-muted-foreground",
               )}
             >
-              {agentTimeLabel(thread, agentGroup)}
+              {agentTimeLabel(thread, agentGroup, nowMs)}
             </span>
           ) : (
             <span className="text-2xs text-sidebar-muted-foreground tabular-nums">
-              {props.settled ? settledTimeLabel(thread) : threadTimeLabel(thread)}
+              {props.settled ? settledTimeLabel(thread, nowMs) : threadTimeLabel(thread, nowMs)}
             </span>
           )}
         </span>
@@ -1484,6 +1492,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       </TooltipTrigger>
       <SidebarThreadTooltip
         thread={thread}
+        nowMs={nowMs}
         project={props.project}
         projectDisplayName={props.projectDisplayName}
         environmentLabel={props.environmentLabel}
@@ -1858,6 +1867,7 @@ const SidebarSettledGroupRow = memo(function SidebarSettledGroupRow(props: {
 
 const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   thread: SidebarThreadSummary;
+  nowMinute: string;
   project: EnvironmentProject | null;
   projectDisplayName: string | null;
   environmentLabel: string | null;
@@ -1873,6 +1883,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   onFileDropThreads: (threadRef: ScopedThreadRef, files: File[]) => void;
 }) {
   const { thread } = props;
+  const nowMs = Date.parse(`${props.nowMinute}:00.000Z`);
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: null,
@@ -1980,7 +1991,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
             <span className="flex min-w-0 items-center gap-2">
               <span className="min-w-0 flex-1 truncate">{thread.title}</span>
               <span className="shrink-0 text-2xs text-sidebar-muted-foreground tabular-nums">
-                {threadTimeLabel(thread)}
+                {threadTimeLabel(thread, nowMs)}
               </span>
             </span>
             {props.searchMatch ? (
@@ -1996,6 +2007,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
         </TooltipTrigger>
         <SidebarThreadTooltip
           thread={thread}
+          nowMs={nowMs}
           project={props.project}
           projectDisplayName={props.projectDisplayName}
           environmentLabel={props.environmentLabel}
@@ -3448,7 +3460,10 @@ export default function Sidebar() {
             [
               { id: "open-in-split" as const, label: "Open in split", icon: "columns-2" },
               ...buildThreadActionMenuItems({
-                canOperate: readEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope),
+                canOperate: readEnvironmentScope(
+                  thread.environmentId,
+                  AuthOrchestrationOperateScope,
+                ),
                 branch: thread.branch ?? null,
                 projectFilter: threadProjectGroup
                   ? {
@@ -4221,6 +4236,7 @@ export default function Sidebar() {
                       <SidebarSearchResultRow
                         key={threadKey}
                         thread={thread}
+                        nowMinute={nowMinute}
                         project={projectByKey.get(physicalProjectKeyOf(thread)) ?? null}
                         projectDisplayName={
                           projectDisplayNameByKey.get(physicalProjectKeyOf(thread)) ?? null
