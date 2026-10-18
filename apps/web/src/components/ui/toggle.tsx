@@ -14,6 +14,8 @@ const toggleVariants = cva(
     },
     variants: {
       size: {
+        header:
+          "size-9 min-w-9 p-0 [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-5",
         compact:
           "h-7 min-w-7 rounded-md px-[calc(--spacing(1)-1px)] text-xs before:rounded-[calc(var(--radius-md)-1px)] [&_svg:not([class*='size-'])]:size-3.5",
         default: "h-9 min-w-9 px-[calc(--spacing(2)-1px)] sm:h-8 sm:min-w-8",
@@ -24,6 +26,8 @@ const toggleVariants = cva(
         xs: "h-7 min-w-7 px-[calc(--spacing(1)-1px)] sm:h-6 sm:min-w-6 rounded-md",
       },
       variant: {
+        header:
+          "border-transparent text-foreground shadow-none before:shadow-none hover:bg-foreground/12 data-pressed:bg-foreground/12 data-pressed:text-foreground [&_svg:not([class*='opacity-'])]:opacity-100 disabled:opacity-40 aria-disabled:opacity-40",
         default: "border-transparent",
         pill: "border-transparent rounded-full px-3 font-normal text-muted-foreground data-pressed:text-foreground",
         ghost:

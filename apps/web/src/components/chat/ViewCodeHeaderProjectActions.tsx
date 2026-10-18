@@ -162,7 +162,9 @@ export function ViewCodeHeaderProjectActions({
   if (!hasMenuItems) return null;
   return (
     <Menu open={open} onOpenChange={setOpen}>
-      <MenuTrigger render={<Button variant="chip" size="icon-chip" aria-label="Project actions" />}>
+      <MenuTrigger
+        render={<Button variant="header" size="icon-header" aria-label="Project actions" />}
+      >
         <EllipsisIcon />
       </MenuTrigger>
       <MenuPopup align="end" keepMounted>

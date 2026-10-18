@@ -393,13 +393,13 @@ export const OpenInPicker = memo(function OpenInPicker({
       {...(isPanel
         ? { className: THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS, ref: panelAnchorRef }
         : compact
-          ? { chip: true }
+          ? { chip: true, className: "gap-1.5" }
           : {})}
     >
       <ThreadDetailsControl
         aria-label={compact ? "Open file in preferred editor" : primaryLabel}
-        size={isPanel ? "sm" : compact ? "chip" : "xs"}
-        variant={isPanel ? "ghost" : compact ? "chip" : "outline"}
+        size={isPanel ? "sm" : compact ? "icon-header" : "xs"}
+        variant={isPanel ? "ghost" : compact ? "header" : "outline"}
         part="primary"
         panel={isPanel}
         disabled={!preferredEditor || !openInCwd || !canOpenEditor}
@@ -409,14 +409,14 @@ export const OpenInPicker = memo(function OpenInPicker({
           <primaryOption.Icon
             aria-hidden="true"
             className={cn(
-              isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3.5",
-              getOpenInIconClass(primaryOption.kind),
+              isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : compact ? undefined : "size-3.5",
+              compact ? "text-foreground opacity-100" : getOpenInIconClass(primaryOption.kind),
             )}
           />
         ) : isPanel || compact ? (
           <SquareArrowOutUpRightIcon
             aria-hidden="true"
-            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3.5"}
+            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : compact ? undefined : "size-3.5"}
           />
         ) : null}
         <span
@@ -432,8 +432,8 @@ export const OpenInPicker = memo(function OpenInPicker({
       </ThreadDetailsControl>
       {isPanel ? (
         <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
-      ) : (
-        <GroupSeparator {...(!compact ? { className: "hidden @3xl/header-actions:block" } : {})} />
+      ) : compact ? null : (
+        <GroupSeparator className="hidden @3xl/header-actions:block" />
       )}
       <Menu open={menuOpen} onOpenChange={setMenuOpen}>
         <MenuTrigger
@@ -441,8 +441,8 @@ export const OpenInPicker = memo(function OpenInPicker({
           render={
             <ThreadDetailsControl
               aria-label={menuLabel ?? "Choose editor"}
-              size={isPanel ? "sm" : compact ? "icon-chip" : "icon-xs"}
-              variant={isPanel ? "ghost" : compact ? "chip" : "outline"}
+              size={isPanel ? "sm" : compact ? "icon-header" : "icon-xs"}
+              variant={isPanel ? "ghost" : compact ? "header" : "outline"}
               part="secondary"
               panel={isPanel}
             />
@@ -450,7 +450,9 @@ export const OpenInPicker = memo(function OpenInPicker({
         >
           <ChevronDownIcon
             aria-hidden="true"
-            className={isPanel ? THREAD_DETAILS_PANEL_CHEVRON_CLASS : "size-4"}
+            className={
+              isPanel ? THREAD_DETAILS_PANEL_CHEVRON_CLASS : compact ? undefined : "size-4"
+            }
           />
         </MenuTrigger>
         <MenuPopup

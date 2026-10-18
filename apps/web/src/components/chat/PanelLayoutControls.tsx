@@ -52,10 +52,10 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="relative shrink-0 [-webkit-app-region:no-drag]"
       pressed={threadPanelOpen}
       aria-label="Toggle thread details panel"
-      variant="ghost"
-      size="sm"
+      variant="header"
+      size="header"
     >
-      <SquareMenuIcon className="size-4" />
+      <SquareMenuIcon />
     </Toggle>
   );
   const threadPanelTooltip = (trigger: ReactElement) => (
@@ -73,7 +73,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
 
   return (
     <div
-      className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
+      className="flex h-full shrink-0 items-center gap-2 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
       {showThreadPanelControl
@@ -91,11 +91,11 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               pressed={terminalOpen}
               onPressedChange={onToggleTerminal}
               aria-label="Toggle terminal drawer"
-              variant="ghost"
-              size="sm"
+              variant="header"
+              size="header"
               disabled={!terminalAvailable}
             >
-              <PanelBottomIcon className="size-4" />
+              <PanelBottomIcon />
             </Toggle>
           </TooltipTrigger>
           <TooltipPopup side="bottom">
@@ -113,11 +113,11 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               pressed={rightPanelOpen}
               onPressedChange={onToggleRightPanel}
               aria-label="Toggle right panel"
-              variant="ghost"
-              size="sm"
+              variant="header"
+              size="header"
               disabled={!rightPanelAvailable}
             >
-              <PanelRightIcon className="size-4" />
+              <PanelRightIcon />
             </Toggle>
           </TooltipTrigger>
           <TooltipPopup side="bottom">
@@ -148,10 +148,10 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
             pressed={maximized}
             onPressedChange={onToggle}
             aria-label={label}
-            variant="ghost"
-            size="sm"
+            variant="header"
+            size="header"
           >
-            <MorphIcon className="size-4" icon={maximized ? Minimize2 : Maximize2} />
+            <MorphIcon icon={maximized ? Minimize2 : Maximize2} />
           </Toggle>
         }
       />

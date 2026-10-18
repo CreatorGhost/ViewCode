@@ -12,6 +12,7 @@ export function ReviewHeaderButton(props: {
   threadId: ThreadId;
   /** A narrow header shows the icon alone. */
   compact: boolean;
+  onToggle?: (() => void) | undefined;
   disabled?: boolean | undefined;
   disabledReason?: string | undefined;
 }) {
@@ -23,15 +24,16 @@ export function ReviewHeaderButton(props: {
     <Tooltip>
       <TooltipTrigger render={<span className="flex shrink-0" />}>
         <Button
-          variant="chip"
-          size={props.compact ? "icon-chip" : "chip"}
+          variant="header"
+          size={props.compact ? "icon-header" : "header"}
           aria-label="Review"
           aria-pressed={open}
           data-pressed={open || undefined}
           disabled={props.disabled}
           onClick={() => {
             if (props.disabled) return;
-            useRightPanelStore.getState().toggle(threadRef, "review");
+            if (props.onToggle) props.onToggle();
+            else useRightPanelStore.getState().toggle(threadRef, "review");
           }}
         >
           <ListChecksIcon />

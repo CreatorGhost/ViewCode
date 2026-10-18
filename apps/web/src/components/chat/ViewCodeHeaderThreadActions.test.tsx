@@ -132,3 +132,50 @@ it("uses the separate terminal permission when orchestration actions are read-on
   expect(useSidechatDockStore.getState().byParentKey).toEqual({});
   expect(useRightPanelStore.getState().byThreadKey).toEqual({});
 });
+
+it("opens draft panels only through the supplied record preparation callbacks", () => {
+  const onOpenSidechat = vi.fn();
+  const onOpenReview = vi.fn();
+  mount({ isServerThread: false, onOpenSidechat, onOpenReview });
+  click("Side chat");
+  click("Review");
+  expect(onOpenSidechat).toHaveBeenCalledOnce();
+  expect(onOpenReview).toHaveBeenCalledOnce();
+  expect(useSidechatDockStore.getState().byParentKey).toEqual({});
+  expect(useRightPanelStore.getState().byThreadKey).toEqual({});
+});
+
+it("does not enable the other draft action when only one preparation callback exists", () => {
+  const onOpenReview = vi.fn();
+  mount({ isServerThread: false, onOpenReview });
+  click("Side chat");
+  click("Review");
+  expect(onOpenReview).toHaveBeenCalledOnce();
+  expect(useSidechatDockStore.getState().byParentKey).toEqual({});
+});
+
+it.each(["busy", "disabled"] as const)("blocks draft callbacks while %s", (flag) => {
+  const onOpenSidechat = vi.fn();
+  const onOpenReview = vi.fn();
+  mount({ isServerThread: false, onOpenSidechat, onOpenReview, [flag]: true });
+  click("Side chat");
+  click("Review");
+  expect(onOpenSidechat).not.toHaveBeenCalled();
+  expect(onOpenReview).not.toHaveBeenCalled();
+  expect(useSidechatDockStore.getState().byParentKey).toEqual({});
+  expect(useRightPanelStore.getState().byThreadKey).toEqual({});
+});
+
+it("allows an existing server thread to use the explicit native panel opener", () => {
+  const onOpenReview = vi.fn(() => useRightPanelStore.getState().open(threadRef, "review"));
+  mount({ onOpenReview });
+  click("Review");
+  expect(onOpenReview).toHaveBeenCalledOnce();
+  expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef)).toBe(
+    "review",
+  );
+  click("Review");
+  expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef)).toBe(
+    "review",
+  );
+});

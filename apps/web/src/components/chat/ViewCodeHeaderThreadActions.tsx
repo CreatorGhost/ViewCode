@@ -16,19 +16,23 @@ export function ViewCodeHeaderThreadActions(props: {
   terminalShortcutLabel?: string | null | undefined;
   terminalUnavailableReason?: string | undefined;
   onToggleTerminal: () => void;
+  onOpenSidechat?: (() => void) | undefined;
+  onOpenReview?: (() => void) | undefined;
+  busy?: boolean | undefined;
   disabled?: boolean | undefined;
   disabledReason?: string | undefined;
 }) {
-  const threadActionsDisabled = !props.isServerThread || props.disabled === true;
+  const threadActionsDisabled = props.disabled === true || props.busy === true;
+  const disabledReason = props.busy ? "Preparing thread…" : props.disabledReason;
   const terminalDisabled = !props.terminalAvailable;
   const draftReason = "Send a message to start this thread before";
   return (
-    <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+    <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
       <Tooltip>
         <TooltipTrigger render={<span className="flex shrink-0" />}>
           <Button
-            variant="chip"
-            size="icon-chip"
+            variant="header"
+            size="icon-header"
             aria-label="Toggle terminal drawer"
             aria-pressed={props.terminalOpen}
             data-pressed={props.terminalOpen || undefined}
@@ -52,9 +56,11 @@ export function ViewCodeHeaderThreadActions(props: {
           environmentId={props.threadRef.environmentId}
           threadId={props.threadRef.threadId}
           keybindings={props.keybindings}
-          disabled={threadActionsDisabled}
+          onToggle={props.onOpenSidechat}
+          disabled={threadActionsDisabled || (!props.isServerThread && !props.onOpenSidechat)}
           disabledReason={
-            !props.isServerThread ? `${draftReason} opening a side chat.` : props.disabledReason
+            disabledReason ??
+            (!props.isServerThread ? `${draftReason} opening a side chat.` : undefined)
           }
         />
       )}
@@ -62,9 +68,11 @@ export function ViewCodeHeaderThreadActions(props: {
         environmentId={props.threadRef.environmentId}
         threadId={props.threadRef.threadId}
         compact={false}
-        disabled={threadActionsDisabled}
+        onToggle={props.onOpenReview}
+        disabled={threadActionsDisabled || (!props.isServerThread && !props.onOpenReview)}
         disabledReason={
-          !props.isServerThread ? `${draftReason} viewing review findings.` : props.disabledReason
+          disabledReason ??
+          (!props.isServerThread ? `${draftReason} viewing review findings.` : undefined)
         }
       />
     </div>

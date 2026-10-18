@@ -12,6 +12,7 @@ export function SidechatHeaderButton(props: {
   environmentId: EnvironmentId;
   threadId: ThreadId;
   keybindings: ResolvedKeybindingsConfig;
+  onToggle?: (() => void) | undefined;
   disabled?: boolean | undefined;
   disabledReason?: string | undefined;
 }) {
@@ -26,15 +27,16 @@ export function SidechatHeaderButton(props: {
     <Tooltip>
       <TooltipTrigger render={<span className="flex shrink-0" />}>
         <Button
-          variant="chip"
-          size="icon-chip"
+          variant="header"
+          size="icon-header"
           aria-label="Side chat"
           aria-pressed={open}
           data-pressed={open || undefined}
           disabled={props.disabled}
           onClick={() => {
             if (props.disabled) return;
-            useSidechatDockStore.getState().toggle(parentRef);
+            if (props.onToggle) props.onToggle();
+            else useSidechatDockStore.getState().toggle(parentRef);
           }}
         >
           <MessageSquareMoreIcon />

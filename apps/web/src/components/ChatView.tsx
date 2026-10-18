@@ -1,5 +1,7 @@
 import { ViewCodeHeaderProjectActions } from "./chat/ViewCodeHeaderProjectActions";
 import { ViewCodeHeaderThreadActions } from "./chat/ViewCodeHeaderThreadActions";
+import { useEnsureViewCodePanelThread } from "./chat/useEnsureViewCodePanelThread";
+import { useSidechatDockStore } from "../sidechatDockStore";
 import { ViewCodeReviewFixUndoHost } from "./chat/ViewCodeReviewFixUndoHost";
 import { useViewCodeThreadBanners } from "./chat/useViewCodeThreadBanners";
 import { threadShellHasStarted } from "./ChatView.logic";
@@ -1575,6 +1577,22 @@ export default function ChatView(props: ChatViewProps) {
     widthStorageKey: `t3code:preview-panel-width:${activeThreadKey}`,
   });
   const activeThreadShell = useQuietThreadShell(isServerThread ? activeThreadRef : null);
+  const { ensurePanelThread, isEnsuringPanelThread } = useEnsureViewCodePanelThread({
+    draftId,
+    threadRef: routeThreadRef,
+    modelSelection: activeThread?.modelSelection,
+    submissionLock: sendInFlightRef,
+  });
+  const openDraftSidechat = useStableCallback(async () => {
+    if (!canOperateThread) return;
+    const thread = await ensurePanelThread();
+    if (thread) useSidechatDockStore.getState().open(thread);
+  });
+  const openDraftReview = useStableCallback(async () => {
+    if (!canOperateThread) return;
+    const thread = await ensurePanelThread();
+    if (thread) useRightPanelStore.getState().open(thread, "review");
+  });
   const threadGoalControls = useThreadGoalControls({
     threadKey: activeThreadKey ?? routeThreadKey,
     environmentId: activeThreadRef?.environmentId ?? null,
@@ -4635,6 +4653,7 @@ export default function ChatView(props: ChatViewProps) {
     ? (draftThread?.startFromOrigin ?? false)
     : canOverrideServerThreadEnvMode
       ? (pendingServerThreadStartFromOriginByThreadId[activeThread?.id ?? ""] ??
+        draftThread?.startFromOrigin ??
         activeProjectSettings.settings.newWorktreesStartFromOrigin)
       : false;
   const sendEnvMode = resolveSendEnvMode({
@@ -7811,7 +7830,7 @@ export default function ChatView(props: ChatViewProps) {
   const panelLayoutControls = (
     <div
       className={cn(
-        "pointer-events-none fixed top-[calc(var(--workspace-controls-top)+var(--workspace-sheet-inset-top,0px))] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]",
+        "pointer-events-none fixed top-[calc(var(--workspace-controls-top)+var(--workspace-sheet-inset-top,0px))] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-2 [-webkit-app-region:no-drag]",
       )}
       data-workspace-titlebar-controls
     >
@@ -7891,7 +7910,7 @@ export default function ChatView(props: ChatViewProps) {
               inlineRightPanelOwnsTitleBar ? 1 : shouldUsePlanSidebarSheet ? 2 : 3
             }
             actions={
-              <div data-chat-header-actions className="flex shrink-0 items-center gap-1">
+              <div data-chat-header-actions className="flex shrink-0 items-center gap-2">
                 <ViewCodeHeaderProjectActions
                   projectCwd={activeProject?.workspaceRoot ?? null}
                   {...(showOpenInPicker
@@ -7941,6 +7960,9 @@ export default function ChatView(props: ChatViewProps) {
                   terminalOpen={terminalUiState.terminalOpen}
                   terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
                   onToggleTerminal={toggleTerminalVisibilityStable}
+                  onOpenSidechat={!isServerThread ? openDraftSidechat : undefined}
+                  onOpenReview={!isServerThread ? openDraftReview : undefined}
+                  busy={isEnsuringPanelThread}
                   disabled={!canOperateThread}
                   disabledReason="You do not have permission to operate this thread"
                 />

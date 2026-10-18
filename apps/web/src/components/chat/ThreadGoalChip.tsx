@@ -5,7 +5,11 @@ import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** The thread's goal in the chat header; a click opens the goal editor. */
-export function ThreadGoalChip(props: { readonly goal: ThreadGoal; readonly onEdit: () => void; readonly disabled?: boolean }) {
+export function ThreadGoalChip(props: {
+  readonly goal: ThreadGoal;
+  readonly onEdit: () => void;
+  readonly disabled?: boolean;
+}) {
   const paused = props.goal.pausedAt !== null;
   return (
     <Tooltip>
@@ -13,8 +17,8 @@ export function ThreadGoalChip(props: { readonly goal: ThreadGoal; readonly onEd
         render={
           <Button
             type="button"
-            variant="chip"
-            size="chip"
+            variant="header"
+            size="header"
             aria-label={paused ? "Goal (paused): edit" : "Goal: edit"}
             data-thread-goal={paused ? "paused" : "active"}
             disabled={props.disabled}
