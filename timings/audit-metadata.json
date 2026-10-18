@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-19",
+  "viewcodeCommit": "d3c81c2f6e4c9c4874f8ba8636b0c2a94cb532b8",
+  "zeronRelease": "0.2.114",
+  "zeronCommit": "2e8f02ec2dfc521a20a5c43fcdbf4fae2381853a",
+  "displayRefreshHz": 120,
+  "windowSize": [
+    1280,
+    900
+  ],
+  "protocol": "Native HID input brackets to original ScreenCaptureKit complete-frame raw-crop timestamps. No interpolation. 100ms unchanged-crop callback coverage confirms crop settlement only. Movies are intentionally excluded from this reference branch. Raw per-case JSON contains complete frame records and native input markers.",
+  "frameColumns": "Frames preserve their original field names and numeric timestamp units. deliveryHostNs/displayHostNs are nanoseconds; mach tick values use the captured timebase.",
+  "acceptedCleanActionTrials": 160,
+  "qualifiedFilesActionTrials": 40,
+  "timingScope": "Local selected-window crops; physical presentation and application delivery are unconfirmed. Files-open late outlier remains included. Editor crop measures glyph interior only.",
+  "unmeasured": [
+    "repeated file open",
+    "file tab switching",
+    "cold and warm chat switching",
+    "terminal typing and cold startup",
+    "palette list navigation",
+    "diff-specific behavior"
+  ],
+  "unavailable": [
+    "matched long history",
+    "existing streaming content"
+  ],
+  "sourceAndFixtureVerification": {
+    "headMatches": true,
+    "statusMatches": true,
+    "dirtyFilesMatch": {
+      "apps/web/src/components/CommandPalette.tsx": true,
+      "apps/web/src/components/CommandPaletteResults.tsx": true,
+      "apps/web/src/components/RightPanelTabs.tsx": true,
+      "apps/web/src/components/ui/command.tsx": true,
+      "apps/web/src/components/CommandPaletteResults.browser.test.tsx": true,
+      "apps/web/src/components/RightPanelTabs.empty-strip.browser.test.tsx": true
+    },
+    "headerUnchanged": true,
+    "throwawayEditorFileRestored": true
+  },
+  "cleanup": {
+    "allOwnedRecordedProcessesExited": true,
+    "recordedPIDStillRunning": {
+      "11133": false,
+      "11139": false,
+      "11140": false,
+      "11141": false,
+      "11164": false,
+      "11166": false,
+      "51837": false,
+      "94283": false,
+      "94292": false,
+      "54763": false
+    },
+    "viewcodeSupervisorCleanupVerified": true,
+    "viewcodeMainClosed": true,
+    "viewcodeBackendsClosed": true,
+    "zeronRecordedExitCode": -15,
+    "signalsOnlyToCapturedMainPIDs": [
+      11139,
+      94292
+    ]
+  },
+  "filesLateSpatialDiagnostic": {
+    "purpose": "Exact last raw-changed frame and immediately preceding encoded complete frame; lossy movie spatial diagnostic only, no new timing/causality claim.",
+    "trial": 9,
+    "rawHashCropPixels": [
+      768,
+      60,
+      512,
+      450
+    ],
+    "rawHashesDiffer": true,
+    "selectedFrames": [
+      {
+        "file": "frame-01.png",
+        "rawIndex": 2481,
+        "movieIndex": 2479,
+        "postMs": 14257.642416
+      },
+      {
+        "file": "frame-02.png",
+        "rawIndex": 2482,
+        "movieIndex": 2480,
+        "postMs": 14266.494166
+      }
+    ],
+    "thresholds": [
+      {
+        "maxChannelDeltaExclusive": 0,
+        "pixels": 312,
+        "bbox": [
+          624,
+          584,
+          995,
+          896
+        ],
+        "cropPixels": 0,
+        "cropBBox": null
+      },
+      {
+        "maxChannelDeltaExclusive": 8,
+        "pixels": 0,
+        "bbox": null,
+        "cropPixels": 0,
+        "cropBBox": null
+      },
+      {
+        "maxChannelDeltaExclusive": 16,
+        "pixels": 0,
+        "bbox": null,
+        "cropPixels": 0,
+        "cropBBox": null
+      },
+      {
+        "maxChannelDeltaExclusive": 32,
+        "pixels": 0,
+        "bbox": null,
+        "cropPixels": 0,
+        "cropBBox": null
+      }
+    ]
+  }
+}

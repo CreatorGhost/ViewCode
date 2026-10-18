@@ -1,0 +1,544 @@
+{
+  "scope": "left-panel raw crop only; full-screen settlement not asserted",
+  "trialsPerCohort": 10,
+  "cohorts": [
+    {
+      "app": "zeron",
+      "observedAction": "sidebar-open",
+      "rawScene": "sidebar-open",
+      "annotationCorrected": false,
+      "analysis": "analysis-zeron-sidebar-open-final02.json",
+      "validTrials": 10,
+      "excludedTrials": 0,
+      "distributions": {
+        "postBracketWidthMs": {
+          "n": 10,
+          "min": 0.008375,
+          "median": 0.0272295,
+          "p90": 0.786708,
+          "max": 14.085584,
+          "spread": 14.077209000000002
+        },
+        "completeCropChanges": {
+          "n": 10,
+          "min": 18,
+          "median": 20.0,
+          "p90": 21,
+          "max": 21,
+          "spread": 3
+        },
+        "observedMotionSpanMs": {
+          "n": 10,
+          "min": 173.096333,
+          "median": 179.50877100000002,
+          "p90": 187.812583,
+          "max": 187.812791,
+          "spread": 14.716458000000017
+        },
+        "firstChangedCropLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 15.938417,
+            "median": 31.3441665,
+            "p90": 36.88625,
+            "max": 44.036458,
+            "spread": 28.098041000000002
+          },
+          "upper": {
+            "n": 10,
+            "min": 15.965917,
+            "median": 31.417687,
+            "p90": 36.913209,
+            "max": 58.122042,
+            "spread": 42.156125
+          }
+        },
+        "settleLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 200.180959,
+            "median": 210.022479,
+            "p90": 215.929708,
+            "max": 219.663458,
+            "spread": 19.48249899999999
+          },
+          "upper": {
+            "n": 10,
+            "min": 200.209,
+            "median": 210.040146,
+            "p90": 215.940125,
+            "max": 233.749042,
+            "spread": 33.540042
+          }
+        },
+        "quietConfirmedLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 300.475834,
+            "median": 310.505583,
+            "p90": 316.236041,
+            "max": 319.9035,
+            "spread": 19.427665999999988
+          },
+          "upper": {
+            "n": 10,
+            "min": 300.503875,
+            "median": 310.52324999999996,
+            "p90": 316.246458,
+            "max": 333.989084,
+            "spread": 33.485209
+          }
+        }
+      },
+      "movie": {
+        "codec": "h264",
+        "rawEncodedFrames": 3297,
+        "movieFrames": 3297,
+        "normalizedPTSMaxErrorMs": 0.83325,
+        "movieTimestampQuantumMs": 1.6666666666666667,
+        "timestampsInterpolated": false,
+        "compressedPixelsUsedForLatency": false
+      },
+      "captureFrames": {
+        "deliveries": 3298,
+        "validCompleteCropFrames": 3297,
+        "excluded": {
+          "idle": 1
+        },
+        "completeFrameDelivery": {
+          "intervalMs": {
+            "n": 3296,
+            "min": 0.64225,
+            "median": 8.976479,
+            "p90": 10.074541,
+            "max": 30.038041,
+            "spread": 29.395791
+          },
+          "thresholdMs": 12.5,
+          "captureGapsOverThreshold": 28,
+          "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+        },
+        "allCallbackDelivery": {
+          "intervalMs": {
+            "n": 3297,
+            "min": 0.64225,
+            "median": 8.976833,
+            "p90": 10.074541,
+            "max": 30.038041,
+            "spread": 29.395791
+          },
+          "thresholdMs": 12.5,
+          "captureGapsOverThreshold": 27,
+          "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+        },
+        "encoderBackpressureFrames": 0,
+        "validCompleteFramesNotEncoded": 0
+      },
+      "inputRoute": "hid-foreground"
+    },
+    {
+      "app": "zeron",
+      "observedAction": "sidebar-close",
+      "rawScene": "sidebar-close",
+      "annotationCorrected": false,
+      "analysis": "analysis-zeron-sidebar-close-final02.json",
+      "validTrials": 10,
+      "excludedTrials": 0,
+      "distributions": {
+        "postBracketWidthMs": {
+          "n": 10,
+          "min": 0.008084,
+          "median": 0.026416500000000002,
+          "p90": 0.037917,
+          "max": 0.266584,
+          "spread": 0.2585
+        },
+        "completeCropChanges": {
+          "n": 10,
+          "min": 17,
+          "median": 18.0,
+          "p90": 19,
+          "max": 19,
+          "spread": 2
+        },
+        "observedMotionSpanMs": {
+          "n": 10,
+          "min": 147.238875,
+          "median": 156.250313,
+          "p90": 166.609417,
+          "max": 171.668833,
+          "spread": 24.429958
+        },
+        "firstChangedCropLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 16.553625,
+            "median": 33.033958,
+            "p90": 35.095291,
+            "max": 35.124458,
+            "spread": 18.570832999999997
+          },
+          "upper": {
+            "n": 10,
+            "min": 16.591542,
+            "median": 33.179479,
+            "p90": 35.108,
+            "max": 35.152208,
+            "spread": 18.560666
+          }
+        },
+        "settleLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 176.271416,
+            "median": 188.313354,
+            "p90": 194.473667,
+            "max": 201.525084,
+            "spread": 25.253668000000005
+          },
+          "upper": {
+            "n": 10,
+            "min": 176.2795,
+            "median": 188.4656045,
+            "p90": 194.498125,
+            "max": 201.550167,
+            "spread": 25.270666999999975
+          }
+        },
+        "quietConfirmedLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 276.664416,
+            "median": 288.71418700000004,
+            "p90": 294.750417,
+            "max": 301.819709,
+            "spread": 25.155292999999972
+          },
+          "upper": {
+            "n": 10,
+            "min": 276.6725,
+            "median": 288.8664375,
+            "p90": 294.774875,
+            "max": 301.844792,
+            "spread": 25.17229199999997
+          }
+        }
+      },
+      "movie": {
+        "codec": "h264",
+        "rawEncodedFrames": 3297,
+        "movieFrames": 3297,
+        "normalizedPTSMaxErrorMs": 0.83325,
+        "movieTimestampQuantumMs": 1.6666666666666667,
+        "timestampsInterpolated": false,
+        "compressedPixelsUsedForLatency": false
+      },
+      "captureFrames": {
+        "deliveries": 3298,
+        "validCompleteCropFrames": 3297,
+        "excluded": {
+          "idle": 1
+        },
+        "completeFrameDelivery": {
+          "intervalMs": {
+            "n": 3296,
+            "min": 0.64225,
+            "median": 8.976479,
+            "p90": 10.074541,
+            "max": 30.038041,
+            "spread": 29.395791
+          },
+          "thresholdMs": 12.5,
+          "captureGapsOverThreshold": 28,
+          "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+        },
+        "allCallbackDelivery": {
+          "intervalMs": {
+            "n": 3297,
+            "min": 0.64225,
+            "median": 8.976833,
+            "p90": 10.074541,
+            "max": 30.038041,
+            "spread": 29.395791
+          },
+          "thresholdMs": 12.5,
+          "captureGapsOverThreshold": 27,
+          "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+        },
+        "encoderBackpressureFrames": 0,
+        "validCompleteFramesNotEncoded": 0
+      },
+      "inputRoute": "hid-foreground"
+    },
+    {
+      "app": "viewcode",
+      "observedAction": "sidebar-open",
+      "rawScene": "sidebar-close",
+      "annotationCorrected": true,
+      "analysis": "analysis-viewcode-sidebar-open-final02.json",
+      "validTrials": 10,
+      "excludedTrials": 0,
+      "distributions": {
+        "postBracketWidthMs": {
+          "n": 10,
+          "min": 0.00975,
+          "median": 0.018917,
+          "p90": 0.1915,
+          "max": 1.101459,
+          "spread": 1.091709
+        },
+        "completeCropChanges": {
+          "n": 10,
+          "min": 1,
+          "median": 1.0,
+          "p90": 1,
+          "max": 1,
+          "spread": 0
+        },
+        "observedMotionSpanMs": {
+          "n": 10,
+          "min": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "max": 0.0,
+          "spread": 0.0
+        },
+        "firstChangedCropLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 24.918583,
+            "median": 30.856729,
+            "p90": 37.273875,
+            "max": 42.770292,
+            "spread": 17.851708999999996
+          },
+          "upper": {
+            "n": 10,
+            "min": 24.956333,
+            "median": 30.9577915,
+            "p90": 37.283625,
+            "max": 42.780042,
+            "spread": 17.823709
+          }
+        },
+        "settleLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 24.918583,
+            "median": 30.856729,
+            "p90": 37.273875,
+            "max": 42.770292,
+            "spread": 17.851708999999996
+          },
+          "upper": {
+            "n": 10,
+            "min": 24.956333,
+            "median": 30.9577915,
+            "p90": 37.283625,
+            "max": 42.780042,
+            "spread": 17.823709
+          }
+        },
+        "quietConfirmedLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 125.252042,
+            "median": 131.17249950000001,
+            "p90": 137.595583,
+            "max": 143.022958,
+            "spread": 17.770915999999986
+          },
+          "upper": {
+            "n": 10,
+            "min": 125.289792,
+            "median": 131.273562,
+            "p90": 137.605333,
+            "max": 143.032708,
+            "spread": 17.742916000000008
+          }
+        }
+      },
+      "movie": {
+        "codec": "h264",
+        "rawEncodedFrames": 3305,
+        "movieFrames": 3305,
+        "normalizedPTSMaxErrorMs": 0.832958,
+        "movieTimestampQuantumMs": 1.6666666666666667,
+        "timestampsInterpolated": false,
+        "compressedPixelsUsedForLatency": false
+      },
+      "captureFrames": {
+        "deliveries": 3306,
+        "validCompleteCropFrames": 3305,
+        "excluded": {
+          "idle": 1
+        },
+        "completeFrameDelivery": {
+          "intervalMs": {
+            "n": 3304,
+            "min": 0.701625,
+            "median": 8.9286045,
+            "p90": 9.897791,
+            "max": 26.87075,
+            "spread": 26.169125
+          },
+          "thresholdMs": 12.5,
+          "captureGapsOverThreshold": 28,
+          "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+        },
+        "allCallbackDelivery": {
+          "intervalMs": {
+            "n": 3305,
+            "min": 0.701625,
+            "median": 8.929417,
+            "p90": 9.918917,
+            "max": 26.87075,
+            "spread": 26.169125
+          },
+          "thresholdMs": 12.5,
+          "captureGapsOverThreshold": 27,
+          "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+        },
+        "encoderBackpressureFrames": 0,
+        "validCompleteFramesNotEncoded": 0
+      },
+      "inputRoute": "hid-foreground"
+    },
+    {
+      "app": "viewcode",
+      "observedAction": "sidebar-close",
+      "rawScene": "sidebar-open",
+      "annotationCorrected": true,
+      "analysis": "analysis-viewcode-sidebar-close-final02.json",
+      "validTrials": 10,
+      "excludedTrials": 0,
+      "distributions": {
+        "postBracketWidthMs": {
+          "n": 10,
+          "min": 0.009584,
+          "median": 0.026895500000000003,
+          "p90": 0.110958,
+          "max": 16.063625,
+          "spread": 16.054040999999998
+        },
+        "completeCropChanges": {
+          "n": 10,
+          "min": 1,
+          "median": 1.0,
+          "p90": 1,
+          "max": 2,
+          "spread": 1
+        },
+        "observedMotionSpanMs": {
+          "n": 10,
+          "min": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "max": 25.916875,
+          "spread": 25.916875
+        },
+        "firstChangedCropLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 22.155667,
+            "median": 31.564500000000002,
+            "p90": 37.0075,
+            "max": 44.970042,
+            "spread": 22.814375
+          },
+          "upper": {
+            "n": 10,
+            "min": 22.266625,
+            "median": 32.4759375,
+            "p90": 44.9985,
+            "max": 48.383917,
+            "spread": 26.117291999999996
+          }
+        },
+        "settleLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 22.155667,
+            "median": 32.4471665,
+            "p90": 44.970042,
+            "max": 58.237167,
+            "spread": 36.0815
+          },
+          "upper": {
+            "n": 10,
+            "min": 22.266625,
+            "median": 32.4759375,
+            "p90": 44.9985,
+            "max": 74.300792,
+            "spread": 52.034167
+          }
+        },
+        "quietConfirmedLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 122.476375,
+            "median": 132.755354,
+            "p90": 145.362125,
+            "max": 158.581167,
+            "spread": 36.10479199999999
+          },
+          "upper": {
+            "n": 10,
+            "min": 122.587333,
+            "median": 132.78412500000002,
+            "p90": 145.390583,
+            "max": 174.644792,
+            "spread": 52.057458999999994
+          }
+        }
+      },
+      "movie": {
+        "codec": "h264",
+        "rawEncodedFrames": 3305,
+        "movieFrames": 3305,
+        "normalizedPTSMaxErrorMs": 0.832958,
+        "movieTimestampQuantumMs": 1.6666666666666667,
+        "timestampsInterpolated": false,
+        "compressedPixelsUsedForLatency": false
+      },
+      "captureFrames": {
+        "deliveries": 3306,
+        "validCompleteCropFrames": 3305,
+        "excluded": {
+          "idle": 1
+        },
+        "completeFrameDelivery": {
+          "intervalMs": {
+            "n": 3304,
+            "min": 0.701625,
+            "median": 8.9286045,
+            "p90": 9.897791,
+            "max": 26.87075,
+            "spread": 26.169125
+          },
+          "thresholdMs": 12.5,
+          "captureGapsOverThreshold": 28,
+          "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+        },
+        "allCallbackDelivery": {
+          "intervalMs": {
+            "n": 3305,
+            "min": 0.701625,
+            "median": 8.929417,
+            "p90": 9.918917,
+            "max": 26.87075,
+            "spread": 26.169125
+          },
+          "thresholdMs": 12.5,
+          "captureGapsOverThreshold": 27,
+          "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+        },
+        "encoderBackpressureFrames": 0,
+        "validCompleteFramesNotEncoded": 0
+      },
+      "inputRoute": "hid-foreground"
+    }
+  ],
+  "latencyMethod": "Same Mach clock; interval from driver post-after to post-before. No midpoint, no physical presentation or application delivery claim.",
+  "helperRepair": "Use builtin open for exclusive 0600 output; Path.open rejects opener keyword. No acceptance or quiet gates changed."
+}

@@ -1,0 +1,405 @@
+{
+  "scope": "warm geometry crop[1000,512,240,388], prompt/caret excluded",
+  "cohorts": [
+    {
+      "app": "zeron",
+      "action": "open",
+      "analysis": "analysis-zeron-terminal-open.json",
+      "valid": 10,
+      "excluded": 0,
+      "complete": true,
+      "distributions": {
+        "postBracketWidthMs": {
+          "n": 10,
+          "min": 0.00875,
+          "median": 0.025625000000000002,
+          "p90": 0.222667,
+          "max": 11.883291,
+          "spread": 11.874541
+        },
+        "completeCropChanges": {
+          "n": 10,
+          "min": 21,
+          "median": 22.0,
+          "p90": 22,
+          "max": 23,
+          "spread": 2
+        },
+        "observedMotionSpanMs": {
+          "n": 10,
+          "min": 186.800166,
+          "median": 190.7695215,
+          "p90": 196.210959,
+          "max": 197.212208,
+          "spread": 10.412042000000014
+        },
+        "firstChangedCropLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 19.66925,
+            "median": 32.911417,
+            "p90": 35.651458,
+            "max": 44.57725,
+            "spread": 24.907999999999998
+          },
+          "upper": {
+            "n": 10,
+            "min": 19.678292,
+            "median": 32.931895499999996,
+            "p90": 35.678333,
+            "max": 56.460541,
+            "spread": 36.782249
+          }
+        },
+        "settleLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 216.772334,
+            "median": 221.612021,
+            "p90": 229.895209,
+            "max": 235.689209,
+            "spread": 18.916875000000005
+          },
+          "upper": {
+            "n": 10,
+            "min": 216.781084,
+            "median": 221.728542,
+            "p90": 229.925,
+            "max": 247.5725,
+            "spread": 30.791415999999998
+          }
+        },
+        "quietConfirmedLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 317.042209,
+            "median": 322.0454585,
+            "p90": 330.420084,
+            "max": 336.001167,
+            "spread": 18.958957999999996
+          },
+          "upper": {
+            "n": 10,
+            "min": 317.050959,
+            "median": 322.16197950000003,
+            "p90": 330.449875,
+            "max": 347.884458,
+            "spread": 30.833499000000018
+          }
+        }
+      },
+      "exclusionReasons": [],
+      "movie": {
+        "codec": "h264",
+        "rawEncodedFrames": 3222,
+        "movieFrames": 3222,
+        "normalizedPTSMaxErrorMs": 0.833084,
+        "movieTimestampQuantumMs": 1.6666666666666667,
+        "timestampsInterpolated": false,
+        "compressedPixelsUsedForLatency": false
+      },
+      "encoderBackpressure": 0,
+      "validCompleteNotEncoded": 0
+    },
+    {
+      "app": "zeron",
+      "action": "close",
+      "analysis": "analysis-zeron-terminal-close.json",
+      "valid": 10,
+      "excluded": 0,
+      "complete": true,
+      "distributions": {
+        "postBracketWidthMs": {
+          "n": 10,
+          "min": 0.008709,
+          "median": 0.022042,
+          "p90": 0.028458,
+          "max": 0.397208,
+          "spread": 0.388499
+        },
+        "completeCropChanges": {
+          "n": 10,
+          "min": 22,
+          "median": 22.0,
+          "p90": 22,
+          "max": 22,
+          "spread": 0
+        },
+        "observedMotionSpanMs": {
+          "n": 10,
+          "min": 185.381875,
+          "median": 190.356646,
+          "p90": 202.531791,
+          "max": 202.633333,
+          "spread": 17.251457999999985
+        },
+        "firstChangedCropLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 22.67725,
+            "median": 29.494292,
+            "p90": 34.244708,
+            "max": 35.863041,
+            "spread": 13.185791000000002
+          },
+          "upper": {
+            "n": 10,
+            "min": 22.688708,
+            "median": 29.5137295,
+            "p90": 34.641916,
+            "max": 35.885666,
+            "spread": 13.196958000000002
+          }
+        },
+        "settleLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 212.103792,
+            "median": 223.0035625,
+            "p90": 225.310583,
+            "max": 227.177166,
+            "spread": 15.073374000000001
+          },
+          "upper": {
+            "n": 10,
+            "min": 212.114209,
+            "median": 223.02864599999998,
+            "p90": 225.322041,
+            "max": 227.185875,
+            "spread": 15.071666000000022
+          }
+        },
+        "quietConfirmedLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 312.404208,
+            "median": 323.5588335,
+            "p90": 325.618375,
+            "max": 327.548,
+            "spread": 15.143792000000019
+          },
+          "upper": {
+            "n": 10,
+            "min": 312.414625,
+            "median": 323.58391700000004,
+            "p90": 325.633958,
+            "max": 327.556709,
+            "spread": 15.142084000000011
+          }
+        }
+      },
+      "exclusionReasons": [],
+      "movie": {
+        "codec": "h264",
+        "rawEncodedFrames": 3222,
+        "movieFrames": 3222,
+        "normalizedPTSMaxErrorMs": 0.833084,
+        "movieTimestampQuantumMs": 1.6666666666666667,
+        "timestampsInterpolated": false,
+        "compressedPixelsUsedForLatency": false
+      },
+      "encoderBackpressure": 0,
+      "validCompleteNotEncoded": 0
+    },
+    {
+      "app": "viewcode",
+      "action": "open",
+      "analysis": "analysis-viewcode-terminal-open.json",
+      "valid": 10,
+      "excluded": 0,
+      "complete": true,
+      "distributions": {
+        "postBracketWidthMs": {
+          "n": 10,
+          "min": 0.008583,
+          "median": 0.026021000000000002,
+          "p90": 0.117375,
+          "max": 11.721167,
+          "spread": 11.712584
+        },
+        "completeCropChanges": {
+          "n": 10,
+          "min": 1,
+          "median": 1.0,
+          "p90": 1,
+          "max": 1,
+          "spread": 0
+        },
+        "observedMotionSpanMs": {
+          "n": 10,
+          "min": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "max": 0.0,
+          "spread": 0.0
+        },
+        "firstChangedCropLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 44.815583,
+            "median": 57.767104,
+            "p90": 73.795541,
+            "max": 74.8205,
+            "spread": 30.004917
+          },
+          "upper": {
+            "n": 10,
+            "min": 44.824166,
+            "median": 57.7914165,
+            "p90": 74.937875,
+            "max": 85.516708,
+            "spread": 40.692541999999996
+          }
+        },
+        "settleLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 44.815583,
+            "median": 57.767104,
+            "p90": 73.795541,
+            "max": 74.8205,
+            "spread": 30.004917
+          },
+          "upper": {
+            "n": 10,
+            "min": 44.824166,
+            "median": 57.7914165,
+            "p90": 74.937875,
+            "max": 85.516708,
+            "spread": 40.692541999999996
+          }
+        },
+        "quietConfirmedLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 145.192333,
+            "median": 158.09887500000002,
+            "p90": 174.186333,
+            "max": 175.26525,
+            "spread": 30.072917000000018
+          },
+          "upper": {
+            "n": 10,
+            "min": 145.200916,
+            "median": 158.1231875,
+            "p90": 175.382625,
+            "max": 185.9075,
+            "spread": 40.70658399999999
+          }
+        }
+      },
+      "exclusionReasons": [],
+      "movie": {
+        "codec": "h264",
+        "rawEncodedFrames": 3135,
+        "movieFrames": 3135,
+        "normalizedPTSMaxErrorMs": 0.832875,
+        "movieTimestampQuantumMs": 1.6666666666666667,
+        "timestampsInterpolated": false,
+        "compressedPixelsUsedForLatency": false
+      },
+      "encoderBackpressure": 0,
+      "validCompleteNotEncoded": 0
+    },
+    {
+      "app": "viewcode",
+      "action": "close",
+      "analysis": "analysis-viewcode-terminal-close.json",
+      "valid": 10,
+      "excluded": 0,
+      "complete": true,
+      "distributions": {
+        "postBracketWidthMs": {
+          "n": 10,
+          "min": 0.010167,
+          "median": 0.0269165,
+          "p90": 0.038083,
+          "max": 0.125,
+          "spread": 0.114833
+        },
+        "completeCropChanges": {
+          "n": 10,
+          "min": 1,
+          "median": 1.0,
+          "p90": 1,
+          "max": 1,
+          "spread": 0
+        },
+        "observedMotionSpanMs": {
+          "n": 10,
+          "min": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "max": 0.0,
+          "spread": 0.0
+        },
+        "firstChangedCropLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 35.211208,
+            "median": 39.539583,
+            "p90": 46.626042,
+            "max": 46.774542,
+            "spread": 11.563333999999998
+          },
+          "upper": {
+            "n": 10,
+            "min": 35.232458,
+            "median": 39.6071665,
+            "p90": 46.659292,
+            "max": 46.80075,
+            "spread": 11.568292
+          }
+        },
+        "settleLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 35.211208,
+            "median": 39.539583,
+            "p90": 46.626042,
+            "max": 46.774542,
+            "spread": 11.563333999999998
+          },
+          "upper": {
+            "n": 10,
+            "min": 35.232458,
+            "median": 39.6071665,
+            "p90": 46.659292,
+            "max": 46.80075,
+            "spread": 11.568292
+          }
+        },
+        "quietConfirmedLatencyBracketMs": {
+          "lower": {
+            "n": 10,
+            "min": 135.570708,
+            "median": 140.0348125,
+            "p90": 147.029417,
+            "max": 147.064334,
+            "spread": 11.493626000000006
+          },
+          "upper": {
+            "n": 10,
+            "min": 135.591958,
+            "median": 140.102396,
+            "p90": 147.062667,
+            "max": 147.090542,
+            "spread": 11.498583999999994
+          }
+        }
+      },
+      "exclusionReasons": [],
+      "movie": {
+        "codec": "h264",
+        "rawEncodedFrames": 3135,
+        "movieFrames": 3135,
+        "normalizedPTSMaxErrorMs": 0.832875,
+        "movieTimestampQuantumMs": 1.6666666666666667,
+        "timestampsInterpolated": false,
+        "compressedPixelsUsedForLatency": false
+      },
+      "encoderBackpressure": 0,
+      "validCompleteNotEncoded": 0
+    }
+  ]
+}

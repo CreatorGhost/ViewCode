@@ -1,0 +1,563 @@
+{
+  "version": 1,
+  "scene": "terminal-open",
+  "expectedTrials": 10,
+  "validTrials": 10,
+  "excludedTrials": 0,
+  "cohortComplete": true,
+  "sourceBasenames": {
+    "acceptance": "accepted-viewcode-terminal-open.json",
+    "driver": "drive-markers.jsonl",
+    "movie": "capture.mov"
+  },
+  "inputRoute": "hid-foreground",
+  "reviewedSystemDockOverlayIDs": [
+    19
+  ],
+  "driverPostsNativeInput": true,
+  "capturerSynthesizesInput": false,
+  "capturerInputSource": "native-driver-bracket",
+  "passiveInputEnabled": false,
+  "requestedCaptureMaxFPS": 120,
+  "frameClock": "displayHostNs",
+  "clock": "mach_absolute_time converted using capture timebase",
+  "timestampInterpolation": false,
+  "inputBoundary": "authoritative driver post-before/post-after bracket; no midpoint",
+  "settleDefinition": "Last changed complete raw crop before next input, followed by at least100ms without another delivered crop change. Quiet is confirmed by later complete/idle callbacks on the delivery clock; it is not an interpolated frame or physical-display receipt.",
+  "physicalPresentationVerified": false,
+  "applicationDeliveryConfirmed": false,
+  "logicalUIReadyInferredFromHash": false,
+  "manualUiAcceptanceRequired": true,
+  "frames": {
+    "deliveries": 3136,
+    "validCompleteCropFrames": 3135,
+    "excluded": {
+      "idle": 1
+    },
+    "completeFrameDelivery": {
+      "intervalMs": {
+        "n": 3134,
+        "min": 0.459792,
+        "median": 9.112937500000001,
+        "p90": 12.71275,
+        "max": 25.541459,
+        "spread": 25.081667
+      },
+      "thresholdMs": 12.5,
+      "captureGapsOverThreshold": 348,
+      "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+    },
+    "allCallbackDelivery": {
+      "intervalMs": {
+        "n": 3135,
+        "min": 0.459792,
+        "median": 9.113083,
+        "p90": 12.71,
+        "max": 25.541459,
+        "spread": 25.081667
+      },
+      "thresholdMs": 12.5,
+      "captureGapsOverThreshold": 347,
+      "meaning": "Capture delivery gaps only; not physical display/GPU dropped frames."
+    },
+    "encoderBackpressureFrames": 0,
+    "validCompleteFramesNotEncoded": 0
+  },
+  "driverAXSnapshots": {
+    "count": 20,
+    "mappedOwnedWindow": 20,
+    "semanticCompletionConfirmed": false,
+    "manualPixelReviewRequired": true
+  },
+  "movie": {
+    "codec": "h264",
+    "rawEncodedFrames": 3135,
+    "movieFrames": 3135,
+    "normalizedPTSMaxErrorMs": 0.832875,
+    "movieTimestampQuantumMs": 1.6666666666666667,
+    "timestampsInterpolated": false,
+    "compressedPixelsUsedForLatency": false
+  },
+  "distributions": {
+    "postBracketWidthMs": {
+      "n": 10,
+      "min": 0.008583,
+      "median": 0.026021000000000002,
+      "p90": 0.117375,
+      "max": 11.721167,
+      "spread": 11.712584
+    },
+    "completeCropChanges": {
+      "n": 10,
+      "min": 1,
+      "median": 1.0,
+      "p90": 1,
+      "max": 1,
+      "spread": 0
+    },
+    "observedMotionSpanMs": {
+      "n": 10,
+      "min": 0.0,
+      "median": 0.0,
+      "p90": 0.0,
+      "max": 0.0,
+      "spread": 0.0
+    },
+    "firstChangedCropLatencyBracketMs": {
+      "lower": {
+        "n": 10,
+        "min": 44.815583,
+        "median": 57.767104,
+        "p90": 73.795541,
+        "max": 74.8205,
+        "spread": 30.004917
+      },
+      "upper": {
+        "n": 10,
+        "min": 44.824166,
+        "median": 57.7914165,
+        "p90": 74.937875,
+        "max": 85.516708,
+        "spread": 40.692541999999996
+      }
+    },
+    "settleLatencyBracketMs": {
+      "lower": {
+        "n": 10,
+        "min": 44.815583,
+        "median": 57.767104,
+        "p90": 73.795541,
+        "max": 74.8205,
+        "spread": 30.004917
+      },
+      "upper": {
+        "n": 10,
+        "min": 44.824166,
+        "median": 57.7914165,
+        "p90": 74.937875,
+        "max": 85.516708,
+        "spread": 40.692541999999996
+      }
+    },
+    "quietConfirmedLatencyBracketMs": {
+      "lower": {
+        "n": 10,
+        "min": 145.192333,
+        "median": 158.09887500000002,
+        "p90": 174.186333,
+        "max": 175.26525,
+        "spread": 30.072917000000018
+      },
+      "upper": {
+        "n": 10,
+        "min": 145.200916,
+        "median": 158.1231875,
+        "p90": 175.382625,
+        "max": 185.9075,
+        "spread": 40.70658399999999
+      }
+    }
+  },
+  "trials": [
+    {
+      "trial": 0,
+      "actionIndex": 0,
+      "status": "valid",
+      "postBeforeHostNs": 40411651978333,
+      "postAfterHostNs": 40411663699500,
+      "postBracketWidthMs": 11.721167,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40412491620208,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 16,
+      "firstChangedFrameIndex": 25,
+      "lastChangedFrameIndex": 25,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40411737495041,
+      "lastChangedFrameHostNs": 40411737495041,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 73.795541,
+        "upper": 85.516708
+      },
+      "settleLatencyBracketMs": {
+        "lower": 73.795541,
+        "upper": 85.516708
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 174.186333,
+        "upper": 185.9075
+      },
+      "quietObservationHorizonHostNs": 40412486510291,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 1,
+      "actionIndex": 2,
+      "status": "valid",
+      "postBeforeHostNs": 40413302842333,
+      "postAfterHostNs": 40413302898041,
+      "postBracketWidthMs": 0.055708,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40414116872250,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 189,
+      "firstChangedFrameIndex": 195,
+      "lastChangedFrameIndex": 195,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40413359633333,
+      "lastChangedFrameHostNs": 40413359633333,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 56.735292,
+        "upper": 56.791
+      },
+      "settleLatencyBracketMs": {
+        "lower": 56.735292,
+        "upper": 56.791
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 157.044709,
+        "upper": 157.100417
+      },
+      "quietObservationHorizonHostNs": 40414111770458,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 2,
+      "actionIndex": 4,
+      "status": "valid",
+      "postBeforeHostNs": 40414925787750,
+      "postAfterHostNs": 40414925827708,
+      "postBracketWidthMs": 0.039958,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40415742073833,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 358,
+      "firstChangedFrameIndex": 364,
+      "lastChangedFrameIndex": 364,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40414978064958,
+      "lastChangedFrameHostNs": 40414978064958,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 52.23725,
+        "upper": 52.277208
+      },
+      "settleLatencyBracketMs": {
+        "lower": 52.23725,
+        "upper": 52.277208
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 152.614833,
+        "upper": 152.654791
+      },
+      "quietObservationHorizonHostNs": 40415733180375,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 3,
+      "actionIndex": 6,
+      "status": "valid",
+      "postBeforeHostNs": 40416553253416,
+      "postAfterHostNs": 40416553280000,
+      "postBracketWidthMs": 0.026584,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40417368216166,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 528,
+      "firstChangedFrameIndex": 534,
+      "lastChangedFrameIndex": 534,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40416610997833,
+      "lastChangedFrameHostNs": 40416610997833,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 57.717833,
+        "upper": 57.744417
+      },
+      "settleLatencyBracketMs": {
+        "lower": 57.717833,
+        "upper": 57.744417
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 158.051333,
+        "upper": 158.077917
+      },
+      "quietObservationHorizonHostNs": 40417363096916,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 4,
+      "actionIndex": 8,
+      "status": "valid",
+      "postBeforeHostNs": 40418183130208,
+      "postAfterHostNs": 40418183155666,
+      "postBracketWidthMs": 0.025458,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40418999619083,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 704,
+      "firstChangedFrameIndex": 711,
+      "lastChangedFrameIndex": 711,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40418243740916,
+      "lastChangedFrameHostNs": 40418243740916,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 60.58525,
+        "upper": 60.610708
+      },
+      "settleLatencyBracketMs": {
+        "lower": 60.58525,
+        "upper": 60.610708
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 160.960209,
+        "upper": 160.985667
+      },
+      "quietObservationHorizonHostNs": 40418994543916,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 5,
+      "actionIndex": 10,
+      "status": "valid",
+      "postBeforeHostNs": 40419811532125,
+      "postAfterHostNs": 40419811554166,
+      "postBracketWidthMs": 0.022041,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40420625688208,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 871,
+      "firstChangedFrameIndex": 877,
+      "lastChangedFrameIndex": 877,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40419869370541,
+      "lastChangedFrameHostNs": 40419869370541,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 57.816375,
+        "upper": 57.838416
+      },
+      "settleLatencyBracketMs": {
+        "lower": 57.816375,
+        "upper": 57.838416
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 158.146417,
+        "upper": 158.168458
+      },
+      "quietObservationHorizonHostNs": 40420617235041,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 6,
+      "actionIndex": 12,
+      "status": "valid",
+      "postBeforeHostNs": 40421433346666,
+      "postAfterHostNs": 40421433355541,
+      "postBracketWidthMs": 0.008875,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40422240919666,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 1036,
+      "firstChangedFrameIndex": 1042,
+      "lastChangedFrameIndex": 1042,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40421485883833,
+      "lastChangedFrameHostNs": 40421485883833,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 52.528292,
+        "upper": 52.537167
+      },
+      "settleLatencyBracketMs": {
+        "lower": 52.528292,
+        "upper": 52.537167
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 152.922084,
+        "upper": 152.930959
+      },
+      "quietObservationHorizonHostNs": 40422234378541,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 7,
+      "actionIndex": 14,
+      "status": "valid",
+      "postBeforeHostNs": 40423051166750,
+      "postAfterHostNs": 40423051284125,
+      "postBracketWidthMs": 0.117375,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40423855913583,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 1204,
+      "firstChangedFrameIndex": 1210,
+      "lastChangedFrameIndex": 1210,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40423126104625,
+      "lastChangedFrameHostNs": 40423126104625,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 74.8205,
+        "upper": 74.937875
+      },
+      "settleLatencyBracketMs": {
+        "lower": 74.8205,
+        "upper": 74.937875
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 175.26525,
+        "upper": 175.382625
+      },
+      "quietObservationHorizonHostNs": 40423853881166,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 8,
+      "actionIndex": 16,
+      "status": "valid",
+      "postBeforeHostNs": 40424667585250,
+      "postAfterHostNs": 40424667607041,
+      "postBracketWidthMs": 0.021791,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40425481350583,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 1373,
+      "firstChangedFrameIndex": 1379,
+      "lastChangedFrameIndex": 1379,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40424726119333,
+      "lastChangedFrameHostNs": 40424726119333,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 58.512292,
+        "upper": 58.534083
+      },
+      "settleLatencyBracketMs": {
+        "lower": 58.512292,
+        "upper": 58.534083
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 158.87075,
+        "upper": 158.892541
+      },
+      "quietObservationHorizonHostNs": 40425477561416,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    },
+    {
+      "trial": 9,
+      "actionIndex": 18,
+      "status": "valid",
+      "postBeforeHostNs": 40426292220125,
+      "postAfterHostNs": 40426292228708,
+      "postBracketWidthMs": 0.008583,
+      "inputRoute": "hid-foreground",
+      "ignoredSystemOverlayIDs": [
+        19
+      ],
+      "observationEndHostNs": 40427102297041,
+      "deliveryUnconfirmed": true,
+      "applicationReceiptConfirmed": false,
+      "physicalPresentationVerified": false,
+      "baselineFrameIndex": 1539,
+      "firstChangedFrameIndex": 1544,
+      "lastChangedFrameIndex": 1544,
+      "completeCropChanges": 1,
+      "observedMotionSpanMs": 0.0,
+      "firstChangedFrameHostNs": 40426337044291,
+      "lastChangedFrameHostNs": 40426337044291,
+      "firstChangedCropLatencyBracketMs": {
+        "lower": 44.815583,
+        "upper": 44.824166
+      },
+      "settleLatencyBracketMs": {
+        "lower": 44.815583,
+        "upper": 44.824166
+      },
+      "quietConfirmedLatencyBracketMs": {
+        "lower": 145.192333,
+        "upper": 145.200916
+      },
+      "quietObservationHorizonHostNs": 40427100696458,
+      "firstChangedFrameEncoded": true,
+      "observedFirstChangedCompleteCropOnly": true,
+      "nonCompleteNonIdleSamplesInWindow": 0,
+      "matchingPassiveEvent": false
+    }
+  ]
+}
