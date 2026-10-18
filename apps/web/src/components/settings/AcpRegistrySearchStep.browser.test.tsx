@@ -1,4 +1,12 @@
-import { EnvironmentId, ProviderDriverKind, type AcpRegistrySearchAgent } from "@t3tools/contracts";
+import { RegistryContext } from "@effect/atom-react";
+import type { Atom } from "effect/reactivity";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
+import {
+  EnvironmentId,
+  ProviderDriverKind,
+  type AcpRegistrySearchAgent,
+  type ServerConfig,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -6,6 +14,11 @@ import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 const state = vi.hoisted(() => ({
+  policyConfig: null as unknown as Atom.Writable<Pick<
+    ServerConfig,
+    "adminBlockedProviderDrivers"
+  > | null>,
+  policyEnvironmentIds: [] as EnvironmentId[],
   result: null as { readonly agents: ReadonlyArray<AcpRegistrySearchAgent> } | null,
   error: null as string | null,
   isPending: false,
@@ -17,10 +30,18 @@ const state = vi.hoisted(() => ({
 
 vi.mock(import("../../state/server"), async (original) => {
   const actual = await original();
+  const { Atom } = await import("effect/reactivity");
+  state.policyConfig = Atom.make<Pick<ServerConfig, "adminBlockedProviderDrivers"> | null>({
+    adminBlockedProviderDrivers: [],
+  }).pipe(Atom.keepAlive);
   return {
     ...actual,
     serverEnvironment: {
       ...actual.serverEnvironment,
+      configValueAtom: ((target: EnvironmentId) => {
+        state.policyEnvironmentIds.push(target);
+        return state.policyConfig;
+      }) as never,
       searchAcpRegistry: ((input: unknown) => {
         state.search(input);
         return "search";
@@ -73,21 +94,23 @@ function render(options?: {
 }) {
   return act(async () =>
     root.render(
-      <AcpRegistrySearchStep
-        environmentId={environmentId}
-        providerInstances={
-          options?.configured
-            ? {
-                acpRegistry_gemini: {
-                  driver: ProviderDriverKind.make("acpRegistry"),
-                  config: { agentId: "gemini" },
-                },
-              }
-            : {}
-        }
-        onPrepared={options?.onPrepared ?? vi.fn()}
-        onManualConfiguration={vi.fn()}
-      />,
+      <RegistryContext.Provider value={appAtomRegistry}>
+        <AcpRegistrySearchStep
+          environmentId={environmentId}
+          providerInstances={
+            options?.configured
+              ? {
+                  acpRegistry_gemini: {
+                    driver: ProviderDriverKind.make("acpRegistry"),
+                    config: { agentId: "gemini" },
+                  },
+                }
+              : {}
+          }
+          onPrepared={options?.onPrepared ?? vi.fn()}
+          onManualConfiguration={vi.fn()}
+        />
+      </RegistryContext.Provider>,
     ),
   );
 }
@@ -105,6 +128,9 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  state.policyEnvironmentIds = [];
+  appAtomRegistry.set(state.policyConfig, { adminBlockedProviderDrivers: [] });
   state.canManage = true;
   state.result = null;
   state.error = null;
@@ -125,6 +151,7 @@ afterEach(async () => {
   vi.useRealTimers();
   for (const mounted of roots.splice(0)) await act(async () => mounted.unmount());
   document.body.replaceChildren();
+  vi.unstubAllGlobals();
 });
 
 it("loads the catalog immediately and searches only after typing settles", async () => {
@@ -257,4 +284,38 @@ it("shows an existing registry configuration as already added", async () => {
   await expect
     .element(page.getByRole("button", { name: "Already added Gemini CLI" }))
     .toBeDisabled();
+});
+
+it("keeps preparation blocked until policy arrives and when the administrator blocks the selected agent", async () => {
+  appAtomRegistry.set(state.policyConfig, null);
+  state.result = { agents: [gemini] };
+  const onPrepared = vi.fn();
+  await render({ onPrepared });
+  const add = page.getByRole("button", { name: "Add Gemini CLI" });
+  await expect.element(add).toBeDisabled();
+  expect(state.policyEnvironmentIds).toContain(environmentId);
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('button[aria-label="Add Gemini CLI"]')!.click(),
+  );
+  expect(state.prepare).not.toHaveBeenCalled();
+
+  await act(async () =>
+    appAtomRegistry.set(state.policyConfig, {
+      adminBlockedProviderDrivers: [ProviderDriverKind.make("gemini")],
+    }),
+  );
+  await expect.element(add).toBeDisabled();
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('button[aria-label="Add Gemini CLI"]')!.click(),
+  );
+  expect(state.prepare).not.toHaveBeenCalled();
+  expect(onPrepared).not.toHaveBeenCalled();
+
+  await act(async () =>
+    appAtomRegistry.set(state.policyConfig, { adminBlockedProviderDrivers: [] }),
+  );
+  await expect.element(add).toBeEnabled();
+  await add.click();
+  expect(state.prepare).toHaveBeenCalledOnce();
+  expect(onPrepared).toHaveBeenCalledWith(gemini);
 });

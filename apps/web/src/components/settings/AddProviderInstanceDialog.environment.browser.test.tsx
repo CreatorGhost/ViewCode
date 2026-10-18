@@ -1,10 +1,23 @@
-import { EnvironmentId, ProviderDriverKind, type AcpRegistrySearchAgent } from "@t3tools/contracts";
+import { RegistryContext } from "@effect/atom-react";
+import type { Atom } from "effect/reactivity";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
+import {
+  EnvironmentId,
+  ProviderDriverKind,
+  type AcpRegistrySearchAgent,
+  type ServerConfig,
+} from "@t3tools/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { userEvent } from "vite-plus/test/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const actions = vi.hoisted(() => ({
+  policyConfig: null as unknown as Atom.Writable<Pick<
+    ServerConfig,
+    "adminBlockedProviderDrivers"
+  > | null>,
+  policyEnvironmentIds: [] as EnvironmentId[],
   toast: vi.fn(),
   onOpenChange: vi.fn(),
   canManageProviders: true,
@@ -28,6 +41,23 @@ const preparedAgent = vi.hoisted((): AcpRegistrySearchAgent => ({
   integrity: "sha256",
 }));
 
+vi.mock(import("../../state/server"), async (original) => {
+  const actual = await original();
+  const { Atom } = await import("effect/reactivity");
+  actions.policyConfig = Atom.make<Pick<ServerConfig, "adminBlockedProviderDrivers"> | null>({
+    adminBlockedProviderDrivers: [],
+  }).pipe(Atom.keepAlive);
+  return {
+    ...actual,
+    serverEnvironment: {
+      ...actual.serverEnvironment,
+      configValueAtom: ((target: EnvironmentId) => {
+        actions.policyEnvironmentIds.push(target);
+        return actions.policyConfig;
+      }) as never,
+    },
+  };
+});
 vi.mock(import("@t3tools/client-runtime/state/runtime"), async (original) => ({
   ...(await original()),
   squashAtomCommandFailure: () => new Error("The settings update failed."),
@@ -105,12 +135,14 @@ let root: Root;
 function render(onOpenChange = actions.onOpenChange) {
   return act(async () =>
     root.render(
-      <AddProviderInstanceDialog
-        open
-        environmentId={remoteEnvironmentId}
-        environmentLabel="Remote device"
-        onOpenChange={onOpenChange}
-      />,
+      <RegistryContext.Provider value={appAtomRegistry}>
+        <AddProviderInstanceDialog
+          open
+          environmentId={remoteEnvironmentId}
+          environmentLabel="Remote device"
+          onOpenChange={onOpenChange}
+        />
+      </RegistryContext.Provider>,
     ),
   );
 }
@@ -144,6 +176,8 @@ describe("AddProviderInstanceDialog environment routing", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     actions.canManageProviders = true;
+    actions.policyEnvironmentIds = [];
+    appAtomRegistry.set(actions.policyConfig, { adminBlockedProviderDrivers: [] });
     actions.toast.mockReset();
     actions.onOpenChange.mockReset();
     settingsHooks.read.mockReset().mockReturnValue({ providerInstances: {} });
@@ -195,6 +229,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
   it("reads and writes settings through the supplied environment", async () => {
     await render();
 
+    expect(actions.policyEnvironmentIds).toContain(remoteEnvironmentId);
     expect(settingsHooks.read).toHaveBeenCalledWith(remoteEnvironmentId);
     expect(settingsHooks.useMutation).toHaveBeenCalledWith(remoteEnvironmentId);
   });
@@ -342,8 +377,9 @@ describe("AddProviderInstanceDialog environment routing", () => {
   });
 
   it("keeps a denied draft available when the provider grant arrives", async () => {
-    actions.canManageProviders = false;
     await prepareCodexInstance();
+    actions.canManageProviders = false;
+    await render();
     expect(button("Add instance").disabled).toBe(true);
     expect(settingsHooks.mutate).not.toHaveBeenCalled();
 
@@ -352,6 +388,64 @@ describe("AddProviderInstanceDialog environment routing", () => {
     expect(button("Add instance").disabled).toBe(false);
     await click("Add instance");
     expect(settingsHooks.mutate).toHaveBeenCalledOnce();
+    expect(actions.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("does not enter manual setup before the provider grant arrives", async () => {
+    actions.canManageProviders = false;
+    await render();
+    expect(button("Configure manually").disabled).toBe(true);
+    await click("Configure manually");
+    expect(
+      [...document.querySelectorAll("button")].some(
+        (element) => element.textContent?.trim() === "Next",
+      ),
+    ).toBe(false);
+    expect(settingsHooks.mutate).not.toHaveBeenCalled();
+
+    actions.canManageProviders = true;
+    await render();
+    expect(button("Configure manually").disabled).toBe(false);
+    await click("Configure manually");
+    expect(button("Next").disabled).toBe(false);
+    expect(input("#add-provider-label").value).toBe("Codex");
+    expect(settingsHooks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("retains an unsaved provider draft while policy loads or blocks its driver", async () => {
+    await prepareCodexInstance();
+    await act(async () => appAtomRegistry.set(actions.policyConfig, null));
+    expect(button("Add instance").disabled).toBe(true);
+    expect(document.body.textContent).toContain("Waiting for provider policy.");
+    await click("Add instance");
+    expect(settingsHooks.mutate).not.toHaveBeenCalled();
+
+    await act(async () =>
+      appAtomRegistry.set(actions.policyConfig, {
+        adminBlockedProviderDrivers: [ProviderDriverKind.make("codex")],
+      }),
+    );
+    expect(button("Add instance").disabled).toBe(true);
+    expect(document.body.textContent).toContain("Blocked by your administrator.");
+    await click("Add instance");
+    expect(settingsHooks.mutate).not.toHaveBeenCalled();
+    expect(actions.onOpenChange).not.toHaveBeenCalled();
+
+    await act(async () =>
+      appAtomRegistry.set(actions.policyConfig, { adminBlockedProviderDrivers: [] }),
+    );
+    expect(button("Add instance").disabled).toBe(false);
+    await click("Add instance");
+    expect(settingsHooks.mutate).toHaveBeenCalledWith({
+      operation: "create",
+      instanceId: "codex_work",
+      instance: {
+        driver: "codex",
+        enabled: true,
+        displayName: "Work",
+        config: { setupMode: "existing" },
+      },
+    });
     expect(actions.onOpenChange).toHaveBeenCalledWith(false);
   });
 });
