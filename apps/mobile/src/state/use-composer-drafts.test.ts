@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "@effect/vitest";
-import { CommandId, ComposerContextId, EnvironmentId, MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  ComposerContextId,
+  EnvironmentId,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { onTestFinished, vi } from "vite-plus/test";
 
 const composerDraftFileMocks = vi.hoisted(() => {
@@ -154,6 +162,7 @@ import {
   clearComposerDraftsEnvironment,
   ComposerDraftPersistenceError,
   composerDraftsAtom,
+  modelOptionMemoryAtom,
   createNewTaskDraft,
   createComposerDraftContextHistory,
   setComposerDraftContext,
@@ -187,6 +196,7 @@ import {
   undoComposerDraftMergeState,
   updateComposerDraftSettings,
 } from "./use-composer-drafts";
+import { rememberModelOptions, rememberedModelOptions } from "./use-model-option-memory";
 import { retainComposerAttachmentFileForPreview } from "../lib/composerAttachmentPreviewRetention";
 
 const DRAFT: ComposerDraft = {
@@ -207,6 +217,7 @@ afterEach(() => {
   composerDraftFileMocks.readImage.mockResolvedValue("YWJj");
   appAtomRegistry.set(composerDraftsAtom, {});
   appAtomRegistry.set(stickyComposerModelSelectionAtom, null);
+  appAtomRegistry.set(modelOptionMemoryAtom, {});
   appAtomRegistry.set(threadOutboxManager.queuedMessagesByThreadKeyAtom, {});
   composerAttachmentCleanupMocks.remove.mockClear();
   composerAttachmentCleanupMocks.releaseUploads.mockReset();
@@ -231,6 +242,58 @@ function contextDraft(start: number, count: number): ComposerDraft {
 }
 
 describe("mobile composer drafts", () => {
+  it("merges remembered models before hydration without overwriting fresh selections", async () => {
+    vi.useFakeTimers();
+    const savedOptions = [{ id: "thinking", value: "high" }];
+    const freshOptions = [{ id: "thinking", value: "xhigh" }];
+    composerDraftFileMocks.setDocument({
+      schemaVersion: 1,
+      drafts: { "environment:thread": DRAFT },
+      modelOptionMemory: {
+        codex: { shared: savedOptions, saved: savedOptions },
+        pi: { saved: savedOptions },
+      },
+    });
+    composerDraftFileMocks.blockRead();
+    onTestFinished(() => composerDraftFileMocks.releaseRead());
+    ensureComposerDraftsLoaded();
+    rememberModelOptions("codex", "shared", freshOptions);
+    rememberModelOptions("codex", "fresh", freshOptions);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(composerDraftFileMocks.getWrites()).toHaveLength(0);
+
+    composerDraftFileMocks.releaseRead();
+    await flushComposerDrafts();
+    expect(rememberedModelOptions("codex", "shared")).toEqual(freshOptions);
+    expect(rememberedModelOptions("codex", "saved")).toEqual(savedOptions);
+    expect(rememberedModelOptions("pi", "saved")).toEqual(savedOptions);
+    expect(JSON.parse(composerDraftFileMocks.getDocument())).toEqual({
+      schemaVersion: 1,
+      drafts: { "environment:thread": DRAFT },
+      modelOptionMemory: {
+        codex: { shared: freshOptions, saved: savedOptions, fresh: freshOptions },
+        pi: { saved: savedOptions },
+      },
+    });
+    resetComposerDraftsLoadState();
+    appAtomRegistry.set(modelOptionMemoryAtom, {});
+    await waitForComposerDraftsLoaded();
+    expect(rememberedModelOptions("codex", "fresh")).toEqual(freshOptions);
+  });
+
+  it("keeps legacy documents compatible and persists options without a draft", async () => {
+    expect(
+      decodePersistedComposerState({ schemaVersion: 1, drafts: {} }).modelOptionMemory,
+    ).toEqual({});
+    rememberModelOptions("codex", "model", [{ id: "thinking", value: "high" }]);
+    await flushComposerDrafts();
+    expect(JSON.parse(composerDraftFileMocks.getDocument())).toEqual({
+      schemaVersion: 1,
+      drafts: {},
+      modelOptionMemory: { codex: { model: [{ id: "thinking", value: "high" }] } },
+    });
+  });
+
   it("restores a PR checkout source after restarting the composer", () => {
     const draft: ComposerDraft = {
       text: "Address feedback",
