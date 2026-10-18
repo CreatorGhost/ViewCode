@@ -69,7 +69,43 @@ describe("build state paths", () => {
 
 describe("fresh reset guard", () => {
   it.each(["data", "profile", "symlink", "nested-link"])(
-    "refuses an open %s database held by a web process in another checkout",
+    "refuses a reported open %s file after resolving the requested directory",
+    (kind) => {
+      const data = temporaryDirectory();
+      const profile = temporaryDirectory();
+      const elsewhere = temporaryDirectory();
+      const target =
+        kind === "profile" ? profile : kind === "nested-link" ? temporaryDirectory() : data;
+      const database = NodePath.join(target, "state.sqlite");
+      NodeFS.writeFileSync(database, "fixture");
+      const alias = NodePath.join(elsewhere, "home-alias");
+      NodeFS.symlinkSync(data, alias, "dir");
+      if (kind === "nested-link")
+        NodeFS.symlinkSync(target, NodePath.join(data, "linked-state"), "dir");
+      const canonical = NodeFS.realpathSync(kind === "symlink" ? alias : target);
+      const scanRoot = kind === "nested-link" ? NodeFS.realpathSync(data) : canonical;
+      const scanned: string[] = [];
+      expect(() =>
+        assertBuildStateIdle([kind === "symlink" ? alias : data, profile], (command, args) => {
+          expect(command).toBe("lsof");
+          const directory = args.at(-1)!;
+          expect(args).toEqual(["-x", "-nP", "-Fpn", "+D", directory]);
+          scanned.push(directory);
+          return {
+            status: directory === scanRoot ? 0 : 1,
+            stdout: directory === scanRoot ? `p42\nn${NodeFS.realpathSync(database)}\n` : "",
+            stderr: "",
+            signal: null,
+          };
+        }),
+      ).toThrow("Files are still open");
+      expect(scanned).toContain(scanRoot);
+      expect(NodeFS.existsSync(database)).toBe(true);
+    },
+  );
+
+  it.each(["data", "profile", "symlink", "nested-link"])(
+    "protects an open %s database with the native scanner, including incomplete host scans",
     async (kind) => {
       const data = temporaryDirectory();
       const profile = temporaryDirectory();
@@ -101,17 +137,47 @@ describe("fresh reset guard", () => {
         { cwd: elsewhere, stdio: ["pipe", "pipe", "pipe"] },
       );
       const exited = NodeEvents.EventEmitter.once(child, "exit");
+      const inspectState = (paths: string[]) => {
+        let incomplete = false;
+        let failure: unknown;
+        try {
+          assertBuildStateIdle(paths, (command, args, options) => {
+            const result = NodeChildProcess.spawnSync(command, args, options);
+            incomplete ||= Boolean(
+              result.error ||
+              result.signal ||
+              result.stderr ||
+              ![0, 1].includes(result.status ?? -1),
+            );
+            return result;
+          });
+        } catch (error) {
+          failure = error;
+        }
+        return { incomplete, failure };
+      };
       try {
         await NodeEvents.EventEmitter.once(child.stdout, "data");
-        expect(() => assertBuildStateIdle([kind === "symlink" ? alias : data, profile])).toThrow(
-          "Files are still open",
+        const inspection = inspectState([kind === "symlink" ? alias : data, profile]);
+        // macOS can report inaccessible mounts unrelated to the fixture. The
+        // production guard must refuse those scans, not hide their diagnostics.
+        expect(inspection.failure).toBeInstanceOf(Error);
+        expect((inspection.failure as Error).message).toContain(
+          inspection.incomplete ? "Cannot check open files" : "Files are still open",
         );
         expect(NodeFS.existsSync(database)).toBe(true);
       } finally {
         child.stdin.end();
         await exited;
       }
-      expect(() => assertBuildStateIdle([data, profile])).not.toThrow();
+      const inspection = inspectState([data, profile]);
+      if (inspection.incomplete) {
+        expect(inspection.failure).toBeInstanceOf(Error);
+        expect((inspection.failure as Error).message).toContain("Cannot check open files");
+      } else {
+        expect(inspection.failure).toBeUndefined();
+      }
+      expect(NodeFS.existsSync(database)).toBe(true);
     },
   );
 
