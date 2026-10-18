@@ -55,29 +55,34 @@ On web and desktop, choose **Settings → General → Follow-up behavior** to qu
 new messages for a later turn or steer the running turn immediately. The setting
 applies to this client; already queued messages keep their place. Queued messages
 are saved on the server and can be edited, reordered, or removed above the composer.
+Every connected device sees the same accepted queue. It continues when you close
+the app or browser. After stopping a thread or restarting the server, use Resume
+to release held messages.
 `Cmd+Enter` on macOS or `Ctrl+Enter` on Windows and Linux uses the opposite action:
 it steers when your default is Queue and queues when your default is Steer.
 
 Use `Cmd+Shift+Enter` on macOS or `Ctrl+Shift+Enter` on Windows and Linux to send
 the oldest queued message as a steer. This leaves the current draft intact and
-requires an active turn that supports steering. Change
+requires an active turn that supports steering with the same permission and
+interaction modes. Queue the message or restart the turn to change those modes. Change
 `thread.steerQueuedMessage` in **Settings → Keybindings** to use another shortcut.
 
 Press `Option+Up` on macOS or `Alt+Up` on Windows and Linux with the cursor at the
 start of the composer to edit the most recently queued message. Change
 `thread.editQueuedMessage` to use another shortcut.
 
-Mobile has the same choice under **Settings → Follow-ups**. While a turn is
-running the send button shows which action it will take. Long-press it to use the
-other action for a single message, or hold `Cmd` while sending from a hardware
-keyboard. The button only offers Steer when the running agent supports it.
+Mobile queues follow-ups for the next turn. Expand the shared queue above the
+composer to edit, reorder or cancel accepted messages. Saving an edit keeps your
+ordinary draft intact; Cancel returns to that draft. Each message keeps the
+model, permission and interaction modes selected when it entered the queue.
 
 ## Queue messages offline on mobile
 
 Mobile keeps local copies of draft attachments, so you can preview them and queue
-messages while disconnected. Uploads resume when you reconnect. Drafts and queued
-messages survive app restarts. Keep the saved environment to send them when it
-reconnects.
+messages while disconnected. Uploads resume when you reconnect. Drafts and
+unaccepted messages survive app restarts on that device. They become visible on
+other devices after the server accepts them. Keep the saved environment to send
+them when it reconnects.
 
 ## Custom models
 
