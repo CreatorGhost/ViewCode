@@ -195,7 +195,7 @@ export function ThemeModePicks({
                   aria-label={`Use ${label} for ${mode} mode only`}
                   aria-pressed={isPicked}
                   className={cn(
-                    "flex size-5 cursor-pointer items-center justify-center rounded-full border outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex size-5 cursor-pointer items-center justify-center rounded-full border outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     isPicked
                       ? "border-transparent bg-foreground text-background"
                       : "border-border/70 bg-background/80 text-muted-foreground hover:text-foreground",

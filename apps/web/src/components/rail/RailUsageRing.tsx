@@ -162,7 +162,7 @@ function UsageCardBody({
       )}
       {hasDetails ? (
         <Collapsible>
-          <CollapsibleTrigger className="group flex w-full items-center gap-1 text-muted-foreground outline-hidden hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+          <CollapsibleTrigger className="group flex w-full items-center gap-1 text-muted-foreground outline-hidden hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
             <ChevronRightIcon className="size-3.5 transition-transform group-data-panel-open:rotate-90" />
             Details
           </CollapsibleTrigger>
@@ -247,7 +247,7 @@ function UsageRingWithCard({
               }
               onClick={() => void navigate({ to: "/usage" })}
               data-rail-usage-ring=""
-              className="inline-flex w-10 flex-col items-center gap-1 rounded-lg py-1 outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex w-10 flex-col items-center gap-1 rounded-lg py-1 outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             />
           }
         >
