@@ -10,8 +10,19 @@ const forbiddenImport =
 const legacyTable =
   /\bprojection_(?:threads|thread_messages|thread_activities|thread_proposed_plans|thread_pull_requests|thread_sessions|turns|pending_approvals|state)\b/;
 const legacyReaders = ["orchestration-v2/legacy/", "persistence/Migrations/"] as const;
+const viewCodeSchemaMigrations = [
+  "persistence/ViewCodeMigrations/001_ProjectionThreadsParentThreadId.ts",
+  "persistence/ViewCodeMigrations/002_ProjectionThreadPullRequestWatch.ts",
+  "persistence/ViewCodeMigrations/003_ProjectionThreadsKind.ts",
+  "persistence/ViewCodeMigrations/005_ProjectionThreadsGoalDebugMode.ts",
+  "persistence/ViewCodeMigrations/006_ProjectionThreadsParentThreadIdIndex.ts",
+] as const;
 const legacyReaderFiles: Record<string, string> = {
   "serverSettings.ts": "one-time provider history for settings migration",
+  "project/T3CodeHistory.ts": "read-only external T3 Code history import",
+  ...Object.fromEntries(
+    viewCodeSchemaMigrations.map((path) => [path, "fork schema repair in its separate ledger"]),
+  ),
 };
 const retiredPaths = [
   "orchestration",
@@ -78,4 +89,13 @@ it("keeps the legacy importer out of reach of new code", () => {
     "project/ProjectService.ts",
     "serverRuntimeStartup.ts",
   ]);
+});
+
+it("allows fork legacy-table migrations only for schema repair, never runtime rows", () => {
+  for (const path of viewCodeSchemaMigrations) {
+    const source = relativeSources.find((candidate) => candidate.path === path)?.source;
+    assert.isDefined(source, path);
+    assert.match(source!, /\b(?:PRAGMA\s+table_info|ALTER\s+TABLE|CREATE\s+INDEX)\b/i, path);
+    assert.notMatch(source!, /\b(?:SELECT|INSERT|UPDATE|DELETE|REPLACE)\b/i, path);
+  }
 });
