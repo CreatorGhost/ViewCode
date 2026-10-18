@@ -50,6 +50,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -92,6 +93,7 @@ import { ClaudeOrchestratorReplayHarness } from "./ClaudeAdapterV2.testkit.ts";
 import { provideDeterministicTestRuntime } from "../testkit/DeterministicRuntime.ts";
 import { runOrchestratorV2Scenario } from "../testkit/OrchestratorScenario.ts";
 import { layerProviderReplay } from "../testkit/ProviderReplayHarness.ts";
+import { materializeReplayTranscriptRuntimeInstructions } from "../testkit/ReplayRuntimeInstructions.ts";
 import {
   assertBaseProjection,
   assertSemanticProjectionIntegrity,
@@ -4192,7 +4194,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       let sequence = 700;
       const nextUuid = () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`;
       const prompt = "Track a synthetic task.";
-      const transcript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript({
+      const recordedTranscript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript({
         provider: "claudeAgent",
         protocol: "claude-agent-sdk.query",
         version: "1",
@@ -4231,6 +4233,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           ].map((frame) => ({ type: "emit_inbound" as const, frame })),
         ],
       } satisfies ProviderReplayTranscript);
+      const transcript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
+        materializeReplayTranscriptRuntimeInstructions(recordedTranscript, {
+          driver: ProviderDriverKind.make("claudeAgent"),
+          model: CLAUDE_MODEL_SELECTION.model,
+        }),
+      );
       const materialized = yield* materializeFixtureInput({
         scenario: transcript.scenario,
         fixtureInput: { steps: [{ type: "message", text: prompt }] },
@@ -13963,22 +13971,51 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           );
 
           const offered = harness.offeredMessages.length;
-          const steer = harness.runtime.steerTurn({
-            threadId: harness.threadId,
-            runId: input.runId,
-            providerThread: harness.providerThread,
-            providerTurnId: idAllocator.derive.providerTurn({
-              driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
-              nativeTurnId: `turn:${attemptId}`,
-            }),
-            message: {
-              createdBy: "user",
-              creationSource: "web",
-              messageId: MessageId.make("message-steer-foreground-subagent"),
-              text: "Also check the docs.",
-              attachments: [],
-            },
+          const clock = yield* Clock.Clock;
+          const timeoutReceipts = yield* Queue.unbounded<{
+            readonly milliseconds: number;
+            readonly release: Deferred.Deferred<void>;
+          }>();
+          const steerClock: Clock.Clock = {
+            ...clock,
+            sleep: (duration) =>
+              backgrounding !== "never answers"
+                ? clock.sleep(duration)
+                : Effect.gen(function* () {
+                    const release = yield* Deferred.make<void>();
+                    yield* Queue.offer(timeoutReceipts, {
+                      milliseconds: Duration.toMillis(duration),
+                      release,
+                    });
+                    yield* Deferred.await(release);
+                  }),
+          };
+          const releaseBackgroundWait = Effect.gen(function* () {
+            const offeredBeforeWait = harness.offeredMessages.length;
+            // Await registration: skill discovery can finish after an arbitrary clock advance.
+            const timeout = yield* Queue.take(timeoutReceipts);
+            assert.equal(timeout.milliseconds, 5_000);
+            assert.equal(harness.offeredMessages.length, offeredBeforeWait);
+            yield* Deferred.succeed(timeout.release, undefined);
           });
+          const steer = harness.runtime
+            .steerTurn({
+              threadId: harness.threadId,
+              runId: input.runId,
+              providerThread: harness.providerThread,
+              providerTurnId: idAllocator.derive.providerTurn({
+                driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+                nativeTurnId: `turn:${attemptId}`,
+              }),
+              message: {
+                createdBy: "user",
+                creationSource: "web",
+                messageId: MessageId.make("message-steer-foreground-subagent"),
+                text: "Also check the docs.",
+                attachments: [],
+              },
+            })
+            .pipe(Effect.provideService(Clock.Clock, steerClock));
           const RERUN_TOOL_USE_ID = "toolu-steer-rerun";
           if (backgrounding === "answers after the subagent ran again") {
             beforeAnswer = harness
@@ -14003,10 +14040,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               );
           }
           const steering = yield* Effect.forkScoped(steer);
-          if (
-            backgrounding === "never answers" ||
-            backgrounding === "answers after the steer went out"
-          ) {
+          if (backgrounding === "never answers") {
+            yield* releaseBackgroundWait;
+          } else if (backgrounding === "answers after the steer went out") {
             yield* awaitUntil(() => calls.length === 1, "background request");
             assert.equal(harness.offeredMessages.length, offered);
             yield* TestClock.adjust("5 seconds");
@@ -14025,10 +14061,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           if (backgrounding === "never answers") {
             for (let repeat = 1; repeat <= 2; repeat++) {
               const again = yield* Effect.forkScoped(steer);
-              for (let tick = 0; tick < 100 && again.pollUnsafe() === undefined; tick++) {
-                yield* TestClock.adjust("1 second");
-                yield* Effect.yieldNow;
-              }
+              yield* releaseBackgroundWait;
               assert.isTrue(Exit.isSuccess(yield* Fiber.await(again)));
               assert.equal(harness.offeredMessages.length, offered + 1 + repeat);
             }
