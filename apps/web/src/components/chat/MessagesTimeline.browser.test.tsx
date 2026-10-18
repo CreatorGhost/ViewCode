@@ -1260,3 +1260,159 @@ describe("MessagesTimeline send anchor", () => {
     expect(onAnchorReady).not.toHaveBeenCalled();
   });
 });
+
+describe("MessagesTimeline retained list identity", () => {
+  function conversation(name: string, environment = "environment-local") {
+    const props = {
+      ...baseProps(),
+      routeThreadKey: `${environment}:identity-${name}-${threadCount}`,
+      activeThreadEnvironmentId: EnvironmentId.make(environment),
+    };
+    const entries = Array.from({ length: 24 }, (_, index) =>
+      message(
+        `Source ${name} ${index}\n\n${"A variable height paragraph. ".repeat(45 + (index % 4) * 15)}`,
+        { role: "assistant" },
+        `${name}-message-${index}`,
+      ),
+    );
+    return { props, entries };
+  }
+
+  async function retainedList(initial: ReturnType<typeof conversation>) {
+    const listRef = createRef<LegendListRef | null>();
+    const element = (
+      current: ReturnType<typeof conversation>,
+      extra: Partial<TimelineProps> = {},
+    ) => (
+      <MessagesTimeline
+        {...current.props}
+        timelineEntries={current.entries}
+        listRef={listRef}
+        liveFollowEnabled={readTimelinePosition(current.props.routeThreadKey)?.atEnd !== false}
+        {...extra}
+      />
+    );
+    await renderElement(element(initial));
+    const root = roots.at(-1)!;
+    return {
+      listRef,
+      show: async (
+        current: ReturnType<typeof conversation>,
+        extra: Partial<TimelineProps> = {},
+      ) => {
+        await act(async () => root.render(element(current, extra)));
+      },
+      viewport: () => {
+        const viewport = listRef.current?.getScrollableNode();
+        if (!(viewport instanceof HTMLElement)) throw new Error("Missing timeline viewport");
+        return viewport;
+      },
+    };
+  }
+
+  async function expectAtEnd(viewport: () => HTMLElement, messageId: string) {
+    await vi.waitFor(() => {
+      const element = viewport();
+      expect(element.scrollHeight).toBeGreaterThan(element.clientHeight);
+      expect(element.scrollHeight - element.clientHeight - element.scrollTop).toBeLessThanOrEqual(
+        2,
+      );
+      const row = element.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+      expect(row).not.toBeNull();
+      expect(row!.getBoundingClientRect().top).toBeLessThan(element.getBoundingClientRect().bottom);
+    });
+  }
+
+  async function rememberReadingPosition(
+    fixture: Awaited<ReturnType<typeof retainedList>>,
+    current: ReturnType<typeof conversation>,
+    delta: number,
+  ) {
+    await fixture.show(current, { liveFollowEnabled: false });
+    await userEvent.wheel(fixture.viewport(), { delta: { y: -delta } });
+    await vi.waitFor(() =>
+      expect(readTimelinePosition(current.props.routeThreadKey)?.atEnd).toBe(false),
+    );
+    return readTimelinePosition(current.props.routeThreadKey)!;
+  }
+
+  async function expectReadingPosition(
+    viewport: () => HTMLElement,
+    position: NonNullable<ReturnType<typeof readTimelinePosition>>,
+  ) {
+    await vi.waitFor(() => {
+      const element = viewport();
+      const row = element.querySelector<HTMLElement>(`[data-timeline-row-id="${position.rowId}"]`);
+      expect(row).not.toBeNull();
+      const actualOffset = element.getBoundingClientRect().top - row!.getBoundingClientRect().top;
+      expect(Math.abs(actualOffset - position.offsetWithinRow)).toBeLessThanOrEqual(2);
+      expect(element.scrollHeight - element.clientHeight - element.scrollTop).toBeGreaterThan(100);
+    });
+  }
+
+  it("shows the destination's final message when switching nonempty conversations at the end", async () => {
+    const a = conversation("end-a");
+    const b = conversation("end-b");
+    const fixture = await retainedList(a);
+    await expectAtEnd(fixture.viewport, "end-a-message-23");
+    await fixture.show(b);
+    await expectAtEnd(fixture.viewport, "end-b-message-23");
+    expect(text()).not.toContain("Source end-a");
+    await fixture.show(a);
+    await expectAtEnd(fixture.viewport, "end-a-message-23");
+    expect(text()).not.toContain("Source end-b");
+  });
+
+  it("restores each conversation's older row and offset on the same list", async () => {
+    const a = conversation("reading-a");
+    const b = conversation("reading-b");
+    const fixture = await retainedList(a);
+    await expectAtEnd(fixture.viewport, "reading-a-message-23");
+    const aPosition = await rememberReadingPosition(fixture, a, 1800);
+    await fixture.show(b);
+    await expectAtEnd(fixture.viewport, "reading-b-message-23");
+    const bPosition = await rememberReadingPosition(fixture, b, 2600);
+    await fixture.show(a);
+    await expectReadingPosition(fixture.viewport, aPosition);
+    await fixture.show(b);
+    await expectReadingPosition(fixture.viewport, bPosition);
+  });
+
+  it("does not let an unfinished destination restore move the conversation switched back to", async () => {
+    const a = conversation("rapid-a");
+    const b = conversation("rapid-b");
+    const fixture = await retainedList(a);
+    await expectAtEnd(fixture.viewport, "rapid-a-message-23");
+    const aPosition = await rememberReadingPosition(fixture, a, 1800);
+    await fixture.show(b);
+    await fixture.show(a);
+    await expectReadingPosition(fixture.viewport, aPosition);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await expectReadingPosition(fixture.viewport, aPosition);
+    expect(text()).not.toContain("Source rapid-b");
+  });
+
+  it("keeps the reading row mounted and positioned during same-conversation streaming", async () => {
+    const a = conversation("streaming");
+    const fixture = await retainedList(a);
+    await expectAtEnd(fixture.viewport, "streaming-message-23");
+    const position = await rememberReadingPosition(fixture, a, 1800);
+    const selector = `[data-timeline-row-id="${position.rowId}"]`;
+    const readingRow = fixture.viewport().querySelector(selector);
+    const streamed = {
+      ...a,
+      entries: [
+        ...a.entries.slice(0, -1),
+        message(
+          "A growing final response. ".repeat(500),
+          { role: "assistant", streaming: true },
+          "streaming-message-23",
+        ),
+      ],
+    };
+    await fixture.show(streamed, { isWorking: true, activeTurnInProgress: true });
+    await expectReadingPosition(fixture.viewport, position);
+    expect(fixture.viewport().querySelector(selector)).toBe(readingRow);
+    expect(readTimelinePosition(a.props.routeThreadKey)?.atEnd).toBe(false);
+  });
+});
