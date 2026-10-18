@@ -494,6 +494,8 @@ interface MessagesTimelineProps {
     readonly scopeId: string;
   }) => void;
   supportsConversationRollback: boolean;
+  /** User messages the agent never received, by id, with the run's failure. */
+  undeliveredMessages?: ReadonlyMap<string, string> | undefined;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onSendAppMessage?: (text: string) => Promise<void>;
@@ -590,6 +592,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onForkFromRun,
   onRollbackCheckpoint,
   supportsConversationRollback,
+  undeliveredMessages,
   onRevertToTurnCount,
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
   onSendAppMessage,
@@ -868,6 +871,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     turnDiffSummaries,
     supportsConversationRollback,
     worktreeSetup,
+    undeliveredMessages,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
   // Run status/timestamps churn on every stream event; the shared row context
@@ -2434,6 +2438,9 @@ function NativeUserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mes
           </span>
         </div>
       ) : null}
+      {row.undeliveredReason !== undefined ? (
+        <UndeliveredMessageNotice reason={row.undeliveredReason} />
+      ) : null}
       <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
@@ -2525,6 +2532,27 @@ function UserMessageIntentMarker({
           : intent === "promoted_queued_to_steer"
             ? "Originally queued, then promoted to steer the active turn"
             : "Steered the active turn"}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/**
+ * A sent message the provider never started a turn for. It stays in the
+ * history, so without this it reads as delivered while the agent, which
+ * resumes the provider's own session, may never have seen it.
+ */
+function UndeliveredMessageNotice({ reason }: { reason: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<p className="flex max-w-[80%] items-center gap-1 pe-1 text-destructive text-xs" />}
+      >
+        <CircleAlertIcon className="size-3 shrink-0" aria-hidden />
+        Not delivered. The agent may not have received this message.
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        <span className="block max-w-sm">{reason}</span>
       </TooltipPopup>
     </Tooltip>
   );
@@ -4802,6 +4830,7 @@ function sameRowsInput(left: MessagesTimelineRowsInput, right: MessagesTimelineR
     const next = right[key];
     if (Object.is(previous, next)) continue;
     if (previous instanceof Set && next instanceof Set && shallow(previous, next)) continue;
+    if (previous instanceof Map && next instanceof Map && shallow(previous, next)) continue;
     return false;
   }
   return Object.keys(left).length === Object.keys(right).length;
