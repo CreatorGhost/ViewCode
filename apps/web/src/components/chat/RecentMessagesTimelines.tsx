@@ -59,33 +59,37 @@ function canRetain(entry: Entry) {
   );
 }
 
-// These are every action callback in MessagesTimelineProps. Optional callbacks are only
-// exposed when the original prop exists; an inactive guard must not invent a capability.
-const callbackKeys = [
-  "onCiteAssistantText",
-  "onCancelWorktreeSetup",
-  "onRetryWorkspacePreparation",
-  "onWorktreeSetupWorkLocally",
-  "onOpenWorktreeSetupTerminal",
-  "onOpenTurnDiff",
-  "onOpenThread",
-  "onForkFromRun",
-  "onRollbackCheckpoint",
-  "onRevertToTurnCount",
-  "onUseArtifactTemplate",
-  "onSendAppMessage",
-  "onRunShellCommand",
-  "onImageExpand",
-  "onFileOpen",
-  "onFileDownload",
-  "onAnchorReady",
-  "onAnchorSizeChanged",
-  "onIsAtEndChange",
-  "onContentOverflowChange",
-  "onToolOutputCollapsedAtEnd",
-  "onManualNavigation",
-] as const satisfies readonly (keyof Props)[];
-type CallbackKey = (typeof callbackKeys)[number];
+type CallbackKey = {
+  [Key in keyof Props]-?: Extract<Props[Key], (...args: never[]) => unknown> extends never
+    ? never
+    : Key;
+}[keyof Props];
+// Require every function-valued prop, including optional/mixed unions. Optional
+// callbacks are exposed only when present; a guard must not invent a capability.
+const callbackKeys = Object.keys({
+  onCiteAssistantText: true,
+  onCancelWorktreeSetup: true,
+  onRetryWorkspacePreparation: true,
+  onWorktreeSetupWorkLocally: true,
+  onOpenWorktreeSetupTerminal: true,
+  onOpenTurnDiff: true,
+  onOpenThread: true,
+  onForkFromRun: true,
+  onRollbackCheckpoint: true,
+  onRevertToTurnCount: true,
+  onUseArtifactTemplate: true,
+  onSendAppMessage: true,
+  onRunShellCommand: true,
+  onImageExpand: true,
+  onFileOpen: true,
+  onFileDownload: true,
+  onAnchorReady: true,
+  onAnchorSizeChanged: true,
+  onIsAtEndChange: true,
+  onContentOverflowChange: true,
+  onToolOutputCollapsedAtEnd: true,
+  onManualNavigation: true,
+} satisfies Record<CallbackKey, true>) as CallbackKey[];
 function inactiveResult(key: CallbackKey) {
   if (key === "onForkFromRun" || key === "onSendAppMessage") return Promise.resolve();
   if (key === "onCiteAssistantText") return false;
