@@ -202,6 +202,8 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="menu-popup"]
   border-radius: 12px;
   border-color: var(--vc-hairline);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  /* Nearly opaque over the blur, so text behind a menu never reads through its rows. */
+  background: color-mix(in srgb, var(--popover) 94%, transparent);
 }
 
 html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="menu-popup"] {

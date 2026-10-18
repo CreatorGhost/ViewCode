@@ -11,6 +11,7 @@ import { useComposerMenuProps } from "./composerEventScope";
  * The leading "+" capsule of the composer toolbar: one place for the extras
  * that used to sit as loose buttons (attach files, plan mode). Dropping files
  * and pasting still work without it; this only consolidates the entry points.
+ * The modes are switch items, laid out like the plain items so icons share one edge.
  */
 export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
   showAttach: boolean;
@@ -53,25 +54,23 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
         ) : null}
         {props.showInteractionModeToggle ? (
           <MenuCheckboxItem
+            variant="switch"
             disabled={props.disabled}
             checked={props.interactionMode === "plan"}
             onCheckedChange={props.onToggleInteractionMode}
           >
-            <span className="inline-flex items-center gap-2">
-              <PencilRulerIcon className="size-4" />
-              Plan mode
-            </span>
+            <PencilRulerIcon />
+            Plan mode
           </MenuCheckboxItem>
         ) : null}
         <MenuCheckboxItem
+          variant="switch"
           disabled={props.disabled}
           checked={props.debugMode}
           onCheckedChange={props.onDebugModeChange}
         >
-          <span className="inline-flex items-center gap-2">
-            <BugIcon className="size-4" />
-            Debug mode
-          </span>
+          <BugIcon />
+          Debug mode
         </MenuCheckboxItem>
       </MenuPopup>
     </Menu>

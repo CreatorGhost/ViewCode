@@ -85,8 +85,13 @@ html[data-theme-id] [data-chat-header] [data-slot="group"] [data-slot="separator
    hover and pressed only lift them. Beats index.css, which paints every
    header button with the toolbar surface. */
 html[data-theme-id]
-  [data-chat-header-actions]
-  > :is([data-slot="group"], [data-header-actions-group], [data-panel-layout-controls]) {
+  :is(
+    [data-chat-header-actions] > [data-slot="group"],
+    [data-chat-header-actions] > [data-header-actions-group],
+    [data-chat-header-actions] > [data-panel-layout-controls],
+    [data-workspace-titlebar-controls]:has(> * + *),
+    [data-workspace-titlebar-controls]:not(:has(> * + *)) > [data-panel-layout-controls]
+  ) {
   display: inline-flex;
   align-items: center;
   gap: 1px;
@@ -96,15 +101,48 @@ html[data-theme-id]
   background-color: color-mix(in srgb, var(--foreground) 5.5%, transparent);
 }
 html[data-theme-id]
-  [data-chat-header-actions]
-  > :is([data-slot="group"], [data-header-actions-group], [data-panel-layout-controls])
+  :is(
+    [data-chat-header-actions] > [data-slot="group"],
+    [data-chat-header-actions] > [data-header-actions-group],
+    [data-chat-header-actions] > [data-panel-layout-controls],
+    [data-workspace-titlebar-controls]:has(> * + *),
+    [data-workspace-titlebar-controls]:not(:has(> * + *)) > [data-panel-layout-controls]
+  )
   > * {
   position: relative;
 }
+/* The titlebar host is as tall as the top bar; as a 2rem pill it centres itself
+   in that bar instead of hanging from its top. */
+html[data-theme-id] [data-workspace-titlebar-controls]:has(> * + *) {
+  translate: 0 calc((var(--workspace-topbar-height) - 2rem) / 2);
+}
+/* ViewCode's inset sheet has a 1px top border the fixed host sits above. */
+@media (min-width: 768px) {
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+    [data-workspace-titlebar-controls]:has(> * + *) {
+    translate: 0 calc((var(--workspace-topbar-height) - 2rem) / 2 + 1px);
+  }
+}
+/* A pane-toggle group nested in a titlebar pill joins it, not a pill of its own. */
+html[data-theme-id]
+  [data-workspace-titlebar-controls]:has(> * + *)
+  :is(div, [data-panel-layout-controls]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: auto;
+  padding: 0;
+  background: none;
+}
 /* Hairline between neighbours. ::after, because Button draws on ::before. */
 html[data-theme-id]
-  [data-chat-header-actions]
-  > :is([data-slot="group"], [data-header-actions-group], [data-panel-layout-controls])
+  :is(
+    [data-chat-header-actions] > [data-slot="group"],
+    [data-chat-header-actions] > [data-header-actions-group],
+    [data-chat-header-actions] > [data-panel-layout-controls],
+    [data-workspace-titlebar-controls]:has(> * + *),
+    [data-workspace-titlebar-controls]:not(:has(> * + *)) > [data-panel-layout-controls]
+  )
   > *
   + *::after {
   content: "";
@@ -117,7 +155,7 @@ html[data-theme-id]
   pointer-events: none;
 }
 html[data-theme-id]
-  [data-chat-header]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
     [data-slot="menu-trigger"],
@@ -137,7 +175,7 @@ html[data-theme-id]
   font-size: 0.8125rem;
 }
 html[data-theme-id]
-  [data-chat-header]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
     [data-slot="menu-trigger"],
@@ -148,7 +186,7 @@ html[data-theme-id]
   border-radius: 9999px;
 }
 html[data-theme-id]
-  [data-chat-header]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
     [data-slot="menu-trigger"],
@@ -159,7 +197,7 @@ html[data-theme-id]
   padding-inline: 0;
 }
 html[data-theme-id]
-  [data-chat-header]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
     [data-slot="menu-trigger"],
@@ -172,7 +210,7 @@ html[data-theme-id]
   stroke-width: 1.75;
 }
 html[data-theme-id]
-  [data-chat-header]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
     [data-slot="menu-trigger"],
