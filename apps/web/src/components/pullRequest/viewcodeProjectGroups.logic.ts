@@ -16,7 +16,21 @@ export function viewCodePullRequestProjectGroups(
       ? entries.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       : entries,
     labels,
-  );
+  ).map((group) => {
+    const repositories = [
+      ...new Set(
+        group.entries.map((entry) =>
+          entry.host.toLowerCase() === "github.com"
+            ? entry.repository
+            : `${entry.host}/${entry.repository}`,
+        ),
+      ),
+    ].filter((repository) => repository.toLowerCase() !== group.label.toLowerCase());
+    return {
+      ...group,
+      repositoryLabel: repositories.length === 0 ? null : repositories.join(", "),
+    };
+  });
 }
 
 /** Keep every failed repository visible, including equally named projects on two servers. */

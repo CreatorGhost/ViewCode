@@ -58,6 +58,53 @@ describe("ViewCode project groups over native priority reads", () => {
     ]);
   });
 
+  it("identifies the actual upstream repository without changing project, account or PR routes", () => {
+    const upstream = {
+      ...row(1, "viewcode"),
+      repository: "pingdotgg/t3code",
+      url: "https://github.com/pingdotgg/t3code/pull/21041",
+      number: 21041,
+      viewerLogin: "CreatorGhost",
+    };
+    const groups = viewCodePullRequestProjectGroups(
+      [{ key: "others", label: "Others", entries: [upstream] }],
+      new Map([["local:viewcode", "creatorghost/viewcode"]]),
+      "",
+    );
+    expect(groups[0]?.label).toBe("creatorghost/viewcode");
+    expect(groups[0]?.repositoryLabel).toBe("pingdotgg/t3code");
+    expect(groups[0]?.entries[0]).toBe(upstream);
+    expect(groups[0]?.entries[0]).toMatchObject({
+      projectId: "viewcode",
+      host: "github.com",
+      repository: "pingdotgg/t3code",
+      number: 21041,
+      viewerLogin: "CreatorGhost",
+      url: "https://github.com/pingdotgg/t3code/pull/21041",
+    });
+  });
+
+  it("qualifies non-GitHub hosts and avoids repeating a repository already named by the folder", () => {
+    const groups = viewCodePullRequestProjectGroups(
+      [
+        {
+          key: "others",
+          label: "Others",
+          entries: [row(1), { ...row(2, "personal"), host: "git.company.test" }],
+        },
+      ],
+      new Map([
+        ["local:work", "OWNER/WORK"],
+        ["local:personal", "Private tools"],
+      ]),
+      "",
+    );
+    expect(groups.find((group) => group.key === "local:work")?.repositoryLabel).toBeNull();
+    expect(groups.find((group) => group.key === "local:personal")?.repositoryLabel).toBe(
+      "git.company.test/owner/personal",
+    );
+  });
+
   it("preserves a ranked search and scopes equal project ids to their environment", () => {
     const groups = viewCodePullRequestProjectGroups(
       [

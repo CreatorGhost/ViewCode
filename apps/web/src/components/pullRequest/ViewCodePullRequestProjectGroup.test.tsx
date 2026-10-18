@@ -18,7 +18,11 @@ const other = {
   entries: [{ viewerLogin: "personal-account" }],
 };
 const storage = new Map<string, string>();
-function folder(value = group, showHeader = true, children: ReactNode = <p>PR rows</p>) {
+function folder(
+  value: typeof group & { repositoryLabel?: string } = group,
+  showHeader = true,
+  children: ReactNode = <p>PR rows</p>,
+) {
   return (
     <ViewCodePullRequestProjectGroup group={value} showHeader={showHeader}>
       {children}
@@ -77,4 +81,29 @@ it("keeps rows visible when narrowing to a single previously collapsed project",
   expect(renderer.root.findAllByType("p")).toHaveLength(1);
   act(() => renderer.update(folder()));
   expect(renderer.root.findAllByType("p")).toHaveLength(0);
+});
+
+it("keeps the upstream repository and routed account visible when its local project is collapsed", () => {
+  act(() => {
+    renderer = create(
+      folder({
+        ...group,
+        label: "creatorghost/viewcode",
+        repositoryLabel: "pingdotgg/t3code",
+        entries: [{ viewerLogin: "CreatorGhost" }],
+      }),
+    );
+  });
+  const headerText = () =>
+    renderer.root
+      .findByType("button")
+      .findAllByType("span")
+      .map((node) => node.children.join(""))
+      .join(" ");
+  expect(headerText()).toContain("pingdotgg/t3code");
+  expect(headerText()).toContain("@CreatorGhost");
+  act(() => renderer.root.findByType("button").props.onClick());
+  expect(renderer.root.findAllByType("p")).toHaveLength(0);
+  expect(headerText()).toContain("pingdotgg/t3code");
+  expect(renderer.root.findByType("h2").children.join("")).toBe("creatorghost/viewcode");
 });

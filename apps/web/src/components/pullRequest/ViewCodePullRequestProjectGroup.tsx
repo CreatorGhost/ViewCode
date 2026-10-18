@@ -20,6 +20,7 @@ export function ViewCodePullRequestProjectGroup({
   group: {
     readonly key: string;
     readonly label: string;
+    readonly repositoryLabel?: string | null;
     readonly entries: ReadonlyArray<{ readonly viewerLogin?: string | undefined }>;
   };
   project?: ProjectFaviconProject | undefined;
@@ -64,7 +65,12 @@ export function ViewCodePullRequestProjectGroup({
           ) : (
             <LayersIcon aria-hidden className="size-3.5 shrink-0" />
           )}
-          <h2 className="shrink-0">{group.label}</h2>
+          <h2 className="min-w-0 truncate">{group.label}</h2>
+          {group.repositoryLabel ? (
+            <span className="min-w-0 truncate font-normal text-muted-foreground/60">
+              · {group.repositoryLabel}
+            </span>
+          ) : null}
           {accounts.length > 0 ? (
             <span className="min-w-0 truncate font-normal text-muted-foreground/50">
               {accounts.join(", ")}
