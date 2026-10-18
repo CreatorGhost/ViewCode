@@ -72,25 +72,36 @@ import {
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
+  Columns2Icon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
   FolderPlusIcon,
   KeyboardIcon,
+  ListChecksIcon,
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
+  MessageSquareMoreIcon,
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
   RotateCcwIcon,
+  ScanSearchIcon,
   SettingsIcon,
+  SmartphoneIcon,
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  Undo2Icon,
 } from "lucide-react";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
+import { REVIEW_FIX_UNDO_OPEN_EVENT } from "./chat/ReviewFixUndoDialog";
+import { viewCodeReviewFixUndo } from "./chat/viewcodeReviewFixUndo";
+import { openConnectPhoneDialog } from "./connectPhone/ConnectPhoneDialog";
+import { openSideChat } from "../sidechatDockStore";
+import { useSplitActions } from "../splitView/useSplitView";
 import {
   useDeferredValue,
   useEffect,
@@ -1326,6 +1337,15 @@ function OpenCommandPaletteDialog(props: {
     },
   });
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  const { openSplitWith, toggleSplit } = useSplitActions();
+  const splitThreadItems = buildThreadActionItems({
+    threads: threads.filter((thread) => thread.id !== activeThreadId),
+    projectTitleById,
+    sortOrder: clientSettings.sidebarThreadSortOrder,
+    icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+    limit: 50,
+    runThread: async (thread) => openSplitWith(scopeThreadRef(thread.environmentId, thread.id)),
+  });
 
   // Stable so the item builders that capture it during render never see the
   // highlight ref it writes.
@@ -1741,6 +1761,29 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (activeThread !== null) {
+    actionItems.push(
+      {
+        kind: "submenu",
+        value: "action:split-with",
+        searchTerms: ["split", "side by side", "two threads", "compare"],
+        title: "Split with...",
+        icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+        addonIcon: <Columns2Icon className={ADDON_ICON_CLASS} />,
+        groups: [{ value: "threads", label: "Threads", items: splitThreadItems }],
+      },
+      {
+        kind: "action",
+        value: "action:toggle-split",
+        searchTerms: ["split", "toggle split", "close split", "side by side"],
+        title: "Toggle split view",
+        icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.split",
+        run: async () => toggleSplit(),
+      },
+    );
+  }
+
   if (activeThreadId && supportsThreadFind) {
     actionItems.push({
       kind: "action",
@@ -1881,6 +1924,66 @@ function OpenCommandPaletteDialog(props: {
           },
         });
         if (refreshed._tag === "Failure") throw squashAtomCommandFailure(refreshed);
+      },
+    });
+  }
+
+  if (activeThread !== null && activeThread.source.kind !== "sidechat") {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:open-review-panel",
+      searchTerms: ["review", "findings", "code review", "agent review"],
+      title: "Open review panel",
+      icon: <ListChecksIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore.getState().open(threadRef, "review");
+      },
+    });
+    // The Review panel offers a review of the thread's own checkout when no pull request is linked.
+    if (
+      activeThreadServerConfig?.environment.capabilities.localAgentReview === true &&
+      visibleThreadPullRequests(activeThread.pullRequests).length === 0
+    ) {
+      actionItems.push({
+        kind: "action",
+        value: "action:review-my-changes",
+        searchTerms: ["review", "local changes", "uncommitted", "find issues", "agent review"],
+        title: "Review my changes",
+        description: "Have an agent review this thread's uncommitted changes",
+        icon: <ScanSearchIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          useRightPanelStore.getState().open(threadRef, "review");
+        },
+      });
+    }
+    actionItems.push({
+      kind: "action",
+      value: "action:side-chat",
+      searchTerms: ["side chat", "sidechat", "quick question", "ask", "btw"],
+      title: "Ask in side chat",
+      icon: <MessageSquareMoreIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "sidechat.toggle",
+      run: async () => {
+        openSideChat(threadRef);
+      },
+    });
+  }
+  const activeReviewFixUndo =
+    activeThread !== null &&
+    activeThreadServerConfig?.environment.capabilities.reviewFixUndo === true
+      ? viewCodeReviewFixUndo(speechProjection?.projection ?? null)
+      : null;
+  if (activeReviewFixUndo !== null && activeReviewFixUndo.undoneTurns > 0) {
+    actionItems.push({
+      kind: "action",
+      value: "action:undo-review-fixes",
+      searchTerms: ["undo", "review fixes", "revert", "fix session", "findings"],
+      title: "Undo review fixes",
+      icon: <Undo2Icon className={ITEM_ICON_CLASS} />,
+      // The focused chat asks before reverting.
+      run: async () => {
+        window.dispatchEvent(new Event(REVIEW_FIX_UNDO_OPEN_EVENT));
       },
     });
   }
@@ -2170,6 +2273,17 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:connect-phone",
+    searchTerms: ["phone", "mobile", "ios", "android", "pair", "qr", "remote", "network"],
+    title: "Connect phone",
+    icon: <SmartphoneIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openConnectPhoneDialog();
     },
   });
 
