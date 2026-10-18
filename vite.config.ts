@@ -251,6 +251,8 @@ export default defineConfig({
       {
         files: ["apps/mobile/src/**"],
         excludeFiles: [
+          "apps/mobile/src/components/AppSymbol.tsx",
+          "apps/mobile/src/components/AppSymbol.ios.tsx",
           "apps/mobile/src/components/ui/AppSymbol.tsx",
           "apps/mobile/src/components/ui/AppSymbol.ios.tsx",
           "apps/mobile/src/features/pull-requests/pullRequestGlyphs.ts",
@@ -412,6 +414,7 @@ export default defineConfig({
           "apps/mobile/src/native/T3ComposerEditor.ios.tsx",
           "apps/mobile/src/native/T3ComposerEditor.native.tsx",
           "apps/mobile/src/native/SelectableMarkdownText.tsx",
+          "apps/mobile/src/native/SelectableMarkdownText.android.tsx",
         ],
         rules: {
           "t3code/no-mobile-uniwind-theme-escape-hatches": ["error", { allowUniwindTheme: true }],
