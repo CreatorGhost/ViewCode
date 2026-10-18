@@ -138,7 +138,7 @@ const command = Command.make(
   packViewcodeNpm,
 ).pipe(Command.withDescription("Pack the built server and web client as a viewcode npm package."));
 
-Command.run(command, { version: "0.0.0" }).pipe(
+Command.run(command, { version: serverPackageJson.version }).pipe(
   Effect.provide(Layer.mergeAll(Logger.layer([Logger.consolePretty()]), NodeServices.layer)),
   NodeRuntime.runMain,
 );
