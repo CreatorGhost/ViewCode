@@ -1196,103 +1196,142 @@ export default function FilePreviewPanel({
     );
   }
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      {breadcrumbPath !== null && breadcrumbTrail !== null ? (
-        <div className={FILE_SURFACE_SUBHEADER_CLASS} data-surface-subheader>
-          <ScrollArea
-            radius="none"
-            ref={breadcrumbRef}
-            hideScrollbars
-            scrollFade
-            className="min-w-0 flex-1"
-            data-file-breadcrumbs
-          >
-            <div className="flex h-full w-max min-w-full items-center text-xs">
-              <FileBreadcrumbs
-                cwd={cwd}
-                environmentId={environmentId}
-                onNavigateFolder={navigateToFolder}
-                onOpenFile={onOpenFile}
-                projectName={projectName}
-                relativePath={breadcrumbPath}
-                trail={breadcrumbTrail}
-                workspaceMutationId={workspaceMutationId}
-              />
-            </div>
-          </ScrollArea>
-          {absolutePath &&
-          (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
-            <OpenInPicker
+  // The explorer keeps its place when a file opens: it stays on the left at full height and
+  // only narrows, while the breadcrumbs and file sit beside it.
+  const subheader =
+    breadcrumbPath !== null && breadcrumbTrail !== null ? (
+      <div className={FILE_SURFACE_SUBHEADER_CLASS} data-surface-subheader>
+        <ScrollArea
+          radius="none"
+          ref={breadcrumbRef}
+          hideScrollbars
+          scrollFade
+          className="min-w-0 flex-1"
+          data-file-breadcrumbs
+        >
+          <div className="flex h-full w-max min-w-full items-center text-xs">
+            <FileBreadcrumbs
+              cwd={cwd}
               environmentId={environmentId}
-              keybindings={keybindings}
-              availableEditors={availableEditors}
-              openInCwd={absolutePath}
-              compact
+              onNavigateFolder={navigateToFolder}
+              onOpenFile={onOpenFile}
+              projectName={projectName}
+              relativePath={breadcrumbPath}
+              trail={breadcrumbTrail}
+              workspaceMutationId={workspaceMutationId}
             />
-          ) : null}
-          {canToggleRendered && renderedMode ? (
-            <FileSurfaceAction
-              label={renderedToggleLabel(renderedMode, rendered)}
-              pressed={rendered}
-              onPress={() => {
-                const pressed = !rendered;
-                setRenderedPreferred(pressed);
-                setHandledReveal(
-                  pressed && relativePath !== null
-                    ? { path: relativePath, requestId: revealRequestId }
-                    : null,
-                );
-              }}
-            >
-              <MorphIcon
-                className="size-3.5"
-                icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
-              />
-            </FileSurfaceAction>
-          ) : null}
-          {showsRawText ? (
-            <FileSurfaceAction
-              label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
-              pressed={wordWrap}
-              onPress={() => updateClientSettings({ wordWrap: !wordWrap })}
-            >
-              <WrapTextIcon className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-          {canOpenInBrowser ? (
-            <FileSurfaceAction label="Open file in preview browser" onPress={handleOpenInBrowser}>
-              <Globe2 className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-          {!isHostFile && previewPath !== null ? (
-            <FileSurfaceAction
-              label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
-              pressed={explorerOpen}
-              onPress={toggleExplorer}
-            >
-              <FolderTree className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-        </div>
+          </div>
+        </ScrollArea>
+        {absolutePath &&
+        (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
+          <OpenInPicker
+            environmentId={environmentId}
+            keybindings={keybindings}
+            availableEditors={availableEditors}
+            openInCwd={absolutePath}
+            compact
+          />
+        ) : null}
+        {canToggleRendered && renderedMode ? (
+          <FileSurfaceAction
+            label={renderedToggleLabel(renderedMode, rendered)}
+            pressed={rendered}
+            onPress={() => {
+              const pressed = !rendered;
+              setRenderedPreferred(pressed);
+              setHandledReveal(
+                pressed && relativePath !== null
+                  ? { path: relativePath, requestId: revealRequestId }
+                  : null,
+              );
+            }}
+          >
+            <MorphIcon
+              className="size-3.5"
+              icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
+            />
+          </FileSurfaceAction>
+        ) : null}
+        {showsRawText ? (
+          <FileSurfaceAction
+            label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+            pressed={wordWrap}
+            onPress={() => updateClientSettings({ wordWrap: !wordWrap })}
+          >
+            <WrapTextIcon className="size-3.5" />
+          </FileSurfaceAction>
+        ) : null}
+        {canOpenInBrowser ? (
+          <FileSurfaceAction label="Open file in preview browser" onPress={handleOpenInBrowser}>
+            <Globe2 className="size-3.5" />
+          </FileSurfaceAction>
+        ) : null}
+        {!isHostFile && previewPath !== null ? (
+          <FileSurfaceAction
+            label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
+            pressed={explorerOpen}
+            onPress={toggleExplorer}
+          >
+            <FolderTree className="size-3.5" />
+          </FileSurfaceAction>
+        ) : null}
+      </div>
+    ) : null;
+  const showsContent = previewPath !== null || !showExplorer;
+  return (
+    <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+      {showExplorer ? (
+        <aside
+          className={cn(
+            "flex min-h-0 shrink-0 flex-col bg-background",
+            previewPath
+              ? "w-[min(16rem,40%)] min-w-48 border-r border-border/60"
+              : "min-w-0 flex-1",
+          )}
+        >
+          {previewPath ? null : subheader}
+          <FileBrowserPanel
+            key={`${environmentId}:${hostFolderPath ?? cwd}`}
+            environmentId={environmentId}
+            cwd={hostFolderPath ?? cwd}
+            projectName={hostFolderPath ?? projectName}
+            hostFolder={hostFolderPath !== null}
+            selectedPath={
+              hostFolderPath === null
+                ? relativePath
+                : trailChildOf(hostFolderPath, breadcrumbTrail ?? hostFolderPath)
+            }
+            selectedPathRevealId={revealRequestId}
+            onOpenFile={onOpenFile}
+            workspaceMutationId={workspaceMutationId}
+            {...(previewPath && !isMedia && !isPdf ? { onRefreshSelectedFile: file.refresh } : {})}
+          />
+        </aside>
       ) : null}
-      {relativePath && !attachment && !isHostFile && !canWriteFiles && !fileAccess.isPending ? (
-        <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
-          Read-only connection. Unsaved edits are kept until write access returns.
-        </div>
-      ) : null}
-      {previewPath &&
-      attachment === undefined &&
-      !isMedia &&
-      !renderBrowserFile &&
-      file.data?.truncated ? (
-        <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-2xs text-warning-foreground">
-          Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
-        </div>
-      ) : null}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div
+        className={cn("min-w-0 flex-1 flex-col overflow-hidden", showsContent ? "flex" : "hidden")}
+      >
+        {showsContent ? subheader : null}
+        {relativePath && !attachment && !isHostFile && !canWriteFiles && !fileAccess.isPending ? (
+          <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
+            Read-only connection. Unsaved edits are kept until write access returns.
+          </div>
+        ) : null}
+        {previewPath &&
+        attachment === undefined &&
+        !isMedia &&
+        !renderBrowserFile &&
+        file.data?.truncated ? (
+          <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-2xs text-warning-foreground">
+            Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte
+            file.
+          </div>
+        ) : null}
         <div
-          className={cn("min-w-0 flex-1 flex-col overflow-hidden", previewPath ? "flex" : "hidden")}
+          className={cn(
+            "min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+            previewPath ? "flex" : "hidden",
+          )}
         >
           {isFolder ? null : relativePath && attachment ? (
             <AttachmentFilePreview
@@ -1425,35 +1464,6 @@ export default function FilePreviewPanel({
             )
           ) : null}
         </div>
-        {showExplorer ? (
-          <aside
-            className={cn(
-              "flex min-h-0 shrink-0 bg-background",
-              previewPath
-                ? "w-[min(22rem,46%)] min-w-64 border-l border-border/60"
-                : "min-w-0 flex-1",
-            )}
-          >
-            <FileBrowserPanel
-              key={`${environmentId}:${hostFolderPath ?? cwd}`}
-              environmentId={environmentId}
-              cwd={hostFolderPath ?? cwd}
-              projectName={hostFolderPath ?? projectName}
-              hostFolder={hostFolderPath !== null}
-              selectedPath={
-                hostFolderPath === null
-                  ? relativePath
-                  : trailChildOf(hostFolderPath, breadcrumbTrail ?? hostFolderPath)
-              }
-              selectedPathRevealId={revealRequestId}
-              onOpenFile={onOpenFile}
-              workspaceMutationId={workspaceMutationId}
-              {...(previewPath && !isMedia && !isPdf
-                ? { onRefreshSelectedFile: file.refresh }
-                : {})}
-            />
-          </aside>
-        ) : null}
       </div>
     </div>
   );
