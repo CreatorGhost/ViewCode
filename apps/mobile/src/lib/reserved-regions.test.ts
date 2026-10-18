@@ -60,10 +60,11 @@ describe("bottom controls around reserved regions", () => {
   });
 });
 
-describe("Duo workspace sizing", () => {
-  it("shows both columns on a short regular-width inner display", () => {
+describe("ViewCode workspace sizing on foldable displays", () => {
+  it("keeps the existing compact screen on a short regular-width inner display", () => {
     const layout = deriveLayout({ ...innerDisplay, nativeMetrics: innerDisplay });
-    expect(layout.usesSplitView).toBe(true);
+    expect(layout.usesSplitView).toBe(false);
+    expect(layout.listPaneWidth).toBeNull();
     expect(
       deriveWorkspacePaneLayout({
         layout,
@@ -71,7 +72,7 @@ describe("Duo workspace sizing", () => {
         primarySidebarPreferredVisible: true,
         auxiliaryPanePreferredVisible: false,
       }).contentPaneWidth,
-    ).toBeGreaterThan(320);
+    ).toBe(960);
   });
 
   it("keeps an ordinary phone compact when it rotates", () => {
@@ -108,7 +109,7 @@ describe("Duo workspace sizing", () => {
     ).toBe(false);
   });
 
-  it("shows both columns on the unfolded inner display in portrait", () => {
+  it("keeps a narrow unfolded portrait display on the existing compact screen", () => {
     // Reported by the iOS 27.1 Duo simulator: no side bar or fold, only the hinge.
     const portrait: NativeLayoutMetrics = {
       width: 669,
@@ -119,12 +120,12 @@ describe("Duo workspace sizing", () => {
       safeArea: { top: 82, bottom: 34, left: 0, right: 0 },
       reservedRegions: [{ kind: "occlusion", x: 535, y: 0, width: 134, height: 82 }],
     };
-    expect(deriveLayout({ ...portrait, nativeMetrics: portrait }).usesSplitView).toBe(true);
+    const portraitLayout = deriveLayout({ ...portrait, nativeMetrics: portrait });
+    expect(portraitLayout.usesSplitView).toBe(false);
+    expect(portraitLayout.listPaneWidth).toBeNull();
     // Without the hinge, the same window is an ordinary narrow iPad-style window.
     const withoutHinge = { ...portrait, hasHinge: false };
-    expect(deriveLayout({ ...withoutHinge, nativeMetrics: withoutHinge }).usesSplitView).toBe(
-      false,
-    );
+    expect(deriveLayout({ ...withoutHinge, nativeMetrics: withoutHinge })).toEqual(portraitLayout);
   });
 
   it("keeps the folded front screen compact in both orientations", () => {
@@ -150,21 +151,23 @@ describe("Duo workspace sizing", () => {
     expect(deriveLayout({ ...metrics, nativeMetrics: metrics }).usesSplitView).toBe(false);
   });
 
-  it("aligns the panes to the book fold and accounts for the reserved gap", () => {
+  it("keeps the compact workspace full width while controls avoid a book fold", () => {
     const metrics = {
       ...innerDisplay,
       reservedRegions: [{ kind: "division" as const, x: 456, y: 0, width: 48, height: 560 }],
     };
     const layout = deriveLayout({ ...metrics, nativeMetrics: metrics });
-    expect(layout.listPaneWidth).toBe(456);
-    expect(layout.listPaneGap).toBe(48);
+    expect(layout.usesSplitView).toBe(false);
+    expect(layout.listPaneWidth).toBeNull();
+    expect(deriveBottomControlInsets(metrics)).toEqual({ left: 8, right: 504, bottom: 0 });
     const panes = deriveWorkspacePaneLayout({
       layout,
       viewportWidth: 960,
       primarySidebarPreferredVisible: true,
       auxiliaryPanePreferredVisible: false,
     });
-    expect(panes.contentPaneWidth).toBe(456);
+    expect(panes.primarySidebarVisible).toBe(false);
+    expect(panes.contentPaneWidth).toBe(960);
     expect(
       deriveWorkspacePaneLayout({
         layout,
