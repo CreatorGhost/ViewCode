@@ -1094,6 +1094,13 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         enabled: true,
         config: { binaryPath: "/explicit/codex" },
       });
+      yield* serverSettings.updateSettings({ addProjectBaseDirectory: "~/Development" });
+      const persisted = yield* decodeServerSettingsJson(
+        yield* fileSystem.readFileString(serverConfig.settingsPath),
+      );
+      const persistedCodex = persisted.providerInstances[ProviderInstanceId.make("codex")];
+      assert.isDefined(persistedCodex);
+      assert.isTrue(resolveProviderInstanceEnabled(persistedCodex));
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
@@ -1182,8 +1189,14 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("codex")], {
         driver: ProviderDriverKind.make("codex"),
+        enabled: false,
         config: { binaryPath: "/x" },
       });
+      assert.isTrue(
+        Object.values(settings.providerInstances).every(
+          (instance) => !resolveProviderInstanceEnabled(instance),
+        ),
+      );
 
       assert.isFalse(settings.continueThreadsAfterServerUpdate);
       assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), raw);
@@ -1339,6 +1352,19 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
         automaticGitFetchInterval: 10_000,
+        providerInstances: {
+          codex: { driver: "codex", enabled: false },
+          claudeAgent: { driver: "claudeAgent", enabled: false },
+          cursor: { driver: "cursor", enabled: false },
+          grok: { driver: "grok", enabled: false },
+          opencode: { driver: "opencode", enabled: false },
+          antigravity: { driver: "antigravity", enabled: false },
+          pi: { driver: "pi", enabled: false },
+          muse: { driver: "muse", enabled: false },
+          commandCode: { driver: "commandCode", enabled: false },
+          droid: { driver: "droid", enabled: false },
+          devin: { driver: "devin", enabled: false },
+        },
       });
     }).pipe(Effect.provide(layerServerSettings())),
   );
