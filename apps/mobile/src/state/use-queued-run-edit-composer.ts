@@ -190,7 +190,8 @@ export function useQueuedRunEditComposer(
                 edit: {
                   messageId: edit.messageId,
                   attachments: payload.attachments,
-                  ...(payload.context ? { context: payload.context } : {}),
+                  // Omitted context preserves the server's old records.
+                  context: payload.context ?? { version: 1, records: [] },
                 },
               }
             : {}),

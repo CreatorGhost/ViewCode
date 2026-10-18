@@ -751,6 +751,41 @@ describe("V2 environment commands", () => {
       }).pipe(Effect.provide(layerTestCrypto)),
   );
 
+  it.effect("preserves explicit empty queued context while legacy text-only edits omit it", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      const provide = Effect.provideService(
+        EnvironmentSupervisor.EnvironmentSupervisor,
+        supervisor,
+      );
+      for (const clear of [false, true]) {
+        yield* editQueuedRun({
+          commandId: CommandId.make(clear ? "clear-context" : "legacy-text-edit"),
+          threadId: v2ThreadId,
+          runId: RunId.make("queued-context-run"),
+          text: "Updated queued message",
+          ...(clear
+            ? {
+                edit: {
+                  messageId: MessageId.make("queued-context-message"),
+                  attachments: [],
+                  context: { version: 1 as const, records: [] },
+                },
+              }
+            : {}),
+        }).pipe(provide);
+      }
+      expect(commands[0]).not.toHaveProperty("context");
+      expect(commands[0]).not.toHaveProperty("attachments");
+      expect(commands[1]).toMatchObject({
+        type: "queued-run.edit",
+        context: { version: 1, records: [] },
+        attachments: [],
+      });
+    }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
   it.effect("delegates model selection to the server without fetching the full projection", () =>
     Effect.gen(function* () {
       const commands: OrchestrationV2Command[] = [];

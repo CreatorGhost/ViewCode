@@ -255,6 +255,7 @@ export interface EditQueuedRunInput extends ThreadCommandInput {
   readonly edit?: {
     readonly messageId: MessageId;
     readonly attachments: ReadonlyArray<ChatAttachment | UploadChatAttachment>;
+    /** Absent preserves existing context; empty records explicitly clear it. */
     readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
   };
 }

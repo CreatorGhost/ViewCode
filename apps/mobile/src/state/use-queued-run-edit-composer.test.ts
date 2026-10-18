@@ -2,6 +2,7 @@ import type { ThreadQueueWorkflowState } from "@t3tools/client-runtime/state/thr
 import {
   AuthOrchestrationOperateScope,
   ChatAttachmentId,
+  ComposerContextId,
   EnvironmentId,
   MessageId,
   ProjectId,
@@ -13,6 +14,7 @@ import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import { AsyncResult, type Atom } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
 
 const state = vi.hoisted(() => ({
   allowed: true,
@@ -176,6 +178,60 @@ afterEach(async () => {
 });
 
 describe("retained mobile queued edit lifecycle", () => {
+  it.each(["retained", "removed"] as const)(
+    "sends a truthful context replacement when the last inline record is %s",
+    async (mode) => {
+      composer().cancelQueuedRunEdit();
+      const record = {
+        version: 1 as const,
+        kind: "file" as const,
+        contextId: ComposerContextId.make("kept-context"),
+        attachmentId: "kept",
+        label: "kept.txt",
+        name: "kept.txt",
+        mimeType: "text/plain",
+        sizeBytes: 5,
+      };
+      const originalText = `original ${formatComposerContextReference(record)}`;
+      const context = { version: 1 as const, records: [record] };
+      const current = workflow();
+      appAtomRegistry.set(state.queueAtom, {
+        ...current,
+        queuedRuns: [{ ...current.queuedRuns[0]!, text: originalText, context }],
+      });
+      await beginQueuedRunEdit(threadKey, {
+        runId,
+        messageId,
+        originalText,
+        existingAttachments: [attachment("kept")],
+        context,
+      });
+      const text =
+        mode === "retained" ? `edited ${formatComposerContextReference(record)}` : "edited";
+      setComposerDraftText(editKey, text);
+      await composer().saveQueuedRunEdit();
+      expect(state.edit).toHaveBeenCalledExactlyOnceWith({
+        environmentId: "remote",
+        input: {
+          threadId: thread.id,
+          runId,
+          text,
+          ...(mode === "removed"
+            ? {
+                edit: {
+                  messageId,
+                  attachments: [attachment("kept")],
+                  context: { version: 1, records: [] },
+                },
+              }
+            : {}),
+        },
+      });
+      expect(getQueuedRunEdit(threadKey)).toBeNull();
+      expect(getComposerDraftSnapshot(threadKey).text).toBe("untouched normal draft");
+    },
+  );
+
   it("saves a text-only edit without replacing server attachments and restores the normal draft", async () => {
     expect(activeComposerDraftKey(thread)).toBe(editKey);
     await composer().saveQueuedRunEdit();
@@ -231,7 +287,7 @@ describe("retained mobile queued edit lifecycle", () => {
         threadId: "thread",
         runId,
         text: "edited queued message",
-        edit: { messageId, attachments: [] },
+        edit: { messageId, attachments: [], context: { version: 1, records: [] } },
       },
     });
   });
@@ -279,7 +335,11 @@ describe("retained mobile queued edit lifecycle", () => {
         threadId: "thread",
         runId,
         text: "edited queued message",
-        edit: { messageId, attachments: [attachment("kept"), uploaded] },
+        edit: {
+          messageId,
+          attachments: [attachment("kept"), uploaded],
+          context: { version: 1, records: [] },
+        },
       },
     });
     expect(getQueuedRunEdit(threadKey)).toBeNull();

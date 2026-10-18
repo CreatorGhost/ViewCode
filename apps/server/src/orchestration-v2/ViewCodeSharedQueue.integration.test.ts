@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  ComposerContextId,
   MessageId,
   PositiveInt,
   ProjectId,
@@ -603,6 +604,81 @@ it.effect(
         assert.deepEqual(yield* fs.readFile(storedPath), bytes);
         yield* provider.complete(delivered);
         yield* awaitStatus(yield* runFor("uploaded"), "completed");
+      }).pipe(Effect.provide(fixture.makeRuntime(provider)));
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each([false, true])(
+  "preserves omitted queued context and delivers explicit-empty context clearing, clear=%s",
+  (clearContext) =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const provider = yield* makeControlledProvider;
+      yield* Effect.gen(function* () {
+        yield* createThread(fixture.workspace);
+        yield* dispatch(message("active"));
+        const active = yield* Queue.take(provider.inputs);
+        const context = {
+          version: 1 as const,
+          records: [
+            {
+              version: 1 as const,
+              kind: "terminal" as const,
+              contextId: ComposerContextId.make("queued_terminal"),
+              label: "Terminal output",
+              terminalId: "queue-terminal",
+              terminalLabel: "Terminal",
+              lineStart: 1,
+              lineEnd: 1,
+              text: "ORIGINAL_QUEUED_CONTEXT",
+            },
+          ],
+        };
+        const text = "Explain [Terminal output](t3-context://v1/terminal/queued_terminal)";
+        yield* dispatch({ ...message("contextual", text), context });
+        const run = yield* runFor("contextual");
+        const edit: Extract<OrchestrationV2Command, { type: "queued-run.edit" }> = {
+          type: "queued-run.edit",
+          commandId: CommandId.make("edit-context"),
+          threadId,
+          runId: run.id,
+          text: `Updated: ${text}`,
+          ...(clearContext ? { attachments: [], context: { version: 1, records: [] } } : {}),
+        };
+        const accepted = yield* dispatch(edit);
+        yield* assertReceipt(edit.commandId, accepted.sequence);
+        const replay = yield* dispatch(edit);
+        assert.equal(replay.sequence, accepted.sequence);
+        const expected = clearContext ? { version: 1 as const, records: [] } : context;
+        const current = yield* projection;
+        assert.deepEqual(
+          current.messages.find((entry) => entry.id === run.userMessageId)?.context,
+          expected,
+        );
+        assert.deepEqual(
+          accepted.storedEvents.flatMap(({ event }) =>
+            event.type === "message.updated" ? [event.payload.context] : [],
+          ),
+          [expected],
+        );
+        yield* provider.complete(active);
+        const delivered = yield* Queue.take(provider.inputs);
+        assert.equal(delivered.runId, run.id);
+        const deliveredProjection = yield* projection;
+        const turnItem = deliveredProjection.turnItems
+          .filter((entry) => entry.type === "user_message")
+          .find((entry) => entry.messageId === run.userMessageId);
+        assert.isDefined(turnItem);
+        assert.deepEqual(turnItem.context, expected);
+        assert.equal(delivered.message.text.includes("ORIGINAL_QUEUED_CONTEXT"), !clearContext);
+        assert.equal(delivered.message.text.includes('unavailable="true"'), clearContext);
+        yield* provider.complete(delivered);
+        yield* awaitStatus(run, "completed");
+        yield* EffectWorker.OrchestrationEffectWorkerV2.use((worker) => worker.drain());
+        assert.deepEqual(yield* Ref.get(provider.deliveries), [
+          MessageId.make("active"),
+          run.userMessageId,
+        ]);
       }).pipe(Effect.provide(fixture.makeRuntime(provider)));
     }).pipe(Effect.provide(NodeServices.layer)),
 );
