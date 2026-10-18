@@ -93,6 +93,16 @@ describe("live provider-turn usage (#8144)", () => {
     });
     expect(snapshot?.maxTokens).toBeNull();
     expect(snapshot?.usedPercentage).toBeNull();
+    expect(snapshot?.promptCacheTtlSeconds).toBeNull();
+  });
+
+  it("carries Claude's prompt cache lifetime in seconds", () => {
+    const snapshot = deriveLatestContextWindowSnapshot([], {
+      usedTokens: 42_000,
+      promptCacheTtlMs: 3_600_000,
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    });
+    expect(snapshot?.promptCacheTtlSeconds).toBe(3_600);
   });
 });
 
