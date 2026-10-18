@@ -10,6 +10,7 @@ import type {
 } from "@t3tools/contracts";
 import { EnvironmentHttpCommonError, PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import type { EnvironmentHttpCommonError as EnvironmentHttpCommonErrorType } from "@t3tools/contracts";
+import { pairingRejectionMessage } from "@t3tools/client-runtime/connection";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HttpClientError } from "effect/http";
@@ -76,7 +77,10 @@ export class PrimaryEnvironmentPairingCredentialRejectedError extends Schema.Tag
   },
 ) {
   override get message(): string {
-    return "Invalid pairing token. Check the token and try again.";
+    const problem = Reflect.get(Object(this.cause), "pairingProblem");
+    return (
+      pairingRejectionMessage(problem) ?? "Invalid pairing token. Check the token and try again."
+    );
   }
 }
 
