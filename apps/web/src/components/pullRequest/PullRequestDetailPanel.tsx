@@ -1,4 +1,3 @@
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { ReviewFixInChatRequest } from "../chat/ReviewFindingsView";
 import { resolveReviewFixChat, useSendReviewFixToChat } from "../chat/reviewFixChat";
 import type { ReviewFixDestination } from "../chat/reviewFixSentStore";
@@ -27,7 +26,6 @@ import {
   resolveEnvironmentMachineKind,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { normalizeThreadPullRequestKey } from "@t3tools/shared/threadPullRequests";
 import {
   ArrowDownUpIcon,
@@ -60,8 +58,6 @@ import {
   lazy,
   Suspense,
   type MouseEvent as ReactMouseEvent,
-  useCallback,
-  useMemo,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -88,9 +84,8 @@ import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
-import { buildPhysicalToLogicalProjectKeyMap } from "~/sidebarProjectGrouping";
 import { readThreadShell, useProjects, useServerConfigs } from "~/state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
+import { useEnvironments } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
@@ -2725,39 +2720,20 @@ export function PullRequestDetailPanel({
             value={tab}
             onValueChange={setTab}
             onTabIntent={(item) => {
-              if (item === "code") void loadCodeTab();
+              const preload = TAB_PRELOADS[item];
+              if (preload) void preload();
             }}
+            renderTabLabel={(item) => (
+              <>
+                {item.label}
+                {item.value === "review" && review.openCount > 0 ? (
+                  <Badge size="sm" variant="secondary">
+                    {review.openCount}
+                  </Badge>
+                ) : null}
+              </>
+            )}
           >
-            <ToggleGroup
-              className="shrink-0"
-              size="segmented"
-              variant="segmented"
-              value={[tab]}
-              onValueChange={(next) => {
-                const nextTab = visibleTabs.find((item) => item.value === next[0])?.value;
-                if (nextTab) setTab(nextTab);
-              }}
-            >
-              {visibleTabs.map((item) => {
-                const preload = TAB_PRELOADS[item.value];
-                const preloadTab = preload ? () => void preload() : undefined;
-                return (
-                  <Toggle
-                    key={item.value}
-                    value={item.value}
-                    onPointerEnter={preloadTab}
-                    onFocus={preloadTab}
-                  >
-                    {item.label}
-                    {item.value === "review" && review.openCount > 0 ? (
-                      <Badge size="sm" variant="secondary">
-                        {review.openCount}
-                      </Badge>
-                    ) : null}
-                  </Toggle>
-                );
-              })}
-            </ToggleGroup>
             {tab === "summary" ? (
               showsApproveWorkflows ? (
                 <Tooltip>

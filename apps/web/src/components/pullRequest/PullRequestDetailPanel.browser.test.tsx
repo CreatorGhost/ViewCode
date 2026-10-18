@@ -1,4 +1,10 @@
 import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
+import {
   EnvironmentId,
   ProjectId,
   SourceControlProviderKind,
@@ -7,7 +13,7 @@ import {
   type ScopedThreadRef,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { act, type ComponentProps } from "react";
+import { act, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
@@ -147,6 +153,8 @@ vi.mock(import("./PullRequestCodeTab"), async (original) => ({
 }));
 
 import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
+import { PullRequestDetailTabBar } from "./PullRequestDetailLayout";
+import { Badge } from "../ui/badge";
 import { pullRequestPanelContext } from "./pullRequestDetail.logic";
 
 const detail: PullRequestDetailView = {
@@ -218,24 +226,29 @@ const shortcutContext = () => ({
 
 const roots: Root[] = [];
 
-function render(props: Partial<ComponentProps<typeof PullRequestDetailPanel>> = {}) {
+async function render(props: Partial<ComponentProps<typeof PullRequestDetailPanel>> = {}) {
   const container = document.createElement("div");
   container.className = "flex h-[700px] w-[900px]";
   document.body.append(container);
   const root = createRoot(container);
   roots.push(root);
-  return act(async () =>
-    root.render(
-      <PullRequestDetailPanel
-        environmentId={threadRef.environmentId}
-        reference={detail}
-        context="page"
-        shortcutsEnabled={false}
-        getShortcutContext={shortcutContext}
-        {...props}
-      />,
-    ),
-  );
+  const router = createRouter({
+    routeTree: createRootRoute({
+      component: () => (
+        <PullRequestDetailPanel
+          environmentId={threadRef.environmentId}
+          reference={detail}
+          context="page"
+          shortcutsEnabled={false}
+          getShortcutContext={shortcutContext}
+          {...props}
+        />
+      ),
+    }),
+    history: createMemoryHistory(),
+  });
+  await router.load();
+  await act(async () => root.render(<RouterProvider router={router} />));
 }
 
 beforeEach(() => {
@@ -344,6 +357,60 @@ describe.each([
       expect(newThread).toHaveBeenCalled();
     }
   });
+});
+
+it("renders one native tab group for the pull request", async () => {
+  await render();
+  expect(page.getByRole("navigation", { name: "Pull request tabs" }).elements()).toHaveLength(1);
+  for (const name of ["Summary", "Timeline", "Code"]) {
+    expect(tab(name).elements()).toHaveLength(1);
+  }
+});
+
+it("keeps review counts and tab selection in the native tab group", async () => {
+  const intent = vi.fn();
+  function ReviewTabs() {
+    const [selected, setSelected] = useState<"code" | "review">("code");
+    return (
+      <PullRequestDetailTabBar
+        tabs={[
+          { value: "code", label: "Code" },
+          { value: "review", label: "Review" },
+        ]}
+        value={selected}
+        onValueChange={setSelected}
+        onTabIntent={intent}
+        renderTabLabel={(item) => (
+          <>
+            {item.label}
+            {item.value === "review" ? (
+              <Badge size="sm" variant="secondary">
+                3
+              </Badge>
+            ) : null}
+          </>
+        )}
+      />
+    );
+  }
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  roots.push(root);
+  await act(async () => root.render(<ReviewTabs />));
+  const review = page.getByRole("button", { name: /^Review\s*3$/ });
+  expect(review.elements()).toHaveLength(1);
+  expect(tab("Code").elements()).toHaveLength(1);
+  await review.hover();
+  await review.click();
+  await expect.element(review).toHaveAttribute("aria-pressed", "true");
+  await expect.element(tab("Code")).toHaveAttribute("aria-pressed", "false");
+  await tab("Code").hover();
+  await tab("Code").click();
+  await expect.element(tab("Code")).toHaveAttribute("aria-pressed", "true");
+  await expect.element(review).toHaveAttribute("aria-pressed", "false");
+  expect(intent).toHaveBeenCalledWith("review");
+  expect(intent).toHaveBeenCalledWith("code");
 });
 
 it("folds the title only for the active tab's own scroller", async () => {

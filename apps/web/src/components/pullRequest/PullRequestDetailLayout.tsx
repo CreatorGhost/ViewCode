@@ -67,6 +67,7 @@ export function PullRequestDetailTabBar<Tab extends string>({
   value,
   onValueChange,
   onTabIntent,
+  renderTabLabel,
   inert,
   children,
 }: {
@@ -74,6 +75,7 @@ export function PullRequestDetailTabBar<Tab extends string>({
   value: Tab;
   onValueChange?: (tab: Tab) => void;
   onTabIntent?: (tab: Tab) => void;
+  renderTabLabel?: (tab: { readonly value: Tab; readonly label: string }) => ReactNode;
   inert?: boolean;
   children?: ReactNode;
 }) {
@@ -100,7 +102,7 @@ export function PullRequestDetailTabBar<Tab extends string>({
             onPointerEnter={onTabIntent ? () => onTabIntent(tab.value) : undefined}
             onFocus={onTabIntent ? () => onTabIntent(tab.value) : undefined}
           >
-            {tab.label}
+            {renderTabLabel ? renderTabLabel(tab) : tab.label}
           </Toggle>
         ))}
       </ToggleGroup>
