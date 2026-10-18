@@ -63,7 +63,8 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadTitleRegeneration from "./ThreadTitleRegenerationService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
-import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as EffectWorker from "./EffectWorker.ts";
 
 const projectId = ProjectId.make("project:launch-test");
 const otherProjectId = ProjectId.make("project:launch-other");
@@ -243,6 +244,7 @@ function makeHarness(options: HarnessOptions = {}) {
   );
   return {
     layer: Layer.mergeAll(
+      layerOrchestrator,
       layerLaunch,
       layerRegistry,
       layerThreadManagement,
@@ -2831,6 +2833,182 @@ it.effect("replays an accepted message.dispatch after the project disables the i
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
 });
 
+it.effect.each([
+  { runEffectWorker: false, disconnect: false },
+  { runEffectWorker: true, disconnect: false },
+  { runEffectWorker: false, disconnect: true },
+])(
+  "prepares a manual child through public intake, worker=$runEffectWorker, disconnect=$disconnect",
+  ({ runEffectWorker, disconnect }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const childWorktree = yield* fs.makeTempDirectoryScoped({
+        prefix: "viewcode-manual-worktree-",
+      });
+      const setupEntered = yield* Deferred.make<void>();
+      const allowSetup = yield* Deferred.make<void>();
+      const childOpened = yield* Deferred.make<ProviderAdapter.ProviderAdapterV2OpenSessionInput>();
+      const harness = makeHarness({
+        hasCommit: () => Effect.succeed(true),
+        createWorktree: (input) =>
+          Effect.succeed({
+            worktree: { path: childWorktree, refName: input.newRefName, headSha: "abc" },
+          } as never),
+        adapters: [
+          {
+            ...adapter,
+            openSession: (input) =>
+              (input.threadId.startsWith("thread:delegated-task:")
+                ? Deferred.succeed(childOpened, input)
+                : Effect.void
+              ).pipe(
+                Effect.andThen(
+                  new ProviderAdapter.ProviderAdapterOpenSessionError({
+                    driver: adapter.driver,
+                    providerSessionId: input.providerSessionId,
+                    cause: "Test stops at the native adapter boundary",
+                  }),
+                ),
+              ),
+          },
+        ],
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(
+            Effect.andThen(Deferred.await(allowSetup)),
+            Effect.as({ status: "no-script" as const }),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const parentThreadId = ThreadId.make("thread:manual-launch-parent");
+        yield* threads.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("manual-launch-parent"),
+          threadId: parentThreadId,
+          projectId,
+          title: "Parent",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "parent-feature",
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* threads.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("manual-launch-parent-message"),
+          threadId: parentThreadId,
+          messageId: MessageId.make("manual-launch-parent-message"),
+          text: "Work",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const parent = yield* threads.getThreadProjection(parentThreadId);
+        const run = parent.runs[0]!;
+        const command = {
+          type: "delegated_task.request" as const,
+          viewcodeUserRequested: true,
+          commandId: CommandId.make("manual-launch-child"),
+          parentThreadId,
+          parentRunId: run.id,
+          parentNodeId: run.rootNodeId!,
+          task: "Inspect safely",
+          modelSelection,
+          runtimeMode: "full-access" as const,
+          interactionMode: "default" as const,
+          workspaceStrategy: {
+            type: "worktree" as const,
+            baseRef: "parent-feature",
+            startFromOrigin: false,
+          },
+          completionWake: "settled_only" as const,
+          createdBy: "user" as const,
+          creationSource: "web" as const,
+        };
+        if (disconnect) {
+          const admitted = yield* Deferred.make<void>();
+          const resume = yield* Deferred.make<void>();
+          const request = yield* ThreadMessageIntake.dispatchCommand(command).pipe(
+            Effect.provideService(ThreadManagement.ThreadManagementService, {
+              ...threads,
+              dispatch: (input) =>
+                threads.dispatch(input).pipe(
+                  Effect.tap(() => Deferred.succeed(admitted, undefined)),
+                  Effect.tap(() => Deferred.await(resume)),
+                ),
+            }),
+            Effect.forkScoped,
+          );
+          yield* Deferred.await(admitted);
+          const interruption = yield* Fiber.interrupt(request).pipe(Effect.forkScoped);
+          yield* Deferred.succeed(resume, undefined);
+          yield* Fiber.join(interruption);
+          // Preparation must survive admission even before the client retries.
+          yield* Deferred.await(setupEntered);
+        }
+        const accepted = disconnect
+          ? yield* threads.dispatch(command)
+          : yield* ThreadMessageIntake.dispatchCommand(command);
+        yield* Deferred.await(setupEntered);
+        const task = (yield* threads.getThreadProjection(parentThreadId)).subagents[0]!;
+        const childThreadId = task.childThreadId!;
+        const child = yield* threads.getThreadProjection(childThreadId);
+        assert.equal(child.thread.worktreePath, childWorktree);
+        assert.equal(child.runs[0]?.status, "preparing");
+        assert.isEmpty(child.checkpointScopes);
+        assert.isFalse(yield* Deferred.isDone(childOpened));
+        const duringSetup = yield* ThreadMessageIntake.dispatchCommand(command);
+        assert.equal(duringSetup.sequence, accepted.sequence);
+        assert.deepEqual(
+          duringSetup.storedEvents.map(({ event }) => event.id),
+          accepted.storedEvents.map(({ event }) => event.id),
+        );
+        assert.equal(harness.createWorktree.mock.calls.length, 1);
+        assert.equal(harness.runSetup.mock.calls.length, 1);
+        yield* Deferred.succeed(allowSetup, undefined);
+        yield* threads
+          .streamStoredEventsFrom({ threadId: childThreadId, eventType: "run.updated" })
+          .pipe(
+            Stream.filter(
+              (stored) =>
+                stored.event.type === "run.updated" && stored.event.payload.status === "starting",
+            ),
+            Stream.runHead,
+          );
+        const prepared = yield* threads.getThreadProjection(childThreadId);
+        assert.equal(prepared.checkpointScopes[0]?.cwd, childWorktree);
+        if (runEffectWorker) {
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          yield* worker.drain(10);
+          const openedYet = yield* Deferred.isDone(childOpened);
+          assert.isTrue(openedYet);
+          const opened = yield* Deferred.await(childOpened);
+          assert.equal(opened.threadId, childThreadId);
+        }
+        const retry = yield* ThreadMessageIntake.dispatchCommand(command);
+        assert.equal(retry.sequence, accepted.sequence);
+        assert.deepEqual(
+          retry.storedEvents.map(({ event }) => event.id),
+          accepted.storedEvents.map(({ event }) => event.id),
+        );
+        assert.equal(harness.createWorktree.mock.calls.length, 1);
+        assert.lengthOf((yield* threads.getThreadProjection(childThreadId)).runs, 1);
+      }).pipe(
+        Effect.provide(
+          Layer.merge(
+            harness.layer,
+            ServerConfig.layerTest(process.cwd(), { prefix: "viewcode-manual-intake-" }).pipe(
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        ),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect.each(
   (["codex", "claudeAgent"] as const).flatMap((driver) =>
     [
@@ -3048,15 +3226,22 @@ it.effect.each(
     }),
 );
 
-
 it.effect("preserves ViewCode goal and debug mode before the first native message", () => {
   const harness = makeHarness();
   return Effect.gen(function* () {
     const launch = yield* ThreadLaunch.ThreadLaunchService;
     const threads = yield* ThreadManagement.ThreadManagementService;
-    const goal = { objective: "Keep the existing UI", pausedAt: null, updatedAt: "2026-10-18T00:00:00.000Z" };
+    const goal = {
+      objective: "Keep the existing UI",
+      pausedAt: null,
+      updatedAt: "2026-10-18T00:00:00.000Z",
+    };
     const result = yield* launch.launch({
-      ...launchInput({ command: "command:viewcode-context", thread: "thread:viewcode-context", message: "Continue" }),
+      ...launchInput({
+        command: "command:viewcode-context",
+        thread: "thread:viewcode-context",
+        message: "Continue",
+      }),
       viewcodeGoal: goal,
       debugMode: true,
     });
