@@ -2,7 +2,13 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThr
 
 import { makeThreadShellFixture } from "../../test-fixtures";
 
-import { AuthOrchestrationOperateScope, EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -18,6 +24,7 @@ const state = vi.hoisted(() => ({
     input: { threadId: string; orderKey?: string };
   }[],
   dialogs: [] as { onConfirm: () => void }[],
+  textDialogs: [] as { onConfirm: (title: string) => void }[],
   alerts: [] as {
     title: string;
     buttons?: { text: string; onPress?: () => void }[];
@@ -30,6 +37,7 @@ vi.mock("react", () => ({
   useRef: (current: unknown) => ({ current }),
 }));
 vi.mock("react-native", () => ({
+  Platform: { OS: "android" },
   Alert: {
     alert: (title: string, _message: string, buttons?: { text: string; onPress?: () => void }[]) =>
       state.alerts.push({ title, buttons }),
@@ -39,10 +47,12 @@ vi.mock("expo-haptics", () => ({
   impactAsync: async () => {},
   ImpactFeedbackStyle: { Light: "light" },
 }));
-vi.mock("../../components/ui/Dialog", () => ({
+vi.mock("../../components/ConfirmDialogHost", () => ({
   alert: (title: string, _message: string, buttons?: { text: string; onPress?: () => void }[]) =>
     state.alerts.push({ title, buttons }),
-  confirm: (dialog: { onConfirm: () => void }) => state.dialogs.push(dialog),
+  showConfirmDialog: (dialog: { onConfirm: () => void }) => state.dialogs.push(dialog),
+  showTextInputDialog: (dialog: { onConfirm: (title: string) => void }) =>
+    state.textDialogs.push(dialog),
 }));
 vi.mock("../archive/useArchivedThreadSnapshots", () => ({
   refreshArchivedThreadsForEnvironment: () => {},
@@ -77,6 +87,7 @@ vi.mock("../../state/atom-registry", () => ({
                         threadPinning: true,
                         threadPinReorder: true,
                         threadTitleRegeneration: true,
+                        threadAutoSettleOptOut: true,
                       },
                     },
                   },
@@ -119,6 +130,7 @@ vi.mock("../../state/threads", () => ({
       "unpin",
       "reorderPin",
       "updateMetadata",
+      "setAutoSettle",
     ].map((action) => [
       action,
       async (request: {
@@ -173,6 +185,7 @@ beforeEach(() => {
   state.requests = [];
   state.shells = [];
   state.dialogs = [];
+  state.textDialogs = [];
   state.alerts = [];
   state.afterRequest = undefined;
 });
@@ -180,6 +193,34 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("thread list operation permissions", () => {
+  it("rechecks auto-settle permission when a retained callback runs", async () => {
+    const actions = useThreadListActions();
+    expect(await actions.setThreadAutoSettle(makeThread(), false)).toBe(true);
+    expect(state.requests).toEqual([expect.objectContaining({ action: "setAutoSettle" })]);
+    state.requests = [];
+    state.scopes.get(primaryEnvironmentId)!.clear();
+    expect(await actions.setThreadAutoSettle(makeThread(), true)).toBe(false);
+    expect(state.requests).toEqual([]);
+  });
+
+  it("does not open rename for a forbidden environment", () => {
+    useThreadListActions().renameThread(makeThread({ environmentId: otherEnvironmentId }));
+    expect(state.textDialogs).toEqual([]);
+    expect(state.requests).toEqual([]);
+  });
+
+  it("rechecks rename permission after the dialog was opened", async () => {
+    useThreadListActions().renameThread(makeThread());
+    expect(state.textDialogs).toHaveLength(1);
+    const confirm = state.textDialogs[0]!.onConfirm;
+    state.scopes.get(primaryEnvironmentId)!.clear();
+    await confirm("Renamed");
+    expect(state.requests).toEqual([]);
+    state.scopes.get(primaryEnvironmentId)!.add(AuthOrchestrationOperateScope);
+    await confirm("Renamed");
+    expect(state.requests).toEqual([expect.objectContaining({ action: "updateMetadata" })]);
+  });
+
   it.each(mutationCases)(
     "%s rejects a retained callback after its environment loses permission",
     async (handler) => {
