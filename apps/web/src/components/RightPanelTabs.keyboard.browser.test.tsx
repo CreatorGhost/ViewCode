@@ -1,6 +1,6 @@
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import {
   compileResolvedKeybindingsConfig,
   DEFAULT_RESOLVED_KEYBINDINGS,
@@ -175,20 +175,51 @@ describe("right panel new-tab shortcut", () => {
       keybindings: compileResolvedKeybindingsConfig([{ key: "mod+y", command: "rightPanel.new" }]),
     });
     document.body.append(input);
-    input.focus();
+    onTestFinished(() => input.remove());
+    await act(() => input.focus());
     expect((await press("t", { metaKey: true })).defaultPrevented).toBe(false);
     await press("y", { metaKey: true });
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
     await press("Escape");
     expect(document.querySelector('[role="menu"]:not([data-closed])')).toBeNull();
-    // The menu hands focus back to its trigger once its close finishes, a few frames later.
-    // Timers are fake here, so advance them instead of polling in real time.
+    // Base UI restores focus when its closing popup unmounts, after animation
+    // callbacks and their cleanup microtasks. Closed attributes alone aren't completion.
     const trigger = container.querySelector('[aria-label="Add panel surface"]');
-    for (let frame = 0; frame < 10 && document.activeElement !== trigger; frame++) {
-      await act(() => vi.advanceTimersToNextFrame());
-    }
+    await act(() => vi.runAllTimersAsync());
+    expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
     input.remove();
+  });
+
+  it("restores focus only after the closing menu animation completes", async () => {
+    await renderPanel();
+    const input = document.createElement("input");
+    document.body.append(input);
+    onTestFinished(() => input.remove());
+    await act(() => input.focus());
+    await press("t", { metaKey: true });
+    const popup = document.querySelector<HTMLElement>('[role="menu"]')!;
+    const trigger = container.querySelector('[aria-label="Add panel surface"]');
+    let finishAnimation: () => void = () => {
+      throw new Error("The animation completion was not registered.");
+    };
+    const animation = new Animation();
+    const finished = new Promise<Animation>((resolve) => {
+      finishAnimation = () => resolve(animation);
+    });
+    vi.spyOn(animation, "finished", "get").mockReturnValue(finished);
+    vi.spyOn(popup, "getAnimations").mockReturnValue([animation]);
+
+    await press("Escape");
+    expect(popup.hasAttribute("data-closed")).toBe(true);
+    expect(popup.isConnected).toBe(true);
+    expect(document.activeElement).not.toBe(trigger);
+
+    await act(() => finishAnimation());
+    await act(() => vi.runAllTimersAsync());
+    expect(popup.isConnected).toBe(false);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("does not open over another popup or during text composition", async () => {
