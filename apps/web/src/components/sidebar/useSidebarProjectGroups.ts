@@ -1,5 +1,3 @@
-import { useMemo } from "react";
-
 import { useClientSettings } from "../../hooks/useSettings";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../../logicalProject";
 import {
@@ -23,7 +21,7 @@ export function useSidebarProjectSnapshots(): ReadonlyArray<SidebarProjectSnapsh
   const groupingSettings = useClientSettings(selectProjectGroupingSettings);
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  return useMemo(() => {
+  return (() => {
     const labelById = new Map(
       environments.map((environment) => [environment.environmentId, environment.label] as const),
     );
@@ -44,7 +42,7 @@ export function useSidebarProjectSnapshots(): ReadonlyArray<SidebarProjectSnapsh
       primaryEnvironmentId,
       resolveEnvironmentLabel: (environmentId) => labelById.get(environmentId) ?? null,
     });
-  }, [environments, groupingSettings, primaryEnvironmentId, projectOrder, projects, sortOrder]);
+  })();
 }
 
 /**
@@ -55,8 +53,5 @@ export function useSidebarProjectGroups(): ReadonlyArray<SidebarProjectSnapshot>
   const unsortedGroups = useSidebarProjectSnapshots();
   const threads = useThreadShells();
   const sortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
-  return useMemo(
-    () => sortLogicalProjectsForSidebar(unsortedGroups, threads, sortOrder),
-    [sortOrder, threads, unsortedGroups],
-  );
+  return (() => sortLogicalProjectsForSidebar(unsortedGroups, threads, sortOrder))();
 }

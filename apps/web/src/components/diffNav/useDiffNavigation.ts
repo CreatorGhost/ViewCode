@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { resolveShortcutCommand } from "../../keybindings";
 import { isEditableFocused } from "../../lib/editableFocus";
@@ -22,26 +22,20 @@ export function useDiffNavigation(paths: ReadonlyArray<string>, reveal: (path: s
     pathsRef.current = paths;
   }, [paths]);
 
-  const step = useCallback(
-    (direction: 1 | -1) => {
-      const list = pathsRef.current;
-      const next = stepChangeIndex(currentRef.current, list.length, direction);
-      const path = list[next];
-      if (path === undefined) return;
-      currentRef.current = next;
-      reveal(path);
-    },
-    [reveal],
-  );
+  const step = (direction: 1 | -1) => {
+    const list = pathsRef.current;
+    const next = stepChangeIndex(currentRef.current, list.length, direction);
+    const path = list[next];
+    if (path === undefined) return;
+    currentRef.current = next;
+    reveal(path);
+  };
 
-  const jump = useCallback(
-    (path: string) => {
-      const index = pathsRef.current.indexOf(path);
-      if (index >= 0) currentRef.current = index;
-      reveal(path);
-    },
-    [reveal],
-  );
+  const jump = (path: string) => {
+    const index = pathsRef.current.indexOf(path);
+    if (index >= 0) currentRef.current = index;
+    reveal(path);
+  };
 
   const paneFocused = useSplitPaneFocused();
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
@@ -132,7 +133,7 @@ export const SidechatDock = memo(function SidechatDock(props: {
     setSending(true);
     setDraft("");
     stickToBottomRef.current = true;
-    try {
+    const operation = await settlePromise(async () => {
       if (activeRef === null) {
         await ask({ parent, question: text, modelSelection: selection });
       } else {
@@ -143,9 +144,11 @@ export const SidechatDock = memo(function SidechatDock(props: {
           runtimeMode: parent.runtimeMode,
         });
       }
-    } finally {
-      setSending(false);
-    }
+    });
+
+    setSending(false);
+
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   };
 
   const startResize = (event: React.PointerEvent<HTMLDivElement>) => {

@@ -1,6 +1,6 @@
 import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon, SmartphoneIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -94,7 +94,7 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
     <Link
       aria-label="Go to threads"
       className={cn(
-        "relative z-10 hidden h-7 w-fit min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+        "relative z-10 hidden h-7 w-fit min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset md:flex",
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
@@ -147,32 +147,32 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const pullRequestsSupported = environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
   );
-  const closeMobileSidebar = useCallback(() => {
+  const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
     }
-  }, [isMobile, setOpenMobile]);
+  };
   const openPullRequests = useOpenPullRequests();
-  const handlePullRequestsClick = useCallback(() => {
+  const handlePullRequestsClick = () => {
     closeMobileSidebar();
     void openPullRequests();
-  }, [closeMobileSidebar, openPullRequests]);
-  const handleSettingsClick = useCallback(() => {
+  };
+  const handleSettingsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
-  }, [closeMobileSidebar, navigate]);
+  };
 
-  const handleUsageClick = useCallback(() => {
+  const handleUsageClick = () => {
     if (isMobile) {
       setOpenMobile(false);
     }
     void navigate({ to: "/usage" });
-  }, [isMobile, navigate, setOpenMobile]);
+  };
 
-  const handleBackClick = useCallback(() => {
+  const handleBackClick = () => {
     closeMobileSidebar();
     void navigateToMainApp();
-  }, [closeMobileSidebar, navigateToMainApp]);
+  };
 
   return (
     <SidebarMenu className="flex-row items-center">

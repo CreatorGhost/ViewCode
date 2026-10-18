@@ -1,6 +1,6 @@
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
@@ -18,16 +18,13 @@ export function RecentThreadSwitcher() {
   const shells = useThreadShells();
   const [selected, setSelected] = useState<number | null>(null);
   const selectedRef = useRef<number | null>(null);
-  const shellsByKey = useMemo(
-    () =>
-      new Map(
-        shells.map((shell) => [
-          scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
-          shell,
-        ]),
-      ),
-    [shells],
-  );
+  const shellsByKey = (() =>
+    new Map(
+      shells.map((shell) => [
+        scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
+        shell,
+      ]),
+    ))();
   const candidates = useRef<ReadonlyArray<string>>([]);
   const [keys, setKeys] = useState<ReadonlyArray<string>>([]);
 

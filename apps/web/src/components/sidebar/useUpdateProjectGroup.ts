@@ -3,7 +3,6 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ProjectIconColor, ProjectIconOverride } from "@t3tools/contracts";
-import { useCallback } from "react";
 
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useEnvironments } from "../../state/environments";
@@ -24,39 +23,36 @@ export interface ProjectGroupLookUpdate {
 export function useUpdateProjectGroup() {
   const { environments } = useEnvironments();
   const updateProject = useAtomCommand(projectEnvironment.update, { reportFailure: false });
-  return useCallback(
-    (
-      group: Pick<SidebarProjectSnapshot, "memberProjects">,
-      input: ProjectGroupLookUpdate,
-      failureTitle: string,
-    ) => {
-      const showError = (description: string) =>
-        toastManager.add(stackedThreadToast({ type: "error", title: failureTitle, description }));
-      // Check every checkout first so an offline one can't leave the group half-updated.
-      const unavailable = group.memberProjects.find((member) => {
-        const environment = environments.find((env) => env.environmentId === member.environmentId);
-        return environment?.connection.phase !== "connected" || !environment.serverConfig;
-      });
-      if (unavailable) {
-        showError(
-          `Connect ${unavailable.environmentLabel ?? "the selected environment"} and try again.`,
-        );
-        return;
-      }
-      void (async () => {
-        for (const member of group.memberProjects) {
-          const result = await updateProject({
-            environmentId: member.environmentId,
-            input: { projectId: member.id, ...input },
-          });
-          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            showError(error instanceof Error ? error.message : "An error occurred.");
-            return;
-          }
+  return (
+    group: Pick<SidebarProjectSnapshot, "memberProjects">,
+    input: ProjectGroupLookUpdate,
+    failureTitle: string,
+  ) => {
+    const showError = (description: string) =>
+      toastManager.add(stackedThreadToast({ type: "error", title: failureTitle, description }));
+    // Check every checkout first so an offline one can't leave the group half-updated.
+    const unavailable = group.memberProjects.find((member) => {
+      const environment = environments.find((env) => env.environmentId === member.environmentId);
+      return environment?.connection.phase !== "connected" || !environment.serverConfig;
+    });
+    if (unavailable) {
+      showError(
+        `Connect ${unavailable.environmentLabel ?? "the selected environment"} and try again.`,
+      );
+      return;
+    }
+    void (async () => {
+      for (const member of group.memberProjects) {
+        const result = await updateProject({
+          environmentId: member.environmentId,
+          input: { projectId: member.id, ...input },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          showError(error instanceof Error ? error.message : "An error occurred.");
+          return;
         }
-      })();
-    },
-    [environments, updateProject],
-  );
+      }
+    })();
+  };
 }

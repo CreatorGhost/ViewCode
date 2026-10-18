@@ -1,6 +1,6 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AuthOrchestrationOperateScope, CommandId, type ScopedThreadRef } from "@t3tools/contracts";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { create } from "zustand";
@@ -58,7 +58,7 @@ function CreateChildAgentDialog({ parent }: { parent: ScopedThreadRef }) {
     if (busy) return;
     setBusy(true);
     setError(null);
-    try {
+    const operation = await settlePromise(async () => {
       if (!readEnvironmentScope(parent.environmentId, AuthOrchestrationOperateScope))
         throw new Error("This connection cannot create agents.");
       const before = await readProjection({
@@ -95,10 +95,13 @@ function CreateChildAgentDialog({ parent }: { parent: ScopedThreadRef }) {
           description: "Open it from this thread's agent tree.",
         });
       }
-    } catch (cause) {
+    });
+
+    setBusy(false);
+
+    if (operation._tag === "Failure") {
+      const cause = squashAtomCommandFailure(operation);
       setError(cause instanceof Error ? cause.message : "Could not create the child agent.");
-    } finally {
-      setBusy(false);
     }
   };
   return (

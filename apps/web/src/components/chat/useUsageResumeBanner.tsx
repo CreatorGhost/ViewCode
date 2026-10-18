@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { OrchestrationLatestTurn } from "@t3tools/client-runtime/viewcodeThread";
 import { deriveUsageResumeNotice } from "@t3tools/client-runtime/usage-resume";
 import type { OrchestrationThreadActivity, ScopedThreadRef } from "@t3tools/contracts";
@@ -40,14 +41,16 @@ export function useUsageResumeBanner(input: {
   const run = async (command: typeof cancel) => {
     if (threadRef === null) return;
     setBusy(true);
-    try {
+    const operation = await settlePromise(async () => {
       await command({
         environmentId: threadRef.environmentId,
         input: { threadId: threadRef.threadId },
       });
-    } finally {
-      setBusy(false);
-    }
+    });
+
+    setBusy(false);
+
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   };
 
   return (() => {

@@ -1,6 +1,5 @@
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import { makeWindow } from "@t3tools/shared/usageFormat";
-import { useMemo } from "react";
 
 import { cn } from "~/lib/utils";
 import { type RailRingTone } from "../rail/appRail.logic";
@@ -95,10 +94,10 @@ export function usageWindowRows(windows: ReadonlyArray<ServerProviderUsageWindow
 /** Tokens and sessions for this provider over 24h, 7d and 30d, from the same report the Usage page reads. */
 export function TokenRows({ driverKind, openedAt }: { driverKind: string; openedAt: number }) {
   const provider = usageProviderForDriver(driverKind);
-  const [day, week, month] = useMemo(() => {
+  const [day, week, month] = (() => {
     const now = new Date(openedAt);
     return [makeWindow(1, now, "hour"), makeWindow(7, now), makeWindow(30, now)];
-  }, [openedAt]);
+  })();
   const d = useUsage(day).merged.providers;
   const w = useUsage(week).merged.providers;
   const m = useUsage(month).merged.providers;

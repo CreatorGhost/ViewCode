@@ -1,3 +1,4 @@
+import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { useState } from "react";
 
@@ -28,18 +29,17 @@ export function useEnsureViewCodePanelThread(input: EnsureViewCodePanelThreadInp
   const [isEnsuringPanelThread, setIsEnsuringPanelThread] = useState(false);
   const ensurePanelThread = useStableCallback(async () => {
     setIsEnsuringPanelThread(true);
-    try {
-      return await ensure(input);
-    } catch {
+    const result = await settlePromise(() => ensure(input));
+    setIsEnsuringPanelThread(false);
+    if (result._tag === "Failure") {
       toastManager.add({
         type: "error",
         title: "Could not open thread panel",
         description: "The thread could not be saved. Your draft is still available. Try again.",
       });
       return null;
-    } finally {
-      setIsEnsuringPanelThread(false);
     }
+    return result.value;
   });
   return { ensurePanelThread, isEnsuringPanelThread };
 }

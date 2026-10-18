@@ -2,14 +2,7 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { memo, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import ChatView from "../components/ChatView";
 import { SidebarInset } from "../components/ui/sidebar";
@@ -63,10 +56,7 @@ const SplitPane = memo(function SplitPane(props: SplitPaneProps) {
   useEffect(() => {
     if (gone) onClose(index);
   }, [gone, index, onClose]);
-  const context = useMemo(
-    () => ({ focused, onSwap, onClose: () => onClose(index) }),
-    [focused, onSwap, onClose, index],
-  );
+  const context = (() => ({ focused, onSwap, onClose: () => onClose(index) }))();
   return (
     <SplitPaneContext value={context}>
       <section
@@ -120,23 +110,17 @@ export function SplitChatSurface(props: { pair: SplitPair; focusedIndex: 0 | 1 }
   const containerRef = useRef<HTMLDivElement>(null);
   const leftRef = useRef<HTMLDivElement>(null);
 
-  const focusThread = useCallback(
-    (threadRef: ScopedThreadRef) =>
-      void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(threadRef) }),
-    [navigate],
-  );
-  const closePane = useCallback(
-    (index: 0 | 1) => {
-      const store = useSplitViewStore.getState();
-      const current = store.pair;
-      if (!current) return;
-      const remaining = remainingAfterClose(current, index);
-      store.close();
-      focusThread(remaining);
-    },
-    [focusThread],
-  );
-  const swap = useCallback(() => useSplitViewStore.getState().swap(), []);
+  const focusThread = (threadRef: ScopedThreadRef) =>
+    void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(threadRef) });
+  const closePane = (index: 0 | 1) => {
+    const store = useSplitViewStore.getState();
+    const current = store.pair;
+    if (!current) return;
+    const remaining = remainingAfterClose(current, index);
+    store.close();
+    focusThread(remaining);
+  };
+  const swap = () => useSplitViewStore.getState().swap();
 
   // Dragging writes the width straight to the DOM and commits once on release,
   // so neither pane re-renders while the divider moves.

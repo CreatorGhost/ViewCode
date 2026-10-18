@@ -1,5 +1,4 @@
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
@@ -24,43 +23,40 @@ export function useSwitchProjectScope() {
   const handleNewThread = useNewThreadHandler();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const openPullRequests = useOpenPullRequests();
-  return useCallback(
-    (project: SidebarProjectSnapshot | null) => {
-      useUiStateStore.getState().setSidebarProjectScopeKey(project?.projectKey ?? null);
-      if (router.state.location.pathname === "/pull-requests") {
-        void openPullRequests();
-        return;
-      }
-      if (!project) return;
-      const memberProjectKeys = new Set(project.memberProjectRefs.map(projectRefKey));
-      const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
-      const current =
-        route?.kind === "server"
-          ? readThreadShell(route.threadRef)
-          : route?.kind === "draft"
-            ? useComposerDraftStore.getState().getDraftSession(route.draftId)
-            : null;
-      if (current && memberProjectKeys.has(projectRefKey(current))) return;
-      const { recentThreadKeys, tabsByEnvironmentId } = useThreadTabsStore.getState();
-      const target = pickProjectSwitchThread({
-        memberProjectKeys,
-        threads: readThreadShells(),
-        recentThreadKeys,
-        openTabKeys: Object.values(tabsByEnvironmentId).flat(),
+  return (project: SidebarProjectSnapshot | null) => {
+    useUiStateStore.getState().setSidebarProjectScopeKey(project?.projectKey ?? null);
+    if (router.state.location.pathname === "/pull-requests") {
+      void openPullRequests();
+      return;
+    }
+    if (!project) return;
+    const memberProjectKeys = new Set(project.memberProjectRefs.map(projectRefKey));
+    const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
+    const current =
+      route?.kind === "server"
+        ? readThreadShell(route.threadRef)
+        : route?.kind === "draft"
+          ? useComposerDraftStore.getState().getDraftSession(route.draftId)
+          : null;
+    if (current && memberProjectKeys.has(projectRefKey(current))) return;
+    const { recentThreadKeys, tabsByEnvironmentId } = useThreadTabsStore.getState();
+    const target = pickProjectSwitchThread({
+      memberProjectKeys,
+      threads: readThreadShells(),
+      recentThreadKeys,
+      openTabKeys: Object.values(tabsByEnvironmentId).flat(),
+    });
+    if (target) {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: target.environmentId, threadId: target.id },
       });
-      if (target) {
-        void navigate({
-          to: "/$environmentId/$threadId",
-          params: { environmentId: target.environmentId, threadId: target.id },
-        });
-        return;
-      }
-      // Like New thread in a folder: the member on this machine when the folder spans several.
-      const projectRef =
-        project.memberProjectRefs.find((ref) => ref.environmentId === primaryEnvironmentId) ??
-        project.memberProjectRefs[0];
-      if (projectRef) void handleNewThread(projectRef);
-    },
-    [handleNewThread, navigate, openPullRequests, primaryEnvironmentId, router],
-  );
+      return;
+    }
+    // Like New thread in a folder: the member on this machine when the folder spans several.
+    const projectRef =
+      project.memberProjectRefs.find((ref) => ref.environmentId === primaryEnvironmentId) ??
+      project.memberProjectRefs[0];
+    if (projectRef) void handleNewThread(projectRef);
+  };
 }

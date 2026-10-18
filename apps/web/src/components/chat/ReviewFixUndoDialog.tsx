@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useState } from "react";
 
@@ -40,7 +41,7 @@ export function ReviewFixUndoDialog({
   const undo = async () => {
     if (pending || blockedReason) return;
     setPending(true);
-    try {
+    const operation = await settlePromise(async () => {
       const completed = await undoReviewFixes(threadRef, (commandId) =>
         undoFixes({
           environmentId: threadRef.environmentId,
@@ -48,14 +49,17 @@ export function ReviewFixUndoDialog({
         }),
       );
       if (completed) onClose();
-    } catch (error) {
+    });
+
+    setPending(false);
+
+    if (operation._tag === "Failure") {
+      const error = squashAtomCommandFailure(operation);
       toastManager.add({
         type: "error",
         title: "Could not undo the review fixes",
         description: error instanceof Error ? error.message : "An error occurred.",
       });
-    } finally {
-      setPending(false);
     }
   };
 

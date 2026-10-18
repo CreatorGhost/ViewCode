@@ -20,7 +20,7 @@ import {
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
 import { ListChecksIcon } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useRef } from "react";
+import { type ReactNode, useRef } from "react";
 
 import { useServerConfigs, useThreadShell } from "../../state/entities";
 import { pullRequestEnvironment } from "../../state/pullRequests";
@@ -87,7 +87,7 @@ function useReviewStartChoices(input: {
   );
   const entries = listed.data?.entries;
   const requestedEntries = requestedListed.data?.entries;
-  return useMemo(() => {
+  return (() => {
     if (projectId === null) return [];
     const reviewable = (list: typeof entries) =>
       (list ?? [])
@@ -114,7 +114,7 @@ function useReviewStartChoices(input: {
           : "chat",
       request: agentReviewTargetRequest(target, { projectId, threadId }),
     }));
-  }, [canReviewLocal, canReviewPullRequest, entries, own, projectId, requestedEntries, threadId]);
+  })();
 }
 
 const SCROLL_KEYS = new Set(["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "]);
@@ -163,10 +163,7 @@ export function ReviewSurface({
     scrolled: false,
   });
   const reviewKey = source?.threadId ?? review?.threadId ?? null;
-  const readerScrolled = useCallback(
-    () => scrolled.current.review === reviewKey && scrolled.current.scrolled,
-    [reviewKey],
-  );
+  const readerScrolled = () => scrolled.current.review === reviewKey && scrolled.current.scrolled;
   const noteScroll = () => {
     scrolled.current = { review: reviewKey, scrolled: true };
   };
@@ -247,13 +244,10 @@ export function ReviewPanel({
   const repository = pullRequest?.repository;
   const number = pullRequest?.number;
   const ownTitle = pullRequest?.snapshot?.title ?? null;
-  const own = useMemo<ReviewablePullRequest | null>(
-    () =>
-      host !== undefined && repository !== undefined && number !== undefined
-        ? { host, repository, number, title: ownTitle }
-        : null,
-    [host, number, ownTitle, repository],
-  );
+  const own = (() =>
+    host !== undefined && repository !== undefined && number !== undefined
+      ? { host, repository, number, title: ownTitle }
+      : null)();
   const choices = useReviewStartChoices({
     environmentId,
     threadId,
@@ -264,7 +258,7 @@ export function ReviewPanel({
   });
   // Started here, the reviewer is this thread's child agent: the reader stays in this chat,
   // which shows the review among its agents while this panel shows the change and findings.
-  const startReview = useMemo<ReviewStartTarget | null>(() => {
+  const startReview = ((): ReviewStartTarget | null => {
     const first = choices[0];
     if (first === undefined) return null;
     return {
@@ -273,22 +267,17 @@ export function ReviewPanel({
       choices,
       onStarted: (started) => announceReviewStarted(started, "chat"),
     };
-  }, [choices, environmentId]);
+  })();
   // While a review that has sent no findings runs, the change it reads: the pull request its
   // thread is linked to, which may be another of the project's than this chat's.
   const reviewer = useThreadShell(
     review === null ? null : scopeThreadRef(environmentId, review.threadId),
   );
-  const reviewed = useMemo(
-    () =>
-      review?.scope === null
-        ? resolveThreadCurrentPullRequestLink(
-            visibleThreadPullRequests(reviewer?.pullRequests ?? []),
-          )
-        : null,
-    [review?.scope, reviewer?.pullRequests],
-  );
-  const change = useMemo<ReviewDiffTarget | null>(() => {
+  const reviewed = (() =>
+    review?.scope === null
+      ? resolveThreadCurrentPullRequestLink(visibleThreadPullRequests(reviewer?.pullRequests ?? []))
+      : null)();
+  const change = ((): ReviewDiffTarget => {
     const target = reviewed ?? own;
     return target === null
       ? { kind: "local" }
@@ -298,7 +287,7 @@ export function ReviewPanel({
           repository: target.repository,
           number: target.number,
         };
-  }, [own, reviewed]);
+  })();
   return (
     <ReviewSurface
       environmentId={environmentId}

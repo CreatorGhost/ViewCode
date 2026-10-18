@@ -113,47 +113,41 @@ function SidebarProvider({
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen);
   const open = openProp ?? _open;
-  const setOpen = React.useCallback(
-    async (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value;
-      if (setOpenProp) {
-        setOpenProp(openState);
-      } else {
-        _setOpen(openState);
-      }
+  const setOpen = async (value: boolean | ((value: boolean) => boolean)) => {
+    const openState = typeof value === "function" ? value(open) : value;
+    if (setOpenProp) {
+      setOpenProp(openState);
+    } else {
+      _setOpen(openState);
+    }
 
-      // This sets the cookie to keep the sidebar state.
-      await cookieStore.set({
-        expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
-        name: SIDEBAR_COOKIE_NAME,
-        path: "/",
-        value: String(openState),
-      });
-    },
-    [setOpenProp, open],
-  );
+    // This sets the cookie to keep the sidebar state.
+    await cookieStore.set({
+      expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
+      name: SIDEBAR_COOKIE_NAME,
+      path: "/",
+      value: String(openState),
+    });
+  };
 
   // Helper to toggle the sidebar.
-  const toggleSidebar = React.useCallback(() => {
+  const toggleSidebar = () => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
-  }, [isMobile, setOpen]);
+  };
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
   const state = resolveSidebarState({ isMobile, open, openMobile });
 
-  const contextValue = React.useMemo<SidebarContextProps>(
-    () => ({
-      isMobile,
-      open,
-      openMobile,
-      setOpen,
-      setOpenMobile,
-      state,
-      toggleSidebar,
-    }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar],
-  );
+  const contextValue = (() => ({
+    isMobile,
+    open,
+    openMobile,
+    setOpen,
+    setOpenMobile,
+    state,
+    toggleSidebar,
+  }))();
 
   return (
     <SidebarContext value={contextValue}>
@@ -197,7 +191,7 @@ function Sidebar({
   resizable?: boolean | SidebarResizableOptions;
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
-  const resolvedResizable = React.useMemo<SidebarResolvedResizableOptions | null>(() => {
+  const resolvedResizable = (() => {
     if (isMobile || collapsible === "none" || !resizable) {
       return null;
     }
@@ -210,11 +204,8 @@ function Sidebar({
       ...(options.onResize ? { onResize: options.onResize } : {}),
       ...(options.shouldAcceptWidth ? { shouldAcceptWidth: options.shouldAcceptWidth } : {}),
     };
-  }, [collapsible, isMobile, resizable]);
-  const instanceContextValue = React.useMemo<SidebarInstanceContextProps>(
-    () => ({ side, resizable: resolvedResizable }),
-    [resolvedResizable, side],
-  );
+  })();
+  const instanceContextValue = (() => ({ side, resizable: resolvedResizable }))();
 
   if (collapsible === "none") {
     return (
@@ -451,29 +442,27 @@ function SidebarRail({
     // Toggling the sidebar cancels a drag so the inline width never pins a
     // collapsed sidebar open.
   }, String(open));
+  const refreshResize = React.useEffectEvent(() => resize.refresh());
   React.useLayoutEffect(() => {
     latestResizable.current = resolvedResizable;
     // Bounds follow the window; keep an active drag's inline width inside them.
-    resize.refresh();
+    refreshResize();
   }, [resolvedResizable]);
 
-  const handleClick = React.useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      onClick?.(event);
-      if (event.defaultPrevented) return;
-      if (suppressClickRef.current) {
-        suppressClickRef.current = false;
-        event.preventDefault();
-        return;
-      }
-      if (resolvedResizable && open) {
-        event.preventDefault();
-        return;
-      }
-      toggleSidebar();
-    },
-    [onClick, open, resolvedResizable, toggleSidebar],
-  );
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    onClick?.(event);
+    if (event.defaultPrevented) return;
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      event.preventDefault();
+      return;
+    }
+    if (resolvedResizable && open) {
+      event.preventDefault();
+      return;
+    }
+    toggleSidebar();
+  };
 
   React.useLayoutEffect(() => {
     if (!resolvedResizable?.storageKey || typeof window === "undefined") return;
@@ -676,7 +665,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full cursor-pointer items-center gap-[var(--sidebar-control-gap)] overflow-hidden text-left outline-hidden ring-ring transition-[width,height,padding] hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 active:bg-sidebar-row-active active:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-64 aria-disabled:pointer-events-none aria-disabled:opacity-64 data-[active=true]:bg-sidebar-row-selected data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground data-[state=open]:hover:bg-sidebar-row-hover data-[state=open]:hover:text-sidebar-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-[var(--sidebar-content-inset)]! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-[var(--sidebar-icon-color)] hover:[&>svg]:text-sidebar-foreground active:[&>svg]:text-sidebar-foreground data-[active=true]:[&>svg]:text-sidebar-foreground",
+  "peer/menu-button flex w-full cursor-pointer items-center gap-[var(--sidebar-control-gap)] overflow-hidden text-left outline-hidden ring-ring transition-[width,height,padding] hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset active:bg-sidebar-row-active active:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-64 aria-disabled:pointer-events-none aria-disabled:opacity-64 data-[active=true]:bg-sidebar-row-selected data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground data-[state=open]:hover:bg-sidebar-row-hover data-[state=open]:hover:text-sidebar-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-[var(--sidebar-content-inset)]! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-[var(--sidebar-icon-color)] hover:[&>svg]:text-sidebar-foreground active:[&>svg]:text-sidebar-foreground data-[active=true]:[&>svg]:text-sidebar-foreground",
   {
     defaultVariants: {
       size: "default",
@@ -789,7 +778,7 @@ function SidebarMenuSubButton({
 }) {
   const defaultProps = {
     className: cn(
-      "-translate-x-px flex h-7 min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-lg px-2 text-sidebar-foreground outline-hidden ring-ring hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 active:bg-sidebar-row-active active:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-64 aria-disabled:pointer-events-none aria-disabled:opacity-64 [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-muted-foreground",
+      "-translate-x-px flex h-7 min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-lg px-2 text-sidebar-foreground outline-hidden ring-ring hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset active:bg-sidebar-row-active active:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-64 aria-disabled:pointer-events-none aria-disabled:opacity-64 [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-muted-foreground",
       "data-[active=true]:bg-sidebar-row-selected data-[active=true]:text-sidebar-foreground",
       size === "sm" && "text-xs",
       size === "md" && "text-sm",

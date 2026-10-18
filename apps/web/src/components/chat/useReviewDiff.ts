@@ -7,7 +7,6 @@ import type {
   ReviewPullRequestTarget,
 } from "@t3tools/contracts";
 import { localReviewDiffRequest } from "@t3tools/client-runtime/agent-review";
-import { useMemo } from "react";
 
 import { useTheme } from "~/hooks/useTheme";
 import {
@@ -62,18 +61,15 @@ export function useReviewDiff(input: {
   const { environmentId, target, projectId, cwd } = input;
   const diffRequest = localReviewDiffRequest(input.scope ?? null);
   const { resolvedTheme } = useTheme();
-  const reference = useMemo<PullRequestRef | null>(
-    () =>
-      target.kind === "pull-request" && projectId !== null
-        ? {
-            projectId,
-            host: target.host,
-            repository: target.repository,
-            number: target.number,
-          }
-        : null,
-    [projectId, target],
-  );
+  const reference = (() =>
+    target.kind === "pull-request" && projectId !== null
+      ? {
+          projectId,
+          host: target.host,
+          repository: target.repository,
+          number: target.number,
+        }
+      : null)();
   const pullRequestDiff = useEnvironmentQuery(
     reference === null ? null : pullRequestEnvironment.diff({ environmentId, input: reference }),
   );
@@ -90,7 +86,7 @@ export function useReviewDiff(input: {
       : null,
   );
   const sourceKind = diffRequest.source;
-  const localSource = useMemo(() => {
+  const localSource = (() => {
     const sources = localDiff.data?.sources ?? [];
     const workingTree = sources.find((source) => source.kind === "working-tree");
     const branchRange = sources.find((source) => source.kind === "branch-range");
@@ -99,13 +95,13 @@ export function useReviewDiff(input: {
     return workingTree && workingTree.diff.trim().length > 0
       ? workingTree
       : (branchRange ?? workingTree ?? null);
-  }, [localDiff.data, sourceKind]);
+  })();
   const patch = reference !== null ? pullRequestDiff.data?.patch : localSource?.diff;
 
   const getPullRequestFile = useAtomCommand(pullRequestEnvironment.diffFileContents);
   const getLocalFile = useAtomCommand(reviewEnvironment.diffFileContents);
   const patchKey = patch === undefined ? "" : String(fnv1a32(patch));
-  const loadDiffFiles = useMemo<FileDiffContentsLoader | undefined>(() => {
+  const loadDiffFiles = (() => {
     if (reference !== null) {
       return createPullRequestDiffFileContentsLoader(getPullRequestFile, {
         environmentId,
@@ -124,34 +120,20 @@ export function useReviewDiff(input: {
       headRef: localSource.headRef,
       cacheKey: localSource.diffHash,
     });
-  }, [
-    environmentId,
-    getLocalFile,
-    getPullRequestFile,
-    localDiff.data,
-    localSource,
-    patchKey,
-    reference,
-  ]);
+  })();
 
-  const parsed = useMemo(
-    () =>
-      getRenderablePatch(patch, `review-panel:${resolvedTheme}`, {
-        compactPartialHunkOffsets: true,
-      }),
-    [patch, resolvedTheme],
-  );
-  const files = useMemo<ReadonlyArray<ReviewDiffFile>>(
-    () =>
-      parsed?.kind === "files"
-        ? parsed.files.map((fileDiff) => ({
-            fileKey: buildFileDiffRenderKey(fileDiff),
-            path: resolveFileDiffPath(fileDiff),
-            fileDiff,
-          }))
-        : NO_FILES,
-    [parsed],
-  );
+  const parsed = (() =>
+    getRenderablePatch(patch, `review-panel:${resolvedTheme}`, {
+      compactPartialHunkOffsets: true,
+    }))();
+  const files = (() =>
+    parsed?.kind === "files"
+      ? parsed.files.map((fileDiff) => ({
+          fileKey: buildFileDiffRenderKey(fileDiff),
+          path: resolveFileDiffPath(fileDiff),
+          fileDiff,
+        }))
+      : NO_FILES)();
   const query = reference !== null ? pullRequestDiff : localDiff;
   return {
     files,

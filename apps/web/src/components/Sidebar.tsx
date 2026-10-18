@@ -2875,7 +2875,7 @@ export default function Sidebar() {
       const threadKey = scopedThreadKey(threadRef);
       if (settlingThreadKeysRef.current.has(threadKey)) return;
       settlingThreadKeysRef.current.add(threadKey);
-      try {
+      const operation = await settlePromise(async () => {
         const result = await settleThread(threadRef);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
@@ -2887,9 +2887,11 @@ export default function Sidebar() {
             }),
           );
         }
-      } finally {
-        settlingThreadKeysRef.current.delete(threadKey);
-      }
+      });
+
+      settlingThreadKeysRef.current.delete(threadKey);
+
+      if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
     })();
   };
   const attemptUnsettle = (threadRef: ScopedThreadRef) => {
