@@ -1,5 +1,4 @@
 import type {
-  OrchestrationThreadActivity,
   OrchestrationV2ThreadProjection,
   ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -184,26 +183,6 @@ export function threadImagePayloadBytes(messages: ReadonlyArray<OrchestrationMes
 }
 
 const NO_UNDELIVERED_MESSAGES: ReadonlyMap<string, string> = new Map();
-export function undeliveredUserMessages(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): ReadonlyMap<string, string> {
-  let result: Map<string, string> | undefined;
-  for (const activity of activities) {
-    if (activity.kind !== "provider.turn.start.failed") continue;
-    const payload =
-      typeof activity.payload === "object" && activity.payload !== null
-        ? (activity.payload as { readonly requestId?: unknown; readonly detail?: unknown })
-        : null;
-    if (typeof payload?.requestId !== "string") continue;
-    result ??= new Map();
-    result.set(
-      payload.requestId,
-      typeof payload.detail === "string" ? payload.detail : activity.summary,
-    );
-  }
-  return result ?? NO_UNDELIVERED_MESSAGES;
-}
-
 const UNDELIVERED_RUN_REASON = "The provider never started a turn for this message.";
 
 /**
