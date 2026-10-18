@@ -529,6 +529,50 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* Panel open/close: content slides and fades on the compositor while the layout changes once
+   (see PreviewPanelShell). Width is never animated, so the chat does not re-lay out per frame. */
+[data-panel-animations="true"] [data-panel-motion="enter"] {
+  animation: panel-slide-in var(--panel-animation-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-panel-animations="true"] [data-panel-motion="exit"] {
+  animation: panel-slide-out calc(var(--panel-animation-duration) * 0.8) cubic-bezier(0.4, 0, 1, 1)
+    both;
+}
+[data-panel-animations="true"] [data-terminal-drawer="closed"] {
+  transition: grid-template-rows 0s linear calc(var(--panel-animation-duration) * 0.8);
+}
+[data-panel-animations="true"] [data-terminal-drawer="open"] > * {
+  animation: drawer-slide-in var(--panel-animation-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-panel-animations="true"] [data-terminal-drawer="closed"] > * {
+  animation: drawer-slide-out calc(var(--panel-animation-duration) * 0.8) cubic-bezier(0.4, 0, 1, 1)
+    both;
+}
+@keyframes drawer-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+}
+@keyframes drawer-slide-out {
+  to {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+}
+@keyframes panel-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+}
+@keyframes panel-slide-out {
+  to {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+}
+
 @keyframes live-tool-shine {
   from {
     background-position:

@@ -277,7 +277,9 @@ function Sidebar({
         <div
           className={cn(
             "relative w-(--sidebar-width) bg-transparent",
-            "[[data-panel-animations=true]_&]:transition-[width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
+            // The gap never animates its width (that re-lays out the page every frame): it opens at
+            // once and, while panel motion is on, closes once the sliding sidebar has left.
+            "[[data-panel-animations=true]_&]:group-data-[collapsible=offcanvas]:[transition:width_0s_linear_var(--panel-animation-duration)]",
             "group-data-[collapsible=offcanvas]:w-0",
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"

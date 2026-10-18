@@ -70,43 +70,36 @@ function PreviewPanelShellFrame(
   const hostRef = props.hostRef ?? localHostRef;
   const returnedFocus = useRef(false);
   const { width, handlers } = props.inlineSize;
-  // Derive suppression before the layout commits so the browser never creates
-  // a width transition for resize or maximize changes.
-  const [layoutTransition, setLayoutTransition] = useState(() => ({
+  // Panel motion never animates width: the layout changes once and only the content slides,
+  // on the compositor, so it keeps moving while the panel's contents are still rendering.
+  // Closing keeps the width until the slide-out ends, then collapses.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  // The shell mounts as the panel opens, so an open mount enters too; while panel motion is
+  // suppressed (first paint, navigation) no animation runs and the effect settles it at once.
+  const [motion, setMotion] = useState<{ open: boolean; phase: "idle" | "enter" | "exit" }>(() => ({
     open,
-    width,
-    maximized,
-    suppressed: false,
+    phase: collapsible && open ? "enter" : "idle",
   }));
-  if (
-    layoutTransition.open !== open ||
-    layoutTransition.width !== width ||
-    layoutTransition.maximized !== maximized
-  ) {
-    setLayoutTransition({
-      open,
-      width,
-      maximized,
-      suppressed:
-        collapsible &&
-        layoutTransition.open === open &&
-        (layoutTransition.width !== width || layoutTransition.maximized !== maximized),
-    });
+  if (collapsible && motion.open !== open) {
+    setMotion({ open, phase: open ? "enter" : "exit" });
   }
-  const suppressWidthTransition = layoutTransition.suppressed;
+  const exiting = motion.phase === "exit";
   useLayoutEffect(() => {
-    if (!suppressWidthTransition) return;
-    let restoreFrame = 0;
-    const paintFrame = window.requestAnimationFrame(() => {
-      restoreFrame = window.requestAnimationFrame(() => {
-        setLayoutTransition((current) => ({ ...current, suppressed: false }));
-      });
-    });
+    if (motion.phase === "idle") return;
+    const content = contentRef.current;
+    const finish = () => setMotion((current) => ({ ...current, phase: "idle" }));
+    // No running animation means motion is off (setting, reduced motion): settle at once.
+    if (!content || (content.getAnimations?.() ?? []).length === 0) {
+      finish();
+      return;
+    }
+    content.addEventListener("animationend", finish, { once: true });
+    content.addEventListener("animationcancel", finish, { once: true });
     return () => {
-      window.cancelAnimationFrame(paintFrame);
-      window.cancelAnimationFrame(restoreFrame);
+      content.removeEventListener("animationend", finish);
+      content.removeEventListener("animationcancel", finish);
     };
-  }, [suppressWidthTransition]);
+  }, [motion.phase]);
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host || !collapsible) return;
@@ -148,9 +141,6 @@ function PreviewPanelShellFrame(
               "flex-1"
             : "shrink-0 border-l border-border"
           : "w-full",
-        collapsible &&
-          "[[data-panel-animations=true]_&]:transition-[width] [[data-panel-animations=true]_&]:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:ease-out",
-        collapsible && open && "[[data-panel-animations=true]_&]:starting:w-0!",
         collapsible && !open && "pointer-events-none",
       )}
       style={
@@ -159,10 +149,9 @@ function PreviewPanelShellFrame(
               [RESIZABLE_WIDTH_PROPERTY]: `${width}px`,
               width: maximized
                 ? "100%"
-                : collapsible && !open
+                : collapsible && !open && !exiting
                   ? "0px"
                   : `var(${RESIZABLE_WIDTH_PROPERTY})`,
-              transitionDuration: suppressWidthTransition ? "0ms" : undefined,
             } as CSSProperties)
           : undefined
       }
@@ -172,7 +161,9 @@ function PreviewPanelShellFrame(
       {isInline && !maximized ? <RightPanelResizeHandle handlers={handlers} /> : null}
       <div className={cn("h-full min-h-0 w-full", collapsible && "overflow-clip")}>
         <div
+          ref={contentRef}
           className="flex h-full min-h-0 min-w-0 flex-col"
+          data-panel-motion={motion.phase === "idle" ? undefined : motion.phase}
           style={
             collapsible && !maximized
               ? { width: `calc(var(${RESIZABLE_WIDTH_PROPERTY}) - 1px)` }
