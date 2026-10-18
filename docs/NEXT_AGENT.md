@@ -26,7 +26,8 @@ upstream names and layout; wire contracts gain optional fields. Theme work uses
 tokens and UI variants. Hide excluded upstream features behind flags rather
 than deleting their implementations.
 
-The old ViewCode v1 services are reference material, not an alternative runtime.
+The old ViewCode v1 services remain in Git history before the archive cleanup,
+not an alternative runtime. The per-file replacement map is in the local port log.
 Do not revive their command union, adapters, projector, or turn reactor to make
 a feature compile. Use native commands, events, receipts, thread lineage,
 delegated tasks, context handoffs, and runtime requests.

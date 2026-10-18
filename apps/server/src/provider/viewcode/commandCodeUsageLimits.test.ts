@@ -7,13 +7,13 @@ import * as FileSystem from "effect/FileSystem";
 import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 
 import {
   commandCodePlan,
   commandCodeUsageToLimits,
   readCommandCodeUsageLimits,
-} from "../viewcode/commandCodeUsageLimits.ts";
+} from "./commandCodeUsageLimits.ts";
 
 const checkedAt = "2026-09-26T00:00:00.000Z";
 
