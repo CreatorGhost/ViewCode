@@ -305,8 +305,8 @@ describe("welcome agent terminal setup", () => {
     expect(state.write).not.toHaveBeenCalled();
     expect(state.close).not.toHaveBeenCalled();
     await click("Continue");
-    // No projects to import: the step offers a single Continue.
-    await click("Continue");
+    // No projects to add: the step offers a single Start fresh.
+    await click("Start fresh");
     expect(state.complete).toHaveBeenCalledOnce();
     expect(state.done).toHaveBeenCalledExactlyOnceWith(undefined);
   });

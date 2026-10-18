@@ -11,6 +11,7 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
+  useRouter: () => ({ state: { matches: [] }, navigate: vi.fn() }),
   useParams: () => null,
   useLocation: () => "/settings",
 }));
@@ -35,7 +36,14 @@ vi.mock("../hooks/useScratchProject", () => ({
   useScratchProject: () => ({ scratchEnvironmentId: () => null }),
 }));
 vi.mock("../hooks/useNewProject", () => ({ useNewProject: () => vi.fn() }));
-vi.mock("../hooks/useHandleNewThread", () => ({ useHandleNewThread: () => ({}) }));
+vi.mock("../hooks/useHandleNewThread", () => ({
+  useHandleNewThread: () => ({
+    activeDraftThread: null,
+    activeThread: null,
+    defaultProjectRef: null,
+    handleNewThread: vi.fn(),
+  }),
+}));
 vi.mock("../hooks/useOpenPanelPullRequestUrl", () => ({ useOpenPanelPullRequestUrl: () => null }));
 vi.mock("../connection/useDesktopLocalBootstraps", () => ({ useDesktopLocalBootstraps: () => [] }));
 vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
@@ -49,6 +57,7 @@ vi.mock("../state/entities", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../state/entities")>()),
   useProjects: () => [],
   useThreadShells: () => [],
+  useThreadProjection: () => null,
   useServerConfigs: () => new Map(),
 }));
 vi.mock("../state/queries", async (importOriginal) => ({
