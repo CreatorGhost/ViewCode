@@ -1479,32 +1479,35 @@ describe("composer and pull request shortcuts", () => {
     },
   );
 
-  for (const platform of ["MacIntel", "Win32", "Linux"]) {
-    it.each(shortcuts)(
-      `resolves %s on ${platform} and leaves terminal input alone`,
-      (key, command) => {
-        const input = event({
-          key,
-          shiftKey: true,
-          metaKey: platform === "MacIntel",
-          ctrlKey: platform !== "MacIntel",
-        });
-        assert.strictEqual(
-          resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-            platform,
-            context: { terminalFocus: false },
-          }),
-          command,
-        );
-        assert.isNull(
-          resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-            platform,
-            context: { terminalFocus: true },
-          }),
-        );
-      },
+  it.each(
+    ["MacIntel", "Win32", "Linux"].flatMap((platform) =>
+      shortcuts.map(([key, command]) => ({
+        platform,
+        key,
+        command,
+      })),
+    ),
+  )("resolves $key on $platform and leaves terminal input alone", ({ platform, key, command }) => {
+    const input = event({
+      key,
+      shiftKey: true,
+      metaKey: platform === "MacIntel",
+      ctrlKey: platform !== "MacIntel",
+    });
+    assert.strictEqual(
+      resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { terminalFocus: false },
+      }),
+      command,
     );
-  }
+    assert.isNull(
+      resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { terminalFocus: true },
+      }),
+    );
+  });
 
   it.each(["MacIntel", "Win32", "Linux"])(
     "edits the last queued message with Alt+ArrowUp from the composer on %s",
@@ -1526,26 +1529,34 @@ describe("composer and pull request shortcuts", () => {
     },
   );
 
-  for (const platform of ["MacIntel", "Win32", "Linux"]) {
-    it.each([
-      ["s", "thread.settle"],
-      ["p", "thread.pin"],
-    ])(`preserves the existing %s shortcut on ${platform}`, (key, command) => {
-      assert.strictEqual(
-        resolveShortcutCommand(
-          event({
-            key,
-            shiftKey: true,
-            metaKey: platform === "MacIntel",
-            ctrlKey: platform !== "MacIntel",
-          }),
-          DEFAULT_RESOLVED_KEYBINDINGS,
-          { platform },
-        ),
+  it.each(
+    ["MacIntel", "Win32", "Linux"].flatMap((platform) =>
+      (
+        [
+          ["s", "thread.settle"],
+          ["p", "thread.pin"],
+        ] as const
+      ).map(([key, command]) => ({
+        platform,
+        key,
         command,
-      );
-    });
-  }
+      })),
+    ),
+  )("preserves the existing $key shortcut on $platform", ({ platform, key, command }) => {
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({
+          key,
+          shiftKey: true,
+          metaKey: platform === "MacIntel",
+          ctrlKey: platform !== "MacIntel",
+        }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform },
+      ),
+      command,
+    );
+  });
 
   const altEffortBindings = compileResolvedKeybindingsConfig([
     { key: "mod+alt+e", command: "composer.effort", when: "!terminalFocus" },
@@ -1604,48 +1615,58 @@ describe("composer and pull request shortcuts", () => {
     );
   });
 
-  for (const platform of ["MacIntel", "Win32", "Linux"]) {
-    it.each([
-      ["ArrowUp", "modelPicker.previousProvider"],
-      ["ArrowDown", "modelPicker.nextProvider"],
-    ] as const)(`limits %s to the model picker on ${platform}`, (key, command) => {
-      const input = event({
+  it.each(
+    ["MacIntel", "Win32", "Linux"].flatMap((platform) =>
+      (
+        [
+          ["ArrowUp", "modelPicker.previousProvider"],
+          ["ArrowDown", "modelPicker.nextProvider"],
+        ] as const
+      ).map(([key, command]) => ({
+        platform,
         key,
-        shiftKey: true,
-        metaKey: platform === "MacIntel",
-        ctrlKey: platform !== "MacIntel",
-      });
-      assert.strictEqual(
-        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-          platform,
-          context: { modelPickerOpen: true },
-        }),
         command,
-      );
-      assert.isNull(
-        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-          platform,
-          context: { modelPickerOpen: false },
-        }),
-      );
+      })),
+    ),
+  )("limits $key to the model picker on $platform", ({ platform, key, command }) => {
+    const input = event({
+      key,
+      shiftKey: true,
+      metaKey: platform === "MacIntel",
+      ctrlKey: platform !== "MacIntel",
     });
-  }
+    assert.strictEqual(
+      resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { modelPickerOpen: true },
+      }),
+      command,
+    );
+    assert.isNull(
+      resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { modelPickerOpen: false },
+      }),
+    );
+  });
 });
 
 describe("sidechat.toggle default binding", () => {
   // Shift+/ types "?" on US layouts and "/" elsewhere; both must reach the command.
-  for (const key of ["?", "/"]) {
-    it(`resolves mod+shift+/ typed as "${key}"`, () => {
-      assert.strictEqual(
-        resolveShortcutCommand(
-          event({ key, code: "Slash", shiftKey: true, metaKey: true }),
-          DEFAULT_RESOLVED_KEYBINDINGS,
-          { platform: "MacIntel", context: { terminalFocus: false } },
-        ),
-        "sidechat.toggle",
-      );
-    });
-  }
+  it.each(
+    ["?", "/"].map((key) => {
+      return { key };
+    }),
+  )('resolves mod+shift+/ typed as "$key"', ({ key }) => {
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key, code: "Slash", shiftKey: true, metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "MacIntel", context: { terminalFocus: false } },
+      ),
+      "sidechat.toggle",
+    );
+  });
 
   it("leaves mod+/ on the shortcuts sheet", () => {
     assert.strictEqual(

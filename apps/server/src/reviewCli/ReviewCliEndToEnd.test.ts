@@ -20,13 +20,11 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type OrchestrationThreadActivity,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import { HttpRouter, HttpServer } from "effect/http";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -151,34 +149,36 @@ const startCli = (
   );
 
 describe("viewcode-review end to end", () => {
-  for (const listen of ["unix", "tcp"] as const) {
-    it.effect(
-      `records piped findings on the credential's thread over ${listen}`,
-      () =>
-        Effect.gen(function* () {
-          const stack = yield* makeStack(listen);
-          expect(
-            stack.config.reviewEndpoint?.startsWith(listen === "unix" ? "unix:" : "http://"),
-          ).toBe(true);
+  it.effect.each(
+    (["unix", "tcp"] as const).map((listen) => {
+      return { listen };
+    }),
+  )(
+    "records piped findings on the credential's thread over $listen",
+    ({ listen }) =>
+      Effect.gen(function* () {
+        const stack = yield* makeStack(listen);
+        expect(
+          stack.config.reviewEndpoint?.startsWith(listen === "unix" ? "unix:" : "http://"),
+        ).toBe(true);
 
-          const result = yield* startCli(stack.config, JSON.stringify(report));
-          expect(result).toMatchObject({
-            code: 0,
-            json: { ok: true, result: { target: "local", findings: 1, needsChecking: 0 } },
-          });
-          expect(stack.commands).toMatchObject([
-            {
-              threadId,
-              activity: {
-                kind: "viewcode.review.findings",
-                payload: { target: { kind: "local" }, mode: "fix", complete: true },
-              },
+        const result = yield* startCli(stack.config, JSON.stringify(report));
+        expect(result).toMatchObject({
+          code: 0,
+          json: { ok: true, result: { target: "local", findings: 1, needsChecking: 0 } },
+        });
+        expect(stack.commands).toMatchObject([
+          {
+            threadId,
+            activity: {
+              kind: "viewcode.review.findings",
+              payload: { target: { kind: "local" }, mode: "fix", complete: true },
             },
-          ]);
-        }).pipe(Effect.scoped),
-      TEST_TIMEOUT,
-    );
-  }
+          },
+        ]);
+      }).pipe(Effect.scoped),
+    TEST_TIMEOUT,
+  );
 
   it.effect(
     "tells the reviewer what to fix in invalid findings, and refuses a forged credential",
