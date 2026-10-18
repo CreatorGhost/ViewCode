@@ -109,6 +109,79 @@ nodeServicesIt("ACP native logging", (it) => {
     }),
   );
 
+  it.effect("summarizes MCP transports without exposing native server configuration", () =>
+    Effect.gen(function* () {
+      const records: Array<unknown> = [];
+      const makeLogger = yield* makeAcpNativeLoggerFactory();
+      const logger = makeLogger({
+        nativeEventLogger: {
+          filePath: "/tmp/provider-native.ndjson",
+          write: (event) => Effect.sync(() => void records.push(event)),
+          close: () => Effect.void,
+        },
+        provider: ProviderDriverKind.make("grok"),
+        threadId: ThreadId.make("thread-mcp"),
+      });
+      const secret = "private-native-server-configuration";
+      yield* logger.requestLogger!({
+        method: "session/new",
+        status: "succeeded",
+        payload: {
+          mcpServers: [
+            {
+              name: secret,
+              command: secret,
+              args: [secret],
+              env: [{ name: secret, value: secret }],
+            },
+            { type: "stdio", name: secret, command: secret },
+            { type: "http", name: secret, url: secret, headers: [{ name: secret, value: secret }] },
+            { type: "sse", name: secret, url: secret },
+            { type: "acp", serverId: secret },
+            { type: secret, name: secret },
+            null,
+          ],
+        },
+        result: { tools: [{ name: secret }] },
+      });
+      const serialized = encodeUnknownJson(records);
+      assert.notInclude(serialized, secret);
+      assert.include(serialized, '"mcpServerCount":7');
+      assert.include(serialized, '"mcpTransports":["stdio","http","sse","acp","unknown"]');
+      assert.include(serialized, '"toolsAvailability":"unverified"');
+    }),
+  );
+
+  it.effect("distinguishes empty attachments from missing or unrelated payloads", () =>
+    Effect.gen(function* () {
+      const records: Array<unknown> = [];
+      const makeLogger = yield* makeAcpNativeLoggerFactory();
+      const logger = makeLogger({
+        nativeEventLogger: {
+          filePath: "/tmp/provider-native.ndjson",
+          write: (event) => Effect.sync(() => void records.push(event)),
+          close: () => Effect.void,
+        },
+        provider: ProviderDriverKind.make("cursor"),
+        threadId: ThreadId.make("thread-mcp"),
+      });
+      for (const { method, payload } of [
+        { method: "session/new", payload: { mcpServers: [] } },
+        { method: "session/resume", payload: {} },
+        { method: "session/load", payload: { mcpServers: "private-malformed-value" } },
+        { method: "session/prompt", payload: { mcpServers: [{ type: "http" }] } },
+      ]) {
+        yield* logger.requestLogger!({ method, payload, status: "started" });
+      }
+      const serialized = encodeUnknownJson(records);
+      assert.notInclude(serialized, "private-malformed-value");
+      assert.equal(serialized.match(/"mcpServerCount":0/g)?.length, 1);
+      assert.equal(serialized.match(/"mcpServerCount"/g)?.length, 1);
+      assert.include(serialized, '"mcpTransports":[]');
+      assert.equal(serialized.match(/"toolsAvailability":"unverified"/g)?.length, 1);
+    }),
+  );
+
   it.effect("keeps request diagnostics without enabling full protocol logging", () =>
     Effect.gen(function* () {
       const records: Array<unknown> = [];

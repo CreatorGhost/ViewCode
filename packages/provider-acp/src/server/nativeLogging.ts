@@ -1,5 +1,5 @@
 import type { ProviderDriverKind, ThreadId } from "@t3tools/contracts";
-import { causeErrorTag, errorTag } from "@t3tools/shared/observability";
+import { causeErrorTag } from "@t3tools/shared/observability";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -15,35 +15,35 @@ import type * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
 const transientProtocolUpdates = new Set(["agent_message_chunk", "agent_thought_chunk"]);
 
-function structuralMethod(value: string): string {
-  return value.length <= 128 && /^[A-Za-z][A-Za-z0-9._:/-]*$/.test(value) ? value : "unknown";
-}
-
-function summarizePayload(payload: unknown): Readonly<Record<string, unknown>> {
-  if (payload === null) return { valueType: "null" };
-  if (typeof payload === "string") {
-    return { valueType: "string", byteLength: new TextEncoder().encode(payload).byteLength };
-  }
-  if (payload instanceof Uint8Array) {
-    return { valueType: "bytes", byteLength: payload.byteLength };
-  }
-  if (Array.isArray(payload)) {
-    return { valueType: "array", itemCount: payload.length };
-  }
-  if (typeof payload !== "object") {
-    return { valueType: typeof payload };
-  }
-
+function summarizeMcpAttachment(method: string, payload: unknown) {
+  if (method !== "session/new" && method !== "session/load" && method !== "session/resume")
+    return {};
+  if (payload === null || typeof payload !== "object") return {};
   try {
-    const record = payload as Record<string, unknown>;
+    const servers: unknown = Reflect.get(payload, "mcpServers");
+    if (!Array.isArray(servers)) return {};
+    const transports = new Set<"http" | "sse" | "stdio" | "acp" | "unknown">();
+    for (const server of servers) {
+      if (server === null || typeof server !== "object") {
+        transports.add("unknown");
+        continue;
+      }
+      const type: unknown = Reflect.get(server, "type");
+      if (type === "http" || type === "sse" || type === "stdio" || type === "acp")
+        transports.add(type);
+      // ACP v1 stdio entries have no discriminator.
+      else if (type === undefined && typeof Reflect.get(server, "command") === "string")
+        transports.add("stdio");
+      else transports.add("unknown");
+    }
     return {
-      valueType: "object",
-      fieldCount: Object.keys(record).length,
-      ...(typeof record._tag === "string" ? { messageTag: errorTag(record) } : {}),
-      ...(typeof record.tag === "string" ? { method: structuralMethod(record.tag) } : {}),
+      mcpServerCount: servers.length,
+      mcpTransports: [...transports],
+      // Attachment describes the request; the agent has not confirmed tool discovery.
+      toolsAvailability: "unverified",
     };
   } catch {
-    return { valueType: "object" };
+    return {};
   }
 }
 
@@ -52,6 +52,7 @@ function formatRequestLogPayload(event: AcpSessionRuntime.AcpSessionRequestLogEv
     method: structuralProtocolMethod(event.method),
     status: event.status,
     request: summarizeNativeProtocolPayload(event.payload),
+    ...summarizeMcpAttachment(event.method, event.payload),
     ...(event.result !== undefined ? { result: summarizeNativeProtocolPayload(event.result) } : {}),
     ...(event.cause !== undefined
       ? {
