@@ -197,27 +197,37 @@ describe("buildRailProjectActivity", () => {
     },
   ];
   type ActivityThread = Parameters<typeof buildRailProjectActivity>[1][number];
+  const runtime = (
+    status: NonNullable<ActivityThread["runtime"]>["status"],
+  ): NonNullable<ActivityThread["runtime"]> => ({
+    status,
+    activeRunId: null,
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    providerName: "Codex",
+    lastError: status === "failed" ? "Provider failed" : null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
   const thread = (
     environmentId: EnvironmentId,
     projectId: string,
-    overrides: Record<string, unknown> = {},
-  ) =>
-    ({
-      environmentId,
-      projectId,
-      archivedAt: null,
-      hasPendingApprovals: false,
-      hasPendingUserInput: false,
-      session: null,
-      ...overrides,
-    }) as unknown as ActivityThread;
+    overrides: Partial<ActivityThread> = {},
+  ): ActivityThread => ({
+    environmentId,
+    projectId,
+    archivedAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    pendingSubagentRequest: null,
+    runtime: null,
+    ...overrides,
+  });
 
   it("counts threads waiting on the user and working threads across a folder's machines", () => {
     const activity = buildRailProjectActivity(groups, [
       thread(local, "p1", { hasPendingApprovals: true }),
       thread(remote, "p9", { hasPendingUserInput: true }),
-      thread(remote, "p9", { session: { status: "running" } }),
-      thread(local, "p2", { backgroundLiveness: "working" }),
+      thread(remote, "p9", { runtime: runtime("running") }),
+      thread(local, "p2", { runtime: runtime("waiting") }),
       thread(local, "p2"),
     ]);
     expect(Object.fromEntries(activity)).toEqual({
@@ -231,7 +241,7 @@ describe("buildRailProjectActivity", () => {
       thread(local, "p1", { hasPendingApprovals: true, archivedAt: "2026-01-01T00:00:00.000Z" }),
       thread(local, "p1", { hasPendingApprovals: true, kind: "sidechat" }),
       thread(local, "gone", { hasPendingApprovals: true }),
-      thread(local, "p2", { session: { status: "error" } }),
+      thread(local, "p2", { runtime: runtime("failed") }),
     ]);
     expect(activity.size).toBe(0);
   });
