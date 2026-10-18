@@ -5,8 +5,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import * as HttpClient from "effect/http/HttpClient";
-import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import {
   clampPercent,
@@ -14,6 +12,9 @@ import {
   makeUsageLimits,
 } from "@t3tools/provider-core/server/usageLimits";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { makeViewCodeGrokBillingReader } from "./viewcodeBilling.ts";
+
+const readBilling = makeViewCodeGrokBillingReader();
 
 const GrokCredentials = Schema.Record(
   Schema.String,
@@ -149,17 +150,28 @@ export const readGrokAccount = Effect.fn("readGrokAccount")(function* (
     return { email, usageLimits: makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" }) };
   }
   const usageLimits = yield* Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient;
-    const response = yield* client.execute(
-      HttpClientRequest.get("https://cli-chat-proxy.grok.com/v1/billing?format=credits").pipe(
-        HttpClientRequest.bearerToken(token),
+    const response = yield* readBilling(token);
+    return yield* HttpClientResponse.schemaBodyJson(GrokUsageResponse)(response).pipe(
+      Effect.map((body) => grokUsageResponseToLimits(body, checkedAt)),
+      Effect.orElseSucceed(() =>
+        makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "probeFailed",
+          message: "Grok returned an unreadable usage response. Try refreshing usage later.",
+        }),
       ),
     );
-    const body = yield* HttpClientResponse.schemaBodyJson(GrokUsageResponse)(
-      yield* HttpClientResponse.filterStatusOk(response),
-    );
-    return grokUsageResponseToLimits(body, checkedAt);
   }).pipe(
+    Effect.catchTags({
+      ViewCodeGrokBillingError: (error) =>
+        Effect.succeed(
+          makeUnavailableUsageLimits({
+            checkedAt,
+            reason: "probeFailed",
+            message: error.message,
+          }),
+        ),
+    }),
     Effect.timeout("10 seconds"),
     Effect.orElseSucceed(() => probeFailed),
   );
