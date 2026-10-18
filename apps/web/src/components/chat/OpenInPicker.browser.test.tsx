@@ -10,6 +10,7 @@ import { act, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import type { RemoteOpenState } from "../../remoteOpen";
 
@@ -302,11 +303,18 @@ it("retains a project editor dialog when its compact parent menu closes", async 
   expect(state.run).not.toHaveBeenCalled();
 });
 
-function ProjectMenuFixture({ locked = false }: { locked?: boolean }) {
+function ProjectMenuFixture({
+  locked = false,
+  onOpenThreadDetails,
+}: {
+  locked?: boolean;
+  onOpenThreadDetails?: () => void;
+}) {
   const [environmentId, setEnvironmentId] = useState(selected);
   return (
     <ViewCodeHeaderProjectActions
       projectCwd="/work/project"
+      {...(onOpenThreadDetails ? { onOpenThreadDetails } : {})}
       openIn={{
         environmentId,
         keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
@@ -380,3 +388,37 @@ it("keeps a locked environment fixed while its editor menu remains available", a
   expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
   expect(state.run).not.toHaveBeenCalled();
 });
+
+it.each([true, false])(
+  "opens project actions with a native pointer click and retains its actions (host grant=%s)",
+  async (hasHostGrant) => {
+    if (hasHostGrant) state.allowed.add(selected);
+    const onOpenThreadDetails = vi.fn();
+    await act(async () =>
+      root.render(<ProjectMenuFixture onOpenThreadDetails={onOpenThreadDetails} />),
+    );
+    const trigger = page.getByRole("button", { name: "Project actions", exact: true });
+    expect(byLabel("Project actions").getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.click(trigger);
+    // Base UI opens pointer menus on the next animation frame, after focus settles.
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    await expect.element(page.getByRole("menu")).toBeVisible();
+    expect(menuItems().some((item) => item.textContent?.includes("Run on Selected host"))).toBe(
+      true,
+    );
+    await userEvent.click(page.getByRole("menuitem", { name: "Thread details", exact: true }));
+    expect(onOpenThreadDetails).toHaveBeenCalledOnce();
+    expect(byLabel("Project actions").getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.click(trigger);
+    // Base UI opens pointer menus on the next animation frame, after focus settles.
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    await expect.element(page.getByRole("menu")).toBeVisible();
+    expect(menuItems().some((item) => item.textContent?.includes("Run on Selected host"))).toBe(
+      true,
+    );
+    expect(state.run).not.toHaveBeenCalled();
+    expect(state.openUrl).not.toHaveBeenCalled();
+  },
+);
