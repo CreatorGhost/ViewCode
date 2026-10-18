@@ -22,7 +22,6 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ServerConfig from "../config.ts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
@@ -69,6 +68,9 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
 ) {}
 
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
+const encodeAppContext = Schema.encodeSync(
+  Schema.fromJsonString(Schema.Array(Schema.Struct({ key: Schema.String, text: Schema.String }))),
+);
 
 /** Claude refuses to replace a process running background work before it reads the prompt. */
 const refusedBeforePrompt = (error: unknown): boolean =>
@@ -114,7 +116,7 @@ export const layer: Layer.Layer<
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const serverConfig = yield* ServerConfig.ServerConfig;
-    const serverSettings = yield* ServerSettings.ServerSettingsService;
+    yield* ServerSettings.ServerSettingsService;
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
     const projects = yield* ProjectService.ProjectService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
@@ -1077,6 +1079,25 @@ export const layer: Layer.Layer<
                 !coveredItemIds.has(item.id) &&
                 historicalMessage(item) !== null,
             );
+      const debugPlaybookPath =
+        projection.thread.debugMode === true
+          ? yield* ensureDebugPlaybook({ stateDir: serverConfig.stateDir }).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.orElseSucceed(() => null),
+            )
+          : null;
+      const computerSession = Option.isSome(mcpProviderSessions)
+        ? yield* mcpProviderSessions.value.read(projection.thread.id)
+        : undefined;
+      const computerUseText = computerUseInstructions(computerSession);
+      const guideTurnInput = (input: Parameters<typeof session.startTurn>[0], compact = false) =>
+        withViewCodeTurnGuidance(input, {
+          driver: session.driver,
+          compact,
+          playbookPath: debugPlaybookPath,
+          computerUseText,
+        });
       const startWithHandoffs = (
         turnInput: Parameters<typeof session.startTurn>[0],
         compact = false,
@@ -1104,6 +1125,21 @@ export const layer: Layer.Layer<
                     createdAt: yield* DateTime.now,
                   }),
                 ];
+          // Reserve current guidance before selecting portable history. The final prompt is
+          // composed below, so the handoff wrapper cannot overwrite an earlier prelude.
+          const compactGuidance = compact || userText.trimStart().startsWith("/");
+          const budgetInput = guideTurnInput(
+            {
+              ...turnInput,
+              message: {
+                ...turnInput.message,
+                text: [restartNote, `User message:\n${userText}`]
+                  .filter((part) => part !== "")
+                  .join("\n\n"),
+              },
+            },
+            compactGuidance,
+          );
           const delivery = yield* deliverContextHandoffs({
             handoffs: [...effectiveHandoffs, ...retryHandoff],
             deferInline: compact,
@@ -1112,7 +1148,7 @@ export const layer: Layer.Layer<
               return handoffBudget({
                 tokenCap,
                 modelContextWindow,
-                userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+                userText: `${budgetInput.message.text}\n\n${encodeAppContext(budgetInput.appContext ?? [])}`,
                 attachments: message.attachments,
                 providerThread: budgetProviderThread,
                 nativeContextEstimate:
@@ -1157,13 +1193,18 @@ export const layer: Layer.Layer<
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
-          yield* start({
-            ...(noteContinuation ? promptedInput : turnInput),
-            message: {
-              ...turnInput.message,
-              text: context === "" ? userText : `${context}\n\nUser message:\n${userText}`,
-            },
-          }).pipe(
+          yield* start(
+            guideTurnInput(
+              {
+                ...(noteContinuation ? promptedInput : turnInput),
+                message: {
+                  ...turnInput.message,
+                  text: context === "" ? userText : `${context}\n\nUser message:\n${userText}`,
+                },
+              },
+              compactGuidance,
+            ),
+          ).pipe(
             // A pending marker would make the next turn abandon this native
             // session, though the refused prompt never reached it.
             Effect.tapError((error) =>
@@ -1208,39 +1249,17 @@ export const layer: Layer.Layer<
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);
-      const debugPlaybookPath =
-        projection.thread.debugMode === true
-          ? yield* ensureDebugPlaybook({ stateDir: serverConfig.stateDir }).pipe(
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-              Effect.orElseSucceed(() => null),
-            )
-          : null;
-      const computerSession = Option.isSome(mcpProviderSessions)
-        ? yield* mcpProviderSessions.value.read(projection.thread.id)
-        : undefined;
-      const computerUseText = computerUseInstructions(computerSession);
       const guidedSession: typeof deliverySession = {
         ...deliverySession,
+        // Handoff sessions guide their final composed prompt; plain sessions guide here.
         startTurn: (input) =>
-          deliverySession.startTurn(
-            withViewCodeTurnGuidance(input, {
-              driver: session.driver,
-              playbookPath: debugPlaybookPath,
-              computerUseText,
-            }),
-          ),
+          deliverySession.startTurn(deliverySession === session ? guideTurnInput(input) : input),
         ...(deliverySession.compactThread === undefined
           ? {}
           : {
               compactThread: (input: Parameters<typeof session.startTurn>[0]) =>
                 deliverySession.compactThread!(
-                  withViewCodeTurnGuidance(input, {
-                    driver: session.driver,
-                    compact: true,
-                    playbookPath: debugPlaybookPath,
-                    computerUseText,
-                  }),
+                  deliverySession === session ? guideTurnInput(input, true) : input,
                 ),
             }),
       };

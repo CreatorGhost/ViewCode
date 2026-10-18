@@ -5,6 +5,7 @@ import {
   MessageId,
   type ModelSelection,
   type OrchestrationV2Command,
+  type OrchestrationV2HistoricalMessage,
   type OrchestrationV2ThreadProjection,
   ProjectId,
   ProviderInstanceId,
@@ -20,6 +21,7 @@ import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
 import { ClaudeOrchestratorReplayHarness } from "../Adapters/ClaudeAdapterV2.testkit.ts";
 import { CodexOrchestratorReplayHarness } from "../Adapters/CodexAdapterV2.testkit.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import { renderHistory, selectHistory } from "@t3tools/provider-core/server/handoffBudget";
 import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
 import {
   CODEX_MODEL_SELECTION,
@@ -37,6 +39,7 @@ import {
   THREAD_MERGE_BACK_SOURCE_PROMPT,
 } from "./fixtures/shared.ts";
 import { runOrchestratorV2ProviderReplayScenario } from "./ProviderReplayHarness.ts";
+import { materializeReplayTranscriptRuntimeInstructions } from "./ReplayRuntimeInstructions.ts";
 import { makeCheckpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import {
   decodeProviderReplayNdjson,
@@ -160,15 +163,71 @@ function forkDeltaSummary(input: {
   ].join("\n");
 }
 
-function providerMessage(summary: string, userText: string): string {
-  return [
+const inlineForkDeltaMessage = Effect.fnUntraced(function* (input: {
+  readonly transcript: ProviderReplayTranscript;
+  readonly sourceThreadId: ThreadId;
+  readonly userMessageId: MessageId;
+  readonly forkUserText: string;
+  readonly forkAssistantText: string;
+  readonly userText: string;
+}) {
+  const ids = yield* IdAllocator.IdAllocatorV2;
+  const driver = ProviderDriverKind.make("claudeAgent");
+  const runId = ids.derive.run({ threadId: input.sourceThreadId, ordinal: 1 });
+  const providerThreadId = ids.derive.providerThread({
+    driver,
+    nativeThreadId: `pending:${runId}`,
+  });
+  const userItemId = ids.derive.userTurnItem({ messageId: input.userMessageId });
+  const assistantFrames = input.transcript.entries.flatMap((entry) => {
+    if (entry.type !== "emit_inbound") return [];
+    const frame = entry.frame as {
+      readonly type?: unknown;
+      readonly uuid?: unknown;
+      readonly message?: { readonly content?: ReadonlyArray<{ type?: unknown; text?: unknown }> };
+    };
+    return frame.type === "assistant" &&
+      typeof frame.uuid === "string" &&
+      frame.message?.content?.some(
+        (part) => part.type === "text" && part.text === input.forkAssistantText,
+      )
+      ? [frame.uuid]
+      : [];
+  });
+  assert.lengthOf(assistantFrames, 1, "the recording identifies exactly one fork answer");
+  const assistantItemId = ids.derive.turnItemFromProviderItem({
+    driver,
+    nativeItemId: assistantFrames[0]!,
+  });
+  const checkpointScopeId = yield* ids.allocate.checkpointScope({
+    threadId: input.sourceThreadId,
+    name: "root",
+  });
+  const checkpointId = yield* ids.allocate.checkpoint({ checkpointScopeId, name: "1" });
+  const checkpointItemId = ids.derive.turnItemFromProviderItem({
+    driver,
+    nativeItemId: `checkpoint:${checkpointId}`,
+  });
+  const common = { threadId: input.sourceThreadId, runId, providerThreadId, status: "completed" };
+  const messages: ReadonlyArray<OrchestrationV2HistoricalMessage> = [
+    { ...common, role: "user", kind: "user_message", itemId: userItemId, text: input.forkUserText },
+    {
+      ...common,
+      role: "assistant",
+      kind: "assistant_message",
+      itemId: assistantItemId,
+      text: input.forkAssistantText,
+    },
+  ];
+  const coverage = [
     "Context handoff (merge_back / fork_delta_summary):",
-    summary,
-    "",
-    "User message:",
-    userText,
+    `Provider context handoff. Thread: ${input.sourceThreadId}. Covered app runs: 1-1.`,
+    `Source item range: ${userItemId} through ${checkpointItemId}.`,
+    `Recover omitted history using t3_thread_read({threadId:"${input.sourceThreadId}",view:"activity",limit:20,maxCharsPerItem:4000}); paginate with afterPosition=nextPosition. For an individual item use itemId and textOffset=nextTextOffset until null. Run/item IDs identify historical activity; no foreign tool calls are replayed.`,
   ].join("\n");
-}
+  const selected = selectHistory({ messages, coverage, budget: Infinity });
+  return `${renderHistory(selected.messages, selected.context)}\n\nUser message:\n${input.userText}`;
+});
 
 function replaceExactString(value: unknown, from: string, to: string): unknown {
   if (value === from) {
@@ -368,13 +427,27 @@ describe("orchestration V2 merge-back provider replay", () => {
           forkUserText: THREAD_MERGE_BACK_FORK_PROMPT,
           forkAssistantText: "merge fork stored",
         });
-        const generatedProviderMessage = providerMessage(summary, MERGE_BACK_USER_TEXT);
+        const generatedProviderMessage =
+          variant.driver === "codex"
+            ? MERGE_BACK_USER_TEXT
+            : yield* inlineForkDeltaMessage({
+                transcript: rawTranscript,
+                sourceThreadId: materialized.forkThreadId,
+                userMessageId: MessageId.make(`message-merge-fork-${variant.driver}`),
+                forkUserText: THREAD_MERGE_BACK_FORK_PROMPT,
+                forkAssistantText: "merge fork stored",
+                userText: MERGE_BACK_USER_TEXT,
+              }).pipe(Effect.provide(IdAllocator.layer));
         const parameterizedTranscript = parameterizeHandoffs(rawTranscript, [
           [
             THREAD_MERGE_BACK_HANDOFF_PROMPT,
             variant.driver === "codex" ? MERGE_BACK_USER_TEXT : generatedProviderMessage,
           ],
         ]);
+        const replayTranscript = materializeReplayTranscriptRuntimeInstructions(
+          parameterizedTranscript,
+          { driver: variant.driver, model: variant.modelSelection.model },
+        );
         const cwd = yield* Effect.acquireRelease(
           Effect.promise(() => makeCheckpointWorkspace(`merge-back-${variant.driver}`)),
           (directory) =>
@@ -409,7 +482,7 @@ describe("orchestration V2 merge-back provider replay", () => {
                 {
                   ...scenario,
                   transcript: yield* CodexOrchestratorReplayHarness.decodeTranscript(
-                    materializeReplayTranscriptWorkspace(parameterizedTranscript, cwd),
+                    materializeReplayTranscriptWorkspace(replayTranscript, cwd),
                   ),
                 },
                 CodexHistoryReplayHarness,
@@ -418,9 +491,7 @@ describe("orchestration V2 merge-back provider replay", () => {
                 {
                   ...scenario,
                   transcript:
-                    yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
-                      parameterizedTranscript,
-                    ),
+                    yield* ClaudeOrchestratorReplayHarness.decodeTranscript(replayTranscript),
                 },
                 ClaudeOrchestratorReplayHarness,
               ).pipe(provideDeterministicTestRuntime);
@@ -610,20 +681,42 @@ describe("orchestration V2 merge-back provider replay", () => {
           forkUserText: THREAD_MERGE_BACK_SIBLINGS_SECOND_FORK_PROMPT,
           forkAssistantText: "second merge sibling stored",
         });
-        const transcript = parameterizeHandoffs(rawTranscript, [
+        const parameterizedTranscript = parameterizeHandoffs(rawTranscript, [
           [
             THREAD_MERGE_BACK_SIBLINGS_FIRST_HANDOFF_PROMPT,
             variant.driver === "codex"
               ? FIRST_SIBLING_MERGE_USER_TEXT
-              : providerMessage(firstSummary, FIRST_SIBLING_MERGE_USER_TEXT),
+              : yield* inlineForkDeltaMessage({
+                  transcript: rawTranscript,
+                  sourceThreadId: materialized.firstForkThreadId,
+                  userMessageId: MessageId.make(
+                    `message-thread-merge-back-siblings-${variant.driver}-first-fork`,
+                  ),
+                  forkUserText: THREAD_MERGE_BACK_SIBLINGS_FIRST_FORK_PROMPT,
+                  forkAssistantText: "first merge sibling stored",
+                  userText: FIRST_SIBLING_MERGE_USER_TEXT,
+                }).pipe(Effect.provide(IdAllocator.layer)),
           ],
           [
             THREAD_MERGE_BACK_SIBLINGS_SECOND_HANDOFF_PROMPT,
             variant.driver === "codex"
               ? SECOND_SIBLING_MERGE_USER_TEXT
-              : providerMessage(secondSummary, SECOND_SIBLING_MERGE_USER_TEXT),
+              : yield* inlineForkDeltaMessage({
+                  transcript: rawTranscript,
+                  sourceThreadId: materialized.secondForkThreadId,
+                  userMessageId: MessageId.make(
+                    `message-thread-merge-back-siblings-${variant.driver}-second-fork`,
+                  ),
+                  forkUserText: THREAD_MERGE_BACK_SIBLINGS_SECOND_FORK_PROMPT,
+                  forkAssistantText: "second merge sibling stored",
+                  userText: SECOND_SIBLING_MERGE_USER_TEXT,
+                }).pipe(Effect.provide(IdAllocator.layer)),
           ],
         ]);
+        const transcript = materializeReplayTranscriptRuntimeInstructions(parameterizedTranscript, {
+          driver: variant.driver,
+          model: variant.modelSelection.model,
+        });
         const cwd = yield* Effect.acquireRelease(
           Effect.promise(() => makeCheckpointWorkspace(`merge-back-siblings-${variant.driver}`)),
           (directory) =>
