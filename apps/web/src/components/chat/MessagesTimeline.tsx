@@ -3758,6 +3758,7 @@ function LiveActivityContent({
 
   return (
     <WorkLogRow
+      live={active}
       icon={
         iconName ? (
           <span
@@ -4008,6 +4009,7 @@ function WorkGroupHeader(props: {
 }) {
   return (
     <WorkLogButton
+      live={props.active && !props.failed}
       ref={props.active && !props.failed ? observeVisibleAnimation : undefined}
       aria-label={props.failed ? `${props.label}, tool call failed` : props.label}
       aria-expanded={props.expanded}

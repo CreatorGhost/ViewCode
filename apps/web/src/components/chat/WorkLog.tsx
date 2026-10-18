@@ -3,6 +3,7 @@ import {
   use,
   useLayoutEffect,
   useRef,
+  useState,
   type ComponentProps,
   type ReactNode,
 } from "react";
@@ -48,9 +49,27 @@ type RowContent = {
   label: ReactNode;
   trailing?: ReactNode;
   wrapLabel?: boolean;
+  /** The step is running now. A row that mounts live softens in, and its label settles when it
+   * finishes; history that mounts already finished (loading, scrolling) stays still. */
+  live?: boolean | undefined;
 };
 
-function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
+function useLiveMotion(live: boolean) {
+  const [arrived] = useState(live);
+  const [motion, setMotion] = useState({ live, settles: 0 });
+  if (motion.live !== live) {
+    setMotion({ live, settles: live ? motion.settles : motion.settles + 1 });
+  }
+  return { arrived, settles: motion.settles };
+}
+
+function WorkLogLine({
+  icon,
+  label,
+  trailing,
+  wrapLabel,
+  settles = 0,
+}: Omit<RowContent, "live"> & { settles?: number }) {
   return (
     <div
       className={cn(
@@ -67,10 +86,12 @@ function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
           </span>
         ) : null}
         <div
+          key={settles}
           className={cn(
             "min-w-0 flex-1 text-secondary-label",
             !wrapLabel && "truncate [&_*]:whitespace-nowrap",
           )}
+          data-work-label-settle={settles > 0 ? "" : undefined}
         >
           {label}
         </div>
@@ -97,12 +118,25 @@ export function WorkLogButton({
   label,
   trailing,
   wrapLabel = false,
+  live = false,
   ...buttonProps
 }: RowContent & Omit<ComponentProps<"button">, "className" | "style" | "children">) {
   const className = useRowClassName(true);
+  const { arrived, settles } = useLiveMotion(live);
   return (
-    <button {...buttonProps} type="button" className={className}>
-      <WorkLogLine icon={icon} label={label} trailing={trailing} wrapLabel={wrapLabel} />
+    <button
+      {...buttonProps}
+      type="button"
+      className={className}
+      data-work-row-arrive={arrived ? "" : undefined}
+    >
+      <WorkLogLine
+        icon={icon}
+        label={label}
+        trailing={trailing}
+        wrapLabel={wrapLabel}
+        settles={settles}
+      />
     </button>
   );
 }
@@ -113,13 +147,21 @@ export function WorkLogRow({
   label,
   trailing,
   wrapLabel = false,
+  live = false,
   children,
   ...rowProps
 }: RowContent & Omit<ComponentProps<"div">, "className" | "style">) {
   const className = useRowClassName(rowProps.onClick !== undefined);
+  const { arrived, settles } = useLiveMotion(live);
   return (
-    <div {...rowProps} className={className}>
-      <WorkLogLine icon={icon} label={label} trailing={trailing} wrapLabel={wrapLabel} />
+    <div {...rowProps} className={className} data-work-row-arrive={arrived ? "" : undefined}>
+      <WorkLogLine
+        icon={icon}
+        label={label}
+        trailing={trailing}
+        wrapLabel={wrapLabel}
+        settles={settles}
+      />
       {children}
     </div>
   );

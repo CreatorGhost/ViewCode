@@ -573,13 +573,44 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
-@keyframes live-tool-shine {
+/* Work log motion (WorkLog.tsx): a step that arrives while the agent works softens in, and its
+   label settles the same way when it finishes. History that mounts finished stays still. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-work-row-arrive] {
+    animation: work-row-arrive 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  [data-work-label-settle] {
+    animation: work-row-arrive 150ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+}
+@keyframes work-row-arrive {
   from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(0.25rem);
+  }
+}
+
+/* Two sweeps, then a rest, so the live step reads as working without a constant flicker. Steps
+   keep it to ~30 updates a second during a sweep and none while resting. */
+@keyframes live-tool-shine {
+  0% {
     background-position:
       -4.5rem 0,
       0 0;
   }
-  to {
+  33% {
+    background-position:
+      calc(100% + 4.5rem) 0,
+      0 0;
+  }
+  33.01% {
+    background-position:
+      -4.5rem 0,
+      0 0;
+  }
+  66%,
+  100% {
     background-position:
       calc(100% + 4.5rem) 0,
       0 0;
@@ -597,7 +628,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       100% 100%;
     background-repeat: no-repeat;
     background-clip: text;
-    animation: live-tool-shine 2.2s steps(30) infinite;
+    animation: live-tool-shine 1.8s steps(18) infinite;
     animation-play-state: var(--visible-animation-state, paused);
   }
 }
