@@ -44,7 +44,7 @@ import {
   latestNativeContextUsage,
 } from "@t3tools/provider-core/server/handoffBudget";
 import { ensureDebugPlaybook } from "../review/DebugPlaybook.ts";
-import { withViewCodeTurnGuidance } from "./ViewCodeTurnGuidance.ts";
+import { makeViewCodeGuidedSession, withViewCodeTurnGuidance } from "./ViewCodeTurnGuidance.ts";
 import { deliverContextHandoffs } from "./ContextHandoffDelivery.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -1247,27 +1247,16 @@ export const layer: Layer.Layer<
         missedItems.length === 0 &&
         restartNote === "" &&
         !noteContinuation
-          ? session
+          ? makeViewCodeGuidedSession(session, {
+              playbookPath: debugPlaybookPath,
+              computerUseText,
+            })
           : makeDeliverySession(session, startWithHandoffs);
-      const guidedSession: typeof deliverySession = {
-        ...deliverySession,
-        // Handoff sessions guide their final composed prompt; plain sessions guide here.
-        startTurn: (input) =>
-          deliverySession.startTurn(deliverySession === session ? guideTurnInput(input) : input),
-        ...(deliverySession.compactThread === undefined
-          ? {}
-          : {
-              compactThread: (input: Parameters<typeof session.startTurn>[0]) =>
-                deliverySession.compactThread!(
-                  deliverySession === session ? guideTurnInput(input, true) : input,
-                ),
-            }),
-      };
       return runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,
         providerSessionId,
-        session: guidedSession,
+        session: deliverySession,
         run: runningRun,
         rootNode: runningRootNode,
         checkpointScope,

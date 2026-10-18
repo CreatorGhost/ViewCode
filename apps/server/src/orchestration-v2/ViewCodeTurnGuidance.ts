@@ -1,5 +1,8 @@
 import type { OrchestrationV2AppThread } from "@t3tools/contracts";
-import type { ProviderAdapterV2TurnInput } from "@t3tools/provider-core/server/ProviderAdapter";
+import type {
+  ProviderAdapterV2SessionRuntime,
+  ProviderAdapterV2TurnInput,
+} from "@t3tools/provider-core/server/ProviderAdapter";
 
 import { DEBUG_MODE_NOTE } from "../review/DebugPlaybook.ts";
 
@@ -92,5 +95,37 @@ export function withViewCodeTurnGuidance<
           ? `${userText}\n\n${prelude}`
           : `${prelude}${userText === "" ? "" : `\n\n${userText}`}`,
     },
+  };
+}
+
+/** Keep long-lived session handlers outside startup's history-bearing lexical scope. */
+export function makeViewCodeGuidedSession(
+  session: ProviderAdapterV2SessionRuntime,
+  options: {
+    readonly playbookPath: string | null;
+    readonly computerUseText: string | null;
+  },
+): ProviderAdapterV2SessionRuntime {
+  return {
+    ...session,
+    startTurn: (input) =>
+      session.startTurn(
+        withViewCodeTurnGuidance(input, {
+          driver: session.driver,
+          ...options,
+        }),
+      ),
+    ...(session.compactThread === undefined
+      ? {}
+      : {
+          compactThread: (input: ProviderAdapterV2TurnInput) =>
+            session.compactThread!(
+              withViewCodeTurnGuidance(input, {
+                driver: session.driver,
+                ...options,
+                compact: true,
+              }),
+            ),
+        }),
   };
 }
