@@ -24,6 +24,7 @@ import { ConnectPhoneDialogHost } from "../components/connectPhone/ConnectPhoneD
 import { ShortcutsSheet } from "../components/shortcuts/ShortcutsSheet";
 import { CreateChildAgentDialogHost } from "../components/agents/CreateChildAgentDialog";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
+import { ProjectColorDialogHost } from "../components/ProjectColorPicker";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { KeybindingsConfigWarning } from "../components/KeybindingsConfigWarning";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
@@ -252,6 +253,7 @@ function RootRouteView() {
           <ConnectPhoneDialogHost />
           <ShortcutsSheet />
           <CreateChildAgentDialogHost />
+          <ProjectColorDialogHost />
           <PermissionUpdateNotice />
           {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}
           <ProjectCloneToastCoordinator />
