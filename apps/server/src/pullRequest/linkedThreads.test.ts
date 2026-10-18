@@ -90,6 +90,15 @@ it.effect(
         const payload = yield* encodePayload({
           linkedPullRequest: null,
           pullRequests: [{ ...fixture, linkedAt: createdAt, snapshot: null, stack: null }],
+          ...(fixture.id === "lens"
+            ? {
+                lineage: {
+                  parentThreadId: "active",
+                  relationshipToParent: "subagent",
+                  rootThreadId: "active",
+                },
+              }
+            : {}),
         });
         yield* sql`
         INSERT INTO orchestration_v2_projection_threads (
@@ -124,6 +133,16 @@ it.effect(
         )
       `;
       yield* sql`
+        INSERT INTO orchestration_v2_projection_threads (
+          thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+          created_at, updated_at, payload_json
+        ) VALUES (
+          'legacy-child', 'project-1', 'legacy-child', 'codex', 'full-access', 'default',
+          ${createdAt}, ${createdAt},
+          '{"lineage":{"parentThreadId":"active","relationshipToParent":"subagent","rootThreadId":"active"},"linkedPullRequest":{"projectId":"project-1","repository":"acme/web","number":7,"url":"https://github.com/acme/web/pull/7"}}'
+        )
+      `;
+      yield* sql`
         INSERT INTO projection_projects (
           project_id, title, workspace_root, scripts_json, created_at, updated_at
         ) VALUES ('project-1', 'Project', '/tmp/project', '[]', ${createdAt}, ${createdAt})
@@ -140,8 +159,6 @@ it.effect(
         ) VALUES ('v1-only', 'github.com', 'acme/web', 7,
           'https://github.com/acme/web/pull/7', 'manual', ${createdAt})
       `;
-
-      yield* sql`UPDATE projection_threads SET parent_thread_id = 'active' WHERE thread_id = 'lens'`;
 
       expect(
         (yield* listLinkedPullRequestThreads({
