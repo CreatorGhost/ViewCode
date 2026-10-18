@@ -442,6 +442,42 @@ describe("sortActiveThreadsByOrderKey", () => {
     expect(sorted.map((thread) => thread.id)).toEqual(["older-in-use", "newer-idle"]);
   });
 
+  it("keeps saved order stable while user messages and agent updates arrive", () => {
+    const threads = [
+      {
+        id: "manual-first",
+        activeOrderKey: "a",
+        createdAt: "2026-10-01T00:00:00Z",
+        latestUserMessageAt: null,
+      },
+      {
+        id: "manual-second",
+        activeOrderKey: "z",
+        createdAt: "2026-10-02T00:00:00Z",
+        latestUserMessageAt: "2026-10-18T00:00:00Z",
+      },
+      {
+        id: "agent-updated",
+        activeOrderKey: null,
+        createdAt: "2026-10-01T00:00:00Z",
+        latestUserMessageAt: "invalid",
+        updatedAt: "2026-10-19T00:00:00Z",
+      },
+      {
+        id: "user-updated",
+        activeOrderKey: null,
+        createdAt: "2026-10-01T00:00:00Z",
+        latestUserMessageAt: "2026-10-17T00:00:00Z",
+      },
+    ];
+    expect(sortActiveThreadsByOrderKey(threads).map(({ id }) => id)).toEqual([
+      "user-updated",
+      "agent-updated",
+      "manual-first",
+      "manual-second",
+    ]);
+  });
+
   it("breaks equal order keys and timestamps by thread then environment", () => {
     for (const activeOrderKey of [null, "m"]) {
       const threads = [

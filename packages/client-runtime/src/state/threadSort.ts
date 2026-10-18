@@ -3,6 +3,7 @@ import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/c
 import type { EnvironmentThreadShell } from "./models.ts";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
+import { activeThreadAnchorTimestampMs as viewCodeActiveThreadAnchorTimestampMs } from "../viewcodeThreadSort.ts";
 
 export interface ThreadSortInput {
   readonly createdAt: string;
@@ -116,11 +117,9 @@ export function getThreadSortTimestamp(
 export function activeThreadAnchorTimestampMs(thread: {
   readonly createdAt: string;
   readonly unsettledAt?: string | null | undefined;
+  readonly latestUserMessageAt?: string | null | undefined;
 }): number {
-  return Math.max(
-    toSortableTimestamp(thread.createdAt) ?? 0,
-    toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
-  );
+  return viewCodeActiveThreadAnchorTimestampMs(thread);
 }
 
 export function sortThreads<T extends { readonly id: string } & ThreadSortInput>(
@@ -300,6 +299,7 @@ export function sortActiveThreadsByOrderKey<
     readonly id: string;
     readonly createdAt: string;
     readonly unsettledAt?: string | null | undefined;
+    readonly latestUserMessageAt?: string | null | undefined;
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
   },
