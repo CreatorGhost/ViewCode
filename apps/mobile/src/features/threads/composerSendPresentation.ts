@@ -54,3 +54,28 @@ export function resolveComposerSendPresentation(input: {
     offersFollowUpChoice: input.canSteer,
   };
 }
+
+export function resolveComposerSubmissionAvailability(input: {
+  readonly editingQueuedMessage: boolean;
+  readonly hasContent: boolean;
+  readonly running: boolean;
+  readonly savingQueuedMessage: boolean;
+  readonly importingContext: boolean;
+  readonly voiceBlocksSubmission: boolean;
+  readonly sendBlockedReason: string | null;
+  readonly nextMessageModelUnavailable: boolean;
+}) {
+  return {
+    // Editing checks the accepted run's provider in the save service. The
+    // normal draft can select a different, currently unavailable provider.
+    canSubmit:
+      input.hasContent &&
+      !input.importingContext &&
+      !input.voiceBlocksSubmission &&
+      input.sendBlockedReason === null &&
+      (input.editingQueuedMessage || !input.nextMessageModelUnavailable) &&
+      !input.savingQueuedMessage,
+    showsStop: !input.editingQueuedMessage && !input.hasContent && input.running,
+    showsNextMessageSettings: !input.editingQueuedMessage,
+  };
+}

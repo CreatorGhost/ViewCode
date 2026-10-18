@@ -1,4 +1,7 @@
-import type { OrchestrationThreadShell, EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+import type {
+  OrchestrationThreadShell,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/viewcodeThread";
 
 import { useAtomValue } from "@effect/atom-react";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
@@ -17,7 +20,19 @@ import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSki
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
-import type { ApprovalRequestId, EnvironmentId, MessageId, ModelSelection, ProviderApprovalDecision, ProviderInteractionMode, RuntimeMode, ServerConfig as T3ServerConfig, ThreadId, UsageLimitsReport, UserInputQuestion } from "@t3tools/contracts";
+import type {
+  ApprovalRequestId,
+  EnvironmentId,
+  MessageId,
+  ModelSelection,
+  ProviderApprovalDecision,
+  ProviderInteractionMode,
+  RuntimeMode,
+  ServerConfig as T3ServerConfig,
+  ThreadId,
+  UsageLimitsReport,
+  UserInputQuestion,
+} from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
 import {
   memo,
@@ -108,6 +123,8 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
+import { ViewCodeThreadQueue } from "./ViewCodeThreadQueue";
+import type { QueuedRunEdit } from "../../state/queued-run-edit";
 import type { ComposerCheckout } from "./composerChrome";
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
@@ -155,6 +172,11 @@ export interface ThreadDetailScreenProps {
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
   readonly activePendingUserInputAnswers: Record<string, string | ReadonlyArray<string>> | null;
   readonly respondingUserInputId: ApprovalRequestId | null;
+  readonly composerDraftKey?: string;
+  readonly queuedRunEdit?: QueuedRunEdit | null;
+  readonly isSavingQueuedEdit?: boolean;
+  readonly onCancelQueuedRunEdit?: () => void;
+  readonly onRemoveQueuedEditAttachment?: (attachmentId: string) => void;
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerAttachment>;
   readonly connectionStateLabel: EnvironmentConnectionPhase;
@@ -837,6 +859,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       return messageId;
     }
 
+    if (props.queuedRunEdit) return messageId;
+
     // A sent message makes the snapshot stale; a refused send leaves it in place.
     clearUsageLimitsFor(targetThreadKey);
 
@@ -856,6 +880,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     anchorMessageId,
     clearUsageLimitsFor,
     props.onSendMessage,
+    props.queuedRunEdit,
     props.selectedThread.latestTurn,
     props.selectedThreadQueueCount,
     selectedThreadFeed,
@@ -1155,7 +1180,20 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 A rejected creation has no thread to send to; the failure card
                 owns the slot instead. */}
                 <View style={composerSlotHidden ? { display: "none" } : undefined}>
+                  {props.creationState === null ? (
+                    <ViewCodeThreadQueue
+                      target={{
+                        environmentId: props.environmentId,
+                        threadId: props.selectedThread.id,
+                      }}
+                    />
+                  ) : null}
                   <ThreadComposer
+                    composerDraftKey={props.composerDraftKey}
+                    queuedRunEdit={props.queuedRunEdit}
+                    isSavingQueuedEdit={props.isSavingQueuedEdit}
+                    onCancelQueuedRunEdit={props.onCancelQueuedRunEdit}
+                    onRemoveQueuedEditAttachment={props.onRemoveQueuedEditAttachment}
                     editorRef={composerEditorRef}
                     hidden={composerSlotHidden}
                     draftMessage={props.draftMessage}

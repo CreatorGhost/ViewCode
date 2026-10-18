@@ -2,7 +2,17 @@ import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentNotRegisteredError } from "@t3tools/client-runtime/connection";
 import { isTransportConnectionErrorMessage } from "@t3tools/client-runtime/errors";
 import { EnvironmentRpcUnavailableError } from "@t3tools/client-runtime/rpc";
-import { CommandId, ComposerContextId, EnvironmentAuthorizationError, EnvironmentId, MessageId, OrchestrationDispatchCommandError, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  ComposerContextId,
+  EnvironmentAuthorizationError,
+  EnvironmentId,
+  MessageId,
+  OrchestrationDispatchCommandError,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { AtomRegistry } from "effect/reactivity";
 import * as RpcClientError from "effect/rpc/RpcClientError";
 import * as Socket from "effect/socket/Socket";
@@ -1309,7 +1319,7 @@ describe("thread outbox", () => {
     ).toBe("send");
   });
 
-  it("sends existing-thread messages whenever connected so queued messages can steer", () => {
+  it("admits existing-thread messages whenever connected so the server owns delivery", () => {
     expect(
       resolveThreadOutboxDeliveryAction({
         isCreation: false,
@@ -1330,7 +1340,7 @@ describe("thread outbox", () => {
     ).toBe("wait");
   });
 
-  it("holds a non-steerable provider's follow-up until its active turn ends", () => {
+  it("admits a non-steerable provider's follow-up while its active turn is still running", () => {
     const input = {
       isCreation: false,
       threadExists: true,
@@ -1338,7 +1348,7 @@ describe("thread outbox", () => {
       environmentConnected: true,
       supportsTurnSteering: false,
     };
-    expect(resolveThreadOutboxDeliveryAction({ ...input, threadBusy: true })).toBe("wait");
+    expect(resolveThreadOutboxDeliveryAction({ ...input, threadBusy: true })).toBe("send");
     expect(resolveThreadOutboxDeliveryAction({ ...input, threadBusy: false })).toBe("send");
   });
 

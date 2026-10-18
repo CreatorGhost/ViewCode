@@ -1,11 +1,13 @@
 import {
   AuthOrchestrationOperateScope,
   CommandId,
+  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   MessageId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type ServerSettings,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult, type Atom } from "effect/reactivity";
@@ -21,6 +23,7 @@ const state = vi.hoisted(() => ({
   runtime: vi.fn(),
   interaction: vi.fn(),
   prepare: vi.fn(),
+  archiveReady: vi.fn(async () => {}),
   checkout: vi.fn(),
   manager: null as unknown as ReturnType<
     typeof import("./thread-outbox-manager").createThreadOutboxManager
@@ -28,13 +31,23 @@ const state = vi.hoisted(() => ({
   thread: {
     environmentId: "secondary",
     id: "thread",
+    projectId: "project",
     modelSelection: { instanceId: "codex", model: "gpt-5.4" },
     runtimeMode: "full-access",
     interactionMode: "default",
-    session: null,
+    session: null as { status: string; providerInstanceId: string; providerName: string } | null,
   },
   config: {
-    providers: [{ instanceId: "codex", driver: "codex" }],
+    settings: undefined as ServerSettings | undefined,
+    providers: [
+      {
+        instanceId: "codex",
+        driver: "codex",
+        enabled: true,
+        disabledByAdmin: false,
+        supportsTurnSteering: false,
+      },
+    ],
     environment: { capabilities: {} },
   },
 }));
@@ -82,7 +95,6 @@ vi.mock("./threads", async () => {
 });
 vi.mock("./use-atom-command", () => ({ useAtomCommand: <A>(command: A) => command }));
 vi.mock("./git", () => ({ gitEnvironment: { preparePullRequestThread: state.checkout } }));
-vi.mock("../lib/modelOptions", () => ({ isModelSelectionUnavailable: () => false }));
 vi.mock("../lib/uuid", () => ({ uuidv4: () => "uuid", randomHex: () => "abcd" }));
 vi.mock("../lib/attachmentUpload", () => ({ prepareTurnAttachments: state.prepare }));
 vi.mock("./use-remote-environment-registry", () => ({
@@ -141,7 +153,7 @@ vi.mock("./use-composer-drafts", async () => {
     undoComposerDraftMerge: vi.fn(),
     updateComposerDraftSettings: vi.fn(),
     waitForComposerDraftsLoaded: vi.fn(),
-    waitForLegacyArchiveRestore: vi.fn(async () => {}),
+    waitForLegacyArchiveRestore: state.archiveReady,
   };
 });
 
@@ -174,6 +186,11 @@ function runDrain() {
 beforeEach(() => {
   state.grantedEnvironments = new Set(["primary"]);
   state.draftText = "Keep this draft separate";
+  state.thread.session = null;
+  state.config.providers[0]!.enabled = true;
+  state.config.providers[0]!.disabledByAdmin = false;
+  state.config.settings = undefined;
+  state.archiveReady.mockReset().mockResolvedValue(undefined);
   appAtomRegistry.set(state.manager.queuedMessagesByThreadKeyAtom, {});
   appAtomRegistry.set(dispatchingQueuedMessageIdAtom, null);
   for (const command of [
@@ -300,12 +317,204 @@ describe("queued PR checkout", () => {
     expect(state.start).not.toHaveBeenCalled();
     expect(remaining()).toEqual([edited]);
   });
+
+  it("rechecks administrative policy after PR worktree preparation before launching", async () => {
+    state.grantedEnvironments.add("secondary");
+    const queued = queuedPullRequest();
+    await state.manager.enqueue(queued);
+    state.checkout.mockImplementationOnce(async () => {
+      state.config.providers[0]!.disabledByAdmin = true;
+      return AsyncResult.success(preparedCheckout);
+    });
+    await runDrain();
+    expect(state.start).not.toHaveBeenCalled();
+    expect(state.draftText).toContain(queued.text);
+    expect(remaining()).toEqual([]);
+  });
 });
 afterEach(() => {
   state.cleanups.splice(0).forEach((cleanup) => cleanup());
 });
 
 describe("queued task operation access", () => {
+  it("admits a busy non-steerable thread immediately and retains transport bytes until acceptance", async () => {
+    state.grantedEnvironments.add("secondary");
+    state.thread.session = {
+      status: "running",
+      providerInstanceId: "codex",
+      providerName: "codex",
+    };
+    const queued = message();
+    await state.manager.enqueue(queued);
+    const started = Promise.withResolvers<void>();
+    const receipt = Promise.withResolvers<AsyncResult.AsyncResult<void, Error>>();
+    state.start.mockImplementationOnce(() => {
+      started.resolve();
+      return receipt.promise;
+    });
+    const drained = runDrain();
+    await started.promise;
+    expect(remaining()).toEqual([queued]);
+    expect(state.start).toHaveBeenCalledExactlyOnceWith({
+      environmentId: "secondary",
+      input: expect.objectContaining({
+        commandId: queued.commandId,
+        dispatchMode: "queue",
+        creationSource: "mobile",
+        message: expect.objectContaining({ messageId: queued.messageId, text: queued.text }),
+      }),
+    });
+    receipt.resolve(AsyncResult.success(undefined));
+    await drained;
+    expect(remaining()).toEqual([]);
+    expect(state.thread.session.status).toBe("running");
+  });
+
+  it("admits captured per-run approval and plan modes while the active thread uses different defaults", async () => {
+    state.grantedEnvironments.add("secondary");
+    state.thread.session = {
+      status: "running",
+      providerInstanceId: "codex",
+      providerName: "codex",
+    };
+    const queued = message({ runtimeMode: "approval-required", interactionMode: "plan" });
+    await state.manager.enqueue(queued);
+    await runDrain();
+    expect(state.start).toHaveBeenCalledExactlyOnceWith({
+      environmentId: "secondary",
+      input: expect.objectContaining({
+        commandId: queued.commandId,
+        runtimeMode: "approval-required",
+        interactionMode: "plan",
+        dispatchMode: "queue",
+        message: expect.objectContaining({ messageId: queued.messageId }),
+      }),
+    });
+    expect(state.thread.runtimeMode).toBe("full-access");
+    expect(state.thread.interactionMode).toBe("default");
+    expect(remaining()).toEqual([]);
+  });
+
+  it("retries an ambiguous admission with the same command and message identities", async () => {
+    state.grantedEnvironments.add("secondary");
+    const queued = message();
+    await state.manager.enqueue(queued);
+    state.start.mockResolvedValueOnce(
+      AsyncResult.failure(
+        Cause.fail({ _tag: "RpcClientError", message: "Connection closed after write" }),
+      ),
+    );
+    await runDrain();
+    expect(remaining()).toEqual([queued]);
+    await runDrain();
+    expect(state.start).toHaveBeenCalledTimes(2);
+    expect(state.start.mock.calls[1]).toEqual(state.start.mock.calls[0]);
+    expect(remaining()).toEqual([]);
+  });
+
+  it.each(["enabled", "disabledByAdmin"] as const)(
+    "rechecks %s policy after uploads before admitting a turn",
+    async (field) => {
+      state.grantedEnvironments.add("secondary");
+      const queued = message();
+      await state.manager.enqueue(queued);
+      state.prepare.mockImplementationOnce(async ({ attachments }) => {
+        state.config.providers[0]![field] = field === "disabledByAdmin";
+        return {
+          status: "ready",
+          attachments: [],
+          draftAttachments: attachments,
+          pendingAttachmentIds: [],
+        };
+      });
+      await runDrain();
+      expect(state.start).not.toHaveBeenCalled();
+      expect(state.draftText).toContain(queued.text);
+      expect(remaining()).toEqual([]);
+    },
+  );
+
+  it("rechecks project provider settings after uploads before admitting a turn", async () => {
+    state.grantedEnvironments.add("secondary");
+    const queued = message();
+    await state.manager.enqueue(queued);
+    state.prepare.mockImplementationOnce(async ({ attachments }) => {
+      state.config.settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        providerInstances: {
+          ...DEFAULT_SERVER_SETTINGS.providerInstances,
+          codex: { ...DEFAULT_SERVER_SETTINGS.providerInstances.codex!, enabled: true },
+        },
+        projectSettingsOverrides: { project: { providerInstances: { codex: { enabled: false } } } },
+      };
+      return {
+        status: "ready",
+        attachments: [],
+        draftAttachments: attachments,
+        pendingAttachmentIds: [],
+      };
+    });
+    await runDrain();
+    expect(state.start).not.toHaveBeenCalled();
+    expect(state.draftText).toContain(queued.text);
+    expect(remaining()).toEqual([]);
+  });
+
+  it("rechecks provider policy after settings receipts", async () => {
+    state.grantedEnvironments.add("secondary");
+    const queued = message({
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "new-model" },
+      runtimeMode: "approval-required",
+    });
+    await state.manager.enqueue(queued);
+    state.metadata.mockImplementationOnce(async () => {
+      state.config.providers[0]!.disabledByAdmin = true;
+      return AsyncResult.success(undefined);
+    });
+    await runDrain();
+    expect(state.metadata).toHaveBeenCalledOnce();
+    expect(state.runtime).not.toHaveBeenCalled();
+    expect(state.prepare).not.toHaveBeenCalled();
+    expect(state.start).not.toHaveBeenCalled();
+    expect(remaining()).toEqual([queued]);
+  });
+  it("abandons a payload edited while settings receipts were in flight", async () => {
+    state.grantedEnvironments.add("secondary");
+    const queued = message({
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "new-model" },
+      runtimeMode: "approval-required",
+    });
+    const newer = { ...queued, text: "newer unsent instructions" };
+    await state.manager.enqueue(queued);
+    state.metadata.mockImplementationOnce(async () => {
+      await state.manager.update(newer);
+      return AsyncResult.success(undefined);
+    });
+    await runDrain();
+    expect(state.runtime).not.toHaveBeenCalled();
+    expect(state.prepare).not.toHaveBeenCalled();
+    expect(state.start).not.toHaveBeenCalled();
+    expect(remaining()).toEqual([newer]);
+  });
+  it("rechecks provider policy after legacy durability confirmation before uploading", async () => {
+    state.grantedEnvironments.add("secondary");
+    const queued = message();
+    await state.manager.enqueue(queued);
+    const waiting = Promise.withResolvers<void>();
+    const restored = Promise.withResolvers<void>();
+    state.archiveReady.mockImplementationOnce(() => {
+      waiting.resolve();
+      return restored.promise;
+    });
+    const drained = runDrain();
+    await waiting.promise;
+    state.config.providers[0]!.disabledByAdmin = true;
+    restored.resolve();
+    await drained;
+    expect(state.prepare).not.toHaveBeenCalled();
+    expect(state.start).not.toHaveBeenCalled();
+    expect(remaining()).toEqual([queued]);
+  });
   it("parks a connected read-only target, then delivers its unchanged queue after a grant", async () => {
     const queued = message();
     await state.manager.enqueue(queued);

@@ -218,6 +218,7 @@ function settingsCommandId(message: QueuedThreadMessage, setting: string): Comma
 export async function prepareQueuedMessageAttachments(
   queuedMessage: QueuedThreadMessage,
   supportsImageUploads = false,
+  canPrepare: () => boolean = () => true,
 ): Promise<
   | {
       readonly status: "ready";
@@ -233,7 +234,10 @@ export async function prepareQueuedMessageAttachments(
   if (!(await confirmThreadOutboxMessageQueued(queuedMessage))) {
     return { status: "abandoned" };
   }
-  if (!readEnvironmentScope(queuedMessage.environmentId, AuthOrchestrationOperateScope)) {
+  if (
+    !readEnvironmentScope(queuedMessage.environmentId, AuthOrchestrationOperateScope) ||
+    !canPrepare()
+  ) {
     return { status: "abandoned" };
   }
   const revision = threadOutboxRevision(queuedMessage.messageId);
@@ -811,6 +815,19 @@ export function useThreadOutboxDrain(): void {
       );
       if (!serverConfig) return false;
       const settings = resolveQueuedThreadSettings(queuedMessage, thread, serverConfig.providers);
+      const settingsRevision = threadOutboxRevision(queuedMessage.messageId);
+      const canContinueSettings = () => {
+        const config = appAtomRegistry.get(
+          serverEnvironment.configValueAtom(queuedMessage.environmentId),
+        );
+        return (
+          hasAccess() &&
+          isQueuedMessagePayloadCurrent(queuedMessage, settingsRevision) &&
+          !appAtomRegistry.get(editingQueuedMessageIdsAtom)[queuedMessage.messageId] &&
+          config !== null &&
+          !isModelSelectionUnavailable(config, settings.modelSelection, thread.projectId)
+        );
+      };
       if (isModelSelectionUnavailable(serverConfig, settings.modelSelection, thread.projectId)) {
         const { title, detail } = describeUnavailableModelSelection(
           serverConfig,
@@ -822,7 +839,7 @@ export function useThreadOutboxDrain(): void {
       const { reportFailure } = makeDeliveryHelpers(queuedMessage);
 
       if (!modelSelectionsEqual(settings.modelSelection, thread.modelSelection)) {
-        if (!hasAccess()) return true;
+        if (!canContinueSettings()) return true;
         const updateResult = await updateThreadMetadata({
           environmentId: queuedMessage.environmentId,
           input: {
@@ -838,7 +855,7 @@ export function useThreadOutboxDrain(): void {
       }
 
       if (settings.runtimeMode !== thread.runtimeMode) {
-        if (!hasAccess()) return true;
+        if (!canContinueSettings()) return true;
         const runtimeResult = await setThreadRuntimeMode({
           environmentId: queuedMessage.environmentId,
           input: {
@@ -855,7 +872,7 @@ export function useThreadOutboxDrain(): void {
       }
 
       if (settings.interactionMode !== thread.interactionMode) {
-        if (!hasAccess()) return true;
+        if (!canContinueSettings()) return true;
         const interactionResult = await setThreadInteractionMode({
           environmentId: queuedMessage.environmentId,
           input: {
@@ -874,11 +891,12 @@ export function useThreadOutboxDrain(): void {
       let prepared: PreparedTurnAttachments;
       let persistedMessage: QueuedThreadMessage;
       let deliveryRevision: number;
-      if (!hasAccess()) return true;
+      if (!canContinueSettings()) return true;
       try {
         const preparedResult = await prepareQueuedMessageAttachments(
           queuedMessage,
           serverConfig.environment.capabilities.attachmentUploads === true,
+          canContinueSettings,
         );
         if (preparedResult.status === "abandoned") {
           return true;
@@ -947,6 +965,8 @@ export function useThreadOutboxDrain(): void {
           modelSelection: sendSettings.modelSelection,
           runtimeMode: sendSettings.runtimeMode,
           interactionMode: sendSettings.interactionMode,
+          dispatchMode: "queue",
+          creationSource: "mobile",
           createdAt: queuedMessage.createdAt,
         },
       });
@@ -1018,6 +1038,15 @@ export function useThreadOutboxDrain(): void {
         const preparedResult = await prepareQueuedMessageAttachments(
           queuedMessage,
           serverConfig.environment.capabilities.attachmentUploads === true,
+          () => {
+            const config = appAtomRegistry.get(
+              serverEnvironment.configValueAtom(queuedMessage.environmentId),
+            );
+            return (
+              config !== null &&
+              !isModelSelectionUnavailable(config, settings.modelSelection, creation.projectId)
+            );
+          },
         );
         if (preparedResult.status === "abandoned") {
           return true;
@@ -1093,6 +1122,24 @@ export function useThreadOutboxDrain(): void {
         };
       }
       if (!hasAccess()) return true;
+      const admissionConfig = appAtomRegistry.get(
+        serverEnvironment.configValueAtom(queuedMessage.environmentId),
+      );
+      if (!admissionConfig) return false;
+      if (
+        isModelSelectionUnavailable(
+          admissionConfig,
+          sendSettings.modelSelection,
+          creation.projectId,
+        )
+      ) {
+        const { title, detail } = describeUnavailableModelSelection(
+          admissionConfig,
+          sendSettings.modelSelection,
+          creation.projectId,
+        );
+        return restoreQueuedMessage(persistedMessage, `${title}. ${detail}`);
+      }
       const deliveryResult = await startTurn({
         environmentId: queuedMessage.environmentId,
         input: buildProjectThreadStartTurnInput({
@@ -1251,18 +1298,12 @@ export function useThreadOutboxDrain(): void {
       );
       const shellStatus = shellStatuses.get(nextQueuedMessage.environmentId) ?? "empty";
       const serverConfig = serverConfigs.get(nextQueuedMessage.environmentId);
-      const activeProvider = serverConfig?.providers.find(
-        (provider) => provider.instanceId === thread?.session?.providerInstanceId,
-      );
       const deliveryAction = resolveThreadOutboxDeliveryAction({
         isCreation: creation !== undefined,
         threadExists: thread !== undefined,
         shellStatus,
         environmentConnected: environment?.connectionState === "connected",
         threadBusy: thread?.session?.status === "running" || thread?.session?.status === "starting",
-        supportsTurnSteering:
-          activeProvider?.supportsTurnSteering ??
-          (activeProvider?.driver ?? thread?.session?.providerName) !== "commandCode",
       });
       if (deliveryAction === "send" && !operableEnvironments.has(nextQueuedMessage.environmentId)) {
         continue;
@@ -1364,7 +1405,7 @@ export function useThreadOutboxDrain(): void {
         }
         // The shell state is equally stale. Re-run the same delivery policy
         // against the live thread snapshot so a vanished thread or newly
-        // created target defers, while busy existing threads can still steer.
+        // created target defers. Busy threads are admitted to the server queue.
         if (deliveryAction === "send") {
           const liveThread = findThread(
             appAtomRegistry.get(environmentThreadShells.threadShellsAtom),
@@ -1372,18 +1413,12 @@ export function useThreadOutboxDrain(): void {
           );
           const liveThreadBusy =
             liveThread?.session?.status === "running" || liveThread?.session?.status === "starting";
-          const liveProvider = serverConfig?.providers.find(
-            (provider) => provider.instanceId === liveThread?.session?.providerInstanceId,
-          );
           const liveDeliveryAction = resolveThreadOutboxDeliveryAction({
             isCreation: creation !== undefined,
             threadExists: liveThread !== undefined,
             shellStatus,
             environmentConnected: environment?.connectionState === "connected",
             threadBusy: liveThreadBusy,
-            supportsTurnSteering:
-              liveProvider?.supportsTurnSteering ??
-              (liveProvider?.driver ?? liveThread?.session?.providerName) !== "commandCode",
           });
           if (liveDeliveryAction !== "send") {
             return true;

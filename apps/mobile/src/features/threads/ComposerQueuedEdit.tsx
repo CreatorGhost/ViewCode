@@ -2,8 +2,8 @@ import type { ChatAttachment, EnvironmentId } from "@t3tools/contracts";
 import { Image } from "expo-image";
 import { Pressable, ScrollView, View } from "react-native";
 
-import { AppText as Text } from "../../components/ui/AppText";
-import { SymbolView } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/AppText";
+import { SymbolView } from "../../components/AppSymbol";
 import { useAssetUrl } from "../../state/assets";
 import { assetImageSource } from "../../lib/assetImageSource";
 
@@ -89,7 +89,7 @@ function QueuedEditAttachmentChip(props: {
       ) : (
         <View className="h-6 w-6 items-center justify-center rounded-md bg-subtle">
           <SymbolView
-            name={isImage ? "photo" : "doc"}
+            name={isImage ? "photo" : "doc.text"}
             size={12}
             tintColorClassName="accent-icon-subtle"
           />

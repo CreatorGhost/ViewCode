@@ -1,6 +1,9 @@
 import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 
+import { resolveComposerSubmissionAvailability } from "./composerSendPresentation";
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
+import { ComposerQueuedEditBanner, ComposerQueuedEditAttachments } from "./ComposerQueuedEdit";
+import type { QueuedRunEdit } from "../../state/queued-run-edit";
 import { isGlassEffectAPIAvailable } from "expo-glass-effect";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -163,6 +166,11 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
 export const COMPOSER_EXPANDED_CHROME = 156;
 
 export interface ThreadComposerProps {
+  readonly composerDraftKey?: string | undefined;
+  readonly queuedRunEdit?: QueuedRunEdit | null | undefined;
+  readonly isSavingQueuedEdit?: boolean | undefined;
+  readonly onCancelQueuedRunEdit?: (() => void) | undefined;
+  readonly onRemoveQueuedEditAttachment?: ((attachmentId: string) => void) | undefined;
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerAttachment>;
   readonly placeholder: string;
@@ -510,7 +518,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const [previewVideo, setPreviewVideo] = useState<VideoPreviewSource | null>(null);
-  const hasContent = props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0;
+  const hasContent =
+    props.draftMessage.trim().length > 0 ||
+    props.draftAttachments.length > 0 ||
+    (props.queuedRunEdit?.existingAttachments.length ?? 0) > 0;
   // Only media belongs above the composer; every other file reads as its inline chip.
   const stripAttachments = useMemo(
     () => composerStripAttachments(props.draftAttachments),
@@ -519,7 +530,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const isTurnRunning =
     props.selectedThread.session?.status === "running" ||
     props.selectedThread.session?.status === "starting";
-  const showStopAction = !hasContent && isTurnRunning;
   const projectColor = project?.projectColor ?? null;
   const glowAccent = materialTheme["--color-focus"];
   const glowSurface = materialTheme["--color-screen"];
@@ -562,10 +572,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       serverConfig: props.serverConfig,
       states: uploadStates,
     });
-  // Every send goes through the outbox; the label says whether it leaves now
-  // or waits (for the connection, an earlier queued message, or an upload).
-  const sendLabel =
-    props.connectionState !== "connected" || props.queueCount > 0 || attachmentsUploading
+  // New messages wait for upload/admission locally; accepted work belongs to
+  // the server queue. Editing updates that accepted message instead of sending.
+  const sendLabel = props.queuedRunEdit
+    ? "Save changes"
+    : props.connectionState !== "connected" ||
+        isTurnRunning ||
+        props.queueCount > 0 ||
+        attachmentsUploading
       ? "Queue"
       : "Send";
   const currentModelSelection = props.selectedThread.modelSelection;
@@ -585,7 +599,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
-  const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  const composerOwnerKey =
+    props.composerDraftKey ?? scopedThreadKey(props.environmentId, props.selectedThread.id);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     Keyboard.dismiss();
     navigation.navigate("ThreadAttachment", {
@@ -640,18 +655,20 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       : null,
     pullRequestRepository: project?.repositoryIdentity?.displayName ?? null,
     selectedProviderStatus,
-    hasThread: true,
+    hasThread: !props.queuedRunEdit,
     hasCompactableConversation: props.hasCompactableConversation,
     onChangeDraftMessage: props.onChangeDraftMessage,
     onUpdateInteractionMode:
-      selectedProviderStatus?.showInteractionModeToggle === false
+      props.queuedRunEdit || selectedProviderStatus?.showInteractionModeToggle === false
         ? undefined
         : props.onUpdateInteractionMode,
-    offersUsageLimits: usageLimitsOffered,
-    onThreadCommand: threadGoal.applyThreadCommand,
+    offersUsageLimits: !props.queuedRunEdit && usageLimitsOffered,
+    onThreadCommand: props.queuedRunEdit ? undefined : threadGoal.applyThreadCommand,
     // With attachments aboard the pick just inserts the text, so it sends as a prompt.
     onUsageLimits:
-      usageLimitsOffered && props.draftAttachments.length === 0 ? openUsageLimits : undefined,
+      !props.queuedRunEdit && usageLimitsOffered && props.draftAttachments.length === 0
+        ? openUsageLimits
+        : undefined,
   });
   const voiceInput = useVoiceInputController({
     ownerKey: composerOwnerKey,
@@ -669,7 +686,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   );
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
   // An open draft stays visible; only a collapsed composer becomes a voice strip.
-  const isExpanded = isFocused || settingsSheetPresentation.keepsComposerExpanded;
+  const isExpanded =
+    Boolean(props.queuedRunEdit) || isFocused || settingsSheetPresentation.keepsComposerExpanded;
   const showsCompactDictation = isVoiceInputPresented && !isExpanded;
   const isToolbarVisible = isExpanded || isVoiceInputPresented;
   const attachmentBlockReason = composerAttachmentUploadBlockReason({
@@ -684,12 +702,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.sendBlockedReason ??
     (pendingPastedTextAttachmentCount > 0 ? "Attaching pasted text" : null) ??
     attachmentBlockReason;
-  const canSend =
-    hasContent &&
-    !contextImports[composerOwnerKey] &&
-    !voiceInput.blocksSubmission &&
-    sendBlockedReason === null &&
-    !modelUnavailable;
+  const submission = resolveComposerSubmissionAvailability({
+    editingQueuedMessage: props.queuedRunEdit != null,
+    hasContent,
+    running: isTurnRunning,
+    savingQueuedMessage: props.isSavingQueuedEdit ?? false,
+    importingContext: Boolean(contextImports[composerOwnerKey]),
+    voiceBlocksSubmission: voiceInput.blocksSubmission,
+    sendBlockedReason,
+    nextMessageModelUnavailable: modelUnavailable,
+  });
+  const canSend = submission.canSubmit;
+  const showStopAction = submission.showsStop;
 
   // Keep the feed inset aligned with the card or compact dictation strip.
   useEffect(() => {
@@ -742,7 +766,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
     // ViewCode's own thread commands change the thread; nothing is sent.
     const threadCommand =
-      props.draftAttachments.length === 0 ? parseThreadSlashCommand(props.draftMessage) : null;
+      !props.queuedRunEdit && props.draftAttachments.length === 0
+        ? parseThreadSlashCommand(props.draftMessage)
+        : null;
     if (threadCommand) {
       if (threadCommand.command === "goal") applyGoalAction(threadCommand.goal);
       else applyThreadCommand(threadCommand.command);
@@ -752,6 +778,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     // Typed out in full rather than picked from the menu. Attachments mean the
     // user is sending a prompt, so those go through as usual.
     if (
+      !props.queuedRunEdit &&
       usageLimitsOffered &&
       isUsageLimitsCommand(props.draftMessage) &&
       props.draftAttachments.length === 0
@@ -772,6 +799,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
   }, [
     props.draftMessage,
+    props.queuedRunEdit,
     props.draftAttachments.length,
     onChangeDraftMessage,
     openUsageLimits,
@@ -1009,6 +1037,22 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 }
           }
         >
+          {props.queuedRunEdit ? (
+            <View>
+              <ComposerQueuedEditBanner
+                saving={props.isSavingQueuedEdit ?? false}
+                onCancel={() => props.onCancelQueuedRunEdit?.()}
+              />
+              <View className="px-4 pb-2">
+                <ComposerQueuedEditAttachments
+                  environmentId={props.environmentId}
+                  attachments={props.queuedRunEdit.existingAttachments}
+                  disabled={props.isSavingQueuedEdit ?? false}
+                  onRemove={(id) => props.onRemoveQueuedEditAttachment?.(id)}
+                />
+              </View>
+            </View>
+          ) : null}
           <ComposerDictationDraftContent
             className={isExpanded ? undefined : "flex-row items-center"}
             compact={!isExpanded}
@@ -1273,58 +1317,65 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       onPickMedia={props.onPickDraftMedia}
                       onPickFiles={props.onPickDraftFiles}
                     />
-                    <ControlPillMenu
-                      accessible
-                      accessibilityLabel={`Access: ${runtimeModeLabel}`}
-                      accessibilityRole="button"
-                      actions={runtimeModeActions}
-                      onPressAction={onPressRuntimeModeAction}
-                      style={{ flexShrink: 1 }}
-                    >
-                      <ComposerInlineControl
-                        accessibilityLabel={`Access: ${runtimeModeLabel}`}
-                        dense
-                        icon="shield"
-                        label={runtimeModeLabel}
-                        maxWidth={128}
-                        showChevron={false}
-                        tone={currentRuntimeMode === "full-access" ? "warning" : undefined}
-                      />
-                    </ControlPillMenu>
-                    <View className="min-w-0 shrink flex-row items-center">
-                      <ComposerInlineControl
-                        accessibilityLabel="Model and reasoning settings"
-                        filled
-                        renderIcon={(size) => (
-                          <ProviderIcon provider={currentModelOption?.providerDriver} size={size} />
-                        )}
-                        label={modelChipLabel({
-                          label: currentModelOption?.label ?? currentModelSelection.model,
-                          capabilities: currentModelOption?.capabilities,
-                          selections: currentModelSelection.options,
-                        })}
-                        maxWidth="100%"
-                        onPress={openSettings}
-                      />
-                      {threadGoal.goal !== null ? (
-                        <ComposerInlineControl
-                          accessibilityLabel={`Goal: ${threadGoal.goal.objective}`}
-                          icon="target"
-                          label={isThreadGoalPaused(threadGoal.goal) ? "Paused" : "Goal"}
-                          onPress={threadGoal.openGoalActions}
-                        />
-                      ) : null}
-                      {threadGoal.debugMode ? (
-                        <ComposerInlineControl
-                          accessibilityLabel="Debug mode is on"
-                          accessibilityHint="Leave debug mode"
-                          icon="ant"
-                          label="Debug"
-                          selected
-                          onPress={threadGoal.confirmLeaveDebugMode}
-                        />
-                      ) : null}
-                    </View>
+                    {submission.showsNextMessageSettings ? (
+                      <>
+                        <ControlPillMenu
+                          accessible
+                          accessibilityLabel={`Access: ${runtimeModeLabel}`}
+                          accessibilityRole="button"
+                          actions={runtimeModeActions}
+                          onPressAction={onPressRuntimeModeAction}
+                          style={{ flexShrink: 1 }}
+                        >
+                          <ComposerInlineControl
+                            accessibilityLabel={`Access: ${runtimeModeLabel}`}
+                            dense
+                            icon="shield"
+                            label={runtimeModeLabel}
+                            maxWidth={128}
+                            showChevron={false}
+                            tone={currentRuntimeMode === "full-access" ? "warning" : undefined}
+                          />
+                        </ControlPillMenu>
+                        <View className="min-w-0 shrink flex-row items-center">
+                          <ComposerInlineControl
+                            accessibilityLabel="Model and reasoning settings"
+                            filled
+                            renderIcon={(size) => (
+                              <ProviderIcon
+                                provider={currentModelOption?.providerDriver}
+                                size={size}
+                              />
+                            )}
+                            label={modelChipLabel({
+                              label: currentModelOption?.label ?? currentModelSelection.model,
+                              capabilities: currentModelOption?.capabilities,
+                              selections: currentModelSelection.options,
+                            })}
+                            maxWidth="100%"
+                            onPress={openSettings}
+                          />
+                          {threadGoal.goal !== null ? (
+                            <ComposerInlineControl
+                              accessibilityLabel={`Goal: ${threadGoal.goal.objective}`}
+                              icon="target"
+                              label={isThreadGoalPaused(threadGoal.goal) ? "Paused" : "Goal"}
+                              onPress={threadGoal.openGoalActions}
+                            />
+                          ) : null}
+                          {threadGoal.debugMode ? (
+                            <ComposerInlineControl
+                              accessibilityLabel="Debug mode is on"
+                              accessibilityHint="Leave debug mode"
+                              icon="ant"
+                              label="Debug"
+                              selected
+                              onPress={threadGoal.confirmLeaveDebugMode}
+                            />
+                          ) : null}
+                        </View>
+                      </>
+                    ) : null}
                   </View>
                 )}
                 <View className="shrink-0 flex-row items-center">

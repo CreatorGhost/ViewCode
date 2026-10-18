@@ -4,7 +4,13 @@
  * persistence) keeps working, while the user's draft is never touched and is
  * waiting unchanged when the edit is cancelled.
  */
-import type { ChatAttachment, MessageId, OrchestrationMessageContext, RunId, UploadChatAttachment } from "@t3tools/contracts";
+import type {
+  ChatAttachment,
+  MessageId,
+  OrchestrationMessageContext,
+  RunId,
+  UploadChatAttachment,
+} from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { useAtomValue } from "@effect/atom-react";
 
@@ -22,6 +28,7 @@ export interface QueuedRunEdit {
   readonly messageId: MessageId;
   readonly originalText: string;
   readonly existingAttachments: ReadonlyArray<ChatAttachment>;
+  readonly originalAttachments?: ReadonlyArray<ChatAttachment>;
   readonly context?: OrchestrationMessageContext;
 }
 
@@ -63,7 +70,7 @@ export function beginQueuedRunEdit(threadKey: string, edit: QueuedRunEdit): void
   clearComposerDraft(draftKey);
   setComposerDraftText(draftKey, edit.originalText);
   setComposerDraftContext(draftKey, edit.context);
-  setQueuedRunEdit(threadKey, edit);
+  setQueuedRunEdit(threadKey, { ...edit, originalAttachments: edit.existingAttachments });
 }
 
 export function removeQueuedRunEditAttachment(threadKey: string, attachmentId: string): void {

@@ -79,6 +79,9 @@ import { enqueueThreadOutboxMessage } from "./thread-outbox";
 import { dispatchingQueuedMessageIdAtom, useThreadOutboxMessages } from "./use-thread-outbox";
 import { threadEnvironment } from "./threads";
 import { useAtomCommand } from "./use-atom-command";
+import { countThreadQueuedMessages, useThreadQueueWorkflow } from "./use-thread-queue";
+import { activeComposerDraftKey, useQueuedRunEditComposer } from "./use-queued-run-edit-composer";
+import { getQueuedRunEdit } from "./queued-run-edit";
 import {
   composerAttachmentUploadBlockReason,
   composerAttachmentUploadsAtom,
@@ -173,6 +176,13 @@ export function useThreadComposerState() {
   const selectedThreadKey = selectedThreadShell
     ? scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id)
     : null;
+  const queueWorkflow = useThreadQueueWorkflow(
+    selectedThreadShell && selectedThreadCreation === null
+      ? { environmentId: selectedThreadShell.environmentId, threadId: selectedThreadShell.id }
+      : null,
+  );
+  const queuedEdit = useQueuedRunEditComposer(selectedThreadShell, queueWorkflow);
+  const saveQueuedRunEdit = queuedEdit.saveQueuedRunEdit;
   // The creation entry is the thread itself (rendered as the first message),
   // not a follow-up waiting behind it.
   const selectedThreadQueuedMessages = useMemo(
@@ -275,9 +285,16 @@ export function useThreadComposerState() {
     if (!draftNeedsThreadReconcile || !selectedThreadKey || serverThreadSettings === null) return;
     reconcileComposerDraftWithThread(selectedThreadKey, serverThreadSettings);
   }, [draftNeedsThreadReconcile, selectedThreadKey, serverThreadSettings]);
-  const draftMessage = selectedDraft?.text ?? "";
-  const draftAttachments = selectedDraft?.attachments ?? [];
-  const selectedThreadQueueCount = selectedThreadQueuedMessages.length;
+  const editedDraft = queuedEdit.composerDraftKey
+    ? composerDrafts[queuedEdit.composerDraftKey]
+    : null;
+  const draftMessage = editedDraft?.text ?? "";
+  const draftAttachments = editedDraft?.attachments ?? [];
+  const selectedThreadQueueCount = countThreadQueuedMessages({
+    serverQueue: queueWorkflow?.queuedRuns ?? [],
+    localMessages: selectedThreadQueuedMessages,
+    serverMessages: selectedThreadMessages ?? [],
+  });
   const modelSelection = selectedDraft?.modelSelection ?? selectedThread?.modelSelection ?? null;
   const runtimeMode = selectedDraft?.runtimeMode ?? selectedThread?.runtimeMode ?? null;
   const selectedProvider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
@@ -376,6 +393,10 @@ export function useThreadComposerState() {
     }
 
     const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+    if (getQueuedRunEdit(threadKey) !== null) {
+      await saveQueuedRunEdit();
+      return null;
+    }
     const draft = getComposerDraftSnapshot(threadKey);
     if (appAtomRegistry.get(composerContextImportsAtom)[threadKey]) return null;
     const thread = selectedThreadDetail ?? selectedThreadShell;
@@ -531,6 +552,7 @@ export function useThreadComposerState() {
     selectedThreadDetail,
     selectedThreadShell,
     uploadThreadFeedback,
+    saveQueuedRunEdit,
   ]);
 
   const onChangeDraftMessage = useCallback(
@@ -539,7 +561,7 @@ export function useThreadComposerState() {
         return;
       }
 
-      const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+      const threadKey = activeComposerDraftKey(selectedThreadShell);
       setComposerDraftText(threadKey, value);
     },
     [selectedThreadShell],
@@ -550,7 +572,7 @@ export function useThreadComposerState() {
       return;
     }
 
-    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+    const threadKey = activeComposerDraftKey(selectedThreadShell);
     const insertion = captureComposerDraftInsertion(threadKey);
     const capabilities = selectedEnvironmentRuntime?.serverConfig?.environment.capabilities;
     const result = await pickComposerMedia({
@@ -587,7 +609,7 @@ export function useThreadComposerState() {
       return;
     }
 
-    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+    const threadKey = activeComposerDraftKey(selectedThreadShell);
     const insertion = captureComposerDraftInsertion(threadKey);
     // pickComposerFiles clamps the advertised limit to the contract maximum.
     const result = await pickComposerFiles({
@@ -616,7 +638,7 @@ export function useThreadComposerState() {
       return;
     }
 
-    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+    const threadKey = activeComposerDraftKey(selectedThreadShell);
     const insertion = captureComposerDraftInsertion(threadKey);
     const result = await pasteComposerClipboard({
       existingCount: countComposerDraftAttachmentsAfterSelection(threadKey, insertion),
@@ -708,7 +730,7 @@ export function useThreadComposerState() {
         return;
       }
 
-      const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+      const threadKey = activeComposerDraftKey(selectedThreadShell);
       const insertion = captureComposerDraftInsertion(threadKey);
       try {
         const images = await convertPastedImagesToAttachments({
@@ -740,7 +762,7 @@ export function useThreadComposerState() {
           : undefined;
       if (advertisedMax === undefined) return;
 
-      const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+      const threadKey = activeComposerDraftKey(selectedThreadShell);
       const insertion = { text: paste.value, ...paste.selection };
       const currentAttachments = getComposerDraftSnapshot(threadKey).attachments;
       try {
@@ -780,7 +802,7 @@ export function useThreadComposerState() {
         return;
       }
 
-      const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+      const threadKey = activeComposerDraftKey(selectedThreadShell);
       removeComposerDraftAttachment(threadKey, imageId);
     },
     [selectedThreadShell],
@@ -833,6 +855,7 @@ export function useThreadComposerState() {
   );
 
   return {
+    ...queuedEdit,
     feedbackSubmissions,
     dismissFeedback,
     selectedThreadFeed,

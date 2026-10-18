@@ -4,7 +4,23 @@ import {
   fileAttachmentTooLargeMessage,
 } from "@t3tools/client-runtime/state/attachments";
 import type { EnvironmentShellStatus } from "@t3tools/client-runtime/state/shell";
-import { CommandId, EnvironmentId, IsoDateTime, MessageId, ModelSelection, OrchestrationMessageContext, ProjectId, ProviderInteractionMode, RuntimeMode, ThreadId, type ModelSelection as ModelSelectionType, type ProjectId as ProjectIdType, type ProviderInteractionMode as ProviderInteractionModeType, type RuntimeMode as RuntimeModeType, type ServerProvider } from "@t3tools/contracts";
+import {
+  CommandId,
+  EnvironmentId,
+  IsoDateTime,
+  MessageId,
+  ModelSelection,
+  OrchestrationMessageContext,
+  ProjectId,
+  ProviderInteractionMode,
+  RuntimeMode,
+  ThreadId,
+  type ModelSelection as ModelSelectionType,
+  type ProjectId as ProjectIdType,
+  type ProviderInteractionMode as ProviderInteractionModeType,
+  type RuntimeMode as RuntimeModeType,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import { DraftComposerAttachmentSchema } from "../lib/composer-image-schema";
@@ -174,7 +190,8 @@ export function resolveThreadOutboxDeliveryAction(input: {
   if (!input.threadExists) {
     return input.shellStatus === "live" ? "remove" : "wait";
   }
-  if (input.threadBusy && input.supportsTurnSteering === false) return "wait";
+  // Admission is independent of provider steering: the server owns delivery
+  // after the active run, even when this client disconnects.
   return input.environmentConnected ? "send" : "wait";
 }
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveComposerSendPresentation } from "./composerSendPresentation";
+import {
+  resolveComposerSubmissionAvailability,
+  resolveComposerSendPresentation,
+} from "./composerSendPresentation";
 
 const idle = {
   editingQueuedMessage: false,
@@ -77,5 +80,53 @@ describe("resolveComposerSendPresentation", () => {
     expect(presentation.label).toBe("Update queued message");
     expect(presentation.icon).toBe("checkmark");
     expect(presentation.offersFollowUpChoice).toBe(false);
+  });
+});
+
+describe("queued-edit submission availability", () => {
+  const ready = {
+    editingQueuedMessage: true,
+    hasContent: true,
+    running: true,
+    savingQueuedMessage: false,
+    importingContext: false,
+    voiceBlocksSubmission: false,
+    sendBlockedReason: null,
+    nextMessageModelUnavailable: true,
+  } as const;
+
+  it("can save an accepted run while an unrelated normal draft provider is unavailable", () => {
+    expect(resolveComposerSubmissionAvailability(ready)).toEqual({
+      canSubmit: true,
+      showsStop: false,
+      showsNextMessageSettings: false,
+    });
+    expect(
+      resolveComposerSubmissionAvailability({ ...ready, editingQueuedMessage: false }).canSubmit,
+    ).toBe(false);
+  });
+
+  it("never turns an emptied queue edit into Stop agent or next-message settings", () => {
+    expect(resolveComposerSubmissionAvailability({ ...ready, hasContent: false })).toEqual({
+      canSubmit: false,
+      showsStop: false,
+      showsNextMessageSettings: false,
+    });
+    expect(
+      resolveComposerSubmissionAvailability({
+        ...ready,
+        editingQueuedMessage: false,
+        hasContent: false,
+      }).showsStop,
+    ).toBe(true);
+  });
+
+  it.each([
+    { savingQueuedMessage: true },
+    { importingContext: true },
+    { voiceBlocksSubmission: true },
+    { sendBlockedReason: "Still uploading" },
+  ])("keeps the edit blocked while its own submission is unavailable: %j", (blocker) => {
+    expect(resolveComposerSubmissionAvailability({ ...ready, ...blocker }).canSubmit).toBe(false);
   });
 });

@@ -1076,6 +1076,13 @@ function ThreadRouteContent(
           respondingUserInputId={requests.respondingUserInputId}
           draftMessage={composer.draftMessage}
           draftAttachments={composer.draftAttachments}
+          {...(composer.composerDraftKey === null
+            ? {}
+            : { composerDraftKey: composer.composerDraftKey })}
+          queuedRunEdit={composer.queuedRunEdit}
+          isSavingQueuedEdit={composer.isSavingQueuedEdit}
+          onCancelQueuedRunEdit={composer.cancelQueuedRunEdit}
+          onRemoveQueuedEditAttachment={composer.onRemoveQueuedEditAttachment}
           connectionStateLabel={routeConnectionState}
           threadSyncStatus={selectedThreadDetailState.status}
           loadEarlier={loadEarlierTurns}
