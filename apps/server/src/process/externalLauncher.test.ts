@@ -66,6 +66,26 @@ const layerTest = (input: {
   readonly onUnref?: () => void;
   readonly spawnResult?: (command: ChildProcess.StandardCommand) => MockSpawnResult | undefined;
 }) => {
+  const layerFixtureFileSystem = Layer.effect(
+    FileSystem.FileSystem,
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const missingApplications = FileSystem.makeNoop({});
+      const isHostApplicationsPath = (path: string) =>
+        input.platform === "darwin" &&
+        (path === "/Applications" || path.startsWith("/Applications/"));
+      // Installed host apps must not fill gaps in the fixture's HOME and PATH.
+      return FileSystem.FileSystem.of({
+        ...fileSystem,
+        readDirectory: (path, options) =>
+          isHostApplicationsPath(path)
+            ? Effect.succeed([])
+            : fileSystem.readDirectory(path, options),
+        stat: (path) =>
+          isHostApplicationsPath(path) ? missingApplications.stat(path) : fileSystem.stat(path),
+      });
+    }),
+  );
   const layerSpawner = Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
     ChildProcessSpawner.make((command) =>
@@ -84,7 +104,10 @@ const layerTest = (input: {
   );
 
   return Layer.mergeAll(
-    ExternalLauncher.layer.pipe(Layer.provide(Layer.merge(NodeServices.layer, layerSpawner))),
+    ExternalLauncher.layer.pipe(
+      Layer.provide(layerFixtureFileSystem),
+      Layer.provide(Layer.merge(NodeServices.layer, layerSpawner)),
+    ),
     Layer.succeed(HostProcess.Platform, input.platform),
     Layer.succeed(
       SpawnExecutableResolution,
