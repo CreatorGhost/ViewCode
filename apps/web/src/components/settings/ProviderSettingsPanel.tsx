@@ -349,7 +349,8 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
   {
     if (
       !target.scoped &&
-      searchTargetId === searchableSetting("cursor-keychain-usage").id &&
+      (searchTargetId === searchableSetting("cursor-keychain-usage").id ||
+        searchTargetId === searchableSetting("claude-keychain-usage").id) &&
       (!selectedEnvironmentCanRenderSettings ||
         selectedEnvironment?.serverConfig?.environment.platform.os !== "darwin") &&
       searchableCursorEnvironmentId !== undefined
@@ -1101,6 +1102,7 @@ export function EnvironmentProviderSettings({
         environmentLabel={environmentLabel}
         sources={settings.usageLimitSources}
         cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
+        claudeKeychainUsageEnabled={settings.claudeKeychainUsageEnabled}
         readOnly={readOnly}
       />
 
