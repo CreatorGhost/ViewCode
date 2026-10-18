@@ -1,15 +1,17 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 
-type SwitchCandidateThread = {
-  readonly environmentId: EnvironmentId;
-  readonly id: ThreadId;
-  readonly projectId: ProjectId;
-  readonly archivedAt: string | null;
-  readonly updatedAt: string;
-  readonly latestUserMessageAt: string | null;
-  readonly parentThreadId?: ThreadId | null | undefined;
-  readonly kind?: string | null | undefined;
+type SwitchCandidateThread = Pick<
+  EnvironmentThreadShell,
+  | "environmentId"
+  | "id"
+  | "projectId"
+  | "archivedAt"
+  | "updatedAt"
+  | "latestUserMessageAt"
+  | "lineage"
+> & {
+  readonly source: Pick<EnvironmentThreadShell["source"], "kind">;
 };
 
 export const projectRefKey = (ref: {
@@ -30,7 +32,7 @@ export function pickProjectSwitchThread<T extends SwitchCandidateThread>(input: 
 }): T | null {
   const byKey = new Map<string, T>();
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null || thread.kind === "sidechat") continue;
+    if (thread.archivedAt !== null || thread.source.kind === "sidechat") continue;
     if (!input.memberProjectKeys.has(projectRefKey(thread))) continue;
     byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread);
   }
@@ -41,7 +43,7 @@ export function pickProjectSwitchThread<T extends SwitchCandidateThread>(input: 
   const activity = (thread: T) => thread.latestUserMessageAt ?? thread.updatedAt;
   let latest: T | null = null;
   for (const thread of byKey.values()) {
-    if (thread.parentThreadId) continue;
+    if (thread.lineage.parentThreadId !== null) continue;
     if (!latest || activity(thread) > activity(latest)) latest = thread;
   }
   return latest;
