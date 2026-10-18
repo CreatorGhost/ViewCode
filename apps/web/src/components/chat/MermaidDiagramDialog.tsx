@@ -10,13 +10,13 @@ import {
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
+
+import { useStableCallback } from "../../hooks/useStableCallback";
 
 import { downloadBlob, readMediaPng } from "../media/mediaContent";
 import { Button } from "../ui/button";
@@ -157,36 +157,33 @@ function DiagramCanvas({ svg, background }: { svg: string; background: string })
   const sizeRef = useRef<Size | null>(null);
   const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const [scale, setScale] = useState(1);
-  const html = useMemo(() => withUniqueIds(svg), [svg]);
+  const html = withUniqueIds(svg);
 
-  const apply = useCallback((next: ViewTransform) => {
+  const apply = useStableCallback((next: ViewTransform) => {
     transformRef.current = next;
     if (contentRef.current) {
       contentRef.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
     }
     setScale(next.scale);
-  }, []);
+  });
 
-  const fit = useCallback(() => {
+  const fit = useStableCallback(() => {
     const viewport = viewportRef.current;
     const size = sizeRef.current;
     if (!viewport || !size) return;
     apply(fitTransform(size, { width: viewport.clientWidth, height: viewport.clientHeight }));
-  }, [apply]);
+  });
 
-  const zoomBy = useCallback(
-    (factor: number) => {
-      const viewport = viewportRef.current;
-      if (!viewport) return;
-      apply(
-        zoomAround(transformRef.current, factor, {
-          x: viewport.clientWidth / 2,
-          y: viewport.clientHeight / 2,
-        }),
-      );
-    },
-    [apply],
-  );
+  const zoomBy = (factor: number) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    apply(
+      zoomAround(transformRef.current, factor, {
+        x: viewport.clientWidth / 2,
+        y: viewport.clientHeight / 2,
+      }),
+    );
+  };
 
   // Inline diagrams shrink to the column; here the SVG keeps its natural size
   // and the transform does the scaling.

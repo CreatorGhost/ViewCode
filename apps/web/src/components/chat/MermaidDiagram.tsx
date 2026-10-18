@@ -35,9 +35,7 @@ interface DiagramTheme {
   readonly signature: string;
 }
 
-// ---------------------------------------------------------------------------
 // Theme: read the live tokens so diagrams follow every theme and appearance.
-// ---------------------------------------------------------------------------
 
 const TOKEN_EXPRESSIONS: Record<keyof DiagramTokens, string> = {
   canvas: "var(--background)",
@@ -151,9 +149,7 @@ function getDiagramTheme(): DiagramTheme {
   return currentTheme;
 }
 
-// ---------------------------------------------------------------------------
 // Rendering: one diagram at a time, cached by theme and source.
-// ---------------------------------------------------------------------------
 
 type MermaidRenderResult =
   | { readonly status: "rendered"; readonly svg: string }
@@ -491,7 +487,7 @@ export function MermaidDiagram({
       <button
         type="button"
         aria-label="Expand diagram"
-        className="flex w-full cursor-zoom-in justify-center rounded-md bg-background px-4 py-5 outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:h-auto [&_svg]:max-w-full"
+        className="flex w-full cursor-zoom-in justify-center rounded-md bg-background px-4 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:h-auto [&_svg]:max-w-full"
         onClick={() => onExpandedChange(true)}
         dangerouslySetInnerHTML={{ __html: result.svg }}
       />
