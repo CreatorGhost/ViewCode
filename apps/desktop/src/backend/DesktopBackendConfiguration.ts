@@ -4,6 +4,7 @@ import { resolveDesktopBackendListenPath } from "@t3tools/shared/desktopAppContr
 import { HostProcessUserId } from "@t3tools/shared/hostProcess";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import { currentDesktopBootstrapToken } from "@t3tools/shared/desktopBootstrapToken";
+import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -18,7 +19,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
-import * as DesktopBackendManager from "./DesktopBackendManager.ts";
+import type * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopLocalBackendSocket from "./DesktopLocalBackendSocket.ts";
 import * as DesktopCliShim from "../app/DesktopCliShim.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -573,9 +574,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     const httpBaseUrl =
       listenPath === undefined
         ? backendExposure.httpBaseUrl
-        : DesktopLocalBackendSocket.localBackendHttpBaseUrl(
-            DesktopBackendManager.PRIMARY_INSTANCE_ID,
-          );
+        : DesktopLocalBackendSocket.localBackendHttpBaseUrl(PRIMARY_LOCAL_ENVIRONMENT_ID);
 
     if (Option.isSome(input.serverExecutablePath)) {
       const executablePath = input.serverExecutablePath.value;
