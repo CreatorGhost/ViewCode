@@ -43,6 +43,7 @@ interface ComposerPrimaryActionsProps {
   sendDisabledReason: string | null;
   isConnecting: boolean;
   isEnvironmentUnavailable: boolean;
+  availabilityDisabledReason?: string | null;
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   canResume?: boolean;
@@ -99,6 +100,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   sendDisabledReason,
   isConnecting,
   isEnvironmentUnavailable,
+  availabilityDisabledReason = null,
   isPreparingWorktree,
   hasSendableContent,
   canResume = false,
@@ -127,6 +129,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       alternateModifier: shortcutModifiers.metaKey || shortcutModifiers.ctrlKey,
     }) === "queue";
   const alternateAction = alternateComposerDispatchAction(followUpBehavior);
+  const isUnavailable = isEnvironmentUnavailable || availabilityDisabledReason !== null;
   const isSendDisabled = !canOperateThread || sendDisabledReason !== null;
   const stageBackdropVariant = useSidebarStageBackdropVariant(
     environmentIdentificationMode === "artwork",
@@ -193,7 +196,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           {...pointerFocusProps}
           disabled={
             !canOperateThread ||
-            isEnvironmentUnavailable ||
+            isUnavailable ||
             pendingAction.isResponding ||
             (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
           }
@@ -216,7 +219,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           type="submit"
           className={cn(messageActionPillClassName, "h-9 sm:h-8", compact ? "px-3" : "px-4")}
           {...pointerFocusProps}
-          disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+          disabled={isSendBusy || isSendDisabled || isConnecting || isUnavailable}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Refine"}
         </button>
@@ -229,7 +232,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           type="submit"
           className={cn(messageActionPillClassName, "h-9 rounded-r-none px-4 sm:h-8")}
           {...pointerFocusProps}
-          disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+          disabled={isSendBusy || isSendDisabled || isConnecting || isUnavailable}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Implement"}
         </button>
@@ -244,7 +247,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                 )}
                 aria-label="Implementation actions"
                 {...pointerFocusProps}
-                disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+                disabled={isSendBusy || isSendDisabled || isConnecting || isUnavailable}
               />
             }
           >
@@ -252,7 +255,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
             <MenuItem
-              disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+              disabled={isSendBusy || isSendDisabled || isConnecting || isUnavailable}
               onClick={() => {
                 if (canOperateThread) onImplementPlanInNewThread();
               }}
@@ -290,7 +293,8 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             : "Submit message";
   const submitStatus = isEnvironmentUnavailable
     ? "Environment disconnected"
-    : (sendDisabledReason ??
+    : (availabilityDisabledReason ??
+      sendDisabledReason ??
       (isConnecting
         ? "Connecting"
         : isPreparingWorktree
@@ -323,7 +327,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         isSendBusy ||
         isSendDisabled ||
         isConnecting ||
-        isEnvironmentUnavailable ||
+        isUnavailable ||
         (!hasSendableContent && !showResume)
       }
       aria-label={submitStatus ?? submitLabel}
