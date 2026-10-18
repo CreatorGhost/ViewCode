@@ -88,6 +88,13 @@ import { detachStackFrame } from "./detachStackFrame.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import {
+  resolveSshAliasRemote,
+  sshRemoteHost,
+  withSshRemoteHost,
+  type SshConfigReader,
+} from "../sourceControl/sshAliasRemote.ts";
 import * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
@@ -683,11 +690,6 @@ function toResolvedPullRequest(pr: {
   };
 }
 
-function shouldPreferSshRemote(url: string | null): boolean {
-  if (!url) return false;
-  return isSshRemoteUrl(url);
-}
-
 function toPullRequestHeadRemoteInfo(pr: {
   isCrossRepository?: boolean | undefined;
   headRepositoryNameWithOwner?: string | null | undefined;
@@ -706,6 +708,7 @@ function toPullRequestHeadRemoteInfo(pr: {
 
 export const make = Effect.gen(function* () {
   const gitCore = yield* GitVcsDriver.GitVcsDriver;
+  const vcsProcess = yield* VcsProcess.VcsProcess;
   const sourceControlProviders = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const textGeneration = yield* TextGeneration.TextGeneration;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -872,6 +875,75 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  /** `ssh -G <host>` in `cwd`: the effective SSH config, read without connecting. */
+  const readSshConfig =
+    (cwd: string): SshConfigReader =>
+    (host) =>
+      vcsProcess
+        .run({
+          operation: "GitManager.sshConfig",
+          command: "ssh",
+          args: ["-G", host],
+          cwd,
+          allowNonZeroExit: true,
+          timeoutMs: 5_000,
+        })
+        .pipe(
+          Effect.map((result) => (result.exitCode === 0 ? result.stdout : null)),
+          Effect.orElseSucceed(() => null),
+        );
+
+  /**
+   * The URL for a pull request's fork remote: SSH when origin is SSH, and through origin's SSH
+   * config alias when that alias points at the fork's host, so git uses origin's key (a private
+   * org fork is "not found" under the default one).
+   */
+  const forkRemoteUrl = Effect.fn("forkRemoteUrl")(function* (
+    cwd: string,
+    cloneUrls: { readonly url: string; readonly sshUrl: string },
+  ) {
+    const sshConfig = readSshConfig(cwd);
+    // A remote that already points at the repository (an `upstream`, or a fork remote added
+    // before) is reused as written, so `ensureRemote` finds it instead of adding a twin.
+    const wantedKey = normalizeGitRemoteUrl(cloneUrls.url);
+    const remotes = yield* gitCore
+      .execute({
+        operation: "GitManager.forkRemoteUrl.listRemotes",
+        cwd,
+        args: ["remote", "-v"],
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+      })
+      .pipe(
+        Effect.map((result) =>
+          result.exitCode === 0
+            ? result.stdout
+                .split("\n")
+                .map((line) => /^\S+\s+(\S+)\s+\(fetch\)$/u.exec(line.trim())?.[1])
+                .filter((url): url is string => url !== undefined)
+            : [],
+        ),
+        Effect.orElseSucceed((): ReadonlyArray<string> => []),
+      );
+    for (const remoteUrl of remotes) {
+      const resolved = yield* resolveSshAliasRemote(remoteUrl, sshConfig);
+      if (normalizeGitRemoteUrl(resolved) === wantedKey) return remoteUrl;
+    }
+    const originRemoteUrl = yield* gitCore.readConfigValue(cwd, "remote.origin.url");
+    if (!originRemoteUrl || !isSshRemoteUrl(originRemoteUrl)) return cloneUrls.url;
+    const originHost = sshRemoteHost(originRemoteUrl);
+    const forkHost = sshRemoteHost(cloneUrls.sshUrl);
+    if (!originHost || !forkHost || originHost.toLowerCase() === forkHost.toLowerCase()) {
+      return cloneUrls.sshUrl;
+    }
+    // Compared on canonical web hosts, so an alias to ssh.github.com:443 still counts.
+    const hostOf = (url: string) => normalizeGitRemoteUrl(url).split("/")[0];
+    const resolvedOrigin = yield* resolveSshAliasRemote(originRemoteUrl, sshConfig);
+    return hostOf(resolvedOrigin) === hostOf(cloneUrls.sshUrl)
+      ? withSshRemoteHost(cloneUrls.sshUrl, forkHost, originHost)
+      : cloneUrls.sshUrl;
+  });
+
   const configurePullRequestHeadUpstreamBase = Effect.fn("configurePullRequestHeadUpstream")(
     function* (
       cwd: string,
@@ -903,8 +975,7 @@ export const make = Effect.gen(function* () {
         cwd,
         repository: repositoryNameWithOwner,
       });
-      const originRemoteUrl = yield* gitCore.readConfigValue(cwd, "remote.origin.url");
-      const remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
+      const remoteUrl = yield* forkRemoteUrl(cwd, cloneUrls);
       const preferredRemoteName =
         pullRequest.headRepositoryOwnerLogin?.trim() ||
         repositoryNameWithOwner.split("/")[0]?.trim() ||
@@ -1000,8 +1071,7 @@ export const make = Effect.gen(function* () {
         cwd,
         repository: repositoryNameWithOwner,
       });
-      const originRemoteUrl = yield* gitCore.readConfigValue(cwd, "remote.origin.url");
-      const remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
+      const remoteUrl = yield* forkRemoteUrl(cwd, cloneUrls);
       const preferredRemoteName =
         pullRequest.headRepositoryOwnerLogin?.trim() ||
         repositoryNameWithOwner.split("/")[0]?.trim() ||
