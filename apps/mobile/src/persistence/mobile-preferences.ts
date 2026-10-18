@@ -5,7 +5,14 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import { AgentReviewMode, type ProviderInstanceId, type PullRequestMergeMethod, type PushNotificationCategories, type SidebarProjectGroupingMode } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  AgentReviewMode,
+  type ProviderInstanceId,
+  type PullRequestMergeMethod,
+  type PushNotificationCategories,
+  type SidebarProjectGroupingMode,
+} from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import {
   normalizeMobileThemeId,
@@ -20,7 +27,15 @@ const PREFERENCES_KEY = "t3code.preferences";
 const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
 const isAgentReviewMode = Schema.is(AgentReviewMode);
 
+const ThreadListFilters = Schema.Struct({
+  environmentId: Schema.NullOr(EnvironmentId),
+  projectKey: Schema.NullOr(Schema.String),
+});
+export type ThreadListFilters = typeof ThreadListFilters.Type;
+const isThreadListFilters = Schema.is(ThreadListFilters);
+
 export interface Preferences {
+  readonly threadListFilters?: ThreadListFilters;
   readonly pullRequestHideTestFiles?: boolean;
   readonly pullRequestMergeMethod?: PullRequestMergeMethod;
   readonly liveActivitiesEnabled?: boolean;
@@ -103,6 +118,7 @@ export class MobilePreferencesStore extends Context.Service<
 
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
+    threadListFilters?: ThreadListFilters;
     pullRequestHideTestFiles?: boolean;
     pullRequestMergeMethod?: PullRequestMergeMethod;
     liveActivitiesEnabled?: boolean;
@@ -128,6 +144,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     directPush?: Preferences["directPush"];
   } = {};
 
+  if (isThreadListFilters(parsed.threadListFilters)) {
+    preferences.threadListFilters = parsed.threadListFilters;
+  }
   if (typeof parsed.pullRequestHideTestFiles === "boolean") {
     preferences.pullRequestHideTestFiles = parsed.pullRequestHideTestFiles;
   }

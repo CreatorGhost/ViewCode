@@ -1,3 +1,4 @@
+import type { ThreadListFilters } from "../../persistence/mobile-preferences";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -221,6 +222,7 @@ export function AdaptiveWorkspaceLayout(props: {
     <AdaptiveWorkspaceLayoutContent
       {...props}
       projectGroupingMode={groupingSettings.sidebarProjectGroupingMode}
+      savedFilters={preferencesResult.value.threadListFilters}
     />
   );
 }
@@ -232,6 +234,7 @@ function AdaptiveWorkspaceLayoutContent(
     readonly workspaceRouteKey: string | undefined;
   } & {
     readonly projectGroupingMode: SidebarProjectGroupingMode;
+    readonly savedFilters?: ThreadListFilters | undefined;
   },
 ) {
   const projectGroupingMode = props.projectGroupingMode;
@@ -622,7 +625,10 @@ function AdaptiveWorkspaceLayoutContent(
   );
 
   return (
-    <HomeListOptionsProvider projectGroupingMode={projectGroupingMode}>
+    <HomeListOptionsProvider
+      projectGroupingMode={projectGroupingMode}
+      savedFilters={props.savedFilters}
+    >
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
         <View
           testID="adaptive-workspace-layout"
