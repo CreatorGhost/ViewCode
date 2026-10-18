@@ -19,28 +19,42 @@ export const adminProviderBlockReason = (driver: ProviderDriverKind) =>
     policy.blockedDrivers.includes(driver) ? "Blocked by your organization." : null,
   );
 
+/**
+ * `executableMissing` re-reads the filesystem on every launch (`resolveInstanceExecutable`), so a
+ * provider whose binary is absent, or was removed a moment ago, is refused with a clear reason
+ * instead of being spawned. Calls on a session that is already running are not re-checked.
+ */
 export function guardProviderInstance(
   instance: ProviderInstance,
   blockedByAdmin: boolean,
+  executableMissing: Effect.Effect<boolean> = Effect.succeed(false),
 ): ProviderInstance {
-  const reason = (allowDisabled = false) =>
-    Effect.map(
-      adminProviderBlockReason(instance.driverKind),
-      (admin) =>
+  const reason = (allowDisabled = false, launch = false) =>
+    Effect.flatMap(adminProviderBlockReason(instance.driverKind), (admin) => {
+      const blocked =
         admin ??
         (blockedByAdmin
           ? "Blocked by your organization."
           : !allowDisabled && !instance.enabled
             ? "Enable this provider in Settings before starting it."
-            : null),
-    );
+            : null);
+      if (blocked !== null || !launch) return Effect.succeed(blocked);
+      return Effect.map(executableMissing, (missing) =>
+        missing
+          ? `The executable for provider instance '${instance.instanceId}' was not found, so it was not launched. Install it or set its binary path in Settings → Providers.`
+          : null,
+      );
+    });
   const adapterGuard = <A, E, R>(
     task: Effect.Effect<A, E, R>,
+    launch = false,
   ): Effect.Effect<A, E | ProviderAdapterProtocolError, R> =>
-    Effect.flatMap(reason(), (detail): Effect.Effect<A, E | ProviderAdapterProtocolError, R> =>
-      detail
-        ? Effect.fail(new ProviderAdapterProtocolError({ driver: instance.driverKind, detail }))
-        : task,
+    Effect.flatMap(
+      reason(false, launch),
+      (detail): Effect.Effect<A, E | ProviderAdapterProtocolError, R> =>
+        detail
+          ? Effect.fail(new ProviderAdapterProtocolError({ driver: instance.driverKind, detail }))
+          : task,
     );
   const driverGuard = <A, E, R>(
     task: Effect.Effect<A, E, R>,
@@ -92,7 +106,8 @@ export function guardProviderInstance(
     ...runtime,
     ensureThread: (input) => adapterGuard(runtime.ensureThread(input)),
     resumeThread: (input) => adapterGuard(runtime.resumeThread(input)),
-    startTurn: (input) => adapterGuard(runtime.startTurn(input)),
+    // A turn may launch a new process (Claude opens a query per selection).
+    startTurn: (input) => adapterGuard(runtime.startTurn(input), true),
     steerTurn: (input) => adapterGuard(runtime.steerTurn(input)),
     respondToRuntimeRequest: (input) => adapterGuard(runtime.respondToRuntimeRequest(input)),
     readThreadSnapshot: (input) => adapterGuard(runtime.readThreadSnapshot(input)),
@@ -107,7 +122,7 @@ export function guardProviderInstance(
     ...(runtime.compactThread
       ? {
           compactThread: (input: Parameters<NonNullable<typeof runtime.compactThread>>[0]) =>
-            adapterGuard(runtime.compactThread!(input)),
+            adapterGuard(runtime.compactThread!(input), true),
         }
       : {}),
   });
@@ -115,7 +130,7 @@ export function guardProviderInstance(
     operation: string,
     task: Effect.Effect<A, E, R>,
   ): Effect.Effect<A, E | TextGenerationError, R> =>
-    Effect.flatMap(reason(), (detail): Effect.Effect<A, E | TextGenerationError, R> =>
+    Effect.flatMap(reason(false, true), (detail): Effect.Effect<A, E | TextGenerationError, R> =>
       detail ? Effect.fail(new TextGenerationError({ operation, detail })) : task,
     );
   const auth = instance.auth;
@@ -157,7 +172,7 @@ export function guardProviderInstance(
     orchestrationAdapter: {
       ...instance.orchestrationAdapter,
       openSession: (input) =>
-        adapterGuard(instance.orchestrationAdapter.openSession(input)).pipe(
+        adapterGuard(instance.orchestrationAdapter.openSession(input), true).pipe(
           Effect.map(guardedRuntime),
         ),
     },

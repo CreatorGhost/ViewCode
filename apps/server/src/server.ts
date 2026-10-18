@@ -35,6 +35,7 @@ import { withUntracedRequests } from "./http.ts";
 import * as ServerHttp from "./http.ts";
 import * as ViewCodeHttpServer from "./server/viewcodeHttpServer.ts";
 import { fixPath } from "./os-jank.ts";
+import { installSpawnTrace } from "./diagnostics/spawnTrace.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -769,6 +770,8 @@ const layerMakeServer = Layer.unwrap(
     const routesReady = yield* Deferred.make<void>();
     const layerLauncher = ServiceLauncherClient.layer;
 
+    // ViewCode: trace every child process from here on (managed-mode diagnostics).
+    yield* Effect.sync(() => installSpawnTrace(config.logsDir));
     yield* fixPath({ shellEnvironmentPrepared: config.shellEnvironmentPrepared });
 
     const layerHttpListening = Layer.effectDiscard(

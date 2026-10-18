@@ -23,7 +23,10 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
-import { withAgentDeviceEnvironment } from "@t3tools/provider-core/server/mcpSession";
+import {
+  browserCliAvailable,
+  withAgentDeviceEnvironment,
+} from "@t3tools/provider-core/server/mcpSession";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import { summarizeNativeProtocolPayload } from "@t3tools/provider-core/server/nativeProtocolLogging";
@@ -206,10 +209,14 @@ export const makeCommandCodeAdapterV2 = Effect.fn("makeCommandCodeAdapterV2")(fu
                 ...(history ? [{ key: "portable-history", text: history.context }] : []),
                 ...(turn.appContext ?? []),
               ];
+              const mcpSession = Option.isSome(providerMcpSessions)
+                ? yield* providerMcpSessions.value.read(turn.threadId)
+                : undefined;
               const prompt = [
                 buildRuntimeInstructions({
                   harness: "Command Code",
                   model: turn.modelSelection.model,
+                  browserCli: browserCliAvailable(mcpSession),
                 }) +
                   "\n\nViewCode MCP tools are unavailable in this provider. Do not claim to call them.",
                 ...context.map((entry) => entry.text),
@@ -222,12 +229,7 @@ export const makeCommandCodeAdapterV2 = Effect.fn("makeCommandCodeAdapterV2")(fu
                 .filter(Boolean)
                 .join("\n\n");
               const binary = resolveCommandCodeBinary(options.settings.binaryPath, platform);
-              const environment = withAgentDeviceEnvironment(
-                options.environment,
-                Option.isSome(providerMcpSessions)
-                  ? yield* providerMcpSessions.value.read(turn.threadId)
-                  : undefined,
-              );
+              const environment = withAgentDeviceEnvironment(options.environment, mcpSession);
               const command = yield* resolveSpawnCommand(
                 binary,
                 buildCommandCodeTurnArgs({

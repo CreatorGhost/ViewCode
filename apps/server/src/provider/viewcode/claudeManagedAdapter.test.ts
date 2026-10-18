@@ -27,6 +27,7 @@ import {
   ClaudeManagedMcpConfigPaths,
   ClaudeManagedSettingsPaths,
 } from "./claudeEnterprisePolicy.ts";
+import { CLAUDE_TOOLS_OFF_NOTICE } from "./claudeManagedPolicy.ts";
 import {
   makeClaudeAdapterV2,
   ClaudeAgentSdkQueryRunnerError,
@@ -44,7 +45,7 @@ const runtimePolicy = {
 } as const;
 const layer = Layer.mergeAll(NodeServices.layer, IdAllocator.layer, McpProviderSessions.layer);
 
-const exercise = (firstFailure?: string, computer = false) =>
+const exercise = (firstFailure?: string, computer = false, runWithoutViewCodeTools = false) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const opened: Array<ClaudeAgentSdkQueryOptions> = [];
@@ -72,6 +73,7 @@ const exercise = (firstFailure?: string, computer = false) =>
     const settings = yield* decodeSettings({
       enabled: true,
       launchArgs: "--permission-mode bypassPermissions --dangerously-skip-permissions",
+      runWithoutViewCodeTools,
     });
     const adapter = yield* makeClaudeAdapterV2({
       instanceId,
@@ -206,6 +208,32 @@ describe("Claude v2 managed-machine launch", () => {
       }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 
+  it.effect("runs without ViewCode's MCP server when the user turned the tools off", () =>
+    Effect.gen(function* () {
+      const h = yield* exercise(undefined, false, true).pipe(
+        Effect.provideService(ClaudeManagedMcpConfigPaths, []),
+        Effect.provideService(ClaudeManagedSettingsPaths, []),
+      );
+      assert.equal(h.result._tag, "Success");
+      assert.lengthOf(h.opened, 1);
+      const options = h.opened[0];
+      assert.isUndefined(options?.mcpServers);
+      assert.isFalse(
+        (options?.allowedTools ?? []).some((tool) => tool.startsWith("mcp__t3-code__")),
+      );
+      const prompt = options?.systemPrompt;
+      assert.include(
+        typeof prompt === "object" && !Array.isArray(prompt) && prompt.type === "preset"
+          ? (prompt.append ?? "")
+          : "",
+        CLAUDE_TOOLS_OFF_NOTICE,
+      );
+      // The CLI shims stay reachable without MCP.
+      assert.equal(options?.env?.VIEWCODE_REVIEW_ENDPOINT, "http://localhost/reviews");
+      assert.lengthOf(h.offered, 1);
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+
   it.effect("retries a specific startup refusal without MCP and offers the user message once", () =>
     Effect.gen(function* () {
       const h = yield* exercise(
@@ -238,7 +266,11 @@ it.effect(
         callback(
           "Bash",
           { command: "'/tmp/viewcode/computer/bin/viewcode-computer' list-windows" },
-          { toolUseID: "computer-call", requestId: "computer-native-permission", signal: new AbortController().signal },
+          {
+            toolUseID: "computer-call",
+            requestId: "computer-native-permission",
+            signal: new AbortController().signal,
+          },
         ),
       );
       assert.equal(decision?.behavior, "allow");

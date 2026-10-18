@@ -30,6 +30,15 @@ export interface McpProviderSessionConfig {
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
 }
 
+/** Whether `withAgentDeviceEnvironment` puts the `viewcode-browser` CLI on this session's PATH. */
+export function browserCliAvailable(config: McpProviderSessionConfig | undefined): boolean {
+  return (
+    config?.browserToolsAvailable === true &&
+    config.browserEndpoint !== undefined &&
+    config.browserCliShimDir !== undefined
+  );
+}
+
 export function withAgentDeviceEnvironment(
   base: NodeJS.ProcessEnv,
   config:
