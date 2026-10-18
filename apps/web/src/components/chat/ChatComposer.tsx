@@ -7435,7 +7435,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   data-chat-composer-primary-actions-compact={
                     isComposerPrimaryActionsCompact ? "true" : "false"
                   }
-                  className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
+                  // Only the model chip gives way when the column is narrow; it truncates.
+                  className="flex min-w-0 flex-nowrap items-center justify-end gap-2 *:shrink-0 *:data-[chat-provider-model-picker=true]:shrink"
                 >
                   {useModelEffortPicker && !composerControlsCollapsed && !showProviderUnavailable
                     ? modelEffortPicker

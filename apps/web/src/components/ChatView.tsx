@@ -8725,7 +8725,10 @@ export default function ChatView(props: ChatViewProps) {
             inlineSize={previewPanelInlineSize}
             layoutControls={
               rightPanelOpen ? (
-                <div className="mr-px flex items-center">{panelToggleControls}</div>
+                // Styled as titlebar controls so the sheet's toggles match the header's.
+                <div className="mr-px flex items-center" data-workspace-titlebar-controls>
+                  {panelToggleControls}
+                </div>
               ) : null
             }
             surfaces={renderedRightPanelSurfaces}
